@@ -15,6 +15,19 @@ def _wait_for_new_subagent_threads(initial_count: int, timeout: float = 1.0) -> 
             assert not sa.thread.is_alive()
 
 
+def _new_subagents(initial_count: int):
+    """Return subagents registered since the test started."""
+    return _subagents[initial_count:]
+
+
+def _planner_children(initial_count: int, planner_id: str):
+    """Split new planner-mode registrations into planner + executor children."""
+    new_agents = _new_subagents(initial_count)
+    planner = next(sa for sa in new_agents if sa.agent_id == planner_id)
+    executors = [sa for sa in new_agents if sa.agent_id != planner_id]
+    return planner, executors
+
+
 def test_planner_mode_requires_subtasks():
     """Test that planner mode requires subtasks parameter."""
     with pytest.raises(ValueError, match="Planner mode requires subtasks"):
@@ -39,11 +52,12 @@ def test_planner_mode_spawns_executors(mock_create_thread: MagicMock):
     )
     _wait_for_new_subagent_threads(initial_count)
 
-    # Should have spawned 2 executor subagents
-    assert len(_subagents) == initial_count + 2
+    planner, executors = _planner_children(initial_count, "test-planner")
+    assert planner.agent_id == "test-planner"
+    assert len(executors) == 2
 
     # Check executor IDs are correctly formed
-    executor_ids = [s.agent_id for s in _subagents[-2:]]
+    executor_ids = [s.agent_id for s in executors]
     assert "test-planner-task1" in executor_ids
     assert "test-planner-task2" in executor_ids
 
@@ -65,7 +79,9 @@ def test_planner_mode_executor_prompts(mock_create_thread: MagicMock):
     _wait_for_new_subagent_threads(initial_count)
 
     # Check the spawned executor has correct prompt
-    executor = _subagents[-1]
+    _, executors = _planner_children(initial_count, "test-planner")
+    assert len(executors) == 1
+    executor = executors[0]
     assert "This is the overall context" in executor.prompt
     assert "Do something specific" in executor.prompt
 
@@ -107,11 +123,11 @@ def test_planner_parallel_mode(mock_create_thread: MagicMock):
     )
     _wait_for_new_subagent_threads(initial_count)
 
-    # All 3 executors should be spawned
-    assert len(_subagents) == initial_count + 3
+    _, executors = _planner_children(initial_count, "test-parallel")
+    assert len(executors) == 3
 
     # Check all have correct ID prefix
-    executor_ids = [s.agent_id for s in _subagents[-3:]]
+    executor_ids = [s.agent_id for s in executors]
     assert all(eid.startswith("test-parallel-") for eid in executor_ids)
 
 
@@ -136,11 +152,11 @@ def test_planner_sequential_mode():
         )
         _wait_for_new_subagent_threads(initial_count)
 
-    # Should spawn 2 executors
-    assert len(_subagents) == initial_count + 2
+    _, executors = _planner_children(initial_count, "test-sequential")
+    assert len(executors) == 2
 
     # Check IDs are correctly formed
-    executor_ids = [s.agent_id for s in _subagents[-2:]]
+    executor_ids = [s.agent_id for s in executors]
     assert "test-sequential-seq1" in executor_ids
     assert "test-sequential-seq2" in executor_ids
 
@@ -163,8 +179,8 @@ def test_planner_default_is_parallel(mock_create_thread: MagicMock):
     )
     _wait_for_new_subagent_threads(initial_count)
 
-    # Should spawn 1 executor (parallel is default)
-    assert len(_subagents) == initial_count + 1
+    _, executors = _planner_children(initial_count, "test-default")
+    assert len(executors) == 1
 
 
 @patch("gptme.tools.subagent.execution._create_subagent_thread")
@@ -279,8 +295,8 @@ def test_planner_mode_with_context_modes(mock_create_thread: MagicMock):
     )
     _wait_for_new_subagent_threads(initial_count)
 
-    # Should spawn 2 executors
-    assert len(_subagents) == initial_count + 2
+    _, executors = _planner_children(initial_count, "test-planner-context")
+    assert len(executors) == 2
 
 
 # Phase 1 Tests: Subprocess mode, callbacks, batch execution
@@ -1171,7 +1187,8 @@ def test_planner_with_profile(mock_create_thread: MagicMock):
         profile="explorer",
     )
 
-    assert len(_subagents) == initial_count + 2
+    _, executors = _planner_children(initial_count, "test-planner-profile")
+    assert len(executors) == 2
 
     _wait_for_new_subagent_threads(initial_count)
 
@@ -2155,11 +2172,12 @@ def test_planner_subtask_role_passthrough(
 
     time.sleep(0.3)
 
-    # Should have spawned 3 executors
-    assert len(_subagents) == initial_count + 3
-    assert _subagents[-3].agent_id.endswith("-scout")
-    assert _subagents[-2].agent_id.endswith("-build")
-    assert _subagents[-1].agent_id.endswith("-check")
+    _, executors = _planner_children(initial_count, "test-role-planner")
+    assert len(executors) == 3
+    executor_ids = {sa.agent_id for sa in executors}
+    assert "test-role-planner-scout" in executor_ids
+    assert "test-role-planner-build" in executor_ids
+    assert "test-role-planner-check" in executor_ids
 
 
 @patch("gptme.tools.subagent.execution._create_subagent_thread")
@@ -2187,8 +2205,9 @@ def test_planner_subtask_role_does_not_affect_planner_internals(
         subtasks=subtasks,
     )
 
-    assert len(_subagents) == initial_count + 1
-    executor = _subagents[-1]
+    _, executors = _planner_children(initial_count, "test-planner-with-role")
+    assert len(executors) == 1
+    executor = executors[0]
     assert executor.agent_id == "test-planner-with-role-task1"
 
     _wait_for_new_subagent_threads(initial_count, timeout=5.0)
@@ -2226,7 +2245,8 @@ def test_planner_with_role_uses_role_for_self_profile(mock_create_thread: MagicM
         subtasks=subtasks,
     )
 
-    assert len(_subagents) == initial_count + 2
+    _, executors = _planner_children(initial_count, "builder-plan")
+    assert len(executors) == 2
 
     _wait_for_new_subagent_threads(initial_count, timeout=2.0)
 
@@ -2295,9 +2315,9 @@ def test_planner_subtask_role_overrides_planner_profile(
         "Per-subtask role should always override planner-level profile."
     )
 
-    new_agents = _subagents[initial_count:]
-    assert len(new_agents) == 1
-    assert new_agents[0].execution_mode == "subprocess"
+    _, executors = _planner_children(initial_count, "impl-plan")
+    assert len(executors) == 1
+    assert executors[0].execution_mode == "subprocess"
 
 
 # ---------------------------------------------------------------------------
@@ -2342,9 +2362,9 @@ def test_planner_subtask_role_verify_uses_subprocess(
     mock_monitor.assert_called_once()
 
     # The registered Subagent should carry execution_mode="subprocess"
-    new_agents = _subagents[initial_count:]
-    assert len(new_agents) == 1
-    sa = new_agents[0]
+    _, executors = _planner_children(initial_count, "test-verify-sub")
+    assert len(executors) == 1
+    sa = executors[0]
     assert sa.execution_mode == "subprocess"
     assert sa.agent_id == "test-verify-sub-check"
 
@@ -2377,9 +2397,9 @@ def test_planner_subtask_role_verify_sets_isolated(
 
     _wait_for_new_subagent_threads(initial_count, timeout=1.0)
 
-    new_agents = _subagents[initial_count:]
-    assert len(new_agents) == 1
-    sa = new_agents[0]
+    _, executors = _planner_children(initial_count, "test-verify-isolated")
+    assert len(executors) == 1
+    sa = executors[0]
     assert sa.isolated is True
 
 
@@ -2416,9 +2436,9 @@ def test_planner_subtask_role_verify_cleans_isolation_on_launch_failure(
     mock_run_subprocess.assert_called_once()
     mock_monitor.assert_not_called()
     mock_cleanup_isolation.assert_called_once()
-    new_agents = _subagents[initial_count:]
-    assert len(new_agents) == 1
-    assert new_agents[0].execution_mode == "subprocess"
+    _, executors = _planner_children(initial_count, "test-verify-launch-failure")
+    assert len(executors) == 1
+    assert executors[0].execution_mode == "subprocess"
 
 
 @patch("gptme.tools.subagent.execution._create_subagent_thread")
@@ -2441,9 +2461,9 @@ def test_planner_subtask_role_explore_uses_thread_mode(mock_create_thread: Magic
     # Thread backend used, not subprocess
     mock_create_thread.assert_called_once()
 
-    new_agents = _subagents[initial_count:]
-    assert len(new_agents) == 1
-    sa = new_agents[0]
+    _, executors = _planner_children(initial_count, "test-explore-thread")
+    assert len(executors) == 1
+    sa = executors[0]
     assert sa.execution_mode == "thread"
 
 
@@ -2482,9 +2502,9 @@ def test_planner_thread_mode_cleans_isolation_after_completion(
 
     mock_create_thread.assert_called_once()
     mock_cleanup_isolation.assert_called_once()
-    new_agents = _subagents[initial_count:]
-    assert len(new_agents) == 1
-    assert new_agents[0].isolated is True
+    _, executors = _planner_children(initial_count, "test-thread-isolated-cleanup")
+    assert len(executors) == 1
+    assert executors[0].isolated is True
 
 
 @patch("gptme.tools.subagent.execution._create_subagent_thread")
@@ -2506,9 +2526,9 @@ def test_planner_subtask_role_implement_uses_thread_mode(mock_create_thread: Mag
 
     mock_create_thread.assert_called_once()
 
-    new_agents = _subagents[initial_count:]
-    assert len(new_agents) == 1
-    sa = new_agents[0]
+    _, executors = _planner_children(initial_count, "test-impl-thread")
+    assert len(executors) == 1
+    sa = executors[0]
     assert sa.execution_mode == "thread"
 
 
@@ -2548,10 +2568,10 @@ def test_planner_mixed_roles_use_correct_backends(
     mock_run_subprocess.assert_called_once()
     mock_monitor.assert_called_once()
 
-    new_agents = _subagents[initial_count:]
-    assert len(new_agents) == 2
+    _, executors = _planner_children(initial_count, "test-mixed")
+    assert len(executors) == 2
 
-    by_id = {sa.agent_id: sa for sa in new_agents}
+    by_id = {sa.agent_id: sa for sa in executors}
     assert by_id["test-mixed-impl"].execution_mode == "thread"
     assert by_id["test-mixed-verify"].execution_mode == "subprocess"
 
