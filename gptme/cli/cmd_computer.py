@@ -15,6 +15,34 @@ from ..tools.base import ToolUse
 _SENSITIVE_ACTIONS = frozenset({"type", "key"})
 
 
+def _slice_call(code: str, start: int) -> str:
+    """Return the source span for a function call starting at ``start``."""
+    depth = 0
+    quote: str | None = None
+    escaped = False
+
+    for i, ch in enumerate(code[start:], start=start):
+        if quote:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            continue
+
+        if ch in {"'", '"'}:
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return code[start : i + 1]
+
+    return code[start:]
+
+
 def _extract_computer_calls(messages) -> list[dict]:
     """Extract computer() and observe_desktop() calls from a message list.
 
@@ -33,12 +61,15 @@ def _extract_computer_calls(messages) -> list[dict]:
             # Match computer("action", ...) and computer('action', ...)
             for m in re.finditer(r"""computer\s*\(\s*['"]([^'"]+)['"]""", code):
                 action = m.group(1)
+                call_source = _slice_call(code, m.start())
                 record: dict = {
                     "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
                     "action": action,
                 }
                 # Extract coordinate if present: coordinate=(x, y)
-                coord_m = re.search(r"coordinate\s*=\s*\((\d+)\s*,\s*(\d+)\)", code)
+                coord_m = re.search(
+                    r"coordinate\s*=\s*\((\d+)\s*,\s*(\d+)\)", call_source
+                )
                 if coord_m:
                     record["coordinate"] = [
                         int(coord_m.group(1)),
@@ -46,7 +77,7 @@ def _extract_computer_calls(messages) -> list[dict]:
                     ]
                 # For type/key actions, redact the text value — log only length
                 if action in _SENSITIVE_ACTIONS:
-                    text_m = re.search(r"""text\s*=\s*['"]([^'"]*)['"]""", code)
+                    text_m = re.search(r"""text\s*=\s*['"]([^'"]*)['"]""", call_source)
                     if text_m:
                         record["text_len"] = len(text_m.group(1))
                     else:

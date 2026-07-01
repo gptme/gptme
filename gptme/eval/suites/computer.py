@@ -82,6 +82,14 @@ def check_used_click_element(messages: list[Message]) -> bool:
     return any("click_element(" in code for code in _executed_tool_calls(messages))
 
 
+def check_used_open_page_or_click_element(messages: list[Message]) -> bool:
+    """Agent must navigate interactively with open_page() or click_element()."""
+    return any(
+        "open_page(" in code or "click_element(" in code
+        for code in _executed_tool_calls(messages)
+    )
+
+
 def check_did_not_screenshot_for_web(messages: list[Message]) -> bool:
     """Structured-first policy: screenshots should NOT be the first observation for web."""
     calls = _executed_tool_calls(messages)
@@ -159,8 +167,12 @@ def _expect_page2_content(ctx) -> bool:
 
 
 def _expect_second_page_reached(ctx) -> bool:
-    # Any content indicating a second page was fetched
-    return len(ctx.stdout.strip()) > 5
+    content = ctx.files.get("navigation.txt")
+    if content is None:
+        return False
+    if isinstance(content, bytes):
+        content = content.decode(errors="replace")
+    return len(content.strip()) > 5
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +276,7 @@ tests: list["EvalSpec"] = [
             "clean exit": _expect_clean_exit,
         },
         "check_log": {
-            "used open_page or click_element for navigation": check_used_open_page,
+            "used open_page or click_element for navigation": check_used_open_page_or_click_element,
         },
     },
 ]

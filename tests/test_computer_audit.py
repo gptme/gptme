@@ -101,6 +101,39 @@ def test_multiple_actions_in_one_block():
     assert actions == {"screenshot", "left_click"}
 
 
+def test_multiple_actions_in_one_block_scopes_fields_per_call():
+    code = textwrap.dedent("""\
+        computer('screenshot')
+        computer('left_click', coordinate=(50, 75))
+        computer('type', text='short')
+        computer('type', text='much-longer')
+    """)
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+
+    assert records == [
+        {
+            "timestamp": "2026-07-01T12:00:00+00:00",
+            "action": "screenshot",
+        },
+        {
+            "timestamp": "2026-07-01T12:00:00+00:00",
+            "action": "left_click",
+            "coordinate": [50, 75],
+        },
+        {
+            "timestamp": "2026-07-01T12:00:00+00:00",
+            "action": "type",
+            "text_len": len("short"),
+        },
+        {
+            "timestamp": "2026-07-01T12:00:00+00:00",
+            "action": "type",
+            "text_len": len("much-longer"),
+        },
+    ]
+
+
 def test_prose_mention_not_counted():
     # "I will call computer('screenshot')" in plain prose (no code block) should
     # not be counted — only runnable tool-use blocks count.
@@ -121,7 +154,7 @@ def _write_conv_jsonl(path: Path, messages: list[Message]) -> None:
         f.writelines(json.dumps(msg.to_dict()) + "\n" for msg in messages)
 
 
-def test_audit_log_cli_basic(tmp_path):
+def test_audit_log_cli_basic(tmp_path, monkeypatch):
     conv_dir = tmp_path / "test-conv-2026-07-01"
     jsonl = conv_dir / "conversation.jsonl"
     msgs = [
@@ -129,21 +162,24 @@ def test_audit_log_cli_basic(tmp_path):
         _msg("assistant", _ipython_block("computer('screenshot')")),
     ]
     _write_conv_jsonl(jsonl, msgs)
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
 
     runner = CliRunner()
     result = runner.invoke(
         audit_log, [str(jsonl.parent.name), "--json"], catch_exceptions=False
     )
-    # The command takes a conversation name and looks in get_logs_dir(); pass
-    # the file directly via a path argument instead.
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data[0]["conversation"] == jsonl.parent.name
+    assert data[0]["action"] == "screenshot"
+
     result2 = runner.invoke(
         audit_log,
         # Pass the JSONL path directly as the "conversation" arg
         [str(jsonl)],
         catch_exceptions=False,
     )
-    # Either invocation style; just verify the CLI runs without error
-    assert result.exit_code == 0 or result2.exit_code == 0
+    assert result2.exit_code == 0, result2.output
 
 
 def test_audit_log_cli_redacts_type(tmp_path):
