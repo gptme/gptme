@@ -1,3 +1,5 @@
+import pickle
+
 from gptme.eval.suites.subagent import (
     check_clarification_hook_notification,
     check_clarification_reply_called,
@@ -12,7 +14,21 @@ from gptme.eval.suites.subagent import (
     check_subagent_parallel_started_before_wait,
     check_subagent_parallel_used,
 )
+from gptme.eval.suites.subagent import tests as subagent_evals
 from gptme.message import Message
+
+
+def test_subagent_eval_specs_are_picklable():
+    """run_evals() submits each EvalSpec through a ProcessPoolExecutor, which
+    pickles the submitted args even at --parallel 1 (it always routes work
+    through a picklable call queue). A lambda in `expect`/`check_log` crashes
+    every run with a PicklingError before the model is ever invoked — the
+    exact reason the subagent trajectory evals had never completed a live
+    run. Guard against reintroducing inline lambdas here."""
+    for spec in subagent_evals:
+        for checks in (spec.get("expect", {}), spec.get("check_log", {})):
+            for check in checks.values():
+                pickle.dumps(check)
 
 
 def test_parallel_checks_pass_for_planner_style_trajectory():

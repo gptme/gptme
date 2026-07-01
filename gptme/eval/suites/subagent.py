@@ -5,7 +5,36 @@ from typing import TYPE_CHECKING
 from gptme.message import Message
 
 if TYPE_CHECKING:
-    from gptme.eval.types import EvalSpec
+    from gptme.eval.types import EvalSpec, ResultContext
+
+
+# `expect`/`check_log` callables are stored in the EvalSpec dict, which gets
+# pickled by ProcessPoolExecutor.submit() even when running with --parallel 1
+# (the executor always routes submissions through a picklable call queue).
+# Lambdas can't be pickled ("attribute lookup <lambda> ... failed"), so every
+# check here must be a named module-level function, not an inline lambda.
+def _expect_words_marker(ctx: "ResultContext") -> bool:
+    return "WORDS=6" in ctx.stdout
+
+
+def _expect_lines_marker(ctx: "ResultContext") -> bool:
+    return "LINES=4" in ctx.stdout
+
+
+def _expect_exists_marker(ctx: "ResultContext") -> bool:
+    return "EXISTS=yes" in ctx.stdout
+
+
+def _expect_clean_exit(ctx: "ResultContext") -> bool:
+    return ctx.exit_code == 0
+
+
+def _expect_sum_marker(ctx: "ResultContext") -> bool:
+    return "SUM=5050" in ctx.stdout
+
+
+def _expect_greeting_marker(ctx: "ResultContext") -> bool:
+    return "GREETING=" in ctx.stdout
 
 
 def _role_contents(messages: list[Message], role: str) -> str:
@@ -165,10 +194,10 @@ tests: list["EvalSpec"] = [
         ),
         "tools": ["read", "save", "shell", "ipython", "subagent"],
         "expect": {
-            "writes WORDS marker": lambda ctx: "WORDS=6" in ctx.stdout,
-            "writes LINES marker": lambda ctx: "LINES=4" in ctx.stdout,
-            "writes EXISTS marker": lambda ctx: "EXISTS=yes" in ctx.stdout,
-            "clean exit": lambda ctx: ctx.exit_code == 0,
+            "writes WORDS marker": _expect_words_marker,
+            "writes LINES marker": _expect_lines_marker,
+            "writes EXISTS marker": _expect_exists_marker,
+            "clean exit": _expect_clean_exit,
         },
         "check_log": {
             "used subagent delegation": check_subagent_parallel_used,
@@ -195,8 +224,8 @@ tests: list["EvalSpec"] = [
         ),
         "tools": ["read", "save", "shell", "ipython", "subagent"],
         "expect": {
-            "writes SUM marker": lambda ctx: "SUM=5050" in ctx.stdout,
-            "clean exit": lambda ctx: ctx.exit_code == 0,
+            "writes SUM marker": _expect_sum_marker,
+            "clean exit": _expect_clean_exit,
         },
         "check_log": {
             "spawned roundtrip subagent": check_subagent_complete_spawned,
@@ -226,8 +255,8 @@ tests: list["EvalSpec"] = [
         ),
         "tools": ["read", "save", "shell", "ipython", "subagent"],
         "expect": {
-            "writes GREETING marker": lambda ctx: "GREETING=" in ctx.stdout,
-            "clean exit": lambda ctx: ctx.exit_code == 0,
+            "writes GREETING marker": _expect_greeting_marker,
+            "clean exit": _expect_clean_exit,
         },
         "check_log": {
             "spawned greeter subagent": check_clarification_spawned,
