@@ -4,6 +4,7 @@ Validates end-to-end computer-use workflows:
 - Structured-first web interaction via ARIA snapshots (no screenshot cost)
 - Backend selection policy: prefers snapshot_url / observe_web for web, not screenshot
 - Web content extraction and summarization
+- Interactive web actions: open_page, fill_element, click_element (the "Can it Tweet?" pipeline)
 
 These tests run without a physical display because they use Playwright's
 headless mode via the browser tool. Desktop/screenshot tests that require
@@ -64,6 +65,21 @@ def check_used_snapshot_or_observe_web(messages: list[Message]) -> bool:
         "snapshot_url(" in code or "observe_web(" in code
         for code in _executed_tool_calls(messages)
     )
+
+
+def check_used_open_page(messages: list[Message]) -> bool:
+    """Agent must use open_page() for interactive navigation (not a one-shot read_url)."""
+    return any("open_page(" in code for code in _executed_tool_calls(messages))
+
+
+def check_used_fill_element(messages: list[Message]) -> bool:
+    """Agent must use fill_element() to fill a form field (not type() or screenshot-click)."""
+    return any("fill_element(" in code for code in _executed_tool_calls(messages))
+
+
+def check_used_click_element(messages: list[Message]) -> bool:
+    """Agent must use click_element() to click a button (not coordinate-based clicking)."""
+    return any("click_element(" in code for code in _executed_tool_calls(messages))
 
 
 def check_did_not_screenshot_for_web(messages: list[Message]) -> bool:
@@ -129,6 +145,24 @@ def _expect_at_least_one_title(ctx) -> bool:
     return len(ctx.stdout.strip()) > 5
 
 
+def _expect_result_written(ctx) -> bool:
+    return "result.txt" in ctx.files or len(ctx.stdout.strip()) > 5
+
+
+def _expect_form_submitted(ctx) -> bool:
+    # httpbin returns the submitted fields in a JSON body or as text
+    return "custname" in ctx.stdout or "result.txt" in ctx.files
+
+
+def _expect_page2_content(ctx) -> bool:
+    return "navigation.txt" in ctx.files or len(ctx.stdout.strip()) > 10
+
+
+def _expect_second_page_reached(ctx) -> bool:
+    # Any content indicating a second page was fetched
+    return len(ctx.stdout.strip()) > 5
+
+
 # ---------------------------------------------------------------------------
 # Eval specs
 # ---------------------------------------------------------------------------
@@ -177,6 +211,60 @@ tests: list["EvalSpec"] = [
         },
         "check_log": {
             "used structured snapshot for web content": check_used_snapshot_or_observe_web,
+        },
+    },
+    # --- Interactive web action tests (the "Can it Tweet?" pipeline) ---
+    # These validate that the agent can use open_page + fill_element + click_element
+    # (structured DOM interaction) rather than screenshot-guessing coordinates.
+    # httpbin.org/forms/post is a stable public form that returns submitted values.
+    {
+        "name": "computer-use-web-form-fill",
+        "files": {},
+        "run": "cat result.txt",
+        "prompt": (
+            "You are in computer-use mode. Use the browser tool to fill and submit a web form:\n"
+            "1. Call open_page('https://httpbin.org/forms/post') to open the pizza order form.\n"
+            "2. Call fill_element('[name=\"custname\"]', 'TestUser') to fill the customer name field.\n"
+            "3. Call fill_element('[name=\"custemail\"]', 'test@example.com') to fill the email field.\n"
+            "4. Call click_element('[type=\"submit\"]') to submit the form.\n"
+            "5. Call read_page_text() to read the response.\n"
+            "6. Write the response (or a summary) to result.txt."
+        ),
+        "tools": ["browser", "computer", "vision", "ipython", "save"],
+        "expect": {
+            "result.txt written": _expect_result_written,
+            "form submission reflected": _expect_form_submitted,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "used open_page for interactive navigation": check_used_open_page,
+            "used fill_element for form input": check_used_fill_element,
+            "used click_element for form submission": check_used_click_element,
+        },
+    },
+    {
+        "name": "computer-use-web-navigate-multi-step",
+        "files": {},
+        "run": "cat navigation.txt",
+        "prompt": (
+            "You are in computer-use mode. Perform a two-step web navigation:\n"
+            "1. Call open_page('https://en.wikipedia.org/wiki/Python_(programming_language)') "
+            "to open the Python Wikipedia article.\n"
+            "2. Call snapshot_url or read_page_text to read the page. Find the first "
+            "external link or the 'History' section heading.\n"
+            "3. Click or navigate to the 'History of Python' link (or another prominent "
+            "internal link). Use click_element or open_page.\n"
+            "4. Call read_page_text() on the second page.\n"
+            "5. Write the title of the second page to navigation.txt."
+        ),
+        "tools": ["browser", "computer", "vision", "ipython", "save"],
+        "expect": {
+            "navigation.txt written": _expect_page2_content,
+            "second page content reached": _expect_second_page_reached,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "used open_page or click_element for navigation": check_used_open_page,
         },
     },
 ]
