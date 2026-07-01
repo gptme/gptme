@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f7a254d6a20&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f1f0f8aaa20&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2203,7 +2203,7 @@ complete the task without losing context.
 The following Python functions are available:
 
 <span class="sb">```txt</span>
-<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: Union[type, None], use_subprocess: Union[bool, None], use_acp: bool, acp_command: str, profile: Union[str, None], model: Union[str, None], isolated: Union[bool, None], timeout: int, role: Union[Literal[&quot;general&quot;, &quot;explore&quot;, &quot;implement&quot;, &quot;verify&quot;], None], redact_secrets: bool, context_window: Union[int, None], max_time: Union[float, None], workdir: Union[str, Path, None]): Starts an asynchronous subagent. Returns None immediately.</span>
+<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: Union[type, None], use_subprocess: Union[bool, None], use_acp: bool, acp_command: str, profile: Union[str, None], model: Union[str, None], isolated: Union[bool, None], timeout: int, role: Union[Literal[&quot;general&quot;, &quot;explore&quot;, &quot;implement&quot;, &quot;verify&quot;], None], redact_secrets: bool, context_window: Union[int, None], max_time: Union[float, None], context_turns: Union[int, None], workdir: Union[str, Path, None]): Starts an asynchronous subagent. Returns None immediately.</span>
 <span class="s">subagent_cancel(agent_id: str) -&gt; str: Cancel a running subagent.</span>
 <span class="s">subagent_list() -&gt; list[dict]: Returns a list of all subagents with their current status.</span>
 <span class="s">subagent_reply(agent_id: str, reply: str): Re-spawn a subagent that requested clarification.</span>
@@ -2604,7 +2604,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 15438</p>
+<p>Tokens: 15447</p>
 </dd></dl>
 
 <dl class="py function">
