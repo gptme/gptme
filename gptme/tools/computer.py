@@ -81,7 +81,6 @@ Using a single sequence for complex operations ensures proper timing and recogni
 from __future__ import annotations
 
 import dataclasses
-import functools
 import json
 import logging
 import os
@@ -147,7 +146,7 @@ def _audit_log(
         }
         with path.open("a") as f:
             f.write(json.dumps(entry) + "\n")
-    except OSError as e:
+    except Exception as e:
         # Audit logging must never break the underlying action.
         logger.warning(f"Failed to write computer-use audit log: {e}")
 
@@ -1407,7 +1406,6 @@ def _computer_impl(
     raise ValueError(f"Invalid action: {action}")
 
 
-@functools.wraps(_computer_impl)
 def computer(
     action: Action, text: str | None = None, coordinate: tuple[int, int] | None = None
 ) -> Message | None:
