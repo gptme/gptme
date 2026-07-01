@@ -84,16 +84,14 @@ def _extract_computer_calls(messages) -> list[dict]:
                         record["text_len"] = None
                 records.append(record)
             # Also capture observe_desktop() calls
-            if "observe_desktop(" in code:
-                records.append(
-                    {
-                        "timestamp": msg.timestamp.isoformat()
-                        if msg.timestamp
-                        else None,
-                        "action": "screenshot",
-                        "source": "observe_desktop",
-                    }
-                )
+            records.extend(
+                {
+                    "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
+                    "action": "screenshot",
+                    "source": "observe_desktop",
+                }
+                for _ in re.finditer(r"\bobserve_desktop\s*\(", code)
+            )
     return records
 
 
@@ -144,6 +142,9 @@ def audit_log(conversation: str | None, last: int, as_json: bool):
         paths = [conv_path]
     else:
         # Most-recent N conversations
+        if not logs_dir.exists():
+            click.echo("No conversations found.", err=True)
+            sys.exit(0)
         conv_dirs = sorted(
             (d for d in logs_dir.iterdir() if (d / "conversation.jsonl").exists()),
             key=lambda d: d.stat().st_mtime,

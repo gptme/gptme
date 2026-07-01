@@ -158,8 +158,8 @@ def _expect_result_written(ctx) -> bool:
 
 
 def _expect_form_submitted(ctx) -> bool:
-    # httpbin returns the submitted fields in a JSON body or as text
-    return "custname" in ctx.stdout or "result.txt" in ctx.files
+    # httpbin returns the submitted fields in a JSON body or as text.
+    return "custname" in ctx.stdout
 
 
 def _expect_page2_content(ctx) -> bool:

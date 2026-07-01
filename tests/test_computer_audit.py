@@ -80,6 +80,18 @@ def test_observe_desktop_captured():
     assert records[0]["source"] == "observe_desktop"
 
 
+def test_multiple_observe_desktop_calls_counted():
+    code = textwrap.dedent("""\
+        observe_desktop()
+        observe_desktop()
+    """)
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 2
+    assert all(r["action"] == "screenshot" for r in records)
+    assert all(r["source"] == "observe_desktop" for r in records)
+
+
 def test_non_assistant_messages_ignored():
     msgs = [
         _msg("user", "please take a screenshot"),
@@ -199,3 +211,14 @@ def test_audit_log_cli_redacts_type(tmp_path):
     assert "mysecretpassword" not in result.output
     assert data[0]["text_len"] == len("mysecretpassword")
     assert "text" not in data[0]
+
+
+def test_audit_log_cli_no_logs_dir(tmp_path, monkeypatch):
+    missing_logs = tmp_path / "missing-logs"
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: missing_logs)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [], catch_exceptions=False)
+
+    assert result.exit_code == 0
+    assert "No conversations found." in result.output

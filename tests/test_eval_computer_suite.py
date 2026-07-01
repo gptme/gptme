@@ -44,3 +44,25 @@ def test_expect_second_page_reached_accepts_navigation_file():
     )
 
     assert computer_suite._expect_second_page_reached(ctx)
+
+
+def test_expect_form_submitted_requires_echoed_field():
+    ctx = ResultContext(
+        files={"result.txt": "Error: form unavailable"},
+        stdout="Error: form unavailable",
+        stderr="",
+        exit_code=0,
+    )
+
+    assert not computer_suite._expect_form_submitted(ctx)
+
+
+def test_expect_form_submitted_accepts_echoed_field():
+    ctx = ResultContext(
+        files={"result.txt": '{"form": {"custname": "TestUser"}}'},
+        stdout='{"form": {"custname": "TestUser"}}',
+        stderr="",
+        exit_code=0,
+    )
+
+    assert computer_suite._expect_form_submitted(ctx)
