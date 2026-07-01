@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from gptme.message import Message
 
 if TYPE_CHECKING:
-    from gptme.eval.types import EvalSpec
+    from gptme.eval.types import EvalSpec, ResultContext
 
 
 # ---------------------------------------------------------------------------
@@ -74,23 +74,23 @@ def check_did_not_screenshot_for_web(messages: list[Message]) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _expect_summary_written(ctx) -> bool:
+def _expect_summary_written(ctx: "ResultContext") -> bool:
     return "summary.txt" in ctx.files or len(ctx.stdout.strip()) > 5
 
 
-def _expect_title_extracted(ctx) -> bool:
+def _expect_title_extracted(ctx: "ResultContext") -> bool:
     return "TITLE=" in ctx.stdout or "Example Domain" in ctx.stdout
 
 
-def _expect_clean_exit(ctx) -> bool:
+def _expect_clean_exit(ctx: "ResultContext") -> bool:
     return ctx.exit_code == 0
 
 
-def _expect_links_written(ctx) -> bool:
+def _expect_links_written(ctx: "ResultContext") -> bool:
     return "links.txt" in ctx.files or len(ctx.stdout.strip()) > 10
 
 
-def _expect_at_least_one_title(ctx) -> bool:
+def _expect_at_least_one_title(ctx: "ResultContext") -> bool:
     return len(ctx.stdout.strip()) > 5
 
 
