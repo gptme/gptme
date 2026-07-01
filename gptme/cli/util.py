@@ -4,6 +4,7 @@ CLI for gptme utility commands.
 Command groups are split into separate modules for maintainability:
 - cmd_agents.py: Live agent scanning (scan for gptme/claude/codex/… processes)
 - cmd_chats.py: Chat/conversation management (list, search, export, clean, stats)
+- cmd_computer.py: Computer-use tooling (audit-log extracts actions from trajectories)
 - cmd_hooks.py: Claude Code hook installation and execution
 - cmd_mcp.py: MCP server management (list, test, info, search)
 - cmd_batch.py: Batch runner for stdin prompts as fresh non-interactive sessions
@@ -48,6 +49,7 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "attest": (".cmd_attest", "attest"),
     "batch": (".cmd_batch", "batch_cmd"),
     "chats": (".cmd_chats", "chats"),
+    "computer": (".cmd_computer", "computer"),
     "hooks": (".cmd_hooks", "hooks"),
     "mcp": (".cmd_mcp", "mcp"),
     "resume": (".cmd_resume", "resume"),
