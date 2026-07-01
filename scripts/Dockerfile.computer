@@ -67,19 +67,14 @@ ENV WIDTH=1024
 ENV HEIGHT=768
 ENV DISPLAY=:${DISPLAY_NUM}
 
-# Install Poetry and dependencies
-RUN python3.10 -m pip install --no-cache-dir --upgrade pip && \
-    python3.10 -m pip install --no-cache-dir poetry
-
-# Set up project
+# Install gptme with server and browser extras
 WORKDIR /app
-COPY --chown=$USERNAME:$USERNAME pyproject.toml poetry.lock /app/
-RUN poetry config virtualenvs.create false
-RUN poetry install --no-interaction --no-ansi -E server --no-root --without=dev
+COPY . /app
+RUN python3.10 -m pip install --no-cache-dir --upgrade pip && \
+    python3.10 -m pip install --no-cache-dir ".[server,browser]"
 
-COPY --chown=$USERNAME:$USERNAME . /app
-RUN pip install --no-cache-dir build  # this is needed because otherwise poetry removes it
-RUN poetry install --no-interaction --no-ansi -E server --without=dev
+# Install Playwright system-level deps (needs root)
+RUN python3.10 -m playwright install-deps chromium
 
 # Copy desktop environment configs (at the end for faster rebuilds)
 RUN mkdir -p $HOME && chmod 777 $HOME
@@ -89,6 +84,9 @@ RUN chown -R $USERNAME:$USERNAME $HOME
 # Switch to non-root user
 USER $USERNAME
 WORKDIR $HOME
+
+# Install Playwright chromium browser binaries as the runtime user
+RUN python3.10 -m playwright install chromium
 
 # Configure git
 RUN git config --global user.name "gptme" && \
