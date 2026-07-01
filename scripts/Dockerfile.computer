@@ -93,8 +93,6 @@ RUN git config --global user.name "gptme" && \
     git config --global user.email "gptme@superuserlabs.org" && \
     git config --global init.defaultBranch main
 
-# Copy startup scripts
-COPY --chown=$USERNAME:$USERNAME scripts/computer_home/* $HOME/
 RUN chmod +x $HOME/*.sh
 
 # Set working directory
