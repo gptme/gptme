@@ -1264,7 +1264,7 @@ class TestClarifyBlock:
                         isolated=kwargs["isolated"],
                         timeout=kwargs["timeout"],
                         role=kwargs["role"],
-                        context_turns=kwargs.get("context_turns"),
+                        context_steps=kwargs.get("context_steps"),
                     )
                 )
 
@@ -1289,7 +1289,7 @@ class TestClarifyBlock:
             "redact_secrets": True,
             "context_window": None,
             "max_time": None,
-            "context_turns": None,
+            "context_steps": None,
         }
         with _subagent_results_lock:
             assert "clarify-agent" not in _subagent_results
@@ -2603,12 +2603,12 @@ class TestMaxTimeWatchdog:
 
 
 # ---------------------------------------------------------------------------
-# context_turns + parent context forwarding tests
+# context_steps + parent context forwarding tests
 # ---------------------------------------------------------------------------
 
 
 class TestParentContextForwarding:
-    """Tests for the context_turns parameter and parent message injection."""
+    """Tests for the context_steps parameter and parent message injection."""
 
     def test_build_parent_context_message_format(self):
         """_build_parent_context_message produces a correctly structured system message."""
@@ -2636,18 +2636,18 @@ class TestParentContextForwarding:
         result = _build_parent_context_message(msgs)
         assert "Focus on your own task" in result.content
 
-    def test_context_turns_validation_zero(self):
-        """context_turns=0 raises ValueError."""
-        with pytest.raises(ValueError, match="context_turns must be None"):
-            subagent("test-turns-zero", "task", context_turns=0)
+    def test_context_steps_validation_zero(self):
+        """context_steps=0 raises ValueError."""
+        with pytest.raises(ValueError, match="context_steps must be None"):
+            subagent("test-turns-zero", "task", context_steps=0)
 
-    def test_context_turns_validation_negative(self):
-        """context_turns=-1 raises ValueError."""
-        with pytest.raises(ValueError, match="context_turns must be None"):
-            subagent("test-turns-neg", "task", context_turns=-1)
+    def test_context_steps_validation_negative(self):
+        """context_steps=-1 raises ValueError."""
+        with pytest.raises(ValueError, match="context_steps must be None"):
+            subagent("test-turns-neg", "task", context_steps=-1)
 
-    def test_context_turns_no_active_log_warns(self, monkeypatch, caplog):
-        """context_turns with no active LogManager logs a warning and spawns without parent context."""
+    def test_context_steps_no_active_log_warns(self, monkeypatch, caplog):
+        """context_steps with no active LogManager logs a warning and spawns without parent context."""
         import logging
 
         import gptme.tools.subagent.execution as exec_mod
@@ -2664,7 +2664,7 @@ class TestParentContextForwarding:
         monkeypatch.setattr(exec_mod, "_create_subagent_thread", mock_create_thread)
 
         with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.api"):
-            subagent("test-no-log", "do something", context_turns=3)
+            subagent("test-no-log", "do something", context_steps=3)
 
         # Wait briefly for the daemon thread to call mock_create_thread
         import time
@@ -2678,14 +2678,14 @@ class TestParentContextForwarding:
         assert len(captured_parent_msgs) == 1
         # But parent_messages should be None (no log found)
         assert captured_parent_msgs[0] is None
-        assert any("context_turns" in r.message for r in caplog.records)
+        assert any("context_steps" in r.message for r in caplog.records)
 
         # Cleanup
         with _subagents_lock:
             _subagents[:] = [s for s in _subagents if s.agent_id != "test-no-log"]
 
-    def test_context_turns_slices_log(self, monkeypatch):
-        """context_turns=2 forwards the last 2 turns (from 2nd-to-last user msg onward)."""
+    def test_context_steps_slices_log(self, monkeypatch):
+        """context_steps=2 forwards the last 2 messages from the parent log."""
         import gptme.tools.subagent.execution as exec_mod
         from gptme.logmanager import Log, LogManager
         from gptme.message import Message
@@ -2713,7 +2713,7 @@ class TestParentContextForwarding:
 
         monkeypatch.setattr(exec_mod, "_create_subagent_thread", mock_create_thread)
 
-        subagent("test-slice", "do something", context_turns=2)
+        subagent("test-slice", "do something", context_steps=2)
 
         import time
 
@@ -2723,18 +2723,18 @@ class TestParentContextForwarding:
             time.sleep(0.05)
 
         assert len(captured) == 1
-        # context_turns=2 → starts from 2nd-to-last user message (index 2)
+        # context_steps=2 → last 2 messages
         assert captured[0] is not None
-        assert len(captured[0]) == 4
-        assert captured[0][0].content == "turn 2 user"
+        assert len(captured[0]) == 2
+        assert captured[0][0].content == "turn 3 user"
         assert captured[0][-1].content == "turn 3 assistant"
 
         # Cleanup
         with _subagents_lock:
             _subagents[:] = [s for s in _subagents if s.agent_id != "test-slice"]
 
-    def test_context_turns_slices_log_with_tool_results(self, monkeypatch):
-        """context_turns correctly includes tool-result system msgs within a turn."""
+    def test_context_steps_slices_log_with_tool_results(self, monkeypatch):
+        """context_steps counts raw messages, not turns."""
         import gptme.tools.subagent.execution as exec_mod
         from gptme.logmanager import Log, LogManager
         from gptme.message import Message
@@ -2762,7 +2762,7 @@ class TestParentContextForwarding:
 
         monkeypatch.setattr(exec_mod, "_create_subagent_thread", mock_create_thread)
 
-        subagent("test-slice-tool", "do something", context_turns=2)
+        subagent("test-slice-tool", "do something", context_steps=4)
 
         import time
 
@@ -2772,18 +2772,18 @@ class TestParentContextForwarding:
             time.sleep(0.05)
 
         assert len(captured) == 1
-        # Both turns included; tool-result system message is included within turn 1
+        # context_steps=4 → last 4 messages
         assert captured[0] is not None
-        assert len(captured[0]) == 6
-        assert captured[0][0].content == "turn 1 user"
+        assert len(captured[0]) == 4
+        assert captured[0][0].content == "[tool result]"
         assert captured[0][-1].content == "turn 2 assistant"
 
         # Cleanup
         with _subagents_lock:
             _subagents[:] = [s for s in _subagents if s.agent_id != "test-slice-tool"]
 
-    def test_context_turns_none_passes_none(self, monkeypatch):
-        """context_turns=None (default) passes parent_messages=None to thread."""
+    def test_context_steps_none_passes_none(self, monkeypatch):
+        """context_steps=None (default) passes parent_messages=None to thread."""
         import gptme.tools.subagent.execution as exec_mod
 
         captured: list = []
@@ -2809,11 +2809,11 @@ class TestParentContextForwarding:
         with _subagents_lock:
             _subagents[:] = [s for s in _subagents if s.agent_id != "test-none-turns"]
 
-    def test_context_turns_fallback_skips_leading_system_messages(self, monkeypatch):
-        """When context_turns exceeds available turns, fallback starts at first user msg.
+    def test_context_steps_fallback_skips_leading_system_messages(self, monkeypatch):
+        """When context_steps exceeds available turns, fallback starts at first user msg.
 
         A real gptme log opens with system bootstrap messages (identity, workspace
-        context). When context_turns > available user turns the fallback must start at
+        context). When context_steps > available user turns the fallback must start at
         user_indices[0], not at 0, so those setup messages are never forwarded.
         """
         import gptme.tools.subagent.execution as exec_mod
@@ -2841,8 +2841,8 @@ class TestParentContextForwarding:
 
         monkeypatch.setattr(exec_mod, "_create_subagent_thread", mock_create_thread)
 
-        # context_turns=5 exceeds the 1 available user turn → triggers fallback
-        subagent("test-fallback-skip-system", "do something", context_turns=5)
+        # context_steps=5 exceeds the 1 available user turn → triggers fallback
+        subagent("test-fallback-skip-system", "do something", context_steps=5)
 
         import time
 

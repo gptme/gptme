@@ -199,7 +199,7 @@ class Subagent:
     # Context window: None = no limit; 0 = minimal (no workspace files); N = at most N msgs
     context_window: int | None = None
     # Number of parent conversation turns to forward as context (P1: persist for re-spawn)
-    context_turns: int | None = None
+    context_steps: int | None = None
     # Timestamp (seconds since epoch) when this subagent was created
     started_at: float = field(default_factory=time.time)
     # Wall-clock limit in seconds; when set, a watchdog auto-cancels after this time
