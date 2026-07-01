@@ -1,14 +1,24 @@
 import { type FC, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, Terminal, User, Bot } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  Terminal,
+  User,
+  Bot,
+  Settings,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import type { NormalizedMessage } from '@/types/api';
 
 const MAX_TOOL_RESULT_CHARS = 500;
+const textEncoder = new TextEncoder();
 
-function formatBytes(chars: number): string {
-  return chars < 1024 ? `${chars}B` : `${(chars / 1024).toFixed(1)}KB`;
+function formatByteSize(text: string): string {
+  const bytes = textEncoder.encode(text).length;
+  return bytes < 1024 ? `${bytes}B` : `${(bytes / 1024).toFixed(1)}KB`;
 }
 
 const ToolCallRow: FC<{ message: NormalizedMessage }> = ({ message }) => {
@@ -71,7 +81,7 @@ const ToolResultRow: FC<{ message: NormalizedMessage }> = ({ message }) => {
           className="mt-1 text-[11px] text-primary hover:underline"
           onClick={() => setExpanded((e) => !e)}
         >
-          {expanded ? 'Show less' : `Show more (${formatBytes(text.length)})`}
+          {expanded ? 'Show less' : `Show more (${formatByteSize(text)})`}
         </button>
       )}
     </div>
@@ -84,6 +94,8 @@ const MessageRow: FC<{ message: NormalizedMessage }> = ({ message }) => {
   }
 
   const isUser = message.role === 'user';
+  const isSystem = message.role === 'system';
+  const label = isUser ? 'User' : isSystem ? 'System' : 'Assistant';
   return (
     <div
       className={`rounded-md border-l-2 px-3 py-2 ${
@@ -91,8 +103,14 @@ const MessageRow: FC<{ message: NormalizedMessage }> = ({ message }) => {
       }`}
     >
       <div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-        {isUser ? <User className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
-        <span className="font-medium">{isUser ? 'User' : 'Assistant'}</span>
+        {isUser ? (
+          <User className="h-3 w-3" />
+        ) : isSystem ? (
+          <Settings className="h-3 w-3" />
+        ) : (
+          <Bot className="h-3 w-3" />
+        )}
+        <span className="font-medium">{label}</span>
         {message.timestamp && (
           <span className="text-[10px] opacity-70">
             {new Date(message.timestamp).toLocaleTimeString()}
@@ -107,7 +125,7 @@ const MessageRow: FC<{ message: NormalizedMessage }> = ({ message }) => {
 
 const SystemPrelude: FC<{ messages: NormalizedMessage[] }> = ({ messages }) => {
   const [open, setOpen] = useState(false);
-  const totalChars = messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
+  const totalText = messages.map((m) => m.content ?? '').join('');
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -115,7 +133,7 @@ const SystemPrelude: FC<{ messages: NormalizedMessage[] }> = ({ messages }) => {
         <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
           {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           {open ? 'Hide' : 'Show'} {messages.length} system message
-          {messages.length !== 1 ? 's' : ''} ({formatBytes(totalChars)})
+          {messages.length !== 1 ? 's' : ''} ({formatByteSize(totalText)})
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2 space-y-2">

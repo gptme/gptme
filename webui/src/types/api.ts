@@ -44,7 +44,8 @@ export interface ExternalSessionCatalogItem {
 // Normalized transcript message (see gptme_sessions.transcript.NormalizedMessage)
 export interface NormalizedMessage {
   role: 'user' | 'assistant' | 'system' | 'tool_result';
-  content: string;
+  // Server's to_dict() omits falsy fields, so a tool-call-only turn has no content.
+  content?: string;
   timestamp?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
