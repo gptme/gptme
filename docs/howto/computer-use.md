@@ -154,3 +154,14 @@ Then connect a browser to `http://localhost:6080` to watch the agent work.
 - **Combine with `--non-interactive`**: add `-n` for scripted or CI use where you don't want
   prompts (but ensure the task is well-scoped first).
 - **Describe visual outcomes**: "confirm the dialog closed" works better than "click OK and move on".
+
+## Audit log
+
+Every `computer()` call (mouse, keyboard, screenshot, window/accessibility actions) is
+recorded to a per-day JSONL audit log at
+`$XDG_STATE_HOME/gptme/computer-audit/<YYYY-MM-DD>.jsonl` (falls back to the platform
+state dir, e.g. `~/.local/state/gptme` on Linux, when `XDG_STATE_HOME` isn't set). Each record has the action name, coordinate,
+duration, and error (if any) — but never the raw `text` payload, only its length, so
+typed passwords or other sensitive input aren't persisted to disk. Use this log to see
+what a computer-use session actually did and where it failed, independent of what made
+it into the conversation transcript.

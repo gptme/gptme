@@ -81,6 +81,8 @@ Using a single sequence for complex operations ensures proper timing and recogni
 from __future__ import annotations
 
 import dataclasses
+import functools
+import json
 import logging
 import os
 import platform
@@ -88,9 +90,11 @@ import shlex
 import shutil
 import subprocess
 import time
+from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Literal, TypedDict
 
+from ..dirs import get_state_dir
 from .base import ToolFunction, ToolSpec, ToolUse
 from .computer_transport import get_transport
 from .screenshot import screenshot
@@ -107,6 +111,45 @@ logger = logging.getLogger(__name__)
 
 # Platform detection
 IS_MACOS = platform.system() == "Darwin"
+
+# Subdirectory of the gptme state dir where computer-use audit records live.
+COMPUTER_AUDIT_SUBDIR = "computer-audit"
+
+
+def _audit_log_path() -> Path:
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return get_state_dir() / COMPUTER_AUDIT_SUBDIR / f"{date}.jsonl"
+
+
+def _audit_log(
+    action: str,
+    text: str | None,
+    coordinate: tuple[int, int] | None,
+    duration: float,
+    error: str | None,
+) -> None:
+    """Append one record of a computer-use action to the audit log.
+
+    Records action metadata (never raw ``text``, since actions like ``type``
+    can carry passwords or other sensitive input) so failures and the shape of
+    what was done are auditable without leaking typed content into logs.
+    """
+    path = _audit_log_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action": action,
+            "text_len": len(text) if text is not None else None,
+            "coordinate": coordinate,
+            "duration_ms": round(duration * 1000, 1),
+            "error": error,
+        }
+        with path.open("a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError as e:
+        # Audit logging must never break the underlying action.
+        logger.warning(f"Failed to write computer-use audit log: {e}")
 
 
 def _make_screenshot_msg(path: Path, tool: str = "computer") -> Message | None:
@@ -1037,7 +1080,7 @@ def _dispatch_transport(
     raise ValueError(f"Invalid action: {action}")
 
 
-def computer(
+def _computer_impl(
     action: Action, text: str | None = None, coordinate: tuple[int, int] | None = None
 ) -> Message | None:
     """
@@ -1362,6 +1405,24 @@ def computer(
         return None
 
     raise ValueError(f"Invalid action: {action}")
+
+
+@functools.wraps(_computer_impl)
+def computer(
+    action: Action, text: str | None = None, coordinate: tuple[int, int] | None = None
+) -> Message | None:
+    # perf_counter, not monotonic — several tests feed `time.monotonic` a
+    # finite side_effect sequence timed to `_computer_impl`'s internal polling
+    # loop, and an extra consumer here would desync those mocks.
+    start = time.perf_counter()
+    error: str | None = None
+    try:
+        return _computer_impl(action, text, coordinate)
+    except Exception as e:
+        error = str(e)
+        raise
+    finally:
+        _audit_log(action, text, coordinate, time.perf_counter() - start, error)
 
 
 # Common key mappings for both platforms
