@@ -41,10 +41,21 @@ export interface ExternalSessionCatalogItem {
   trajectory_path: string;
 }
 
+// Normalized transcript message (see gptme_sessions.transcript.NormalizedMessage)
+export interface NormalizedMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool_result';
+  content: string;
+  timestamp?: string;
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  tool_result?: string;
+  is_error?: boolean;
+}
+
 // External session detail (from /api/v2/external-sessions/:id)
 export interface ExternalSessionDetail {
   id: string;
-  transcript: Record<string, unknown>;
+  transcript: Record<string, unknown> & { messages?: NormalizedMessage[] };
 }
 
 export interface ApiErrorDetails {

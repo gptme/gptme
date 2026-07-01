@@ -9,6 +9,7 @@ import { use$ } from '@legendapp/state/react';
 import { getRelativeTimeString } from '@/utils/time';
 import type { ExternalSessionCatalogItem } from '@/types/api';
 import { ApiClientError } from '@/utils/api';
+import { SessionReplayMessages } from '@/components/SessionReplayMessages';
 
 const HARNESS_LABELS: Record<string, string> = {
   'claude-code': 'Claude Code',
@@ -128,7 +129,7 @@ const SessionDetail: FC<SessionDetailProps> = ({ sessionId, onClose }) => {
     );
   }
 
-  const transcript = data.transcript as Record<string, unknown>;
+  const messages = Array.isArray(data.transcript.messages) ? data.transcript.messages : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -145,9 +146,13 @@ const SessionDetail: FC<SessionDetailProps> = ({ sessionId, onClose }) => {
         </Button>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        <pre className="whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
-          {JSON.stringify(transcript, null, 2)}
-        </pre>
+        {messages ? (
+          <SessionReplayMessages messages={messages} />
+        ) : (
+          <pre className="whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
+            {JSON.stringify(data.transcript, null, 2)}
+          </pre>
+        )}
       </div>
     </div>
   );

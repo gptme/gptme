@@ -66,4 +66,59 @@ describe('ExternalSessionsView', () => {
 
     expect(screen.getByRole('button', { name: 'Close session details' })).toBeInTheDocument();
   });
+
+  it('renders normalized transcript messages with a collapsed system prelude', async () => {
+    mockUseQuery.mockImplementation(({ queryKey }: { queryKey: unknown[] }) => {
+      if (queryKey[0] === 'external-sessions') {
+        return {
+          data: [
+            {
+              id: 'session-1',
+              session_id: 'session-1',
+              harness: 'codex',
+              session_name: 'Imported session',
+              project: 'bob',
+              model: 'gpt-5.4',
+              started_at: '2026-05-31T12:00:00Z',
+              last_activity: '2026-05-31T12:05:00Z',
+              capabilities: ['shell'],
+              trajectory_path: '/tmp/trajectory.jsonl',
+            },
+          ],
+          isLoading: false,
+          error: null,
+        };
+      }
+
+      return {
+        data: {
+          transcript: {
+            messages: [
+              { role: 'system', content: 'system prompt' },
+              { role: 'user', content: 'do the thing' },
+              {
+                role: 'assistant',
+                content: 'running it',
+                tool_name: 'shell',
+                tool_input: { command: 'ls' },
+              },
+              { role: 'tool_result', content: '', tool_result: 'boom', is_error: true },
+            ],
+          },
+        },
+        isLoading: false,
+        error: null,
+      };
+    });
+
+    const user = userEvent.setup();
+    render(<ExternalSessionsView />);
+    await user.click(screen.getByRole('button', { name: /Imported session/i }));
+
+    expect(screen.getByRole('button', { name: /Show 1 system message/i })).toBeInTheDocument();
+    expect(screen.getByText('do the thing')).toBeInTheDocument();
+    expect(screen.getByText('running it')).toBeInTheDocument();
+    expect(screen.getByText('boom')).toBeInTheDocument();
+    expect(screen.getByText('error')).toBeInTheDocument();
+  });
 });
