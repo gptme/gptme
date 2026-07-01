@@ -14,6 +14,7 @@ pipelines.
 from typing import TYPE_CHECKING
 
 from gptme.message import Message
+from gptme.tools.base import ToolUse
 
 if TYPE_CHECKING:
     from gptme.eval.types import EvalSpec
@@ -24,39 +25,56 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _role_contents(messages: list[Message], role: str) -> str:
-    return "\n".join(msg.content for msg in messages if msg.role == role)
+def _executed_tool_calls(messages: list[Message]) -> list[str]:
+    """Code of every runnable tool call, across assistant messages, in call order.
+
+    Scans parsed ``ToolUse`` blocks rather than raw message text, so a tool
+    name mentioned in prose (e.g. "I will call observe_web(...)") without an
+    actual executable code block does not count as having been used.
+    """
+    return [
+        tu.content
+        for msg in messages
+        if msg.role == "assistant"
+        for tu in ToolUse.iter_from_content(msg.content)
+        if tu.is_runnable and tu.content is not None
+    ]
 
 
 def check_used_snapshot_or_observe_web(messages: list[Message]) -> bool:
-    """Agent must use snapshot_url or observe_web, not screenshot, for a pure web task."""
-    assistant_log = _role_contents(messages, "assistant")
-    return "snapshot_url(" in assistant_log or "observe_web(" in assistant_log
+    """Agent must actually call snapshot_url or observe_web, not screenshot, for a pure web task."""
+    return any(
+        "snapshot_url(" in code or "observe_web(" in code
+        for code in _executed_tool_calls(messages)
+    )
 
 
 def check_did_not_screenshot_for_web(messages: list[Message]) -> bool:
     """Structured-first policy: screenshots should NOT be the first observation for web."""
-    assistant_log = _role_contents(messages, "assistant")
-    first_snapshot = min(
+    calls = _executed_tool_calls(messages)
+    first_snapshot = next(
         (
-            assistant_log.find(needle)
-            for needle in ("snapshot_url(", "observe_web(")
-            if needle in assistant_log
+            i
+            for i, code in enumerate(calls)
+            if "snapshot_url(" in code or "observe_web(" in code
         ),
-        default=-1,
+        -1,
     )
-    first_screenshot = min(
+    first_screenshot = next(
         (
-            assistant_log.find(needle)
-            for needle in (
-                "computer('screenshot')",
-                'computer("screenshot")',
-                "computer(action='screenshot')",
-                'computer(action="screenshot")',
+            i
+            for i, code in enumerate(calls)
+            if any(
+                needle in code
+                for needle in (
+                    "computer('screenshot')",
+                    'computer("screenshot")',
+                    "computer(action='screenshot')",
+                    'computer(action="screenshot")',
+                )
             )
-            if needle in assistant_log
         ),
-        default=-1,
+        -1,
     )
     if first_snapshot == -1:
         # never used structured approach at all — fail
@@ -106,10 +124,10 @@ tests: list["EvalSpec"] = [
         "files": {},
         "run": "cat links.txt",
         "prompt": (
-            "You are in computer-use mode. Use observe_web('https://news.ycombinator.com') "
-            "or snapshot_url('https://news.ycombinator.com') to get the page structure — "
+            "You are in computer-use mode. Use observe_web('https://en.wikipedia.org/wiki/Main_Page') "
+            "or snapshot_url('https://en.wikipedia.org/wiki/Main_Page') to get the page structure — "
             "prefer the structured approach over taking screenshots. "
-            "Find the top 3 story titles (the text of the first 3 ranked links). "
+            "Find the top 3 linked article titles you see on the page. "
             "Write each title on its own line to links.txt."
         ),
         "tools": ["browser", "computer", "vision", "ipython", "save"],
