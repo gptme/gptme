@@ -69,6 +69,32 @@ def check_did_not_screenshot_for_web(messages: list[Message]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Expect-check helpers (named module-level functions required for
+# ProcessPoolExecutor pickling — inline lambdas crash with PicklingError)
+# ---------------------------------------------------------------------------
+
+
+def _expect_summary_written(ctx) -> bool:
+    return "summary.txt" in ctx.files or len(ctx.stdout.strip()) > 5
+
+
+def _expect_title_extracted(ctx) -> bool:
+    return "TITLE=" in ctx.stdout or "Example Domain" in ctx.stdout
+
+
+def _expect_clean_exit(ctx) -> bool:
+    return ctx.exit_code == 0
+
+
+def _expect_links_written(ctx) -> bool:
+    return "links.txt" in ctx.files or len(ctx.stdout.strip()) > 10
+
+
+def _expect_at_least_one_title(ctx) -> bool:
+    return len(ctx.stdout.strip()) > 5
+
+
+# ---------------------------------------------------------------------------
 # Eval specs
 # ---------------------------------------------------------------------------
 
@@ -88,13 +114,9 @@ tests: list["EvalSpec"] = [
         ),
         "tools": ["browser", "computer", "vision", "ipython", "save"],
         "expect": {
-            "summary.txt written": lambda ctx: (
-                "summary.txt" in ctx.files or len(ctx.stdout.strip()) > 5
-            ),
-            "title extracted": lambda ctx: (
-                "TITLE=" in ctx.stdout or "Example Domain" in ctx.stdout
-            ),
-            "clean exit": lambda ctx: ctx.exit_code == 0,
+            "summary.txt written": _expect_summary_written,
+            "title extracted": _expect_title_extracted,
+            "clean exit": _expect_clean_exit,
         },
         "check_log": {
             "used structured snapshot (not screenshot) for web": check_used_snapshot_or_observe_web,
@@ -114,11 +136,9 @@ tests: list["EvalSpec"] = [
         ),
         "tools": ["browser", "computer", "vision", "ipython", "save"],
         "expect": {
-            "links.txt written": lambda ctx: (
-                "links.txt" in ctx.files or len(ctx.stdout.strip()) > 10
-            ),
-            "at least one title extracted": lambda ctx: len(ctx.stdout.strip()) > 5,
-            "clean exit": lambda ctx: ctx.exit_code == 0,
+            "links.txt written": _expect_links_written,
+            "at least one title extracted": _expect_at_least_one_title,
+            "clean exit": _expect_clean_exit,
         },
         "check_log": {
             "used structured snapshot for web content": check_used_snapshot_or_observe_web,
