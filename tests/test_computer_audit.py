@@ -656,29 +656,18 @@ def test_act_and_observe_interleaved_with_computer():
     assert records[2].get("source") is None  # native computer() call
 
 
-def test_act_and_observe_table_output(tmp_path, _write_conv_jsonl=None):
+def test_act_and_observe_table_output(tmp_path):
     """Table output shows 'via act_and_observe()' and coordinate for click actions."""
-    # Reuse the _write_conv_jsonl helper via direct import
-    from gptme.cli.cmd_computer import _extract_computer_calls as _ec  # noqa: F401
-
     conv_dir = tmp_path / "aao-conv"
     jsonl = conv_dir / "conversation.jsonl"
 
-    # Build the JSONL directly since _write_conv_jsonl is a module-level helper
     msgs = [
         _msg(
             "assistant",
             _ipython_block("act_and_observe('left_click', coordinate=(760, 540))"),
         )
     ]
-    conv_dir.mkdir(parents=True, exist_ok=True)
-
-    ts_str = "2026-07-01T12:00:00+00:00"
-    rows = [
-        json.dumps({"role": m.role, "content": m.content, "timestamp": ts_str})
-        for m in msgs
-    ]
-    jsonl.write_text("\n".join(rows) + "\n")
+    _write_conv_jsonl(jsonl, msgs)
 
     runner = CliRunner()
     result = runner.invoke(audit_log, [str(jsonl)], catch_exceptions=False)
