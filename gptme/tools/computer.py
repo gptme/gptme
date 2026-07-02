@@ -2069,15 +2069,15 @@ System: Screen changed (23.4% pixels differ)
 Viewing image...
 
 User: Open a terminal and run a command
-Assistant: I'll open a terminal with a keyboard shortcut, wait for it to appear and focus it, then type the command.
+Assistant: I'll open a terminal with a keyboard shortcut, then use act_and_observe for window_focus so the shell prompt has time to appear before I type.
 {ToolUse("ipython", [], 'computer("key", text="ctrl+alt+t")').to_output(tool_format)}
 System: Sent key sequence: ctrl+alt+t
-{ToolUse("ipython", [], 'computer("window_focus", text="Terminal")').to_output(tool_format)}
-System: Focused window matching: 'Terminal'
-{ToolUse("ipython", [], 'computer("type", text="ls -la")').to_output(tool_format)}
-System: Typed text: ls -la
-{ToolUse("ipython", [], 'computer("key", text="return")').to_output(tool_format)}
-System: Sent key sequence: return
+{ToolUse("ipython", [], 'act_and_observe("window_focus", text="Terminal")').to_output(tool_format)}
+System: Screen changed (18.7% pixels differ)
+Viewing image...
+{ToolUse("ipython", [], 'act_and_observe("type", text="ls -la" + chr(10))').to_output(tool_format)}
+System: Screen changed (12.3% pixels differ)
+Viewing image...
 
 User: Read the content of https://news.ycombinator.com
 Assistant: I'll use observe_web to get a structured ARIA snapshot of the page — faster and cheaper than a screenshot.

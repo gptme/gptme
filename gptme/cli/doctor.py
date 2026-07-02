@@ -683,6 +683,72 @@ def _check_computer(verbose: bool = False) -> list[CheckResult]:
                     fix_hint="export DISPLAY=:1  or run inside Xvfb: xvfb-run gptme ...",
                 )
             )
+
+        # Check for a running window manager (EWMH: _NET_SUPPORTING_WM_CHECK on root window)
+        display = os.environ.get("DISPLAY")
+        xprop_path = shutil.which("xprop")
+        if display and xprop_path:
+            try:
+                env = os.environ.copy()
+                env["DISPLAY"] = display
+                result_proc = subprocess.run(
+                    [xprop_path, "-root", "_NET_SUPPORTING_WM_CHECK"],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                    check=False,
+                )
+                if (
+                    result_proc.returncode == 0
+                    and "_NET_SUPPORTING_WM_CHECK" in result_proc.stdout
+                ):
+                    results.append(
+                        CheckResult(
+                            name="Computer: window manager",
+                            status=CheckStatus.OK,
+                            message="EWMH-compliant window manager detected",
+                        )
+                    )
+                else:
+                    results.append(
+                        CheckResult(
+                            name="Computer: window manager",
+                            status=CheckStatus.WARNING,
+                            message="No EWMH window manager detected — window_focus may not work",
+                            fix_hint=(
+                                "Start a window manager before using computer tool:\n"
+                                "  mutter --replace --sm-disable &   # lightweight, used in Docker setup\n"
+                                "  fluxbox &                          # minimal X11 WM\n"
+                                "  i3 &                               # tiling WM"
+                            ),
+                        )
+                    )
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass  # xprop unavailable or X server not responding — skip silently
+
+        # Check for pyatspi (Linux accessibility tree support)
+        if importlib.util.find_spec("pyatspi"):
+            results.append(
+                CheckResult(
+                    name="Computer: pyatspi",
+                    status=CheckStatus.OK,
+                    message="AT-SPI2 accessibility tree available (accessibility_tree + click_accessible_element)",
+                )
+            )
+        else:
+            results.append(
+                CheckResult(
+                    name="Computer: pyatspi",
+                    status=CheckStatus.WARNING,
+                    message="pyatspi not installed — accessibility_tree and click_accessible_element unavailable",
+                    fix_hint=(
+                        "pip install pyatspi\n"
+                        "(also requires AT-SPI2 system packages: apt install python3-pyatspi)"
+                    ),
+                )
+            )
+
     else:
         # Unsupported platform (Windows, FreeBSD, etc.) — no checks available
         results.append(

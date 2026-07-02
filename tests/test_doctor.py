@@ -984,3 +984,106 @@ class TestCheckComputer:
         assert "not responding" in names["Computer: DISPLAY"].message
         hint = names["Computer: DISPLAY"].fix_hint or ""
         assert "Xvfb" in hint or "xvfb-run" in hint
+
+    @patch("sys.platform", "linux")
+    @patch("subprocess.run")
+    @patch("shutil.which")
+    @patch.dict("os.environ", {"DISPLAY": ":1"})
+    def test_linux_wm_detected(self, mock_which, mock_run):
+        """When xprop finds _NET_SUPPORTING_WM_CHECK, WM check is OK."""
+        import subprocess
+
+        mock_which.side_effect = lambda t: (
+            f"/usr/bin/{t}" if t in ("xdotool", "scrot", "xprop") else None
+        )
+
+        def _run_side(args, **_kw):
+            if args[0].endswith("xprop"):
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout="_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x200001",
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        mock_run.side_effect = _run_side
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert "Computer: window manager" in names
+        assert names["Computer: window manager"].status == CheckStatus.OK
+
+    @patch("sys.platform", "linux")
+    @patch("subprocess.run")
+    @patch("shutil.which")
+    @patch.dict("os.environ", {"DISPLAY": ":1"})
+    def test_linux_no_wm(self, mock_which, mock_run):
+        """When xprop finds no EWMH WM, WM check warns with fix hint."""
+        import subprocess
+
+        mock_which.side_effect = lambda t: (
+            f"/usr/bin/{t}" if t in ("xdotool", "scrot", "xprop") else None
+        )
+
+        def _run_side(args, **_kw):
+            if args[0].endswith("xprop"):
+                return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        mock_run.side_effect = _run_side
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert "Computer: window manager" in names
+        assert names["Computer: window manager"].status == CheckStatus.WARNING
+        hint = names["Computer: window manager"].fix_hint or ""
+        assert "mutter" in hint or "fluxbox" in hint
+
+    @patch("sys.platform", "linux")
+    @patch("importlib.util.find_spec")
+    @patch("subprocess.run")
+    @patch("shutil.which")
+    @patch.dict("os.environ", {"DISPLAY": ":1"})
+    def test_linux_pyatspi_present(self, mock_which, mock_run, mock_find_spec):
+        """When pyatspi is installed, accessibility check is OK."""
+        import subprocess
+
+        mock_which.side_effect = lambda t: (
+            f"/usr/bin/{t}" if t in ("xdotool", "scrot") else None
+        )
+        mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        mock_find_spec.side_effect = lambda name: (
+            object() if name == "pyatspi" else None
+        )
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert "Computer: pyatspi" in names
+        assert names["Computer: pyatspi"].status == CheckStatus.OK
+
+    @patch("sys.platform", "linux")
+    @patch("importlib.util.find_spec")
+    @patch("subprocess.run")
+    @patch("shutil.which")
+    @patch.dict("os.environ", {"DISPLAY": ":1"})
+    def test_linux_pyatspi_missing(self, mock_which, mock_run, mock_find_spec):
+        """When pyatspi is missing, accessibility check warns with install hint."""
+        import subprocess
+
+        mock_which.side_effect = lambda t: (
+            f"/usr/bin/{t}" if t in ("xdotool", "scrot") else None
+        )
+        mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        mock_find_spec.return_value = None
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert "Computer: pyatspi" in names
+        assert names["Computer: pyatspi"].status == CheckStatus.WARNING
+        hint = names["Computer: pyatspi"].fix_hint or ""
+        assert "pyatspi" in hint

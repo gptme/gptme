@@ -188,7 +188,7 @@ BUILTIN_PROFILES: dict[str, Profile] = {
             "- Use `computer('accessibility_tree')` to inspect available elements (role, name) without taking a screenshot (Linux/AT-SPI2 only)\n"
             "- Use `computer('click_accessible_element', text='push button:Submit')` to click by role+name — robust against window size/position changes\n"
             "- Fall back to `computer('left_click', coordinate=(x, y))` only when the app lacks accessibility support (games, canvas UIs, electron apps)\n"
-            "- Use `computer('window_focus', text='pattern')` before acting so input lands in the right app\n"
+            "- Use `act_and_observe('window_focus', text='pattern')` (not bare `computer('window_focus', ...)`) before acting on newly-opened windows — the automatic `wait_for_change` ensures the app has rendered its UI before you type\n"
             "- Use `computer('scroll', coordinate=(x,y), text='down')` when the interface is only exposed through a native viewport\n"
             "\n"
             "## Efficiency rules\n"
