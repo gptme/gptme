@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fb98bd95ee0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f071ec8dee0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1237,7 +1237,7 @@ The following Python functions are available:
 <span class="n">act_and_observe</span><span class="p">(</span><span class="s2">&quot;left_click&quot;</span><span class="p">,</span> <span class="n">coordinate</span><span class="o">=</span><span class="p">(</span><span class="mi">760</span><span class="p">,</span> <span class="mi">540</span><span class="p">))</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">User: Open a terminal and run a command</span>
-<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll open a terminal with a keyboard shortcut, wait for it to appear and focus it, then type the command.</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll open a terminal with a keyboard shortcut, then use act_and_observe for window_focus so the shell prompt has time to appear before I type.</span>
 <span class="sb">```ipython</span>
 <span class="n">computer</span><span class="p">(</span><span class="s2">&quot;key&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">&quot;ctrl+alt+t&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
@@ -2616,7 +2616,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 15670</p>
+<p>Tokens: 15677</p>
 </dd></dl>
 
 <dl class="py function">
