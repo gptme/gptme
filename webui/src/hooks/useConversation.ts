@@ -5,7 +5,7 @@ import type { Message, StreamingMessage } from '@/types/conversation';
 import type { ChatOptions } from '@/components/ChatInput';
 import { demoConversations, getDemoMessages } from '@/democonversations';
 import { isDemoMode } from '@/utils/connectionConfig';
-import { use$ } from '@legendapp/state/react';
+import { use$, useObservable } from '@legendapp/state/react';
 import {
   conversations$,
   updateConversation,
@@ -54,7 +54,8 @@ export function useConversation(conversationId: string, serverId?: string) {
 
   const messageJustCompleted = useRef(false);
   const loadingOlderMessagesRef = useRef(false);
-  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const isLoadingOlderMessages$ = useObservable(false);
+  const isLoadingOlderMessages = use$(isLoadingOlderMessages$);
   // Bumped by retryLoad() to re-run the load+connect effect after a failure.
   const [retryNonce, setRetryNonce] = useState(0);
 
@@ -819,7 +820,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     if (logOffset <= 0) return;
     if (loadingOlderMessagesRef.current) return;
     loadingOlderMessagesRef.current = true;
-    setIsLoadingOlderMessages(true);
+    isLoadingOlderMessages$.set(true);
     try {
       const data = await api.getConversation(conversationId, {
         limit: 50,
@@ -844,7 +845,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       });
     } finally {
       loadingOlderMessagesRef.current = false;
-      setIsLoadingOlderMessages(false);
+      isLoadingOlderMessages$.set(false);
     }
   };
 
