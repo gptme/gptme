@@ -305,7 +305,8 @@ def audit_log(conversation: str | None, last: int, as_json: bool):
             details = "via observe_desktop()"
         elif source == "browser":
             if "url" in r:
-                details = r["url"][:70]
+                url = r["url"]
+                details = url[:70] + ("…" if len(url) > 70 else "")
             elif "selector" in r and "value_len" in r:
                 details = f"{r['selector']!r} → {r['value_len']} chars"
             elif "selector" in r:

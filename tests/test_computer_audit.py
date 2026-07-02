@@ -528,6 +528,28 @@ def test_audit_log_cli_table_shows_browser_url(tmp_path, monkeypatch):
     assert "https://httpbin.org/forms/post" in result.output
 
 
+def test_audit_log_cli_table_long_url_truncated(tmp_path):
+    """Table output truncates URLs >70 chars with ellipsis."""
+    long_url = "https://example.com/" + "a" * 60
+    assert len(long_url) > 70
+    conv_dir = tmp_path / "long-url-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    msgs = [
+        _msg("assistant", _ipython_block(f"observe_web('{long_url}')")),
+    ]
+    _write_conv_jsonl(jsonl, msgs)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl)], catch_exceptions=False)
+    assert result.exit_code == 0
+    # First 70 chars should be present
+    assert long_url[:70] in result.output
+    # Full URL must NOT appear (would mean no truncation happened)
+    assert long_url not in result.output
+    # Ellipsis character should appear at truncation boundary
+    assert "…" in result.output
+
+
 def test_audit_log_cli_table_shows_selector_and_value_len(tmp_path):
     """Table output shows selector and value length for fill_element."""
     conv_dir = tmp_path / "fill-conv"
