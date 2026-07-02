@@ -3738,6 +3738,41 @@ falsy values.
 
 Get an API key at https://app.requesty.ai/api-keys. See https://docs.requesty.ai for details.
 
+.. rubric:: Groq
+
+`Groq <https://groq.com/>`_ provides fast inference for open-source models via its own API key — **not** through the ``OPENAI_BASE_URL`` / ``OPENAI_API_KEY`` pattern.
+
+**Configuration:**
+
+.. code-block:: sh
+
+    export GROQ_API_KEY="gsk_..."
+    gptme "hello" -m groq/llama-3.3-70b-versatile
+
+Or store the key via the interactive setup:
+
+.. code-block:: sh
+
+    gptme '/account setup groq'
+
+Or in ``~/.config/gptme/config.toml``:
+
+.. code-block:: toml
+
+    [env]
+    GROQ_API_KEY = "gsk_..."
+
+.. note::
+
+    Using ``OPENAI_BASE_URL=https://api.groq.com/openai/v1`` with ``OPENAI_API_KEY``
+    will return a 401 — Groq requires its own ``GROQ_API_KEY``.
+    The ``groq/<model>`` provider prefix handles this automatically.
+
+Popular Groq models:
+
+- ``groq/llama-3.3-70b-versatile`` — fast 70B Llama 3.3
+- ``groq/llama-3.1-8b-instant`` — fastest, smallest
+
 .. rubric:: OpenAI Subscription
 
 You can use your existing ChatGPT Plus/Pro subscription with gptme. This uses the ChatGPT backend API (Codex endpoint) instead of the OpenAI Platform API, allowing you to leverage your subscription for development.

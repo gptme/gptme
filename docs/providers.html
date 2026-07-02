@@ -666,6 +666,33 @@ default.</p>
 </pre></div>
 </div>
 <p>Get an API key at <a class="reference external" href="https://app.requesty.ai/api-keys">https://app.requesty.ai/api-keys</a>. See <a class="reference external" href="https://docs.requesty.ai">https://docs.requesty.ai</a> for details.</p>
+<p class="rubric">Groq</p>
+<p><a class="reference external" href="https://groq.com/">Groq</a> provides fast inference for open-source models via its own API key — <strong>not</strong> through the <code class="docutils literal notranslate"><span class="pre">OPENAI_BASE_URL</span></code> / <code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code> pattern.</p>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GROQ_API_KEY</span><span class="o">=</span><span class="s2">&quot;gsk_...&quot;</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
+</pre></div>
+</div>
+<p>Or store the key via the interactive setup:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;/account setup groq&#39;</span>
+</pre></div>
+</div>
+<p>Or in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
+<span class="n">GROQ_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gsk_...&quot;</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Using <code class="docutils literal notranslate"><span class="pre">OPENAI_BASE_URL=https://api.groq.com/openai/v1</span></code> with <code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code>
+will return a 401 — Groq requires its own <code class="docutils literal notranslate"><span class="pre">GROQ_API_KEY</span></code>.
+The <code class="docutils literal notranslate"><span class="pre">groq/&lt;model&gt;</span></code> provider prefix handles this automatically.</p>
+</div>
+<p>Popular Groq models:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">groq/llama-3.3-70b-versatile</span></code> — fast 70B Llama 3.3</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">groq/llama-3.1-8b-instant</span></code> — fastest, smallest</p></li>
+</ul>
 <p class="rubric">OpenAI Subscription</p>
 <p>You can use your existing ChatGPT Plus/Pro subscription with gptme. This uses the ChatGPT backend API (Codex endpoint) instead of the OpenAI Platform API, allowing you to leverage your subscription for development.</p>
 <p><strong>Setup:</strong></p>
