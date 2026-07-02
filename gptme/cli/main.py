@@ -525,7 +525,7 @@ Run 'gptme-util --help' for all utility commands."""
 def main(
     ctx: click.Context,
     prompts: list[str],
-    prompt_system: str,
+    prompt_system: str | None,
     name: str,
     model: str | None,
     tool_allowlist: tuple[str, ...],
