@@ -65,7 +65,7 @@ class TestDockerEntrypointTools:
         """All tools required by the computer-use profile must be in the server tools list."""
         tools = _parse_server_tools(ENTRYPOINT)
         # These match the tools= list in gptme/profiles.py for the computer-use profile
-        required = {"computer", "browser", "vision", "ipython"}
+        required = {"computer", "browser", "vision", "ipython", "shell"}
         missing = required - set(tools)
         assert not missing, (
             f"Docker server missing tools required by computer-use profile: {missing}. "
