@@ -56,6 +56,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const reconnectMaxAttempts = use$(() => conversation$?.reconnectMaxAttempts.get() ?? null);
   const reconnectRetryInMs = use$(() => conversation$?.reconnectRetryInMs.get() ?? null);
   const connectionError = use$(() => conversation$?.connectionError.get() ?? null);
+  const hasMoreBefore = use$(() => conversation$?.hasMoreBefore.get() ?? false);
   // State to track when to auto-focus the input
   const shouldFocus$ = useObservable(false);
   // Store the previous conversation ID to detect changes
@@ -640,28 +641,20 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
           }}
         </Memo>
 
-        <Memo>
-          {() => {
-            const hasMoreBefore = conversation$?.hasMoreBefore?.get() ?? false;
-            if (!hasMoreBefore) return null;
-            return (
-              <div className="flex justify-center py-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void loadOlderMessages()}
-                  disabled={isLoadingOlderMessages}
-                  className="gap-1 text-xs text-muted-foreground"
-                >
-                  <ChevronUp
-                    className={`h-3 w-3 ${isLoadingOlderMessages ? 'animate-pulse' : ''}`}
-                  />
-                  {isLoadingOlderMessages ? 'Loading older messages' : 'Load older messages'}
-                </Button>
-              </div>
-            );
-          }}
-        </Memo>
+        {hasMoreBefore && (
+          <div className="flex justify-center py-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadOlderMessages()}
+              disabled={isLoadingOlderMessages}
+              className="gap-1 text-xs text-muted-foreground"
+            >
+              <ChevronUp className={`h-3 w-3 ${isLoadingOlderMessages ? 'animate-pulse' : ''}`} />
+              {isLoadingOlderMessages ? 'Loading older messages' : 'Load older messages'}
+            </Button>
+          </div>
+        )}
 
         <For each={conversation$?.data.log ?? []}>
           {(msg$) => {
