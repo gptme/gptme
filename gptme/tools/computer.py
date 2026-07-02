@@ -798,16 +798,44 @@ def _macos_accessibility_tree(max_depth: int = 2) -> str:
     Raises:
         RuntimeError: If osascript fails or accessibility is not granted.
     """
-    # Build a depth-limited AppleScript walker using a repeat-based stack approach.
-    # AppleScript cannot recurse into named handlers inside a tell block, so we
-    # unroll two levels explicitly and rely on max_depth to guard.
     if max_depth < 1:
         max_depth = 1
     if max_depth > 4:
         max_depth = 4  # safety cap — deep trees in complex apps can hang
 
+    def level_script(parent: str, depth: int) -> str:
+        elem = f"elem{depth}"
+        role = f"role{depth}"
+        name = f"name{depth}"
+        indent = "  " * (depth + 1)
+        child_walk = ""
+        if depth < max_depth:
+            child_walk = f"""\
+                        try
+{level_script(elem, depth + 1)}
+                        end try
+"""
+        return f"""\
+                        repeat with {elem} in (every UI element of {parent})
+                            set {role} to ""
+                            set {name} to ""
+                            try
+                                set {role} to role of {elem}
+                            end try
+                            try
+                                set {name} to title of {elem}
+                            end try
+                            if {name} is "" then
+                                try
+                                    set {name} to name of {elem}
+                                end try
+                            end if
+                            set output to output & "{indent}" & {role} & ": " & {name} & linefeed
+{child_walk}                        end repeat
+"""
+
     # Generate indented lines for each visible app / window / element
-    script = """\
+    script = f"""\
 tell application "System Events"
     set output to ""
     set procs to (every process whose background only is false)
@@ -822,40 +850,7 @@ tell application "System Events"
                 end try
                 set output to output & "  Window: " & winName & linefeed
                 try
-                    repeat with elem in (every UI element of win)
-                        set eRole to ""
-                        set eName to ""
-                        try
-                            set eRole to role of elem
-                        end try
-                        try
-                            set eName to title of elem
-                        end try
-                        if eName is "" then
-                            try
-                                set eName to name of elem
-                            end try
-                        end if
-                        set output to output & "    " & eRole & ": " & eName & linefeed
-                        try
-                            repeat with child in (every UI element of elem)
-                                set cRole to ""
-                                set cName to ""
-                                try
-                                    set cRole to role of child
-                                end try
-                                try
-                                    set cName to title of child
-                                end try
-                                if cName is "" then
-                                    try
-                                        set cName to name of child
-                                    end try
-                                end if
-                                set output to output & "      " & cRole & ": " & cName & linefeed
-                            end repeat
-                        end try
-                    end repeat
+{level_script("win", 1)}
                 end try
             end repeat
         end try
@@ -909,10 +904,14 @@ def _macos_click_accessible_element(
         RuntimeError: If osascript fails, element is not found, or has no position.
     """
     name_lower = element_name.lower()
+    delimiter = "\x1f"
 
-    # Search first level then second level; return CSV "x,y" or "not_found"
-    script = f"""\
+    # Search first level then second level and let Python match caller input.
+    # This avoids interpolating LLM/user-controlled text into AppleScript.
+    script = """\
 tell application "System Events"
+    set delimiter to ASCII character 31
+    set output to ""
     set frontApp to first application process whose frontmost is true
     set wins to every window of frontApp
     repeat with win in wins
@@ -930,13 +929,13 @@ tell application "System Events"
                     set eName to name of elem
                 end try
             end if
-            if eRole is "{role_name}" and eName contains "{name_lower}" then
+            try
                 set pos to position of elem
                 set sz to size of elem
                 set cx to (item 1 of pos) + (item 1 of sz) / 2
                 set cy to (item 2 of pos) + (item 2 of sz) / 2
-                return (cx as integer) as text & "," & (cy as integer) as text
-            end if
+                set output to output & eRole & delimiter & eName & delimiter & (cx as integer) as text & delimiter & (cy as integer) as text & linefeed
+            end try
             -- second level
             try
                 repeat with child in (every UI element of elem)
@@ -953,18 +952,18 @@ tell application "System Events"
                             set cName to name of child
                         end try
                     end if
-                    if cRole is "{role_name}" and cName contains "{name_lower}" then
+                    try
                         set pos to position of child
                         set sz to size of child
                         set cx to (item 1 of pos) + (item 1 of sz) / 2
                         set cy to (item 2 of pos) + (item 2 of sz) / 2
-                        return (cx as integer) as text & "," & (cy as integer) as text
-                    end if
+                        set output to output & cRole & delimiter & cName & delimiter & (cx as integer) as text & delimiter & (cy as integer) as text & linefeed
+                    end try
                 end repeat
             end try
         end repeat
     end repeat
-    return "not_found"
+    return output
 end tell
 """
     try:
@@ -989,20 +988,23 @@ end tell
             "Ensure the terminal has Accessibility permission in System Preferences → Privacy & Security."
         ) from e
 
-    out = result.stdout.strip()
-    if out == "not_found" or not out:
-        raise RuntimeError(
-            f"No accessible element with role={role_name!r} containing name {element_name!r} "
-            "found in the frontmost app. Run computer('accessibility_tree') to see available elements."
-        )
+    for line in result.stdout.splitlines():
+        parts = line.split(delimiter)
+        if len(parts) != 4:
+            continue
+        candidate_role, candidate_name, x_str, y_str = parts
+        if candidate_role == role_name and name_lower in candidate_name.lower():
+            try:
+                return int(x_str.strip()), int(y_str.strip())
+            except ValueError:
+                raise RuntimeError(
+                    f"Unexpected position output from accessibility search: {line!r}"
+                ) from None
 
-    try:
-        x_str, y_str = out.split(",", 1)
-        return int(x_str.strip()), int(y_str.strip())
-    except ValueError:
-        raise RuntimeError(
-            f"Unexpected position output from accessibility search: {out!r}"
-        ) from None
+    raise RuntimeError(
+        f"No accessible element with role={role_name!r} containing name {element_name!r} "
+        "found in the frontmost app. Run computer('accessibility_tree') to see available elements."
+    )
 
 
 def _macos_window_focus(pattern: str, timeout: float = 10.0) -> None:

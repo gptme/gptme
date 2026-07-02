@@ -1597,6 +1597,23 @@ def test_macos_accessibility_tree_success():
     assert "AXButton: Search" in result
 
 
+def test_macos_accessibility_tree_max_depth_controls_child_walk():
+    """_macos_accessibility_tree wires max_depth into the generated AppleScript."""
+    mock_result = mock.MagicMock()
+    mock_result.stdout = ""
+
+    with mock.patch("subprocess.run", return_value=mock_result) as mock_run:
+        _macos_accessibility_tree(max_depth=1)
+    script_depth_1 = mock_run.call_args.args[0][2]
+
+    with mock.patch("subprocess.run", return_value=mock_result) as mock_run:
+        _macos_accessibility_tree(max_depth=2)
+    script_depth_2 = mock_run.call_args.args[0][2]
+
+    assert "every UI element of elem1" not in script_depth_1
+    assert "every UI element of elem1" in script_depth_2
+
+
 def test_macos_accessibility_tree_empty_output():
     """_macos_accessibility_tree returns placeholder for empty output."""
     mock_result = mock.MagicMock()
@@ -1644,7 +1661,7 @@ def test_macos_accessibility_tree_permission_error():
 def test_macos_click_accessible_element_success():
     """_macos_click_accessible_element returns correct (x, y) from osascript output."""
     mock_result = mock.MagicMock()
-    mock_result.stdout = "150,300"
+    mock_result.stdout = "AXButton\x1fSubmit\x1f150\x1f300\n"
 
     with mock.patch("subprocess.run", return_value=mock_result):
         x, y = _macos_click_accessible_element("AXButton", "Submit")
@@ -1656,7 +1673,7 @@ def test_macos_click_accessible_element_success():
 def test_macos_click_accessible_element_not_found():
     """_macos_click_accessible_element raises RuntimeError when element not found."""
     mock_result = mock.MagicMock()
-    mock_result.stdout = "not_found"
+    mock_result.stdout = ""
 
     with (
         mock.patch("subprocess.run", return_value=mock_result),
@@ -1665,11 +1682,42 @@ def test_macos_click_accessible_element_not_found():
         _macos_click_accessible_element("AXButton", "Nonexistent")
 
 
+def test_macos_click_accessible_element_does_not_inject_inputs():
+    """Caller-controlled role/name values are matched in Python, not AppleScript."""
+    mock_result = mock.MagicMock()
+    mock_result.stdout = ""
+
+    role_name = 'AXButton" then\n    do shell script "touch /tmp/pwned"'
+    element_name = 'Submit" then\n    do shell script "touch /tmp/pwned"'
+
+    with (
+        mock.patch("subprocess.run", return_value=mock_result) as mock_run,
+        pytest.raises(RuntimeError, match="No accessible element"),
+    ):
+        _macos_click_accessible_element(role_name, element_name)
+
+    script = mock_run.call_args.args[0][2]
+    assert role_name not in script
+    assert element_name not in script
+    assert "do shell script" not in script
+
+
 def test_macos_click_accessible_element_osascript_missing():
     """_macos_click_accessible_element raises RuntimeError when osascript not found."""
     with (
         mock.patch("subprocess.run", side_effect=FileNotFoundError),
         pytest.raises(RuntimeError, match="osascript not found"),
+    ):
+        _macos_click_accessible_element("AXButton", "Submit")
+
+
+def test_macos_click_accessible_element_timeout():
+    """_macos_click_accessible_element raises RuntimeError on timeout."""
+    with (
+        mock.patch(
+            "subprocess.run", side_effect=subprocess.TimeoutExpired("osascript", 15)
+        ),
+        pytest.raises(RuntimeError, match="timed out"),
     ):
         _macos_click_accessible_element("AXButton", "Submit")
 
