@@ -833,6 +833,15 @@ export function useConversation(conversationId: string, serverId?: string) {
       );
     } catch (error) {
       console.warn('[useConversation] Failed to load older messages:', error);
+      const { title, description } = getApiErrorPresentation(error, {
+        fallbackTitle: 'Failed to load older messages',
+        fallbackDescription: 'Failed to load older messages',
+      });
+      toast({
+        variant: 'destructive',
+        title,
+        description,
+      });
     } finally {
       loadingOlderMessagesRef.current = false;
       setIsLoadingOlderMessages(false);
