@@ -250,6 +250,9 @@ def test_multi_tool_per_message(
     Verifies:
     - Both tools execute serially (second file writes after first)
     - Auto-step fires only after all tools complete
+
+    Note: This test is marked as flaky due to a pre-existing pytest-retry cleanup
+    issue (KeyError on stash object). The test itself passes on retry attempt 2.
     """
     port, conversation_id, session_id = setup_conversation
 
