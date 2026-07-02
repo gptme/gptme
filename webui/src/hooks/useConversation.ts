@@ -30,6 +30,7 @@ import {
   setMaxTokens,
   setTemperature,
   setTopP,
+  prependLogPage,
 } from '@/stores/conversations';
 import { playChime } from '@/utils/audio';
 import { speakText } from '@/utils/tts';
@@ -132,7 +133,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         if (!isWindowHydrated) {
           // Only load from API if we don't already have conversation data
           try {
-            const data = await api.getConversation(conversationId);
+            const data = await api.getConversation(conversationId, { limit: 50 });
 
             // Also load the chat config
             try {
@@ -809,6 +810,27 @@ export function useConversation(conversationId: string, serverId?: string) {
     setRetryNonce((n) => n + 1);
   }, [conversationId]);
 
+  const loadOlderMessages = useCallback(async () => {
+    const conv$ = conversations$.get(conversationId);
+    if (!conv$) return;
+    const logOffset = conv$.logOffset.peek();
+    if (logOffset <= 0) return;
+    try {
+      const data = await api.getConversation(conversationId, {
+        limit: 50,
+        before: logOffset,
+      });
+      prependLogPage(
+        conversationId,
+        data.log,
+        data.has_more ? (data.before ?? 0) : 0,
+        data.has_more ?? false
+      );
+    } catch (error) {
+      console.warn('[useConversation] Failed to load older messages:', error);
+    }
+  }, [conversationId, api]);
+
   return {
     conversation$,
     retryLoad,
@@ -822,5 +844,6 @@ export function useConversation(conversationId: string, serverId?: string) {
     switchBranch,
     confirmTool,
     interruptGeneration,
+    loadOlderMessages,
   };
 }

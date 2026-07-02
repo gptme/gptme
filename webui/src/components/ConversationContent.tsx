@@ -21,7 +21,7 @@ import { useApi } from '@/contexts/ApiContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useModels } from '@/hooks/useModels';
 import { chatRoute } from '@/utils/routes';
-import { AlertTriangle, ArrowDown, RefreshCw, WifiOff } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ChevronUp, RefreshCw, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface Props {
@@ -44,6 +44,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     switchBranch,
     confirmTool,
     interruptGeneration,
+    loadOlderMessages,
   } = useConversation(conversationId, serverId);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -634,6 +635,26 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                 baseUrl={connectionConfig.baseUrl}
                 activeModel={activeModel}
               />
+            );
+          }}
+        </Memo>
+
+        <Memo>
+          {() => {
+            const hasMoreBefore = conversation$?.hasMoreBefore?.get() ?? false;
+            if (!hasMoreBefore) return null;
+            return (
+              <div className="flex justify-center py-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void loadOlderMessages()}
+                  className="gap-1 text-xs text-muted-foreground"
+                >
+                  <ChevronUp className="h-3 w-3" />
+                  Load older messages
+                </Button>
+              </div>
             );
           }}
         </Memo>
