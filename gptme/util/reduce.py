@@ -58,13 +58,6 @@ def reduce_log(
     # if we are below the limit, return the log as-is
     tokens = len_tokens(log, model=model.model)
     if tokens <= limit:
-        if _initial_tokens is not None:
-            saved = _initial_tokens - tokens
-            blocks_str = f", truncated {_truncations} block(s)" if _truncations else ""
-            console.log(
-                f"[context] Reduced log by ~{saved // 1000}k tokens"
-                f" ({_initial_tokens // 1000}k → {tokens // 1000}k){blocks_str}"
-            )
         yield from log
         return
 
@@ -124,6 +117,14 @@ def reduce_log(
         # but if prev_len == tokens, we are not making progress, so just return the log as-is
         if prev_len == tokens:
             logger.warning("Not making progress, returning log as-is")
+            if _initial_tokens is not None:
+                blocks_str = (
+                    f", truncated {_truncations} block(s)" if _truncations else ""
+                )
+                console.log(
+                    f"[context] Could not reduce log further ({tokens // 1000}k tokens"
+                    f" still exceeds limit ~{int(limit) // 1000}k{blocks_str})"
+                )
             yield from log
         else:
             yield from reduce_log(
