@@ -578,6 +578,28 @@ class TestTasksListAPI:
         assert resp.status_code == 200
         assert resp.json == {"tasks": []}
 
+    def test_list_filter_by_status_with_archived(self, client):
+        save_task(
+            Task(
+                id="archived-pending-task",
+                content="Archived pending task",
+                created_at="2026-01-01T00:00:00Z",
+                status="pending",
+                target_type="stdout",
+                archived=True,
+            )
+        )
+
+        resp = client.get("/api/v2/tasks?status=pending")
+        assert resp.status_code == 200
+        assert resp.json == {"tasks": []}
+
+        resp = client.get("/api/v2/tasks?archived=true&status=pending")
+        assert resp.status_code == 200
+        data = resp.json
+        assert len(data["tasks"]) == 1
+        assert data["tasks"][0]["id"] == "archived-pending-task"
+
     def test_list_filter_by_status_invalid(self, client):
         resp = client.get("/api/v2/tasks?status=unknown")
         assert resp.status_code == 400

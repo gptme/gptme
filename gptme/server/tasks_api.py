@@ -686,7 +686,7 @@ def api_tasks_list():
 
     List tasks with their cached status information.
     Archived tasks are excluded by default; include ?archived=true to show them.
-    Filter by status with ?status=pending|active|completed|failed.
+    Filter by cached status with ?status=pending|active|completed|failed.
     """
     try:
         archived_str = flask.request.args.get("archived", "false")
