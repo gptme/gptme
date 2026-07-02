@@ -14,6 +14,12 @@ from ..tools.base import ToolUse
 # Patterns that indicate text/key content (redact for privacy)
 _SENSITIVE_ACTIONS = frozenset({"type", "key"})
 
+# Browser interaction functions whose first arg is a URL
+_URL_BROWSER_FNS = frozenset({"observe_web", "snapshot_url", "open_page"})
+
+# Browser interaction functions whose first arg is a CSS/DOM selector
+_SELECTOR_BROWSER_FNS = frozenset({"click_element"})
+
 
 def _slice_call(code: str, start: int) -> str:
     """Return the source span for a function call starting at ``start``."""
@@ -44,11 +50,21 @@ def _slice_call(code: str, start: int) -> str:
 
 
 def _extract_computer_calls(messages) -> list[dict]:
-    """Extract computer() and observe_desktop() calls from a message list.
+    """Extract computer-use actions from a message list.
 
-    Scans executable tool-use blocks (ipython codeblocks) for calls to the
-    computer() function and the observe_desktop() helper. Typed text is never
-    logged raw — only its length is recorded.
+    Scans executable tool-use blocks (ipython codeblocks) for calls to:
+    - ``computer()`` — desktop/X11 actions (screenshot, click, type, key, …)
+    - ``observe_desktop()`` — explicit desktop observation
+    - ``observe_web(url)`` — structured-first web observation
+    - ``snapshot_url(url)`` — one-shot ARIA snapshot
+    - ``open_page(url)`` — open an interactive browser session
+    - ``click_element(selector)`` — DOM element click
+    - ``fill_element(selector, value)`` — form fill (value length logged, not raw text)
+    - ``read_page_text()`` — read page text content
+    - ``scroll_page(direction)`` — scroll the current page
+
+    Typed/key text and fill_element values are never logged raw — only their
+    length is recorded to avoid leaking passwords or personally identifiable data.
     """
     records: list[dict] = []
     for msg in messages:
@@ -58,15 +74,13 @@ def _extract_computer_calls(messages) -> list[dict]:
             if not tu.is_runnable or not tu.content:
                 continue
             code = tu.content
-            # Match computer("action", ...) and computer('action', ...)
+            ts = msg.timestamp.isoformat() if msg.timestamp else None
+
+            # --- computer("action", ...) ---
             for m in re.finditer(r"""computer\s*\(\s*['"]([^'"]+)['"]""", code):
                 action = m.group(1)
                 call_source = _slice_call(code, m.start())
-                record: dict = {
-                    "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
-                    "action": action,
-                }
-                # Extract coordinate if present: coordinate=(x, y)
+                record: dict = {"timestamp": ts, "action": action}
                 coord_m = re.search(
                     r"coordinate\s*=\s*\((\d+)\s*,\s*(\d+)\)", call_source
                 )
@@ -75,23 +89,109 @@ def _extract_computer_calls(messages) -> list[dict]:
                         int(coord_m.group(1)),
                         int(coord_m.group(2)),
                     ]
-                # For type/key actions, redact the text value — log only length
                 if action in _SENSITIVE_ACTIONS:
                     text_m = re.search(r"""text\s*=\s*['"]([^'"]*)['"]""", call_source)
-                    if text_m:
-                        record["text_len"] = len(text_m.group(1))
-                    else:
-                        record["text_len"] = None
+                    record["text_len"] = len(text_m.group(1)) if text_m else None
                 records.append(record)
-            # Also capture observe_desktop() calls
+
+            # --- observe_desktop() ---
             records.extend(
-                {
-                    "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
-                    "action": "screenshot",
-                    "source": "observe_desktop",
-                }
+                {"timestamp": ts, "action": "screenshot", "source": "observe_desktop"}
                 for _ in re.finditer(r"\bobserve_desktop\s*\(", code)
             )
+
+            # --- browser interaction calls ---
+            # Collected with their byte-offset in the code block so they can be
+            # sorted into code order before appending (multiple passes would
+            # otherwise interleave URL-fns, selector-fns, fill-fns, etc.).
+            browser_positioned: list[tuple[int, dict]] = []
+
+            # Functions whose first arg is a URL (no mixed-quote risk)
+            for fn in _URL_BROWSER_FNS:
+                browser_positioned.extend(
+                    (
+                        m.start(),
+                        {
+                            "timestamp": ts,
+                            "action": fn,
+                            "source": "browser",
+                            "url": m.group(1) or m.group(2),
+                        },
+                    )
+                    for m in re.finditer(
+                        rf"""\b{fn}\s*\(\s*(?:'([^']+)'|"([^"]+)")""", code
+                    )
+                )
+
+            # click_element(selector) — selectors may contain the opposite quote
+            # type (e.g. '[name="q"]'), so match each quote style separately.
+            for fn in _SELECTOR_BROWSER_FNS:
+                browser_positioned.extend(
+                    (
+                        m.start(),
+                        {
+                            "timestamp": ts,
+                            "action": fn,
+                            "source": "browser",
+                            "selector": m.group(1)
+                            if m.group(1) is not None
+                            else m.group(2),
+                        },
+                    )
+                    for m in re.finditer(
+                        rf"""\b{fn}\s*\(\s*(?:'([^']*)'|"([^"]*)")""", code
+                    )
+                )
+
+            # fill_element(selector, value) — value is potentially sensitive;
+            # log only its length. Selector may contain opposite-type quotes.
+            browser_positioned.extend(
+                (
+                    m.start(),
+                    {
+                        "timestamp": ts,
+                        "action": "fill_element",
+                        "source": "browser",
+                        "selector": m.group(1)
+                        if m.group(1) is not None
+                        else m.group(2),
+                        "value_len": len(
+                            m.group(3) if m.group(3) is not None else (m.group(4) or "")
+                        ),
+                    },
+                )
+                for m in re.finditer(
+                    r"""\bfill_element\s*\(\s*(?:'([^']*)'|"([^"]*)")\s*,\s*(?:'([^']*)'|"([^"]*)")""",
+                    code,
+                )
+            )
+
+            # read_page_text() — no arguments to extract
+            browser_positioned.extend(
+                (
+                    m.start(),
+                    {"timestamp": ts, "action": "read_page_text", "source": "browser"},
+                )
+                for m in re.finditer(r"\bread_page_text\s*\(", code)
+            )
+
+            # scroll_page(direction)
+            browser_positioned.extend(
+                (
+                    m.start(),
+                    {
+                        "timestamp": ts,
+                        "action": "scroll_page",
+                        "source": "browser",
+                        "direction": m.group(1),
+                    },
+                )
+                for m in re.finditer(r"""\bscroll_page\s*\(\s*['"]([^'"]+)['"]""", code)
+            )
+
+            # Emit browser records in code order (stable, ascending offset)
+            records.extend(r for _, r in sorted(browser_positioned, key=lambda x: x[0]))
+
     return records
 
 
@@ -115,8 +215,9 @@ def audit_log(conversation: str | None, last: int, as_json: bool):
     """Extract computer-use actions from session trajectories.
 
     Reads conversation JSONL logs (the authoritative audit trail) and prints a
-    structured summary of every computer() and observe_desktop() call, with
-    typed/key text redacted to just its length.
+    structured summary of every computer(), observe_desktop(), and browser
+    interaction call (observe_web, open_page, fill_element, click_element, …).
+    Typed/key text and fill_element values are redacted to just their length.
 
     CONVERSATION is a conversation name or ID. Omit to scan the most-recent
     session(s) (controlled by --last).
@@ -183,10 +284,21 @@ def audit_log(conversation: str | None, last: int, as_json: bool):
         conv = (r.get("conversation") or "")[:24]
         action = r.get("action", "")[:24]
         details = ""
-        if "coordinate" in r:
-            details = f"@ {r['coordinate']}"
-        if "text_len" in r and r["text_len"] is not None:
-            details += f" ({r['text_len']} chars, redacted)"
-        if r.get("source") == "observe_desktop":
+        source = r.get("source", "")
+        if source == "observe_desktop":
             details = "via observe_desktop()"
+        elif source == "browser":
+            if "url" in r:
+                details = r["url"][:70]
+            elif "selector" in r and "value_len" in r:
+                details = f"{r['selector']!r} → {r['value_len']} chars"
+            elif "selector" in r:
+                details = repr(r["selector"])
+            elif "direction" in r:
+                details = r["direction"]
+        else:
+            if "coordinate" in r:
+                details = f"@ {r['coordinate']}"
+            if "text_len" in r and r["text_len"] is not None:
+                details += f" ({r['text_len']} chars, redacted)"
         click.echo(f"{ts:<30} {conv:<25} {action:<25} {details}")

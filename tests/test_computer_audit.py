@@ -1,7 +1,8 @@
 """Tests for gptme-util computer audit-log (cmd_computer.py).
 
-Validates that computer() and observe_desktop() calls are extracted from
-synthetic JSONL trajectories, and that typed text is never logged raw.
+Validates that computer(), observe_desktop(), and browser interaction calls
+are extracted from synthetic JSONL trajectories, and that typed/sensitive
+text is never logged raw.
 """
 
 from __future__ import annotations
@@ -361,3 +362,171 @@ def test_empty_code_block_skipped():
     msgs = [_msg("assistant", "```ipython\n\n```")]
     records = _extract_computer_calls(msgs)
     assert records == []
+
+
+# ---------------------------------------------------------------------------
+# Browser interaction call tracking (observe_web, snapshot_url, open_page,
+# click_element, fill_element, read_page_text, scroll_page)
+# ---------------------------------------------------------------------------
+
+
+def test_observe_web_captured():
+    msgs = [_msg("assistant", _ipython_block("observe_web('https://example.com')"))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "observe_web"
+    assert records[0]["source"] == "browser"
+    assert records[0]["url"] == "https://example.com"
+
+
+def test_observe_web_double_quotes():
+    msgs = [
+        _msg("assistant", _ipython_block('observe_web("https://news.ycombinator.com")'))
+    ]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["url"] == "https://news.ycombinator.com"
+
+
+def test_snapshot_url_captured():
+    msgs = [_msg("assistant", _ipython_block("snapshot_url('https://example.com')"))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "snapshot_url"
+    assert records[0]["source"] == "browser"
+    assert records[0]["url"] == "https://example.com"
+
+
+def test_open_page_captured():
+    msgs = [
+        _msg("assistant", _ipython_block("open_page('https://httpbin.org/forms/post')"))
+    ]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "open_page"
+    assert records[0]["source"] == "browser"
+    assert records[0]["url"] == "https://httpbin.org/forms/post"
+
+
+def test_click_element_captured():
+    msgs = [_msg("assistant", _ipython_block("click_element('[type=\"submit\"]')"))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "click_element"
+    assert records[0]["source"] == "browser"
+    assert records[0]["selector"] == '[type="submit"]'
+
+
+def test_fill_element_selector_kept_value_redacted():
+    msgs = [
+        _msg(
+            "assistant", _ipython_block("fill_element('[name=\"custname\"]', 'Alice')")
+        )
+    ]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    r = records[0]
+    assert r["action"] == "fill_element"
+    assert r["source"] == "browser"
+    assert r["selector"] == '[name="custname"]'
+    # Raw value must NOT appear
+    assert "value" not in r
+    assert r["value_len"] == len("Alice")
+
+
+def test_fill_element_password_not_logged():
+    code = "fill_element('[name=\"password\"]', 'supersecret')"
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert "supersecret" not in str(records)
+    assert records[0]["value_len"] == len("supersecret")
+
+
+def test_read_page_text_captured():
+    msgs = [_msg("assistant", _ipython_block("read_page_text()"))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "read_page_text"
+    assert records[0]["source"] == "browser"
+
+
+def test_scroll_page_captured():
+    msgs = [_msg("assistant", _ipython_block("scroll_page('down')"))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "scroll_page"
+    assert records[0]["source"] == "browser"
+    assert records[0]["direction"] == "down"
+
+
+def test_mixed_computer_and_browser_calls():
+    """Full "Can it Tweet?" style pipeline: open_page + fill + click + read."""
+    code = textwrap.dedent("""\
+        open_page('https://httpbin.org/forms/post')
+        fill_element('[name="custname"]', 'TestUser')
+        fill_element('[name="custemail"]', 'test@example.com')
+        click_element('[type="submit"]')
+        read_page_text()
+    """)
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    actions = [r["action"] for r in records]
+    assert actions == [
+        "open_page",
+        "fill_element",
+        "fill_element",
+        "click_element",
+        "read_page_text",
+    ]
+    # URL captured for open_page
+    assert records[0]["url"] == "https://httpbin.org/forms/post"
+    # Selectors captured for fill/click
+    assert records[1]["selector"] == '[name="custname"]'
+    assert records[2]["selector"] == '[name="custemail"]'
+    assert records[3]["selector"] == '[type="submit"]'
+    # Values redacted
+    assert records[1]["value_len"] == len("TestUser")
+    assert records[2]["value_len"] == len("test@example.com")
+
+
+def test_audit_log_cli_table_shows_browser_url(tmp_path, monkeypatch):
+    """Table output shows URL for observe_web/open_page calls."""
+    conv_dir = tmp_path / "browser-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    msgs = [
+        _msg("assistant", _ipython_block("observe_web('https://example.com')")),
+        _msg(
+            "assistant", _ipython_block("open_page('https://httpbin.org/forms/post')")
+        ),
+    ]
+    _write_conv_jsonl(jsonl, msgs)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl)], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "https://example.com" in result.output
+    assert "https://httpbin.org/forms/post" in result.output
+
+
+def test_audit_log_cli_table_shows_selector_and_value_len(tmp_path):
+    """Table output shows selector and value length for fill_element."""
+    conv_dir = tmp_path / "fill-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    msgs = [
+        _msg(
+            "assistant", _ipython_block("fill_element('[name=\"q\"]', 'hello world')")
+        ),
+        _msg("assistant", _ipython_block("click_element('[type=\"submit\"]')")),
+    ]
+    _write_conv_jsonl(jsonl, msgs)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl)], catch_exceptions=False)
+    assert result.exit_code == 0
+    # Should NOT contain the raw value
+    assert "hello world" not in result.output
+    # Should show the character count
+    assert f"{len('hello world')} chars" in result.output
+    # Selector shown for click_element
+    assert '[type="submit"]' in result.output
