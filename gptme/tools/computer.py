@@ -1781,14 +1781,13 @@ lacks accessibility support (e.g. electron apps, games, canvas-based UIs).
 
 ### Efficient action-verify loops
 
-Prefer wait_for_change over immediate screenshot after triggering UI changes:
+Prefer ``act_and_observe()`` over separate ``computer()`` + ``wait_for_change``:
 
-  computer("left_click", coordinate=(760, 540))  # trigger action
-  computer("wait_for_change", text="5")           # wait for response, see result once
+  act_and_observe("left_click", coordinate=(760, 540))  # trigger action, see result
 
-This prevents the conversation from accumulating multiple nearly-identical
-screenshots during transitions. Only call screenshot() directly when you need
-the current state without waiting.
+This combines the action and observation into one call, preventing the conversation
+from accumulating multiple nearly-identical screenshots during transitions.
+Only call ``screenshot()`` directly when you need the current state without waiting.
 
 ### Opening new windows without guessing their position
 
@@ -2003,6 +2002,10 @@ def act_and_observe(
         msgs = act_and_observe("screenshot")  # same as [computer("screenshot")]
     """
     msgs: list[Message] = []
+
+    # Forward timeout to wait_for_change in passthrough mode if no explicit text given.
+    if action == "wait_for_change" and text is None:
+        text = str(timeout)
 
     result = computer(action, text=text, coordinate=coordinate)
     if result is not None:
