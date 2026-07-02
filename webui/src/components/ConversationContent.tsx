@@ -317,6 +317,25 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     sendMessage({ message, options });
   };
 
+  const handleLoadOlderMessages = useCallback(async () => {
+    const container = scrollContainerRef.current;
+    if (!container) {
+      await loadOlderMessages();
+      return;
+    }
+
+    const previousScrollHeight = container.scrollHeight;
+    const previousScrollTop = container.scrollTop;
+    autoScrollAborted$.set(true);
+    isScrolledUp$.set(true);
+
+    await loadOlderMessages();
+
+    requestAnimationFrame(() => {
+      container.scrollTop = previousScrollTop + (container.scrollHeight - previousScrollHeight);
+    });
+  }, [autoScrollAborted$, isScrolledUp$, loadOlderMessages]);
+
   const clearSearchHighlights = useCallback(() => {
     scrollContainerRef.current
       ?.querySelectorAll<HTMLElement>('[data-message-index]')
@@ -646,7 +665,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void loadOlderMessages()}
+              onClick={() => void handleLoadOlderMessages()}
               disabled={isLoadingOlderMessages}
               className="gap-1 text-xs text-muted-foreground"
             >
