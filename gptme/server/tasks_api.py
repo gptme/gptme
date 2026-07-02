@@ -838,6 +838,20 @@ def api_tasks_update(task_id: str):
     if not isinstance(req_json, dict):
         return flask.jsonify({"error": "Request body must be a JSON object"}), 400
 
+    # Reject unknown/unsupported fields to prevent silent no-ops
+    allowed_fields = {"content", "target_type", "target_repo", "metadata"}
+    if "status" in req_json:
+        return flask.jsonify(
+            {
+                "error": "status cannot be set directly; it is derived from conversation and git state. Use the archive endpoint to archive a task."
+            }
+        ), 400
+    unknown_fields = set(req_json) - allowed_fields
+    if unknown_fields:
+        return flask.jsonify(
+            {"error": f"unknown field(s): {', '.join(sorted(unknown_fields))}"}
+        ), 400
+
     # Validate field types before applying
     if "content" in req_json and not isinstance(req_json["content"], str):
         return flask.jsonify({"error": "content must be a string"}), 400
