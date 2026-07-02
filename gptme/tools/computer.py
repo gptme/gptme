@@ -255,6 +255,51 @@ def _get_display_resolution() -> tuple[int, int]:
     raise RuntimeError("Failed to get display resolution")
 
 
+def _get_macos_display_scale() -> float:
+    """Detect the macOS HiDPI/Retina backing scale factor.
+
+    Tries in order:
+    1. ``AppKit.NSScreen.mainScreen().backingScaleFactor()`` — accurate for any display config
+    2. Ratio of physical "Resolution" to logical "UI Looks like" in ``system_profiler``
+    3. Falls back to ``2.0`` (standard Retina)
+    """
+    # Method 1: AppKit (preferred — works for all display configs including external monitors)
+    try:
+        import importlib.util
+
+        if importlib.util.find_spec("AppKit") is not None:
+            import AppKit  # type: ignore[import]
+
+            screen = AppKit.NSScreen.mainScreen()
+            if screen is not None:
+                return float(screen.backingScaleFactor())
+    except Exception:
+        pass
+
+    # Method 2: Parse system_profiler output for "UI Looks like: NNN x NNN"
+    try:
+        output = subprocess.check_output(
+            ["system_profiler", "SPDisplaysDataType"], text=True, timeout=10
+        )
+        physical_w: int | None = None
+        for line in output.splitlines():
+            stripped = line.strip()
+            if "Resolution" in stripped and physical_w is None:
+                parts = stripped.split(":")[-1].split("x")
+                physical_w = int(parts[0].strip())
+            elif "UI Looks like" in stripped and physical_w is not None:
+                # "UI Looks like: 1280 x 832 @ 60.00Hz"
+                parts = stripped.split(":")[-1].split("x")
+                logical_w = int(parts[0].strip())
+                if logical_w > 0:
+                    return physical_w / logical_w
+    except Exception:
+        pass
+
+    # Method 3: Assume standard 2× Retina
+    return 2.0
+
+
 def _scale_coordinates(
     source: _ScalingSource, x: int, y: int, api_width: int, api_height: int
 ) -> tuple[int, int]:
@@ -264,11 +309,7 @@ def _scale_coordinates(
 
     # Account for macOS display scaling factor
     if IS_MACOS:
-        # macOS display scaling factor
-        # TODO: retrieve somehow? we could move mouse to the bottom right and then get the position
-        # (but it's hacky and confusing to users)
-        display_scale = 2560 / 1709
-
+        display_scale = _get_macos_display_scale()
         physical_width = int(physical_width / display_scale)
         physical_height = int(physical_height / display_scale)
         logger.info(

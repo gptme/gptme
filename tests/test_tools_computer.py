@@ -14,6 +14,7 @@ from gptme.tools.computer import (
     MODIFIER_KEYS,
     _chunks,
     _get_display_resolution,
+    _get_macos_display_scale,
     _linux_accessibility_tree,
     _linux_click_accessible_element,
     _linux_scroll,
@@ -301,6 +302,89 @@ Graphics/Displays:
         width, height = _get_display_resolution()
         assert width == 2560
         assert height == 1664
+
+
+# === _get_macos_display_scale() tests ===
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
+def test_get_macos_display_scale_via_appkit():
+    """Scale factor is read from AppKit.NSScreen.backingScaleFactor() when available."""
+    mock_screen = mock.MagicMock()
+    mock_screen.backingScaleFactor.return_value = 2.0
+    mock_appkit = mock.MagicMock()
+    mock_appkit.NSScreen.mainScreen.return_value = mock_screen
+
+    with mock.patch.dict("sys.modules", {"AppKit": mock_appkit}):
+        scale = _get_macos_display_scale()
+
+    assert scale == 2.0
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
+def test_get_macos_display_scale_via_system_profiler():
+    """Scale factor is derived from system_profiler when AppKit is unavailable."""
+    profiler_output = """\
+Graphics/Displays:
+    Apple M1:
+      Displays:
+        Color LCD:
+          Resolution: 2560 x 1664 Retina
+          UI Looks like: 1280 x 832 @ 60.00Hz
+"""
+    import importlib
+
+    real_find_spec = importlib.util.find_spec
+
+    def fake_find_spec(name):
+        if name == "AppKit":
+            return None
+        return real_find_spec(name)
+
+    with (
+        mock.patch("importlib.util.find_spec", side_effect=fake_find_spec),
+        mock.patch("subprocess.check_output", return_value=profiler_output),
+    ):
+        scale = _get_macos_display_scale()
+
+    assert scale == pytest.approx(2560 / 1280, rel=1e-3)
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
+def test_get_macos_display_scale_fallback_to_2x():
+    """Falls back to 2.0 when both AppKit and system_profiler are unavailable."""
+    import importlib
+
+    real_find_spec = importlib.util.find_spec
+
+    def fake_find_spec(name):
+        if name == "AppKit":
+            return None
+        return real_find_spec(name)
+
+    with (
+        mock.patch("importlib.util.find_spec", side_effect=fake_find_spec),
+        mock.patch(
+            "subprocess.check_output",
+            side_effect=subprocess.CalledProcessError(1, "system_profiler"),
+        ),
+    ):
+        scale = _get_macos_display_scale()
+
+    assert scale == 2.0
+
+
+@mock.patch("gptme.tools.computer._get_display_resolution", return_value=(2560, 1664))
+@mock.patch("gptme.tools.computer._get_macos_display_scale", return_value=2.0)
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
+def test_coordinate_scaling_macos_2x(mock_scale, mock_res):
+    """Coordinate scaling on macOS 2× Retina yields logical (non-physical) coords."""
+    # Physical: 2560×1664, logical (after ÷2): 1280×832
+    # Clicking at API (640, 416) with API space 1280×832 → physical (1280, 832)
+    # But gptme works in logical space, so we expect (640, 416)
+    x, y = _scale_coordinates(_ScalingSource.API, 640, 416, 1280, 832)
+    assert x == 640
+    assert y == 416
 
 
 # === _run_xdotool() tests ===
@@ -835,8 +919,9 @@ _MOCK_MACOS_RES = (1920, 1080)
 @mock.patch(
     "gptme.tools.computer._get_display_resolution", return_value=_MOCK_MACOS_RES
 )
+@mock.patch("gptme.tools.computer._get_macos_display_scale", return_value=2.0)
 @mock.patch("subprocess.run")
-def test_computer_cursor_position_macos(mock_run, mock_res):
+def test_computer_cursor_position_macos(mock_run, mock_scale, mock_res):
     """Test cursor_position on macOS parses cliclick output correctly."""
     from gptme.tools.computer import computer
 
