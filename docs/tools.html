@@ -507,7 +507,10 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#patch">Patch</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vision">Vision</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screenshot">Screenshot</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#browser">Browser</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#browser">Browser</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#browser-faq">Browser FAQ</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chats">Chats</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer">Computer</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rag">RAG</a></li>
@@ -3258,6 +3261,45 @@ Useful for understanding page structure and finding elements to interact with.</
 (which may differ from the requested URL after redirects).</p>
 </dd></dl>
 
+<section id="browser-faq">
+<h3>Browser FAQ<a class="headerlink" href="#browser-faq" title="Link to this heading">#</a></h3>
+<p><strong>Does the browser tool bypass CAPTCHAs?</strong></p>
+<p>No. The Playwright backend is a real browser engine (headless Chromium or Firefox),
+so it behaves the same as any headless browser — some CAPTCHAs will block it.
+gptme does not currently expose a headed-mode toggle for the built-in Playwright
+launcher. To improve success on sites that detect headless Chromium, try Firefox:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>run<span class="w"> </span><span class="nv">playwright</span><span class="o">==</span><span class="nv">$PW_VERSION</span><span class="w"> </span>install<span class="w"> </span>firefox
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span>firefox
+</pre></div>
+</div>
+<p>You can also connect to an existing Chromium-compatible browser over Chrome
+DevTools Protocol:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>chromium<span class="w"> </span>--remote-debugging-port<span class="o">=</span><span class="m">9222</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_CDP_URL</span><span class="o">=</span>http://127.0.0.1:9222
+</pre></div>
+</div>
+<p><strong>Can I use a full GUI browser with extensions?</strong></p>
+<p>Yes — via the <a class="reference internal" href="howto/computer-use.html"><span class="doc">How to Automate GUIs with Computer Use</span></a> Docker image, which runs a real Chromium
+browser inside a VNC-accessible desktop. Extensions, GUI interaction, and anything
+that needs a visible browser window all work there. See the Computer tool and
+<a class="reference internal" href="howto/computer-use.html"><span class="doc">How to Automate GUIs with Computer Use</span></a> for setup details.</p>
+<p><strong>Can I run the browser tool inside Docker?</strong></p>
+<p>The standard Playwright backend works in Docker (headless mode, no display
+required). For headed/GUI mode inside Docker, use the computer-use Docker image
+which bundles a VNC server and a full desktop environment. See
+<a class="reference internal" href="howto/computer-use.html"><span class="doc">How to Automate GUIs with Computer Use</span></a> for details.</p>
+<p><strong>The page is blocking my scrape — what should I try?</strong></p>
+<p>In order:</p>
+<ol class="arabic simple">
+<li><p>Switch backends: <code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_ENGINE=firefox</span></code> (different fingerprint than
+Chromium)</p></li>
+<li><p>Connect to an existing Chromium browser:
+<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL=http://127.0.0.1:9222</span></code></p></li>
+<li><p>Use Anthropic native search (Claude models only):
+<code class="docutils literal notranslate"><span class="pre">GPTME_ANTHROPIC_WEB_SEARCH=true</span></code></p></li>
+<li><p>Use the Computer tool with the VNC Docker image for full GUI browser control</p></li>
+</ol>
+</section>
 </section>
 <section id="chats">
 <h2>Chats<a class="headerlink" href="#chats" title="Link to this heading">#</a></h2>
@@ -5217,7 +5259,10 @@ spawning subagents programmatically:</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#patch">Patch</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vision">Vision</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screenshot">Screenshot</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#browser">Browser</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#browser">Browser</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#browser-faq">Browser FAQ</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chats">Chats</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer">Computer</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rag">RAG</a></li>
