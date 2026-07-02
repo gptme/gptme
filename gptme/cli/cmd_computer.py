@@ -54,6 +54,7 @@ def _extract_computer_calls(messages) -> list[dict]:
 
     Scans executable tool-use blocks (ipython codeblocks) for calls to:
     - ``computer()`` — desktop/X11 actions (screenshot, click, type, key, …)
+    - ``act_and_observe()`` — "act then look" wrapper (recommended by computer-use profile)
     - ``observe_desktop()`` — explicit desktop observation
     - ``observe_web(url)`` — structured-first web observation
     - ``snapshot_url(url)`` — one-shot ARIA snapshot
@@ -97,6 +98,35 @@ def _extract_computer_calls(messages) -> list[dict]:
                     text_m = re.search(r"""text\s*=\s*['"]([^'"]*)['"]""", call_source)
                     record["text_len"] = len(text_m.group(1)) if text_m else None
                 all_positioned.append((m.start(), record))
+
+            # --- act_and_observe("action", ...) ---
+            # The computer-use profile's system prompt recommends act_and_observe() as
+            # the primary "act then look" primitive. Without this branch those calls
+            # would vanish from the audit trail even though they trigger real actions.
+            for m in re.finditer(r"""act_and_observe\s*\(\s*['"]([^'"]+)['"]""", code):
+                aao_action = m.group(1)
+                aao_call_source = _slice_call(code, m.start())
+                aao_record: dict = {
+                    "timestamp": ts,
+                    "action": aao_action,
+                    "source": "act_and_observe",
+                }
+                aao_coord_m = re.search(
+                    r"coordinate\s*=\s*\((\d+)\s*,\s*(\d+)\)", aao_call_source
+                )
+                if aao_coord_m:
+                    aao_record["coordinate"] = [
+                        int(aao_coord_m.group(1)),
+                        int(aao_coord_m.group(2)),
+                    ]
+                if aao_action in _SENSITIVE_ACTIONS:
+                    aao_text_m = re.search(
+                        r"""text\s*=\s*['"]([^'"]*)['"]""", aao_call_source
+                    )
+                    aao_record["text_len"] = (
+                        len(aao_text_m.group(1)) if aao_text_m else None
+                    )
+                all_positioned.append((m.start(), aao_record))
 
             # --- observe_desktop() ---
             all_positioned.extend(
@@ -231,9 +261,10 @@ def audit_log(conversation: str | None, last: int, as_json: bool):
     """Extract computer-use actions from session trajectories.
 
     Reads conversation JSONL logs (the authoritative audit trail) and prints a
-    structured summary of every computer(), observe_desktop(), and browser
-    interaction call (observe_web, open_page, fill_element, click_element, …).
-    Typed/key text and fill_element values are redacted to just their length.
+    structured summary of every computer(), act_and_observe(), observe_desktop(),
+    and browser interaction call (observe_web, open_page, fill_element,
+    click_element, …). Typed/key text and fill_element values are redacted to
+    just their length.
 
     CONVERSATION is a conversation name or ID. Omit to scan the most-recent
     session(s) (controlled by --last).
@@ -303,6 +334,12 @@ def audit_log(conversation: str | None, last: int, as_json: bool):
         source = r.get("source", "")
         if source == "observe_desktop":
             details = "via observe_desktop()"
+        elif source == "act_and_observe":
+            details = "via act_and_observe()"
+            if "coordinate" in r:
+                details += f" @ {r['coordinate']}"
+            if "text_len" in r and r["text_len"] is not None:
+                details += f" ({r['text_len']} chars, redacted)"
         elif source == "browser":
             if "url" in r:
                 url = r["url"]

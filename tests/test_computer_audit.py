@@ -571,3 +571,117 @@ def test_audit_log_cli_table_shows_selector_and_value_len(tmp_path):
     assert f"{len('hello world')} chars" in result.output
     # Selector shown for click_element
     assert '[type="submit"]' in result.output
+
+
+# ---------------------------------------------------------------------------
+# act_and_observe() audit tracking
+# The computer-use profile recommends act_and_observe() as the primary
+# "act then look" primitive — it must appear in the audit trail.
+# ---------------------------------------------------------------------------
+
+
+def test_act_and_observe_click_captured():
+    """act_and_observe('left_click', coordinate=...) is captured with source=act_and_observe."""
+    msgs = [
+        _msg(
+            "assistant",
+            _ipython_block("act_and_observe('left_click', coordinate=(760, 540))"),
+        )
+    ]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "left_click"
+    assert records[0]["source"] == "act_and_observe"
+    assert records[0]["coordinate"] == [760, 540]
+
+
+def test_act_and_observe_type_redacts_text():
+    """act_and_observe('type', text=...) logs text length, never raw text."""
+    msgs = [
+        _msg(
+            "assistant",
+            _ipython_block("act_and_observe('type', text='secret password')"),
+        )
+    ]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "type"
+    assert records[0]["source"] == "act_and_observe"
+    assert "text_len" in records[0]
+    assert records[0]["text_len"] == len("secret password")
+    # Raw text must not be present
+    for v in records[0].values():
+        assert "secret" not in str(v)
+
+
+def test_act_and_observe_screenshot_passthrough_captured():
+    """act_and_observe('screenshot') (observation-only) is still captured in the audit log."""
+    msgs = [_msg("assistant", _ipython_block("act_and_observe('screenshot')"))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "screenshot"
+    assert records[0]["source"] == "act_and_observe"
+
+
+def test_act_and_observe_double_quotes():
+    """Double-quoted action string is captured (act_and_observe("left_click", ...))."""
+    msgs = [
+        _msg(
+            "assistant",
+            _ipython_block('act_and_observe("left_click", coordinate=(100, 200))'),
+        )
+    ]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "left_click"
+    assert records[0]["source"] == "act_and_observe"
+    assert records[0]["coordinate"] == [100, 200]
+
+
+def test_act_and_observe_interleaved_with_computer():
+    """act_and_observe() and computer() calls in the same block are emitted in source order."""
+    code = textwrap.dedent("""\
+        computer('screenshot')
+        act_and_observe('left_click', coordinate=(50, 50))
+        computer('type', text='hello')
+    """)
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 3
+    assert records[0]["action"] == "screenshot"
+    assert records[0].get("source") is None  # native computer() call
+    assert records[1]["action"] == "left_click"
+    assert records[1]["source"] == "act_and_observe"
+    assert records[2]["action"] == "type"
+    assert records[2].get("source") is None  # native computer() call
+
+
+def test_act_and_observe_table_output(tmp_path, _write_conv_jsonl=None):
+    """Table output shows 'via act_and_observe()' and coordinate for click actions."""
+    # Reuse the _write_conv_jsonl helper via direct import
+    from gptme.cli.cmd_computer import _extract_computer_calls as _ec  # noqa: F401
+
+    conv_dir = tmp_path / "aao-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+
+    # Build the JSONL directly since _write_conv_jsonl is a module-level helper
+    msgs = [
+        _msg(
+            "assistant",
+            _ipython_block("act_and_observe('left_click', coordinate=(760, 540))"),
+        )
+    ]
+    conv_dir.mkdir(parents=True, exist_ok=True)
+
+    ts_str = "2026-07-01T12:00:00+00:00"
+    rows = [
+        json.dumps({"role": m.role, "content": m.content, "timestamp": ts_str})
+        for m in msgs
+    ]
+    jsonl.write_text("\n".join(rows) + "\n")
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl)], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "via act_and_observe()" in result.output
+    assert "[760, 540]" in result.output
