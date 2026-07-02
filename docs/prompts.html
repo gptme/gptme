@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fc2a42be980&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f7b304ae980&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1149,14 +1149,13 @@ lacks accessibility support (e.g. electron apps, games, canvas-based UIs).
 
 <span class="gu">### Efficient action-verify loops</span>
 
-Prefer wait_for_change over immediate screenshot after triggering UI changes:
+Prefer ``act_and_observe()`` over separate ``computer()`` + ``wait_for_change``:
 
-  computer(&quot;left_click&quot;, coordinate=(760, 540))  # trigger action
-  computer(&quot;wait_for_change&quot;, text=&quot;5&quot;)           # wait for response, see result once
+  act_and_observe(&quot;left_click&quot;, coordinate=(760, 540))  # trigger action, see result
 
-This prevents the conversation from accumulating multiple nearly-identical
-screenshots during transitions. Only call screenshot() directly when you need
-the current state without waiting.
+This combines the action and observation into one call, preventing the conversation
+from accumulating multiple nearly-identical screenshots during transitions.
+Only call ``screenshot()`` directly when you need the current state without waiting.
 
 <span class="gu">### Opening new windows without guessing their position</span>
 
@@ -1174,13 +1173,18 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 
 <span class="gu">### Observation helpers (structured-first policy)</span>
 
-Two higher-level helpers are available that implement the structured-first observation policy:
+Three higher-level helpers are available that implement the structured-first observation policy:
 
 <span class="k">-</span><span class="w"> </span>``observe_web(url, screenshot_too=False)`` — observe a web page using ARIA snapshots first
   (no vision tokens), with automatic fallback to a browser screenshot, then desktop screenshot.
   Pass ``screenshot_too=True`` to get both an ARIA snapshot AND a screenshot side by side.
 <span class="k">-</span><span class="w"> </span>``observe_desktop()`` — thin wrapper around ``computer(&#39;screenshot&#39;)`` that signals intent
   clearly for native apps and non-browser surfaces.
+<span class="k">-</span><span class="w"> </span>``act_and_observe(action, text=None, coordinate=None, timeout=3.0)`` — perform a desktop
+  action <span class="gs">**and**</span> automatically observe the result. Combines ``computer(action, ...)`` with
+  ``wait_for_change`` in one call — the complete &quot;act then look&quot; loop without separate
+  screenshot calls. Use this for tight interaction loops where you want to see the screen
+  after every click, keypress, or scroll.
 
 These helpers are preferred over calling ``computer(&quot;screenshot&quot;)`` directly when observing
 web pages, because ARIA snapshots avoid costly vision tokens and give a DOM-addressable tree.
@@ -1192,6 +1196,7 @@ The following Python functions are available:
 <span class="s">computer(action: Action, text: str | None, coordinate: tuple[int, int] | None) -&gt; Message | None: Perform computer interactions in X11 or macOS environments.</span>
 <span class="s">observe_web(url: str, screenshot_too: bool) -&gt; list[Message]: Observe a web page: structured ARIA snapshot first, screenshot as fallback.</span>
 <span class="s">observe_desktop() -&gt; Message | None: Observe the current desktop state via screenshot.</span>
+<span class="s">act_and_observe(action: Action, text: str | None, coordinate: tuple[int, int] | None, timeout: float) -&gt; list[Message]: Perform a desktop action then automatically observe the result.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -1227,9 +1232,9 @@ The following Python functions are available:
 <span class="n">computer</span><span class="p">(</span><span class="s2">&quot;scroll&quot;</span><span class="p">,</span> <span class="n">coordinate</span><span class="o">=</span><span class="p">(</span><span class="mi">512</span><span class="p">,</span> <span class="mi">400</span><span class="p">),</span> <span class="n">text</span><span class="o">=</span><span class="s2">&quot;down&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">User: Click the Submit button then wait for the result page to load</span>
-<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll click Submit and wait for the screen to change before returning a screenshot.</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use act_and_observe to click Submit and automatically get a screenshot once the screen settles.</span>
 <span class="sb">```ipython</span>
-<span class="n">computer</span><span class="p">(</span><span class="s2">&quot;left_click&quot;</span><span class="p">,</span> <span class="n">coordinate</span><span class="o">=</span><span class="p">(</span><span class="mi">760</span><span class="p">,</span> <span class="mi">540</span><span class="p">))</span>
+<span class="n">act_and_observe</span><span class="p">(</span><span class="s2">&quot;left_click&quot;</span><span class="p">,</span> <span class="n">coordinate</span><span class="o">=</span><span class="p">(</span><span class="mi">760</span><span class="p">,</span> <span class="mi">540</span><span class="p">))</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">User: Open a terminal and run a command</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll open a terminal with a keyboard shortcut, wait for it to appear and focus it, then type the command.</span>
@@ -2611,7 +2616,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 15517</p>
+<p>Tokens: 15670</p>
 </dd></dl>
 
 <dl class="py function">
