@@ -151,19 +151,22 @@ Browser FAQ
 **Does the browser tool bypass CAPTCHAs?**
 
 No. The Playwright backend is a real browser engine (headless Chromium or Firefox),
-so it behaves the same as any headless browser — some CAPTCHAs will block it. To
-improve success on sites that detect headless browsers, switch to headed mode:
+so it behaves the same as any headless browser — some CAPTCHAs will block it.
+gptme does not currently expose a headed-mode toggle for the built-in Playwright
+launcher. To improve success on sites that detect headless Chromium, try Firefox:
 
 .. code-block:: bash
 
-    export GPTME_BROWSER_HEADLESS=false
-
-This requires a display (set ``DISPLAY`` on Linux). Some sites that block headless
-Chromium will also pass with Firefox:
-
-.. code-block:: bash
-
+    pipx run playwright==$PW_VERSION install firefox
     export GPTME_BROWSER_ENGINE=firefox
+
+You can also connect to an existing Chromium-compatible browser over Chrome
+DevTools Protocol:
+
+.. code-block:: bash
+
+    chromium --remote-debugging-port=9222
+    export GPTME_BROWSER_CDP_URL=http://127.0.0.1:9222
 
 **Can I use a full GUI browser with extensions?**
 
@@ -183,9 +186,15 @@ which bundles a VNC server and a full desktop environment. See
 
 In order:
 
-1. Switch backends: ``GPTME_BROWSER_ENGINE=firefox`` (different fingerprint than Chromium)
-2. Use headed mode: ``GPTME_BROWSER_HEADLESS=false`` (passes more bot-detection checks)
-3. Use Anthropic native search (Claude models only): ``GPTME_ANTHROPIC_WEB_SEARCH=true``
+1. Switch backends: ``GPTME_BROWSER_ENGINE=firefox`` (different fingerprint than
+   Chromium)
+
+2. Connect to an existing Chromium browser:
+   ``GPTME_BROWSER_CDP_URL=http://127.0.0.1:9222``
+
+3. Use Anthropic native search (Claude models only):
+   ``GPTME_ANTHROPIC_WEB_SEARCH=true``
+
 4. Use the Computer tool with the VNC Docker image for full GUI browser control
 
 Chats
