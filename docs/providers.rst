@@ -216,7 +216,6 @@ Popular Groq models:
 
 - ``groq/llama-3.3-70b-versatile`` — fast 70B Llama 3.3
 - ``groq/llama-3.1-8b-instant`` — fastest, smallest
-- ``groq/moonshard-1`` — Groq's proprietary model
 
 .. rubric:: OpenAI Subscription
 
