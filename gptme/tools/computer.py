@@ -280,18 +280,57 @@ def _get_macos_display_scale() -> float:
         output = subprocess.check_output(
             ["system_profiler", "SPDisplaysDataType"], text=True, timeout=10
         )
-        physical_w: int | None = None
+        current_physical_w: int | None = None
+        current_logical_w: int | None = None
+        current_is_main = False
+        fallback_scale: float | None = None
+
+        def record_candidate() -> float | None:
+            nonlocal fallback_scale
+            if (
+                current_physical_w is None
+                or current_logical_w is None
+                or current_logical_w <= 0
+            ):
+                return None
+
+            scale = current_physical_w / current_logical_w
+            if current_is_main:
+                return scale
+            if fallback_scale is None or (fallback_scale == 1.0 and scale != 1.0):
+                fallback_scale = scale
+            return None
+
         for line in output.splitlines():
             stripped = line.strip()
-            if stripped.startswith("Resolution:") and physical_w is None:
+            if (
+                line.startswith("        ")
+                and not line.startswith("          ")
+                and stripped.endswith(":")
+            ):
+                scale = record_candidate()
+                if scale is not None:
+                    return scale
+                current_physical_w = None
+                current_logical_w = None
+                current_is_main = False
+                continue
+
+            if stripped.startswith("Resolution:"):
                 parts = stripped.split(":")[-1].split("x")
-                physical_w = int(parts[0].strip())
-            elif "UI Looks like" in stripped and physical_w is not None:
+                current_physical_w = int(parts[0].strip())
+            elif stripped.startswith("UI Looks like:"):
                 # "UI Looks like: 1280 x 832 @ 60.00Hz"
                 parts = stripped.split(":")[-1].split("x")
-                logical_w = int(parts[0].strip())
-                if logical_w > 0:
-                    return physical_w / logical_w
+                current_logical_w = int(parts[0].strip())
+            elif stripped == "Main Display: Yes":
+                current_is_main = True
+
+        scale = record_candidate()
+        if scale is not None:
+            return scale
+        if fallback_scale is not None:
+            return fallback_scale
     except Exception:
         pass
 

@@ -374,6 +374,32 @@ Graphics/Displays:
 
 
 @mock.patch("gptme.tools.computer.IS_MACOS", True)
+def test_get_macos_display_scale_via_system_profiler_prefers_main_display():
+    """Main Display metadata wins when multiple display blocks have valid scale pairs."""
+    _get_macos_display_scale.cache_clear()
+    profiler_output = """\
+Graphics/Displays:
+    Apple M1:
+      Displays:
+        External Monitor:
+          Resolution: 1920 x 1080
+          UI Looks like: 1920 x 1080 @ 60.00Hz
+        Color LCD:
+          Main Display: Yes
+          Resolution: 2560 x 1664 Retina
+          UI Looks like: 1280 x 832 @ 60.00Hz
+"""
+
+    with (
+        mock.patch.dict("sys.modules", {"AppKit": None}),
+        mock.patch("subprocess.check_output", return_value=profiler_output),
+    ):
+        scale = _get_macos_display_scale()
+
+    assert scale == pytest.approx(2.0, rel=1e-3)
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
 def test_get_macos_display_scale_fallback_to_2x():
     """Falls back to 2.0 when both AppKit and system_profiler are unavailable."""
     _get_macos_display_scale.cache_clear()
