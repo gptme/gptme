@@ -1251,7 +1251,7 @@ def test_wait_for_change_detects_change(mock_transport, mock_res, tmp_path):
 
     with (
         mock.patch("gptme.tools.computer.screenshot", side_effect=_fake_screenshot),
-        mock.patch("gptme.tools.computer.time.sleep"),
+        mock.patch("gptme.tools.computer._sleep"),
         mock.patch(
             "gptme.tools.computer._make_screenshot_msg", return_value=mock.sentinel.msg
         ),
@@ -1283,9 +1283,9 @@ def test_wait_for_change_timeout_returns_screenshot(mock_transport, mock_res, tm
 
     with (
         mock.patch("gptme.tools.computer.screenshot", return_value=static),
-        mock.patch("gptme.tools.computer.time.sleep"),
+        mock.patch("gptme.tools.computer._sleep"),
         mock.patch(
-            "gptme.tools.computer.time.monotonic", side_effect=monotonic_side_effect
+            "gptme.tools.computer._monotonic", side_effect=monotonic_side_effect
         ),
         mock.patch(
             "gptme.tools.computer._make_screenshot_msg",
@@ -1321,8 +1321,8 @@ def test_wait_for_change_polls_with_backoff(mock_transport, mock_res, tmp_path):
 
     with (
         mock.patch("gptme.tools.computer.screenshot", return_value=static),
-        mock.patch("gptme.tools.computer.time.sleep", side_effect=_record_sleep),
-        mock.patch("gptme.tools.computer.time.monotonic", side_effect=_fake_monotonic),
+        mock.patch("gptme.tools.computer._sleep", side_effect=_record_sleep),
+        mock.patch("gptme.tools.computer._monotonic", side_effect=_fake_monotonic),
         mock.patch(
             "gptme.tools.computer._make_screenshot_msg",
             return_value=mock.sentinel.timeout_msg,
@@ -1462,8 +1462,8 @@ def test_macos_window_focus_no_match_raises():
     """
     with (
         mock.patch("gptme.tools.computer.subprocess.run") as mock_run,
-        mock.patch("gptme.tools.computer.time.monotonic") as mock_time,
-        mock.patch("gptme.tools.computer.time.sleep"),
+        mock.patch("gptme.tools.computer._monotonic") as mock_time,
+        mock.patch("gptme.tools.computer._sleep"),
         pytest.raises(RuntimeError, match="No window matching.*'MissingApp'"),
     ):
         # First call returns not_found, second call has monotonic past deadline
@@ -1483,10 +1483,8 @@ def test_macos_window_focus_retry_then_found():
     ]
     with (
         mock.patch("gptme.tools.computer.subprocess.run", side_effect=results),
-        mock.patch(
-            "gptme.tools.computer.time.monotonic", side_effect=[0.0, 0.5, 1.0, 1.5]
-        ),
-        mock.patch("gptme.tools.computer.time.sleep"),
+        mock.patch("gptme.tools.computer._monotonic", side_effect=[0.0, 0.5, 1.0, 1.5]),
+        mock.patch("gptme.tools.computer._sleep"),
     ):
         _macos_window_focus("SlowApp", timeout=10.0)
 

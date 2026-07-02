@@ -215,8 +215,8 @@ class TestWaitForChange:
 
         transport = _FixedScreenTransport(tmp_path)
         with (
-            patch("gptme.tools.computer.time.monotonic", side_effect=stepped_clock),
-            patch("gptme.tools.computer.time.sleep"),
+            patch("gptme.tools.computer._monotonic", side_effect=stepped_clock),
+            patch("gptme.tools.computer._sleep"),
         ):
             _dispatch_transport(transport, "wait_for_change", text="0.2")
         assert transport._call_count >= 3
@@ -240,8 +240,8 @@ class TestWaitForChange:
             return start + call_count[0] * 0.001
 
         with (
-            patch("gptme.tools.computer.time.monotonic", side_effect=fast_clock),
-            patch("gptme.tools.computer.time.sleep"),
+            patch("gptme.tools.computer._monotonic", side_effect=fast_clock),
+            patch("gptme.tools.computer._sleep"),
         ):
             result = _dispatch_transport(transport, "wait_for_change")
         assert result is not None

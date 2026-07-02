@@ -109,6 +109,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Patch these aliases in tests instead of mutating the process-wide time module.
+_monotonic = time.monotonic
+_sleep = time.sleep
+
 
 # Platform detection
 IS_MACOS = platform.system() == "Darwin"
@@ -1117,7 +1121,7 @@ def _macos_window_focus(pattern: str, timeout: float = 10.0) -> None:
         "  end tell\n"
         "end run"
     )
-    deadline = time.monotonic() + timeout
+    deadline = _monotonic() + timeout
     while True:
         try:
             result = subprocess.run(
@@ -1136,11 +1140,11 @@ def _macos_window_focus(pattern: str, timeout: float = 10.0) -> None:
 
         if result.stdout.strip() == "found":
             return
-        if time.monotonic() >= deadline:
+        if _monotonic() >= deadline:
             raise RuntimeError(
                 f"No window matching {pattern!r} appeared within {timeout:.0f}s"
             )
-        time.sleep(0.5)
+        _sleep(0.5)
 
 
 def _macos_click(button: int) -> None:
@@ -1294,9 +1298,9 @@ def _dispatch_transport(
         max_poll_interval = 0.5
         change_threshold = 0.01
         baseline = transport.screenshot()
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            time.sleep(poll_interval)
+        deadline = _monotonic() + timeout
+        while _monotonic() < deadline:
+            _sleep(poll_interval)
             current = transport.screenshot()
             ratio = _compute_change_ratio(baseline, current)
             if ratio >= change_threshold:
@@ -1581,9 +1585,9 @@ def computer(
         max_poll_interval = 0.5
         change_threshold = 0.01  # 1% of pixels must differ
         baseline = screenshot()
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            time.sleep(poll_interval)
+        deadline = _monotonic() + timeout
+        while _monotonic() < deadline:
+            _sleep(poll_interval)
             current = screenshot()
             ratio = _compute_change_ratio(baseline, current)
             if ratio >= change_threshold:
