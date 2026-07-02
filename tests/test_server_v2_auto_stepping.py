@@ -241,9 +241,7 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
 
 
 @pytest.mark.timeout(30)
-@pytest.mark.xfail(
-    reason="pytest-retry KeyError on stash during fixture cleanup (flaky)"
-)
+@pytest.mark.flaky(retries=2, delay=1)
 def test_multi_tool_per_message(
     init_, setup_conversation, event_listener, mock_generation, wait_for_event, tmp_path
 ):
