@@ -22,6 +22,7 @@ _PIL_AVAILABLE = importlib.util.find_spec("PIL") is not None
 
 from gptme.tools.computer import (
     _dispatch_transport,
+    act_and_observe,
     observe_desktop,
     observe_web,
 )
@@ -377,3 +378,134 @@ class TestObserveDesktop:
         with patch("gptme.tools.computer.computer", return_value=None):
             result = observe_desktop()
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# act_and_observe tests
+# ---------------------------------------------------------------------------
+
+
+class TestActAndObserve:
+    """Tests for the act_and_observe() helper."""
+
+    def test_click_triggers_wait_for_change(self) -> None:
+        """State-changing action must call computer(action) then computer('wait_for_change')."""
+        action_msg = MagicMock()
+        settled_msg = MagicMock()
+        call_args: list[tuple] = []
+
+        def mock_computer(action, text=None, coordinate=None):
+            call_args.append((action, text, coordinate))
+            if action == "wait_for_change":
+                return settled_msg
+            return action_msg if action == "left_click" else None
+
+        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+            msgs = act_and_observe("left_click", coordinate=(100, 200))
+
+        assert len(call_args) == 2
+        assert call_args[0] == ("left_click", None, (100, 200))
+        assert call_args[1][0] == "wait_for_change"
+        assert settled_msg in msgs
+
+    def test_type_action_triggers_wait_for_change(self) -> None:
+        """Typing text must also call wait_for_change after the type action."""
+        settled_msg = MagicMock()
+        call_args: list[tuple] = []
+
+        def mock_computer(action, text=None, coordinate=None):
+            call_args.append((action, text, coordinate))
+            return settled_msg if action == "wait_for_change" else None
+
+        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+            msgs = act_and_observe("type", text="hello")
+
+        assert call_args[0][0] == "type"
+        assert call_args[1][0] == "wait_for_change"
+        assert settled_msg in msgs
+
+    def test_screenshot_action_is_passthrough(self) -> None:
+        """Observation-only actions must not append an extra wait_for_change call."""
+        screenshot_msg = MagicMock()
+        calls: list[str] = []
+
+        def mock_computer(action, text=None, coordinate=None):
+            calls.append(action)
+            return screenshot_msg
+
+        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+            msgs = act_and_observe("screenshot")
+
+        assert calls == ["screenshot"], (
+            "only one computer() call for observation-only action"
+        )
+        assert msgs == [screenshot_msg]
+
+    def test_wait_for_change_is_passthrough(self) -> None:
+        """wait_for_change itself must not trigger another wait_for_change call."""
+        settled_msg = MagicMock()
+        calls: list[str] = []
+
+        def mock_computer(action, text=None, coordinate=None):
+            calls.append(action)
+            return settled_msg
+
+        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+            msgs = act_and_observe("wait_for_change", text="5")
+
+        assert calls == ["wait_for_change"]
+        assert msgs == [settled_msg]
+
+    def test_timeout_forwarded_to_wait_for_change(self) -> None:
+        """The timeout argument must be passed as text= to computer('wait_for_change')."""
+        captured_text: list[str | None] = []
+
+        def mock_computer(action, text=None, coordinate=None):
+            if action == "wait_for_change":
+                captured_text.append(text)
+            return
+
+        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+            act_and_observe("left_click", coordinate=(0, 0), timeout=7.5)
+
+        assert captured_text == ["7.5"]
+
+    def test_action_result_included_when_not_none(self) -> None:
+        """If computer(action) returns a Message, it must appear before the screenshot."""
+        action_msg = MagicMock()
+        settled_msg = MagicMock()
+
+        def mock_computer(action, text=None, coordinate=None):
+            if action == "wait_for_change":
+                return settled_msg
+            return action_msg
+
+        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+            msgs = act_and_observe("scroll", coordinate=(0, 0), text="down")
+
+        assert msgs[0] is action_msg
+        assert msgs[1] is settled_msg
+
+    def test_no_settled_screenshot_when_wait_returns_none(self) -> None:
+        """If wait_for_change returns None, the list must not include it."""
+
+        def mock_computer(action, text=None, coordinate=None):
+            return None
+
+        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+            msgs = act_and_observe("left_click", coordinate=(100, 100))
+
+        assert msgs == []
+
+    def test_key_action_triggers_wait_for_change(self) -> None:
+        """Keyboard actions must also be treated as state-changing."""
+        calls: list[str] = []
+
+        def mock_computer(action, text=None, coordinate=None):
+            calls.append(action)
+            return
+
+        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+            act_and_observe("key", text="Return")
+
+        assert "wait_for_change" in calls, "key action must trigger wait_for_change"

@@ -1806,13 +1806,18 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 
 ### Observation helpers (structured-first policy)
 
-Two higher-level helpers are available that implement the structured-first observation policy:
+Three higher-level helpers are available that implement the structured-first observation policy:
 
 - ``observe_web(url, screenshot_too=False)`` — observe a web page using ARIA snapshots first
   (no vision tokens), with automatic fallback to a browser screenshot, then desktop screenshot.
   Pass ``screenshot_too=True`` to get both an ARIA snapshot AND a screenshot side by side.
 - ``observe_desktop()`` — thin wrapper around ``computer('screenshot')`` that signals intent
   clearly for native apps and non-browser surfaces.
+- ``act_and_observe(action, text=None, coordinate=None, timeout=3.0)`` — perform a desktop
+  action **and** automatically observe the result. Combines ``computer(action, ...)`` with
+  ``wait_for_change`` in one call — the complete "act then look" loop without separate
+  screenshot calls. Use this for tight interaction loops where you want to see the screen
+  after every click, keypress, or scroll.
 
 These helpers are preferred over calling ``computer("screenshot")`` directly when observing
 web pages, because ARIA snapshots avoid costly vision tokens and give a DOM-addressable tree.
@@ -1947,6 +1952,75 @@ def observe_desktop() -> Message | None:
     return computer("screenshot")
 
 
+# Actions that only read state — no post-action screenshot is useful for these.
+_OBSERVATION_ACTIONS: frozenset[str] = frozenset(
+    {"screenshot", "cursor_position", "accessibility_tree", "wait_for_change"}
+)
+
+
+def act_and_observe(
+    action: Action,
+    text: str | None = None,
+    coordinate: tuple[int, int] | None = None,
+    timeout: float = 3.0,
+) -> list[Message]:
+    """Perform a desktop action then automatically observe the result.
+
+    Implements the "act → look" half of the computer-use loop in one call,
+    eliminating the separate ``computer('wait_for_change')`` step after every
+    interaction.  The screen is polled until it settles (up to *timeout*
+    seconds), then a single screenshot is returned — exactly the same
+    behaviour as ``computer('wait_for_change')`` but wired directly after the
+    requested action.
+
+    For observation-only actions (``"screenshot"``, ``"cursor_position"``,
+    ``"accessibility_tree"``, ``"wait_for_change"``) the call is passed
+    through unchanged: no extra screenshot is appended.
+
+    Args:
+        action: Desktop action to perform — same values as ``computer()``.
+        text: Text to type or key sequence (forwarded to ``computer()``).
+        coordinate: Mouse coordinates (forwarded to ``computer()``).
+        timeout: Seconds to wait for a screen change after the action (default 3 s).
+
+    Returns:
+        List of :class:`~gptme.message.Message` objects:
+
+        - For state-changing actions: zero or one action-output message
+          (if the action itself produces output) **plus** a screenshot of the
+          settled screen after the change.
+        - For observation-only actions: just the output of ``computer()``.
+
+    Example (from IPython in a computer-use session)::
+
+        # Click a button and see the screen update — one call, no polling
+        msgs = act_and_observe("left_click", coordinate=(760, 540))
+
+        # Type text and immediately verify what appeared
+        msgs = act_and_observe("type", text="hello world")
+
+        # Observation-only actions are passed through unchanged
+        msgs = act_and_observe("screenshot")  # same as [computer("screenshot")]
+    """
+    msgs: list[Message] = []
+
+    result = computer(action, text=text, coordinate=coordinate)
+    if result is not None:
+        msgs.append(result)
+
+    # Observation-only actions already carry their output above; no extra screenshot.
+    if action in _OBSERVATION_ACTIONS:
+        return msgs
+
+    # For any action that modifies desktop state, wait for the screen to settle
+    # and return one screenshot showing the outcome.
+    settled = computer("wait_for_change", text=str(timeout))
+    if settled is not None:
+        msgs.append(settled)
+
+    return msgs
+
+
 def examples(tool_format):
     system = platform.system()
     is_macos = system == "Darwin"
@@ -1986,10 +2060,8 @@ Assistant: I'll scroll down at those coordinates.
 System: Scrolled down at 512,400
 
 User: Click the Submit button then wait for the result page to load
-Assistant: I'll click Submit and wait for the screen to change before returning a screenshot.
-{ToolUse("ipython", [], 'computer("left_click", coordinate=(760, 540))').to_output(tool_format)}
-System: Performed left_click
-{ToolUse("ipython", [], 'computer("wait_for_change", text="10")').to_output(tool_format)}
+Assistant: I'll use act_and_observe to click Submit and automatically get a screenshot once the screen settles.
+{ToolUse("ipython", [], 'act_and_observe("left_click", coordinate=(760, 540))').to_output(tool_format)}
 System: Screen changed (23.4% pixels differ)
 Viewing image...
 
@@ -2054,6 +2126,7 @@ tool = ToolSpec(
         ToolFunction.from_callable(computer),
         ToolFunction.from_callable(observe_web),
         ToolFunction.from_callable(observe_desktop),
+        ToolFunction.from_callable(act_and_observe),
     ],
     disabled_by_default=True,
 )
