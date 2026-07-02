@@ -287,6 +287,26 @@ class TestObserveWeb:
         assert "failed" in error_text.lower(), "error message must say what failed"
         assert "playwright" in error_text.lower(), "error must mention Playwright"
 
+    def test_missing_playwright_branch_returns_single_actionable_error(self) -> None:
+        """observe_web() reports missing Playwright once when browser imports work."""
+        browser_module = MagicMock(
+            has_playwright=lambda: False,
+            snapshot_url=MagicMock(),
+            screenshot_url=MagicMock(),
+        )
+        with (
+            patch.dict("sys.modules", {"gptme.tools.browser": browser_module}),
+            patch("gptme.tools.computer.computer", return_value=None),
+        ):
+            result = observe_web("https://example.com")
+
+        assert len(result) == 1
+        error_text = result[0].content
+        assert error_text.count("Playwright not installed") == 1
+        assert "snapshot_url unavailable" in error_text
+        browser_module.snapshot_url.assert_not_called()
+        browser_module.screenshot_url.assert_not_called()
+
     def test_screenshot_too_appends_second_message(self) -> None:
         """screenshot_too=True should add a browser screenshot alongside the snapshot."""
         fake_snapshot = "# Page snapshot"

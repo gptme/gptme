@@ -1605,6 +1605,7 @@ def observe_web(url: str, screenshot_too: bool = False) -> list[Message]:
 
     messages: list[Message] = []
     _failure_reasons: list[str] = []
+    _playwright_missing = False
 
     snapshot_text: str | None = None
     try:
@@ -1613,6 +1614,7 @@ def observe_web(url: str, screenshot_too: bool = False) -> list[Message]:
         if has_playwright():
             snapshot_text = snapshot_url(url)
         else:
+            _playwright_missing = True
             _failure_reasons.append(
                 "Playwright not installed — snapshot_url unavailable "
                 "(fix: pip install playwright && playwright install chromium)"
@@ -1646,9 +1648,11 @@ def observe_web(url: str, screenshot_too: bool = False) -> list[Message]:
                 if msg is not None:
                     messages.append(msg)
             else:
-                _failure_reasons.append(
-                    "Playwright not installed — screenshot_url unavailable"
-                )
+                if not _playwright_missing:
+                    _failure_reasons.append(
+                        "Playwright not installed — screenshot_url unavailable"
+                    )
+                    _playwright_missing = True
         except Exception as e:
             _failure_reasons.append(f"screenshot_url raised: {e}")
 
