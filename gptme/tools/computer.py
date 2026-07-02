@@ -59,9 +59,13 @@ Screen:
 Window management:
     - window_focus: Wait for a window matching a name pattern to appear and focus it
 
-Accessibility (Linux/AT-SPI2 only):
-    - accessibility_tree: Dump the AT-SPI2 accessibility tree for all apps
-    - click_accessible_element: Find and click an element by role and name (text='role:name')
+Accessibility (cross-platform):
+    - accessibility_tree: Dump the native accessibility tree for all visible apps.
+      On Linux uses AT-SPI2 (role names like "push button", "entry").
+      On macOS uses System Events via AppleScript (role names like "AXButton", "AXTextField").
+    - click_accessible_element: Find and click an element by role and name (text='role:name').
+      Linux example: text='push button:Submit'
+      macOS example: text='AXButton:Submit'
 
 The tool automatically handles screen resolution scaling to ensure optimal performance
 with LLM vision capabilities.
@@ -777,6 +781,230 @@ def _linux_click_accessible_element(
     return x, y
 
 
+def _macos_accessibility_tree(max_depth: int = 2) -> str:
+    """Return a text dump of the macOS accessibility tree for visible apps.
+
+    Uses AppleScript via ``osascript`` to query the System Events accessibility
+    API.  On macOS, roles use the AX prefix (``AXButton``, ``AXTextField``, etc.)
+    rather than the AT-SPI2 names used on Linux.
+
+    Args:
+        max_depth: Levels below each window to walk (default 2). Deeper values
+            are slower; most interactive elements appear within 2 levels.
+
+    Returns:
+        Multi-line text representation of the accessibility tree.
+
+    Raises:
+        RuntimeError: If osascript fails or accessibility is not granted.
+    """
+    # Build a depth-limited AppleScript walker using a repeat-based stack approach.
+    # AppleScript cannot recurse into named handlers inside a tell block, so we
+    # unroll two levels explicitly and rely on max_depth to guard.
+    if max_depth < 1:
+        max_depth = 1
+    if max_depth > 4:
+        max_depth = 4  # safety cap — deep trees in complex apps can hang
+
+    # Generate indented lines for each visible app / window / element
+    script = """\
+tell application "System Events"
+    set output to ""
+    set procs to (every process whose background only is false)
+    repeat with proc in procs
+        set procName to name of proc
+        set output to output & "Process: " & procName & linefeed
+        try
+            repeat with win in (every window of proc)
+                set winName to ""
+                try
+                    set winName to name of win
+                end try
+                set output to output & "  Window: " & winName & linefeed
+                try
+                    repeat with elem in (every UI element of win)
+                        set eRole to ""
+                        set eName to ""
+                        try
+                            set eRole to role of elem
+                        end try
+                        try
+                            set eName to title of elem
+                        end try
+                        if eName is "" then
+                            try
+                                set eName to name of elem
+                            end try
+                        end if
+                        set output to output & "    " & eRole & ": " & eName & linefeed
+                        try
+                            repeat with child in (every UI element of elem)
+                                set cRole to ""
+                                set cName to ""
+                                try
+                                    set cRole to role of child
+                                end try
+                                try
+                                    set cName to title of child
+                                end try
+                                if cName is "" then
+                                    try
+                                        set cName to name of child
+                                    end try
+                                end if
+                                set output to output & "      " & cRole & ": " & cName & linefeed
+                            end repeat
+                        end try
+                    end repeat
+                end try
+            end repeat
+        end try
+    end repeat
+    return output
+end tell
+"""
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        out = result.stdout.strip()
+        return out or "(empty accessibility tree)"
+    except FileNotFoundError:
+        raise RuntimeError(
+            "osascript not found — macOS accessibility tree requires macOS"
+        ) from None
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            "accessibility_tree timed out — try reducing max_depth or targeting fewer apps"
+        ) from None
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"accessibility_tree failed: {e.stderr.strip()}\n"
+            "Ensure the terminal has Accessibility permission in System Preferences → Privacy & Security."
+        ) from e
+
+
+def _macos_click_accessible_element(
+    role_name: str, element_name: str
+) -> tuple[int, int]:
+    """Find a UI element on macOS by AX role and name and return its center coordinates.
+
+    Searches the frontmost application's window hierarchy up to two levels deep.
+    On macOS, role names use the AX prefix, e.g. ``AXButton``, ``AXTextField``,
+    ``AXCheckBox``.  Run ``computer('accessibility_tree')`` first to discover
+    available roles and names.
+
+    Args:
+        role_name: AX role string, e.g. ``"AXButton"``, ``"AXTextField"``.
+        element_name: Element title or name (case-insensitive substring match).
+
+    Returns:
+        ``(x, y)`` center of the first matching element in screen coordinates.
+
+    Raises:
+        RuntimeError: If osascript fails, element is not found, or has no position.
+    """
+    name_lower = element_name.lower()
+
+    # Search first level then second level; return CSV "x,y" or "not_found"
+    script = f"""\
+tell application "System Events"
+    set frontApp to first application process whose frontmost is true
+    set wins to every window of frontApp
+    repeat with win in wins
+        repeat with elem in (every UI element of win)
+            set eRole to ""
+            set eName to ""
+            try
+                set eRole to role of elem
+            end try
+            try
+                set eName to title of elem
+            end try
+            if eName is "" then
+                try
+                    set eName to name of elem
+                end try
+            end if
+            if eRole is "{role_name}" and eName contains "{name_lower}" then
+                set pos to position of elem
+                set sz to size of elem
+                set cx to (item 1 of pos) + (item 1 of sz) / 2
+                set cy to (item 2 of pos) + (item 2 of sz) / 2
+                return (cx as integer) as text & "," & (cy as integer) as text
+            end if
+            -- second level
+            try
+                repeat with child in (every UI element of elem)
+                    set cRole to ""
+                    set cName to ""
+                    try
+                        set cRole to role of child
+                    end try
+                    try
+                        set cName to title of child
+                    end try
+                    if cName is "" then
+                        try
+                            set cName to name of child
+                        end try
+                    end if
+                    if cRole is "{role_name}" and cName contains "{name_lower}" then
+                        set pos to position of child
+                        set sz to size of child
+                        set cx to (item 1 of pos) + (item 1 of sz) / 2
+                        set cy to (item 2 of pos) + (item 2 of sz) / 2
+                        return (cx as integer) as text & "," & (cy as integer) as text
+                    end if
+                end repeat
+            end try
+        end repeat
+    end repeat
+    return "not_found"
+end tell
+"""
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            "osascript not found — macOS accessibility requires macOS"
+        ) from None
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"click_accessible_element timed out searching for {role_name!r}: {element_name!r}"
+        ) from None
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"click_accessible_element failed: {e.stderr.strip()}\n"
+            "Ensure the terminal has Accessibility permission in System Preferences → Privacy & Security."
+        ) from e
+
+    out = result.stdout.strip()
+    if out == "not_found" or not out:
+        raise RuntimeError(
+            f"No accessible element with role={role_name!r} containing name {element_name!r} "
+            "found in the frontmost app. Run computer('accessibility_tree') to see available elements."
+        )
+
+    try:
+        x_str, y_str = out.split(",", 1)
+        return int(x_str.strip()), int(y_str.strip())
+    except ValueError:
+        raise RuntimeError(
+            f"Unexpected position output from accessibility search: {out!r}"
+        ) from None
+
+
 def _macos_window_focus(pattern: str, timeout: float = 10.0) -> None:
     """Focus the frontmost application whose name contains pattern on macOS.
 
@@ -1008,8 +1236,11 @@ def _dispatch_transport(
         return None
 
     if action == "accessibility_tree":
-        display = os.getenv("DISPLAY", ":1")
-        tree = _linux_accessibility_tree(display)
+        if IS_MACOS:
+            tree = _macos_accessibility_tree()
+        else:
+            display = os.getenv("DISPLAY", ":1")
+            tree = _linux_accessibility_tree(display)
         print(tree)
         return None
 
@@ -1020,13 +1251,18 @@ def _dispatch_transport(
             )
         if ":" not in text:
             raise ValueError(
-                "text must be 'role_name:element_name', e.g. 'push button:Submit'"
+                "text must be 'role_name:element_name', e.g. 'AXButton:Submit' (macOS) or 'push button:Submit' (Linux)"
             )
         role_name, _, element_name = text.partition(":")
-        display = os.getenv("DISPLAY", ":1")
-        x, y = _linux_click_accessible_element(
-            role_name.strip(), element_name.strip(), display
-        )
+        if IS_MACOS:
+            x, y = _macos_click_accessible_element(
+                role_name.strip(), element_name.strip()
+            )
+        else:
+            display = os.getenv("DISPLAY", ":1")
+            x, y = _linux_click_accessible_element(
+                role_name.strip(), element_name.strip(), display
+            )
         transport.mouse_move(x, y)
         transport.left_click()
         print(
@@ -1328,34 +1564,35 @@ def computer(
 
     if action == "accessibility_tree":
         if IS_MACOS:
-            raise RuntimeError(
-                "accessibility_tree is only supported on Linux (AT-SPI2). "
-                "On macOS, use the browser tool's snapshot_url() for web content."
-            )
-        tree = _linux_accessibility_tree(display)
+            tree = _macos_accessibility_tree()
+        else:
+            tree = _linux_accessibility_tree(display)
         print(tree)
         return None
 
     if action == "click_accessible_element":
-        if IS_MACOS:
-            raise RuntimeError(
-                "click_accessible_element is only supported on Linux (AT-SPI2). "
-                "On macOS, use the browser tool's click_element() for web content."
-            )
         if not text:
             raise ValueError(
                 "text='role_name:element_name' is required for click_accessible_element"
             )
         if ":" not in text:
             raise ValueError(
-                "text must be 'role_name:element_name', e.g. 'push button:Submit'"
+                "text must be 'role_name:element_name', e.g. 'AXButton:Submit' (macOS) or 'push button:Submit' (Linux)"
             )
         role_name, _, element_name = text.partition(":")
-        x, y = _linux_click_accessible_element(
-            role_name.strip(), element_name.strip(), display
-        )
-        # AT-SPI2 DESKTOP_COORDS are already physical screen pixels — no scaling needed.
-        _run_xdotool(f"mousemove --sync {x} {y} click 1", display)
+        if IS_MACOS:
+            x, y = _macos_click_accessible_element(
+                role_name.strip(), element_name.strip()
+            )
+            # Use cliclick or native mouse move on macOS — no xdotool
+            _macos_mouse_move(x, y)
+            _macos_click(1)
+        else:
+            x, y = _linux_click_accessible_element(
+                role_name.strip(), element_name.strip(), display
+            )
+            # AT-SPI2 DESKTOP_COORDS are already physical screen pixels — no scaling needed.
+            _run_xdotool(f"mousemove --sync {x} {y} click 1", display)
         print(
             f"Clicked accessible element {role_name!r}: {element_name!r} at ({x}, {y})"
         )
@@ -1510,24 +1747,31 @@ Available actions:
 - window_focus: Wait for a window whose title contains text=<pattern> to appear,
   then focus it. On Linux/X11 this uses xdotool --sync so no screenshot polling
   is needed. Use after opening a new application to avoid guessing where to click.
-- accessibility_tree: (Linux/AT-SPI2 only) Dump the accessibility tree for all
-  open applications as structured text. Each node shows role, name, and state.
+- accessibility_tree: Dump the native accessibility tree for all open applications.
+  On Linux (AT-SPI2): role names like 'push button', 'entry', 'check box'.
+    Requires: pip install pyatspi (and AT-SPI2 accessibility stack).
+  On macOS (System Events): role names like 'AXButton', 'AXTextField', 'AXCheckBox'.
+    Requires Accessibility permission for the terminal in System Preferences.
   Use this to discover element names and roles before using click_accessible_element.
-  Requires: pip install pyatspi (and AT-SPI2 accessibility stack).
-- click_accessible_element: (Linux/AT-SPI2 only) Find and click an element by
-  role and name without needing screen coordinates. Use text='role:name' where
-  role is the AT-SPI role name (e.g. 'push button', 'entry', 'check box') and
-  name is a substring of the element's accessible name. Example:
-  computer('click_accessible_element', text='push button:Submit')
+- click_accessible_element: Find and click an element by role and name without
+  needing screen coordinates. Use text='role:name' where role is the platform role
+  name and name is a substring of the element's accessible name. Examples:
+    Linux:  computer('click_accessible_element', text='push button:Submit')
+    macOS:  computer('click_accessible_element', text='AXButton:Submit')
 
-### Accessibility-first for native apps (Linux)
+### Accessibility-first for native apps
 
-Prefer click_accessible_element over coordinate-based clicks for native Linux apps:
+Prefer click_accessible_element over coordinate-based clicks for native apps:
 
   computer("accessibility_tree")                               # inspect available elements
+  # Linux:
   computer("click_accessible_element", text="entry:Username")  # fill username field
   computer("type", text="user@example.com")
   computer("click_accessible_element", text="push button:Log In")
+  # macOS:
+  computer("click_accessible_element", text="AXTextField:Username")
+  computer("type", text="user@example.com")
+  computer("click_accessible_element", text="AXButton:Log In")
 
 This is more robust than coordinate guessing: element names don't shift when
 window size or position changes. Use coordinate-based clicks only when the app

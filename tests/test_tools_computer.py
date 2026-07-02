@@ -19,6 +19,8 @@ from gptme.tools.computer import (
     _linux_click_accessible_element,
     _linux_scroll,
     _linux_window_focus,
+    _macos_accessibility_tree,
+    _macos_click_accessible_element,
     _macos_window_focus,
     _parse_key_sequence,
     _run_xdotool,
@@ -1551,12 +1553,16 @@ def test_click_accessible_element_not_found_raises():
         _linux_click_accessible_element("push button", "Nonexistent", ":1")
 
 
-def test_computer_accessibility_tree_invalid_on_macos():
-    """On macOS, accessibility_tree raises a helpful error."""
-    if not IS_MACOS:
-        pytest.skip("macOS-only test")
-    with pytest.raises(RuntimeError, match="AT-SPI2"):
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
+@mock.patch("gptme.tools.computer._get_display_resolution", return_value=(1920, 1080))
+def test_computer_accessibility_tree_routes_to_macos(mock_res):
+    """On macOS, accessibility_tree calls _macos_accessibility_tree (not Linux path)."""
+    with mock.patch(
+        "gptme.tools.computer._macos_accessibility_tree",
+        return_value="Process: Safari\n  Window: Test\n    AXButton: Search",
+    ) as mock_tree:
         computer("accessibility_tree")
+    mock_tree.assert_called_once()
 
 
 @mock.patch("gptme.tools.computer.IS_MACOS", False)
@@ -1573,3 +1579,112 @@ def test_computer_click_accessible_element_missing_colon(mock_res):
     """click_accessible_element with text missing ':' raises ValueError."""
     with pytest.raises(ValueError, match="role_name:element_name"):
         computer("click_accessible_element", text="no-colon-here")
+
+
+# === macOS accessibility_tree tests ===
+
+
+def test_macos_accessibility_tree_success():
+    """_macos_accessibility_tree parses osascript output correctly."""
+    fake_output = "Process: Safari\n  Window: Test\n    AXButton: Search\n      AXTextField: query"
+    mock_result = mock.MagicMock()
+    mock_result.stdout = fake_output
+
+    with mock.patch("subprocess.run", return_value=mock_result):
+        result = _macos_accessibility_tree()
+
+    assert "Process: Safari" in result
+    assert "AXButton: Search" in result
+
+
+def test_macos_accessibility_tree_empty_output():
+    """_macos_accessibility_tree returns placeholder for empty output."""
+    mock_result = mock.MagicMock()
+    mock_result.stdout = ""
+
+    with mock.patch("subprocess.run", return_value=mock_result):
+        result = _macos_accessibility_tree()
+
+    assert result == "(empty accessibility tree)"
+
+
+def test_macos_accessibility_tree_osascript_missing():
+    """_macos_accessibility_tree raises RuntimeError if osascript is not found."""
+    with (
+        mock.patch("subprocess.run", side_effect=FileNotFoundError),
+        pytest.raises(RuntimeError, match="osascript not found"),
+    ):
+        _macos_accessibility_tree()
+
+
+def test_macos_accessibility_tree_timeout():
+    """_macos_accessibility_tree raises RuntimeError on timeout."""
+    with (
+        mock.patch(
+            "subprocess.run", side_effect=subprocess.TimeoutExpired("osascript", 20)
+        ),
+        pytest.raises(RuntimeError, match="timed out"),
+    ):
+        _macos_accessibility_tree()
+
+
+def test_macos_accessibility_tree_permission_error():
+    """_macos_accessibility_tree raises RuntimeError with helpful message on failure."""
+    err = subprocess.CalledProcessError(1, "osascript", stderr="Not authorized")
+    with (
+        mock.patch("subprocess.run", side_effect=err),
+        pytest.raises(RuntimeError, match="Accessibility permission"),
+    ):
+        _macos_accessibility_tree()
+
+
+# === macOS click_accessible_element tests ===
+
+
+def test_macos_click_accessible_element_success():
+    """_macos_click_accessible_element returns correct (x, y) from osascript output."""
+    mock_result = mock.MagicMock()
+    mock_result.stdout = "150,300"
+
+    with mock.patch("subprocess.run", return_value=mock_result):
+        x, y = _macos_click_accessible_element("AXButton", "Submit")
+
+    assert x == 150
+    assert y == 300
+
+
+def test_macos_click_accessible_element_not_found():
+    """_macos_click_accessible_element raises RuntimeError when element not found."""
+    mock_result = mock.MagicMock()
+    mock_result.stdout = "not_found"
+
+    with (
+        mock.patch("subprocess.run", return_value=mock_result),
+        pytest.raises(RuntimeError, match="No accessible element"),
+    ):
+        _macos_click_accessible_element("AXButton", "Nonexistent")
+
+
+def test_macos_click_accessible_element_osascript_missing():
+    """_macos_click_accessible_element raises RuntimeError when osascript not found."""
+    with (
+        mock.patch("subprocess.run", side_effect=FileNotFoundError),
+        pytest.raises(RuntimeError, match="osascript not found"),
+    ):
+        _macos_click_accessible_element("AXButton", "Submit")
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
+@mock.patch("gptme.tools.computer._get_display_resolution", return_value=(1920, 1080))
+def test_computer_click_accessible_element_routes_to_macos(mock_res):
+    """On macOS, click_accessible_element calls _macos_click_accessible_element."""
+    with (
+        mock.patch(
+            "gptme.tools.computer._macos_click_accessible_element",
+            return_value=(100, 200),
+        ) as mock_click,
+        mock.patch("gptme.tools.computer._macos_mouse_move"),
+        mock.patch("gptme.tools.computer._macos_click"),
+    ):
+        computer("click_accessible_element", text="AXButton:OK")
+    mock_click.assert_called_once_with("AXButton", "OK")
