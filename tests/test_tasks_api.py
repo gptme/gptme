@@ -537,6 +537,53 @@ class TestTasksListAPI:
         assert "tasks" in data
         assert len(data["tasks"]) == 2
 
+    def test_list_filter_by_status(self, client):
+        save_task(
+            Task(
+                id="pending-task",
+                content="Pending task",
+                created_at="2026-01-01T00:00:00Z",
+                status="pending",
+                target_type="stdout",
+            )
+        )
+        save_task(
+            Task(
+                id="active-task",
+                content="Active task",
+                created_at="2026-01-02T00:00:00Z",
+                status="active",
+                target_type="stdout",
+            )
+        )
+
+        resp = client.get("/api/v2/tasks?status=pending")
+        assert resp.status_code == 200
+        data = resp.json
+        assert len(data["tasks"]) == 1
+        assert data["tasks"][0]["id"] == "pending-task"
+
+    def test_list_filter_by_status_no_match(self, client):
+        save_task(
+            Task(
+                id="pending-task-2",
+                content="Pending task",
+                created_at="2026-01-01T00:00:00Z",
+                status="pending",
+                target_type="stdout",
+            )
+        )
+
+        resp = client.get("/api/v2/tasks?status=completed")
+        assert resp.status_code == 200
+        assert resp.json == {"tasks": []}
+
+    def test_list_filter_by_status_invalid(self, client):
+        resp = client.get("/api/v2/tasks?status=unknown")
+        assert resp.status_code == 400
+        assert "error" in resp.json
+        assert "status" in resp.json["error"]
+
 
 class TestTasksGetAPI:
     """Tests for GET /api/v2/tasks/<task_id>."""

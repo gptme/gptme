@@ -678,7 +678,7 @@ def setup_task_workspace(task_id: str, target_repo: str | None = None) -> Path:
 @tasks_api.route("/api/v2/tasks")
 @require_auth
 @api_doc_simple(
-    responses={200: TaskListResponse, 500: ErrorResponse},
+    responses={200: TaskListResponse, 400: ErrorResponse, 500: ErrorResponse},
     tags=["tasks"],
 )
 def api_tasks_list():
@@ -686,11 +686,24 @@ def api_tasks_list():
 
     List tasks with their cached status information.
     Archived tasks are excluded by default; include ?archived=true to show them.
+    Filter by status with ?status=pending|active|completed|failed.
     """
     try:
         archived_str = flask.request.args.get("archived", "false")
         include_archived = archived_str.lower() in ("true", "1")
+
+        status_filter = flask.request.args.get("status")
+        if status_filter is not None:
+            valid_statuses = get_args(TaskStatus)
+            if status_filter not in valid_statuses:
+                return flask.jsonify(
+                    {"error": f"status must be one of: {', '.join(valid_statuses)}"}
+                ), 400
+
         tasks = list_tasks(include_archived=include_archived)
+
+        if status_filter is not None:
+            tasks = [t for t in tasks if t.status == status_filter]
 
         # Return with stored status (no side effects in GET)
         tasks_info = [asdict(task) for task in tasks]
