@@ -490,6 +490,25 @@ def test_mixed_computer_and_browser_calls():
     assert records[2]["value_len"] == len("test@example.com")
 
 
+def test_mixed_desktop_browser_source_order():
+    """Desktop and browser calls interleaved in one block emit in source order."""
+    code = textwrap.dedent("""\
+        observe_web('https://example.com')
+        computer('screenshot')
+        click_element('#btn')
+        computer('click', coordinate=(100, 200))
+    """)
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    actions = [r["action"] for r in records]
+    assert actions == [
+        "observe_web",
+        "screenshot",
+        "click_element",
+        "click",
+    ], f"Expected source order but got: {actions}"
+
+
 def test_audit_log_cli_table_shows_browser_url(tmp_path, monkeypatch):
     """Table output shows URL for observe_web/open_page calls."""
     conv_dir = tmp_path / "browser-conv"

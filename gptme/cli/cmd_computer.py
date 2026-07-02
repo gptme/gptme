@@ -76,6 +76,10 @@ def _extract_computer_calls(messages) -> list[dict]:
             code = tu.content
             ts = msg.timestamp.isoformat() if msg.timestamp else None
 
+            # All calls tracked with their byte-offset so desktop and browser
+            # calls within the same block are emitted in source order.
+            all_positioned: list[tuple[int, dict]] = []
+
             # --- computer("action", ...) ---
             for m in re.finditer(r"""computer\s*\(\s*['"]([^'"]+)['"]""", code):
                 action = m.group(1)
@@ -92,12 +96,19 @@ def _extract_computer_calls(messages) -> list[dict]:
                 if action in _SENSITIVE_ACTIONS:
                     text_m = re.search(r"""text\s*=\s*['"]([^'"]*)['"]""", call_source)
                     record["text_len"] = len(text_m.group(1)) if text_m else None
-                records.append(record)
+                all_positioned.append((m.start(), record))
 
             # --- observe_desktop() ---
-            records.extend(
-                {"timestamp": ts, "action": "screenshot", "source": "observe_desktop"}
-                for _ in re.finditer(r"\bobserve_desktop\s*\(", code)
+            all_positioned.extend(
+                (
+                    m.start(),
+                    {
+                        "timestamp": ts,
+                        "action": "screenshot",
+                        "source": "observe_desktop",
+                    },
+                )
+                for m in re.finditer(r"\bobserve_desktop\s*\(", code)
             )
 
             # --- browser interaction calls ---
@@ -189,8 +200,13 @@ def _extract_computer_calls(messages) -> list[dict]:
                 for m in re.finditer(r"""\bscroll_page\s*\(\s*['"]([^'"]+)['"]""", code)
             )
 
-            # Emit browser records in code order (stable, ascending offset)
-            records.extend(r for _, r in sorted(browser_positioned, key=lambda x: x[0]))
+            # Merge desktop and browser records, emit in source order
+            records.extend(
+                r
+                for _, r in sorted(
+                    all_positioned + browser_positioned, key=lambda x: x[0]
+                )
+            )
 
     return records
 
