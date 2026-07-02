@@ -222,3 +222,142 @@ def test_audit_log_cli_no_logs_dir(tmp_path, monkeypatch):
 
     assert result.exit_code == 0
     assert "No conversations found." in result.output
+
+
+# ---------------------------------------------------------------------------
+# _slice_call edge cases (lines 27, 29, 43)
+# ---------------------------------------------------------------------------
+
+from gptme.cli.cmd_computer import _slice_call
+
+
+def test_slice_call_handles_escaped_quote():
+    """Backslash-escaped quote inside string is not treated as end-of-string (lines 27–29)."""
+    code = "computer('type', text='pass\\'word')"
+    result = _slice_call(code, 0)
+    assert result == code
+
+
+def test_slice_call_unclosed_paren_returns_remainder():
+    """When no closing ')' is found the fallback returns the rest of the string (line 43)."""
+    code = "computer('screenshot'"  # no closing paren
+    result = _slice_call(code, 0)
+    assert result == code
+
+
+# ---------------------------------------------------------------------------
+# _extract_computer_calls edge cases (lines 59, 84)
+# ---------------------------------------------------------------------------
+
+
+def test_type_action_without_text_param():
+    """type() called without a text= argument sets text_len to None (line 84)."""
+    msgs = [_msg("assistant", _ipython_block("computer('type')"))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "type"
+    assert records[0]["text_len"] is None
+
+
+# ---------------------------------------------------------------------------
+# CLI: additional paths
+# ---------------------------------------------------------------------------
+
+
+def test_audit_log_cli_no_actions_found(tmp_path):
+    """When conversation has no computer() calls a user-friendly message is printed (lines 171–172)."""
+    conv_dir = tmp_path / "chat-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    msgs = [_msg("user", "hello"), _msg("assistant", "hi there")]
+    _write_conv_jsonl(jsonl, msgs)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl)], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "No computer-use actions found." in result.output
+
+
+def test_audit_log_cli_table_output(tmp_path):
+    """Default (non-JSON) table output includes coordinate, redacted text, and observe_desktop details (lines 187, 189, 191)."""
+    conv_dir = tmp_path / "table-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    msgs = [
+        _msg(
+            "assistant", _ipython_block("computer('left_click', coordinate=(100, 200))")
+        ),
+        _msg("assistant", _ipython_block("computer('type', text='hello')")),
+        _msg("assistant", _ipython_block("observe_desktop()")),
+    ]
+    _write_conv_jsonl(jsonl, msgs)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl)], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "Timestamp" in result.output  # table header
+    assert "@ [100, 200]" in result.output  # coordinate detail (line 187)
+    assert "chars, redacted" in result.output  # text_len detail (line 189)
+    assert "via observe_desktop()" in result.output  # source detail (line 191)
+
+
+def test_audit_log_cli_named_conv_not_found(tmp_path, monkeypatch):
+    """Named conversation not in logs_dir prints an error and exits 1 (lines 140–141)."""
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, ["nonexistent-conv"], catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+def test_audit_log_cli_scan_recent_conversations(tmp_path, monkeypatch):
+    """--last N scans the N most-recent conversations from logs_dir (lines 148–156)."""
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
+
+    for name in ["conv-a", "conv-b"]:
+        msgs = [_msg("assistant", _ipython_block("computer('screenshot')"))]
+        _write_conv_jsonl(tmp_path / name / "conversation.jsonl", msgs)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, ["--last", "2", "--json"], catch_exceptions=False)
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert len(data) == 2
+    conv_names = {r["conversation"] for r in data}
+    assert "conv-a" in conv_names
+    assert "conv-b" in conv_names
+
+
+def test_audit_log_cli_empty_logs_dir(tmp_path, monkeypatch):
+    """logs_dir exists but has no conversation subdirectories → 'No conversations found.' (lines 155–156)."""
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
+    # tmp_path exists but is empty
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "No conversations found." in result.output
+
+
+def test_audit_log_cli_corrupted_jsonl_warns(tmp_path, monkeypatch):
+    """When _gen_read_jsonl raises, a warning is printed and processing continues (lines 162–164)."""
+    conv_dir = tmp_path / "corrupt-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    _write_conv_jsonl(
+        jsonl, [_msg("assistant", _ipython_block("computer('screenshot')"))]
+    )
+
+    def _explode(path):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("gptme.cli.cmd_computer._gen_read_jsonl", _explode)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl)], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "Warning: could not read" in result.output
+
+
+def test_empty_code_block_skipped():
+    """An ipython block with empty content hits the continue guard (line 59)."""
+    msgs = [_msg("assistant", "```ipython\n\n```")]
+    records = _extract_computer_calls(msgs)
+    assert records == []
