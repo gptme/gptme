@@ -310,6 +310,7 @@ Graphics/Displays:
 @mock.patch("gptme.tools.computer.IS_MACOS", True)
 def test_get_macos_display_scale_via_appkit():
     """Scale factor is read from AppKit.NSScreen.backingScaleFactor() when available."""
+    _get_macos_display_scale.cache_clear()
     mock_screen = mock.MagicMock()
     mock_screen.backingScaleFactor.return_value = 2.0
     mock_appkit = mock.MagicMock()
@@ -324,6 +325,7 @@ def test_get_macos_display_scale_via_appkit():
 @mock.patch("gptme.tools.computer.IS_MACOS", True)
 def test_get_macos_display_scale_via_system_profiler():
     """Scale factor is derived from system_profiler when AppKit is unavailable."""
+    _get_macos_display_scale.cache_clear()
     profiler_output = """\
 Graphics/Displays:
     Apple M1:
@@ -332,17 +334,9 @@ Graphics/Displays:
           Resolution: 2560 x 1664 Retina
           UI Looks like: 1280 x 832 @ 60.00Hz
 """
-    import importlib
-
-    real_find_spec = importlib.util.find_spec
-
-    def fake_find_spec(name):
-        if name == "AppKit":
-            return None
-        return real_find_spec(name)
 
     with (
-        mock.patch("importlib.util.find_spec", side_effect=fake_find_spec),
+        mock.patch.dict("sys.modules", {"AppKit": None}),
         mock.patch("subprocess.check_output", return_value=profiler_output),
     ):
         scale = _get_macos_display_scale()
@@ -351,19 +345,40 @@ Graphics/Displays:
 
 
 @mock.patch("gptme.tools.computer.IS_MACOS", True)
-def test_get_macos_display_scale_fallback_to_2x():
-    """Falls back to 2.0 when both AppKit and system_profiler are unavailable."""
-    import importlib
+def test_get_macos_display_scale_via_system_profiler_multi_display():
+    """Scale factor parsed correctly even when system_profiler has 'Maximum Resolution' before 'Resolution:'."""
+    _get_macos_display_scale.cache_clear()
+    profiler_output = """\
+Graphics/Displays:
 
-    real_find_spec = importlib.util.find_spec
-
-    def fake_find_spec(name):
-        if name == "AppKit":
-            return None
-        return real_find_spec(name)
+    Display with External Monitor:
+      Displays:
+        Built-In Retina:
+          Maximum Resolution: 3840 x 2160
+          Resolution: 2560 x 1664 Retina
+          UI Looks like: 1280 x 832 @ 60.00Hz
+        External Monitor:
+          Resolution: 1920 x 1080
+          UI Looks like: 1920 x 1080 @ 60.00Hz
+"""
 
     with (
-        mock.patch("importlib.util.find_spec", side_effect=fake_find_spec),
+        mock.patch.dict("sys.modules", {"AppKit": None}),
+        mock.patch("subprocess.check_output", return_value=profiler_output),
+    ):
+        scale = _get_macos_display_scale()
+
+    # Must NOT match "Maximum Resolution: 3840 x 2160" — should find actual Resolution: 2560
+    # giving 2560 / 1280 = 2.0
+    assert scale == pytest.approx(2.0, rel=1e-3)
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
+def test_get_macos_display_scale_fallback_to_2x():
+    """Falls back to 2.0 when both AppKit and system_profiler are unavailable."""
+    _get_macos_display_scale.cache_clear()
+    with (
+        mock.patch.dict("sys.modules", {"AppKit": None}),
         mock.patch(
             "subprocess.check_output",
             side_effect=subprocess.CalledProcessError(1, "system_profiler"),

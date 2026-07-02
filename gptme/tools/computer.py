@@ -85,6 +85,7 @@ Using a single sequence for complex operations ensures proper timing and recogni
 from __future__ import annotations
 
 import dataclasses
+import functools
 import logging
 import os
 import platform
@@ -255,24 +256,22 @@ def _get_display_resolution() -> tuple[int, int]:
     raise RuntimeError("Failed to get display resolution")
 
 
+@functools.lru_cache(maxsize=1)
 def _get_macos_display_scale() -> float:
     """Detect the macOS HiDPI/Retina backing scale factor.
 
     Tries in order:
     1. ``AppKit.NSScreen.mainScreen().backingScaleFactor()`` — accurate for any display config
-    2. Ratio of physical "Resolution" to logical "UI Looks like" in ``system_profiler``
+    2. Ratio of physical "Resolution:" to logical "UI Looks like" in ``system_profiler``
     3. Falls back to ``2.0`` (standard Retina)
     """
     # Method 1: AppKit (preferred — works for all display configs including external monitors)
     try:
-        import importlib.util
+        import AppKit  # type: ignore[import-untyped]
 
-        if importlib.util.find_spec("AppKit") is not None:
-            import AppKit  # type: ignore[import]
-
-            screen = AppKit.NSScreen.mainScreen()
-            if screen is not None:
-                return float(screen.backingScaleFactor())
+        screen = AppKit.NSScreen.mainScreen()
+        if screen is not None:
+            return float(screen.backingScaleFactor())
     except Exception:
         pass
 
@@ -284,7 +283,7 @@ def _get_macos_display_scale() -> float:
         physical_w: int | None = None
         for line in output.splitlines():
             stripped = line.strip()
-            if "Resolution" in stripped and physical_w is None:
+            if stripped.startswith("Resolution:") and physical_w is None:
                 parts = stripped.split(":")[-1].split("x")
                 physical_w = int(parts[0].strip())
             elif "UI Looks like" in stripped and physical_w is not None:
