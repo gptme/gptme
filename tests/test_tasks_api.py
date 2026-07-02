@@ -910,6 +910,25 @@ class TestTasksInputValidation:
             )
             assert resp.status_code == 200, f"target_type '{tt}' should be valid"
 
+    def test_update_status_field_rejected(self, client, sample_task):
+        """status is derived state and cannot be set directly."""
+        resp = client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            json={"status": "done"},
+        )
+        assert resp.status_code == 400
+        assert "status" in resp.json["error"]
+        assert "archive" in resp.json["error"]
+
+    def test_update_unknown_field_rejected(self, client, sample_task):
+        """Unknown fields must be rejected to prevent silent no-ops."""
+        resp = client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            json={"bogus_field": 1},
+        )
+        assert resp.status_code == 400
+        assert "bogus_field" in resp.json["error"]
+
 
 # ── Path traversal prevention ─────────────────────────────────────
 

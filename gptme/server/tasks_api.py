@@ -840,6 +840,8 @@ def api_tasks_update(task_id: str):
 
     # Reject unknown/unsupported fields to prevent silent no-ops
     allowed_fields = {"content", "target_type", "target_repo", "metadata"}
+    # Check `status` first (before the generic unknown-fields guard) so callers
+    # get an actionable message instead of the generic "unknown field(s): status".
     if "status" in req_json:
         return flask.jsonify(
             {
