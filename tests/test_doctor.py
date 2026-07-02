@@ -1087,3 +1087,25 @@ class TestCheckComputer:
         assert names["Computer: pyatspi"].status == CheckStatus.WARNING
         hint = names["Computer: pyatspi"].fix_hint or ""
         assert "pyatspi" in hint
+
+    @patch("sys.platform", "linux")
+    @patch("importlib.util.find_spec")
+    @patch("subprocess.run")
+    @patch("shutil.which")
+    @patch.dict("os.environ", {})
+    def test_linux_no_display_pyatspi_skipped(
+        self, mock_which, mock_run, mock_find_spec
+    ):
+        """When DISPLAY is not set, pyatspi check should be skipped entirely."""
+        import subprocess
+
+        mock_which.side_effect = lambda t: (
+            f"/usr/bin/{t}" if t in ("xdotool", "scrot") else None
+        )
+        mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        mock_find_spec.return_value = None
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert "Computer: pyatspi" not in names

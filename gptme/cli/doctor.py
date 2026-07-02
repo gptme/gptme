@@ -685,7 +685,6 @@ def _check_computer(verbose: bool = False) -> list[CheckResult]:
             )
 
         # Check for a running window manager (EWMH: _NET_SUPPORTING_WM_CHECK on root window)
-        display = os.environ.get("DISPLAY")
         xprop_path = shutil.which("xprop")
         if display and xprop_path:
             try:
@@ -728,26 +727,27 @@ def _check_computer(verbose: bool = False) -> list[CheckResult]:
                 pass  # xprop unavailable or X server not responding — skip silently
 
         # Check for pyatspi (Linux accessibility tree support)
-        if importlib.util.find_spec("pyatspi"):
-            results.append(
-                CheckResult(
-                    name="Computer: pyatspi",
-                    status=CheckStatus.OK,
-                    message="AT-SPI2 accessibility tree available (accessibility_tree + click_accessible_element)",
+        if display:
+            if importlib.util.find_spec("pyatspi"):
+                results.append(
+                    CheckResult(
+                        name="Computer: pyatspi",
+                        status=CheckStatus.OK,
+                        message="AT-SPI2 accessibility tree available (accessibility_tree + click_accessible_element)",
+                    )
                 )
-            )
-        else:
-            results.append(
-                CheckResult(
-                    name="Computer: pyatspi",
-                    status=CheckStatus.WARNING,
-                    message="pyatspi not installed — accessibility_tree and click_accessible_element unavailable",
-                    fix_hint=(
-                        "pip install pyatspi\n"
-                        "(also requires AT-SPI2 system packages: apt install python3-pyatspi)"
-                    ),
+            else:
+                results.append(
+                    CheckResult(
+                        name="Computer: pyatspi",
+                        status=CheckStatus.WARNING,
+                        message="pyatspi not installed — accessibility_tree and click_accessible_element unavailable",
+                        fix_hint=(
+                            "pip install pyatspi\n"
+                            "(also requires AT-SPI2 system packages: apt install python3-pyatspi)"
+                        ),
+                    )
                 )
-            )
 
     else:
         # Unsupported platform (Windows, FreeBSD, etc.) — no checks available
