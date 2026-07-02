@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import http.server
 import threading
-import time
 import urllib.parse
 from typing import TYPE_CHECKING
 
@@ -42,7 +41,12 @@ def _playwright_available() -> bool:
         return False
 
 
-def _chromium_available() -> bool:
+def _chromium_ok() -> bool:
+    """Check if chromium is available by launching a headless instance.
+
+    Do NOT call at module level — use the ``_chromium_or_skip`` fixture so this
+    only runs during test execution (not ``pytest --collect-only``).
+    """
     if not _playwright_available():
         return False
     try:
@@ -56,26 +60,20 @@ def _chromium_available() -> bool:
         return False
 
 
-# Evaluated once per session — cheaper than launching chromium for every skip check.
-_CHROMIUM_OK: bool | None = None
+@pytest.fixture(autouse=True)
+def _chromium_or_skip():
+    """Skip integration tests when Playwright chromium is not installed.
 
-
-def _chromium_ok() -> bool:
-    global _CHROMIUM_OK
-    if _CHROMIUM_OK is None:
-        _CHROMIUM_OK = _chromium_available()
-    return _CHROMIUM_OK
-
-
-playwright_required = pytest.mark.skipif(
-    not _playwright_available(),
-    reason="playwright not installed",
-)
-
-chromium_required = pytest.mark.skipif(
-    not _playwright_available() or not _chromium_ok(),
-    reason="Playwright chromium not installed (run: playwright install chromium)",
-)
+    Uses a fixture (not a module-level skipif marker) so the Chromium launch
+    only happens during test execution, not during ``pytest --collect-only``
+    or on unrelated test discovery runs.
+    """
+    if not _playwright_available():
+        pytest.skip("playwright not installed")
+    if not _chromium_ok():
+        pytest.skip(
+            "Playwright chromium not installed (run: playwright install chromium)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +103,7 @@ _SUBMIT_HTML_TEMPLATE = """\
 <head><meta charset="utf-8"><title>Submitted</title></head>
 <body>
 <h1>Posted!</h1>
-<p id="result">message={message} author={author}</p>
+<p id="result">MESSAGE_PLACEHOLDER AUTHOR_PLACEHOLDER</p>
 </body>
 </html>
 """
@@ -130,10 +128,10 @@ class _FormHandler(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(length).decode()
         params = dict(urllib.parse.parse_qsl(body))
         _FormHandler.submitted.update(params)
-        html = _SUBMIT_HTML_TEMPLATE.format(
-            message=params.get("message", ""),
-            author=params.get("author", ""),
-        )
+        # str.replace is safe with user input — str.format would crash on {/} in values.
+        html = _SUBMIT_HTML_TEMPLATE.replace(
+            "MESSAGE_PLACEHOLDER", params.get("message", "")
+        ).replace("AUTHOR_PLACEHOLDER", params.get("author", ""))
         self._send_html(html, 200)
 
     def _send_html(self, html: str, status: int) -> None:
@@ -181,7 +179,6 @@ def _reset_browser_state():
 
 
 @pytest.mark.integration
-@chromium_required
 def test_open_page_returns_aria_snapshot(form_server: str):
     """open_page() should return a non-empty ARIA snapshot of the form page."""
     from gptme.tools.browser import open_page
@@ -196,7 +193,6 @@ def test_open_page_returns_aria_snapshot(form_server: str):
 
 
 @pytest.mark.integration
-@chromium_required
 def test_fill_element_updates_snapshot(form_server: str):
     """fill_element() should fill a field and return an updated ARIA snapshot."""
     from gptme.tools.browser import fill_element, open_page
@@ -209,7 +205,6 @@ def test_fill_element_updates_snapshot(form_server: str):
 
 
 @pytest.mark.integration
-@chromium_required
 def test_can_it_tweet_full_pipeline(form_server: str):
     """End-to-end 'Can it Tweet?' pipeline.
 
@@ -231,11 +226,8 @@ def test_can_it_tweet_full_pipeline(form_server: str):
     fill_element("#message", "Hello from gptme!")
     fill_element("#author", "TestUser")
 
-    # Step 3: click the submit button
+    # Step 3: click the submit button (waits for page load internally)
     click_element("#submit-btn")
-
-    # Wait briefly for the server to process the POST
-    time.sleep(0.3)
 
     # Step 4: read the result page
     text = read_page_text()
@@ -256,7 +248,6 @@ def test_can_it_tweet_full_pipeline(form_server: str):
 
 
 @pytest.mark.integration
-@chromium_required
 def test_click_element_navigates(form_server: str):
     """click_element() on a submit button should navigate to the response page."""
     from gptme.tools.browser import (
@@ -278,7 +269,6 @@ def test_click_element_navigates(form_server: str):
 
 
 @pytest.mark.integration
-@chromium_required
 def test_snapshot_url_reads_form(form_server: str):
     """snapshot_url() (one-shot, no state) should read the ARIA tree of the form page."""
     from gptme.tools.browser import snapshot_url
@@ -291,7 +281,6 @@ def test_snapshot_url_reads_form(form_server: str):
 
 
 @pytest.mark.integration
-@chromium_required
 def test_observe_web_returns_structured_result(form_server: str):
     """observe_web() should return ARIA-structured content with no screenshot required."""
     from gptme.tools.computer import observe_web
