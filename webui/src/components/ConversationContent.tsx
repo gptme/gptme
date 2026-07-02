@@ -44,6 +44,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     switchBranch,
     confirmTool,
     interruptGeneration,
+    isLoadingOlderMessages,
     loadOlderMessages,
   } = useConversation(conversationId, serverId);
   const navigate = useNavigate();
@@ -649,10 +650,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                   variant="outline"
                   size="sm"
                   onClick={() => void loadOlderMessages()}
+                  disabled={isLoadingOlderMessages}
                   className="gap-1 text-xs text-muted-foreground"
                 >
-                  <ChevronUp className="h-3 w-3" />
-                  Load older messages
+                  <ChevronUp
+                    className={`h-3 w-3 ${isLoadingOlderMessages ? 'animate-pulse' : ''}`}
+                  />
+                  {isLoadingOlderMessages ? 'Loading older messages' : 'Load older messages'}
                 </Button>
               </div>
             );

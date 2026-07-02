@@ -53,6 +53,8 @@ export function useConversation(conversationId: string, serverId?: string) {
   const topP = use$(() => conversation$?.topP.get());
 
   const messageJustCompleted = useRef(false);
+  const loadingOlderMessagesRef = useRef(false);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   // Bumped by retryLoad() to re-run the load+connect effect after a failure.
   const [retryNonce, setRetryNonce] = useState(0);
 
@@ -810,11 +812,14 @@ export function useConversation(conversationId: string, serverId?: string) {
     setRetryNonce((n) => n + 1);
   }, [conversationId]);
 
-  const loadOlderMessages = useCallback(async () => {
+  const loadOlderMessages = async () => {
     const conv$ = conversations$.get(conversationId);
     if (!conv$) return;
     const logOffset = conv$.logOffset.peek();
     if (logOffset <= 0) return;
+    if (loadingOlderMessagesRef.current) return;
+    loadingOlderMessagesRef.current = true;
+    setIsLoadingOlderMessages(true);
     try {
       const data = await api.getConversation(conversationId, {
         limit: 50,
@@ -828,8 +833,11 @@ export function useConversation(conversationId: string, serverId?: string) {
       );
     } catch (error) {
       console.warn('[useConversation] Failed to load older messages:', error);
+    } finally {
+      loadingOlderMessagesRef.current = false;
+      setIsLoadingOlderMessages(false);
     }
-  }, [conversationId, api]);
+  };
 
   return {
     conversation$,
@@ -844,6 +852,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     switchBranch,
     confirmTool,
     interruptGeneration,
+    isLoadingOlderMessages,
     loadOlderMessages,
   };
 }
