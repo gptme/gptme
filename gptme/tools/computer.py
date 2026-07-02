@@ -1590,7 +1590,8 @@ def observe_web(url: str, screenshot_too: bool = False) -> list[Message]:
 
     Returns:
         List of :class:`~gptme.message.Message` objects (snapshot and/or screenshots).
-        Empty only if all observation paths fail.
+        Always returns at least one message; if all observation paths fail, returns a
+        single system message explaining what failed and how to fix it.
 
     Example (from IPython in a computer-use session)::
 
@@ -1600,7 +1601,10 @@ def observe_web(url: str, screenshot_too: bool = False) -> list[Message]:
         msgs = observe_web("https://example.com", screenshot_too=True)
         # Returns snapshot Message + screenshot Message side-by-side.
     """
+    from gptme.message import Message
+
     messages: list[Message] = []
+    _failure_reasons: list[str] = []
 
     snapshot_text: str | None = None
     try:
@@ -1608,12 +1612,15 @@ def observe_web(url: str, screenshot_too: bool = False) -> list[Message]:
 
         if has_playwright():
             snapshot_text = snapshot_url(url)
-    except Exception:
-        pass
+        else:
+            _failure_reasons.append(
+                "Playwright not installed — snapshot_url unavailable "
+                "(fix: pip install playwright && playwright install chromium)"
+            )
+    except Exception as e:
+        _failure_reasons.append(f"snapshot_url raised: {e}")
 
     if snapshot_text is not None:
-        from gptme.message import Message
-
         messages.append(Message("system", snapshot_text))
         if screenshot_too:
             # Playwright is available (snapshot succeeded), use browser screenshot.
@@ -1638,13 +1645,35 @@ def observe_web(url: str, screenshot_too: bool = False) -> list[Message]:
                 msg = _make_screenshot_msg(path, tool="computer")
                 if msg is not None:
                     messages.append(msg)
-        except Exception:
-            pass
+            else:
+                _failure_reasons.append(
+                    "Playwright not installed — screenshot_url unavailable"
+                )
+        except Exception as e:
+            _failure_reasons.append(f"screenshot_url raised: {e}")
 
         if not messages:
             msg = computer("screenshot")
             if msg is not None:
                 messages.append(msg)
+            else:
+                display = os.environ.get("DISPLAY", "unset")
+                _failure_reasons.append(
+                    f"desktop screenshot failed (DISPLAY={display!r} — no X11 display?)"
+                )
+
+    # Surface all failures as an actionable error message so the agent can diagnose.
+    if not messages:
+        detail = "; ".join(_failure_reasons) if _failure_reasons else "unknown reason"
+        messages.append(
+            Message(
+                "system",
+                f"observe_web({url!r}) failed — no observation could be collected.\n"
+                f"Reasons: {detail}\n"
+                "To enable structured web observation: "
+                "pip install playwright && playwright install chromium",
+            )
+        )
 
     return messages
 
