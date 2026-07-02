@@ -82,6 +82,13 @@ def reduce_log(
         logger.warning(
             "Cannot reduce log: all messages are pinned or protected tool calls"
         )
+        if _initial_tokens is not None:
+            blocks_str = f", truncated {_truncations} block(s)" if _truncations else ""
+            console.log(
+                "[context] Could not reduce log further: all remaining messages "
+                f"are pinned or protected tool calls ({tokens // 1000}k tokens "
+                f"still exceeds limit ~{int(limit) // 1000}k{blocks_str})"
+            )
         yield from log
         return
 

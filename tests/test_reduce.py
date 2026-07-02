@@ -5,6 +5,7 @@ import pytest
 from gptme.llm.models.resolution import set_default_model
 from gptme.llm.models.types import ModelMeta
 from gptme.message import Message, len_tokens
+from gptme.util import reduce as reduce_mod
 from gptme.util.reduce import (
     _truncate_details_blocks,
     limit_log,
@@ -150,6 +151,24 @@ def test_reduce_log_all_pinned():
     reduced = list(reduce_log(msgs, limit=100))
     assert len(reduced) == 2
     assert reduced == msgs
+
+
+def test_reduce_log_all_pinned_logs_completion(monkeypatch):
+    """All-pinned reduction should not leave the start message dangling."""
+    console_messages: list[str] = []
+    monkeypatch.setattr(reduce_mod.console, "log", console_messages.append)
+    msgs = [
+        Message("system", content="x " * 5000, pinned=True),
+        Message("system", content="y " * 5000, pinned=True),
+    ]
+
+    reduced = list(reduce_log(msgs, limit=100))
+
+    assert reduced == msgs
+    assert len(console_messages) == 2
+    assert "Log too long" in console_messages[0]
+    assert "Could not reduce log further" in console_messages[1]
+    assert "pinned or protected tool calls" in console_messages[1]
 
 
 def test_truncate_msg_skips_unfindable_codeblock(monkeypatch):
