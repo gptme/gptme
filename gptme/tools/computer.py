@@ -267,7 +267,7 @@ def _get_macos_display_scale() -> float:
     """
     # Method 1: AppKit (preferred — works for all display configs including external monitors)
     try:
-        import AppKit  # type: ignore[import-untyped]
+        import AppKit  # type: ignore[import-not-found,import-untyped]
 
         screen = AppKit.NSScreen.mainScreen()
         if screen is not None:
