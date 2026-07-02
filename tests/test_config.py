@@ -263,6 +263,34 @@ files = ["README.md"]
     assert project_config.exclude == []
 
 
+def test_project_config_system_field():
+    """Test that [prompt] system is parsed and defaults to None."""
+    import tomlkit
+
+    toml_str = """
+[prompt]
+system = "short"
+files = ["README.md"]
+"""
+    config_data = dict(tomlkit.loads(toml_str))
+    project_config = ProjectConfig.from_dict(config_data)
+    assert project_config.system == "short"
+    assert project_config.files == ["README.md"]
+
+
+def test_project_config_system_field_default():
+    """Test that [prompt] system defaults to None when not set."""
+    import tomlkit
+
+    toml_str = """
+[prompt]
+files = ["README.md"]
+"""
+    config_data = dict(tomlkit.loads(toml_str))
+    project_config = ProjectConfig.from_dict(config_data)
+    assert project_config.system is None
+
+
 def test_env_vars_loaded_in_correct_priority(monkeypatch, tmp_path):
     temp_user_config = str(tmp_path / "config.toml")
     temp_project_config = str(tmp_path / "gptme.toml")

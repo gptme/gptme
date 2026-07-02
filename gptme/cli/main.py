@@ -386,8 +386,8 @@ Run 'gptme-util --help' for all utility commands."""
 @click.option(
     "--system",
     "prompt_system",
-    default="full",
-    help="System prompt [full|short|<custom>]. Defaults to 'full'.",
+    default=None,
+    help="System prompt [full|short|<custom>]. Defaults to 'full', or the value of `system` in gptme.toml [prompt] if set.",
 )
 @click.option(
     "-t",
@@ -834,6 +834,13 @@ def main(
                 raise click.UsageError(str(e)) from e
             assert config.chat and config.chat.tool_format
 
+            # Resolve prompt type using project config if --system was not set
+            effective_prompt_system = (
+                prompt_system
+                or (config.project.system if config.project else None)
+                or "full"
+            )
+
             logger.debug(f"Using tools: {config.chat.tools}")
             try:
                 tools = init_tools(config.chat.tools)
@@ -854,7 +861,7 @@ def main(
             )
             stats = get_prompt_stats(
                 tools=tools,
-                prompt=prompt_system,
+                prompt=effective_prompt_system,
                 interactive=config.chat.interactive,
                 tool_format=config.chat.tool_format,
                 model=config.chat.model,
@@ -879,7 +886,7 @@ def main(
                 )
             header = (
                 "System prompt stats"
-                f" (prompt={prompt_system}, tool_format={config.chat.tool_format}, "
+                f" (prompt={effective_prompt_system}, tool_format={config.chat.tool_format}, "
                 f"tools={len(tools)}, interactive={config.chat.interactive})"
             )
             click.echo(
@@ -959,6 +966,10 @@ def main(
     except ValueError as e:
         raise click.UsageError(str(e)) from e
     assert config.chat and config.chat.tool_format
+
+    # Resolve effective system prompt type: CLI flag > gptme.toml [prompt] system > "full"
+    if prompt_system is None:
+        prompt_system = (config.project.system if config.project else None) or "full"
 
     # early init tools to generate system prompt
     # We pass the tool_allowlist CLI argument. If it's not provided, init_tools

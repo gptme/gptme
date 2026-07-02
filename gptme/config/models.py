@@ -280,6 +280,9 @@ class ProjectConfig:
 
     base_prompt: str | None = None
     prompt: str | None = None
+    # System prompt type: "full" (default) or "short" (compact, ~60% fewer tokens).
+    # Overridden by the --system CLI flag when explicitly passed.
+    system: str | None = None
     files: list[str] | None = None
     exclude: list[str] = field(default_factory=list)
     context_cmd: str | None = None
@@ -310,9 +313,11 @@ class ProjectConfig:
         # Support new "prompt" section or old-style base_prompt + files + context_cmd
         # Support new "prompt" section or old-style base_prompt + files + context_cmd
         prompt_data = config_data.pop("prompt", None)
+        system: str | None = None
         if isinstance(prompt_data, dict):
             # New format: [prompt] section with nested values
             prompt = prompt_data.pop("prompt", None)
+            system = prompt_data.pop("system", None)
             base_prompt = prompt_data.pop("base_prompt", None)
             files = prompt_data.pop("files", None)
             exclude = prompt_data.pop("exclude", [])
@@ -405,6 +410,7 @@ class ProjectConfig:
         return cls(
             _workspace=workspace,
             prompt=prompt,
+            system=system,
             base_prompt=base_prompt,
             files=files,
             exclude=exclude,
