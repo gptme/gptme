@@ -835,11 +835,11 @@ def main(
             assert config.chat and config.chat.tool_format
 
             # Resolve prompt type using project config if --system was not set
-            effective_prompt_system = (
-                prompt_system
-                or (config.project.system if config.project else None)
-                or "full"
-            )
+            effective_prompt_system = prompt_system
+            if effective_prompt_system is None:
+                effective_prompt_system = (
+                    config.project.system if config.project else None
+                ) or "full"
 
             logger.debug(f"Using tools: {config.chat.tools}")
             try:

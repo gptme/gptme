@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+VALID_PROJECT_SYSTEM_PROMPTS = {"full", "short"}
+
 
 def _pop_object_section(config_data: dict, key: str) -> dict:
     """Pop a nested config section and require it to be an object."""
@@ -318,6 +320,12 @@ class ProjectConfig:
             # New format: [prompt] section with nested values
             prompt = prompt_data.pop("prompt", None)
             system = prompt_data.pop("system", None)
+            if system is not None and (
+                not isinstance(system, str)
+                or system not in VALID_PROJECT_SYSTEM_PROMPTS
+            ):
+                valid = ", ".join(sorted(VALID_PROJECT_SYSTEM_PROMPTS))
+                raise ValueError(f"prompt.system must be one of: {valid}")
             base_prompt = prompt_data.pop("base_prompt", None)
             files = prompt_data.pop("files", None)
             exclude = prompt_data.pop("exclude", [])

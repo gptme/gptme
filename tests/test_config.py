@@ -291,6 +291,19 @@ files = ["README.md"]
     assert project_config.system is None
 
 
+def test_project_config_system_field_rejects_invalid_value():
+    """Test that [prompt] system rejects typos instead of treating them as custom prompts."""
+    import tomlkit
+
+    toml_str = """
+[prompt]
+system = "typo"
+"""
+    config_data = dict(tomlkit.loads(toml_str))
+    with pytest.raises(ValueError, match="prompt.system must be one of: full, short"):
+        ProjectConfig.from_dict(config_data)
+
+
 def test_env_vars_loaded_in_correct_priority(monkeypatch, tmp_path):
     temp_user_config = str(tmp_path / "config.toml")
     temp_project_config = str(tmp_path / "gptme.toml")
