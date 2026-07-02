@@ -1092,7 +1092,7 @@ class TestCheckComputer:
     @patch("importlib.util.find_spec")
     @patch("subprocess.run")
     @patch("shutil.which")
-    @patch.dict("os.environ", {})
+    @patch.dict("os.environ", {}, clear=True)
     def test_linux_no_display_pyatspi_skipped(
         self, mock_which, mock_run, mock_find_spec
     ):
