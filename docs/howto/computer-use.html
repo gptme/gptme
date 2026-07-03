@@ -492,6 +492,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#desktop-native-app-control">Desktop / native app control</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screenshot-and-visual-verification">Screenshot and visual verification</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#efficient-ui-loops">Efficient UI loops</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#context-efficient-multi-step-tasks">Context-efficient multi-step tasks</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-inside-docker-isolated-headless-desktop">Run inside Docker (isolated headless desktop)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backend-selection-cheat-sheet">Backend selection cheat sheet</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tips">Tips</a></li>
@@ -610,6 +611,30 @@ instead of polling with repeated screenshots:</p>
 </pre></div>
 </div>
 </section>
+<section id="context-efficient-multi-step-tasks">
+<h2>Context-efficient multi-step tasks<a class="headerlink" href="#context-efficient-multi-step-tasks" title="Link to this heading">#</a></h2>
+<p>For long, multi-step automations — filling multi-page forms, running GUI workflows, or
+anything that would generate dozens of screenshots — use <code class="docutils literal notranslate"><span class="pre">computer_task()</span></code> to delegate
+the whole task to a subagent. All intermediate screenshots stay inside the subagent’s
+context; only a text summary comes back to the parent:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># From IPython inside a gptme session with the computer tool enabled</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">computer_task</span><span class="p">(</span>
+    <span class="s2">&quot;Open Firefox, go to https://x.com/compose/tweet, &quot;</span>
+    <span class="s2">&quot;type &#39;Hello from gptme!&#39;, and click Tweet.&quot;</span><span class="p">,</span>
+    <span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;result&quot;</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>This is the “context-efficient tool-use loop until goal is achieved” pattern: rather
+than having the parent accumulate dozens of screenshots and intermediate steps, the
+subagent runs the full loop internally and reports back a brief summary.</p>
+<p>If the task fails or you need the full step-by-step transcript:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.tools.subagent</span> <span class="kn">import</span> <span class="n">subagent_read_log</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">subagent_read_log</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;agent_id&quot;</span><span class="p">]))</span>
+</pre></div>
+</div>
+</section>
 <section id="run-inside-docker-isolated-headless-desktop">
 <h2>Run inside Docker (isolated headless desktop)<a class="headerlink" href="#run-inside-docker-isolated-headless-desktop" title="Link to this heading">#</a></h2>
 <p>For a fully isolated environment with VNC access:</p>
@@ -651,6 +676,9 @@ make<span class="w"> </span>run-docker-computer<span class="w">     </span><span
 </tr>
 <tr class="row-odd"><td><p>Scroll in native UI</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">computer('scroll',</span> <span class="pre">coordinate=(x,y),</span> <span class="pre">text='down')</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Multi-step task, keep parent context lean</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">computer_task(task,</span> <span class="pre">timeout=N)</span></code></p></td>
 </tr>
 </tbody>
 </table>
@@ -720,6 +748,7 @@ prompts (but ensure the task is well-scoped first).</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#desktop-native-app-control">Desktop / native app control</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screenshot-and-visual-verification">Screenshot and visual verification</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#efficient-ui-loops">Efficient UI loops</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#context-efficient-multi-step-tasks">Context-efficient multi-step tasks</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-inside-docker-isolated-headless-desktop">Run inside Docker (isolated headless desktop)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backend-selection-cheat-sheet">Backend selection cheat sheet</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tips">Tips</a></li>

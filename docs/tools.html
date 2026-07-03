@@ -3616,6 +3616,12 @@ Three higher-level helpers are available that implement the structured-first obs
   ``wait_for_change`` in one call — the complete &quot;act then look&quot; loop without separate
   screenshot calls. Use this for tight interaction loops where you want to see the screen
   after every click, keypress, or scroll.
+<span class="k">-</span><span class="w"> </span>``computer_task(task, timeout=300, model=None)`` — run a multi-step computer-use task
+  in a <span class="gs">**context-isolated subagent**</span> and block until done. All screenshots and intermediate
+  steps are kept inside the subagent&#39;s own context — the caller&#39;s context stays lean. Use
+  this for long, multi-step automations (filling forms, navigating multi-page flows, running
+  GUI apps) where piling dozens of screenshots into the current context would be wasteful.
+  Returns a status dict with ``status`` and ``result`` keys.
 
 These helpers are preferred over calling ``computer(&quot;screenshot&quot;)`` directly when observing
 web pages, because ARIA snapshots avoid costly vision tokens and give a DOM-addressable tree.
@@ -3896,6 +3902,28 @@ Viewing image...</pre>
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
   <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Open Firefox, go to https://x.com/compose/tweet, type "Hello from gptme!" and submit it — without filling up my context with screenshots</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll delegate this to computer_task() so all the intermediate screenshots stay in a subagent context rather than here.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">computer_task("Open Firefox, navigate to https://x.com/compose/tweet, type 'Hello from gptme!', and click the Tweet button.", timeout=120)
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">{"status": "success", "result": "Tweet submitted successfully. Firefox opened, x.com/compose/tweet loaded, typed the message, clicked Tweet. Confirmed tweet posted.", "agent_id": "computer-task-a1b2c3d4"}</pre>
+  </td>
+</tr>
+</table><table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Open a new browser tab</pre>
   </td>
 </tr>
@@ -3989,6 +4017,57 @@ settled screen after the change.</p></li>
 </ul>
 </dd>
 </dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.computer.</span></span><span class="sig-name descname"><span class="pre">computer_task</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">300</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a></span></span></dt>
+<dd><p>Run a computer-use task in a context-isolated subagent.</p>
+<p>Spawns a child agent with the <code class="docutils literal notranslate"><span class="pre">computer-use</span></code> profile and blocks until it
+completes (or times out).  All screenshots and intermediate steps stay inside
+the subagent’s own context, so the caller’s context remains lean — this is
+the “context-efficient tool-use loop until goal is achieved” pattern described
+in gptme/gptme#216.</p>
+<p>Use this instead of issuing a long chain of <code class="docutils literal notranslate"><span class="pre">computer()</span></code> + <code class="docutils literal notranslate"><span class="pre">act_and_observe()</span></code>
+calls directly when the task has many steps, or when you don’t want dozens of
+screenshots piling up in the current context.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>task</strong> – Natural-language description of what to accomplish.</p></li>
+<li><p><strong>timeout</strong> – Maximum seconds to wait before giving up (default 300 = 5 min).</p></li>
+<li><p><strong>model</strong> – Optional model override for the subagent.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Status dict with keys <code class="docutils literal notranslate"><span class="pre">status</span></code> (<code class="docutils literal notranslate"><span class="pre">&quot;success&quot;</span></code> / <code class="docutils literal notranslate"><span class="pre">&quot;failure&quot;</span></code> /
+<code class="docutils literal notranslate"><span class="pre">&quot;clarification_needed&quot;</span></code> / <code class="docutils literal notranslate"><span class="pre">&quot;timeout&quot;</span></code>) and <code class="docutils literal notranslate"><span class="pre">result</span></code> (text
+summary from the subagent).
+<code class="docutils literal notranslate"><span class="pre">&quot;clarification_needed&quot;</span></code> is returned if the subagent needs more
+information before it can complete the task.
+<code class="docutils literal notranslate"><span class="pre">&quot;timeout&quot;</span></code> is returned when the wall-clock deadline is reached before
+the subagent finishes. The worker thread may still wind down in the
+background, but callers immediately see the terminal timeout result.
+Call <code class="docutils literal notranslate"><span class="pre">subagent_read_log(agent_id)</span></code> for the full step-by-step
+transcript — the dict also carries the <code class="docutils literal notranslate"><span class="pre">agent_id</span></code> key for that.</p>
+</dd>
+</dl>
+<p>Example (from IPython in a gptme session):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Compose a tweet without piling screenshots into this context</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">computer_task</span><span class="p">(</span>
+    <span class="s2">&quot;Open Firefox, navigate to https://x.com/compose/tweet, &quot;</span>
+    <span class="s2">&quot;type &#39;Hello from gptme!&#39;, and click Tweet.&quot;</span><span class="p">,</span>
+    <span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;result&quot;</span><span class="p">])</span>
+
+<span class="c1"># Check if the task produced a file</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">computer_task</span><span class="p">(</span>
+    <span class="s2">&quot;Take a screenshot and save it to /tmp/desktop.png&quot;</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">])</span>
+</pre></div>
+</div>
 </dd></dl>
 
 <dl class="py function">
