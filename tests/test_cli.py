@@ -85,6 +85,71 @@ def test_help(runner: CliRunner):
     assert "gptme-util skills show NAME" in result.output
 
 
+def test_discover_gptme_plugins_finds_external_binaries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """External gptme-* binaries in PATH appear in the discovery list."""
+    # Create a fake gptme-sessions executable
+    fake_bin = tmp_path / "gptme-sessions"
+    fake_bin.write_text("#!/bin/sh\necho sessions\n")
+    fake_bin.chmod(0o755)
+
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    from gptme.cli.main import _discover_gptme_plugins
+
+    plugins = _discover_gptme_plugins()
+    assert "gptme-sessions" in plugins
+
+
+def test_discover_gptme_plugins_excludes_core_scripts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Core gptme-* scripts are not included in discovered plugins."""
+    # Create fake versions of core scripts
+    for name in ("gptme-util", "gptme-server", "gptme-eval"):
+        p = tmp_path / name
+        p.write_text("#!/bin/sh\n")
+        p.chmod(0o755)
+
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    from gptme.cli.main import _discover_gptme_plugins
+
+    plugins = _discover_gptme_plugins()
+    assert "gptme-util" not in plugins
+    assert "gptme-server" not in plugins
+    assert "gptme-eval" not in plugins
+
+
+def test_help_shows_discovered_external_subcommands(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """gptme --help lists gptme-* binaries discovered in PATH."""
+    fake_bin = tmp_path / "gptme-sessions"
+    fake_bin.write_text("#!/bin/sh\necho sessions\n")
+    fake_bin.chmod(0o755)
+
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    result = runner.invoke(cli.main, ["--help"])
+    assert result.exit_code == 0
+    assert "Installed external subcommands" in result.output
+    assert "gptme sessions" in result.output
+    assert "gptme-sessions" in result.output
+
+
+def test_help_no_external_subcommands_section_when_none_installed(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+):
+    """gptme --help omits the external-subcommands section when PATH has none."""
+    monkeypatch.setenv("PATH", "")
+
+    result = runner.invoke(cli.main, ["--help"])
+    assert result.exit_code == 0
+    assert "Installed external subcommands" not in result.output
+
+
 def test_version(runner: CliRunner):
     result = runner.invoke(cli.main, ["--version"])
     assert result.exit_code == 0

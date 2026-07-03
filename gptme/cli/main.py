@@ -62,6 +62,79 @@ from ..util.tokens import len_tokens
 
 logger = logging.getLogger(__name__)
 
+# Core scripts shipped with gptme itself — excluded from external-plugin discovery.
+# Keep in sync with [project.scripts] in pyproject.toml.
+_CORE_GPTME_SCRIPTS = frozenset(
+    {
+        "gptme",
+        "gptme-acp",
+        "gptme-agent",
+        "gptme-attest",
+        "gptme-auth",
+        "gptme-checkpoint",
+        "gptme-doctor",
+        "gptme-dspy",
+        "gptme-eval",
+        "gptme-eval-swebench",
+        "gptme-eval-tbench",
+        "gptme-eval-trends",
+        "gptme-init",
+        "gptme-onboard",
+        "gptme-resume",
+        "gptme-server",
+        "gptme-status",
+        "gptme-util",
+        "gptme-wut",
+    }
+)
+
+
+def _discover_gptme_plugins() -> list[str]:
+    """Find gptme-* executables in PATH that are not part of core gptme.
+
+    Returns a sorted list of binary names, e.g. ['gptme-sessions', 'gptme-tools'].
+    """
+    seen: set[str] = set()
+    plugins: list[str] = []
+
+    for path_dir in os.environ.get("PATH", "").split(os.pathsep):
+        if not path_dir:
+            continue
+        try:
+            for entry in Path(path_dir).iterdir():
+                name = entry.name
+                if (
+                    name.startswith("gptme-")
+                    and name not in _CORE_GPTME_SCRIPTS
+                    and name not in seen
+                    and entry.is_file()
+                    and os.access(entry, os.X_OK)
+                ):
+                    seen.add(name)
+                    plugins.append(name)
+        except (OSError, PermissionError):
+            continue
+
+    return sorted(plugins)
+
+
+class _DynamicHelpCommand(click.Command):
+    """click.Command subclass that appends discovered gptme-* plugins to --help."""
+
+    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        super().format_help(ctx, formatter)
+        plugins = _discover_gptme_plugins()
+        if plugins:
+            with formatter.section("Installed external subcommands"):
+                rows = [
+                    (
+                        f"gptme {name.removeprefix('gptme-')}",
+                        f"delegates to {name}",
+                    )
+                    for name in plugins
+                ]
+                formatter.write_dl(rows)
+
 
 def _validate_model_param(
     ctx: click.Context, param: click.Parameter, value: str | None
@@ -308,8 +381,8 @@ The interface provides /commands during a conversation:
 Subcommand shortcuts:
   gptme search QUERY      Search conversation logs (alias for gptme-util chats search)
   gptme chats [args]      Any gptme-util subcommand works directly (chats, tools, skills, ...)
-  gptme sessions          Delegates to gptme-sessions if installed (gptme-* in PATH)
   gptme <cmd> [args]      gptme-util subcommand or gptme-<cmd> binary, in that order
+  (installed gptme-* binaries in PATH are listed at the bottom of this help)
 
 \b
 Utilities (gptme-util):
@@ -329,7 +402,11 @@ Utilities (gptme-util):
 Run 'gptme-util --help' for all utility commands."""
 
 
-@click.command(help=docstring, context_settings={"auto_envvar_prefix": "GPTME"})
+@click.command(
+    help=docstring,
+    context_settings={"auto_envvar_prefix": "GPTME"},
+    cls=_DynamicHelpCommand,
+)
 @click.pass_context
 @click.argument(
     "prompts",
