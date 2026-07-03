@@ -189,3 +189,10 @@ class TestUtilSubcommandMirroring:
         assert result.exit_code == 0
         # Help text should describe that gptme-util subcommands work directly
         assert "chats" in result.output
+
+    def test_util_subcmd_errors_when_gptme_util_not_installed(self, runner: CliRunner):
+        """gptme chats exits with code 1 and an actionable error when gptme-util is absent."""
+        with patch("gptme.cli.main.shutil.which", return_value=None):
+            result = runner.invoke(main, ["chats"])
+        assert result.exit_code == 1
+        assert "gptme-util" in result.output

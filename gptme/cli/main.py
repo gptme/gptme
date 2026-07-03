@@ -585,6 +585,13 @@ def main(
         if prompts[0] in UTIL_SUBCOMMANDS:
             if util_exec := shutil.which("gptme-util"):
                 sys.exit(subprocess.call([util_exec, *prompts]))
+            else:
+                print(
+                    f"Error: '{prompts[0]}' is a gptme-util subcommand but gptme-util is not installed.\n"
+                    "Install it with: pip install gptme[util]",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
 
     # Plugin dispatch: `gptme CMD [args...]` → `gptme-CMD [args...]` if installed
     # Enables extensibility: `gptme sessions` works if gptme-sessions is in PATH.
