@@ -12,7 +12,7 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 
 
-def _make_status(status: str = "completed", result: str = "Task done.") -> dict:
+def _make_status(status: str = "success", result: str = "Task done.") -> dict:
     return {"status": status, "result": result}
 
 
@@ -30,14 +30,14 @@ def test_computer_task_returns_status_and_result(monkeypatch):
         pass
 
     def fake_wait(agent_id, timeout=300):
-        return _make_status("completed", "Screenshot saved to /tmp/desktop.png")
+        return _make_status("success", "Screenshot saved to /tmp/desktop.png")
 
     monkeypatch.setattr(_sa_mod, "subagent", fake_subagent)
     monkeypatch.setattr(_sa_mod, "subagent_wait", fake_wait)
 
     result = computer_task("Take a screenshot and save it to /tmp/desktop.png")
 
-    assert result["status"] == "completed"
+    assert result["status"] == "success"
     assert "desktop.png" in result["result"]
     assert "agent_id" in result
 
@@ -66,14 +66,14 @@ def test_computer_task_uses_computer_use_profile(monkeypatch):
 
 
 def test_computer_task_passes_timeout(monkeypatch):
-    """The timeout arg is forwarded to both subagent() and subagent_wait()."""
+    """The timeout arg is forwarded as max_time= to subagent() and as timeout= to subagent_wait()."""
     from gptme.tools.computer import computer_task
 
-    spawn_timeout: list[int] = []
+    spawn_max_time: list[int | None] = []
     wait_timeout: list[int] = []
 
-    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
-        spawn_timeout.append(timeout)
+    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
+        spawn_max_time.append(kw.get("max_time"))
 
     def fake_wait(agent_id, timeout=300):
         wait_timeout.append(timeout)
@@ -86,7 +86,7 @@ def test_computer_task_passes_timeout(monkeypatch):
 
     computer_task("tweet 'hello'", timeout=42)
 
-    assert spawn_timeout == [42]
+    assert spawn_max_time == [42]
     assert wait_timeout == [42]
 
 
@@ -171,7 +171,7 @@ def test_computer_task_result_carries_agent_id(monkeypatch):
         spawned_ids.append(agent_id)
 
     def fake_wait(agent_id, timeout=300):
-        return _make_status("completed", "Done")
+        return _make_status("success", "Done")
 
     import gptme.tools.subagent as _sa_mod
 
@@ -191,7 +191,7 @@ def test_computer_task_propagates_failure_status(monkeypatch):
         pass
 
     def fake_wait(agent_id, timeout=300):
-        return _make_status("failed", "Could not open Firefox — no display available.")
+        return _make_status("failure", "Could not open Firefox — no display available.")
 
     import gptme.tools.subagent as _sa_mod
 
@@ -200,7 +200,7 @@ def test_computer_task_propagates_failure_status(monkeypatch):
 
     result = computer_task("tweet something")
 
-    assert result["status"] == "failed"
+    assert result["status"] == "failure"
     assert "display" in result["result"]
 
 

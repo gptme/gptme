@@ -2136,7 +2136,7 @@ def computer_task(
         model: Optional model override for the subagent.
 
     Returns:
-        Status dict with keys ``status`` (``"completed"`` / ``"failed"`` /
+        Status dict with keys ``status`` (``"success"`` / ``"failure"`` /
         ``"timeout"``) and ``result`` (text summary from the subagent).
         Call ``subagent_read_log(agent_id)`` for the full step-by-step
         transcript — the dict also carries the ``agent_id`` key for that.
@@ -2166,7 +2166,7 @@ def computer_task(
         agent_id=agent_id,
         prompt=task,
         profile="computer-use",
-        timeout=timeout,
+        max_time=timeout,
         model=model,
     )
     result = subagent_wait(agent_id, timeout=timeout)
@@ -2257,7 +2257,7 @@ System: [ARIA snapshot + screenshot of example.com]
 User: Open Firefox, go to https://x.com/compose/tweet, type "Hello from gptme!" and submit it — without filling up my context with screenshots
 Assistant: I'll delegate this to computer_task() so all the intermediate screenshots stay in a subagent context rather than here.
 {ToolUse("ipython", [], _COMPUTER_TASK_TWEET_EXAMPLE).to_output(tool_format)}
-System: {{"status": "completed", "result": "Tweet submitted successfully. Firefox opened, x.com/compose/tweet loaded, typed the message, clicked Tweet. Confirmed tweet posted.", "agent_id": "computer-task-a1b2c3d4"}}
+System: {{"status": "success", "result": "Tweet submitted successfully. Firefox opened, x.com/compose/tweet loaded, typed the message, clicked Tweet. Confirmed tweet posted.", "agent_id": "computer-task-a1b2c3d4"}}
 """
 
     # Platform-specific keyboard shortcut examples
