@@ -1527,9 +1527,12 @@ def api_conversation_put(conversation_id: str):
             )
         )
 
-    _append_conversation_system_prompt(
-        msgs, _resolve_conversation_system_prompt(chat_config)
-    )
+    resolved_prompt = _resolve_conversation_system_prompt(chat_config)
+    # Persist the resolved prompt back to chat_config so it survives server
+    # restarts that don't pass --default-profile (fixes Greptile P1 durability gap).
+    if resolved_prompt and not chat_config.system_prompt:
+        chat_config.system_prompt = resolved_prompt
+    _append_conversation_system_prompt(msgs, resolved_prompt)
 
     for role, content, timestamp, files_raw in validated_msgs:
         file_paths: list[FilePath] = []

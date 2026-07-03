@@ -188,6 +188,56 @@ class TestDefaultProfileInjectedOnConversationCreate:
         ]
         assert system_messages.count(profile.system_prompt) == 1
 
+    def test_profile_system_prompt_durable_across_server_restart(self):
+        """System prompt injected from --default-profile must survive a simulated
+        server restart (new app instance without --default-profile) followed by a
+        PATCH call — i.e., it must be persisted to config.toml on PUT, not only
+        held in the live server config."""
+        import os  # fmt: skip
+        import tempfile  # fmt: skip
+        from unittest.mock import patch  # fmt: skip
+
+        from gptme.profiles import get_profile  # fmt: skip
+        from gptme.server.app import create_app  # fmt: skip
+
+        profile = get_profile("computer-use")
+        assert profile and profile.system_prompt
+
+        conv_id = f"test-restart-durability-{random.randint(0, 10_000_000)}"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_override = {"GPTME_LOGS_HOME": tmpdir}
+
+            # Phase 1 — server WITH --default-profile creates conversation
+            with patch.dict(os.environ, env_override):
+                app1 = create_app(default_profile="computer-use")
+                app1.config["TESTING"] = True
+                with app1.test_client() as client1:
+                    resp = client1.put(f"/api/v2/conversations/{conv_id}", json={})
+                    assert resp.status_code == 200
+
+            # Phase 2 — server WITHOUT --default-profile (simulates restart)
+            with patch.dict(os.environ, env_override):
+                app2 = create_app(default_profile=None)
+                app2.config["TESTING"] = True
+                with app2.test_client() as client2:
+                    patch_resp = client2.patch(
+                        f"/api/v2/conversations/{conv_id}/config",
+                        json={"chat": {"model": "openai/gpt-4o-mini"}},
+                    )
+                    assert patch_resp.status_code == 200
+
+                    messages = _get_messages(client2, conv_id)
+                    system_messages = [
+                        m.get("content", "")
+                        for m in messages
+                        if m.get("role") == "system"
+                    ]
+                    assert system_messages.count(profile.system_prompt) == 1, (
+                        "Profile system prompt must survive a server restart without "
+                        "--default-profile when it was persisted to config.toml on PUT."
+                    )
+
 
 # ---------------------------------------------------------------------------
 # entrypoint.sh uses --default-profile computer-use
