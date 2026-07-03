@@ -656,6 +656,7 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.load_user_config"><code class="docutils literal notranslate"><span class="pre">load_user_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.reload_config"><code class="docutils literal notranslate"><span class="pre">reload_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.require_workspace_exists"><code class="docutils literal notranslate"><span class="pre">require_workspace_exists()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.save_provider_config"><code class="docutils literal notranslate"><span class="pre">save_provider_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config"><code class="docutils literal notranslate"><span class="pre">set_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config_from_workspace"><code class="docutils literal notranslate"><span class="pre">set_config_from_workspace()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config_value"><code class="docutils literal notranslate"><span class="pre">set_config_value()</span></code></a></li>
@@ -1646,6 +1647,22 @@ deleted. We surface a clear message instead of a bare FileNotFoundError
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="gptme.config.save_provider_config">
+<span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">save_provider_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">provider</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.config.ProviderConfig" title="gptme.config.models.ProviderConfig"><span class="pre">ProviderConfig</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">reload</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">local</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.config.save_provider_config" title="Link to this definition">#</a></dt>
+<dd><p>Append a [[providers]] entry to the user config file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>provider</strong> – ProviderConfig to save.</p></li>
+<li><p><strong>reload</strong> – Whether to reload the in-memory config after writing.</p></li>
+<li><p><strong>local</strong> – If True, write to config.local.toml instead of config.toml.
+Use for entries with inline api_key (secrets).</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="gptme.config.set_config">
 <span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">set_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.config.Config" title="gptme.config.core.Config"><span class="pre">Config</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#gptme.config.set_config" title="Link to this definition">#</a></dt>
 <dd><p>Set the configuration.</p>
@@ -2108,6 +2125,7 @@ variable, then to the embedded legacy static bundle.</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.load_user_config"><code class="docutils literal notranslate"><span class="pre">load_user_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.reload_config"><code class="docutils literal notranslate"><span class="pre">reload_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.require_workspace_exists"><code class="docutils literal notranslate"><span class="pre">require_workspace_exists()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.save_provider_config"><code class="docutils literal notranslate"><span class="pre">save_provider_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config"><code class="docutils literal notranslate"><span class="pre">set_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config_from_workspace"><code class="docutils literal notranslate"><span class="pre">set_config_from_workspace()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config_value"><code class="docutils literal notranslate"><span class="pre">set_config_value()</span></code></a></li>
