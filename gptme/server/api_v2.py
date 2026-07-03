@@ -313,6 +313,23 @@ def _append_conversation_system_prompt(
         messages.append(Message("system", system_prompt))
 
 
+def _resolve_conversation_system_prompt(chat_config: ChatConfig) -> str | None:
+    """Return the conversation prompt, falling back to the server default profile."""
+    if chat_config.system_prompt:
+        return chat_config.system_prompt
+
+    server_default_profile = flask.current_app.config.get("SERVER_DEFAULT_PROFILE")
+    if not server_default_profile:
+        return None
+
+    from ..profiles import get_profile
+
+    profile = get_profile(server_default_profile)
+    if profile and profile.system_prompt:
+        return profile.system_prompt
+    return None
+
+
 def _generate_fork_conversation_id() -> str:
     """Generate a reasonably unique conversation id for forked copies."""
     timestamp = datetime.now(tz=timezone.utc).isoformat().replace(":", "-")
@@ -1510,19 +1527,9 @@ def api_conversation_put(conversation_id: str):
             )
         )
 
-    # Apply system prompt: prefer the conversation-specific one; fall back to the
-    # server's configured default profile (e.g. 'computer-use' in the Docker
-    # container) when neither the request nor the chat config provided one.
-    system_prompt = chat_config.system_prompt
-    if not system_prompt:
-        server_default_profile = flask.current_app.config.get("SERVER_DEFAULT_PROFILE")
-        if server_default_profile:
-            from ..profiles import get_profile
-
-            profile = get_profile(server_default_profile)
-            if profile and profile.system_prompt:
-                system_prompt = profile.system_prompt
-    _append_conversation_system_prompt(msgs, system_prompt)
+    _append_conversation_system_prompt(
+        msgs, _resolve_conversation_system_prompt(chat_config)
+    )
 
     for role, content, timestamp, files_raw in validated_msgs:
         file_paths: list[FilePath] = []
@@ -2540,7 +2547,9 @@ def api_conversation_config_patch(conversation_id: str):
                 agent_path=chat_config.agent,
             )
         )
-        _append_conversation_system_prompt(new_system_msgs, chat_config.system_prompt)
+        _append_conversation_system_prompt(
+            new_system_msgs, _resolve_conversation_system_prompt(chat_config)
+        )
         manager.log = Log(new_system_msgs + remaining_msgs)
     manager.write()
 

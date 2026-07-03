@@ -163,6 +163,31 @@ class TestDefaultProfileInjectedOnConversationCreate:
         # Must not 500 — unknown profile is silently ignored
         assert resp.status_code == 200
 
+    def test_profile_system_prompt_survives_config_patch(self):
+        """Config PATCH must not drop the server default profile's system prompt."""
+        client = _make_client(default_profile="computer-use")
+        conv_id = f"test-profile-patch-{random.randint(0, 10_000_000)}"
+
+        resp = client.put(f"/api/v2/conversations/{conv_id}", json={})
+        assert resp.status_code == 200
+
+        from gptme.profiles import get_profile  # fmt: skip
+
+        profile = get_profile("computer-use")
+        assert profile and profile.system_prompt
+
+        patch_resp = client.patch(
+            f"/api/v2/conversations/{conv_id}/config",
+            json={"chat": {"model": "openai/gpt-4o-mini"}},
+        )
+        assert patch_resp.status_code == 200
+
+        messages = _get_messages(client, conv_id)
+        system_messages = [
+            m.get("content", "") for m in messages if m.get("role") == "system"
+        ]
+        assert system_messages.count(profile.system_prompt) == 1
+
 
 # ---------------------------------------------------------------------------
 # entrypoint.sh uses --default-profile computer-use
