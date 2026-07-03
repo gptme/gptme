@@ -1558,3 +1558,75 @@ def test_click_exception_inside_chat_exits_2(
 
     assert result.exit_code == 2, result.output
     assert "Fatal error occurred" not in result.output
+
+
+@pytest.mark.slow
+class TestPluginDiscovery:
+    """Tests for gptme-<cmd> PATH-based plugin dispatch."""
+
+    def test_dispatches_to_external_binary(self, runner, monkeypatch, tmp_path):
+        """gptme <cmd> delegates to gptme-<cmd> when found in PATH."""
+        fake_bin = str(tmp_path / "gptme-sessions")
+
+        subprocess_calls: list[list[str]] = []
+        monkeypatch.setattr(
+            "gptme.cli.main.shutil.which",
+            lambda x: fake_bin if x == "gptme-sessions" else None,
+        )
+        monkeypatch.setattr(
+            "gptme.cli.main.subprocess.call",
+            lambda args: _record_subprocess_call(args, subprocess_calls),
+        )
+
+        result = runner.invoke(cli.main, ["sessions", "list"])
+
+        assert result.exit_code == 0
+        assert subprocess_calls == [[fake_bin, "list"]]
+
+    def test_no_dispatch_when_binary_missing(self, runner, monkeypatch, tmp_path):
+        """gptme <cmd> falls through to chat when gptme-<cmd> is not in PATH."""
+        subprocess_calls: list = []
+        monkeypatch.setattr("gptme.cli.main.shutil.which", lambda x: None)
+        monkeypatch.setattr(
+            "gptme.cli.main.subprocess.call",
+            lambda args: _record_subprocess_call(args, subprocess_calls),
+        )
+
+        # Short-circuit before any LLM/network setup to keep the test fast.
+        # The point is only to verify subprocess was NOT called; we don't need a
+        # full session run.
+        def _early_exit(*args, **kwargs):
+            raise SystemExit(1)
+
+        monkeypatch.setattr("gptme.cli.main.setup_config_from_cli", _early_exit)
+
+        runner.invoke(cli.main, ["sessions"])
+
+        assert subprocess_calls == []
+
+    def test_search_alias_takes_precedence(self, runner, monkeypatch):
+        """Built-in `search` alias is not intercepted by plugin dispatch."""
+        subprocess_calls: list = []
+        # Even if gptme-search existed in PATH, the built-in alias must run first.
+        monkeypatch.setattr(
+            "gptme.cli.main.shutil.which",
+            lambda x: "/fake/gptme-search" if x == "gptme-search" else None,
+        )
+        monkeypatch.setattr(
+            "gptme.cli.main.subprocess.call",
+            lambda args: _record_subprocess_call(args, subprocess_calls),
+        )
+
+        # UsageError fires before search_chats is called (no query given),
+        # so the built-in alias exits early — plugin dispatch must never run.
+        result = runner.invoke(cli.main, ["search"])
+
+        assert subprocess_calls == [], (
+            "Plugin dispatch ran before built-in search alias"
+        )
+        assert result.exit_code != 0  # UsageError (no query given)
+
+
+def _record_subprocess_call(args, calls: list[list[str]]) -> int:
+    calls.append(list(args))
+    return 0
