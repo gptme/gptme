@@ -226,6 +226,30 @@ def test_computer_task_propagates_timeout_status(monkeypatch):
     assert "42s" in result["result"]
 
 
+def test_computer_task_propagates_clarification_needed_status(monkeypatch):
+    """If the subagent asks for clarification, the status is propagated unchanged."""
+    from gptme.tools.computer import computer_task
+
+    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
+        pass
+
+    def fake_wait(agent_id, timeout=300):
+        return _make_status(
+            "clarification_needed",
+            "Which browser profile should I use?",
+        )
+
+    import gptme.tools.subagent as _sa_mod
+
+    monkeypatch.setattr(_sa_mod, "subagent", fake_subagent)
+    monkeypatch.setattr(_sa_mod, "subagent_wait", fake_wait)
+
+    result = computer_task("log into the staging dashboard")
+
+    assert result["status"] == "clarification_needed"
+    assert "browser profile" in result["result"]
+
+
 def test_computer_task_registered_in_tool_spec():
     """computer_task is registered as a ToolFunction in the computer ToolSpec."""
     from gptme.tools.computer import tool

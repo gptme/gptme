@@ -2137,7 +2137,10 @@ def computer_task(
 
     Returns:
         Status dict with keys ``status`` (``"success"`` / ``"failure"`` /
-        ``"timeout"``) and ``result`` (text summary from the subagent).
+        ``"clarification_needed"`` / ``"timeout"``) and ``result`` (text
+        summary from the subagent).
+        ``"clarification_needed"`` is returned if the subagent needs more
+        information before it can complete the task.
         ``"timeout"`` is returned when the wall-clock deadline is reached before
         the subagent finishes. The worker thread may still wind down in the
         background, but callers immediately see the terminal timeout result.
