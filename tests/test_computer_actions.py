@@ -22,6 +22,7 @@ _PIL_AVAILABLE = importlib.util.find_spec("PIL") is not None
 
 from gptme.tools.computer import (
     _dispatch_transport,
+    _poll_for_change,
     act_and_observe,
     observe_desktop,
     observe_web,
@@ -509,3 +510,97 @@ class TestActAndObserve:
             act_and_observe("key", text="Return")
 
         assert "wait_for_change" in calls, "key action must trigger wait_for_change"
+
+
+# ---------------------------------------------------------------------------
+# act_and_observe pre-action baseline tests (issue #216 race condition fix)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _PIL_AVAILABLE, reason="PIL not installed")
+class TestActAndObservePreBaseline:
+    """Verify that act_and_observe captures a baseline BEFORE the action.
+
+    The bug (issue #216): window_focus and similar actions change the screen
+    immediately.  The old code took a baseline *after* the action, so
+    wait_for_change saw no further change and timed out — causing the
+    'delay' symptom when opening terminal windows in Xvfb.
+
+    The fix: _poll_for_change is called with a baseline captured *before*
+    the action, so the immediate screen change is detected correctly.
+    """
+
+    def test_poll_for_change_detects_immediate_change(self, tmp_path: Path) -> None:
+        """_poll_for_change with a pre-action baseline detects a same-call change.
+
+        Simulate the window_focus race: baseline (white) is taken before the
+        action; after the action, all subsequent screenshots are black.
+        The polling must detect the change even on its very first poll.
+        """
+        # Baseline = white (pre-action state)
+        baseline_path = tmp_path / "baseline.png"
+        _write_png(baseline_path, (255, 255, 255))
+
+        # Transport always returns black (post-action state)
+        transport = _FixedScreenTransport(tmp_path, color=(0, 0, 0))
+
+        result = _poll_for_change(transport, baseline_path, timeout=1.0)
+        assert result is not None, "change should be detected"
+        assert transport._call_count >= 1
+
+    def test_act_and_observe_uses_pre_action_baseline_via_transport(
+        self, tmp_path: Path
+    ) -> None:
+        """act_and_observe with a real transport mock passes a pre-action baseline.
+
+        When get_transport() returns a working transport:
+        - screenshot() is called BEFORE computer(action) (baseline capture)
+        - _poll_for_change is used with that baseline instead of computer('wait_for_change')
+        - A change that happens immediately (all poll screenshots differ from baseline)
+          is returned in the message list.
+        """
+        # Transport: first screenshot = white (baseline before action),
+        # subsequent = black (after window_focus changes the screen).
+        transport = _ChangingScreenTransport(
+            tmp_path,
+            initial_color=(255, 255, 255),
+            changed_color=(0, 0, 0),
+            change_after=1,  # call 1 = white baseline, calls 2+ = black
+        )
+
+        # computer(action) returns None (window_focus returns no Message)
+        with (
+            patch("gptme.tools.computer.computer", return_value=None),
+            patch("gptme.tools.computer.get_transport", return_value=transport),
+        ):
+            msgs = act_and_observe("window_focus", text="Terminal", timeout=1.0)
+
+        # Must return at least one message (the post-action screenshot)
+        assert len(msgs) >= 1, (
+            "act_and_observe should return a screenshot even for window_focus"
+        )
+
+    def test_act_and_observe_falls_back_when_no_transport(self) -> None:
+        """When get_transport() returns None, fall back to computer('wait_for_change').
+
+        This is the path taken in environments without a display (CI, unit tests).
+        """
+        settled_msg = MagicMock()
+        calls: list[str] = []
+
+        def mock_computer(action, text=None, coordinate=None):
+            calls.append(action)
+            if action == "wait_for_change":
+                return settled_msg
+            return None
+
+        with (
+            patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch("gptme.tools.computer.get_transport", return_value=None),
+        ):
+            msgs = act_and_observe("left_click", coordinate=(100, 100))
+
+        assert "wait_for_change" in calls, (
+            "fallback path must call computer('wait_for_change') when no transport"
+        )
+        assert settled_msg in msgs

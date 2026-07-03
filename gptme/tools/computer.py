@@ -1216,6 +1216,39 @@ def _macos_drag(x: int, y: int) -> None:
         raise RuntimeError(f"Failed to drag: {e.stderr}") from e
 
 
+def _poll_for_change(
+    transport: ComputerTransport,
+    baseline: Path,
+    timeout: float = 10.0,
+) -> Message | None:
+    """Poll transport screenshots until the screen changes from *baseline*.
+
+    Returns a screenshot Message of the settled screen.  If no change is
+    detected within *timeout* seconds, returns a final screenshot anyway so the
+    caller always gets visual confirmation of the current state.
+
+    Extracted so :func:`act_and_observe` can pass a *pre-action* baseline and
+    avoid the race where the action changes the screen before the polling loop
+    takes its own reference frame.
+    """
+    poll_interval = 0.05
+    max_poll_interval = 0.5
+    change_threshold = 0.01
+    deadline = _monotonic() + timeout
+    while _monotonic() < deadline:
+        _sleep(poll_interval)
+        current = transport.screenshot()
+        ratio = _compute_change_ratio(baseline, current)
+        if ratio >= change_threshold:
+            print(f"Screen changed ({ratio:.1%} pixels differ)")
+            return _make_screenshot_msg(current)
+        poll_interval = min(poll_interval * 2, max_poll_interval)
+    print(
+        f"No screen change detected after {timeout:.0f}s — returning current screenshot"
+    )
+    return _make_screenshot_msg(transport.screenshot())
+
+
 def _dispatch_transport(
     transport: ComputerTransport,
     action: Action,
@@ -1292,26 +1325,8 @@ def _dispatch_transport(
 
     if action == "wait_for_change":
         timeout = float(text) if text else 10.0
-        # Start polling at 50ms, cap at 500ms — catches fast UI updates without
-        # burning CPU on long waits.
-        poll_interval = 0.05
-        max_poll_interval = 0.5
-        change_threshold = 0.01
         baseline = transport.screenshot()
-        deadline = _monotonic() + timeout
-        while _monotonic() < deadline:
-            _sleep(poll_interval)
-            current = transport.screenshot()
-            ratio = _compute_change_ratio(baseline, current)
-            if ratio >= change_threshold:
-                print(f"Screen changed ({ratio:.1%} pixels differ)")
-                return _make_screenshot_msg(current)
-            # Back off poll interval up to the cap
-            poll_interval = min(poll_interval * 2, max_poll_interval)
-        print(
-            f"No screen change detected after {timeout:.0f}s — returning current screenshot"
-        )
-        return _make_screenshot_msg(transport.screenshot())
+        return _poll_for_change(transport, baseline, timeout)
 
     if action == "window_focus":
         if not text:
@@ -2096,6 +2111,20 @@ def act_and_observe(
     if action == "wait_for_change" and text is None:
         text = str(timeout)
 
+    # Capture a baseline snapshot BEFORE the action executes.
+    # Some actions (notably window_focus) change the screen immediately — if we
+    # take the baseline afterwards the polling loop sees no further change and
+    # always times out, producing the "delay" symptom reported in #216.
+    pre_action_baseline = None
+    transport = None
+    if action not in _OBSERVATION_ACTIONS:
+        transport = get_transport()
+        if transport is not None:
+            try:
+                pre_action_baseline = transport.screenshot()
+            except Exception:
+                pass  # no display / transport unavailable — fall back to post-action polling
+
     result = computer(action, text=text, coordinate=coordinate)
     if result is not None:
         msgs.append(result)
@@ -2104,9 +2133,14 @@ def act_and_observe(
     if action in _OBSERVATION_ACTIONS:
         return msgs
 
-    # For any action that modifies desktop state, wait for the screen to settle
-    # and return one screenshot showing the outcome.
-    settled = computer("wait_for_change", text=str(timeout))
+    # For any action that modifies desktop state, poll for changes and return
+    # one screenshot showing the settled screen.
+    if pre_action_baseline is not None and transport is not None:
+        # Use the pre-action baseline so changes that happened immediately
+        # (e.g. window_focus) are detected rather than missed.
+        settled = _poll_for_change(transport, pre_action_baseline, timeout)
+    else:
+        settled = computer("wait_for_change", text=str(timeout))
     if settled is not None:
         msgs.append(settled)
 
