@@ -210,6 +210,19 @@ def main():
         "can detect Tauri exit even when the bootloader survives reparenting."
     ),
 )
+@click.option(
+    "--default-profile",
+    default=None,
+    envvar="GPTME_SERVER_DEFAULT_PROFILE",
+    help=(
+        "Default agent profile to apply to new conversations that don't specify "
+        "a system prompt. Useful for specialized deployments such as the "
+        "computer-use Docker container where every session should use the "
+        "'computer-use' backend-selection policy. "
+        "Must be a valid profile name (e.g. 'computer-use', 'browser-use'). "
+        "Can also be set via the GPTME_SERVER_DEFAULT_PROFILE environment variable."
+    ),
+)
 def serve(
     debug: bool,
     verbose: bool,
@@ -221,6 +234,7 @@ def serve(
     webui_dir: Path | None,
     exit_on_parent_death: bool,
     watch_pid: int | None,
+    default_profile: str | None,
 ):  # pragma: no cover
     """
     Starts a server and web UI for gptme.
@@ -286,7 +300,12 @@ def serve(
     # Initialize authentication and display token
     init_auth(host=host, display=True)
 
-    app = create_app(cors_origin=cors_origin, host=host, webui_dir=webui_dir)
+    app = create_app(
+        cors_origin=cors_origin,
+        host=host,
+        webui_dir=webui_dir,
+        default_profile=default_profile,
+    )
 
     # Route SIGTERM through the same clean-shutdown path as Ctrl+C so the
     # `finally` block below runs on `systemctl stop` / container scale-down.

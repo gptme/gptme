@@ -51,6 +51,7 @@ def create_app(
     cors_origin: str | None = None,
     host: str = "127.0.0.1",
     webui_dir: str | Path | None = None,
+    default_profile: str | None = None,
 ) -> flask.Flask:
     """Create the Flask app.
 
@@ -63,6 +64,12 @@ def create_app(
             modern React webui's ``dist/``) to serve instead of the bundled
             legacy UI. Falls back to the ``GPTME_WEBUI_DIR`` environment
             variable, then to the embedded legacy static bundle.
+        default_profile: Optional profile name to apply to new conversations
+            that don't specify a system prompt. The profile's system_prompt is
+            injected as an additional system message when the conversation is
+            created. Useful for specialized deployments (e.g. the computer-use
+            Docker container) where every session should use a specific
+            backend-selection policy without requiring the client to set it.
     """
     static_folder = _resolve_static_folder(webui_dir)
     app = flask.Flask(__name__, static_folder=static_folder)
@@ -72,6 +79,11 @@ def create_app(
     # Accept-Encoding: gzip. Flask-Compress handles content negotiation and
     # varies compression level on content-type.
     Compress(app)
+
+    # Store server-level default profile so the conversation PUT endpoint can
+    # inject the profile's system prompt when the client doesn't set one.
+    if default_profile is not None:
+        app.config["SERVER_DEFAULT_PROFILE"] = default_profile
 
     # Capture the server's default model from the startup context
     # This is needed because ContextVar doesn't propagate across request contexts

@@ -1510,7 +1510,19 @@ def api_conversation_put(conversation_id: str):
             )
         )
 
-    _append_conversation_system_prompt(msgs, chat_config.system_prompt)
+    # Apply system prompt: prefer the conversation-specific one; fall back to the
+    # server's configured default profile (e.g. 'computer-use' in the Docker
+    # container) when neither the request nor the chat config provided one.
+    system_prompt = chat_config.system_prompt
+    if not system_prompt:
+        server_default_profile = flask.current_app.config.get("SERVER_DEFAULT_PROFILE")
+        if server_default_profile:
+            from ..profiles import get_profile
+
+            profile = get_profile(server_default_profile)
+            if profile and profile.system_prompt:
+                system_prompt = profile.system_prompt
+    _append_conversation_system_prompt(msgs, system_prompt)
 
     for role, content, timestamp, files_raw in validated_msgs:
         file_paths: list[FilePath] = []
