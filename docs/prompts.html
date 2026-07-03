@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fe94f5004a0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f3c904f44a0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -816,6 +816,7 @@ The following Python functions are available:
 <span class="s">snapshot_url(url: str) -&gt; str: Get the ARIA accessibility snapshot of a webpage.</span>
 <span class="s">open_page(url: str) -&gt; str: Open a page for interactive browsing. Returns ARIA accessibility snapshot.</span>
 <span class="s">close_page() -&gt; str: Close the current interactive browsing page.</span>
+<span class="s">save_browser_state(path: str) -&gt; str: Save the current browser session (cookies, localStorage) to a file.</span>
 <span class="s">read_page_text() -&gt; str: Read the full text content of the current interactive page as Markdown.</span>
 <span class="s">click_element(selector: str) -&gt; str: Click an element on the current page and return updated ARIA snapshot.</span>
 <span class="s">fill_element(selector: str, value: str) -&gt; str: Fill a form field on the current page and return updated ARIA snapshot.</span>
@@ -2628,7 +2629,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 15943</p>
+<p>Tokens: 15968</p>
 </dd></dl>
 
 <dl class="py function">

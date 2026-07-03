@@ -3217,6 +3217,34 @@ Set to 0 to read all pages. Ignored for web pages.</p></li>
 
 <dl class="py function">
 <dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.browser.</span></span><span class="sig-name descname"><span class="pre">save_browser_state</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
+<dd><p>Save the current browser session (cookies, localStorage) to a file.</p>
+<p>Captures the full authentication state of the active browser context so
+it can be restored in a future session via <code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_STORAGE_STATE</span></code>.</p>
+<p>Call this after logging in to a site with open_page() + fill_element() +
+click_element() so you don’t have to re-authenticate next time.</p>
+<p>Typical workflow:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://x.com/login&quot;</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;#username&quot;</span><span class="p">,</span> <span class="s2">&quot;you@example.com&quot;</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;#password&quot;</span><span class="p">,</span> <span class="s2">&quot;hunter2&quot;</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Log in&quot;</span><span class="p">)</span>
+<span class="n">save_browser_state</span><span class="p">(</span><span class="s2">&quot;~/.config/gptme/twitter-session.json&quot;</span><span class="p">)</span>
+<span class="c1"># Next session: export GPTME_BROWSER_STORAGE_STATE=~/.config/gptme/twitter-session.json</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>path</strong> – File path to write the session JSON. Directories are created
+automatically. <code class="docutils literal notranslate"><span class="pre">~</span></code> is expanded to the home directory.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Confirmation string with the absolute path where the state was saved.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.browser.</span></span><span class="sig-name descname"><span class="pre">screenshot_url</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span></span></dt>
 <dd><p>Take a screenshot of a webpage.</p>
 </dd></dl>

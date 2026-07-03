@@ -489,6 +489,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisites">Prerequisites</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#start-a-computer-use-session">Start a computer-use session</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-automation-structured-first">Web automation (structured-first)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authenticated-sessions-save-and-reuse-login-state">Authenticated sessions (save and reuse login state)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#desktop-native-app-control">Desktop / native app control</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screenshot-and-visual-verification">Screenshot and visual verification</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#efficient-ui-loops">Efficient UI loops</a></li>
@@ -569,6 +570,37 @@ cheaper, and more reliable when the page has a DOM you can address:</p>
 <span class="w">  </span><span class="s1">&#39;go to the login form at http://localhost:3000/login, fill username &quot;alice&quot; and password &quot;hunter2&quot;, click submit&#39;</span>
 </pre></div>
 </div>
+</section>
+<section id="authenticated-sessions-save-and-reuse-login-state">
+<h2>Authenticated sessions (save and reuse login state)<a class="headerlink" href="#authenticated-sessions-save-and-reuse-login-state" title="Link to this heading">#</a></h2>
+<p>For sites that require a login — Twitter/X, GitHub, your app — log in once and
+save the session so future runs start already authenticated.</p>
+<p><strong>Step 1: Log in and save the session</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s1">&#39;open https://x.com/login, fill username and password, click Log in, then call save_browser_state(&quot;~/.config/gptme/twitter-session.json&quot;)&#39;</span>
+</pre></div>
+</div>
+<p>Or interactively from IPython inside a gptme session:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://x.com/login&quot;</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;#username&quot;</span><span class="p">,</span> <span class="s2">&quot;yourhandle&quot;</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Next&quot;</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;[name=&#39;password&#39;]&quot;</span><span class="p">,</span> <span class="s2">&quot;yourpassword&quot;</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Log in&quot;</span><span class="p">)</span>
+<span class="n">save_browser_state</span><span class="p">(</span><span class="s2">&quot;~/.config/gptme/twitter-session.json&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Step 2: Load the session in future runs</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_STORAGE_STATE</span><span class="o">=</span>~/.config/gptme/twitter-session.json
+gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="s1">&#39;go to https://x.com/compose/tweet, type &quot;Hello from gptme!&quot;, and click Post&#39;</span>
+</pre></div>
+</div>
+<p>Every <code class="docutils literal notranslate"><span class="pre">open_page()</span></code>, <code class="docutils literal notranslate"><span class="pre">snapshot_url()</span></code>, and <code class="docutils literal notranslate"><span class="pre">read_url()</span></code> call will now start with
+the saved cookies and localStorage, so the site sees you as already logged in.</p>
+<blockquote>
+<div><p><strong>Security note</strong>: The session file contains your browser cookies in plain
+text. Store it with restricted permissions (<code class="docutils literal notranslate"><span class="pre">chmod</span> <span class="pre">600</span></code>) and keep it out of
+version control.</p>
+</div></blockquote>
 </section>
 <section id="desktop-native-app-control">
 <h2>Desktop / native app control<a class="headerlink" href="#desktop-native-app-control" title="Link to this heading">#</a></h2>
@@ -745,6 +777,7 @@ prompts (but ensure the task is well-scoped first).</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisites">Prerequisites</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#start-a-computer-use-session">Start a computer-use session</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-automation-structured-first">Web automation (structured-first)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authenticated-sessions-save-and-reuse-login-state">Authenticated sessions (save and reuse login state)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#desktop-native-app-control">Desktop / native app control</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screenshot-and-visual-verification">Screenshot and visual verification</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#efficient-ui-loops">Efficient UI loops</a></li>
