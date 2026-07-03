@@ -318,6 +318,7 @@ markers = [
     "requires_api: marks tests that require API access",
     "flaky: marks tests as flaky (retried automatically)",
     "integration: marks tests as integration tests requiring external services",
+    "x11: marks tests that require a real or headless X11 display (Xvfb, xdotool, scrot)",
     "xdist_group: marks tests that should run in the same xdist group",
 ]
 asyncio_default_fixture_loop_scope = "function"
