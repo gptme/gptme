@@ -58,6 +58,15 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "status": (".cmd_status", "status"),
 }
 
+# Inline groups defined via @main.group() in this file
+_INLINE_COMMANDS = frozenset(
+    {"providers", "tokens", "context", "llm", "tools", "prompts", "models", "profile"}
+)
+
+# All top-level subcommand names for gptme-util — exported for the gptme main CLI
+# to enable dynamic dispatch without importing the full util module at startup.
+UTIL_SUBCOMMANDS: list[str] = sorted(set(_LAZY_COMMANDS) | _INLINE_COMMANDS)
+
 
 def get_model_list(*args, **kwargs):
     """Lazy proxy so tests can still patch ``gptme.cli.util.get_model_list``."""

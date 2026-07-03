@@ -115,3 +115,77 @@ class TestPluginDispatch:
         result = runner.invoke(main, ["--help"])
         assert result.exit_code == 0
         assert "gptme-" in result.output
+
+
+class TestUtilSubcommandMirroring:
+    def test_util_subcmd_delegates_to_gptme_util(self, runner: CliRunner):
+        """gptme chats [args] delegates to gptme-util chats [args]."""
+        with (
+            patch(
+                "gptme.cli.main.shutil.which",
+                return_value="/usr/local/bin/gptme-util",
+            ),
+            patch("gptme.cli.main.subprocess.call", return_value=0) as mock_call,
+        ):
+            result = runner.invoke(main, ["chats"])
+        assert result.exit_code == 0
+        mock_call.assert_called_once_with(["/usr/local/bin/gptme-util", "chats"])
+
+    def test_util_subcmd_passes_all_args(self, runner: CliRunner):
+        """gptme chats list passes 'chats list' to gptme-util."""
+        with (
+            patch(
+                "gptme.cli.main.shutil.which",
+                return_value="/usr/local/bin/gptme-util",
+            ),
+            patch("gptme.cli.main.subprocess.call", return_value=0) as mock_call,
+        ):
+            result = runner.invoke(main, ["chats", "list"])
+        assert result.exit_code == 0
+        mock_call.assert_called_once_with(
+            ["/usr/local/bin/gptme-util", "chats", "list"]
+        )
+
+    def test_util_subcmd_skipped_for_version_flag(self, runner: CliRunner):
+        """gptme --version chats does not trigger gptme-util dispatch."""
+        with patch("gptme.cli.main.subprocess.call") as mock_call:
+            result = runner.invoke(main, ["--version", "chats"])
+        assert result.exit_code == 0
+        mock_call.assert_not_called()
+
+    def test_util_subcommands_all_known(self):
+        """UTIL_SUBCOMMANDS contains expected gptme-util subcommands."""
+        from gptme.cli.util import UTIL_SUBCOMMANDS
+
+        for expected in ("chats", "tools", "skills", "models", "context"):
+            assert expected in UTIL_SUBCOMMANDS
+
+    def test_util_subcmd_takes_priority_over_path_dispatch(self, runner: CliRunner):
+        """gptme chats delegates to gptme-util, not a hypothetical gptme-chats binary."""
+        calls: list = []
+
+        def fake_which(cmd: str) -> str | None:
+            if cmd == "gptme-util":
+                return "/usr/local/bin/gptme-util"
+            if cmd == "gptme-chats":
+                return "/usr/local/bin/gptme-chats"
+            return None
+
+        def fake_call(args: list) -> int:
+            calls.append(args)
+            return 0
+
+        with (
+            patch("gptme.cli.main.shutil.which", side_effect=fake_which),
+            patch("gptme.cli.main.subprocess.call", side_effect=fake_call),
+        ):
+            runner.invoke(main, ["chats"])
+
+        assert calls == [["/usr/local/bin/gptme-util", "chats"]]
+
+    def test_help_mentions_util_subcommand_shortcut(self, runner: CliRunner):
+        """gptme --help describes the gptme-util subcommand shortcut."""
+        result = runner.invoke(main, ["--help"])
+        assert result.exit_code == 0
+        # Help text should describe that gptme-util subcommands work directly
+        assert "chats" in result.output
