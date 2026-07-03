@@ -488,6 +488,26 @@ def _merge_config_data(main_config: dict, local_config: dict) -> dict:
                 if mcp_key != "servers":
                     merged["mcp"][mcp_key] = mcp_value
 
+        elif key == "providers" and isinstance(value, list):
+            # Merge providers by name - local provider entries update matching
+            # main providers (e.g. adding api_key to an otherwise-identical entry),
+            # and new providers are appended.
+            if key not in merged:
+                merged[key] = []
+            main_providers = merged[key]
+            main_by_name: dict = {}
+            for p in main_providers:
+                if isinstance(p, dict) and "name" in p:
+                    main_by_name[p["name"]] = p
+            for local_provider in value:
+                if not isinstance(local_provider, dict):
+                    main_providers.append(local_provider)
+                    continue
+                name = local_provider.get("name")
+                if name and name in main_by_name:
+                    main_by_name[name].update(local_provider)
+                else:
+                    main_providers.append(local_provider)
         elif (
             isinstance(value, dict) and key in merged and isinstance(merged[key], dict)
         ):

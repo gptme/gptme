@@ -15,6 +15,7 @@ import gptme
 
 from ..config import config_path, get_config, save_provider_config, set_config_value
 from ..config.models import ProviderConfig
+from ..config.user import get_user_config_paths
 from ..llm import get_model_from_api_key, list_available_providers
 from ..llm.models import PROVIDERS, get_default_model
 from ..util import console, path_with_tilde
@@ -770,12 +771,15 @@ def _setup_custom_provider() -> tuple[str, str]:  # pragma: no cover
         api_key=api_key or None,
         default_model=default_model or None,
     )
-    save_provider_config(provider, local=bool(api_key))
+    local = bool(api_key)
+    save_provider_config(provider, local=local)
 
+    _, local_path = get_user_config_paths()
+    shown_path = str(local_path) if local else config_path
     console.print(
         Panel.fit(
             f"[green]✅ Custom provider '{name}' saved![/green]\n"
-            f"[dim]Config written to {config_path}[/dim]",
+            f"[dim]Config written to {shown_path}[/dim]",
             border_style="green",
         )
     )
