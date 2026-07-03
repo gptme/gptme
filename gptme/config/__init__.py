@@ -42,6 +42,7 @@ from .user import (
     config_path,
     default_config,
     load_user_config,
+    save_provider_config,
     set_config_value,
 )
 
@@ -75,6 +76,7 @@ __all__ = [
     "get_project_config",
     "setup_config_from_cli",
     "set_config_value",
+    "save_provider_config",
     # Constants
     "config_path",
     "default_config",

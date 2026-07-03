@@ -13,7 +13,8 @@ from rich.text import Text
 
 import gptme
 
-from ..config import config_path, get_config, set_config_value
+from ..config import config_path, get_config, save_provider_config, set_config_value
+from ..config.models import ProviderConfig
 from ..llm import get_model_from_api_key, list_available_providers
 from ..llm.models import PROVIDERS, get_default_model
 from ..util import console, path_with_tilde
@@ -740,11 +741,52 @@ def _prompt_api_key() -> tuple[str, str, str]:  # pragma: no cover
     return api_key, provider, env_var
 
 
-def ask_for_api_key():  # pragma: no cover
-    """Interactively ask user for API key."""
+def _setup_custom_provider() -> tuple[str, str]:  # pragma: no cover
+    """Interactively configure a custom OpenAI-compatible provider."""
     console.print(
         Panel.fit(
-            Text("🔑 API Key Setup", style="bold green"),
+            Text("🔧 Custom Provider Setup", style="bold cyan"),
+            style="cyan",
+            padding=(0, 2),
+        )
+    )
+    console.print(
+        "[dim]Configure any OpenAI-compatible provider (self-hosted, relay, proxy, etc.)[/dim]"
+    )
+    console.print()
+
+    name = Prompt.ask("Provider name", default="custom").strip()
+    base_url = Prompt.ask("Base URL", default="https://api.example.com/v1").strip()
+    api_key = Prompt.ask(
+        "API key (leave blank to skip)", password=True, default=""
+    ).strip()
+    default_model = Prompt.ask(
+        "Default model (leave blank to skip)", default=""
+    ).strip()
+
+    provider = ProviderConfig(
+        name=name,
+        base_url=base_url,
+        api_key=api_key or None,
+        default_model=default_model or None,
+    )
+    save_provider_config(provider, local=bool(api_key))
+
+    console.print(
+        Panel.fit(
+            f"[green]✅ Custom provider '{name}' saved![/green]\n"
+            f"[dim]Config written to {config_path}[/dim]",
+            border_style="green",
+        )
+    )
+    return name, api_key
+
+
+def ask_for_api_key():  # pragma: no cover
+    """Interactively ask user for an API key or configure a custom provider."""
+    console.print(
+        Panel.fit(
+            Text("🔑 Provider Setup", style="bold green"),
             style="green",
             padding=(0, 2),
         )
@@ -763,6 +805,11 @@ def ask_for_api_key():  # pragma: no cover
     console.print()
     console.print(providers_table)
     console.print()
+
+    if Confirm.ask(
+        "Set up a custom OpenAI-compatible provider instead?", default=False
+    ):
+        return _setup_custom_provider()
 
     # Save to config
     api_key, provider, env_var = _prompt_api_key()

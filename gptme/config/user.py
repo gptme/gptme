@@ -395,6 +395,52 @@ def set_config_value(
         reload_config()
 
 
+def save_provider_config(
+    provider: "ProviderConfig", reload: bool = True, local: bool = False
+) -> None:
+    """Append a [[providers]] entry to the user config file.
+
+    Args:
+        provider: ProviderConfig to save.
+        reload: Whether to reload the in-memory config after writing.
+        local: If True, write to config.local.toml instead of config.toml.
+               Use for entries with inline api_key (secrets).
+    """
+    if local:
+        _, local_path = get_user_config_paths()
+        write_path = str(local_path)
+        doc: TOMLDocument | Container = (
+            _load_config_doc(write_path) if local_path.exists() else tomlkit.document()
+        )
+    else:
+        write_path = config_path
+        doc = _load_config_doc()
+
+    provider_table = tomlkit.table()
+    provider_table.add("name", provider.name)
+    provider_table.add("base_url", provider.base_url)
+    if provider.api_key:
+        provider_table.add("api_key", provider.api_key)
+    if provider.api_key_env:
+        provider_table.add("api_key_env", provider.api_key_env)
+    if provider.default_model:
+        provider_table.add("default_model", provider.default_model)
+
+    if "providers" not in doc:
+        doc.add("providers", tomlkit.aot())  # type: ignore[attr-defined]
+    doc["providers"].append(provider_table)  # type: ignore[union-attr]
+
+    if local:
+        os.makedirs(os.path.dirname(write_path), exist_ok=True)
+    with open(write_path, "w") as config_file:
+        tomlkit.dump(doc, config_file)
+
+    if reload:
+        from .core import reload_config
+
+        reload_config()
+
+
 def _merge_config_data(main_config: dict, local_config: dict) -> dict:
     """
     Merge local configuration into main configuration.
