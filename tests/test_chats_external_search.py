@@ -32,6 +32,32 @@ def test_discover_cursor_sessions(tmp_path):
     assert _discover_cursor_sessions(tmp_path) == [conv_file]
 
 
+def test_discover_cursor_sessions_discovers_alternate_format(tmp_path):
+    """Discovers cursor-chat-history.json at parent level alongside conversation.json."""
+    conv_dir = tmp_path / "conversations"
+    conv_dir.mkdir()
+    session_dir = conv_dir / "abc-123"
+    session_dir.mkdir()
+    conv_file = session_dir / "conversation.json"
+    conv_file.write_text(json.dumps({"messages": []}))
+    alt_file = tmp_path / "cursor-chat-history.json"
+    alt_file.write_text(json.dumps({"allConversations": []}))
+    results = _discover_cursor_sessions(conv_dir)
+    assert conv_file in results
+    assert alt_file in results
+    assert len(results) == 2
+
+
+def test_discover_cursor_sessions_alternate_only(tmp_path):
+    """Returns only cursor-chat-history.json when conversation dir is empty."""
+    conv_dir = tmp_path / "conversations"
+    conv_dir.mkdir()
+    alt_file = tmp_path / "cursor-chat-history.json"
+    alt_file.write_text(json.dumps({"allConversations": []}))
+    results = _discover_cursor_sessions(conv_dir)
+    assert results == [alt_file]
+
+
 def test_discover_cursor_sessions_multiple(tmp_path):
     """Returns all conversation.json files sorted alphabetically."""
     for uid in ("bbb-222", "aaa-111"):
@@ -278,6 +304,47 @@ def test_search_external_chats_cursor_match(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "[Cursor]" in out
     assert "My CORS session" in out
+
+
+def test_search_external_chats_early_exit(tmp_path, capsys):
+    """Stops scanning after max_results sessions are collected."""
+    cursor_dir = tmp_path / "cursor"
+    for i in range(10):
+        session_dir = cursor_dir / f"sess-{i:03d}"
+        session_dir.mkdir(parents=True)
+        (session_dir / "conversation.json").write_text(
+            json.dumps(
+                {
+                    "title": f"Session {i}",
+                    "messages": [{"role": "user", "content": f"CORS issue {i}"}],
+                }
+            )
+        )
+    search_external_chats(
+        "CORS",
+        max_results=3,
+        cursor_dir=cursor_dir,
+        codex_dir=tmp_path / "codex",
+    )
+    out = capsys.readouterr().out
+    session_count = out.count("[Cursor]")
+    assert session_count <= 3, (
+        f"Expected ≤3 Cursor sessions in output, got {session_count}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# CLI integration — --all-agents with --json
+# ---------------------------------------------------------------------------
+
+
+def test_cli_chats_search_json_all_agents_warning(tmp_path, monkeypatch):
+    """--all-agents with --json prints a warning and still succeeds."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runner = CliRunner()
+    result = runner.invoke(chats, ["search", "CORS", "--json", "--all-agents"])
+    assert result.exit_code == 0
+    assert "Warning: --all-agents is not supported with --json" in result.output
 
 
 def test_search_external_chats_codex_match(tmp_path, capsys):

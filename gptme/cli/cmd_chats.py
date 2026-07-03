@@ -151,6 +151,12 @@ def chats_search(
     _ensure_tools()
 
     if output_json:
+        if all_agents:
+            click.echo(
+                "Warning: --all-agents is not supported with --json; "
+                "only gptme native sessions will be included.",
+                err=True,
+            )
         from ..logmanager import LogManager, list_conversations  # fmt: skip
         from ..tools.chats import _get_matching_messages  # fmt: skip
 

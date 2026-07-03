@@ -154,14 +154,24 @@ def search_chats(
 def _discover_cursor_sessions(cursor_dir: Path | None = None) -> list[Path]:
     """Return paths to Cursor conversation files under *cursor_dir*.
 
-    Looks for ``<cursor_dir>/<uuid>/conversation.json`` (the standard Cursor
-    conversation format).  Pass *cursor_dir* explicitly in tests.
+    Looks for:
+
+    - ``<cursor_dir>/<uuid>/conversation.json`` (standard per-session format)
+    - ``<cursor_dir>/../cursor-chat-history.json`` (alternate workspace-storage
+      format with ``allConversations`` array)
+
+    Pass *cursor_dir* explicitly in tests.
     """
     if cursor_dir is None:
         cursor_dir = Path.home() / ".cursor" / "conversations"
     if not cursor_dir.exists():
         return []
-    return sorted(cursor_dir.glob("*/conversation.json"))
+    results: list[Path] = sorted(cursor_dir.glob("*/conversation.json"))
+    # cursor-chat-history.json lives at the .cursor/ root, not under conversations/
+    alt = cursor_dir.parent / "cursor-chat-history.json"
+    if alt.exists():
+        results.append(alt)
+    return results
 
 
 def _search_cursor_session(path: Path, query: str) -> list[dict]:
@@ -304,6 +314,8 @@ def search_external_chats(
 
     if include_cursor:
         for session_path in _discover_cursor_sessions(cursor_dir):
+            if len(all_results) >= max_results:
+                break
             matches = _search_cursor_session(session_path, query)
             if matches:
                 all_results.append(
@@ -312,6 +324,8 @@ def search_external_chats(
 
     if include_codex:
         for session_path in _discover_codex_sessions(codex_dir):
+            if len(all_results) >= max_results:
+                break
             matches = _search_codex_session(session_path, query)
             if matches:
                 all_results.append(
