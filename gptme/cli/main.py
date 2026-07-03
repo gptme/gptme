@@ -560,7 +560,7 @@ def main(
     """Main entrypoint for the CLI."""
 
     # Dispatch: `gptme search QUERY` → chats search (discoverability alias)
-    if prompts and prompts[0] == "search":
+    if prompts and prompts[0] == "search" and not version and not version_json:
         from ..tools.chats import search_chats  # fmt: skip
 
         query = " ".join(prompts[1:]).strip()
@@ -568,7 +568,9 @@ def main(
             raise click.UsageError(
                 "Usage: gptme search <query>\n\nFor all options, use: gptme-util chats search --help"
             )
-        search_chats(query, max_results=20, context_lines=1, max_matches=1)
+        search_chats(
+            query, max_results=20, context_lines=1, max_matches=1
+        )  # show more results than the default 5
         return
 
     # Defense-in-depth: handle empty/whitespace names in case Click bypasses convert()

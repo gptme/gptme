@@ -43,7 +43,10 @@ class TestSearchAlias:
 
         prompts[0] == "search for recipes" (one string), not "search".
         """
-        with patch("gptme.tools.chats.search_chats") as mock_search:
+        with (
+            patch("gptme.tools.chats.search_chats") as mock_search,
+            patch("gptme.cli.main.chat"),
+        ):
             runner.invoke(
                 main,
                 ["--non-interactive", "--no-confirm", "search for recipes"],
@@ -56,3 +59,19 @@ class TestSearchAlias:
         result = runner.invoke(main, ["--help"])
         assert result.exit_code == 0
         assert "search" in result.output.lower()
+
+    def test_search_does_not_swallow_version(self, runner: CliRunner):
+        """gptme --version search QUERY shows version, not search results."""
+        with patch("gptme.tools.chats.search_chats") as mock_search:
+            result = runner.invoke(main, ["--version", "search", "anything"])
+        assert result.exit_code == 0
+        mock_search.assert_not_called()
+        assert "gptme" in result.output.lower() or "version" in result.output.lower()
+
+    def test_search_does_not_swallow_version_json(self, runner: CliRunner):
+        """gptme --version-json search QUERY shows version JSON, not search results."""
+        with patch("gptme.tools.chats.search_chats") as mock_search:
+            result = runner.invoke(main, ["--version-json", "search", "anything"])
+        assert result.exit_code == 0
+        mock_search.assert_not_called()
+        assert "{" in result.output or "version" in result.output.lower()
