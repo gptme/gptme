@@ -1227,6 +1227,9 @@ def _poll_for_change(
     detected within *timeout* seconds, returns a final screenshot anyway so the
     caller always gets visual confirmation of the current state.
 
+    Polling starts at 50 ms and backs off exponentially up to 500 ms — this
+    catches fast UI updates without burning CPU on longer waits.
+
     Extracted so :func:`act_and_observe` can pass a *pre-action* baseline and
     avoid the race where the action changes the screen before the polling loop
     takes its own reference frame.
@@ -2122,8 +2125,10 @@ def act_and_observe(
         if transport is not None:
             try:
                 pre_action_baseline = transport.screenshot()
-            except Exception:
-                pass  # no display / transport unavailable — fall back to post-action polling
+            except Exception as e:
+                print(
+                    f"Warning: pre-action baseline screenshot failed ({e!r}); falling back to post-action polling"
+                )
 
     result = computer(action, text=text, coordinate=coordinate)
     if result is not None:
