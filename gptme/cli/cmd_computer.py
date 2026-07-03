@@ -450,8 +450,8 @@ def screenshot_cmd(output: str | None, display: str | None):
                 click.echo(
                     f"Error: cannot open display {effective_display!r}.\n"
                     "Start Xvfb first:\n"
-                    "  Xvfb :1 -screen 0 1024x768x24 &\n"
-                    "  export DISPLAY=:1",
+                    f"  Xvfb {effective_display} -screen 0 1024x768x24 &\n"
+                    f"  export DISPLAY={effective_display}",
                     err=True,
                 )
             else:

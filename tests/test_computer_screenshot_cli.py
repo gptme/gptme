@@ -81,6 +81,8 @@ class TestScreenshotCmd:
 
         assert result.exit_code != 0
         assert "Xvfb" in result.output
+        assert "Xvfb :99 -screen 0 1024x768x24 &" in result.output
+        assert "export DISPLAY=:99" in result.output
 
     def test_linux_scrot_timeout_exits_with_error(self, tmp_path):
         out = tmp_path / "screen.png"
