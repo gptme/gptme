@@ -2459,47 +2459,50 @@ class TestMaxTimeWatchdog:
         )
 
         barrier = threading.Barrier(2)
+        stop = threading.Event()
 
         def slow_fn():
             barrier.wait()  # Signal we're running
-            import time
-
-            time.sleep(60)  # Would run forever without a cancel
+            stop.wait(60)  # Would run forever without a cancel
 
         t = threading.Thread(target=slow_fn, daemon=True)
         t.start()
         barrier.wait()  # Ensure thread is alive before proceeding
 
-        sa = Subagent(
-            agent_id="running-thread",
-            prompt="test",
-            thread=t,
-            logdir=tmp_path,
-            model=None,
-            execution_mode="thread",
-        )
-        with _subagents_lock:
-            _subagents.append(sa)
+        try:
+            sa = Subagent(
+                agent_id="running-thread",
+                prompt="test",
+                thread=t,
+                logdir=tmp_path,
+                model=None,
+                execution_mode="thread",
+            )
+            with _subagents_lock:
+                _subagents.append(sa)
 
-        _timeout_subagent("running-thread", 0.5)
+            _timeout_subagent("running-thread", 0.5)
 
-        with _subagent_results_lock:
-            result = _subagent_results.get("running-thread")
+            with _subagent_results_lock:
+                result = _subagent_results.get("running-thread")
 
-        assert result is not None
-        assert result.status == "timeout"
-        assert "0.5s" in (result.result or "")
+            assert result is not None
+            assert result.status == "timeout"
+            assert "0.5s" in (result.result or "")
 
-        # Completion notification should be queued
-        notifications = []
-        while not _completion_queue.empty():
-            try:
-                notifications.append(_completion_queue.get_nowait())
-            except queue.Empty:
-                break
-        assert any(
-            n[0] == "running-thread" and n[1] == "timeout" for n in notifications
-        )
+            # Completion notification should be queued
+            notifications = []
+            while not _completion_queue.empty():
+                try:
+                    notifications.append(_completion_queue.get_nowait())
+                except queue.Empty:
+                    break
+            assert any(
+                n[0] == "running-thread" and n[1] == "timeout" for n in notifications
+            )
+        finally:
+            stop.set()
+            t.join(timeout=1)
 
     def test_subagent_wait_returns_cached_timeout_while_thread_is_still_alive(
         self, tmp_path
@@ -2514,36 +2517,39 @@ class TestMaxTimeWatchdog:
         )
 
         barrier = threading.Barrier(2)
+        stop = threading.Event()
 
         def slow_fn():
             barrier.wait()
-            import time
-
-            time.sleep(60)
+            stop.wait(60)
 
         t = threading.Thread(target=slow_fn, daemon=True)
         t.start()
         barrier.wait()
 
-        sa = Subagent(
-            agent_id="wait-timeout-thread",
-            prompt="test",
-            thread=t,
-            logdir=tmp_path,
-            model=None,
-            execution_mode="thread",
-        )
-        with _subagents_lock:
-            _subagents.append(sa)
-        with _subagent_results_lock:
-            _subagent_results["wait-timeout-thread"] = ReturnType(
-                "timeout", "Auto-cancelled after 0.5s (max_time exceeded)"
+        try:
+            sa = Subagent(
+                agent_id="wait-timeout-thread",
+                prompt="test",
+                thread=t,
+                logdir=tmp_path,
+                model=None,
+                execution_mode="thread",
             )
+            with _subagents_lock:
+                _subagents.append(sa)
+            with _subagent_results_lock:
+                _subagent_results["wait-timeout-thread"] = ReturnType(
+                    "timeout", "Auto-cancelled after 0.5s (max_time exceeded)"
+                )
 
-        result = subagent_wait("wait-timeout-thread", timeout=0)
+            result = subagent_wait("wait-timeout-thread", timeout=0)
 
-        assert result["status"] == "timeout"
-        assert "max_time exceeded" in (result["result"] or "")
+            assert result["status"] == "timeout"
+            assert "max_time exceeded" in (result["result"] or "")
+        finally:
+            stop.set()
+            t.join(timeout=1)
 
     def test_completion_hook_timeout_message(self):
         """_subagent_completion_hook yields a ⏱️ message for timeout status."""
