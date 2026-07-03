@@ -24,6 +24,7 @@ def _make_fake_ffmpeg(out_dir: Path, n_frames: int = 3):
         # Determine output dir from the pattern argument (last arg)
         pattern = cmd[-1]  # e.g. /tmp/gptme-video-frames-xxx/frame_%04d.png
         out = Path(pattern).parent
+        assert out == out_dir, f"ffmpeg writing to {out}, expected {out_dir}"
         for i in range(1, n_frames + 1):
             (out / f"frame_{i:04d}.png").write_bytes(
                 b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
