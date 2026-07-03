@@ -134,6 +134,24 @@ class TestScreenshotCmd:
         assert result.exit_code != 0
         assert "screencapture" in result.output
 
+    def test_macos_screencapture_error_exits_with_error(self, tmp_path):
+        out = tmp_path / "screen.png"
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.CalledProcessError(
+                1, cmd, b"", b"screencapture: some error"
+            )
+
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Darwin"),
+            patch("subprocess.run", side_effect=fake_run),
+        ):
+            result = runner.invoke(screenshot_cmd, ["--output", str(out)])
+
+        assert result.exit_code != 0
+        assert "screencapture failed" in result.output
+
     def test_macos_screencapture_timeout_exits_with_error(self, tmp_path):
         out = tmp_path / "screen.png"
 
@@ -172,3 +190,22 @@ class TestScreenshotCmd:
 
         assert result.exit_code == 0, result.output
         assert captured_env.get("DISPLAY") == ":42"
+
+    def test_linux_screenshot_file_missing_after_success(self, tmp_path):
+        """Edge case: subprocess succeeds but file doesn't exist (e.g., permission issue)."""
+        out = tmp_path / "screen.png"
+
+        def fake_run(cmd, **kwargs):
+            # Simulate subprocess success but file is never created
+            return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("shutil.which", return_value="/usr/bin/scrot"),
+            patch("subprocess.run", side_effect=fake_run),
+        ):
+            result = runner.invoke(screenshot_cmd, ["--output", str(out)])
+
+        assert result.exit_code != 0
+        assert "not created" in result.output
