@@ -465,16 +465,28 @@ def screenshot_cmd(output: str | None, display: str | None):
     try:
         size = out_path.stat().st_size
     except FileNotFoundError:
+        hint = (
+            "\nOn macOS, check that Screen Recording permission is granted in "
+            "System Settings > Privacy & Security > Screen Recording."
+            if system == "Darwin"
+            else ""
+        )
         click.echo(
-            f"Error: screenshot file not created at {out_path} despite successful subprocess run.",
+            "Error: screenshot file was not created at "
+            f"{out_path} despite successful subprocess run.{hint}",
             err=True,
         )
         sys.exit(1)
 
     if size == 0:
+        hint = (
+            "\nOn macOS, check that Screen Recording permission is granted in "
+            "System Settings > Privacy & Security > Screen Recording."
+            if system == "Darwin"
+            else ""
+        )
         click.echo(
-            f"Error: screenshot file at {out_path} is empty (0 bytes). "
-            "Possible permission issue.",
+            f"Error: screenshot file at {out_path} is empty (0 bytes).{hint}",
             err=True,
         )
         sys.exit(1)

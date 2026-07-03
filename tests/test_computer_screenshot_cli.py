@@ -191,7 +191,7 @@ class TestScreenshotCmd:
         assert result.exit_code == 0, result.output
         assert captured_env.get("DISPLAY") == ":42"
 
-    def test_linux_screenshot_file_missing_after_success(self, tmp_path):
+    def test_macos_screenshot_file_missing_after_success(self, tmp_path):
         """Edge case: subprocess succeeds but file doesn't exist (e.g., permission issue)."""
         out = tmp_path / "screen.png"
 
@@ -201,16 +201,16 @@ class TestScreenshotCmd:
 
         runner = CliRunner()
         with (
-            patch("platform.system", return_value="Linux"),
-            patch("shutil.which", return_value="/usr/bin/scrot"),
+            patch("platform.system", return_value="Darwin"),
             patch("subprocess.run", side_effect=fake_run),
         ):
             result = runner.invoke(screenshot_cmd, ["--output", str(out)])
 
         assert result.exit_code != 0
         assert "not created" in result.output
+        assert "Screen Recording permission" in result.output
 
-    def test_screenshot_file_empty_after_success(self, tmp_path):
+    def test_macos_screenshot_file_empty_after_success(self, tmp_path):
         """Edge case: subprocess succeeds but produces a 0-byte file (e.g., macOS permission denial)."""
         out = tmp_path / "screen.png"
 
@@ -221,11 +221,11 @@ class TestScreenshotCmd:
 
         runner = CliRunner()
         with (
-            patch("platform.system", return_value="Linux"),
-            patch("shutil.which", return_value="/usr/bin/scrot"),
+            patch("platform.system", return_value="Darwin"),
             patch("subprocess.run", side_effect=fake_run),
         ):
             result = runner.invoke(screenshot_cmd, ["--output", str(out)])
 
         assert result.exit_code != 0
         assert "empty" in result.output or "0 bytes" in result.output
+        assert "Screen Recording permission" in result.output
