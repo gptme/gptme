@@ -72,6 +72,43 @@ gptme --agent-profile computer-use \
   'go to the login form at http://localhost:3000/login, fill username "alice" and password "hunter2", click submit'
 ```
 
+## Authenticated sessions (save and reuse login state)
+
+For sites that require a login — Twitter/X, GitHub, your app — log in once and
+save the session so future runs start already authenticated.
+
+**Step 1: Log in and save the session**
+
+```bash
+gptme --agent-profile computer-use \
+  'open https://x.com/login, fill username and password, click Log in, then call save_browser_state("~/.config/gptme/twitter-session.json")'
+```
+
+Or interactively from IPython inside a gptme session:
+
+```python
+open_page("https://x.com/login")
+fill_element("#username", "yourhandle")
+click_element("text=Next")
+fill_element("[name='password']", "yourpassword")
+click_element("text=Log in")
+save_browser_state("~/.config/gptme/twitter-session.json")
+```
+
+**Step 2: Load the session in future runs**
+
+```bash
+export GPTME_BROWSER_STORAGE_STATE=~/.config/gptme/twitter-session.json
+gptme --agent-profile computer-use 'go to https://x.com/compose/tweet, type "Hello from gptme!", and click Post'
+```
+
+Every `open_page()`, `snapshot_url()`, and `read_url()` call will now start with
+the saved cookies and localStorage, so the site sees you as already logged in.
+
+> **Security note**: The session file contains your browser cookies in plain
+> text. Store it with restricted permissions (`chmod 600`) and keep it out of
+> version control.
+
 ## Desktop / native app control
 
 For native apps or anything not reachable via a URL, the `computer` tool takes over:

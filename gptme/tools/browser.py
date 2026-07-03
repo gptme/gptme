@@ -356,6 +356,9 @@ if browser == "playwright":
     from ._browser_playwright import read_logs as read_logs_playwright  # fmt: skip
     from ._browser_playwright import read_page_text as read_page_text_pw  # fmt: skip
     from ._browser_playwright import read_url as read_url_playwright  # fmt: skip
+    from ._browser_playwright import (
+        save_browser_state as save_browser_state_pw,  # fmt: skip
+    )
     from ._browser_playwright import screenshot_url as screenshot_url_pw  # fmt: skip
     from ._browser_playwright import scroll_page as scroll_page_pw  # fmt: skip
     from ._browser_playwright import search_duckduckgo, search_google  # fmt: skip
@@ -958,6 +961,39 @@ def close_page() -> str:
     raise ValueError("Interactive browsing not supported with lynx backend")
 
 
+def save_browser_state(path: str) -> str:
+    """Save the current browser session (cookies, localStorage) to a file.
+
+    Captures the full authentication state of the active browser context so
+    it can be restored in a future session via ``GPTME_BROWSER_STORAGE_STATE``.
+
+    Call this after logging in to a site with open_page() + fill_element() +
+    click_element() so you don't have to re-authenticate next time.
+
+    Typical workflow::
+
+        open_page("https://x.com/login")
+        fill_element("#username", "you@example.com")
+        fill_element("#password", "hunter2")
+        click_element("text=Log in")
+        save_browser_state("~/.config/gptme/twitter-session.json")
+        # Next session: export GPTME_BROWSER_STORAGE_STATE=~/.config/gptme/twitter-session.json
+
+    Args:
+        path: File path to write the session JSON. Directories are created
+              automatically. ``~`` is expanded to the home directory.
+
+    Returns:
+        Confirmation string with the absolute path where the state was saved.
+    """
+    assert browser
+    if browser == "playwright":
+        return save_browser_state_pw(path)
+    raise ValueError(
+        "save_browser_state() is only supported with the playwright backend"
+    )
+
+
 def read_page_text() -> str:
     """Read the full text content of the current interactive page as Markdown.
 
@@ -1051,6 +1087,7 @@ services with APIs, prefer shell or Python over scraping.""",
             snapshot_url,
             open_page,
             close_page,
+            save_browser_state,
             read_page_text,
             click_element,
             fill_element,

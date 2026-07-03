@@ -24,9 +24,9 @@ from playwright.sync_api import (
 
 from ._browser_format import format_snapshot as _format_snapshot
 from ._browser_thread import (
-    DEFAULT_CONTEXT_OPTIONS,
     BrowserThread,
     _is_connection_error,
+    get_context_options,
 )
 
 _browser: BrowserThread | None = None
@@ -161,7 +161,7 @@ def _load_page(browser: Browser, url: str) -> str:
 
     managed = _create_page(
         browser,
-        **DEFAULT_CONTEXT_OPTIONS,
+        **get_context_options(),
         extra_http_headers={
             # Prefer markdown and plaintext over HTML for better LLM consumption
             # Quality values (q) indicate preference order
@@ -362,7 +362,7 @@ def _search_google(browser: Browser, query: str) -> str:
     query = urllib.parse.quote(query)
     url = f"https://www.google.com/search?q={query}&hl=en"
 
-    managed = _create_page(browser, **DEFAULT_CONTEXT_OPTIONS)
+    managed = _create_page(browser, **get_context_options())
     page = managed.page
     try:
         page.goto(url)
@@ -391,7 +391,7 @@ def search_google(query: str) -> str:
 def _search_duckduckgo(browser: Browser, query: str) -> str:
     url = f"https://html.duckduckgo.com/html?q={query}"
 
-    managed = _create_page(browser, **DEFAULT_CONTEXT_OPTIONS)
+    managed = _create_page(browser, **get_context_options())
     page = managed.page
     try:
         page.goto(url)
@@ -604,7 +604,7 @@ def _open_page(browser: Browser, url: str) -> str:
 
     managed = _create_page(
         browser,
-        **DEFAULT_CONTEXT_OPTIONS,
+        **get_context_options(),
         extra_http_headers={
             "Accept": "text/markdown, text/plain, text/html;q=0.9, */*;q=0.8"
         },
@@ -633,6 +633,54 @@ def close_page() -> str:
     if _current_page is None:
         return "No page is currently open."
     return _execute_with_retry(_do_close_page)
+
+
+def _do_save_browser_state(browser: Browser, path: str) -> str:
+    """Save current browser session state (cookies + localStorage) to a JSON file."""
+    ctx: BrowserContext | None = _current_context
+    if ctx is None and _browser is not None and _browser._session_context is not None:
+        # CDP mode — the active context is the shared session context.
+        ctx = _browser._session_context
+    if ctx is None:
+        raise RuntimeError(
+            "No browser context is active. Call open_page(url) first to open a page "
+            "and authenticate, then save the session state."
+        )
+    resolved = Path(path).expanduser()
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    ctx.storage_state(path=str(resolved))
+    return f"Browser session state saved to {resolved}"
+
+
+def save_browser_state(path: str) -> str:
+    """Save the current browser session state (cookies, localStorage) to a file.
+
+    Captures the full authentication state of the active browser context so it can
+    be restored in a future session via ``GPTME_BROWSER_STORAGE_STATE``.
+
+    Typical workflow::
+
+        # 1. Open the page and log in manually or via fill_element/click_element:
+        open_page("https://x.com/login")
+        fill_element("#username", "you@example.com")
+        fill_element("#password", "hunter2")
+        click_element("text=Log in")
+
+        # 2. Verify you're logged in, then save the session:
+        save_browser_state("~/.config/gptme/twitter-session.json")
+
+        # 3. Future sessions load it automatically:
+        #    export GPTME_BROWSER_STORAGE_STATE=~/.config/gptme/twitter-session.json
+
+    Args:
+        path: File path to write the session JSON. Parent directories are
+              created automatically. ``~`` is expanded.
+
+    Returns:
+        Confirmation string with the absolute path where the state was saved.
+    """
+    logger.info("Saving browser session state to %s", path)
+    return _execute_with_retry(_do_save_browser_state, path)
 
 
 def open_page(url: str) -> str:

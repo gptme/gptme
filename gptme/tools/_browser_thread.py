@@ -3,6 +3,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from typing import Any, Literal, TypeVar, cast
@@ -30,6 +31,40 @@ DEFAULT_CONTEXT_OPTIONS: dict[str, Any] = {
     "geolocation": {"latitude": 37.773972, "longitude": 13.39},
     "permissions": ["geolocation"],
 }
+
+
+def get_context_options() -> dict[str, Any]:
+    """Return browser context options, optionally loading a saved session state.
+
+    If ``GPTME_BROWSER_STORAGE_STATE`` points to an existing JSON file (previously
+    created by ``save_browser_state()``), the saved cookies and localStorage are
+    loaded into every new context — enabling authenticated sessions without
+    re-entering credentials on each invocation.
+
+    Typical workflow::
+
+        # 1. Open a browser manually and log in to the target site, then save state:
+        open_page("https://x.com")
+        save_browser_state("~/.config/gptme/twitter-session.json")
+
+        # 2. Next time, load the state automatically:
+        export GPTME_BROWSER_STORAGE_STATE=~/.config/gptme/twitter-session.json
+        gptme --agent-profile computer-use "tweet 'hello from gptme'"
+    """
+    options = dict(DEFAULT_CONTEXT_OPTIONS)
+    storage_path_raw = get_config().get_env("BROWSER_STORAGE_STATE")
+    if storage_path_raw:
+        storage_path = Path(storage_path_raw).expanduser()
+        if storage_path.exists():
+            options["storage_state"] = str(storage_path)
+            logger.info("Loading browser storage state from %s", storage_path)
+        else:
+            logger.warning(
+                "GPTME_BROWSER_STORAGE_STATE=%s does not exist — "
+                "starting with a fresh (unauthenticated) session",
+                storage_path_raw,
+            )
+    return options
 
 
 def _is_connection_error(error: Exception) -> bool:
