@@ -466,7 +466,10 @@ class TestActAndObserve:
                 captured_text.append(text)
             return
 
-        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+        with (
+            patch("gptme.tools.computer.get_transport", return_value=None),
+            patch("gptme.tools.computer.computer", side_effect=mock_computer),
+        ):
             act_and_observe("left_click", coordinate=(0, 0), timeout=7.5)
 
         assert captured_text == ["7.5"]
@@ -481,7 +484,10 @@ class TestActAndObserve:
                 return settled_msg
             return action_msg
 
-        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+        with (
+            patch("gptme.tools.computer.get_transport", return_value=None),
+            patch("gptme.tools.computer.computer", side_effect=mock_computer),
+        ):
             msgs = act_and_observe("scroll", coordinate=(0, 0), text="down")
 
         assert msgs[0] is action_msg
@@ -493,7 +499,10 @@ class TestActAndObserve:
         def mock_computer(action, text=None, coordinate=None):
             return None
 
-        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+        with (
+            patch("gptme.tools.computer.get_transport", return_value=None),
+            patch("gptme.tools.computer.computer", side_effect=mock_computer),
+        ):
             msgs = act_and_observe("left_click", coordinate=(100, 100))
 
         assert msgs == []
@@ -506,7 +515,10 @@ class TestActAndObserve:
             calls.append(action)
             return
 
-        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+        with (
+            patch("gptme.tools.computer.get_transport", return_value=None),
+            patch("gptme.tools.computer.computer", side_effect=mock_computer),
+        ):
             act_and_observe("key", text="Return")
 
         assert "wait_for_change" in calls, "key action must trigger wait_for_change"
