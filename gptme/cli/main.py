@@ -1,6 +1,7 @@
 import atexit
 import cProfile
 import importlib
+import importlib.metadata as _ilm
 import logging
 import os
 import pstats
@@ -62,31 +63,16 @@ from ..util.tokens import len_tokens
 
 logger = logging.getLogger(__name__)
 
-# Core scripts shipped with gptme itself — excluded from external-plugin discovery.
-# Keep in sync with [project.scripts] in pyproject.toml.
-_CORE_GPTME_SCRIPTS = frozenset(
-    {
-        "gptme",
-        "gptme-acp",
-        "gptme-agent",
-        "gptme-attest",
-        "gptme-auth",
-        "gptme-checkpoint",
-        "gptme-doctor",
-        "gptme-dspy",
-        "gptme-eval",
-        "gptme-eval-swebench",
-        "gptme-eval-tbench",
-        "gptme-eval-trends",
-        "gptme-init",
-        "gptme-onboard",
-        "gptme-resume",
-        "gptme-server",
-        "gptme-status",
-        "gptme-util",
-        "gptme-wut",
-    }
-)
+# Core scripts shipped with gptme itself — dynamically discovered from the
+# installed package's console_scripts entry points so this never drifts from
+# [project.scripts] in pyproject.toml.
+try:
+    _dist = _ilm.distribution("gptme")
+    _CORE_GPTME_SCRIPTS: frozenset[str] = frozenset(
+        ep.name for ep in _dist.entry_points if ep.group == "console_scripts"
+    )
+except _ilm.PackageNotFoundError:
+    _CORE_GPTME_SCRIPTS = frozenset()
 
 
 def _discover_gptme_plugins() -> list[str]:
@@ -112,7 +98,7 @@ def _discover_gptme_plugins() -> list[str]:
                 ):
                     seen.add(name)
                     plugins.append(name)
-        except (OSError, PermissionError):
+        except OSError:
             continue
 
     return sorted(plugins)
