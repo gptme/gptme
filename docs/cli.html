@@ -914,6 +914,12 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dd><p>PID to watch for liveness. If the PID disappears the server exits. Used by gptme-tauri to pass its own PID so PyInstaller-bundled servers can detect Tauri exit even when the bootloader survives reparenting.</p>
 </dd></dl>
 
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-server-serve-default-profile">
+<span class="sig-name descname"><span class="pre">--default-profile</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;default_profile&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-serve-default-profile" title="Link to this definition">#</a></dt>
+<dd><p>Default agent profile to apply to new conversations that don’t specify a system prompt. Useful for specialized deployments such as the computer-use Docker container where every session should use the ‘computer-use’ backend-selection policy. Must be a valid profile name (e.g. ‘computer-use’, ‘browser-use’). Can also be set via the GPTME_SERVER_DEFAULT_PROFILE environment variable.</p>
+</dd></dl>
+
 <p class="rubric">Environment variables</p>
 <dl class="std envvar" id="gptme-server-serve-host-gptme-server-host">
 <dt class="sig sig-object std">
@@ -936,6 +942,14 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <span class="sig-name descname"><span class="pre">GPTME_WEBUI_DIR</span></span></dt>
 <dd><blockquote>
 <div><p>Provide a default for <a class="reference internal" href="#cmdoption-gptme-server-serve-webui-dir"><code class="xref std std-option docutils literal notranslate"><span class="pre">--webui-dir</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="std envvar" id="gptme-server-serve-default-profile-gptme-server-default-profile">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">GPTME_SERVER_DEFAULT_PROFILE</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-gptme-server-serve-default-profile"><code class="xref std std-option docutils literal notranslate"><span class="pre">--default-profile</span></code></a></p>
 </div></blockquote>
 </dd></dl>
 
