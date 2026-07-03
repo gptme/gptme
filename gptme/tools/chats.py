@@ -237,22 +237,27 @@ def _search_cursor_session(path: Path, query: str) -> list[dict]:
 def _discover_codex_sessions(codex_dir: Path | None = None) -> list[Path]:
     """Return paths to Codex CLI session files under *codex_dir*.
 
-    Looks for ``<codex_dir>/<session-id>.jsonl``.  Pass *codex_dir*
-    explicitly in tests.
+    Real Codex CLI sessions are date-partitioned as
+    ``<codex_dir>/YYYY/MM/DD/rollout-*.jsonl``, so this searches recursively.
+    Pass *codex_dir* explicitly in tests.
     """
     if codex_dir is None:
         codex_dir = Path.home() / ".codex" / "sessions"
     if not codex_dir.exists():
         return []
-    return sorted(codex_dir.glob("*.jsonl"))
+    return sorted(codex_dir.rglob("rollout-*.jsonl"))
 
 
 def _search_codex_session(path: Path, query: str) -> list[dict]:
     """Search a Codex CLI ``.jsonl`` session file for *query*.
 
-    Each line is a JSON record.  Only ``{"type": "message", ...}`` records
-    are searched; tool-call records are skipped.  Returns a list of hit
-    dicts with keys ``role``, ``content``, ``session_title``.
+    Each line is a JSON record. Only ``{"type": "response_item", "payload":
+    {"type": "message", ...}}`` records are searched; other record types
+    (``session_meta``, ``event_msg``, ``turn_context``, tool calls, etc.) are
+    skipped. Message content is a list of content-part dicts (``input_text``
+    / ``output_text``) whose ``text`` fields are joined before matching.
+    Returns a list of hit dicts with keys ``role``, ``content``,
+    ``session_title``.
     """
     query_lower = query.lower()
     results: list[dict] = []
@@ -265,12 +270,18 @@ def _search_codex_session(path: Path, query: str) -> list[dict]:
                 record = json_mod.loads(line)
             except json_mod.JSONDecodeError:
                 continue
-            if record.get("type") != "message":
+            if record.get("type") != "response_item":
                 continue
-            role = record.get("role", "unknown")
-            content = record.get("content", "")
-            if not isinstance(content, str):
+            payload = record.get("payload", {})
+            if not isinstance(payload, dict) or payload.get("type") != "message":
                 continue
+            role = payload.get("role", "unknown")
+            parts = payload.get("content", [])
+            if not isinstance(parts, list):
+                continue
+            content = "".join(
+                part.get("text", "") for part in parts if isinstance(part, dict)
+            )
             if query_lower in content.lower():
                 results.append(
                     {

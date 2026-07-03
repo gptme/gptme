@@ -179,19 +179,41 @@ def test_discover_codex_sessions_missing_dir(tmp_path):
 
 
 def test_discover_codex_sessions(tmp_path):
-    """Discovers .jsonl files in codex_dir."""
-    f = tmp_path / "abc-def.jsonl"
-    f.write_text('{"type":"message","role":"user","content":"hello"}')
+    """Discovers rollout-*.jsonl files under date-partitioned subdirs."""
+    session_dir = tmp_path / "2026" / "03" / "27"
+    session_dir.mkdir(parents=True)
+    f = session_dir / "rollout-2026-03-27T13-20-54-abc.jsonl"
+    f.write_text(
+        json.dumps(
+            {
+                "type": "response_item",
+                "payload": {"type": "message", "role": "user", "content": []},
+            }
+        )
+    )
     assert _discover_codex_sessions(tmp_path) == [f]
 
 
 def test_discover_codex_sessions_multiple(tmp_path):
-    """Returns all .jsonl files sorted alphabetically."""
-    for name in ("session-b.jsonl", "session-a.jsonl"):
-        (tmp_path / name).write_text("{}")
+    """Returns all rollout-*.jsonl files sorted, across date subdirs."""
+    for date, name in (
+        ("2026/03/27", "rollout-2026-03-27T00-00-00-b.jsonl"),
+        ("2026/03/26", "rollout-2026-03-26T00-00-00-a.jsonl"),
+    ):
+        d = tmp_path / date
+        d.mkdir(parents=True)
+        (d / name).write_text("{}")
     results = _discover_codex_sessions(tmp_path)
     assert len(results) == 2
-    assert results[0].name == "session-a.jsonl"
+    assert results[0].name == "rollout-2026-03-26T00-00-00-a.jsonl"
+
+
+def test_discover_codex_sessions_ignores_non_rollout_files(tmp_path):
+    """Ignores .jsonl files that don't match the rollout-*.jsonl pattern."""
+    session_dir = tmp_path / "2026" / "03" / "27"
+    session_dir.mkdir(parents=True)
+    (session_dir / "other.jsonl").write_text("{}")
+    assert _discover_codex_sessions(tmp_path) == []
 
 
 # ---------------------------------------------------------------------------
@@ -199,33 +221,35 @@ def test_discover_codex_sessions_multiple(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def _codex_message(role: str, text: str, part_type: str = "input_text") -> str:
+    """Build a real-shape Codex ``response_item``/``message`` JSONL line."""
+    return json.dumps(
+        {
+            "timestamp": "2026-07-01T10:00:00.000Z",
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": role,
+                "content": [{"type": part_type, "text": text}],
+            },
+        }
+    )
+
+
 def test_search_codex_session_match(tmp_path):
-    """Finds matching message records in Codex JSONL format."""
+    """Finds matching message records in real Codex response_item format."""
     f = tmp_path / "sess-1.jsonl"
     f.write_text(
         "\n".join(
             [
-                json.dumps(
-                    {
-                        "type": "message",
-                        "role": "user",
-                        "content": "Create a CORS middleware",
-                        "timestamp": "2026-07-01T10:00:00Z",
-                    }
+                _codex_message("user", "Create a CORS middleware"),
+                _codex_message(
+                    "assistant", "Here is a CORS middleware example", "output_text"
                 ),
                 json.dumps(
                     {
-                        "type": "message",
-                        "role": "assistant",
-                        "content": "Here is a CORS middleware example",
-                        "timestamp": "2026-07-01T10:00:05Z",
-                    }
-                ),
-                json.dumps(
-                    {
-                        "type": "tool_call",
-                        "name": "bash",
-                        "input": {"command": "echo test"},
+                        "type": "event_msg",
+                        "payload": {"type": "task_started", "turn_id": "abc"},
                     }
                 ),
             ]
@@ -241,28 +265,42 @@ def test_search_codex_session_match(tmp_path):
 def test_search_codex_session_no_match(tmp_path):
     """Returns empty list when no messages match."""
     f = tmp_path / "sess-1.jsonl"
-    f.write_text(
-        json.dumps({"type": "message", "role": "user", "content": "Hello world"})
-    )
+    f.write_text(_codex_message("user", "Hello world"))
     assert _search_codex_session(f, "CORS") == []
 
 
 def test_search_codex_session_invalid_json_line(tmp_path):
     """Handles malformed JSON lines gracefully and continues."""
     f = tmp_path / "sess-1.jsonl"
-    f.write_text(
-        "not valid json\n"
-        + json.dumps({"type": "message", "role": "user", "content": "CORS fix needed"})
-    )
+    f.write_text("not valid json\n" + _codex_message("user", "CORS fix needed"))
     results = _search_codex_session(f, "CORS")
     assert len(results) == 1
 
 
-def test_search_codex_session_skips_tool_calls(tmp_path):
-    """Tool-call records are not searched."""
+def test_search_codex_session_skips_non_message_records(tmp_path):
+    """Non-message record types (session_meta, event_msg, tool calls) are skipped."""
     f = tmp_path / "sess-1.jsonl"
     f.write_text(
-        json.dumps({"type": "tool_call", "name": "bash", "input": "CORS something"})
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {"id": "abc", "cwd": "CORS something"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "response_item",
+                        "payload": {
+                            "type": "function_call",
+                            "name": "bash",
+                            "arguments": "CORS something",
+                        },
+                    }
+                ),
+            ]
+        )
     )
     assert _search_codex_session(f, "CORS") == []
 
@@ -349,15 +387,15 @@ def test_cli_chats_search_json_all_agents_warning(tmp_path, monkeypatch):
 
 def test_search_external_chats_codex_match(tmp_path, capsys):
     """Prints Codex hits with [Codex] label."""
-    codex_dir = tmp_path / "codex"
+    codex_dir = tmp_path / "codex" / "2026" / "03" / "27"
     codex_dir.mkdir(parents=True)
-    (codex_dir / "sess-xyz.jsonl").write_text(
-        json.dumps({"type": "message", "role": "user", "content": "CORS in codex"})
+    (codex_dir / "rollout-2026-03-27T00-00-00-sess-xyz.jsonl").write_text(
+        _codex_message("user", "CORS in codex")
     )
     search_external_chats(
         "CORS",
         cursor_dir=tmp_path / "cursor",
-        codex_dir=codex_dir,
+        codex_dir=tmp_path / "codex",
     )
     out = capsys.readouterr().out
     assert "[Codex]" in out
