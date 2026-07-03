@@ -470,4 +470,13 @@ def screenshot_cmd(output: str | None, display: str | None):
             err=True,
         )
         sys.exit(1)
+
+    if size == 0:
+        click.echo(
+            f"Error: screenshot file at {out_path} is empty (0 bytes). "
+            "Possible permission issue.",
+            err=True,
+        )
+        sys.exit(1)
+
     click.echo(f"Screenshot saved to {out_path} ({size:,} bytes)")

@@ -209,3 +209,23 @@ class TestScreenshotCmd:
 
         assert result.exit_code != 0
         assert "not created" in result.output
+
+    def test_screenshot_file_empty_after_success(self, tmp_path):
+        """Edge case: subprocess succeeds but produces a 0-byte file (e.g., macOS permission denial)."""
+        out = tmp_path / "screen.png"
+
+        def fake_run(cmd, **kwargs):
+            # Simulate subprocess success but writes a 0-byte file
+            out.write_bytes(b"")
+            return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("shutil.which", return_value="/usr/bin/scrot"),
+            patch("subprocess.run", side_effect=fake_run),
+        ):
+            result = runner.invoke(screenshot_cmd, ["--output", str(out)])
+
+        assert result.exit_code != 0
+        assert "empty" in result.output or "0 bytes" in result.output
