@@ -2137,9 +2137,12 @@ def computer_task(
 
     Returns:
         Status dict with keys ``status`` (``"success"`` / ``"failure"`` /
-        ``"timeout"``) and ``result`` (text summary from the subagent).
-        Call ``subagent_read_log(agent_id)`` for the full step-by-step
-        transcript — the dict also carries the ``agent_id`` key for that.
+        ``"running"``) and ``result`` (text summary from the subagent).
+        ``"running"`` is returned when the ``timeout`` is reached before the
+        subagent finishes — the subagent continues as a daemon thread in the
+        background.  Call ``subagent_read_log(agent_id)`` for the full
+        step-by-step transcript — the dict also carries the ``agent_id`` key
+        for that.
 
     Example (from IPython in a gptme session)::
 
@@ -2166,6 +2169,7 @@ def computer_task(
         agent_id=agent_id,
         prompt=task,
         profile="computer-use",
+        timeout=timeout,
         max_time=timeout,
         model=model,
     )
@@ -2257,7 +2261,7 @@ System: [ARIA snapshot + screenshot of example.com]
 User: Open Firefox, go to https://x.com/compose/tweet, type "Hello from gptme!" and submit it — without filling up my context with screenshots
 Assistant: I'll delegate this to computer_task() so all the intermediate screenshots stay in a subagent context rather than here.
 {ToolUse("ipython", [], _COMPUTER_TASK_TWEET_EXAMPLE).to_output(tool_format)}
-System: {{"status": "success", "result": "Tweet submitted successfully. Firefox opened, x.com/compose/tweet loaded, typed the message, clicked Tweet. Confirmed tweet posted.", "agent_id": "computer-task-a1b2c3d4"}}
+System: {{"status": "completed", "result": "Tweet submitted successfully. Firefox opened, x.com/compose/tweet loaded, typed the message, clicked Tweet. Confirmed tweet posted.", "agent_id": "computer-task-a1b2c3d4"}}
 """
 
     # Platform-specific keyboard shortcut examples

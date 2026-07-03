@@ -49,7 +49,7 @@ def test_computer_task_uses_computer_use_profile(monkeypatch):
     captured: list[dict] = []
 
     def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
-        captured.append({"profile": profile})
+        captured.append({"profile": profile, "max_time": kw.get("max_time")})
 
     def fake_wait(agent_id, timeout=300):
         return _make_status()
@@ -66,14 +66,14 @@ def test_computer_task_uses_computer_use_profile(monkeypatch):
 
 
 def test_computer_task_passes_timeout(monkeypatch):
-    """The timeout arg is forwarded as max_time= to subagent() and as timeout= to subagent_wait()."""
+    """The timeout arg is forwarded to both subagent() and subagent_wait()."""
     from gptme.tools.computer import computer_task
 
-    spawn_max_time: list[int | None] = []
+    spawn_kwargs: dict = {}
     wait_timeout: list[int] = []
 
-    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
-        spawn_max_time.append(kw.get("max_time"))
+    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
+        spawn_kwargs.update(timeout=timeout, max_time=kw.get("max_time"))
 
     def fake_wait(agent_id, timeout=300):
         wait_timeout.append(timeout)
@@ -86,7 +86,8 @@ def test_computer_task_passes_timeout(monkeypatch):
 
     computer_task("tweet 'hello'", timeout=42)
 
-    assert spawn_max_time == [42]
+    assert spawn_kwargs["timeout"] == 42
+    assert spawn_kwargs["max_time"] == 42
     assert wait_timeout == [42]
 
 
