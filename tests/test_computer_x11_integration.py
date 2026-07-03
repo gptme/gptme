@@ -103,6 +103,7 @@ def xvfb_display() -> Generator[str, None, None]:
 
     wm_proc.terminate()
     proc.terminate()
+    wm_proc.wait(timeout=5)
     proc.wait(timeout=5)
 
 
@@ -169,8 +170,8 @@ def xterm_window(xvfb_display) -> Generator[subprocess.Popen, None, None]:
 # ---------------------------------------------------------------------------
 
 
-def _pixel_variance(path: Path) -> float:
-    """Return the mean pixel variance of an image (0 = blank/uniform)."""
+def _pixel_stddev(path: Path) -> float:
+    """Return the pixel standard deviation of an image (0 = blank/uniform)."""
     import statistics
     import struct as _struct
 
@@ -229,9 +230,9 @@ def test_screenshot_is_not_uniform(tmp_path, xterm_window, monkeypatch):
     shot = msg.files[0]
     assert isinstance(shot, Path)
 
-    variance = _pixel_variance(shot)
-    assert variance > 5.0, (
-        f"Screenshot appears uniform (std-dev={variance:.1f}) — "
+    stddev = _pixel_stddev(shot)
+    assert stddev > 5.0, (
+        f"Screenshot appears uniform (std-dev={stddev:.1f}) — "
         "scrot may not be capturing xterm content"
     )
 
@@ -319,11 +320,19 @@ def test_wait_for_change_detects_terminal_output(xterm_window, monkeypatch):
         msg = computer("wait_for_change", text="8")
         result_holder.append(msg)
 
+    # Warm up the screenshot pipeline so the first snapshot inside the
+    # wait_for_change thread lands quickly, then start polling.
+    computer("screenshot")
+
     t = threading.Thread(target=_wait, daemon=True)
     t.start()
 
-    # Give the polling loop a moment to take its baseline screenshot
-    time.sleep(0.2)
+    # Allow the thread to start and take its baseline screenshot before we type.
+    # The warm-up screenshot above makes this generous window reliable; a true
+    # synchronization primitive would require modifying the production
+    # wait_for_change handler to accept an Event, which is disproportionate for
+    # a manual-only (-m x11) test.
+    time.sleep(1.0)
 
     # Type a command — this should trigger a screen change
     computer("type", text="echo wait_for_change_test\n")
