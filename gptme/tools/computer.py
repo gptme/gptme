@@ -1220,6 +1220,7 @@ def _poll_for_change(
     transport: ComputerTransport,
     baseline: Path,
     timeout: float = 10.0,
+    settle_time: float = 0.0,
 ) -> Message | None:
     """Poll transport screenshots until the screen changes from *baseline*.
 
@@ -1233,19 +1234,61 @@ def _poll_for_change(
     Extracted so :func:`act_and_observe` can pass a *pre-action* baseline and
     avoid the race where the action changes the screen before the polling loop
     takes its own reference frame.
+
+    Args:
+        transport: Transport to take screenshots from.
+        baseline: Reference screenshot to detect changes against.
+        timeout: Maximum seconds to wait before returning anyway.
+        settle_time: If >0, continue polling after the first change is detected
+            until the screen stops changing for *settle_time* consecutive seconds.
+            This catches multi-phase UI updates (e.g. a terminal window frame
+            appearing first, then the shell prompt rendering a moment later) that
+            would otherwise cause the next action to race against an unready UI.
+            With the default of 0.0 the original behaviour is preserved: return
+            on the first detected change.
     """
     poll_interval = 0.05
     max_poll_interval = 0.5
     change_threshold = 0.01
     deadline = _monotonic() + timeout
+
+    changed = False  # Have we seen any change from the original baseline?
+    last_change_at: float | None = None  # Monotonic time of the most recent change
+    last_changed_frame: Path | None = None  # Screenshot where the last change occurred
+    # Slide the comparison baseline forward so we detect *new* changes, not the
+    # same change over and over during the settle phase.
+    comparison_baseline = baseline
+
     while _monotonic() < deadline:
         _sleep(poll_interval)
         current = transport.screenshot()
-        ratio = _compute_change_ratio(baseline, current)
+        ratio = _compute_change_ratio(comparison_baseline, current)
+
         if ratio >= change_threshold:
-            print(f"Screen changed ({ratio:.1%} pixels differ)")
-            return _make_screenshot_msg(current)
+            if not changed:
+                print(f"Screen changed ({ratio:.1%} pixels differ)")
+            changed = True
+            last_change_at = _monotonic()
+            last_changed_frame = current
+            comparison_baseline = current  # slide forward for settle detection
+
+            if settle_time <= 0.0:
+                # Original behaviour: return on first detected change.
+                return _make_screenshot_msg(current)
+        elif changed and settle_time > 0.0:
+            # Screen changed earlier; check whether it has now settled.
+            if last_change_at is not None and (
+                _monotonic() - last_change_at >= settle_time
+            ):
+                return _make_screenshot_msg(last_changed_frame)  # type: ignore[arg-type]
+
         poll_interval = min(poll_interval * 2, max_poll_interval)
+
+    # Timeout reached.
+    if changed and last_changed_frame is not None:
+        # Return the last frame where a change was observed even on timeout —
+        # the caller gets the most recent changed state rather than a stale screenshot.
+        return _make_screenshot_msg(last_changed_frame)
     print(
         f"No screen change detected after {timeout:.0f}s — returning current screenshot"
     )
@@ -2069,6 +2112,7 @@ def act_and_observe(
     text: str | None = None,
     coordinate: tuple[int, int] | None = None,
     timeout: float = 3.0,
+    settle_time: float = 0.2,
 ) -> list[Message]:
     """Perform a desktop action then automatically observe the result.
 
@@ -2088,6 +2132,13 @@ def act_and_observe(
         text: Text to type or key sequence (forwarded to ``computer()``).
         coordinate: Mouse coordinates (forwarded to ``computer()``).
         timeout: Seconds to wait for a screen change after the action (default 3 s).
+        settle_time: After detecting the first screen change, keep polling until
+            the screen stops changing for *settle_time* consecutive seconds
+            (default 0.2 s).  This handles multi-phase UI transitions — e.g.
+            a terminal frame appearing first and the shell prompt rendering
+            shortly after — so the returned screenshot always shows the final
+            settled state rather than a transient intermediate frame.
+            Set to 0.0 to get the original behaviour (return on first change).
 
     Returns:
         List of :class:`~gptme.message.Message` objects:
@@ -2104,6 +2155,11 @@ def act_and_observe(
 
         # Type text and immediately verify what appeared
         msgs = act_and_observe("type", text="hello world")
+
+        # Open a terminal and wait for the shell prompt (multi-phase transition)
+        # act_and_observe uses settle_time=0.2 by default: frame appears first,
+        # then the shell prompt, then 0.2s of quiet → returned screenshot shows prompt
+        msgs = act_and_observe("window_focus", text="Terminal")
 
         # Observation-only actions are passed through unchanged
         msgs = act_and_observe("screenshot")  # same as [computer("screenshot")]
@@ -2143,7 +2199,12 @@ def act_and_observe(
     if pre_action_baseline is not None and transport is not None:
         # Use the pre-action baseline so changes that happened immediately
         # (e.g. window_focus) are detected rather than missed.
-        settled = _poll_for_change(transport, pre_action_baseline, timeout)
+        # settle_time ensures we wait for the screen to stop changing (not just
+        # detect the first frame of a multi-phase transition like a terminal
+        # appearing frame-by-frame before the shell prompt renders).
+        settled = _poll_for_change(
+            transport, pre_action_baseline, timeout, settle_time=settle_time
+        )
     else:
         settled = computer("wait_for_change", text=str(timeout))
     if settled is not None:
