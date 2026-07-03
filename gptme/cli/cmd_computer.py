@@ -434,7 +434,14 @@ def screenshot_cmd(output: str | None, display: str | None):
 
         # scrot will not overwrite an existing file — remove the target first so
         # the output path is vacant, then capture directly to it.
-        out_path.unlink(missing_ok=True)
+        try:
+            out_path.unlink(missing_ok=True)
+        except OSError as e:
+            click.echo(
+                f"Error: cannot remove existing screenshot file at {out_path}: {e}",
+                err=True,
+            )
+            sys.exit(1)
         try:
             subprocess.run(
                 ["scrot", str(out_path)],

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
 
@@ -100,6 +100,23 @@ class TestScreenshotCmd:
 
         assert result.exit_code != 0
         assert "timed out" in result.output
+
+    def test_linux_existing_output_unlink_error_exits_with_error(self, tmp_path):
+        out = tmp_path / "screen.png"
+        run_mock = Mock()
+
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("shutil.which", return_value="/usr/bin/scrot"),
+            patch.object(Path, "unlink", side_effect=PermissionError("denied")),
+            patch("subprocess.run", run_mock),
+        ):
+            result = runner.invoke(screenshot_cmd, ["--output", str(out)])
+
+        assert result.exit_code != 0
+        assert "cannot remove existing screenshot file" in result.output
+        run_mock.assert_not_called()
 
     def test_macos_screenshot_saved(self, tmp_path):
         out = tmp_path / "screen.png"
