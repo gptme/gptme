@@ -24,6 +24,7 @@ class TestScreenshotCmd:
         assert result.exit_code == 0
         assert "--output" in result.output
         assert "--display" in result.output
+        assert "Linux only" in result.output
 
     def test_linux_screenshot_saved_to_default_path(self, tmp_path):
         """On Linux, a successful scrot run writes the screenshot and prints the path."""
@@ -130,6 +131,22 @@ class TestScreenshotCmd:
 
         assert result.exit_code != 0
         assert "screencapture" in result.output
+
+    def test_macos_screencapture_timeout_exits_with_error(self, tmp_path):
+        out = tmp_path / "screen.png"
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, 10)
+
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Darwin"),
+            patch("subprocess.run", side_effect=fake_run),
+        ):
+            result = runner.invoke(screenshot_cmd, ["--output", str(out)])
+
+        assert result.exit_code != 0
+        assert "timed out" in result.output
 
     def test_custom_display_passed_to_env(self, tmp_path):
         """--display value should be set in the subprocess env."""

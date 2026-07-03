@@ -371,7 +371,7 @@ def audit_log(conversation: str | None, last: int, as_json: bool):
     "--display",
     default=None,
     metavar="DISPLAY",
-    help="X11 display to capture (e.g. ':1'). Defaults to $DISPLAY or ':1'.",
+    help="X11 display to capture (e.g. ':1'). Defaults to $DISPLAY or ':1'. Linux only.",
 )
 def screenshot_cmd(output: str | None, display: str | None):
     """Take a screenshot of the current display.
@@ -412,6 +412,9 @@ def screenshot_cmd(output: str | None, display: str | None):
             sys.exit(1)
         except subprocess.CalledProcessError as e:
             click.echo(f"Error: screencapture failed: {e.stderr.decode()}", err=True)
+            sys.exit(1)
+        except subprocess.TimeoutExpired:
+            click.echo("Error: screencapture timed out.", err=True)
             sys.exit(1)
     else:
         # Linux: use scrot via $DISPLAY
