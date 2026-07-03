@@ -1,4 +1,4 @@
-"""Tests for `gptme search` alias → gptme-util chats search."""
+"""Tests for `gptme search` alias and gptme-* plugin dispatch."""
 
 from unittest.mock import patch
 
@@ -75,3 +75,43 @@ class TestSearchAlias:
         assert result.exit_code == 0
         mock_search.assert_not_called()
         assert "{" in result.output or "version" in result.output.lower()
+
+
+class TestPluginDispatch:
+    def test_plugin_found_in_path_is_executed(self, runner: CliRunner):
+        """gptme sessions delegates to gptme-sessions if found in PATH."""
+        with (
+            patch(
+                "gptme.cli.main.shutil.which",
+                return_value="/usr/local/bin/gptme-sessions",
+            ),
+            patch("gptme.cli.main.subprocess.call", return_value=0) as mock_call,
+        ):
+            # Use only positional args — gptme CLI rejects unknown --flags before dispatch
+            result = runner.invoke(main, ["sessions"])
+        assert result.exit_code == 0
+        mock_call.assert_called_once_with(["/usr/local/bin/gptme-sessions"])
+
+    def test_plugin_not_found_falls_through(self, runner: CliRunner):
+        """gptme unknowncmd with no gptme-unknowncmd in PATH falls through to normal CLI."""
+        with (
+            patch("gptme.cli.main.shutil.which", return_value=None),
+            patch("gptme.cli.main.chat"),
+        ):
+            # Normal CLI starts a chat session; shutil.which returning None means no dispatch
+            runner.invoke(main, ["unknowncmd"])
+
+    def test_plugin_dispatch_skipped_for_version_flag(self, runner: CliRunner):
+        """gptme --version sessions does not trigger plugin dispatch."""
+        with (
+            patch("gptme.cli.main.subprocess.call") as mock_call,
+        ):
+            result = runner.invoke(main, ["--version", "sessions"])
+        assert result.exit_code == 0
+        mock_call.assert_not_called()
+
+    def test_help_mentions_plugin_dispatch(self, runner: CliRunner):
+        """gptme --help mentions the plugin dispatch mechanism."""
+        result = runner.invoke(main, ["--help"])
+        assert result.exit_code == 0
+        assert "gptme-" in result.output

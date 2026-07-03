@@ -8,6 +8,7 @@ import select
 import shlex
 import shutil
 import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -308,6 +309,11 @@ Built-in shortcuts:
   gptme search QUERY      Search conversation logs (alias for gptme-util chats search)
 
 \b
+Plugin dispatch (gptme-* in PATH):
+  gptme sessions          Delegates to gptme-sessions if installed
+  gptme <cmd> [args]      Delegates to gptme-<cmd> if found in PATH
+
+\b
 Utilities (gptme-util):
   gptme-util tools list       List all tools and their availability
   gptme-util tools info TOOL  Show detailed tool instructions/examples
@@ -572,6 +578,13 @@ def main(
             query, max_results=20, context_lines=1, max_matches=1
         )  # show more results than the default 5
         return
+
+    # Plugin dispatch: `gptme CMD [args...]` → `gptme-CMD [args...]` if installed
+    # Enables extensibility: `gptme sessions` works if gptme-sessions is in PATH.
+    if prompts and not version and not version_json:
+        plugin = f"gptme-{prompts[0]}"
+        if plugin_path := shutil.which(plugin):
+            sys.exit(subprocess.call([plugin_path, *prompts[1:]]))
 
     # Defense-in-depth: handle empty/whitespace names in case Click bypasses convert()
     # (observed to occur in some Click versions when --name "" is passed)
