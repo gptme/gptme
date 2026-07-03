@@ -1380,6 +1380,43 @@ def test_set_config_value_creates_intermediate_sections(tmp_path, monkeypatch):
     assert result["user"]["name"] == "Alice"
 
 
+def test_save_provider_config_upserts_existing_provider(tmp_path, monkeypatch):
+    """Repeated setup runs for the same provider should not append duplicates."""
+    import gptme.config.user as user_mod
+    from gptme.config.models import ProviderConfig
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    user_mod.save_provider_config(
+        ProviderConfig(
+            name="local",
+            base_url="http://localhost:11434/v1",
+            default_model="llama3",
+        ),
+        reload=False,
+    )
+    user_mod.save_provider_config(
+        ProviderConfig(
+            name="local",
+            base_url="http://127.0.0.1:8000/v1",
+            api_key="sk-local",
+            default_model="qwen3",
+        ),
+        reload=False,
+    )
+
+    result = tomlkit.loads(config_file.read_text()).unwrap()
+    assert len(result["providers"]) == 1
+    assert result["providers"][0] == {
+        "name": "local",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "api_key": "sk-local",
+        "default_model": "qwen3",
+    }
+
+
 def test_chat_config_save_transition_empty_dir_to_symlink(tmp_path):
     """Test that save() replaces an empty from_logdir workspace directory with a symlink."""
     logdir = tmp_path / "conversation-save-transition"

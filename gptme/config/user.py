@@ -428,7 +428,14 @@ def save_provider_config(
 
     if "providers" not in doc:
         doc.add("providers", tomlkit.aot())  # type: ignore[attr-defined]
-    doc["providers"].append(provider_table)  # type: ignore[union-attr]
+
+    providers = doc["providers"]
+    for idx, existing_provider in enumerate(providers):  # type: ignore[union-attr]
+        if existing_provider.get("name") == provider.name:
+            providers[idx] = provider_table
+            break
+    else:
+        providers.append(provider_table)
 
     if local:
         os.makedirs(os.path.dirname(write_path), exist_ok=True)
