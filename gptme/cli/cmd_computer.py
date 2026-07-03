@@ -589,6 +589,10 @@ def video_frames_cmd(
     if output_dir:
         out_dir = Path(output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
+        # Remove stale frames so a reused --output-dir never leaks old files into
+        # the glob result (temp dirs from the else branch are always fresh).
+        for _stale in out_dir.glob("frame_*.png"):
+            _stale.unlink()
     else:
         out_dir = Path(tempfile.mkdtemp(prefix="gptme-video-frames-"))
         click.echo(

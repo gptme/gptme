@@ -317,3 +317,37 @@ class TestVideoFramesCmd:
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["count"] == n_frames
+
+    def test_stale_frames_cleared_when_output_dir_reused(self, tmp_path):
+        """Second run with fewer frames must not include stale files from the first run."""
+        video = tmp_path / "rec.mp4"
+        video.write_bytes(b"fake-mp4")
+        out_dir = tmp_path / "frames"
+        runner = CliRunner()
+
+        # First run: 5 frames
+        with (
+            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch("subprocess.run", side_effect=_make_fake_ffmpeg(out_dir, n_frames=5)),
+        ):
+            result = runner.invoke(
+                video_frames_cmd,
+                ["--output-dir", str(out_dir), "--json", str(video)],
+            )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["count"] == 5
+
+        # Second run: only 2 frames — stale files from first run must not appear.
+        with (
+            patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch("subprocess.run", side_effect=_make_fake_ffmpeg(out_dir, n_frames=2)),
+        ):
+            result = runner.invoke(
+                video_frames_cmd,
+                ["--output-dir", str(out_dir), "--json", str(video)],
+            )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["count"] == 2, (
+            f"expected 2 frames, got {data['count']} (stale files leaked)"
+        )
