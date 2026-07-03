@@ -2,6 +2,10 @@
 
 Verifies that the gptme-computer Docker entrypoint starts the server
 with the tools required for computer-use profile functionality.
+
+Also verifies that computer.html does not hardcode VNC hostnames so that
+remote Docker setups (where gptme server and the browser are on different
+machines) work without any configuration changes.
 """
 
 from __future__ import annotations
@@ -10,6 +14,9 @@ from pathlib import Path
 
 ENTRYPOINT = (
     Path(__file__).parent.parent / "scripts" / "computer_home" / "entrypoint.sh"
+)
+COMPUTER_HTML = (
+    Path(__file__).parent.parent / "gptme" / "server" / "static" / "computer.html"
 )
 
 
@@ -70,4 +77,57 @@ class TestDockerEntrypointTools:
         assert not missing, (
             f"Docker server missing tools required by computer-use profile: {missing}. "
             f"Current tools: {tools}"
+        )
+
+
+class TestComputerHtmlVncUrl:
+    """Ensure computer.html derives the VNC host dynamically.
+
+    When accessed remotely (e.g. http://remote-host:8080/computer) a hardcoded
+    '127.0.0.1' would make the browser try to connect to its own localhost
+    instead of the server, breaking the VNC stream.  The fix is to derive the
+    host from window.location.hostname in JavaScript.
+    """
+
+    def test_computer_html_exists(self):
+        assert COMPUTER_HTML.exists(), f"computer.html not found: {COMPUTER_HTML}"
+
+    def test_vnc_src_not_hardcoded_to_localhost(self):
+        """The iframe src must not contain a hardcoded '127.0.0.1' hostname.
+
+        A hardcoded address breaks any remote Docker setup: the browser
+        connects to its own loopback instead of the server's noVNC port.
+        """
+        html = COMPUTER_HTML.read_text()
+        # The static src attribute must not contain the hardcoded address.
+        # (The dynamic JS replacement is allowed to reference it as a fallback
+        # label or comment, but the iframe src= itself must not.)
+        assert 'src="http://127.0.0.1' not in html, (
+            "computer.html iframe src is hardcoded to 127.0.0.1. "
+            "Use window.location.hostname so remote setups work correctly."
+        )
+
+    def test_vnc_url_derived_from_window_location(self):
+        """computer.html must use window.location.hostname to build the VNC URL."""
+        html = COMPUTER_HTML.read_text()
+        assert "window.location.hostname" in html, (
+            "computer.html does not use window.location.hostname for the VNC URL. "
+            "Remote Docker users (different machine from the server) need the host "
+            "derived from the page origin, not hardcoded to 127.0.0.1."
+        )
+
+    def test_vnc_port_overridable_via_query_param(self):
+        """A ?vncPort= query param must let users point at a non-default noVNC port."""
+        html = COMPUTER_HTML.read_text()
+        assert "vncPort" in html, (
+            "computer.html does not support a vncPort query parameter override. "
+            "Users running noVNC on a non-standard port need a way to override it."
+        )
+
+    def test_vnc_host_overridable_via_query_param(self):
+        """A ?vncHost= query param must let users point at an explicit VNC host."""
+        html = COMPUTER_HTML.read_text()
+        assert "vncHost" in html, (
+            "computer.html does not support a vncHost query parameter override. "
+            "Users with split-horizon networking (separate VNC and gptme hosts) need this."
         )
