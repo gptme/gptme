@@ -6,10 +6,15 @@ with the tools required for computer-use profile functionality.
 Also verifies that computer.html does not hardcode VNC hostnames so that
 remote Docker setups (where gptme server and the browser are on different
 machines) work without any configuration changes.
+
+Also verifies that docker-compose.yml includes a computer-use service that
+wires up the Dockerfile.computer image with the correct ports, environment,
+and profiles configuration.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ENTRYPOINT = (
@@ -131,3 +136,161 @@ class TestComputerHtmlVncUrl:
             "computer.html does not support a vncHost query parameter override. "
             "Users with split-horizon networking (separate VNC and gptme hosts) need this."
         )
+
+
+DOCKER_COMPOSE = Path(__file__).parent.parent / "docker-compose.yml"
+DOCKERFILE_COMPUTER = Path(__file__).parent.parent / "scripts" / "Dockerfile.computer"
+
+
+def _parse_compose(path: Path) -> dict:
+    """Parse docker-compose.yml without requiring PyYAML — uses a minimal regex approach
+    for the specific checks we need, falling back to yaml if available."""
+    try:
+        import yaml  # type: ignore[import-untyped]
+
+        return yaml.safe_load(path.read_text())
+    except ImportError:
+        pass
+    # Fallback: return raw text in a wrapper so callers can check containment
+    return {"_raw": path.read_text()}
+
+
+class TestDockerComposeComputerUseService:
+    """Verify docker-compose.yml has a working computer-use service (issue #216).
+
+    The computer-use service is the Docker/VNC streaming path described in
+    issue #216 as the sandboxed deployment mode.  It must be present so users
+    can run `docker compose up --build computer-use` to get a full sandboxed
+    desktop environment with live VNC streaming.
+    """
+
+    def test_docker_compose_exists(self):
+        assert DOCKER_COMPOSE.exists(), (
+            f"docker-compose.yml not found: {DOCKER_COMPOSE}"
+        )
+
+    def test_dockerfile_computer_exists(self):
+        assert DOCKERFILE_COMPUTER.exists(), (
+            f"scripts/Dockerfile.computer not found: {DOCKERFILE_COMPUTER}"
+        )
+
+    def test_computer_use_service_present(self):
+        """docker-compose.yml must define a computer-use service."""
+        compose = _parse_compose(DOCKER_COMPOSE)
+        if "_raw" in compose:
+            assert "computer-use:" in compose["_raw"], (
+                "docker-compose.yml has no 'computer-use' service. "
+                "Add a computer-use service using scripts/Dockerfile.computer "
+                "so users can run `docker compose up computer-use` for VNC streaming."
+            )
+        else:
+            services = compose.get("services", {})
+            assert "computer-use" in services, (
+                f"docker-compose.yml services: {list(services)}. "
+                "Missing 'computer-use' service. "
+                "Add a computer-use service using scripts/Dockerfile.computer."
+            )
+
+    def test_computer_use_dockerfile_is_dockerfile_computer(self):
+        """The computer-use service must reference scripts/Dockerfile.computer."""
+        compose = _parse_compose(DOCKER_COMPOSE)
+        if "_raw" in compose:
+            assert "Dockerfile.computer" in compose["_raw"], (
+                "docker-compose.yml does not reference Dockerfile.computer for computer-use. "
+                "The computer-use service needs the Xvfb/VNC/xdotool image."
+            )
+        else:
+            service = compose.get("services", {}).get("computer-use", {})
+            build = service.get("build", {})
+            dockerfile = build.get("dockerfile", "")
+            assert "Dockerfile.computer" in dockerfile, (
+                f"computer-use service uses '{dockerfile}', expected scripts/Dockerfile.computer. "
+                "The Dockerfile.computer image provides Xvfb, VNC, xdotool, noVNC."
+            )
+
+    def test_novnc_port_exposed(self):
+        """The computer-use service must expose port 6080 for the noVNC web interface."""
+        compose = _parse_compose(DOCKER_COMPOSE)
+        if "_raw" in compose:
+            assert "6080" in compose["_raw"], (
+                "docker-compose.yml computer-use service does not expose port 6080 (noVNC). "
+                "Users need port 6080 to view the live desktop via their browser."
+            )
+        else:
+            service = compose.get("services", {}).get("computer-use", {})
+            ports = service.get("ports", [])
+            port_strs = [str(p) for p in ports]
+            assert any("6080" in p for p in port_strs), (
+                f"computer-use ports: {ports}. Port 6080 (noVNC) must be exposed."
+            )
+
+    def test_gptme_server_port_exposed(self):
+        """The computer-use service must expose port 8080 for the gptme server."""
+        compose = _parse_compose(DOCKER_COMPOSE)
+        if "_raw" in compose:
+            assert "8080" in compose["_raw"], (
+                "docker-compose.yml computer-use service does not expose port 8080 (gptme server). "
+                "Port 8080 provides the chat interface and REST API for computer-use."
+            )
+        else:
+            service = compose.get("services", {}).get("computer-use", {})
+            ports = service.get("ports", [])
+            port_strs = [str(p) for p in ports]
+            assert any("8080" in p for p in port_strs), (
+                f"computer-use ports: {ports}. "
+                "Port 8080 (gptme server) must be exposed."
+            )
+
+    def test_computer_use_in_profile_not_default(self):
+        """computer-use must be in a Docker Compose profile so it doesn't start by default.
+
+        Running `docker compose up` should start only the headless gptme-server.
+        The heavy computer-use container (Xvfb + VNC + browser) should only start
+        when explicitly requested via `docker compose up computer-use`.
+        """
+        compose = _parse_compose(DOCKER_COMPOSE)
+        if "_raw" in compose:
+            # The profiles: key must appear somewhere in the computer-use block.
+            # We check by looking for 'profiles' after 'computer-use:' in the raw YAML.
+            raw = compose["_raw"]
+            # Find the computer-use service block and ensure 'profiles' appears in it
+            match = re.search(r"computer-use:.*?(?=\n\S|\Z)", raw, re.DOTALL)
+            service_block = match.group(0) if match else ""
+            assert "profiles" in service_block, (
+                "computer-use service has no 'profiles' key. "
+                "Add `profiles: [computer-use]` to prevent it from starting with plain "
+                "`docker compose up` (which should start only gptme-server)."
+            )
+        else:
+            service = compose.get("services", {}).get("computer-use", {})
+            profiles = service.get("profiles", [])
+            assert profiles, (
+                "computer-use service has no profiles configured. "
+                "Add `profiles: [computer-use]` to keep it out of the default `docker compose up`."
+            )
+
+    def test_api_keys_passed_to_computer_use(self):
+        """computer-use service must forward provider API keys as environment variables."""
+        compose = _parse_compose(DOCKER_COMPOSE)
+        if "_raw" in compose:
+            raw = compose["_raw"]
+            match = re.search(r"computer-use:.*?(?=\n\S|\Z)", raw, re.DOTALL)
+            service_block = match.group(0) if match else raw
+            assert (
+                "ANTHROPIC_API_KEY" in service_block
+                or "OPENAI_API_KEY" in service_block
+            ), (
+                "computer-use service does not forward any provider API keys. "
+                "At least one of ANTHROPIC_API_KEY or OPENAI_API_KEY must be in the environment."
+            )
+        else:
+            service = compose.get("services", {}).get("computer-use", {})
+            env = service.get("environment", {})
+            env_keys = list(env.keys()) if isinstance(env, dict) else env
+            assert any(
+                k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY")
+                for k in env_keys
+            ), (
+                f"computer-use environment: {env_keys}. "
+                "Must forward at least one provider API key."
+            )

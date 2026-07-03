@@ -1,9 +1,16 @@
-# Self-host gptme-server with one command:
+# Two services are available:
 #
-#   docker compose up --build
+#   gptme-server  — headless API server for use with the web UI:
 #
-# Then open the hosted web UI at https://chat.gptme.org and point it at
-# http://localhost:5700 — or host your own web UI (see docs/server.rst).
+#       docker compose up --build
+#
+#   computer-use  — full sandboxed desktop environment with VNC streaming
+#                   for computer-use tasks (issue #216):
+#
+#       docker compose up --build computer-use
+#
+#   Then open http://localhost:6080 in your browser for the live VNC view
+#   and http://localhost:8080 for the gptme chat interface.
 #
 # Configuration: copy .env.example to .env and fill in at least one provider
 # key. Everything below reads from that .env file (or your shell environment).
@@ -34,6 +41,43 @@ services:
       - gptme-config:/home/gptme/.config/gptme
       - gptme-data:/home/gptme/.local/share/gptme
     restart: unless-stopped
+
+  # Sandboxed desktop environment for computer-use tasks (issue #216).
+  #
+  # Runs a full X11 desktop inside Docker with VNC streaming via noVNC so you
+  # can watch (and optionally intervene) as gptme controls the virtual desktop.
+  #
+  # Ports:
+  #   6080 — noVNC web interface (open in browser to see the live desktop)
+  #   8080 — gptme server with computer + browser tools enabled
+  #
+  # Usage:
+  #   docker compose up --build computer-use
+  #   # Open http://localhost:6080 to watch the desktop
+  #   # Then start a gptme conversation that uses --tools computer,browser
+  computer-use:
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile.computer
+    image: gptme-computer-use
+    ports:
+      # noVNC web interface — watch the live desktop in any browser
+      - "${NOVNC_PORT:-6080}:6080"
+      # gptme server with computer + browser tools
+      - "${COMPUTER_SERVER_PORT:-8080}:8080"
+    environment:
+      # At least one provider key is required to run conversations.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Virtual display resolution (must match Xvfb resolution in Dockerfile)
+      WIDTH: ${COMPUTER_WIDTH:-1024}
+      HEIGHT: ${COMPUTER_HEIGHT:-768}
+      DISPLAY_NUM: ${COMPUTER_DISPLAY_NUM:-1}
+    # Default: don't start automatically with `docker compose up` (only start
+    # when explicitly requested via `docker compose up computer-use`).
+    profiles:
+      - computer-use
 
 volumes:
   gptme-config:
