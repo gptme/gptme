@@ -1900,6 +1900,12 @@ Three higher-level helpers are available that implement the structured-first obs
   ``wait_for_change`` in one call — the complete "act then look" loop without separate
   screenshot calls. Use this for tight interaction loops where you want to see the screen
   after every click, keypress, or scroll.
+- ``computer_task(task, timeout=300, model=None)`` — run a multi-step computer-use task
+  in a **context-isolated subagent** and block until done. All screenshots and intermediate
+  steps are kept inside the subagent's own context — the caller's context stays lean. Use
+  this for long, multi-step automations (filling forms, navigating multi-page flows, running
+  GUI apps) where piling dozens of screenshots into the current context would be wasteful.
+  Returns a status dict with ``status`` and ``result`` keys.
 
 These helpers are preferred over calling ``computer("screenshot")`` directly when observing
 web pages, because ARIA snapshots avoid costly vision tokens and give a DOM-addressable tree.
@@ -2107,6 +2113,77 @@ def act_and_observe(
     return msgs
 
 
+def computer_task(
+    task: str,
+    timeout: int = 300,
+    model: str | None = None,
+) -> dict:
+    """Run a computer-use task in a context-isolated subagent.
+
+    Spawns a child agent with the ``computer-use`` profile and blocks until it
+    completes (or times out).  All screenshots and intermediate steps stay inside
+    the subagent's own context, so the caller's context remains lean — this is
+    the "context-efficient tool-use loop until goal is achieved" pattern described
+    in gptme/gptme#216.
+
+    Use this instead of issuing a long chain of ``computer()`` + ``act_and_observe()``
+    calls directly when the task has many steps, or when you don't want dozens of
+    screenshots piling up in the current context.
+
+    Args:
+        task: Natural-language description of what to accomplish.
+        timeout: Maximum seconds to wait before giving up (default 300 = 5 min).
+        model: Optional model override for the subagent.
+
+    Returns:
+        Status dict with keys ``status`` (``"completed"`` / ``"failed"`` /
+        ``"timeout"``) and ``result`` (text summary from the subagent).
+        Call ``subagent_read_log(agent_id)`` for the full step-by-step
+        transcript — the dict also carries the ``agent_id`` key for that.
+
+    Example (from IPython in a gptme session)::
+
+        # Compose a tweet without piling screenshots into this context
+        result = computer_task(
+            "Open Firefox, navigate to https://x.com/compose/tweet, "
+            "type 'Hello from gptme!', and click Tweet.",
+            timeout=120,
+        )
+        print(result["status"], result["result"])
+
+        # Check if the task produced a file
+        result = computer_task(
+            "Take a screenshot and save it to /tmp/desktop.png"
+        )
+        print(result["status"])
+    """
+    import uuid as _uuid
+
+    from .subagent import subagent, subagent_wait
+
+    agent_id = f"computer-task-{_uuid.uuid4().hex[:8]}"
+    subagent(
+        agent_id=agent_id,
+        prompt=task,
+        profile="computer-use",
+        timeout=timeout,
+        model=model,
+    )
+    result = subagent_wait(agent_id, timeout=timeout)
+    result["agent_id"] = agent_id
+    return result
+
+
+# Defined as a module-level constant so it can be embedded inside an f-string
+# without using backslash escape sequences (not supported inside f-strings on Python < 3.12).
+_COMPUTER_TASK_TWEET_EXAMPLE = (
+    "computer_task("
+    '"Open Firefox, navigate to https://x.com/compose/tweet, '
+    "type 'Hello from gptme!', and click the Tweet button.\""
+    ", timeout=120)"
+)
+
+
 def examples(tool_format):
     system = platform.system()
     is_macos = system == "Darwin"
@@ -2176,6 +2253,11 @@ User: Navigate to https://example.com and verify both the text content and visua
 Assistant: I'll use observe_web with screenshot_too=True to get both the ARIA snapshot and a screenshot.
 {ToolUse("ipython", [], 'observe_web("https://example.com", screenshot_too=True)').to_output(tool_format)}
 System: [ARIA snapshot + screenshot of example.com]
+
+User: Open Firefox, go to https://x.com/compose/tweet, type "Hello from gptme!" and submit it — without filling up my context with screenshots
+Assistant: I'll delegate this to computer_task() so all the intermediate screenshots stay in a subagent context rather than here.
+{ToolUse("ipython", [], _COMPUTER_TASK_TWEET_EXAMPLE).to_output(tool_format)}
+System: {{"status": "completed", "result": "Tweet submitted successfully. Firefox opened, x.com/compose/tweet loaded, typed the message, clicked Tweet. Confirmed tweet posted.", "agent_id": "computer-task-a1b2c3d4"}}
 """
 
     # Platform-specific keyboard shortcut examples
@@ -2213,6 +2295,7 @@ tool = ToolSpec(
         ToolFunction.from_callable(observe_web),
         ToolFunction.from_callable(observe_desktop),
         ToolFunction.from_callable(act_and_observe),
+        ToolFunction.from_callable(computer_task),
     ],
     disabled_by_default=True,
 )

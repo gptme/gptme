@@ -122,6 +122,34 @@ gptme --tools +computer \
   'open a new terminal window, wait for it to appear, then run "ls -la"'
 ```
 
+## Context-efficient multi-step tasks
+
+For long, multi-step automations — filling multi-page forms, running GUI workflows, or
+anything that would generate dozens of screenshots — use `computer_task()` to delegate
+the whole task to a subagent. All intermediate screenshots stay inside the subagent's
+context; only a text summary comes back to the parent:
+
+```python
+# From IPython inside a gptme session with the computer tool enabled
+result = computer_task(
+    "Open Firefox, go to https://x.com/compose/tweet, "
+    "type 'Hello from gptme!', and click Tweet.",
+    timeout=120,
+)
+print(result["status"], result["result"])
+```
+
+This is the "context-efficient tool-use loop until goal is achieved" pattern: rather
+than having the parent accumulate dozens of screenshots and intermediate steps, the
+subagent runs the full loop internally and reports back a brief summary.
+
+If the task fails or you need the full step-by-step transcript:
+
+```python
+from gptme.tools.subagent import subagent_read_log
+print(subagent_read_log(result["agent_id"]))
+```
+
 ## Run inside Docker (isolated headless desktop)
 
 For a fully isolated environment with VNC access:
@@ -145,6 +173,7 @@ Then connect a browser to `http://localhost:6080` to watch the agent work.
 | Type text in native app | `computer('type', text='...')` |
 | Focus a window by name | `computer('window_focus', text='pattern')` |
 | Scroll in native UI | `computer('scroll', coordinate=(x,y), text='down')` |
+| Multi-step task, keep parent context lean | `computer_task(task, timeout=N)` |
 
 ## Tips
 
