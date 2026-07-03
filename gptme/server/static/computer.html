@@ -72,7 +72,7 @@
             var params = new URLSearchParams(window.location.search);
             var vncHost = params.get("vncHost") || window.location.hostname;
             var vncPort = params.get("vncPort") || "6080";
-            var vncSrc = "http://" + vncHost + ":" + vncPort +
+            var vncSrc = window.location.protocol + "//" + vncHost + ":" + vncPort +
                 "/vnc.html?&resize=scale&autoconnect=1&view_only=1&reconnect=1&reconnect_delay=2000";
             document.getElementById("vnc").src = vncSrc;
         })();
@@ -97,7 +97,7 @@
                 document.documentElement.requestFullscreen();
             } else {
                 document.exitFullscreen();
-        }
+            }
         });
     </script>
 </body>
