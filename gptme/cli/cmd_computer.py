@@ -462,5 +462,12 @@ def screenshot_cmd(output: str | None, display: str | None):
             click.echo("Error: scrot timed out.", err=True)
             sys.exit(1)
 
-    size = out_path.stat().st_size
+    try:
+        size = out_path.stat().st_size
+    except FileNotFoundError:
+        click.echo(
+            f"Error: screenshot file not created at {out_path} despite successful subprocess run.",
+            err=True,
+        )
+        sys.exit(1)
     click.echo(f"Screenshot saved to {out_path} ({size:,} bytes)")
