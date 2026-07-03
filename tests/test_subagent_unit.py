@@ -2580,13 +2580,23 @@ class TestMaxTimeWatchdog:
         monkeypatch.setattr(exec_mod, "_cleanup_isolation", lambda sa: None)
 
         timers_started: list[float] = []
-        original_timer = threading.Timer
 
-        class CapturingTimer(original_timer):  # type: ignore[misc,valid-type]
+        class CapturingTimer:
+            """Non-starting mock — records creation args without launching a real thread."""
+
             def __init__(self, interval, function, args=None, kwargs=None):
-                super().__init__(interval, function, args=args, kwargs=kwargs)
-                timers_started.append(interval)
+                self.interval = interval
+                self.function = function
+                self.args = args or ()
+                self.kwargs = kwargs or {}
                 self.daemon = True
+                timers_started.append(interval)
+
+            def start(self):
+                pass  # Don't start a real thread — test only verifies Timer was called
+
+            def cancel(self):
+                pass
 
         monkeypatch.setattr(threading, "Timer", CapturingTimer)
 
@@ -2621,13 +2631,23 @@ class TestMaxTimeWatchdog:
         monkeypatch.setattr(exec_mod, "_cleanup_isolation", lambda sa: None)
 
         timers_started: list[float] = []
-        original_timer = threading.Timer
 
-        class CapturingTimer(original_timer):  # type: ignore[misc,valid-type]
+        class CapturingTimer:
+            """Non-starting mock — records creation args without launching a real thread."""
+
             def __init__(self, interval, function, args=None, kwargs=None):
-                super().__init__(interval, function, args=args, kwargs=kwargs)
-                timers_started.append(interval)
+                self.interval = interval
+                self.function = function
+                self.args = args or ()
+                self.kwargs = kwargs or {}
                 self.daemon = True
+                timers_started.append(interval)
+
+            def start(self):
+                pass  # Don't start a real thread — test only verifies Timer was called
+
+            def cancel(self):
+                pass
 
         monkeypatch.setattr(threading, "Timer", CapturingTimer)
 
