@@ -304,13 +304,17 @@ The interface provides /commands during a conversation:
 {commands_help}
 
 \b
+Built-in shortcuts:
+  gptme search QUERY      Search conversation logs (alias for gptme-util chats search)
+
+\b
 Utilities (gptme-util):
   gptme-util tools list       List all tools and their availability
   gptme-util tools info TOOL  Show detailed tool instructions/examples
   gptme-util skills list      List discoverable skills in the current workspace
   gptme-util skills show NAME Show a skill or lesson by name
   gptme-util chats list       List past conversations
-  gptme-util chats search Q   Search conversations for query
+  gptme-util chats search Q   Search conversations for query (full options)
   gptme-util chats send ID MSG Queue a prompt for a running chat from another terminal
   gptme-util chats rename     Rename a conversation
   gptme-util models list      List available models
@@ -554,6 +558,18 @@ def main(
     output_schema: str | None,
 ):
     """Main entrypoint for the CLI."""
+
+    # Dispatch: `gptme search QUERY` → chats search (discoverability alias)
+    if prompts and prompts[0] == "search":
+        from ..tools.chats import search_chats  # fmt: skip
+
+        query = " ".join(prompts[1:]).strip()
+        if not query:
+            raise click.UsageError(
+                "Usage: gptme search <query>\n\nFor all options, use: gptme-util chats search --help"
+            )
+        search_chats(query, max_results=20, context_lines=1, max_matches=1)
+        return
 
     # Defense-in-depth: handle empty/whitespace names in case Click bypasses convert()
     # (observed to occur in some Click versions when --name "" is passed)
