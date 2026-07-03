@@ -21,6 +21,14 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
 .. note::
     This documentation site is still under construction.
 
+.. raw:: html
+
+   <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;max-width:100%;margin:1.5rem 0;border-radius:10px;border:1px solid rgba(128,128,128,0.2);box-shadow:0 4px 20px rgba(0,0,0,0.15);">
+     <iframe src="https://bisque.cloud/p/github/gptme-gptme" title="gptme — narrated walkthrough" loading="lazy"
+       style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;"
+       allow="autoplay; fullscreen; encrypted-media" allowfullscreen></iframe>
+   </div>
+
 .. toctree::
    :maxdepth: 2
    :caption: User Guide
