@@ -499,3 +499,120 @@ def screenshot_cmd(output: str | None, display: str | None):
         sys.exit(1)
 
     click.echo(f"Screenshot saved to {out_path} ({size:,} bytes)")
+
+
+@computer.command("video-frames")
+@click.argument("input", metavar="INPUT")
+@click.option(
+    "--fps",
+    default=1.0,
+    show_default=True,
+    type=float,
+    help="Frames per second to extract.",
+)
+@click.option(
+    "--limit",
+    default=None,
+    type=int,
+    metavar="N",
+    help="Maximum number of frames to extract.",
+)
+@click.option(
+    "--output-dir",
+    "-o",
+    default=None,
+    metavar="DIR",
+    help="Directory for output frames. Defaults to a system temporary directory.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Output JSON with frame paths and metadata instead of one path per line.",
+)
+def video_frames_cmd(
+    input: str,
+    fps: float,
+    limit: int | None,
+    output_dir: str | None,
+    as_json: bool,
+):
+    """Extract key frames from a video for use as gptme context.
+
+    Uses ffmpeg to extract frames at the specified rate and prints the resulting
+    PNG file paths.  Useful for reviewing screen recordings of CI failures, UI
+    bugs, or multi-step workflows without manually scrubbing the video.
+
+    INPUT is the path to the video file (MP4, MKV, WebM, etc.).
+
+    Examples:
+
+    \b
+        gptme-util computer video-frames recording.mp4
+        gptme-util computer video-frames recording.mp4 --fps 0.5 --limit 5
+        gptme-util computer video-frames recording.mp4 --output-dir /tmp/frames --json
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    if not shutil.which("ffmpeg"):
+        click.echo(
+            "Error: ffmpeg not found. Install it with:\n"
+            "  sudo apt install ffmpeg  # Debian/Ubuntu\n"
+            "  brew install ffmpeg      # macOS",
+            err=True,
+        )
+        sys.exit(1)
+
+    in_path = Path(input)
+    if not in_path.exists():
+        click.echo(f"Error: input file not found: {in_path}", err=True)
+        sys.exit(1)
+
+    if fps <= 0:
+        click.echo("Error: --fps must be a positive number.", err=True)
+        sys.exit(1)
+
+    if limit is not None and limit <= 0:
+        click.echo("Error: --limit must be a positive integer.", err=True)
+        sys.exit(1)
+
+    if output_dir:
+        out_dir = Path(output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        out_dir = Path(tempfile.mkdtemp(prefix="gptme-video-frames-"))
+
+    out_pattern = str(out_dir / "frame_%04d.png")
+    cmd = ["ffmpeg", "-i", str(in_path), "-vf", f"fps={fps}"]
+    if limit is not None:
+        cmd += ["-frames:v", str(limit)]
+    cmd += ["-y", out_pattern]
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=120)
+    except subprocess.CalledProcessError as e:
+        click.echo(f"Error: ffmpeg failed:\n{e.stderr.decode()}", err=True)
+        sys.exit(1)
+    except subprocess.TimeoutExpired:
+        click.echo("Error: ffmpeg timed out.", err=True)
+        sys.exit(1)
+
+    frames = sorted(out_dir.glob("frame_*.png"))
+    if not frames:
+        click.echo(
+            f"Error: no frames were extracted from {in_path}.",
+            err=True,
+        )
+        sys.exit(1)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {"frames": [str(f) for f in frames], "count": len(frames), "fps": fps}
+            )
+        )
+    else:
+        for f in frames:
+            click.echo(str(f))
