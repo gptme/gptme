@@ -649,6 +649,7 @@ def _do_save_browser_state(browser: Browser, path: str) -> str:
     resolved = Path(path).expanduser()
     resolved.parent.mkdir(parents=True, exist_ok=True)
     ctx.storage_state(path=str(resolved))
+    os.chmod(resolved, 0o600)
     return f"Browser session state saved to {resolved}"
 
 

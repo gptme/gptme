@@ -185,9 +185,7 @@ class BrowserThread:
                 # gptme instances don't share cookies/tabs. Recreated on every
                 # (re)connect so it never points at a dead browser.
                 if self.cdp_url:
-                    self._session_context = browser.new_context(
-                        **DEFAULT_CONTEXT_OPTIONS
-                    )
+                    self._session_context = browser.new_context(**get_context_options())
                     logger.info("Created isolated session context for CDP connection")
                 return None
             except Exception as e:
