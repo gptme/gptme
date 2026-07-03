@@ -226,6 +226,18 @@ class TestVideoFramesCmd:
         assert result.exit_code != 0
         assert "fps" in result.output.lower()
 
+    def test_fps_ceiling_exits_with_error(self, tmp_path):
+        """FPS above 60 should be rejected to prevent disk exhaustion."""
+        video = tmp_path / "rec.mp4"
+        video.write_bytes(b"fake-mp4")
+
+        runner = CliRunner()
+        with patch("shutil.which", return_value="/usr/bin/ffmpeg"):
+            result = runner.invoke(video_frames_cmd, ["--fps", "120", str(video)])
+
+        assert result.exit_code != 0
+        assert "at most 60" in result.output.lower()
+
     def test_invalid_limit_exits_with_error(self, tmp_path):
         video = tmp_path / "rec.mp4"
         video.write_bytes(b"fake-mp4")

@@ -574,6 +574,14 @@ def video_frames_cmd(
         click.echo("Error: --fps must be a positive number.", err=True)
         sys.exit(1)
 
+    if fps > 60:
+        click.echo(
+            "Error: --fps must be at most 60. "
+            "Higher rates risk extracting thousands of frames and filling disk.",
+            err=True,
+        )
+        sys.exit(1)
+
     if limit is not None and limit <= 0:
         click.echo("Error: --limit must be a positive integer.", err=True)
         sys.exit(1)
@@ -583,6 +591,10 @@ def video_frames_cmd(
         out_dir.mkdir(parents=True, exist_ok=True)
     else:
         out_dir = Path(tempfile.mkdtemp(prefix="gptme-video-frames-"))
+        click.echo(
+            f"Output directory: {out_dir} (temp directory, not auto-cleaned)",
+            err=True,
+        )
 
     out_pattern = str(out_dir / "frame_%04d.png")
     cmd = ["ffmpeg", "-i", str(in_path), "-vf", f"fps={fps}"]
