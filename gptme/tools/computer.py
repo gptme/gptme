@@ -1267,6 +1267,11 @@ def _poll_for_change(
         if ratio >= change_threshold:
             if not changed:
                 print(f"Screen changed ({ratio:.1%} pixels differ)")
+                if settle_time > 0.0:
+                    # Reset to fast polling so the settle window is accurate.
+                    # Without this, a backed-off poll_interval (up to 0.5 s) would
+                    # inflate the effective quiet time beyond settle_time.
+                    poll_interval = 0.05
             changed = True
             last_change_at = _monotonic()
             last_changed_frame = current
@@ -1277,10 +1282,12 @@ def _poll_for_change(
                 return _make_screenshot_msg(current)
         elif changed and settle_time > 0.0:
             # Screen changed earlier; check whether it has now settled.
-            if last_change_at is not None and (
-                _monotonic() - last_change_at >= settle_time
+            if (
+                last_changed_frame is not None
+                and last_change_at is not None
+                and (_monotonic() - last_change_at >= settle_time)
             ):
-                return _make_screenshot_msg(last_changed_frame)  # type: ignore[arg-type]
+                return _make_screenshot_msg(last_changed_frame)
 
         poll_interval = min(poll_interval * 2, max_poll_interval)
 

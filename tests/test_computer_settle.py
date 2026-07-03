@@ -89,8 +89,9 @@ class TestPollForChangeNoSettle:
         transport = mock.MagicMock()
         transport.screenshot.return_value = static
 
-        # After 2 calls the deadline expires (tick=0.0 deadline=0.1, tick=0.2 > 0.1)
-        tick = _tick_monotonic(0.15)
+        # tick=0.05, timeout=0.2: loop runs 3 times (at 0.05, 0.10, 0.15 < 0.20)
+        # then the while condition at 0.20 fails and we fall through to the timeout path.
+        tick = _tick_monotonic(0.05)
 
         with (
             mock.patch("gptme.tools.computer._sleep"),
@@ -100,7 +101,7 @@ class TestPollForChangeNoSettle:
                 return_value=mock.sentinel.timeout_msg,
             ),
         ):
-            result = _poll_for_change(transport, static, timeout=0.1, settle_time=0.0)
+            result = _poll_for_change(transport, static, timeout=0.2, settle_time=0.0)
 
         assert result is mock.sentinel.timeout_msg
 
