@@ -2501,6 +2501,50 @@ class TestMaxTimeWatchdog:
             n[0] == "running-thread" and n[1] == "timeout" for n in notifications
         )
 
+    def test_subagent_wait_returns_cached_timeout_while_thread_is_still_alive(
+        self, tmp_path
+    ):
+        """subagent_wait() must surface a watchdog timeout even before the thread exits."""
+        from gptme.tools.subagent.api import subagent_wait
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        barrier = threading.Barrier(2)
+
+        def slow_fn():
+            barrier.wait()
+            import time
+
+            time.sleep(60)
+
+        t = threading.Thread(target=slow_fn, daemon=True)
+        t.start()
+        barrier.wait()
+
+        sa = Subagent(
+            agent_id="wait-timeout-thread",
+            prompt="test",
+            thread=t,
+            logdir=tmp_path,
+            model=None,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        with _subagent_results_lock:
+            _subagent_results["wait-timeout-thread"] = ReturnType(
+                "timeout", "Auto-cancelled after 0.5s (max_time exceeded)"
+            )
+
+        result = subagent_wait("wait-timeout-thread", timeout=0)
+
+        assert result["status"] == "timeout"
+        assert "max_time exceeded" in (result["result"] or "")
+
     def test_completion_hook_timeout_message(self):
         """_subagent_completion_hook yields a ⏱️ message for timeout status."""
         notify_completion("hook-timeout-agent", "timeout", "Timed out after 10s")

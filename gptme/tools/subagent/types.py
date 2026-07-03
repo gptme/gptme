@@ -223,6 +223,10 @@ class Subagent:
         return False
 
     def status(self) -> ReturnType:
+        with _subagent_results_lock:
+            cached_result = _subagent_results.get(self.agent_id)
+        if cached_result is not None:
+            return cached_result
         if self.is_running():
             return ReturnType("running")
         return self._read_log()

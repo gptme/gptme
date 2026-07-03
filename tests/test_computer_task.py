@@ -66,14 +66,14 @@ def test_computer_task_uses_computer_use_profile(monkeypatch):
 
 
 def test_computer_task_passes_timeout(monkeypatch):
-    """The timeout arg is forwarded to both subagent() and subagent_wait()."""
+    """The timeout arg sets subagent max_time and the wait deadline."""
     from gptme.tools.computer import computer_task
 
     spawn_kwargs: dict = {}
     wait_timeout: list[int] = []
 
-    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
-        spawn_kwargs.update(timeout=timeout, max_time=kw.get("max_time"))
+    def fake_subagent(*args, **kwargs):
+        spawn_kwargs.update(kwargs)
 
     def fake_wait(agent_id, timeout=300):
         wait_timeout.append(timeout)
@@ -86,8 +86,8 @@ def test_computer_task_passes_timeout(monkeypatch):
 
     computer_task("tweet 'hello'", timeout=42)
 
-    assert spawn_kwargs["timeout"] == 42
     assert spawn_kwargs["max_time"] == 42
+    assert "timeout" not in spawn_kwargs
     assert wait_timeout == [42]
 
 
@@ -203,6 +203,27 @@ def test_computer_task_propagates_failure_status(monkeypatch):
 
     assert result["status"] == "failure"
     assert "display" in result["result"]
+
+
+def test_computer_task_propagates_timeout_status(monkeypatch):
+    """If the subagent times out, the timeout status is propagated unchanged."""
+    from gptme.tools.computer import computer_task
+
+    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
+        pass
+
+    def fake_wait(agent_id, timeout=300):
+        return _make_status("timeout", "Auto-cancelled after 42s")
+
+    import gptme.tools.subagent as _sa_mod
+
+    monkeypatch.setattr(_sa_mod, "subagent", fake_subagent)
+    monkeypatch.setattr(_sa_mod, "subagent_wait", fake_wait)
+
+    result = computer_task("tweet something", timeout=42)
+
+    assert result["status"] == "timeout"
+    assert "42s" in result["result"]
 
 
 def test_computer_task_registered_in_tool_spec():
