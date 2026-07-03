@@ -35,6 +35,15 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+_REQUIRED_X11_TOOLS = ("Xvfb", "xdotool", "scrot", "xterm", "fluxbox")
+_MISSING_X11_TOOLS = [c for c in _REQUIRED_X11_TOOLS if not shutil.which(c)]
+
+pytestmark = pytest.mark.skipif(
+    bool(_MISSING_X11_TOOLS),
+    reason=f"x11 tools missing: {', '.join(_MISSING_X11_TOOLS)}",
+)
+
+
 def _cmd_ok(*cmds: str) -> bool:
     """Return True if all commands are on PATH."""
     return all(shutil.which(c) for c in cmds)
@@ -47,13 +56,8 @@ def _pil_available() -> bool:
 @pytest.fixture(autouse=True, scope="module")
 def _x11_tools_or_skip():
     """Skip the whole module if required tools are missing."""
-    missing = [
-        c
-        for c in ("Xvfb", "xdotool", "scrot", "xterm", "fluxbox")
-        if not shutil.which(c)
-    ]
-    if missing:
-        pytest.skip(f"x11 tools missing: {', '.join(missing)}")
+    if _MISSING_X11_TOOLS:
+        pytest.skip(f"x11 tools missing: {', '.join(_MISSING_X11_TOOLS)}")
 
 
 # ---------------------------------------------------------------------------
