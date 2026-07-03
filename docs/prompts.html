@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f9951c044a0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fe94f5004a0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1202,7 +1202,7 @@ The following Python functions are available:
 <span class="s">computer(action: Action, text: str | None, coordinate: tuple[int, int] | None) -&gt; Message | None: Perform computer interactions in X11 or macOS environments.</span>
 <span class="s">observe_web(url: str, screenshot_too: bool) -&gt; list[Message]: Observe a web page: structured ARIA snapshot first, screenshot as fallback.</span>
 <span class="s">observe_desktop() -&gt; Message | None: Observe the current desktop state via screenshot.</span>
-<span class="s">act_and_observe(action: Action, text: str | None, coordinate: tuple[int, int] | None, timeout: float) -&gt; list[Message]: Perform a desktop action then automatically observe the result.</span>
+<span class="s">act_and_observe(action: Action, text: str | None, coordinate: tuple[int, int] | None, timeout: float, settle_time: float) -&gt; list[Message]: Perform a desktop action then automatically observe the result.</span>
 <span class="s">computer_task(task: str, timeout: int, model: str | None) -&gt; dict: Run a computer-use task in a context-isolated subagent.</span>
 <span class="sb">```</span>
 
@@ -2628,7 +2628,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 15938</p>
+<p>Tokens: 15943</p>
 </dd></dl>
 
 <dl class="py function">
