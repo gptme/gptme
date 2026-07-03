@@ -47,6 +47,10 @@ services:
   # Runs a full X11 desktop inside Docker with VNC streaming via noVNC so you
   # can watch (and optionally intervene) as gptme controls the virtual desktop.
   #
+  # Note: No persistent volumes are mounted — all conversation data, credentials,
+  # and state are ephemeral and lost on container stop/remove. This is intentional
+  # for the sandboxed/ephemeral use case; use gptme-server for persistent sessions.
+  #
   # Ports:
   #   6080 — noVNC web interface (open in browser to see the live desktop)
   #   8080 — gptme server with computer + browser tools enabled

@@ -208,11 +208,17 @@ class TestDockerComposeComputerUseService:
                 "The Dockerfile.computer image provides Xvfb, VNC, xdotool, noVNC."
             )
 
+    def _computer_use_service_block(self, raw: str) -> str:
+        """Extract the computer-use service block from raw YAML text."""
+        match = re.search(r"computer-use:.*?(?=\n\S|\Z)", raw, re.DOTALL)
+        return match.group(0) if match else ""
+
     def test_novnc_port_exposed(self):
         """The computer-use service must expose port 6080 for the noVNC web interface."""
         compose = _parse_compose(DOCKER_COMPOSE)
         if "_raw" in compose:
-            assert "6080" in compose["_raw"], (
+            service_block = self._computer_use_service_block(compose["_raw"])
+            assert "6080" in service_block, (
                 "docker-compose.yml computer-use service does not expose port 6080 (noVNC). "
                 "Users need port 6080 to view the live desktop via their browser."
             )
@@ -228,7 +234,8 @@ class TestDockerComposeComputerUseService:
         """The computer-use service must expose port 8080 for the gptme server."""
         compose = _parse_compose(DOCKER_COMPOSE)
         if "_raw" in compose:
-            assert "8080" in compose["_raw"], (
+            service_block = self._computer_use_service_block(compose["_raw"])
+            assert "8080" in service_block, (
                 "docker-compose.yml computer-use service does not expose port 8080 (gptme server). "
                 "Port 8080 provides the chat interface and REST API for computer-use."
             )
@@ -275,7 +282,7 @@ class TestDockerComposeComputerUseService:
         if "_raw" in compose:
             raw = compose["_raw"]
             match = re.search(r"computer-use:.*?(?=\n\S|\Z)", raw, re.DOTALL)
-            service_block = match.group(0) if match else raw
+            service_block = match.group(0) if match else ""
             assert (
                 "ANTHROPIC_API_KEY" in service_block
                 or "OPENAI_API_KEY" in service_block
