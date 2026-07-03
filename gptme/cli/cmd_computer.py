@@ -1,6 +1,7 @@
-"""CLI commands for computer-use tooling (audit-log, etc.)."""
+"""CLI commands for computer-use tooling (audit-log, screenshot, etc.)."""
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -356,3 +357,107 @@ def audit_log(conversation: str | None, last: int, as_json: bool):
             if "text_len" in r and r["text_len"] is not None:
                 details += f" ({r['text_len']} chars, redacted)"
         click.echo(f"{ts:<30} {conv:<25} {action:<25} {details}")
+
+
+@computer.command("screenshot")
+@click.option(
+    "--output",
+    "-o",
+    default=None,
+    metavar="PATH",
+    help="Save screenshot to PATH (PNG). Defaults to /tmp/gptme-screenshot.png.",
+)
+@click.option(
+    "--display",
+    default=None,
+    metavar="DISPLAY",
+    help="X11 display to capture (e.g. ':1'). Defaults to $DISPLAY or ':1'.",
+)
+def screenshot_cmd(output: str | None, display: str | None):
+    """Take a screenshot of the current display.
+
+    Verifies that the computer tool's screenshot action works in the current
+    environment (X11 display reachable, scrot installed, etc.).  Useful for
+    checking the setup before starting a full computer-use session.
+
+    The screenshot is saved as a PNG file.  When --output is omitted it goes to
+    /tmp/gptme-screenshot.png.
+
+    Examples:
+
+    \b
+        gptme-util computer screenshot
+        gptme-util computer screenshot --output /tmp/my-screen.png
+        gptme-util computer screenshot --display :1
+    """
+    import platform
+    import shutil
+    import subprocess
+
+    out_path = Path(output) if output else Path("/tmp/gptme-screenshot.png")
+
+    system = platform.system()
+
+    if system == "Darwin":
+        # macOS: use screencapture
+        try:
+            subprocess.run(
+                ["screencapture", "-x", str(out_path)],
+                check=True,
+                capture_output=True,
+                timeout=10,
+            )
+        except FileNotFoundError:
+            click.echo("Error: screencapture not found (expected on macOS).", err=True)
+            sys.exit(1)
+        except subprocess.CalledProcessError as e:
+            click.echo(f"Error: screencapture failed: {e.stderr.decode()}", err=True)
+            sys.exit(1)
+    else:
+        # Linux: use scrot via $DISPLAY
+        scrot = shutil.which("scrot")
+        if not scrot:
+            click.echo(
+                "Error: scrot not found. Install it with:\n"
+                "  sudo apt install scrot  # Debian/Ubuntu\n"
+                "  sudo pacman -S scrot    # Arch",
+                err=True,
+            )
+            sys.exit(1)
+
+        effective_display: str = display or os.environ.get("DISPLAY") or ":1"
+        env = os.environ.copy()
+        env["DISPLAY"] = effective_display
+
+        # scrot will not overwrite an existing file — remove the target first so
+        # the output path is vacant, then capture directly to it.
+        out_path.unlink(missing_ok=True)
+        try:
+            subprocess.run(
+                ["scrot", str(out_path)],
+                check=True,
+                capture_output=True,
+                env=env,
+                timeout=10,
+            )
+        except subprocess.CalledProcessError as e:
+            out_path.unlink(missing_ok=True)
+            stderr = e.stderr.decode().strip()
+            if "open" in stderr.lower() and "display" in stderr.lower():
+                click.echo(
+                    f"Error: cannot open display {effective_display!r}.\n"
+                    "Start Xvfb first:\n"
+                    "  Xvfb :1 -screen 0 1024x768x24 &\n"
+                    "  export DISPLAY=:1",
+                    err=True,
+                )
+            else:
+                click.echo(f"Error: scrot failed: {stderr}", err=True)
+            sys.exit(1)
+        except subprocess.TimeoutExpired:
+            out_path.unlink(missing_ok=True)
+            click.echo("Error: scrot timed out.", err=True)
+            sys.exit(1)
+
+    size = out_path.stat().st_size
+    click.echo(f"Screenshot saved to {out_path} ({size:,} bytes)")
