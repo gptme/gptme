@@ -444,6 +444,28 @@ class TestBatchJob:
         job = BatchJob(agent_ids=["x"])
         assert job.get_completed() == {}
 
+    def test_wait_all_does_not_raise_on_as_completed_timeout(self, monkeypatch):
+        """wait_all() must not propagate TimeoutError — stalled agents get a result dict."""
+        import threading
+
+        from gptme.tools.subagent import batch as batch_mod
+
+        blocker = threading.Event()
+
+        def stalling_wait(agent_id, timeout=None):
+            blocker.wait(timeout=timeout)
+            return {"status": "success", "result": "done"}
+
+        monkeypatch.setattr(batch_mod, "subagent_wait", stalling_wait)
+
+        job = BatchJob(agent_ids=["stall-1"])
+        # Must not raise — short timeout forces as_completed to fire TimeoutError
+        results = job.wait_all(timeout=1)
+
+        assert "stall-1" in results
+        assert results["stall-1"]["status"] in ("timeout", "failure", "success")
+        blocker.set()  # unblock the background thread
+
 
 # ---------------------------------------------------------------------------
 # resolve_role_defaults tests
