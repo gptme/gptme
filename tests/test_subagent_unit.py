@@ -3354,29 +3354,29 @@ class TestOutputSchema:
         instruction = _get_complete_instruction(output_schema=_SampleSchema)
         assert "Your complete answer here." not in instruction
 
-    # -- _validate_schema_result --
+    # -- _normalize_json_result --
 
-    def test_validate_schema_result_no_schema_passthrough(self, tmp_path):
+    def test_normalize_json_result_no_schema_passthrough(self, tmp_path):
         sa = self._make_subagent(tmp_path, "anything", output_schema=None)
-        assert sa._validate_schema_result("some text") == "some text"
+        assert sa._normalize_json_result("some text") == "some text"
 
-    def test_validate_schema_result_valid_json_canonicalized(self, tmp_path):
+    def test_normalize_json_result_valid_json_canonicalized(self, tmp_path):
         sa = self._make_subagent(tmp_path, "{}", output_schema=_SampleSchema)
         raw = '{"value":  42,  "label": "hello"}'
-        result = sa._validate_schema_result(raw)
+        result = sa._normalize_json_result(raw)
         # Must be valid JSON (parseable)
         parsed = json.loads(result)
         assert parsed["value"] == 42
         assert parsed["label"] == "hello"
 
-    def test_validate_schema_result_invalid_json_passthrough_with_warning(
+    def test_normalize_json_result_invalid_json_passthrough_with_warning(
         self, tmp_path, caplog
     ):
         import logging
 
         sa = self._make_subagent(tmp_path, "{}", output_schema=_SampleSchema)
         with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.types"):
-            result = sa._validate_schema_result("not valid json {{")
+            result = sa._normalize_json_result("not valid json {{")
         assert result == "not valid json {{"
         assert "not valid JSON" in caplog.text
 

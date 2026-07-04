@@ -205,14 +205,18 @@ class Subagent:
     # Wall-clock limit in seconds; when set, a watchdog auto-cancels after this time
     max_time: float | None = None
 
-    def _validate_schema_result(self, result: str) -> str:
-        """Validate and normalize a complete-block result against output_schema.
+    def _normalize_json_result(self, result: str) -> str:
+        """Normalize a complete-block result as canonical JSON.
 
         When output_schema is set, the complete block content must be valid JSON.
         If it parses as valid JSON, the result is returned as a canonical JSON string
         (re-serialized for consistency). If it fails to parse, the original string
-        is returned unchanged so the caller still gets a result (schema violation is
+        is returned unchanged so the caller still gets a result (parsing failure is
         logged as a warning, not treated as a hard failure).
+
+        Note: this validates JSON *syntax*, not Pydantic schema conformance —
+        callers that need full schema validation should call
+        ``output_schema.model_validate(parsed)`` separately.
 
         Args:
             result: The raw text from the complete block.
@@ -304,9 +308,9 @@ class Subagent:
             # Don't silently fall back - make it clear when no summary was provided
             if complete_tool.content and complete_tool.content.strip():
                 result = complete_tool.content.strip()
+                result = self._normalize_json_result(result)
             else:
                 result = "Task completed (no summary provided)"
-            result = self._validate_schema_result(result)
             return ReturnType(
                 "success",
                 result + f"\n\nFull log: {self.logdir}",
@@ -322,9 +326,9 @@ class Subagent:
                 content = match.group(1).strip()
                 if content:
                     result = content
+                    result = self._normalize_json_result(result)
                 else:
                     result = "Task completed (no summary provided)"
-                result = self._validate_schema_result(result)
                 return ReturnType(
                     "success",
                     result + f"\n\nFull log: {self.logdir}",
