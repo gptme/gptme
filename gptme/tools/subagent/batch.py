@@ -8,6 +8,7 @@ for a simpler synchronous fan-out pattern.
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import asdict, dataclass, field
 
 from .api import subagent, subagent_wait
@@ -66,11 +67,24 @@ class BatchJob:
                 for aid in self.agent_ids
                 if aid not in self.results
             }
-            for future in as_completed(futures, timeout=timeout):
-                agent_id, result = future.result()
-                with self._lock:
-                    if agent_id not in self.results:
-                        self.results[agent_id] = result
+            try:
+                for future in as_completed(futures, timeout=timeout):
+                    agent_id, result = future.result()
+                    with self._lock:
+                        if agent_id not in self.results:
+                            self.results[agent_id] = result
+            except FuturesTimeoutError:
+                logger.warning(
+                    f"wait_all() timed out after {timeout}s; marking remaining agents as timed out"
+                )
+                for agent_id in self.agent_ids:
+                    with self._lock:
+                        self.results.setdefault(
+                            agent_id,
+                            ReturnType(
+                                "timeout", f"Agent did not complete within {timeout}s"
+                            ),
+                        )
 
         return {aid: asdict(r) for aid, r in self.results.items()}
 
@@ -152,6 +166,8 @@ def subagent_parallel(
     tasks: list[tuple[str, str]],
     timeout: int = 300,
     use_subprocess: bool = False,
+    use_acp: bool = False,
+    acp_command: str = "gptme-acp",
     model: str | None = None,
     profile: str | None = None,
     isolated: bool = False,
@@ -175,6 +191,8 @@ def subagent_parallel(
         use_subprocess: If True, run each subagent in a subprocess for output
             isolation. Subprocess mode captures stdout/stderr separately and
             supports hard-kill on timeout.
+        use_acp: If True, run subagents via ACP protocol.
+        acp_command: ACP agent command (default: "gptme-acp").
         model: Model override applied to every subagent. Pass ``None`` to
             inherit the parent's model.
         profile: Agent profile name applied to every subagent (e.g.
@@ -215,6 +233,8 @@ def subagent_parallel(
             agent_id=agent_id,
             prompt=prompt,
             use_subprocess=use_subprocess,
+            use_acp=use_acp,
+            acp_command=acp_command,
             model=model,
             profile=profile,
             isolated=isolated,

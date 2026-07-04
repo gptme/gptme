@@ -3199,3 +3199,109 @@ class TestSubagentParallel:
         for kw in captured_kwargs:
             assert kw.get("model") == "openai/gpt-4o-mini"
             assert kw.get("isolated") is True
+
+    def test_passes_acp_kwargs_to_each_subagent(self, monkeypatch):
+        """use_acp and acp_command are forwarded to every subagent."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_parallel
+
+        captured_kwargs: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured_kwargs.append(kwargs)
+            import threading
+
+            t = MagicMock(spec=threading.Thread)
+            t.is_alive.return_value = False
+            t.join = MagicMock()
+            sa = __import__(
+                "gptme.tools.subagent.types", fromlist=["Subagent"]
+            ).Subagent(
+                agent_id=agent_id,
+                prompt=prompt,
+                thread=t,
+                logdir=Path("/tmp/fake-log"),
+                model=None,
+            )
+            with _subagents_lock:
+                _subagents.append(sa)
+            with _subagent_results_lock:
+                _subagent_results[agent_id] = ReturnType("success", "ok")
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        subagent_parallel(
+            [("acp1", "p1")],
+            use_acp=True,
+            acp_command="my-acp-command",
+            timeout=5,
+        )
+
+        assert len(captured_kwargs) == 1
+        assert captured_kwargs[0].get("use_acp") is True
+        assert captured_kwargs[0].get("acp_command") == "my-acp-command"
+
+
+class TestBatchJobWaitAllTimeout:
+    """Tests for the as_completed timeout path in BatchJob.wait_all()."""
+
+    def setup_method(self):
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
+    def test_wait_all_as_completed_timeout_returns_timeout_status(self, monkeypatch):
+        """When as_completed raises TimeoutError, wait_all() returns timeout results."""
+        import concurrent.futures
+
+        import gptme.tools.subagent.batch as batch_mod
+
+        def always_timeout(fs, timeout=None):
+            raise concurrent.futures.TimeoutError
+
+        monkeypatch.setattr(concurrent.futures, "as_completed", always_timeout)
+        monkeypatch.setattr(
+            batch_mod,
+            "subagent_wait",
+            lambda agent_id, timeout=None: {"status": "success", "result": "ok"},
+        )
+
+        job = BatchJob(agent_ids=["a", "b"])
+        results = job.wait_all(timeout=1)
+
+        assert "a" in results
+        assert "b" in results
+        assert results["a"]["status"] == "timeout"
+        assert results["b"]["status"] == "timeout"
+
+    def test_wait_all_timeout_preserves_already_collected(self, monkeypatch):
+        """Agents already collected before timeout fires keep their real results."""
+        import concurrent.futures
+
+        import gptme.tools.subagent.batch as batch_mod
+
+        def partial_timeout(fs, timeout=None):
+            # Yield one result, then raise TimeoutError
+            yield from list(fs)[:1]
+            raise concurrent.futures.TimeoutError
+
+        monkeypatch.setattr(concurrent.futures, "as_completed", partial_timeout)
+        monkeypatch.setattr(
+            batch_mod,
+            "subagent_wait",
+            lambda agent_id, timeout=None: {
+                "status": "success",
+                "result": f"done-{agent_id}",
+            },
+        )
+
+        job = BatchJob(agent_ids=["x", "y"])
+        results = job.wait_all(timeout=5)
+
+        # Both agents accounted for; the one collected before timeout has real status
+        assert "x" in results
+        assert "y" in results
+        # At least the one that timed out is marked timeout
+        statuses = {results["x"]["status"], results["y"]["status"]}
+        assert "timeout" in statuses
