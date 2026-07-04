@@ -538,6 +538,15 @@ pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot
 playwright<span class="w"> </span>install<span class="w"> </span>chromium
 </pre></div>
 </div>
+<p>Optional: for screen recording (<code class="docutils literal notranslate"><span class="pre">start_recording</span></code> / <code class="docutils literal notranslate"><span class="pre">record_screen</span></code>), install ffmpeg:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Linux</span>
+sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>ffmpeg
+<span class="c1"># or: sudo pacman -S ffmpeg</span>
+
+<span class="c1"># macOS</span>
+brew<span class="w"> </span>install<span class="w"> </span>ffmpeg
+</pre></div>
+</div>
 <p>Optional: for accessibility-first control of native Linux apps (no screenshot needed),
 install the AT-SPI2 stack:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>python3-pyatspi
