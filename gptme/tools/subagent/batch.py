@@ -1,12 +1,14 @@
 """Subagent batch execution — parallel task management.
 
 Provides BatchJob for managing groups of subagents and subagent_batch()
-for convenient fire-and-gather patterns.
+for convenient fire-and-gather patterns. Also provides subagent_parallel()
+for a simpler synchronous fan-out pattern.
 """
 
 import logging
 import threading
-from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict, dataclass, field
 
 from .api import subagent, subagent_wait
 from .types import ReturnType
@@ -28,7 +30,11 @@ class BatchJob:
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def wait_all(self, timeout: int = 300) -> dict[str, dict]:
-        """Wait for all subagents to complete.
+        """Wait for all subagents to complete concurrently.
+
+        Uses a thread pool to wait for all subagents simultaneously, so the
+        wall-clock time is bounded by the slowest agent, not the sum of all
+        agent times.
 
         Args:
             timeout: Maximum seconds to wait for all subagents
@@ -36,24 +42,35 @@ class BatchJob:
         Returns:
             Dict mapping agent_id to status dict
         """
-        import time
-        from dataclasses import asdict
 
-        start_time = time.time()
-        for agent_id in self.agent_ids:
-            remaining = max(1, timeout - int(time.time() - start_time))
+        def _wait_one(agent_id: str, deadline: float) -> tuple[str, ReturnType]:
+            import time
+
+            remaining = max(1, int(deadline - time.monotonic()))
             try:
                 result = subagent_wait(agent_id, timeout=remaining)
-                with self._lock:
-                    if agent_id not in self.results:
-                        self.results[agent_id] = ReturnType(
-                            result.get("status", "failure"),
-                            result.get("result"),
-                        )
+                return agent_id, ReturnType(
+                    result.get("status", "failure"),
+                    result.get("result"),
+                )
             except Exception as e:
                 logger.warning(f"Error waiting for {agent_id}: {e}")
+                return agent_id, ReturnType("failure", str(e))
+
+        import time
+
+        deadline = time.monotonic() + timeout
+        with ThreadPoolExecutor(max_workers=len(self.agent_ids) or 1) as pool:
+            futures = {
+                pool.submit(_wait_one, aid, deadline): aid
+                for aid in self.agent_ids
+                if aid not in self.results
+            }
+            for future in as_completed(futures, timeout=timeout):
+                agent_id, result = future.result()
                 with self._lock:
-                    self.results[agent_id] = ReturnType("failure", str(e))
+                    if agent_id not in self.results:
+                        self.results[agent_id] = result
 
         return {aid: asdict(r) for aid, r in self.results.items()}
 
@@ -129,3 +146,93 @@ def subagent_batch(
 
     logger.info(f"Started batch of {len(tasks)} subagents: {job.agent_ids}")
     return job
+
+
+def subagent_parallel(
+    tasks: list[tuple[str, str]],
+    timeout: int = 300,
+    use_subprocess: bool = False,
+    model: str | None = None,
+    profile: str | None = None,
+    isolated: bool = False,
+    redact_secrets: bool = True,
+) -> list[dict]:
+    """Fan out N subagents in parallel, wait for all, return results as an ordered list.
+
+    This is the simplest way to run independent tasks concurrently and collect
+    all results. Unlike ``subagent_batch()``, this function blocks until every
+    subagent has finished (or timed out) and returns the results in the same
+    order as the input tasks.
+
+    Waits for all subagents concurrently — wall-clock time is bounded by the
+    slowest agent, not the sum of all agent times.
+
+    Args:
+        tasks: List of ``(agent_id, prompt)`` tuples. Each agent_id must be
+            unique within this call.
+        timeout: Maximum seconds to wait for all subagents to finish. Agents
+            that exceed this deadline are reported with status ``"failure"``.
+        use_subprocess: If True, run each subagent in a subprocess for output
+            isolation. Subprocess mode captures stdout/stderr separately and
+            supports hard-kill on timeout.
+        model: Model override applied to every subagent. Pass ``None`` to
+            inherit the parent's model.
+        profile: Agent profile name applied to every subagent (e.g.
+            ``"explorer"``, ``"developer"``, ``"verifier"``).
+        isolated: If True, run each subagent in its own git worktree so file
+            edits don't conflict between agents or with the parent.
+        redact_secrets: If True (default), scrub common secret patterns from
+            workspace context before passing it to subagents.
+
+    Returns:
+        List of result dicts in the same order as ``tasks``. Each dict has
+        ``"status"`` (``"success"`` / ``"failure"`` / ``"timeout"``) and
+        ``"result"`` (summary text from the subagent's ``complete`` block).
+
+    Example::
+
+        # Process three independent tasks in parallel
+        results = subagent_parallel([
+            ("researcher", "Research the top 5 Python async frameworks"),
+            ("coder",      "Implement a basic async HTTP client"),
+            ("tester",     "Write pytest tests for an async HTTP client"),
+        ])
+        for (agent_id, _), result in zip(tasks, results):
+            print(f"{agent_id}: {result['status']} — {result['result'][:80]}")
+
+        # With worktree isolation for concurrent file edits
+        results = subagent_parallel(
+            [("fix-a", "Fix bug in module A"), ("fix-b", "Fix bug in module B")],
+            isolated=True,
+        )
+    """
+    if not tasks:
+        return []
+
+    # Start all subagents
+    for agent_id, prompt in tasks:
+        subagent(
+            agent_id=agent_id,
+            prompt=prompt,
+            use_subprocess=use_subprocess,
+            model=model,
+            profile=profile,
+            isolated=isolated,
+            redact_secrets=redact_secrets,
+        )
+
+    logger.info(f"subagent_parallel: started {len(tasks)} subagents")
+
+    # Collect results in parallel using BatchJob
+    job = BatchJob(agent_ids=[t[0] for t in tasks])
+    job.wait_all(timeout=timeout)
+
+    # Return results in input order; fall back to failure for missing results
+    return [
+        asdict(
+            job.results.get(
+                agent_id, ReturnType("failure", "No result (timeout or missing)")
+            )
+        )
+        for agent_id, _ in tasks
+    ]
