@@ -339,25 +339,46 @@ def audit_log(
     """
     logs_dir = get_logs_dir()
 
+    if agent_id is not None and conversation:
+        click.echo(
+            "Error: --agent-id and CONVERSATION are mutually exclusive.",
+            err=True,
+        )
+        sys.exit(1)
+
     # --agent-id is a shortcut: computer_task() returns agent_id like
-    # "computer-task-abc123", but the conversation is stored as
-    # "subagent-computer-task-abc123". Resolve automatically.
+    # "computer-task-abc123", but thread-mode subagents store conversations as
+    # "subagent-computer-task-abc123-r4nd". Resolve automatically.
     if agent_id is not None:
-        # The subagent conversation is stored with a "subagent-" prefix.
         subagent_conv = f"subagent-{agent_id}"
-        conv_path = logs_dir / subagent_conv / "conversation.jsonl"
-        if not conv_path.exists():
-            # Also try without prefix (backward compat / alternative storage)
-            conv_path_bare = logs_dir / agent_id / "conversation.jsonl"
-            if conv_path_bare.exists():
-                conv_path = conv_path_bare
-            else:
-                click.echo(
-                    f"Error: no conversation found for agent-id '{agent_id}'.\n"
-                    f"Looked for: {logs_dir / subagent_conv} and {logs_dir / agent_id}",
-                    err=True,
-                )
-                sys.exit(1)
+        candidates = [
+            path
+            for path in [
+                logs_dir / subagent_conv / "conversation.jsonl",
+                logs_dir / agent_id / "conversation.jsonl",
+            ]
+            if path.exists()
+        ]
+        candidates.extend(
+            sorted(logs_dir.glob(f"{subagent_conv}-*/conversation.jsonl"))
+        )
+        if not candidates:
+            click.echo(
+                f"Error: no conversation found for agent-id '{agent_id}'.\n"
+                f"Looked for: {logs_dir / subagent_conv}, "
+                f"{logs_dir / (subagent_conv + '-*')}, and {logs_dir / agent_id}",
+                err=True,
+            )
+            sys.exit(1)
+        if len(candidates) > 1:
+            click.echo(
+                f"Error: multiple conversations found for agent-id '{agent_id}'.\n"
+                "Use the exact CONVERSATION name instead:\n"
+                + "\n".join(f"  {path.parent.name}" for path in candidates),
+                err=True,
+            )
+            sys.exit(1)
+        conv_path = candidates[0]
         paths = [conv_path]
     elif conversation:
         # Single named conversation

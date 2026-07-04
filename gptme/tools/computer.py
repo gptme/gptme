@@ -2310,7 +2310,7 @@ def computer_task(
         model: Optional model override for the subagent.
 
     Returns:
-        Status dict with keys:
+        dict: Status mapping with keys:
 
         - ``status``: ``"success"`` / ``"failure"`` / ``"clarification_needed"`` / ``"timeout"``
         - ``result``: text summary from the subagent
