@@ -158,9 +158,11 @@ subagent regardless of allowlist — they are how the subagent communicates back
 
 **3. Cancellation and timeout**
 
-- ``max_time`` (seconds) — a watchdog timer that auto-cancels the subagent after
-  the specified duration and delivers a "timeout" status notification. The parent
-  calls ``subagent_cancel()`` to trigger this (thread mode only).
+- ``max_time`` (seconds) — a watchdog timer that marks the subagent result as
+  ``"timeout"`` after the specified duration and delivers a timeout status
+  notification. In subprocess mode the child process is terminated. In thread
+  mode the background thread is not force-stopped; callers see the cached timeout
+  result immediately while the thread continues until it finishes naturally.
 
 - ``timeout`` (default 1800 s) — subprocess monitor kills the child process after
   this many seconds. Only applies in subprocess mode.

@@ -150,9 +150,12 @@ def subagent(
             Only applies to thread-mode subagents; has no effect in subprocess
             or ACP modes (which build their own context as a separate process).
         max_time: Wall-clock time limit in seconds. When set, a watchdog timer
-            auto-cancels the subagent after ``max_time`` seconds by calling
-            ``subagent_cancel()`` and delivers a "timeout" status notification
-            via the LOOP_CONTINUE hook. Defaults to ``None`` (no limit).
+            marks the subagent result as ``"timeout"`` after ``max_time`` seconds
+            and delivers a timeout status notification via the LOOP_CONTINUE hook.
+            In subprocess mode the child process is terminated. In thread mode
+            the background thread is not force-stopped; callers see the cached
+            timeout result immediately while the thread continues until it
+            finishes naturally. Defaults to ``None`` (no limit).
 
             Use this for defensive orchestration (prevent a stuck subagent from
             blocking the parent) or hard time budgets in autonomous sessions.
@@ -811,8 +814,8 @@ def subagent(
         t.start()
 
     # Launch max_time watchdog after all execution paths have registered the subagent.
-    # The watchdog fires _timeout_subagent() after max_time seconds, which cancels
-    # the subagent and delivers a "timeout" notification via the LOOP_CONTINUE hook.
+    # The watchdog fires _timeout_subagent() after max_time seconds, which marks
+    # a timeout result and delivers a notification via the LOOP_CONTINUE hook.
     if max_time is not None:
         _timer = threading.Timer(max_time, _timeout_subagent, args=(agent_id, max_time))
         _timer.daemon = True
