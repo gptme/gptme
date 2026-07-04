@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -827,3 +828,77 @@ def run_task(task: str, timeout: int, model: str | None, as_json: bool):
         click.echo(f"  Log:    {logdir}")
 
     sys.exit(0 if status == "success" else 1)
+
+
+@computer.command("record")
+@click.argument("output", required=False, default=None, metavar="OUTPUT")
+@click.option(
+    "--duration",
+    "-d",
+    default=10.0,
+    show_default=True,
+    type=float,
+    help="Recording duration in seconds.",
+)
+@click.option(
+    "--fps",
+    default=10,
+    show_default=True,
+    type=int,
+    help="Frames per second.  Use 10 for UI demos, 24+ for smooth game recordings.",
+)
+@click.option(
+    "--display",
+    default=None,
+    metavar="DISPLAY",
+    help="X11 display string (Linux only).  Defaults to $DISPLAY env var.",
+)
+def record_cmd(output: str | None, duration: float, fps: int, display: str | None):
+    """Record the screen to an MP4 file.
+
+    Uses ffmpeg x11grab (Linux) or avfoundation (macOS).  Blocks for DURATION
+    seconds, then exits 0 and prints the path to the saved file.
+
+    OUTPUT is the destination file path.  Defaults to a timestamped file
+    in the system temporary directory.
+
+    Use ``gptme-util computer video-frames OUTPUT`` to extract key frames
+    from the recording for review.
+
+    Examples::
+
+        # Record 30 seconds to /tmp/demo.mp4
+        gptme-util computer record /tmp/demo.mp4 --duration 30
+
+        # Record 10s at 24fps (smoother for game recordings)
+        gptme-util computer record game.mp4 --fps 24 --duration 10
+
+        # Pipe into gptme for visual summary
+        gptme-util computer record --duration 15 | xargs -I{} gptme-util computer video-frames {}
+    """
+    if not shutil.which("ffmpeg"):
+        click.echo(
+            "Error: ffmpeg not found. Install it with:\n"
+            "  sudo apt install ffmpeg  # Debian/Ubuntu\n"
+            "  brew install ffmpeg      # macOS",
+            err=True,
+        )
+        sys.exit(1)
+
+    if duration <= 0:
+        click.echo("Error: --duration must be positive.", err=True)
+        sys.exit(1)
+
+    if fps <= 0 or fps > 120:
+        click.echo("Error: --fps must be between 1 and 120.", err=True)
+        sys.exit(1)
+
+    from ..tools.computer import record_screen  # lazy import (heavy deps)
+
+    try:
+        click.echo(f"Recording {duration:.0f}s at {fps} fps...", err=True)
+        path = record_screen(output=output, duration=duration, fps=fps, display=display)
+        click.echo(str(path))
+    except RuntimeError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)

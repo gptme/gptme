@@ -249,6 +249,45 @@ from gptme.tools.subagent import subagent_read_log
 print(subagent_read_log(result["agent_id"]))
 ```
 
+## Record a session (create demo videos)
+
+Use `gptme-util computer record` to capture a screen recording as an MP4, then
+`video-frames` to extract key frames for review or as visual context in gptme:
+
+```bash
+# Record 30 seconds to a file (blocks until done, then prints the path)
+gptme-util computer record /tmp/tweet-demo.mp4 --duration 30
+
+# Record at higher fps for smoother game-like recordings
+gptme-util computer record game.mp4 --fps 24 --duration 10
+
+# Extract frames for LLM review
+gptme-util computer video-frames /tmp/tweet-demo.mp4 --fps 1 --limit 10
+```
+
+From IPython inside a gptme session, use `start_recording()` for async control:
+
+```python
+# Start recording, interact, then stop
+rec = start_recording("demo.mp4")
+computer_task("open Firefox, go to https://example.com, and describe the page")
+path = rec.stop()     # saves the MP4
+print(f"Saved to {path}")
+
+# Or as a context manager:
+with start_recording("demo.mp4") as rec:
+    computer_task("open Firefox, navigate to https://x.com/compose/tweet, "
+                  "type 'Hello from gptme!', and click Tweet.", timeout=120)
+print(rec.output_path)
+
+# Fixed-duration, synchronous:
+path = record_screen("demo.mp4", duration=30)
+```
+
+Recordings use H.264 with fast-start so they play directly in any browser.
+Combine with `video-frames` to extract a small set of key frames for debugging
+or including as visual evidence in GitHub issues.
+
 ## Run inside Docker (isolated headless desktop)
 
 For a fully isolated environment with VNC access:
@@ -259,6 +298,7 @@ make run-docker-computer     # start container (noVNC on :6080, gptme server on 
 ```
 
 Then connect a browser to `http://localhost:6080` to watch the agent work.
+Use `gptme-util computer record` inside the container to capture what the agent does.
 
 ## Backend selection cheat sheet
 
@@ -277,6 +317,7 @@ Then connect a browser to `http://localhost:6080` to watch the agent work.
 | Focus a window by name | `computer('window_focus', text='pattern')` |
 | Scroll in native UI | `computer('scroll', coordinate=(x,y), text='down')` |
 | Multi-step task, keep parent context lean | `computer_task(task, timeout=N)` |
+| Record session for demo / debugging | `start_recording(path)` / `record_screen(path, duration=N)` |
 
 ## Tips
 
