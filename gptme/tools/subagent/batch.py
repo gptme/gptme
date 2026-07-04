@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import asdict, dataclass, field
 
-from .api import subagent, subagent_wait
+from .api import subagent, subagent_cancel, subagent_wait
 from .types import ReturnType
 
 logger = logging.getLogger(__name__)
@@ -224,19 +224,29 @@ def subagent_parallel(
     if not tasks:
         return []
 
-    # Start all subagents
-    for agent_id, prompt in tasks:
-        subagent(
-            agent_id=agent_id,
-            prompt=prompt,
-            use_subprocess=use_subprocess,
-            use_acp=use_acp,
-            acp_command=acp_command,
-            model=model,
-            profile=profile,
-            isolated=isolated,
-            redact_secrets=redact_secrets,
-        )
+    # Start all subagents; on failure, cancel any already-started ones to avoid orphans
+    started_ids: list[str] = []
+    try:
+        for agent_id, prompt in tasks:
+            subagent(
+                agent_id=agent_id,
+                prompt=prompt,
+                use_subprocess=use_subprocess,
+                use_acp=use_acp,
+                acp_command=acp_command,
+                model=model,
+                profile=profile,
+                isolated=isolated,
+                redact_secrets=redact_secrets,
+            )
+            started_ids.append(agent_id)
+    except Exception:
+        for aid in started_ids:
+            try:
+                subagent_cancel(aid)
+            except Exception:
+                pass
+        raise
 
     logger.info(f"subagent_parallel: started {len(tasks)} subagents")
 

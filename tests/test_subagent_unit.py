@@ -3248,3 +3248,34 @@ class TestSubagentParallel:
         for kw in captured_kwargs:
             assert kw.get("model") == "openai/gpt-4o-mini"
             assert kw.get("isolated") is True
+
+    def test_startup_failure_cancels_already_started_agents(self, monkeypatch):
+        """If subagent() raises mid-loop, already-started agents are cancelled."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_parallel
+
+        started: list[str] = []
+        cancelled: list[str] = []
+        call_count = 0
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise RuntimeError("simulated ACP setup failure")
+            started.append(agent_id)
+
+        def mock_cancel(agent_id):
+            cancelled.append(agent_id)
+            return f"cancelled {agent_id}"
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", mock_cancel)
+
+        with pytest.raises(RuntimeError, match="simulated ACP setup failure"):
+            subagent_parallel([("s-a", "p1"), ("s-b", "p2"), ("s-c", "p3")])
+
+        # First agent was started before the failure; it must be cancelled
+        assert "s-a" in cancelled
+        # Second agent failed to start, so nothing to cancel there
+        assert "s-b" not in cancelled
