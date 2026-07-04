@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f4aa85184a0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fb6fe9944a0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2128,7 +2128,8 @@ Key features:
 <span class="k">-</span><span class="w"> </span>redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
 <span class="k">-</span><span class="w"> </span>context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
 <span class="k">-</span><span class="w"> </span>context_window=N: Limit workspace context to at most N messages
-<span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents in parallel
+<span class="k">-</span><span class="w"> </span>subagent_parallel(tasks, timeout): Fan out N subagents and wait for all — returns ordered list of results
+<span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 <span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 <span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
 <span class="k">-</span><span class="w"> </span>Hook-based notifications: Completions (and clarification requests) delivered as system messages
@@ -2236,6 +2237,7 @@ The following Python functions are available:
 <span class="s">subagent_wait(agent_id: str, timeout: int, max_result_chars: int) -&gt; dict: Waits for a subagent to finish.</span>
 <span class="s">subagent_read_log(agent_id: str, max_messages: int, include_system: bool, message_filter: Union[str, None]) -&gt; str: Read the conversation log of a subagent.</span>
 <span class="s">subagent_batch(tasks: list[tuple[str, str]], use_subprocess: bool, use_acp: bool, acp_command: str, redact_secrets: bool) -&gt; BatchJob: Start multiple subagents in parallel and return a BatchJob to manage them.</span>
+<span class="s">subagent_parallel(tasks: list[tuple[str, str]], timeout: int, use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, redact_secrets: bool) -&gt; list[dict]: Fan out N subagents in parallel, wait for all, return results as an ordered list.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -2310,27 +2312,41 @@ The following Python functions are available:
 <span class="sb">```ipython</span>
 <span class="n">subagent_list</span><span class="p">()</span>
 <span class="sb">```</span>
-<span class="gu">### Batch Execution (parallel tasks)</span>
+<span class="gu">### Parallel Fan-out (wait for all, ordered results)</span>
 
-<span class="k">&gt; </span><span class="ge">User: implement, test, and document a feature in parallel</span>
-<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use subagent_batch for parallel execution with fire-and-gather pattern.</span>
+<span class="k">&gt; </span><span class="ge">User: implement, test, and document a feature in parallel and collect all results</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use subagent_parallel to fan out all tasks and wait for them together.</span>
+<span class="sb">```ipython</span>
+<span class="n">tasks</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;impl&quot;</span><span class="p">,</span> <span class="s2">&quot;Implement the user authentication feature&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">,</span> <span class="s2">&quot;Write tests for authentication&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;docs&quot;</span><span class="p">,</span> <span class="s2">&quot;Document the authentication API&quot;</span><span class="p">),</span>
+<span class="p">]</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span><span class="n">tasks</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
+<span class="k">for</span> <span class="p">(</span><span class="n">agent_id</span><span class="p">,</span> <span class="n">_</span><span class="p">),</span> <span class="n">result</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">tasks</span><span class="p">,</span> <span class="n">results</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">{{</span><span class="s2">agent_id</span><span class="se">}}</span><span class="s2">: </span><span class="se">{{</span><span class="s2">result[&#39;status&#39;]</span><span class="se">}}</span><span class="s2"> — </span><span class="se">{{</span><span class="s2">result[&#39;result&#39;][:60]</span><span class="se">}}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">test: success — 12 tests added, all passing</span>
+<span class="k">&gt; </span><span class="ge">docs: success — API documented in docs/auth.md</span>
+
+<span class="gu">### Batch Execution (fire-and-forget with explicit sync)</span>
+
+<span class="k">&gt; </span><span class="ge">User: start tasks in background and continue working</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use subagent_batch to start tasks in the background. Completion hooks will notify me.</span>
 <span class="sb">```ipython</span>
 <span class="n">job</span> <span class="o">=</span> <span class="n">subagent_batch</span><span class="p">([</span>
     <span class="p">(</span><span class="s2">&quot;impl&quot;</span><span class="p">,</span> <span class="s2">&quot;Implement the user authentication feature&quot;</span><span class="p">),</span>
     <span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">,</span> <span class="s2">&quot;Write tests for authentication&quot;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s2">&quot;docs&quot;</span><span class="p">,</span> <span class="s2">&quot;Document the authentication API&quot;</span><span class="p">),</span>
 <span class="p">])</span>
 
-<span class="c1"># Do other work while subagents run...</span>
+<span class="c1"># Do other work while subagents run — hook notifications arrive automatically:</span>
+
+<span class="c1"># &quot;✅ Subagent &#39;impl&#39; completed: ...&quot;</span>
+
+<span class="c1"># Or explicitly wait for all when needed:</span>
 
 <span class="n">results</span> <span class="o">=</span> <span class="n">job</span><span class="o">.</span><span class="n">wait_all</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">agent_id</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">{{</span><span class="s2">agent_id</span><span class="se">}}</span><span class="s2">: </span><span class="se">{{</span><span class="s2">result[&#39;status&#39;]</span><span class="se">}}</span><span class="s2">&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">impl: success</span>
-<span class="k">&gt; </span><span class="ge">test: success</span>
-<span class="k">&gt; </span><span class="ge">docs: success</span>
-
 <span class="gu">### Fire-and-Forget with Hook Notifications</span>
 
 <span class="k">&gt; </span><span class="ge">User: start a subagent and continue working</span>
@@ -2629,7 +2645,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 15968</p>
+<p>Tokens: 16239</p>
 </dd></dl>
 
 <dl class="py function">

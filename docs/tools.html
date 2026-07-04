@@ -1348,7 +1348,7 @@ new-session gptme --non-interactive "fix lint 2"
 - types.py      — Data classes and module-level state (Subagent, ReturnType, etc.)
 - hooks.py      — Completion notification system (LOOP_CONTINUE hook)
 - api.py        — Public API (subagent, subagent_status, subagent_wait, etc.)
-- batch.py      — Batch execution (BatchJob, subagent_batch)
+- batch.py      — Batch execution (BatchJob, subagent_batch, subagent_parallel)
 - execution.py  — Execution backends (thread, subprocess, process monitoring)</p>
 <p class="rubric">Instructions</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>You can create, check status, wait for, and read logs from subagents.
@@ -1370,7 +1370,8 @@ Key features:
 <span class="k">-</span><span class="w"> </span>redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
 <span class="k">-</span><span class="w"> </span>context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
 <span class="k">-</span><span class="w"> </span>context_window=N: Limit workspace context to at most N messages
-<span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents in parallel
+<span class="k">-</span><span class="w"> </span>subagent_parallel(tasks, timeout): Fan out N subagents and wait for all — returns ordered list of results
+<span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 <span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 <span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
 <span class="k">-</span><span class="w"> </span>Hook-based notifications: Completions (and clarification requests) delivered as system messages
@@ -1685,40 +1686,70 @@ subagent("feature-planner", "Feature X adds new functionality", mode="planner", 
   - fib-13 (success, 120s) -- "compute the 13th Fibonacci number"</pre>
   </td>
 </tr>
-</table><p>Batch Execution (parallel tasks)</p>
+</table><p>Parallel Fan-out (wait for all, ordered results)</p>
 <table style="width: 100%; margin-bottom: 1em">
   
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">implement, test, and document a feature in parallel</pre>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">implement, test, and document a feature in parallel and collect all results</pre>
   </td>
 </tr>
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll use subagent_batch for parallel execution with fire-and-gather pattern.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">job = subagent_batch([
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll use subagent_parallel to fan out all tasks and wait for them together.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">tasks = [
     ("impl", "Implement the user authentication feature"),
     ("test", "Write tests for authentication"),
     ("docs", "Document the authentication API"),
-])
-
-# Do other work while subagents run...
-
-results = job.wait_all(timeout=300)
-for agent_id, result in results.items():
-    print(f"{{agent_id}}: {{result['status']}}")
+]
+results = subagent_parallel(tasks, timeout=300)
+for (agent_id, _), result in zip(tasks, results):
+    print(f"{{agent_id}}: {{result['status']}} — {{result['result'][:60]}}")
 </pre></div></pre>
   </td>
 </tr>
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Started batch of 3 subagents: ['impl', 'test', 'docs']
-impl: success
-test: success
-docs: success</pre>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">impl: success — Authentication feature implemented in auth.py
+test: success — 12 tests added, all passing
+docs: success — API documented in docs/auth.md</pre>
+  </td>
+</tr>
+</table><p>Batch Execution (fire-and-forget with explicit sync)</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">start tasks in background and continue working</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll use subagent_batch to start tasks in the background. Completion hooks will notify me.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">job = subagent_batch([
+    ("impl", "Implement the user authentication feature"),
+    ("test", "Write tests for authentication"),
+])
+
+# Do other work while subagents run — hook notifications arrive automatically:
+
+# "✅ Subagent 'impl' completed: ..."
+
+# Or explicitly wait for all when needed:
+
+results = job.wait_all(timeout=300)
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Started batch of 2 subagents: ['impl', 'test']</pre>
   </td>
 </tr>
 </table><p>Fire-and-Forget with Hook Notifications</p>
@@ -1898,7 +1929,10 @@ provides additional utilities for explicit synchronization when needed.</p>
 <dl class="py method">
 <dt class="sig sig-object py">
 <span class="sig-name descname"><span class="pre">wait_all</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">300</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
-<dd><p>Wait for all subagents to complete.</p>
+<dd><p>Wait for all subagents to complete concurrently.</p>
+<p>Uses a thread pool to wait for all subagents simultaneously, so the
+wall-clock time is bounded by the slowest agent, not the sum of all
+agent times.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>timeout</strong> – Maximum seconds to wait for all subagents</p>
@@ -2237,6 +2271,64 @@ as failure so callers won’t block waiting for it.</p>
 - Interactive sessions: “what’s running right now?”
 - Orchestrators deciding whether to spawn more agents
 - Debugging runaway subagent fans</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.subagent.</span></span><span class="sig-name descname"><span class="pre">subagent_parallel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tasks</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">300</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_subprocess</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_acp</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">acp_command</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'gptme-acp'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">profile</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">isolated</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">redact_secrets</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Fan out N subagents in parallel, wait for all, return results as an ordered list.</p>
+<p>This is the simplest way to run independent tasks concurrently and collect
+all results. Unlike <code class="docutils literal notranslate"><span class="pre">subagent_batch()</span></code>, this function blocks until every
+subagent has finished (or timed out) and returns the results in the same
+order as the input tasks.</p>
+<p>Waits for all subagents concurrently — wall-clock time is bounded by the
+slowest agent, not the sum of all agent times.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tasks</strong> – List of <code class="docutils literal notranslate"><span class="pre">(agent_id,</span> <span class="pre">prompt)</span></code> tuples. Each agent_id must be
+unique within this call.</p></li>
+<li><p><strong>timeout</strong> – Maximum seconds to wait for all subagents to finish. Agents
+that exceed this deadline are reported with status <code class="docutils literal notranslate"><span class="pre">&quot;timeout&quot;</span></code>.</p></li>
+<li><p><strong>use_subprocess</strong> – If True, run each subagent in a subprocess for output
+isolation. Subprocess mode captures stdout/stderr separately and
+supports hard-kill on timeout.</p></li>
+<li><p><strong>use_acp</strong> – If True, run each subagent via the ACP protocol.</p></li>
+<li><p><strong>acp_command</strong> – ACP agent command (default: “gptme-acp”). Only used when
+<code class="docutils literal notranslate"><span class="pre">use_acp=True</span></code>.</p></li>
+<li><p><strong>model</strong> – Model override applied to every subagent. Pass <code class="docutils literal notranslate"><span class="pre">None</span></code> to
+inherit the parent’s model.</p></li>
+<li><p><strong>profile</strong> – Agent profile name applied to every subagent (e.g.
+<code class="docutils literal notranslate"><span class="pre">&quot;explorer&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;developer&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;verifier&quot;</span></code>).</p></li>
+<li><p><strong>isolated</strong> – If True, run each subagent in its own git worktree so file
+edits don’t conflict between agents or with the parent.</p></li>
+<li><p><strong>redact_secrets</strong> – If True (default), scrub common secret patterns from
+workspace context before passing it to subagents.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of result dicts in the same order as <code class="docutils literal notranslate"><span class="pre">tasks</span></code>. Each dict has
+<code class="docutils literal notranslate"><span class="pre">&quot;status&quot;</span></code> (<code class="docutils literal notranslate"><span class="pre">&quot;success&quot;</span></code> / <code class="docutils literal notranslate"><span class="pre">&quot;failure&quot;</span></code> / <code class="docutils literal notranslate"><span class="pre">&quot;timeout&quot;</span></code>) and
+<code class="docutils literal notranslate"><span class="pre">&quot;result&quot;</span></code> (summary text from the subagent’s <code class="docutils literal notranslate"><span class="pre">complete</span></code> block).</p>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Process three independent tasks in parallel</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">([</span>
+    <span class="p">(</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span> <span class="s2">&quot;Research the top 5 Python async frameworks&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;coder&quot;</span><span class="p">,</span>      <span class="s2">&quot;Implement a basic async HTTP client&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;tester&quot;</span><span class="p">,</span>     <span class="s2">&quot;Write pytest tests for an async HTTP client&quot;</span><span class="p">),</span>
+<span class="p">])</span>
+<span class="k">for</span> <span class="p">(</span><span class="n">agent_id</span><span class="p">,</span> <span class="n">_</span><span class="p">),</span> <span class="n">result</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">tasks</span><span class="p">,</span> <span class="n">results</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">agent_id</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;status&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> — </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;result&#39;</span><span class="p">][:</span><span class="mi">80</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># With worktree isolation for concurrent file edits</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span>
+    <span class="p">[(</span><span class="s2">&quot;fix-a&quot;</span><span class="p">,</span> <span class="s2">&quot;Fix bug in module A&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;fix-b&quot;</span><span class="p">,</span> <span class="s2">&quot;Fix bug in module B&quot;</span><span class="p">)],</span>
+    <span class="n">isolated</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
 </dd></dl>
 
 <dl class="py function">
