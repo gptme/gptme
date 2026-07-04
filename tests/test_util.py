@@ -19,6 +19,13 @@ def test_epoch_to_age():
     assert epoch_to_age(epoch_today) == "just now"
     epoch_yesterday = epoch_today - 24 * 60 * 60
     assert epoch_to_age(epoch_yesterday) == "yesterday"
+    epoch_3_days_ago = epoch_today - 3 * 24 * 60 * 60
+    assert epoch_to_age(epoch_3_days_ago) == "3 days ago"
+    result = epoch_to_age(epoch_3_days_ago, incl_date=True)
+    expected_date = datetime.fromtimestamp(epoch_3_days_ago, tz=timezone.utc).strftime(
+        "%Y-%m-%d"
+    )
+    assert result == f"3 days ago ({expected_date})"
 
 
 def test_transform_examples_to_chat_directives():
