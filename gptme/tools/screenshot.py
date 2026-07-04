@@ -89,7 +89,9 @@ def screenshot(path: Path | None = None) -> Path:
     """
 
     if path is None:
-        timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+        # %f gives microseconds — avoids filename collision when two screenshots
+        # are taken within the same second (e.g. in fast test runs).
+        timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
         path = OUTPUT_DIR / f"screenshot_{timestamp}.png"
         # Ensure OUTPUT_DIR exists
         path.parent.mkdir(parents=True, exist_ok=True)

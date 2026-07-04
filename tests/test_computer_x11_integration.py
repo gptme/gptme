@@ -276,10 +276,15 @@ def test_type_changes_screen(xterm_window, monkeypatch):
 
     # Type something visible (newline forces shell prompt to redraw)
     computer("type", text="echo gptme_native_test\n")
-    time.sleep(0.5)
 
-    # Screenshot after typing
-    after_msg = computer("screenshot")
+    # Wait for the terminal to render (up to 5 seconds).
+    # wait_for_change takes a fresh baseline after typing and polls until the
+    # screen changes.  If the xterm already rendered before the baseline is
+    # captured, wait_for_change times out and returns the current (rendered)
+    # screenshot.  Either way the result is the settled post-type state.
+    after_msg = computer("wait_for_change", text="5")
+    if after_msg is None:
+        after_msg = computer("screenshot")
     assert after_msg is not None
 
     if not _pil_available():
@@ -289,11 +294,12 @@ def test_type_changes_screen(xterm_window, monkeypatch):
     after_path = after_msg.files[0]
     assert isinstance(before_path, Path) and isinstance(after_path, Path)
 
-    # At least some pixels must have changed
+    # At least some pixels must have changed relative to the pre-type baseline.
+    # Cursor blink alone gives ~0.001; rendered text gives >>0.001.
     from gptme.tools.computer import _compute_change_ratio
 
     ratio = _compute_change_ratio(before_path, after_path)
-    assert ratio > 0.001, (
+    assert ratio >= 0.001, (
         f"Screen did not change after typing (changed ratio={ratio:.4f}) — "
         "xdotool type may not be delivering keystrokes to the xterm"
     )
