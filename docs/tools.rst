@@ -127,10 +127,16 @@ Fine-grained control:
 
 - ``context_mode="selective"`` + ``context_include`` — share only specific components
   (``"agent"``, ``"tools"``, ``"workspace"``) instead of the full workspace.
-  Thread-mode only; ignored in subprocess and ACP. Note:
-  ``context_include=["workspace"]`` produces an empty context in thread mode —
-  the parent's workspace context is already fully assembled and cannot be
-  selectively re-included as a component.
+
+  Behavior by mode:
+
+  **Thread**: fully supported — filters the inherited context to the specified components.
+
+  **Subprocess**: ``context_mode`` is ignored (the child loads its own workspace from
+  ``gptme.toml``); ``context_include=["workspace"]`` maps to the ``--files`` CLI flag
+  to include workspace files. Other ``context_include`` values are ignored in this mode.
+
+  **ACP**: both parameters are ignored.
 
 - ``context_window=N`` — limit how many inherited context messages are forwarded
   (``0`` = none, ``None`` = all). Thread mode only; ignored in subprocess and ACP.
