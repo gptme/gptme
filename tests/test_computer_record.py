@@ -255,14 +255,15 @@ class TestFfmpegRecordCmd:
     def test_linux_uses_x11grab(self, tmp_path):
         from gptme.tools.computer import _ffmpeg_record_cmd
 
-        cmd = _ffmpeg_record_cmd(
-            tmp_path / "out.mp4",
-            fps=10,
-            duration=None,
-            display=":1",
-            width=1024,
-            height=768,
-        )
+        with mock.patch("gptme.tools.computer.IS_MACOS", False):
+            cmd = _ffmpeg_record_cmd(
+                tmp_path / "out.mp4",
+                fps=10,
+                duration=None,
+                display=":1",
+                width=1024,
+                height=768,
+            )
         assert "x11grab" in cmd
         assert "avfoundation" not in cmd
 
