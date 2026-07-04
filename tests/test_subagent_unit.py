@@ -15,6 +15,7 @@ import pytest
 
 import gptme.tools.subagent.api as subagent_api
 import gptme.tools.subagent.execution as subagent_execution
+import gptme.tools.subagent.types as subagent_types
 from gptme.tools.subagent.api import subagent, subagent_cancel
 from gptme.tools.subagent.batch import BatchJob
 from gptme.tools.subagent.execution import _monitor_subprocess
@@ -3413,3 +3414,45 @@ class TestOutputSchema:
         # Must NOT be interpreted as JSON
         assert result.result is not None
         assert result.result.startswith("hello world")
+
+    def test_read_log_with_schema_empty_complete_tool_no_json_warning(
+        self, tmp_path, caplog, monkeypatch
+    ):
+        import logging
+
+        monkeypatch.setattr(
+            subagent_types.ToolUse,
+            "iter_from_content",
+            staticmethod(
+                lambda content: iter([subagent_types.ToolUse("complete", [], "")])
+            ),
+        )
+        sa = self._make_subagent(
+            tmp_path,
+            "ignored when complete tool is parsed",
+            output_schema=_SampleSchema,
+        )
+        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.types"):
+            result = sa._read_log()
+        assert result.status == "success"
+        assert "Task completed (no summary provided)" in (result.result or "")
+        assert "not valid JSON" not in caplog.text
+
+    def test_read_log_with_schema_empty_complete_block_fallback_no_json_warning(
+        self, tmp_path, caplog, monkeypatch
+    ):
+        import logging
+
+        monkeypatch.setattr(
+            subagent_types.ToolUse,
+            "iter_from_content",
+            staticmethod(lambda content: iter(())),
+        )
+        sa = self._make_subagent(
+            tmp_path, "```complete\n\n```", output_schema=_SampleSchema
+        )
+        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.types"):
+            result = sa._read_log()
+        assert result.status == "success"
+        assert "Task completed (no summary provided)" in (result.result or "")
+        assert "not valid JSON" not in caplog.text
