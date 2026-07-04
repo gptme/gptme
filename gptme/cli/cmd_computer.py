@@ -1,5 +1,7 @@
 """CLI commands for computer-use tooling (audit-log, screenshot, etc.)."""
 
+from __future__ import annotations
+
 import json
 import os
 import re
