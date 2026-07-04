@@ -3077,6 +3077,33 @@ class TestBatchJobWaitAll:
         assert "ghost-agent" in results
         assert results["ghost-agent"]["status"] == "failure"
 
+    def test_wait_all_futures_timeout_marks_all_timed_out(self, monkeypatch):
+        """wait_all() marks all agents timed-out when as_completed raises TimeoutError.
+
+        Exercises the FuturesTimeoutError catch path in wait_all() — the edge case
+        where as_completed itself times out before any future completes.
+        """
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import BatchJob
+
+        def mock_as_completed(futures, timeout=None):
+            raise FuturesTimeoutError
+
+        monkeypatch.setattr(batch_mod, "as_completed", mock_as_completed)
+
+        self._register_done_subagent("agent-a", "not-reached")
+        self._register_done_subagent("agent-b", "not-reached")
+
+        job = BatchJob(agent_ids=["agent-a", "agent-b"])
+        results = job.wait_all(timeout=30)
+
+        assert set(results.keys()) == {"agent-a", "agent-b"}
+        assert results["agent-a"]["status"] == "timeout"
+        assert results["agent-b"]["status"] == "timeout"
+        assert "30s" in results["agent-a"]["result"]
+
 
 # ---------------------------------------------------------------------------
 # subagent_parallel tests
