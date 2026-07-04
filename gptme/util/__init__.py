@@ -32,7 +32,9 @@ def epoch_to_age(epoch, incl_date=False):
     if age < timedelta(days=2):
         return "yesterday"
     return f"{age.days} days ago" + (
-        " ({datetime.fromtimestamp(epoch).strftime('%Y-%m-%d')})" if incl_date else ""
+        f" ({datetime.fromtimestamp(epoch, tz=timezone.utc).strftime('%Y-%m-%d')})"
+        if incl_date
+        else ""
     )
 
 

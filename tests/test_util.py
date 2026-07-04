@@ -21,6 +21,16 @@ def test_epoch_to_age():
     assert epoch_to_age(epoch_yesterday) == "yesterday"
 
 
+def test_epoch_to_age_incl_date():
+    # regression: incl_date=True must interpolate the date, not return the
+    # literal f-string template (see gptme/util/__init__.py)
+    epoch = datetime.now(tz=timezone.utc).timestamp() - 3 * 24 * 60 * 60
+    result = epoch_to_age(epoch, incl_date=True)
+    assert "{datetime" not in result
+    expected_date = datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%d")
+    assert result == f"3 days ago ({expected_date})"
+
+
 def test_transform_examples_to_chat_directives():
     src = """
 # Example
