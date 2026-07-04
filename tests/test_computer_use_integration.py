@@ -316,6 +316,19 @@ def test_press_key_returns_snapshot(form_server: str):
 
 
 @pytest.mark.integration
+def test_press_key_waits_for_navigation_after_enter(form_server: str):
+    """press_key("Enter") should return the post-submit page snapshot."""
+    from gptme.tools.browser import fill_element, open_page, press_key
+
+    open_page(f"{form_server}/")
+    fill_element("#message", "enter submit test")
+    result = press_key("Enter")
+
+    assert "Posted!" in result
+    assert _FormHandler.submitted.get("message") == "enter submit test"
+
+
+@pytest.mark.integration
 def test_select_option_picks_dropdown_value(form_server: str):
     """select_option() should pick an option from a <select> element."""
     from gptme.tools.browser import (
@@ -332,6 +345,26 @@ def test_select_option_picks_dropdown_value(form_server: str):
 
     assert _FormHandler.submitted.get("category") == "news", (
         f"Expected category=news, got: {_FormHandler.submitted}"
+    )
+
+
+@pytest.mark.integration
+def test_select_option_picks_dropdown_label_text(form_server: str):
+    """select_option() should fall back to selecting by visible option label."""
+    from gptme.tools.browser import (
+        click_element,
+        fill_element,
+        open_page,
+        select_option,
+    )
+
+    open_page(f"{form_server}/")
+    fill_element("#message", "dropdown label test")
+    select_option("#category", "News")
+    click_element("#submit-btn")
+
+    assert _FormHandler.submitted.get("category") == "news", (
+        f"Expected category=news from visible label, got: {_FormHandler.submitted}"
     )
 
 
@@ -358,7 +391,8 @@ def test_wait_for_element_finds_dynamically_shown_element(form_server: str):
     # The dynamic content is hidden initially; clicking the button shows it
     click_element("#show-dynamic")
     result = wait_for_element("#dynamic-content", timeout_ms=3000)
-    assert "Dynamic content" in result or result is not None
+    assert result is not None
+    assert "Dynamic content" in result
 
 
 @pytest.mark.integration

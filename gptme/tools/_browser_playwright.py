@@ -790,7 +790,10 @@ def _press_key(browser: Browser, key: str) -> str:
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     _current_page.keyboard.press(key)
-    _current_page.wait_for_timeout(200)
+    try:
+        _current_page.wait_for_load_state("domcontentloaded", timeout=5000)
+    except PlaywrightTimeoutError:
+        pass  # Timeout is fine — key press may not navigate
     return _page_snapshot()
 
 
@@ -825,7 +828,11 @@ def _select_option(browser: Browser, selector: str, value: str) -> str:
     """Select an option from a <select> element on the current page."""
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
-    _current_page.locator(selector).select_option(value=value, timeout=10000)
+    locator = _current_page.locator(selector)
+    try:
+        locator.select_option(value=value, timeout=10000)
+    except PlaywrightTimeoutError:
+        locator.select_option(label=value, timeout=10000)
     return _page_snapshot()
 
 
