@@ -641,11 +641,12 @@ def _reply_stream(
 ) -> Message:
     json_mode = is_output_json()
     quiet_mode = is_output_quiet()
-    if not json_mode and not quiet_mode:
+    display_enabled = not json_mode and not quiet_mode
+    if display_enabled:
         rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
 
     def print_clear(length: int = 0):
-        if json_mode or quiet_mode:
+        if not display_enabled:
             return
         length = length or shutil.get_terminal_size().columns
         rprint("\r" + " " * length, end="\r")
@@ -716,7 +717,7 @@ def _reply_stream(
             if not output:  # first character
                 first_token_time = time.time()
                 print_clear()
-                if not json_mode:
+                if display_enabled:
                     rprint(f"{prompt_assistant(agent_name)}: \n", end="")
 
             # Capture thinking state before the tag-detection update below so
@@ -740,7 +741,7 @@ def _reply_stream(
                     # done for the closing tag).
                     normal_display_buffer.clear()
                     # Print styled version
-                    if not json_mode:
+                    if display_enabled:
                         rprint(f"[dim]{last_line}[/dim]", end="")
                     are_thinking = True
                 # Check for closing tag
@@ -748,7 +749,7 @@ def _reply_stream(
                     # Chars were buffered in think_display_buffer, not printed;
                     # no print_clear needed.
                     think_display_buffer.clear()
-                    if not json_mode:
+                    if display_enabled:
                         rprint(f"[dim]{last_line}[/dim]", end="")
                     are_thinking = False
                     in_think_sig = False
@@ -778,7 +779,7 @@ def _reply_stream(
                     continue
 
                 # Now print the newline, flushing any buffered content first.
-                if not json_mode:
+                if display_enabled:
                     if normal_display_buffer:
                         # Flush buffered normal chars before the newline so the
                         # line content appears before the line ending.
@@ -791,7 +792,7 @@ def _reply_stream(
                     rprint(char, end="")
             else:
                 # Print normal characters
-                if not json_mode:
+                if display_enabled:
                     if in_think_sig:
                         pass  # suppress think-sig comment body chars
                     elif are_thinking:
@@ -847,7 +848,7 @@ def _reply_stream(
             # Flush buffered normal chars and sync stdout once per chunk.
             # Moving flush from O(chars) to O(chunks) eliminates the main source
             # of bursty terminal rendering (per-char syscall overhead).
-            if _is_chunk_end and not json_mode:
+            if _is_chunk_end and display_enabled:
                 if normal_display_buffer:
                     rprint("".join(normal_display_buffer), end="")
                     normal_display_buffer.clear()
@@ -877,10 +878,10 @@ def _reply_stream(
 
         # Flush any remaining buffered chars (responses that end without a
         # trailing newline, or partial lines left after a break_on_tooluse break).
-        if not json_mode and normal_display_buffer:
+        if display_enabled and normal_display_buffer:
             rprint("".join(normal_display_buffer), end="")
             normal_display_buffer.clear()
-        if not json_mode and think_display_buffer:
+        if display_enabled and think_display_buffer:
             rprint(f"[dim]{''.join(think_display_buffer)}[/dim]", end="")
             think_display_buffer.clear()
         if emit_active and line_buffer and not are_thinking:
@@ -890,7 +891,7 @@ def _reply_stream(
     except KeyboardInterrupt:
         # Flush any chars buffered since the last chunk boundary so the terminal
         # shows everything received before the interrupt.
-        if not json_mode and normal_display_buffer:
+        if display_enabled and normal_display_buffer:
             rprint("".join(normal_display_buffer), end="")
             normal_display_buffer.clear()
         # Flush partial line before the interrupt suffix so callers see the

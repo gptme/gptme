@@ -497,6 +497,51 @@ def test_reply_stream_generation_chunk_hook(monkeypatch):
     assert received == ["Hello world.\n", "How are you?"]
 
 
+def test_reply_stream_quiet_mode_suppresses_terminal_output(monkeypatch):
+    """Quiet streaming must preserve content without writing terminal output."""
+    from gptme.llm import _reply_stream
+    from gptme.message import Message, get_output_format, set_output_format
+
+    chunks = [
+        "<think>\n",
+        "hidden reasoning\n",
+        "</think>\n",
+        "Visible answer",
+    ]
+    printed: list[str] = []
+
+    def _fake_gen(c):
+        yield from c
+
+    class _FakeStream:
+        def __init__(self, c):
+            self.gen = _fake_gen(c)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream(chunks),
+    )
+    monkeypatch.setattr("gptme.llm.rprint", lambda *a, **kw: printed.append(str(a)))
+
+    saved = get_output_format()
+    try:
+        set_output_format("quiet")
+        result = _reply_stream(
+            messages=[Message("user", "hi")],
+            model="test/model",
+            tools=None,
+        )
+    finally:
+        set_output_format(saved)
+
+    assert result.content == "".join(chunks)
+    assert printed == []
+
+
 def test_reply_stream_on_token_break_on_tooluse(monkeypatch):
     """on_token receives only content up to the break_on_tooluse breakpoint."""
     from gptme.llm import _reply_stream
