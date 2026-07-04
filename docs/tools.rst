@@ -127,6 +127,10 @@ Fine-grained control:
 
 - ``context_mode="selective"`` + ``context_include`` — share only specific components
   (``"agent"``, ``"tools"``, ``"workspace"``) instead of the full workspace.
+  Thread-mode only; ignored in subprocess and ACP. Note:
+  ``context_include=["workspace"]`` produces an empty context in thread mode —
+  the parent's workspace context is already fully assembled and cannot be
+  selectively re-included as a component.
 
 - ``context_window=N`` — limit how many inherited context messages are forwarded
   (``0`` = none, ``None`` = all). Thread mode only; ignored in subprocess and ACP.
@@ -152,6 +156,8 @@ Three ways to restrict tools:
 
 - ``redact_secrets=True`` (default) — scrubs common secret patterns (API keys, tokens,
   passwords) from workspace context messages before they reach the subagent.
+  Thread-mode only; has no effect in subprocess or ACP modes (the child process's
+  own ``gptme.toml`` controls its secret handling).
 
 Signal tools (``complete``, ``clarify``, ``progress``) are always loaded for every
 subagent regardless of allowlist — they are how the subagent communicates back.
