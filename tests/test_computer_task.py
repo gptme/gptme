@@ -26,7 +26,7 @@ def test_computer_task_returns_status_and_result(monkeypatch):
     import gptme.tools.subagent as _sa_mod
     from gptme.tools.computer import computer_task
 
-    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
+    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
         pass
 
     def fake_wait(agent_id, timeout=300):
@@ -48,8 +48,14 @@ def test_computer_task_uses_computer_use_profile(monkeypatch):
 
     captured: list[dict] = []
 
-    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
-        captured.append({"profile": profile, "max_time": kw.get("max_time")})
+    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
+        captured.append(
+            {
+                "profile": profile,
+                "max_time": kw.get("max_time"),
+                "timeout": kw.get("timeout"),
+            }
+        )
 
     def fake_wait(agent_id, timeout=300):
         return _make_status()
@@ -63,6 +69,7 @@ def test_computer_task_uses_computer_use_profile(monkeypatch):
 
     assert len(captured) == 1
     assert captured[0]["profile"] == "computer-use"
+    assert captured[0]["timeout"] is None
 
 
 def test_computer_task_passes_timeout(monkeypatch):
@@ -97,7 +104,7 @@ def test_computer_task_passes_model_override(monkeypatch):
 
     captured_model: list[str | None] = []
 
-    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
+    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
         captured_model.append(model)
 
     def fake_wait(agent_id, timeout=300):
@@ -119,7 +126,7 @@ def test_computer_task_default_model_is_none(monkeypatch):
 
     captured_model: list[str | None] = []
 
-    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
+    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
         captured_model.append(model)
 
     def fake_wait(agent_id, timeout=300):
@@ -141,7 +148,7 @@ def test_computer_task_agent_id_is_unique(monkeypatch):
 
     agent_ids: list[str] = []
 
-    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
+    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
         agent_ids.append(agent_id)
 
     def fake_wait(agent_id, timeout=300):
@@ -168,7 +175,7 @@ def test_computer_task_result_carries_agent_id(monkeypatch):
 
     spawned_ids: list[str] = []
 
-    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
+    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
         spawned_ids.append(agent_id)
 
     def fake_wait(agent_id, timeout=300):
@@ -188,7 +195,7 @@ def test_computer_task_propagates_failure_status(monkeypatch):
     """If the subagent fails, the status is propagated unchanged."""
     from gptme.tools.computer import computer_task
 
-    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
+    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
         pass
 
     def fake_wait(agent_id, timeout=300):
@@ -209,7 +216,7 @@ def test_computer_task_propagates_timeout_status(monkeypatch):
     """If the subagent times out, the timeout status is propagated unchanged."""
     from gptme.tools.computer import computer_task
 
-    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
+    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
         pass
 
     def fake_wait(agent_id, timeout=300):
@@ -230,7 +237,7 @@ def test_computer_task_propagates_clarification_needed_status(monkeypatch):
     """If the subagent asks for clarification, the status is propagated unchanged."""
     from gptme.tools.computer import computer_task
 
-    def fake_subagent(agent_id, prompt, profile=None, timeout=300, model=None, **kw):
+    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
         pass
 
     def fake_wait(agent_id, timeout=300):

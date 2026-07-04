@@ -2551,6 +2551,56 @@ class TestMaxTimeWatchdog:
             stop.set()
             t.join(timeout=1)
 
+    def test_subagent_wait_polls_cache_after_join_timeout(self, tmp_path):
+        """subagent_wait() handles join returning just before watchdog writes."""
+        from gptme.tools.subagent.api import subagent_wait
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        writer_threads: list[threading.Thread] = []
+
+        def write_timeout_after_join():
+            import time
+
+            time.sleep(0.01)
+            with _subagent_results_lock:
+                _subagent_results["wait-race-thread"] = ReturnType(
+                    "timeout", "Auto-cancelled after 0.5s (max_time exceeded)"
+                )
+
+        def join_returns_before_watchdog_write(timeout=None):
+            writer = threading.Thread(target=write_timeout_after_join)
+            writer.start()
+            writer_threads.append(writer)
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.join.side_effect = join_returns_before_watchdog_write
+        mock_thread.is_alive.return_value = True
+
+        sa = Subagent(
+            agent_id="wait-race-thread",
+            prompt="test",
+            thread=mock_thread,
+            logdir=tmp_path,
+            model=None,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        try:
+            result = subagent_wait("wait-race-thread", timeout=0)
+        finally:
+            for writer in writer_threads:
+                writer.join(timeout=1)
+
+        assert result["status"] == "timeout"
+        assert "max_time exceeded" in (result["result"] or "")
+
     def test_completion_hook_timeout_message(self):
         """_subagent_completion_hook yields a ⏱️ message for timeout status."""
         notify_completion("hook-timeout-agent", "timeout", "Timed out after 10s")

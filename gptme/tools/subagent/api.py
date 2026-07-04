@@ -9,6 +9,7 @@ import random
 import string
 import subprocess
 import threading
+import time
 import uuid
 from dataclasses import asdict
 from pathlib import Path
@@ -32,6 +33,23 @@ from .types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _wait_for_cached_subagent_result(
+    agent_id: str, timeout: float = 0.05, poll_interval: float = 0.005
+) -> ReturnType | None:
+    """Briefly wait for a concurrent watchdog/cancel result to hit the cache."""
+    deadline = time.monotonic() + timeout
+    while True:
+        with _subagent_results_lock:
+            cached_result = _subagent_results.get(agent_id)
+        if cached_result is not None:
+            return cached_result
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        time.sleep(min(poll_interval, remaining))
 
 
 def subagent(
@@ -1097,7 +1115,10 @@ def subagent_wait(
         # Thread mode: join thread
         sa.thread.join(timeout=timeout)
 
-    status = sa.status()
+    cached_status = (
+        _wait_for_cached_subagent_result(agent_id) if sa.is_running() else None
+    )
+    status = cached_status if cached_status is not None else sa.status()
     result_dict = asdict(status)
 
     # Compact result: truncate long outputs so they don't flood the parent's context.
