@@ -300,12 +300,12 @@ def _run_chat_loop(
                         )
                         break
                     prompt_queue.append(msg)
-                    if not is_output_json():
+                    if not is_output_json() and not is_output_quiet():
                         console.log(f"[Loop control] {msg.content[:100]}...")
                 continue  # Process the queued messages
 
         except KeyboardInterrupt:
-            if not is_output_json():
+            if not is_output_json() and not is_output_quiet():
                 console.log("Interrupted.")
             manager.append(Message("system", INTERRUPT_CONTENT))
             # Clear any remaining prompts to avoid confusion
@@ -381,7 +381,7 @@ def _process_message_conversation(
                 )
             )
         except KeyboardInterrupt:
-            if not is_output_json():
+            if not is_output_json() and not is_output_quiet():
                 console.log("Interrupted during response generation.")
             manager.append(Message("system", INTERRUPT_CONTENT))
             break
@@ -397,7 +397,7 @@ def _process_message_conversation(
         # Check if user declined execution - return to prompt without generating response
         # This makes "n" at confirm prompt behave like Ctrl+C (return to user prompt)
         if any(msg.content == DECLINED_CONTENT for msg in response_msgs):
-            if not is_output_json():
+            if not is_output_json() and not is_output_quiet():
                 console.log("Execution declined, returning to prompt.")
             break
 
@@ -424,7 +424,7 @@ def _process_message_conversation(
         # Check step limit (GPTME_MAX_STEPS)
         step_count += 1
         if max_steps is not None and step_count >= max_steps:
-            if not is_output_json():
+            if not is_output_json() and not is_output_quiet():
                 console.log(f"Reached max steps limit ({max_steps}), stopping.")
             manager.append(
                 Message("system", f"Stopped: reached max steps limit ({max_steps})")
