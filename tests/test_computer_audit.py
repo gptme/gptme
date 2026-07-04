@@ -797,3 +797,141 @@ def test_act_and_observe_table_output(tmp_path):
     assert result.exit_code == 0
     assert "via act_and_observe()" in result.output
     assert "[760, 540]" in result.output
+
+
+# ---------------------------------------------------------------------------
+# --jsonl output format (#216 audit export gap)
+# ---------------------------------------------------------------------------
+
+
+def test_audit_log_cli_jsonl_output(tmp_path, monkeypatch):
+    """--jsonl outputs one JSON object per line (newline-delimited JSON)."""
+    conv_dir = tmp_path / "jsonl-test-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    msgs = [
+        _msg("assistant", _ipython_block("computer('screenshot')")),
+        _msg(
+            "assistant", _ipython_block("computer('left_click', coordinate=(100, 200))")
+        ),
+    ]
+    _write_conv_jsonl(jsonl, msgs)
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl), "--jsonl"], catch_exceptions=False)
+    assert result.exit_code == 0
+
+    lines = [line for line in result.output.splitlines() if line.strip()]
+    assert len(lines) == 2
+
+    record0 = json.loads(lines[0])
+    assert record0["action"] == "screenshot"
+
+    record1 = json.loads(lines[1])
+    assert record1["action"] == "left_click"
+    assert record1["coordinate"] == [100, 200]
+
+
+def test_audit_log_cli_jsonl_each_line_valid_json(tmp_path, monkeypatch):
+    """Every line in --jsonl output must be valid JSON independently."""
+    conv_dir = tmp_path / "jsonl-validity-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    msgs = [
+        _msg(
+            "assistant",
+            _ipython_block(
+                "computer('type', text='hello')\ncomputer('key', text='Return')\ncomputer('screenshot')"
+            ),
+        )
+    ]
+    _write_conv_jsonl(jsonl, msgs)
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl), "--jsonl"], catch_exceptions=False)
+    assert result.exit_code == 0
+
+    for line in result.output.splitlines():
+        if not line.strip():
+            continue
+        obj = json.loads(line)  # raises if invalid JSON
+        assert "action" in obj
+        assert "risk_level" in obj
+
+
+def test_audit_log_cli_jsonl_sensitive_text_redacted(tmp_path, monkeypatch):
+    """--jsonl preserves the text_len redaction (text content never logged raw)."""
+    conv_dir = tmp_path / "jsonl-redact-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    msgs = [_msg("assistant", _ipython_block("computer('type', text='mysecret')"))]
+    _write_conv_jsonl(jsonl, msgs)
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl), "--jsonl"], catch_exceptions=False)
+    assert result.exit_code == 0
+
+    lines = [line for line in result.output.splitlines() if line.strip()]
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["action"] == "type"
+    assert "text_len" in record
+    assert "mysecret" not in result.output
+
+
+def test_audit_log_cli_jsonl_compact_no_whitespace(tmp_path, monkeypatch):
+    """--jsonl emits compact JSON (no indentation), one object per line."""
+    conv_dir = tmp_path / "jsonl-compact-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    msgs = [_msg("assistant", _ipython_block("computer('screenshot')"))]
+    _write_conv_jsonl(jsonl, msgs)
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl), "--jsonl"], catch_exceptions=False)
+    assert result.exit_code == 0
+
+    lines = [line for line in result.output.splitlines() if line.strip()]
+    assert len(lines) == 1
+    # Compact: no newlines within the JSON object itself
+    assert "\n" not in lines[0]
+    # No 2-space indent (which --json uses)
+    assert "  " not in lines[0]
+
+
+def test_audit_log_cli_jsonl_and_json_mutually_exclusive(tmp_path, monkeypatch):
+    """--json and --jsonl together exit with an error."""
+    conv_dir = tmp_path / "jsonl-mutex-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    msgs = [_msg("assistant", _ipython_block("computer('screenshot')"))]
+    _write_conv_jsonl(jsonl, msgs)
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        audit_log, [str(jsonl), "--json", "--jsonl"], catch_exceptions=False
+    )
+    assert result.exit_code == 1
+
+
+def test_audit_log_cli_jsonl_risk_levels_present(tmp_path, monkeypatch):
+    """--jsonl output includes risk_level for every record."""
+    conv_dir = tmp_path / "jsonl-risk-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    code = (
+        "computer('screenshot')\n"  # read
+        "computer('left_click', coordinate=(10, 20))\n"  # write
+        "computer('type', text='pw')"  # sensitive
+    )
+    msgs = [_msg("assistant", _ipython_block(code))]
+    _write_conv_jsonl(jsonl, msgs)
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl), "--jsonl"], catch_exceptions=False)
+    assert result.exit_code == 0
+
+    lines = [line for line in result.output.splitlines() if line.strip()]
+    assert len(lines) == 3
+    risks = [json.loads(line)["risk_level"] for line in lines]
+    assert risks == ["read", "write", "sensitive"]

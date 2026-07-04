@@ -288,9 +288,15 @@ def computer():
     help="Number of most-recent conversations to scan (ignored when CONVERSATION is given).",
 )
 @click.option(
-    "--json", "as_json", is_flag=True, help="Output raw JSON instead of table."
+    "--json", "as_json", is_flag=True, help="Output raw JSON array instead of table."
 )
-def audit_log(conversation: str | None, last: int, as_json: bool):
+@click.option(
+    "--jsonl",
+    "as_jsonl",
+    is_flag=True,
+    help="Output newline-delimited JSON (one record per line). Useful for streaming to log aggregators.",
+)
+def audit_log(conversation: str | None, last: int, as_json: bool, as_jsonl: bool):
     """Extract computer-use actions from session trajectories.
 
     Reads conversation JSONL logs (the authoritative audit trail) and prints a
@@ -308,6 +314,8 @@ def audit_log(conversation: str | None, last: int, as_json: bool):
         gptme-util computer audit-log
         gptme-util computer audit-log --last 3
         gptme-util computer audit-log my-session-name --json
+        gptme-util computer audit-log my-session-name --jsonl
+        gptme-util computer audit-log --jsonl | jq 'select(.risk_level == "sensitive")'
     """
     logs_dir = get_logs_dir()
 
@@ -352,8 +360,17 @@ def audit_log(conversation: str | None, last: int, as_json: bool):
         click.echo("No computer-use actions found.")
         return
 
+    if as_json and as_jsonl:
+        click.echo("Error: --json and --jsonl are mutually exclusive.", err=True)
+        sys.exit(1)
+
     if as_json:
         click.echo(json.dumps(all_records, indent=2))
+        return
+
+    if as_jsonl:
+        for record in all_records:
+            click.echo(json.dumps(record, separators=(",", ":")))
         return
 
     # Human-readable table
