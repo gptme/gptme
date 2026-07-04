@@ -357,6 +357,16 @@ def test_fill_without_open_page(monkeypatch):
         fill_element("#some-input", "value")
 
 
+def test_fill_with_open_page_checks_sensitive_gate(monkeypatch):
+    """Test that fill_element checks the gate once a page is open."""
+    from gptme.tools import _browser_playwright
+
+    monkeypatch.setenv("GPTME_COMPUTER_CONFIRM_SENSITIVE", "true")
+    monkeypatch.setattr(_browser_playwright, "_current_page", object())
+    with pytest.raises(ValueError, match="GPTME_COMPUTER_CONFIRM_SENSITIVE"):
+        _browser_playwright.fill_element("#some-input", "value")
+
+
 def test_scroll_without_open_page():
     """Test that scroll_page fails gracefully without open_page."""
     close_page()  # Ensure no page is open
