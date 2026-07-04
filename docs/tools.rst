@@ -133,8 +133,9 @@ Fine-grained control:
   **Thread**: fully supported — filters the inherited context to the specified components.
 
   **Subprocess**: ``context_mode`` is ignored (the child loads its own workspace from
-  ``gptme.toml``); ``context_include=["workspace"]`` maps to the ``--files`` CLI flag
-  to include workspace files. Other ``context_include`` values are ignored in this mode.
+  ``gptme.toml``); ``context_include=["workspace"]`` maps to the ``--context files``
+  CLI flag to include workspace files. Other ``context_include`` values are ignored in
+  this mode.
 
   **ACP**: both parameters are ignored.
 
@@ -165,8 +166,10 @@ Three ways to restrict tools:
   Thread-mode only; has no effect in subprocess or ACP modes (the child process's
   own ``gptme.toml`` controls its secret handling).
 
-Signal tools (``complete``, ``clarify``, ``progress``) are always loaded for every
-subagent regardless of allowlist — they are how the subagent communicates back.
+Signal tools are loaded regardless of allowlist so the subagent can communicate
+back. Thread-mode subagents get ``complete``, ``clarify``, and ``progress``.
+Subprocess subagents get ``complete`` and ``clarify``; ``progress`` is not loaded
+because it depends on the parent's in-process notification queue.
 
 **3. Cancellation and timeout**
 
