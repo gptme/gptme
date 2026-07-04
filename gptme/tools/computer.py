@@ -2368,7 +2368,19 @@ def start_recording(
         stderr_log.close()
         raise
     # Give ffmpeg a moment to start; if it exits immediately it failed.
-    _sleep(0.3)
+    # Guard BaseException (KeyboardInterrupt, etc.) so proc is never orphaned.
+    try:
+        _sleep(0.3)
+    except BaseException:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+        stderr_log.close()
+        raise
     if proc.poll() is not None:
         diagnostic = _read_ffmpeg_stderr(stderr_log)
         stderr_log.close()

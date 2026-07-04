@@ -231,6 +231,24 @@ class TestStartRecording:
         ):
             start_recording(output=tmp_path / "fail.mp4")
 
+    def test_startup_interrupt_terminates_proc(self, tmp_path):
+        """If _sleep(0.3) is interrupted (e.g. KeyboardInterrupt), proc must be cleaned up."""
+        from gptme.tools.computer import start_recording
+
+        proc = _make_alive_proc()
+
+        with (
+            mock.patch("subprocess.Popen", return_value=proc),
+            mock.patch(
+                "gptme.tools.computer._sleep",
+                side_effect=KeyboardInterrupt,
+            ),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            start_recording(output=tmp_path / "int.mp4")
+
+        proc.terminate.assert_called_once()
+
     def test_fps_forwarded_in_cmd(self, tmp_path):
         from gptme.tools.computer import start_recording
 
