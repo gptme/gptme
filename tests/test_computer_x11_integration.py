@@ -280,8 +280,8 @@ def test_type_changes_screen(xterm_window, monkeypatch):
     # Wait for the terminal to render (up to 5 seconds).
     # wait_for_change takes a fresh baseline after typing and polls until the
     # screen changes.  If the xterm already rendered before the baseline is
-    # captured, wait_for_change times out and returns the current (rendered)
-    # screenshot.  Either way the result is the settled post-type state.
+    # captured, wait_for_change sees no delta and times out, returning None -
+    # in which case the fallback screenshot() below captures the settled state.
     after_msg = computer("wait_for_change", text="5")
     if after_msg is None:
         after_msg = computer("screenshot")
@@ -299,7 +299,7 @@ def test_type_changes_screen(xterm_window, monkeypatch):
     from gptme.tools.computer import _compute_change_ratio
 
     ratio = _compute_change_ratio(before_path, after_path)
-    assert ratio >= 0.001, (
+    assert ratio > 0.001, (
         f"Screen did not change after typing (changed ratio={ratio:.4f}) — "
         "xdotool type may not be delivering keystrokes to the xterm"
     )
