@@ -129,9 +129,10 @@ Fine-grained control:
   (``"agent"``, ``"tools"``, ``"workspace"``) instead of the full workspace.
 
 - ``context_window=N`` — limit how many inherited context messages are forwarded
-  (``0`` = none, ``None`` = all).
+  (``0`` = none, ``None`` = all). Thread mode only; ignored in subprocess and ACP.
 
 - ``context_turns=N`` — forward the last N turns of the parent conversation.
+  Thread mode only; ignored in subprocess and ACP.
 
 **2. Tool and state inheritance**
 
@@ -143,7 +144,8 @@ Three ways to restrict tools:
 
 - ``profile="explorer"`` (or any built-in profile) — applies a tool allowlist at spawn
   time. Built-in profiles: ``explorer`` (read-only), ``researcher``, ``developer``
-  (full), ``verifier`` (read-only, always subprocess + isolated).
+  (full), ``verifier`` (read-only). Note: ``role="verify"`` forces
+  ``use_subprocess=True`` and ``isolated=True`` in addition to the verifier profile.
 
 - ``isolated=True`` — runs the subagent in a git worktree so filesystem writes don't
   affect the parent repo. The worktree is auto-cleaned after completion.
@@ -156,10 +158,9 @@ subagent regardless of allowlist — they are how the subagent communicates back
 
 **3. Cancellation and timeout**
 
-Subagent termination is cooperative, not pre-emptive:
-
-- ``max_time`` (seconds) — triggers a cancel signal to the running subagent thread;
-  the subagent can check this and stop cleanly. No hard kill in thread mode.
+- ``max_time`` (seconds) — a watchdog timer that auto-cancels the subagent after
+  the specified duration and delivers a "timeout" status notification. The parent
+  calls ``subagent_cancel()`` to trigger this (thread mode only).
 
 - ``timeout`` (default 1800 s) — subprocess monitor kills the child process after
   this many seconds. Only applies in subprocess mode.
