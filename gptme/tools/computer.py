@@ -2178,7 +2178,7 @@ def observe_desktop() -> Message | None:
 class ScreenRecording:
     """Handle for an in-progress screen recording.
 
-    Returned by :func:`start_recording`.  Call :meth:`stop` to finish the
+    Returned by ``start_recording()``.  Call ``.stop()`` to finish the
     recording and get the output path.  Also usable as a context manager::
 
         with start_recording("session.mp4") as rec:
@@ -2260,7 +2260,7 @@ def start_recording(
     """Start recording the screen to an MP4 file.
 
     Uses ``ffmpeg`` with ``x11grab`` (Linux) or ``avfoundation`` (macOS).
-    Returns a :class:`ScreenRecording` handle — call ``.stop()`` to finish or
+    Returns a ``ScreenRecording`` handle — call ``.stop()`` to finish or
     use it as a context manager.
 
     Args:
@@ -2271,7 +2271,7 @@ def start_recording(
         display: X11 display string (Linux only).  Defaults to ``$DISPLAY``.
 
     Returns:
-        :class:`ScreenRecording` handle.  Call ``.stop()`` when done.
+        ``ScreenRecording`` handle.  Call ``.stop()`` when done.
 
     Raises:
         RuntimeError: If ``ffmpeg`` is not found or recording fails to start.
@@ -2332,7 +2332,7 @@ def record_screen(
 ) -> Path:
     """Record the screen for a fixed duration and return the output path.
 
-    Synchronous wrapper around :func:`start_recording` / :meth:`ScreenRecording.stop`.
+    Synchronous wrapper around ``start_recording()`` / ``ScreenRecording.stop()``.
     Blocks for *duration* seconds.
 
     Args:
