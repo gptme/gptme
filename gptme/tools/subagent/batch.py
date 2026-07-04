@@ -50,10 +50,18 @@ class BatchJob:
             remaining = max(1, int(deadline - time.monotonic()))
             try:
                 result = subagent_wait(agent_id, timeout=remaining)
-                return agent_id, ReturnType(
-                    result.get("status", "failure"),
-                    result.get("result"),
-                )
+                status = result.get("status", "failure")
+                # subagent_wait() returns a non-terminal "running" status (with
+                # result=None) when a thread/ACP agent is still alive after the
+                # wait — these can't be force-killed. Report that as "timeout"
+                # per the documented contract, rather than leaking
+                # status="running"/result=None, which breaks callers that index
+                # into result (e.g. this function's own docstring example).
+                if status == "running":
+                    return agent_id, ReturnType(
+                        "timeout", f"Timed out after {timeout}s"
+                    )
+                return agent_id, ReturnType(status, result.get("result"))
             except Exception as e:
                 logger.warning(f"Error waiting for {agent_id}: {e}")
                 return agent_id, ReturnType("failure", str(e))

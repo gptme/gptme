@@ -3126,6 +3126,35 @@ class TestBatchJobWaitAll:
         assert results["agent-b"]["status"] == "timeout"
         assert "30s" in results["agent-a"]["result"]
 
+    def test_wait_all_maps_running_result_to_timeout(self):
+        """An agent still running when subagent_wait() returns is reported as
+        "timeout", not the non-terminal status="running"/result=None.
+
+        Regression: subagent_wait() returns {"status": "running", "result": None}
+        for thread/ACP agents that are still alive after the wait (they can't be
+        force-killed). wait_all() previously leaked that verbatim, violating the
+        documented "timeout" contract and crashing callers that index into result
+        (e.g. the subagent_parallel docstring's own result['result'][:80]).
+        """
+        from unittest.mock import patch
+
+        from gptme.tools.subagent.batch import BatchJob
+
+        def fake_wait(agent_id, timeout=60, max_result_chars=2000):
+            # join(timeout) expires while the thread is still alive → subagent_wait
+            # falls back to status()=="running" with result=None.
+            return {"status": "running", "result": None}
+
+        job = BatchJob(agent_ids=["stuck-worker"])
+        with patch("gptme.tools.subagent.batch.subagent_wait", side_effect=fake_wait):
+            results = job.wait_all(timeout=2)
+
+        r = results["stuck-worker"]
+        assert r["status"] == "timeout"
+        # result must be a usable string, not None — docstring consumers slice it
+        assert r["result"] is not None
+        assert r["result"][:80]  # must not raise TypeError
+
 
 # ---------------------------------------------------------------------------
 # subagent_parallel tests
