@@ -87,6 +87,8 @@ def action_risk_level(action: str) -> str:
     """
     if action in ACTION_RISK_READ:
         return "read"
+    if action in ACTION_RISK_WRITE:
+        return "write"
     if action in ACTION_RISK_SENSITIVE:
         return "sensitive"
     # write is the conservative default for any unclassified action
@@ -213,7 +215,7 @@ def _extract_computer_calls(messages) -> list[dict]:
                         "timestamp": ts,
                         "action": "screenshot",
                         "source": "observe_desktop",
-                        "risk_level": "read",
+                        "risk_level": action_risk_level("observe_desktop"),
                     },
                 )
                 for m in re.finditer(r"\bobserve_desktop\s*\(", code)
@@ -279,7 +281,7 @@ def _extract_computer_calls(messages) -> list[dict]:
                         "value_len": len(
                             m.group(3) if m.group(3) is not None else (m.group(4) or "")
                         ),
-                        "risk_level": "sensitive",
+                        "risk_level": action_risk_level("fill_element"),
                     },
                 )
                 for m in re.finditer(
@@ -296,7 +298,7 @@ def _extract_computer_calls(messages) -> list[dict]:
                         "timestamp": ts,
                         "action": "read_page_text",
                         "source": "browser",
-                        "risk_level": "read",
+                        "risk_level": action_risk_level("read_page_text"),
                     },
                 )
                 for m in re.finditer(r"\bread_page_text\s*\(", code)
@@ -311,7 +313,7 @@ def _extract_computer_calls(messages) -> list[dict]:
                         "action": "scroll_page",
                         "source": "browser",
                         "direction": m.group(1),
-                        "risk_level": "write",
+                        "risk_level": action_risk_level("scroll_page"),
                     },
                 )
                 for m in re.finditer(r"""\bscroll_page\s*\(\s*['"]([^'"]+)['"]""", code)
