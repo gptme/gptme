@@ -353,6 +353,7 @@ if browser == "playwright":
     from ._browser_playwright import close_page as close_page_pw  # fmt: skip
     from ._browser_playwright import fill_element as fill_element_pw  # fmt: skip
     from ._browser_playwright import open_page as open_page_pw  # fmt: skip
+    from ._browser_playwright import press_key as press_key_pw  # fmt: skip
     from ._browser_playwright import read_logs as read_logs_playwright  # fmt: skip
     from ._browser_playwright import read_page_text as read_page_text_pw  # fmt: skip
     from ._browser_playwright import read_url as read_url_playwright  # fmt: skip
@@ -362,6 +363,10 @@ if browser == "playwright":
     from ._browser_playwright import screenshot_url as screenshot_url_pw  # fmt: skip
     from ._browser_playwright import scroll_page as scroll_page_pw  # fmt: skip
     from ._browser_playwright import search_duckduckgo, search_google  # fmt: skip
+    from ._browser_playwright import select_option as select_option_pw  # fmt: skip
+    from ._browser_playwright import (
+        wait_for_element as wait_for_element_pw,  # fmt: skip
+    )
 elif browser == "lynx":
     from ._browser_lynx import read_url as read_url_lynx  # fmt: skip
     from ._browser_lynx import search as search_lynx  # fmt: skip
@@ -1058,6 +1063,87 @@ def scroll_page(direction: str = "down", amount: int = 500) -> str:
     raise ValueError("Interactive browsing not supported with lynx backend")
 
 
+def press_key(key: str) -> str:
+    """Press a keyboard key or shortcut in the current browser page.
+
+    Dispatches the key event to the focused element (or document). Use for
+    submitting forms (``Enter``), navigating menus (``ArrowDown``), dismissing
+    dialogs (``Escape``), or triggering shortcuts (e.g. ``Control+a``).
+
+    Requires open_page() to be called first.
+
+    Args:
+        key: Playwright key name. Examples: ``"Enter"``, ``"Tab"``,
+             ``"Escape"``, ``"ArrowDown"``, ``"Control+a"``, ``"Meta+k"``.
+
+    Returns:
+        Updated ARIA snapshot of the page after the key press.
+
+    Example::
+
+        open_page("https://example.com/search")
+        fill_element("[name='q']", "gptme")
+        press_key("Enter")
+    """
+    assert browser
+    if browser == "playwright":
+        return press_key_pw(key)
+    raise ValueError("Interactive browsing not supported with lynx backend")
+
+
+def select_option(selector: str, value: str) -> str:
+    """Select an option from a <select> dropdown on the current page.
+
+    Requires open_page() to be called first.
+
+    Args:
+        selector: Playwright selector for the ``<select>`` element.
+        value: The option value attribute or visible text to select.
+
+    Returns:
+        Updated ARIA snapshot of the page after the selection.
+
+    Example::
+
+        open_page("https://example.com/order")
+        select_option("[name='size']", "large")
+        click_element("text=Add to cart")
+    """
+    assert browser
+    if browser == "playwright":
+        return select_option_pw(selector, value)
+    raise ValueError("Interactive browsing not supported with lynx backend")
+
+
+def wait_for_element(selector: str, timeout_ms: int = 5000) -> str:
+    """Wait for a DOM element to become visible on the current page.
+
+    Blocks until the element matching ``selector`` is visible, then returns
+    the updated ARIA snapshot. Use after actions that trigger dynamic content
+    loading (modals, async renders, redirects).
+
+    Requires open_page() to be called first.
+
+    Args:
+        selector: Playwright selector for the element to wait for.
+        timeout_ms: Maximum wait time in milliseconds (default: 5000).
+
+    Returns:
+        Updated ARIA snapshot once the element is visible.
+
+    Example::
+
+        open_page("https://x.com/compose/tweet")
+        wait_for_element("[data-testid='tweetTextarea_0']", timeout_ms=8000)
+        fill_element("[data-testid='tweetTextarea_0']", "Hello from gptme!")
+        click_element("[data-testid='tweetButtonInline']")
+    """
+    assert browser
+    if browser == "playwright":
+        return wait_for_element_pw(selector, timeout_ms)
+    raise ValueError("Interactive browsing not supported with lynx backend")
+
+
 tool = ToolSpec(
     name="browser",
     desc="Browse, interact with, search, or screenshot the web",
@@ -1072,7 +1158,8 @@ services with APIs, prefer shell or Python over scraping.""",
         "search the web with search() using auto-detected backends and fallback, "
         "capture screenshots with screenshot_url(), "
         "get ARIA accessibility snapshots with snapshot_url(), "
-        "interact with pages using open_page() + click_element()/fill_element()/scroll_page(), "
+        "interact with pages using open_page() + click_element()/fill_element()/"
+        "scroll_page()/press_key()/select_option()/wait_for_element(), "
         "read interactive page content with read_page_text(), "
         "check browser console errors with read_logs(), "
         "or convert a local PDF to images with pdf_to_images().",
@@ -1092,6 +1179,9 @@ services with APIs, prefer shell or Python over scraping.""",
             click_element,
             fill_element,
             scroll_page,
+            press_key,
+            select_option,
+            wait_for_element,
             read_logs,
             pdf_to_images,
         ]

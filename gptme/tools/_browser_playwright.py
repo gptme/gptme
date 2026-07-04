@@ -785,6 +785,120 @@ def scroll_page(direction: str = "down", amount: int = 500) -> str:
     return _execute_with_retry(_scroll, direction, amount)
 
 
+def _press_key(browser: Browser, key: str) -> str:
+    """Press a keyboard key or shortcut in the current page."""
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    _current_page.keyboard.press(key)
+    _current_page.wait_for_timeout(200)
+    return _page_snapshot()
+
+
+def press_key(key: str) -> str:
+    """Press a keyboard key or shortcut in the current browser page.
+
+    Dispatches the key event to the active focused element, or the document if
+    nothing is focused. Useful for submitting forms (``Enter``), navigating
+    autocomplete menus (``ArrowDown``), dismissing modals (``Escape``), and
+    triggering keyboard shortcuts (e.g. ``Control+a`` to select all).
+
+    Args:
+        key: Playwright key name. Examples: ``"Enter"``, ``"Tab"``,
+             ``"Escape"``, ``"ArrowDown"``, ``"Control+a"``, ``"Meta+k"``.
+
+    Returns:
+        Updated ARIA snapshot of the page after the key press.
+
+    Example::
+
+        open_page("https://example.com/search")
+        fill_element("[name='q']", "gptme")
+        press_key("Enter")   # submit the search form
+    """
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    logger.info("Pressing key: '%s'", key)
+    return _execute_with_retry(_press_key, key)
+
+
+def _select_option(browser: Browser, selector: str, value: str) -> str:
+    """Select an option from a <select> element on the current page."""
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    _current_page.locator(selector).select_option(value=value, timeout=10000)
+    return _page_snapshot()
+
+
+def select_option(selector: str, value: str) -> str:
+    """Select an option from a <select> dropdown on the current page.
+
+    Finds the ``<select>`` element and selects the option matching ``value``
+    by its ``value`` attribute or visible text.
+
+    Args:
+        selector: Playwright selector for the ``<select>`` element
+                  (e.g. ``"select#country"``, ``"[name='size']"``).
+        value: The option value (``value`` attribute) or label text to select.
+
+    Returns:
+        Updated ARIA snapshot of the page after the selection.
+
+    Example::
+
+        open_page("https://example.com/order")
+        select_option("[name='size']", "large")
+        click_element("text=Add to cart")
+    """
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    logger.info("Selecting option '%s' from '%s'", value, selector)
+    return _execute_with_retry(_select_option, selector, value)
+
+
+def _wait_for_element(browser: Browser, selector: str, timeout_ms: int) -> str:
+    """Wait for an element to be visible on the current page."""
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    try:
+        _current_page.locator(selector).wait_for(state="visible", timeout=timeout_ms)
+    except PlaywrightTimeoutError as e:
+        raise RuntimeError(
+            f"Element '{selector}' did not appear within {timeout_ms}ms. "
+            "The page may still be loading, or the selector is wrong."
+        ) from e
+    return _page_snapshot()
+
+
+def wait_for_element(selector: str, timeout_ms: int = 5000) -> str:
+    """Wait for a DOM element to become visible on the current page.
+
+    Blocks until the element matching ``selector`` is visible, then returns
+    the updated page snapshot. Useful after clicking something that triggers
+    a dynamic content load, modal, or redirect.
+
+    Args:
+        selector: Playwright selector for the element to wait for.
+        timeout_ms: Maximum wait time in milliseconds (default: 5000).
+                    Raises ``RuntimeError`` if element does not appear.
+
+    Returns:
+        Updated ARIA snapshot of the page once the element is visible.
+
+    Example::
+
+        open_page("https://x.com/compose/tweet")
+        wait_for_element("[data-testid='tweetTextarea_0']", timeout_ms=8000)
+        fill_element("[data-testid='tweetTextarea_0']", "Hello from gptme!")
+        click_element("[data-testid='tweetButtonInline']")
+    """
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    if timeout_ms <= 0:
+        raise ValueError(f"timeout_ms must be positive, got: {timeout_ms!r}")
+    logger.info("Waiting for element '%s' (timeout=%dms)", selector, timeout_ms)
+    return _execute_with_retry(_wait_for_element, selector, timeout_ms)
+
+
 def _take_screenshot(
     browser: Browser, url: str, path: Path | str | None = None
 ) -> Path:
