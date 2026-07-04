@@ -97,11 +97,12 @@ import platform
 import shlex
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import IO, TYPE_CHECKING, Literal, TypedDict
 
 from ._computer_gate import action_risk_level, sensitive_action_gate
 from .base import ToolFunction, ToolSpec, ToolUse
@@ -122,6 +123,17 @@ _sleep = time.sleep
 
 # Platform detection
 IS_MACOS = platform.system() == "Darwin"
+
+
+def _read_ffmpeg_stderr(stderr: IO[bytes] | None) -> str:
+    if stderr is None:
+        return ""
+    try:
+        stderr.seek(0)
+        text = stderr.read().decode(errors="replace").strip()
+    except OSError:
+        return ""
+    return text[-4000:]
 
 
 def _stream_action_risk(
@@ -2190,8 +2202,14 @@ class ScreenRecording:
         output_path: Destination file path (set at construction time).
     """
 
-    def __init__(self, process: subprocess.Popen, output_path: Path) -> None:
+    def __init__(
+        self,
+        process: subprocess.Popen,
+        output_path: Path,
+        stderr: IO[bytes] | None = None,
+    ) -> None:
         self._process = process
+        self._stderr = stderr
         self.output_path = output_path
         self._stop_lock = threading.Lock()
         self._stopped = threading.Event()
@@ -2208,12 +2226,29 @@ class ScreenRecording:
         with self._stop_lock:
             if self._stopped.is_set():
                 return self.output_path
+            returncode = self._process.poll()
+            if returncode is not None:
+                diagnostic = _read_ffmpeg_stderr(self._stderr)
+                if self._stderr is not None:
+                    self._stderr.close()
+                if returncode != 0:
+                    message = (
+                        "ffmpeg exited before recording was stopped "
+                        f"(return code {returncode})"
+                    )
+                    if diagnostic:
+                        message += f":\n{diagnostic}"
+                    raise RuntimeError(message)
+                self._stopped.set()
+                return self.output_path
             self._process.terminate()
             try:
                 self._process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self._process.kill()
                 self._process.wait()
+            if self._stderr is not None:
+                self._stderr.close()
             self._stopped.set()
         return self.output_path
 
@@ -2314,20 +2349,30 @@ def start_recording(
     width, height = _get_display_resolution()
     cmd = _ffmpeg_record_cmd(output_path, fps, None, disp, width, height)
 
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    stderr_log = tempfile.TemporaryFile()
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr_log,
+        )
+    except Exception:
+        stderr_log.close()
+        raise
     # Give ffmpeg a moment to start; if it exits immediately it failed.
     _sleep(0.3)
     if proc.poll() is not None:
-        raise RuntimeError(
+        diagnostic = _read_ffmpeg_stderr(stderr_log)
+        stderr_log.close()
+        message = (
             f"ffmpeg exited immediately (return code {proc.returncode}).  "
             "Check that DISPLAY is set and ffmpeg is installed."
         )
-    return ScreenRecording(proc, output_path)
+        if diagnostic:
+            message += f"\n\nffmpeg stderr:\n{diagnostic}"
+        raise RuntimeError(message)
+    return ScreenRecording(proc, output_path, stderr_log)
 
 
 def record_screen(

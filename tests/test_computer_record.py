@@ -7,6 +7,7 @@ alive until stop() is called, exactly like a real ffmpeg invocation.
 
 from __future__ import annotations
 
+import tempfile
 import threading
 import time
 from unittest import mock
@@ -98,6 +99,21 @@ class TestScreenRecording:
 
         assert proc.terminate.call_count == 1
 
+    def test_stop_raises_when_ffmpeg_exited_early(self, tmp_path):
+        from gptme.tools.computer import ScreenRecording
+
+        proc = mock.MagicMock()
+        proc.poll.return_value = 1
+        proc.returncode = 1
+        stderr = tempfile.TemporaryFile()
+        stderr.write(b"Cannot open display :99\n")
+        stderr.flush()
+        rec = ScreenRecording(proc, tmp_path / "failed.mp4", stderr)
+
+        with pytest.raises(RuntimeError, match="Cannot open display"):
+            rec.stop()
+        proc.terminate.assert_not_called()
+
     def test_context_manager_calls_stop(self, tmp_path):
         from gptme.tools.computer import ScreenRecording
 
@@ -177,6 +193,25 @@ class TestStartRecording:
             mock.patch("subprocess.Popen", return_value=proc),
             mock.patch("gptme.tools.computer._sleep"),
             pytest.raises(RuntimeError, match="ffmpeg exited immediately"),
+        ):
+            start_recording(output=tmp_path / "fail.mp4")
+
+    def test_ffmpeg_immediate_exit_includes_stderr(self, tmp_path):
+        from gptme.tools.computer import start_recording
+
+        proc = mock.MagicMock()
+        proc.poll.return_value = 1
+        proc.returncode = 1
+
+        def _fake_popen(cmd, **kwargs):
+            kwargs["stderr"].write(b"No such display\n")
+            kwargs["stderr"].flush()
+            return proc
+
+        with (
+            mock.patch("subprocess.Popen", side_effect=_fake_popen),
+            mock.patch("gptme.tools.computer._sleep"),
+            pytest.raises(RuntimeError, match="No such display"),
         ):
             start_recording(output=tmp_path / "fail.mp4")
 
