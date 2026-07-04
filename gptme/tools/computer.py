@@ -2404,9 +2404,9 @@ def record_screen(
         path = record_screen("tweet-demo.mp4", duration=30)
         print(f"Recording saved to {path}")
     """
-    rec = start_recording(output=output, fps=fps, display=display)
-    _sleep(duration)
-    return rec.stop()
+    with start_recording(output=output, fps=fps, display=display) as rec:
+        _sleep(duration)
+        return rec.output_path
 
 
 # Actions that only read state — no post-action screenshot is useful for these.

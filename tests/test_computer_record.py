@@ -304,6 +304,24 @@ class TestRecordScreen:
         duration_calls = [d for d in sleep_calls if d == 7.5]
         assert duration_calls, f"Expected a 7.5s sleep; got {sleep_calls}"
 
+    def test_stops_recording_when_sleep_raises(self, tmp_path):
+        from gptme.tools.computer import record_screen
+
+        proc = _make_alive_proc()
+
+        def _sleep_or_interrupt(delay):
+            if delay == 7.5:
+                raise KeyboardInterrupt
+
+        with (
+            mock.patch("subprocess.Popen", return_value=proc),
+            mock.patch("gptme.tools.computer._sleep", side_effect=_sleep_or_interrupt),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            record_screen(output=tmp_path / "interrupted.mp4", duration=7.5)
+
+        proc.terminate.assert_called_once()
+
     def test_ffmpeg_not_found_raises(self, tmp_path):
         from gptme.tools.computer import record_screen
 
