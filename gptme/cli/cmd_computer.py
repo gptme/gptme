@@ -356,13 +356,13 @@ def audit_log(conversation: str | None, last: int, as_json: bool, as_jsonl: bool
             r["conversation"] = path.parent.name
         all_records.extend(records)
 
-    if not all_records:
-        click.echo("No computer-use actions found.")
-        return
-
     if as_json and as_jsonl:
         click.echo("Error: --json and --jsonl are mutually exclusive.", err=True)
         sys.exit(1)
+
+    if not all_records:
+        click.echo("No computer-use actions found.")
+        return
 
     if as_json:
         click.echo(json.dumps(all_records, indent=2))

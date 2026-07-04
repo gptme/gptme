@@ -914,6 +914,24 @@ def test_audit_log_cli_jsonl_and_json_mutually_exclusive(tmp_path, monkeypatch):
     assert result.exit_code == 1
 
 
+def test_audit_log_cli_jsonl_and_json_mutually_exclusive_empty_log(
+    tmp_path, monkeypatch
+):
+    """--json and --jsonl conflict is rejected even when no records exist."""
+    conv_dir = tmp_path / "jsonl-empty-mutex-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    _write_conv_jsonl(jsonl, [_msg("user", "no computer calls here")])
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        audit_log, [str(jsonl), "--json", "--jsonl"], catch_exceptions=False
+    )
+    assert result.exit_code == 1
+    assert "--json and --jsonl are mutually exclusive" in result.output
+    assert "No computer-use actions found" not in result.output
+
+
 def test_audit_log_cli_jsonl_risk_levels_present(tmp_path, monkeypatch):
     """--jsonl output includes risk_level for every record."""
     conv_dir = tmp_path / "jsonl-risk-conv"
