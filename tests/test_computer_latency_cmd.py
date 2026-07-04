@@ -7,6 +7,7 @@ The transport is monkey-patched to return pre-made screenshot paths.
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
@@ -87,6 +88,7 @@ class TestLatencyCmd:
         assert "min_ms" in data
         assert "median_ms" in data
         assert "max_ms" in data
+        assert "mean_ms" in data
         assert "stdev_ms" in data
 
     def test_json_values_are_non_negative(self, tmp_path):
@@ -140,6 +142,65 @@ class TestLatencyCmd:
 
         # all 3 measured shots failed → exit 1
         assert result.exit_code == 1
+
+    def test_partial_shot_failures_reported_without_failing(self, tmp_path):
+        """Partial screenshot failures are counted while successful shots are reported."""
+        call_count = {"n": 0}
+
+        def _partially_failing_screenshot(width: int = 0, height: int = 0) -> Path:
+            call_count["n"] += 1
+            if call_count["n"] in {3, 5}:  # warm-up succeeds; 2 measured shots fail
+                raise RuntimeError("X11 error: display not responding")
+            p = tmp_path / f"shot_{call_count['n']}.png"
+            p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50)
+            return p
+
+        transport = MagicMock()
+        transport.screenshot.side_effect = _partially_failing_screenshot
+
+        with patch(
+            "gptme.tools.computer_transport.get_transport", return_value=transport
+        ):
+            runner = CliRunner()
+            result = runner.invoke(latency_cmd, ["--shots", "5", "--json"])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["shots"] == 5
+        assert data["successful"] == 3
+        assert data["errors"] == 2
+
+    def test_single_successful_shot_has_null_stdev(self, tmp_path):
+        """A single sample has no sample standard deviation."""
+        transport = _make_transport_mock(tmp_path, shot_duration_s=0.001)
+        with patch(
+            "gptme.tools.computer_transport.get_transport", return_value=transport
+        ):
+            runner = CliRunner()
+            result = runner.invoke(latency_cmd, ["--shots", "1", "--json"])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["successful"] == 1
+        assert data["stdev_ms"] is None
+
+    def test_display_override_is_restored(self, tmp_path, monkeypatch):
+        """--display only changes DISPLAY for the duration of the command."""
+        monkeypatch.setenv("DISPLAY", ":old")
+        transport = _make_transport_mock(tmp_path, shot_duration_s=0.001)
+
+        with patch(
+            "gptme.tools.computer_transport.get_transport", return_value=transport
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                latency_cmd, ["--shots", "1", "--display", ":new", "--json"]
+            )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["display"] == ":new"
+        assert os.environ["DISPLAY"] == ":old"
 
     def test_invalid_shots_exits_1(self):
         """--shots 0 exits with code 1 and an error message."""
