@@ -2193,6 +2193,7 @@ class ScreenRecording:
     def __init__(self, process: subprocess.Popen, output_path: Path) -> None:
         self._process = process
         self.output_path = output_path
+        self._stop_lock = threading.Lock()
         self._stopped = threading.Event()
 
     def stop(self) -> Path:
@@ -2201,7 +2202,12 @@ class ScreenRecording:
         Returns:
             Path to the completed video file.
         """
-        if not self._stopped.is_set():
+        if self._stopped.is_set():
+            return self.output_path
+
+        with self._stop_lock:
+            if self._stopped.is_set():
+                return self.output_path
             self._process.terminate()
             try:
                 self._process.wait(timeout=10)

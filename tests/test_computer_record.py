@@ -7,6 +7,8 @@ alive until stop() is called, exactly like a real ffmpeg invocation.
 
 from __future__ import annotations
 
+import threading
+import time
 from unittest import mock
 
 import pytest
@@ -63,6 +65,37 @@ class TestScreenRecording:
         rec = ScreenRecording(proc, tmp_path / "x.mp4")
         rec.stop()
         rec.stop()  # should not raise or call terminate a second time
+        assert proc.terminate.call_count == 1
+
+    def test_stop_is_thread_safe(self, tmp_path):
+        from gptme.tools.computer import ScreenRecording
+
+        proc = _make_alive_proc()
+
+        def _slow_terminate():
+            time.sleep(0.05)
+            proc.returncode = 0
+
+        proc.terminate.side_effect = _slow_terminate
+        rec = ScreenRecording(proc, tmp_path / "thread-safe.mp4")
+
+        start = threading.Barrier(3)
+        done = threading.Barrier(3)
+
+        def _call_stop():
+            start.wait()
+            rec.stop()
+            done.wait()
+
+        t1 = threading.Thread(target=_call_stop)
+        t2 = threading.Thread(target=_call_stop)
+        t1.start()
+        t2.start()
+        start.wait()
+        done.wait()
+        t1.join()
+        t2.join()
+
         assert proc.terminate.call_count == 1
 
     def test_context_manager_calls_stop(self, tmp_path):
