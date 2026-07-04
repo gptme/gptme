@@ -758,6 +758,32 @@ def _check_computer(verbose: bool = False) -> list[CheckResult]:
                 message=f"Computer tool is only supported on Linux and macOS (current: {sys.platform})",
             )
         )
+        return results
+
+    # ffmpeg is required for screen recording (start_recording / record_screen).
+    # Only checked on supported platforms (Linux + macOS) since the install hint is platform-specific.
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        results.append(
+            CheckResult(
+                name="Computer: ffmpeg",
+                status=CheckStatus.OK,
+                message="screen recording (start_recording / record_screen)",
+                details=ffmpeg_path if verbose else None,
+            )
+        )
+    else:
+        results.append(
+            CheckResult(
+                name="Computer: ffmpeg",
+                status=CheckStatus.WARNING,
+                message="Not found — required for start_recording() and record_screen()",
+                fix_hint=(
+                    "Linux:  sudo apt install ffmpeg  or  sudo pacman -S ffmpeg\n"
+                    "macOS:  brew install ffmpeg"
+                ),
+            )
+        )
 
     return results
 

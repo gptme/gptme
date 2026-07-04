@@ -29,6 +29,17 @@ pip install "gptme[browser]"
 playwright install chromium
 ```
 
+Optional: for screen recording (``start_recording`` / ``record_screen``), install ffmpeg:
+
+```bash
+# Linux
+sudo apt install ffmpeg
+# or: sudo pacman -S ffmpeg
+
+# macOS
+brew install ffmpeg
+```
+
 Optional: for accessibility-first control of native Linux apps (no screenshot needed),
 install the AT-SPI2 stack:
 

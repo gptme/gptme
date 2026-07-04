@@ -1109,3 +1109,86 @@ class TestCheckComputer:
 
         names = {r.name: r for r in results}
         assert "Computer: pyatspi" not in names
+
+    @patch("sys.platform", "linux")
+    @patch("shutil.which")
+    @patch.dict("os.environ", {"DISPLAY": ":1"})
+    def test_ffmpeg_present(self, mock_which):
+        """When ffmpeg is installed, the screen-recording check is OK."""
+        mock_which.side_effect = lambda t: (
+            f"/usr/bin/{t}" if t in ("xdotool", "scrot", "ffmpeg") else None
+        )
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert "Computer: ffmpeg" in names
+        assert names["Computer: ffmpeg"].status == CheckStatus.OK
+
+    @patch("sys.platform", "linux")
+    @patch("shutil.which")
+    @patch.dict("os.environ", {"DISPLAY": ":1"})
+    def test_ffmpeg_missing(self, mock_which):
+        """When ffmpeg is not installed, the screen-recording check warns with install hint."""
+        mock_which.side_effect = lambda t: (
+            f"/usr/bin/{t}" if t in ("xdotool", "scrot") else None
+        )
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert "Computer: ffmpeg" in names
+        assert names["Computer: ffmpeg"].status == CheckStatus.WARNING
+        hint = names["Computer: ffmpeg"].fix_hint or ""
+        assert "ffmpeg" in hint
+        assert "apt install ffmpeg" in hint or "brew install ffmpeg" in hint
+
+    @patch("sys.platform", "linux")
+    @patch("shutil.which")
+    @patch.dict("os.environ", {"DISPLAY": ":1"})
+    def test_ffmpeg_verbose_shows_path(self, mock_which):
+        """Verbose mode should show the ffmpeg path in details."""
+        mock_which.side_effect = lambda t: (
+            f"/usr/bin/{t}" if t in ("xdotool", "scrot", "ffmpeg") else None
+        )
+
+        results = _check_computer(verbose=True)
+
+        ffmpeg = next(r for r in results if r.name == "Computer: ffmpeg")
+        assert ffmpeg.details == "/usr/bin/ffmpeg"
+
+    @patch("sys.platform", "darwin")
+    @patch("shutil.which")
+    def test_ffmpeg_present_macos(self, mock_which):
+        """ffmpeg check should work on macOS too."""
+        mock_which.side_effect = lambda t: (
+            "/usr/bin/screencapture"
+            if t == "screencapture"
+            else "/usr/local/bin/cliclick"
+            if t == "cliclick"
+            else "/usr/local/bin/ffmpeg"
+            if t == "ffmpeg"
+            else None
+        )
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert "Computer: ffmpeg" in names
+        assert names["Computer: ffmpeg"].status == CheckStatus.OK
+
+    @patch("sys.platform", "darwin")
+    @patch("shutil.which")
+    def test_ffmpeg_missing_macos(self, mock_which):
+        """ffmpeg missing on macOS should warn with brew install hint."""
+        mock_which.side_effect = lambda t: (
+            "/usr/bin/screencapture" if t == "screencapture" else None
+        )
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert "Computer: ffmpeg" in names
+        assert names["Computer: ffmpeg"].status == CheckStatus.WARNING
+        hint = names["Computer: ffmpeg"].fix_hint or ""
+        assert "brew install ffmpeg" in hint
