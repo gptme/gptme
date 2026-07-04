@@ -119,13 +119,14 @@ def test_emits_sensitive_action_with_text_len_not_text(agent_id):
     """Sensitive actions include text length but never the raw text content."""
     mock_np = MagicMock()
     subagent_mod = _make_subagent_module(agent_id, mock_np)
-    secret = "mysecretpassword"
+    secret = "mysecretpassword🔒"
     with patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}):
         _stream_action_risk("type", text=secret)
     record = _parse_progress_call(mock_np)
     assert record["action"] == "type"
     assert record["risk"] == "sensitive"
     assert record["text_len"] == len(secret.encode())
+    assert record["text_len"] != len(secret)
     # Raw content must never appear in the emitted record
     assert secret not in json.dumps(record)
 

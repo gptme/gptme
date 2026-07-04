@@ -132,11 +132,15 @@ def _stream_action_risk(
 ) -> None:
     """Emit a live risk-label record to the parent agent's progress queue.
 
-    Called at the start of ``computer()`` and ``act_and_observe()``.  When the
+    Called by ``computer()`` after sensitive-action gating succeeds.  When the
     current execution context is a ``computer_task()`` subagent, the record is
     forwarded to the parent agent via ``notify_progress()`` so the parent can
-    track each action's risk level in real-time — rather than having to wait
-    for the subagent to finish and then call ``gptme-util computer audit-log``.
+    track each action's risk level in real-time rather than having to wait for
+    the subagent to finish and then call ``gptme-util computer audit-log``.
+
+    ``act_and_observe()`` delegates through ``computer()``, so it emits records
+    for the requested action and, on the local fallback path, for its internal
+    ``computer("wait_for_change")`` polling call.
 
     Does nothing when:
     - Not running inside a subagent (``get_current_agent_id()`` returns None)
