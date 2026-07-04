@@ -743,3 +743,87 @@ def video_frames_cmd(
     else:
         for f in frames:
             click.echo(str(f))
+
+
+@computer.command("run-task")
+@click.argument("task")
+@click.option(
+    "--timeout",
+    "-t",
+    default=300,
+    show_default=True,
+    help="Maximum seconds to wait for the task to complete.",
+)
+@click.option(
+    "--model",
+    "-m",
+    default=None,
+    metavar="MODEL",
+    help="Model override for the computer-use subagent.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Print the raw result dict as JSON instead of human-readable output.",
+)
+def run_task(task: str, timeout: int, model: str | None, as_json: bool):
+    """Run a computer-use task in an isolated subagent.
+
+    TASK is a natural-language description of what to accomplish.
+
+    The task runs inside a subagent with the 'computer-use' profile so that
+    intermediate screenshots stay inside the subagent's context — only a brief
+    result summary is returned here.  This is the 'context-efficient tool-use
+    loop until goal is achieved' pattern from gptme/gptme#216.
+
+    To review what the subagent actually did after the task completes, use::
+
+        gptme-util computer audit-log SESSION
+
+    where SESSION is the session name printed in the output.
+
+    Examples::
+
+        gptme-util computer run-task "take a screenshot and describe the desktop"
+
+        gptme-util computer run-task \\
+            "open Firefox, go to example.com, and report the page title" \\
+            --timeout 120
+
+        gptme-util computer run-task "screenshot" --json
+    """
+    from ..tools.computer import computer_task  # lazy import (heavy deps)
+
+    result = computer_task(task, timeout=timeout, model=model)
+
+    if as_json:
+        click.echo(json.dumps(result, indent=2))
+        sys.exit(0 if result.get("status") == "success" else 1)
+
+    status = result.get("status", "unknown")
+    summary = result.get("result", "")
+    agent_id = result.get("agent_id", "")
+    logdir = result.get("logdir")
+    conversation = result.get("conversation")
+
+    status_icon = {
+        "success": "✓",
+        "failure": "✗",
+        "timeout": "⏱",
+        "clarification_needed": "?",
+    }.get(status, "?")
+
+    click.echo(f"{status_icon} Status: {status}")
+    if summary:
+        click.echo(f"  Result: {summary}")
+    if agent_id:
+        click.echo(f"  Agent:  {agent_id}")
+    if conversation:
+        click.echo(f"  Session: {conversation}")
+        click.echo(f"  Audit:  gptme-util computer audit-log {conversation}")
+    if logdir:
+        click.echo(f"  Log:    {logdir}")
+
+    sys.exit(0 if status == "success" else 1)

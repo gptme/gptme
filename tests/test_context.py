@@ -482,6 +482,9 @@ def test_include_paths_directory(tmp_path, monkeypatch):
     """Test that include_paths expands directory references."""
     from gptme.util.context import include_paths
 
+    # Ensure path expansion is not suppressed (may be set in autonomous/CI environments)
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+
     # Create a directory with files
     subdir = tmp_path / "src"
     subdir.mkdir()
