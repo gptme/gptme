@@ -569,9 +569,9 @@ def print_msg(
     show_hidden: bool = False,
 ) -> None:
     """Prints the log to the console."""
-    # Quiet mode: suppress all terminal output (used by thread-mode subagents so
-    # their messages don't interleave with the parent agent's terminal output).
-    if is_output_quiet():
+    # Quiet mode: suppress terminal output (not JSON — JSON is the structured interface).
+    # Only skip if we're not in JSON mode.
+    if is_output_quiet() and not is_output_json():
         return
 
     # if not tty, force highlight=False (for tests and such)
