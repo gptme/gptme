@@ -144,6 +144,7 @@ nitpick_ignore = [
     ("py:class", "gptme.tools.python.T"),
     ("py:class", "threading.Thread"),
     ("py:class", "gptme.tools.computer.ScalingSource"),
+    ("py:class", "gptme.tools.computer.ScreenRecording"),
     ("py:class", "gptme.config.RagConfig"),
     ("py:class", "ToolFormat"),
     ("py:class", "ConfirmFunc"),
