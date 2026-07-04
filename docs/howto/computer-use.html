@@ -497,6 +497,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screenshot-and-visual-verification">Screenshot and visual verification</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#efficient-ui-loops">Efficient UI loops</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#context-efficient-multi-step-tasks">Context-efficient multi-step tasks</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#record-a-session-create-demo-videos">Record a session (create demo videos)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-inside-docker-isolated-headless-desktop">Run inside Docker (isolated headless desktop)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backend-selection-cheat-sheet">Backend selection cheat sheet</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tips">Tips</a></li>
@@ -720,6 +721,41 @@ subagent runs the full loop internally and reports back a brief summary.</p>
 </pre></div>
 </div>
 </section>
+<section id="record-a-session-create-demo-videos">
+<h2>Record a session (create demo videos)<a class="headerlink" href="#record-a-session-create-demo-videos" title="Link to this heading">#</a></h2>
+<p>Use <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">computer</span> <span class="pre">record</span></code> to capture a screen recording as an MP4, then
+<code class="docutils literal notranslate"><span class="pre">video-frames</span></code> to extract key frames for review or as visual context in gptme:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Record 30 seconds to a file (blocks until done, then prints the path)</span>
+gptme-util<span class="w"> </span>computer<span class="w"> </span>record<span class="w"> </span>/tmp/tweet-demo.mp4<span class="w"> </span>--duration<span class="w"> </span><span class="m">30</span>
+
+<span class="c1"># Record at higher fps for smoother game-like recordings</span>
+gptme-util<span class="w"> </span>computer<span class="w"> </span>record<span class="w"> </span>game.mp4<span class="w"> </span>--fps<span class="w"> </span><span class="m">24</span><span class="w"> </span>--duration<span class="w"> </span><span class="m">10</span>
+
+<span class="c1"># Extract frames for LLM review</span>
+gptme-util<span class="w"> </span>computer<span class="w"> </span>video-frames<span class="w"> </span>/tmp/tweet-demo.mp4<span class="w"> </span>--fps<span class="w"> </span><span class="m">1</span><span class="w"> </span>--limit<span class="w"> </span><span class="m">10</span>
+</pre></div>
+</div>
+<p>From IPython inside a gptme session, use <code class="docutils literal notranslate"><span class="pre">start_recording()</span></code> for async control:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Start recording, interact, then stop</span>
+<span class="n">rec</span> <span class="o">=</span> <span class="n">start_recording</span><span class="p">(</span><span class="s2">&quot;demo.mp4&quot;</span><span class="p">)</span>
+<span class="n">computer_task</span><span class="p">(</span><span class="s2">&quot;open Firefox, go to https://example.com, and describe the page&quot;</span><span class="p">)</span>
+<span class="n">path</span> <span class="o">=</span> <span class="n">rec</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>     <span class="c1"># saves the MP4</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved to </span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Or as a context manager:</span>
+<span class="k">with</span> <span class="n">start_recording</span><span class="p">(</span><span class="s2">&quot;demo.mp4&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">rec</span><span class="p">:</span>
+    <span class="n">computer_task</span><span class="p">(</span><span class="s2">&quot;open Firefox, navigate to https://x.com/compose/tweet, &quot;</span>
+                  <span class="s2">&quot;type &#39;Hello from gptme!&#39;, and click Tweet.&quot;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">rec</span><span class="o">.</span><span class="n">output_path</span><span class="p">)</span>
+
+<span class="c1"># Fixed-duration, synchronous:</span>
+<span class="n">path</span> <span class="o">=</span> <span class="n">record_screen</span><span class="p">(</span><span class="s2">&quot;demo.mp4&quot;</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Recordings use H.264 with fast-start so they play directly in any browser.
+Combine with <code class="docutils literal notranslate"><span class="pre">video-frames</span></code> to extract a small set of key frames for debugging
+or including as visual evidence in GitHub issues.</p>
+</section>
 <section id="run-inside-docker-isolated-headless-desktop">
 <h2>Run inside Docker (isolated headless desktop)<a class="headerlink" href="#run-inside-docker-isolated-headless-desktop" title="Link to this heading">#</a></h2>
 <p>For a fully isolated environment with VNC access:</p>
@@ -727,7 +763,8 @@ subagent runs the full loop internally and reports back a brief summary.</p>
 make<span class="w"> </span>run-docker-computer<span class="w">     </span><span class="c1"># start container (noVNC on :6080, gptme server on :8080)</span>
 </pre></div>
 </div>
-<p>Then connect a browser to <code class="docutils literal notranslate"><span class="pre">http://localhost:6080</span></code> to watch the agent work.</p>
+<p>Then connect a browser to <code class="docutils literal notranslate"><span class="pre">http://localhost:6080</span></code> to watch the agent work.
+Use <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">computer</span> <span class="pre">record</span></code> inside the container to capture what the agent does.</p>
 </section>
 <section id="backend-selection-cheat-sheet">
 <h2>Backend selection cheat sheet<a class="headerlink" href="#backend-selection-cheat-sheet" title="Link to this heading">#</a></h2>
@@ -776,6 +813,9 @@ make<span class="w"> </span>run-docker-computer<span class="w">     </span><span
 </tr>
 <tr class="row-even"><td><p>Multi-step task, keep parent context lean</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">computer_task(task,</span> <span class="pre">timeout=N)</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Record session for demo / debugging</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">start_recording(path)</span></code> / <code class="docutils literal notranslate"><span class="pre">record_screen(path,</span> <span class="pre">duration=N)</span></code></p></td>
 </tr>
 </tbody>
 </table>
@@ -851,6 +891,7 @@ prompts (but ensure the task is well-scoped first).</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screenshot-and-visual-verification">Screenshot and visual verification</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#efficient-ui-loops">Efficient UI loops</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#context-efficient-multi-step-tasks">Context-efficient multi-step tasks</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#record-a-session-create-demo-videos">Record a session (create demo videos)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-inside-docker-isolated-headless-desktop">Run inside Docker (isolated headless desktop)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backend-selection-cheat-sheet">Backend selection cheat sheet</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tips">Tips</a></li>

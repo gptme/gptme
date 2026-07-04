@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f3815414720&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fba69f18720&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1205,6 +1205,8 @@ The following Python functions are available:
 <span class="s">observe_desktop() -&gt; Message | None: Observe the current desktop state via screenshot.</span>
 <span class="s">act_and_observe(action: Action, text: str | None, coordinate: tuple[int, int] | None, timeout: float, settle_time: float) -&gt; list[Message]: Perform a desktop action then automatically observe the result.</span>
 <span class="s">computer_task(task: str, timeout: int, model: str | None) -&gt; dict: Run a computer-use task in a context-isolated subagent.</span>
+<span class="s">record_screen(output: str | Path | None, duration: float, fps: int, display: str | None) -&gt; Path: Record the screen for a fixed duration and return the output path.</span>
+<span class="s">start_recording(output: str | Path | None, fps: int, display: str | None) -&gt; ScreenRecording: Start recording the screen to an MP4 file.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -2645,7 +2647,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 16239</p>
+<p>Tokens: 16316</p>
 </dd></dl>
 
 <dl class="py function">
