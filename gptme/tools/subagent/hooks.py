@@ -23,24 +23,51 @@ def _get_complete_instruction(
     target: str = "orchestrator",
     *,
     supports_progress: bool = True,
+    output_schema: type | None = None,
 ) -> str:
     """Get the standard instruction for using the complete tool.
 
     Used by both thread and subprocess modes to ensure consistent behavior.
     The instruction is intentionally minimal - profile system prompts and
     task context should guide what the complete answer should contain.
+
+    Args:
+        target: Who will review the result ("orchestrator", "parent", "planner")
+        supports_progress: Whether to include the progress block instructions
+        output_schema: Optional Pydantic model class. When set, the complete
+            block must contain valid JSON matching the model's schema. The
+            instruction is extended with the expected schema.
     """
+    if output_schema is not None:
+        import json
+
+        schema_str = json.dumps(
+            output_schema.model_json_schema()
+            if hasattr(output_schema, "model_json_schema")
+            else {"type": "object"},
+            indent=2,
+        )
+        complete_block_hint = f"Valid JSON matching this schema:\n{schema_str}"
+    else:
+        complete_block_hint = "Your complete answer here."
+
     instruction = (
         "When finished, use the `complete` tool with your full answer/result.\n"
         f"Include everything the {target} needs - they shouldn't need to read the full log.\n"
         "```complete\n"
-        "Your complete answer here.\n"
+        f"{complete_block_hint}\n"
         "```\n"
         f"If you cannot proceed without more information from the {target}, use the `clarify` block instead:\n"
         "```clarify\n"
         "Your specific question here.\n"
         "```"
     )
+    if output_schema is not None:
+        instruction += (
+            "\n"
+            "IMPORTANT: Your `complete` block MUST contain valid JSON matching the schema above. "
+            "Do not include any text outside the JSON object."
+        )
     if supports_progress:
         instruction += (
             "\n"

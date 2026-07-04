@@ -205,6 +205,39 @@ class Subagent:
     # Wall-clock limit in seconds; when set, a watchdog auto-cancels after this time
     max_time: float | None = None
 
+    def _validate_schema_result(self, result: str) -> str:
+        """Validate and normalize a complete-block result against output_schema.
+
+        When output_schema is set, the complete block content must be valid JSON.
+        If it parses as valid JSON, the result is returned as a canonical JSON string
+        (re-serialized for consistency). If it fails to parse, the original string
+        is returned unchanged so the caller still gets a result (schema violation is
+        logged as a warning, not treated as a hard failure).
+
+        Args:
+            result: The raw text from the complete block.
+
+        Returns:
+            Canonical JSON string when output_schema is set and the result is valid
+            JSON; otherwise the original result string unchanged.
+        """
+        if self.output_schema is None:
+            return result
+        import json
+
+        try:
+            parsed = json.loads(result)
+            return json.dumps(parsed)
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "Subagent '%s' output_schema set but complete block is not valid JSON: %s. "
+                "Returning raw result. Snippet: %.200r",
+                self.agent_id,
+                e,
+                result,
+            )
+            return result
+
     def get_log(self) -> "LogManager":
         # noreorder
         from ...logmanager import LogManager  # fmt: skip
@@ -273,6 +306,7 @@ class Subagent:
                 result = complete_tool.content.strip()
             else:
                 result = "Task completed (no summary provided)"
+            result = self._validate_schema_result(result)
             return ReturnType(
                 "success",
                 result + f"\n\nFull log: {self.logdir}",
@@ -290,6 +324,7 @@ class Subagent:
                     result = content
                 else:
                     result = "Task completed (no summary provided)"
+                result = self._validate_schema_result(result)
                 return ReturnType(
                     "success",
                     result + f"\n\nFull log: {self.logdir}",

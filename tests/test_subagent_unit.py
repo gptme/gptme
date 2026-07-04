@@ -3279,3 +3279,137 @@ class TestSubagentParallel:
         assert "s-a" in cancelled
         # Second agent failed to start, so nothing to cancel there
         assert "s-b" not in cancelled
+
+
+# ---------------------------------------------------------------------------
+# output_schema tests
+# ---------------------------------------------------------------------------
+
+
+class _SampleSchema:
+    """Minimal Pydantic-like schema stub for testing schema hints."""
+
+    @classmethod
+    def model_json_schema(cls):
+        return {
+            "type": "object",
+            "properties": {"value": {"type": "integer"}, "label": {"type": "string"}},
+            "required": ["value", "label"],
+        }
+
+
+class TestOutputSchema:
+    """Tests for output_schema handling in complete-block parsing and instructions."""
+
+    def _make_subagent(
+        self,
+        tmp_path: Path,
+        content: str,
+        output_schema=None,
+        agent_id: str = "schema-test",
+    ) -> Subagent:
+        logdir = tmp_path / "subagent-log"
+        logdir.mkdir(exist_ok=True)
+        (logdir / "conversation.jsonl").write_text(
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": content,
+                    "timestamp": "2025-01-01T00:00:00+00:00",
+                }
+            )
+            + "\n"
+        )
+        return Subagent(
+            agent_id=agent_id,
+            prompt="task",
+            thread=None,
+            logdir=logdir,
+            model=None,
+            output_schema=output_schema,
+        )
+
+    # -- _get_complete_instruction with output_schema --
+
+    def test_instruction_without_schema_has_no_json_hint(self):
+        instruction = _get_complete_instruction()
+        assert "JSON" not in instruction
+        assert "schema" not in instruction.lower()
+
+    def test_instruction_with_schema_includes_schema_hint(self):
+        instruction = _get_complete_instruction(output_schema=_SampleSchema)
+        assert "JSON" in instruction
+        assert '"type"' in instruction  # schema JSON is embedded
+        assert "value" in instruction  # property from schema
+
+    def test_instruction_with_schema_includes_important_warning(self):
+        instruction = _get_complete_instruction(output_schema=_SampleSchema)
+        assert "IMPORTANT" in instruction
+
+    def test_instruction_without_schema_has_generic_placeholder(self):
+        instruction = _get_complete_instruction()
+        assert "Your complete answer here." in instruction
+
+    def test_instruction_with_schema_replaces_generic_placeholder(self):
+        instruction = _get_complete_instruction(output_schema=_SampleSchema)
+        assert "Your complete answer here." not in instruction
+
+    # -- _validate_schema_result --
+
+    def test_validate_schema_result_no_schema_passthrough(self, tmp_path):
+        sa = self._make_subagent(tmp_path, "anything", output_schema=None)
+        assert sa._validate_schema_result("some text") == "some text"
+
+    def test_validate_schema_result_valid_json_canonicalized(self, tmp_path):
+        sa = self._make_subagent(tmp_path, "{}", output_schema=_SampleSchema)
+        raw = '{"value":  42,  "label": "hello"}'
+        result = sa._validate_schema_result(raw)
+        # Must be valid JSON (parseable)
+        parsed = json.loads(result)
+        assert parsed["value"] == 42
+        assert parsed["label"] == "hello"
+
+    def test_validate_schema_result_invalid_json_passthrough_with_warning(
+        self, tmp_path, caplog
+    ):
+        import logging
+
+        sa = self._make_subagent(tmp_path, "{}", output_schema=_SampleSchema)
+        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.types"):
+            result = sa._validate_schema_result("not valid json {{")
+        assert result == "not valid json {{"
+        assert "not valid JSON" in caplog.text
+
+    # -- _read_log() with output_schema --
+
+    def test_read_log_with_schema_valid_json_complete_block(self, tmp_path):
+        content = '```complete\n{"value": 7, "label": "ok"}\n```'
+        sa = self._make_subagent(tmp_path, content, output_schema=_SampleSchema)
+        result = sa._read_log()
+        assert result.status == "success"
+        parsed = json.loads((result.result or "").split("\n\nFull log:")[0])
+        assert parsed == {"value": 7, "label": "ok"}
+
+    def test_read_log_with_schema_invalid_json_still_succeeds(self, tmp_path, caplog):
+        """Schema mismatch degrades gracefully — result is returned as raw text."""
+        import logging
+
+        content = "```complete\nnot json at all\n```"
+        sa = self._make_subagent(
+            tmp_path, content, output_schema=_SampleSchema, agent_id="bad-json"
+        )
+        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.types"):
+            result = sa._read_log()
+        assert result.status == "success"
+        assert "not json at all" in (result.result or "")
+        assert "not valid JSON" in caplog.text
+
+    def test_read_log_without_schema_plain_text_unchanged(self, tmp_path):
+        content = "```complete\nhello world\n```"
+        sa = self._make_subagent(tmp_path, content, output_schema=None)
+        result = sa._read_log()
+        assert result.status == "success"
+        assert "hello world" in (result.result or "")
+        # Must NOT be interpreted as JSON
+        assert result.result is not None
+        assert result.result.startswith("hello world")

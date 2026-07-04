@@ -336,10 +336,17 @@ def _create_subagent_thread(
             parent_messages = redact_secrets_from_messages(parent_messages)
         initial_msgs.append(_build_parent_context_message(parent_messages))
 
-    # Add completion instruction as a system message
+    # Add completion instruction as a system message.
+    # When output_schema is set, the instruction is extended with the expected
+    # JSON schema so the subagent knows the format to use in its complete block.
+    # output_schema is intentionally NOT passed to chat() here — the LLM-level
+    # response_format (structured JSON output) conflicts with markdown tool_format
+    # because the model can't write markdown code blocks while also being forced to
+    # output raw JSON. Schema contract is enforced at the complete-block layer in
+    # Subagent._read_log() instead.
     complete_instruction = Message(
         "system",
-        _get_complete_instruction(target),
+        _get_complete_instruction(target, output_schema=output_schema),
     )
     initial_msgs.append(complete_instruction)
 
@@ -356,7 +363,6 @@ def _create_subagent_thread(
         interactive=False,
         show_hidden=False,
         tool_format="markdown",
-        output_schema=output_schema,
     )
 
 
