@@ -25,6 +25,8 @@ GATE_ACTIONS_COMPUTER: frozenset[str] = frozenset({"key", "type", "left_click_dr
 #: Browser actions that handle potentially private data.
 GATE_ACTIONS_BROWSER: frozenset[str] = frozenset({"fill_element"})
 
+VALID_GATE_MODES: frozenset[str] = frozenset({"", "0", "1", "auto-allow"})
+
 
 def _gate_mode() -> str:
     """Return the current gate mode from the environment.
@@ -35,7 +37,14 @@ def _gate_mode() -> str:
       "1"          — gate enabled (prompt in TTY, block otherwise)
       "auto-allow" — gate enabled but auto-approves without prompting
     """
-    return os.environ.get("GPTME_COMPUTER_CONFIRM_SENSITIVE", "")
+    raw_mode = os.environ.get("GPTME_COMPUTER_CONFIRM_SENSITIVE", "")
+    mode = raw_mode.strip().lower()
+    if mode not in VALID_GATE_MODES:
+        raise ValueError(
+            "Invalid GPTME_COMPUTER_CONFIRM_SENSITIVE value "
+            f"{raw_mode!r}; expected one of: unset, '0', '1', 'auto-allow'."
+        )
+    return mode
 
 
 def sensitive_action_gate(

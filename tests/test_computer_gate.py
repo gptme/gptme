@@ -44,6 +44,17 @@ def test_gate_disabled_explicit_zero(monkeypatch):
     sensitive_action_gate("type", "secret")  # must not raise
 
 
+def test_gate_rejects_unknown_mode(monkeypatch):
+    monkeypatch.setenv("GPTME_COMPUTER_CONFIRM_SENSITIVE", "true")
+    with pytest.raises(ValueError, match="GPTME_COMPUTER_CONFIRM_SENSITIVE"):
+        sensitive_action_gate("type", "secret")
+
+
+def test_gate_normalizes_mode(monkeypatch):
+    monkeypatch.setenv("GPTME_COMPUTER_CONFIRM_SENSITIVE", " AUTO-ALLOW ")
+    sensitive_action_gate("type", "secret")  # must not raise
+
+
 def test_gate_does_not_block_non_sensitive_actions(monkeypatch):
     """Non-sensitive actions are always allowed regardless of gate mode."""
     monkeypatch.setenv("GPTME_COMPUTER_CONFIRM_SENSITIVE", "1")

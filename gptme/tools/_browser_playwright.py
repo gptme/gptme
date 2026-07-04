@@ -746,9 +746,9 @@ def fill_element(selector: str, value: str) -> str:
         selector: Playwright selector for the input/textarea element.
         value: Text to fill into the field.
     """
-    sensitive_action_gate("fill_element", value, is_browser=True)
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
+    sensitive_action_gate("fill_element", value, is_browser=True)
     logger.info(f"Filling element '{selector}' with value")
     return _execute_with_retry(_fill, selector, value)
 

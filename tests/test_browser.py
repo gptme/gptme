@@ -349,8 +349,9 @@ def test_click_without_open_page():
         click_element("#some-button")
 
 
-def test_fill_without_open_page():
+def test_fill_without_open_page(monkeypatch):
     """Test that fill_element fails gracefully without open_page."""
+    monkeypatch.setenv("GPTME_COMPUTER_CONFIRM_SENSITIVE", "1")
     close_page()  # Ensure no page is open
     with pytest.raises(RuntimeError, match="No page is open"):
         fill_element("#some-input", "value")
