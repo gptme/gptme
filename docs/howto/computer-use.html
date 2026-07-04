@@ -490,7 +490,10 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#start-a-computer-use-session">Start a computer-use session</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-automation-structured-first">Web automation (structured-first)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authenticated-sessions-save-and-reuse-login-state">Authenticated sessions (save and reuse login state)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#desktop-native-app-control">Desktop / native app control</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#desktop-native-app-control">Desktop / native app control</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#accessibility-first-linux-at-spi2-macos">Accessibility-first (Linux AT-SPI2 / macOS)</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screenshot-and-visual-verification">Screenshot and visual verification</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#efficient-ui-loops">Efficient UI loops</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#context-efficient-multi-step-tasks">Context-efficient multi-step tasks</a></li>
@@ -534,6 +537,12 @@ pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot
 playwright<span class="w"> </span>install<span class="w"> </span>chromium
 </pre></div>
 </div>
+<p>Optional: for accessibility-first control of native Linux apps (no screenshot needed),
+install the AT-SPI2 stack:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>python3-pyatspi
+<span class="c1"># or: sudo pacman -S python-pyatspi</span>
+</pre></div>
+</div>
 <p>For headless Linux environments, start an Xvfb display first:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>Xvfb<span class="w"> </span>:1<span class="w"> </span>-screen<span class="w"> </span><span class="m">0</span><span class="w"> </span>1024x768x24<span class="w"> </span><span class="p">&amp;</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">DISPLAY</span><span class="o">=</span>:1
@@ -565,6 +574,11 @@ cheaper, and more reliable when the page has a DOM you can address:</p>
 <li><p>Use <code class="docutils literal notranslate"><span class="pre">open_page()</span></code> + <code class="docutils literal notranslate"><span class="pre">click_element()</span></code> / <code class="docutils literal notranslate"><span class="pre">fill_element()</span></code> when it needs to interact</p></li>
 <li><p>Fall back to screenshots only for canvas, layout verification, or image-heavy content</p></li>
 </ol>
+<p>Use <code class="docutils literal notranslate"><span class="pre">observe_web(url)</span></code> as a single-call shortcut — it calls <code class="docutils literal notranslate"><span class="pre">snapshot_url()</span></code> internally
+and optionally appends a screenshot in one call:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="s1">&#39;use observe_web() to read https://news.ycombinator.com and summarize the top story&#39;</span>
+</pre></div>
+</div>
 <p>Fill a form without screenshots:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span><span class="s1">&#39;go to the login form at http://localhost:3000/login, fill username &quot;alice&quot; and password &quot;hunter2&quot;, click submit&#39;</span>
@@ -608,6 +622,29 @@ version control.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s1">&#39;open the calculator app, compute 137 * 42, and tell me the result&#39;</span>
 </pre></div>
 </div>
+<section id="accessibility-first-linux-at-spi2-macos">
+<h3>Accessibility-first (Linux AT-SPI2 / macOS)<a class="headerlink" href="#accessibility-first-linux-at-spi2-macos" title="Link to this heading">#</a></h3>
+<p>On Linux (with <code class="docutils literal notranslate"><span class="pre">python3-pyatspi</span></code> installed) and macOS, prefer accessibility-first
+interaction over pixel coordinates — it’s robust against window position and size changes:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Inspect the native accessibility tree of all open apps (no screenshot needed)</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s1">&#39;use computer(&quot;accessibility_tree&quot;) to list the interactive elements in the open dialog&#39;</span>
+
+<span class="c1"># Click an element by role and name — no coordinates needed</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s1">&#39;click the Save button using click_accessible_element&#39;</span>
+</pre></div>
+</div>
+<p>In IPython inside a gptme session:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Linux: role names like &quot;push button&quot;, &quot;entry&quot;, &quot;check box&quot;</span>
+<span class="n">computer</span><span class="p">(</span><span class="s1">&#39;accessibility_tree&#39;</span><span class="p">)</span>
+<span class="n">computer</span><span class="p">(</span><span class="s1">&#39;click_accessible_element&#39;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s1">&#39;push button:Save&#39;</span><span class="p">)</span>
+
+<span class="c1"># macOS: role names use AX prefix</span>
+<span class="n">computer</span><span class="p">(</span><span class="s1">&#39;accessibility_tree&#39;</span><span class="p">)</span>
+<span class="n">computer</span><span class="p">(</span><span class="s1">&#39;click_accessible_element&#39;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s1">&#39;AXButton:Save&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Fall back to coordinate-based <code class="docutils literal notranslate"><span class="pre">left_click</span></code> only for apps without accessibility support
+(games, canvas UIs, some Electron apps).</p>
 <p>The observe-act-verify loop:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span><span class="s1">&#39;take a screenshot to see the current state&#39;</span><span class="w"> </span><span class="se">\</span>
@@ -617,8 +654,16 @@ version control.</p>
 </pre></div>
 </div>
 </section>
+</section>
 <section id="screenshot-and-visual-verification">
 <h2>Screenshot and visual verification<a class="headerlink" href="#screenshot-and-visual-verification" title="Link to this heading">#</a></h2>
+<p>Use <code class="docutils literal notranslate"><span class="pre">observe_desktop()</span></code> as a single-call shortcut for taking a desktop screenshot with
+explicit observation intent — equivalent to <code class="docutils literal notranslate"><span class="pre">computer('screenshot')</span></code> but signals the
+“look” phase of a look-act-look loop:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># From IPython inside a gptme session</span>
+<span class="n">msg</span> <span class="o">=</span> <span class="n">observe_desktop</span><span class="p">()</span>   <span class="c1"># returns a screenshot message, or None if capture failed</span>
+</pre></div>
+</div>
 <p>Take a screenshot and analyse what’s on screen:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer,+vision<span class="w"> </span><span class="s1">&#39;screenshot the screen and describe any UI errors you see&#39;</span>
 </pre></div>
@@ -631,8 +676,16 @@ version control.</p>
 </section>
 <section id="efficient-ui-loops">
 <h2>Efficient UI loops<a class="headerlink" href="#efficient-ui-loops" title="Link to this heading">#</a></h2>
-<p>Use <code class="docutils literal notranslate"><span class="pre">wait_for_change</span></code> after triggering actions so the agent waits for the UI to settle
-instead of polling with repeated screenshots:</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">act_and_observe(action,</span> <span class="pre">...)</span></code> to perform an action and automatically get a screenshot
+once the screen settles — one call instead of separate action + wait + screenshot:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># From IPython inside a gptme session</span>
+<span class="n">msgs</span> <span class="o">=</span> <span class="n">act_and_observe</span><span class="p">(</span><span class="s2">&quot;left_click&quot;</span><span class="p">,</span> <span class="n">coordinate</span><span class="o">=</span><span class="p">(</span><span class="mi">760</span><span class="p">,</span> <span class="mi">540</span><span class="p">))</span>   <span class="c1"># click then observe</span>
+<span class="n">msgs</span> <span class="o">=</span> <span class="n">act_and_observe</span><span class="p">(</span><span class="s2">&quot;window_focus&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">&quot;Terminal&quot;</span><span class="p">)</span>        <span class="c1"># focus then observe</span>
+<span class="n">msgs</span> <span class="o">=</span> <span class="n">act_and_observe</span><span class="p">(</span><span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">&quot;ls -la</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>               <span class="c1"># type then observe</span>
+</pre></div>
+</div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">wait_for_change</span></code> after triggering actions when you need a longer timeout or more
+control than <code class="docutils literal notranslate"><span class="pre">act_and_observe</span></code>’s 3-second default:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span><span class="s1">&#39;click the submit button, then wait for the screen to change and describe the result&#39;</span>
 </pre></div>
@@ -685,19 +738,31 @@ make<span class="w"> </span>run-docker-computer<span class="w">     </span><span
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p>Read a web page</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">snapshot_url(url)</span></code> (no screenshot needed)</p></td>
+<tr class="row-even"><td><p>Read a web page (no screenshot)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">observe_web(url)</span></code> or <code class="docutils literal notranslate"><span class="pre">snapshot_url(url)</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p>Fill a form or click a link</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">open_page(url)</span></code> + <code class="docutils literal notranslate"><span class="pre">click_element()</span></code> / <code class="docutils literal notranslate"><span class="pre">fill_element()</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>Visual layout check / canvas</p></td>
+<tr class="row-even"><td><p>Observe current desktop state</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">observe_desktop()</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Visual layout check / canvas</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">computer('screenshot')</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>Wait for UI to settle</p></td>
+<tr class="row-even"><td><p>Inspect native app elements (Linux/macOS)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">computer('accessibility_tree')</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Click native element by role + name</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">computer('click_accessible_element',</span> <span class="pre">text='push</span> <span class="pre">button:Save')</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Wait for UI to settle</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">computer('wait_for_change')</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>Click a native app</p></td>
+<tr class="row-odd"><td><p>Act then observe in one call</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">act_and_observe(action,</span> <span class="pre">...)</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Click a native app by coordinate</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">computer('left_click',</span> <span class="pre">coordinate=(x,</span> <span class="pre">y))</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p>Type text in native app</p></td>
@@ -721,7 +786,8 @@ make<span class="w"> </span>run-docker-computer<span class="w">     </span><span
 <ul class="simple">
 <li><p><strong>Use the <code class="docutils literal notranslate"><span class="pre">computer-use</span></code> profile</strong>: it sets the backend selection policy so the agent
 picks the right tool automatically without extra prompting.</p></li>
-<li><p><strong>Prefer <code class="docutils literal notranslate"><span class="pre">snapshot_url</span></code> for web</strong>: structured ARIA trees are faster and use no vision tokens.</p></li>
+<li><p><strong>Prefer <code class="docutils literal notranslate"><span class="pre">observe_web(url)</span></code> for web</strong>: it captures a structured ARIA snapshot in one
+call; use <code class="docutils literal notranslate"><span class="pre">snapshot_url</span></code> directly when you need lower-level control.</p></li>
 <li><p><strong>Combine with <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code></strong>: add <code class="docutils literal notranslate"><span class="pre">-n</span></code> for scripted or CI use where you don’t want
 prompts (but ensure the task is well-scoped first).</p></li>
 <li><p><strong>Describe visual outcomes</strong>: “confirm the dialog closed” works better than “click OK and move on”.</p></li>
@@ -778,7 +844,10 @@ prompts (but ensure the task is well-scoped first).</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#start-a-computer-use-session">Start a computer-use session</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-automation-structured-first">Web automation (structured-first)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authenticated-sessions-save-and-reuse-login-state">Authenticated sessions (save and reuse login state)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#desktop-native-app-control">Desktop / native app control</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#desktop-native-app-control">Desktop / native app control</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#accessibility-first-linux-at-spi2-macos">Accessibility-first (Linux AT-SPI2 / macOS)</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screenshot-and-visual-verification">Screenshot and visual verification</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#efficient-ui-loops">Efficient UI loops</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#context-efficient-multi-step-tasks">Context-efficient multi-step tasks</a></li>

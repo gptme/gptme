@@ -29,6 +29,14 @@ pip install "gptme[browser]"
 playwright install chromium
 ```
 
+Optional: for accessibility-first control of native Linux apps (no screenshot needed),
+install the AT-SPI2 stack:
+
+```bash
+sudo apt install python3-pyatspi
+# or: sudo pacman -S python-pyatspi
+```
+
 For headless Linux environments, start an Xvfb display first:
 
 ```bash
@@ -64,6 +72,13 @@ gptme will automatically:
 1. Use `snapshot_url()` to read the page's ARIA/accessibility tree
 2. Use `open_page()` + `click_element()` / `fill_element()` when it needs to interact
 3. Fall back to screenshots only for canvas, layout verification, or image-heavy content
+
+Use `observe_web(url)` as a single-call shortcut — it calls `snapshot_url()` internally
+and optionally appends a screenshot in one call:
+
+```bash
+gptme --agent-profile computer-use 'use observe_web() to read https://news.ycombinator.com and summarize the top story'
+```
 
 Fill a form without screenshots:
 
@@ -117,6 +132,34 @@ For native apps or anything not reachable via a URL, the `computer` tool takes o
 gptme --tools +computer 'open the calculator app, compute 137 * 42, and tell me the result'
 ```
 
+### Accessibility-first (Linux AT-SPI2 / macOS)
+
+On Linux (with `python3-pyatspi` installed) and macOS, prefer accessibility-first
+interaction over pixel coordinates — it's robust against window position and size changes:
+
+```bash
+# Inspect the native accessibility tree of all open apps (no screenshot needed)
+gptme --tools +computer 'use computer("accessibility_tree") to list the interactive elements in the open dialog'
+
+# Click an element by role and name — no coordinates needed
+gptme --tools +computer 'click the Save button using click_accessible_element'
+```
+
+In IPython inside a gptme session:
+
+```python
+# Linux: role names like "push button", "entry", "check box"
+computer('accessibility_tree')
+computer('click_accessible_element', text='push button:Save')
+
+# macOS: role names use AX prefix
+computer('accessibility_tree')
+computer('click_accessible_element', text='AXButton:Save')
+```
+
+Fall back to coordinate-based `left_click` only for apps without accessibility support
+(games, canvas UIs, some Electron apps).
+
 The observe-act-verify loop:
 
 ```bash
@@ -128,6 +171,15 @@ gptme --tools +computer \
 ```
 
 ## Screenshot and visual verification
+
+Use `observe_desktop()` as a single-call shortcut for taking a desktop screenshot with
+explicit observation intent — equivalent to `computer('screenshot')` but signals the
+"look" phase of a look-act-look loop:
+
+```python
+# From IPython inside a gptme session
+msg = observe_desktop()   # returns a screenshot message, or None if capture failed
+```
 
 Take a screenshot and analyse what's on screen:
 
@@ -144,8 +196,18 @@ gptme --agent-profile computer-use \
 
 ## Efficient UI loops
 
-Use `wait_for_change` after triggering actions so the agent waits for the UI to settle
-instead of polling with repeated screenshots:
+Use `act_and_observe(action, ...)` to perform an action and automatically get a screenshot
+once the screen settles — one call instead of separate action + wait + screenshot:
+
+```python
+# From IPython inside a gptme session
+msgs = act_and_observe("left_click", coordinate=(760, 540))   # click then observe
+msgs = act_and_observe("window_focus", text="Terminal")        # focus then observe
+msgs = act_and_observe("type", text="ls -la\n")               # type then observe
+```
+
+Use `wait_for_change` after triggering actions when you need a longer timeout or more
+control than `act_and_observe`'s 3-second default:
 
 ```bash
 gptme --tools +computer \
@@ -202,11 +264,15 @@ Then connect a browser to `http://localhost:6080` to watch the agent work.
 
 | Situation | Tool to use |
 |-----------|-------------|
-| Read a web page | `snapshot_url(url)` (no screenshot needed) |
+| Read a web page (no screenshot) | `observe_web(url)` or `snapshot_url(url)` |
 | Fill a form or click a link | `open_page(url)` + `click_element()` / `fill_element()` |
+| Observe current desktop state | `observe_desktop()` |
 | Visual layout check / canvas | `computer('screenshot')` |
+| Inspect native app elements (Linux/macOS) | `computer('accessibility_tree')` |
+| Click native element by role + name | `computer('click_accessible_element', text='push button:Save')` |
 | Wait for UI to settle | `computer('wait_for_change')` |
-| Click a native app | `computer('left_click', coordinate=(x, y))` |
+| Act then observe in one call | `act_and_observe(action, ...)` |
+| Click a native app by coordinate | `computer('left_click', coordinate=(x, y))` |
 | Type text in native app | `computer('type', text='...')` |
 | Focus a window by name | `computer('window_focus', text='pattern')` |
 | Scroll in native UI | `computer('scroll', coordinate=(x,y), text='down')` |
@@ -216,7 +282,8 @@ Then connect a browser to `http://localhost:6080` to watch the agent work.
 
 - **Use the `computer-use` profile**: it sets the backend selection policy so the agent
   picks the right tool automatically without extra prompting.
-- **Prefer `snapshot_url` for web**: structured ARIA trees are faster and use no vision tokens.
+- **Prefer `observe_web(url)` for web**: it captures a structured ARIA snapshot in one
+  call; use `snapshot_url` directly when you need lower-level control.
 - **Combine with `--non-interactive`**: add `-n` for scripted or CI use where you don't want
   prompts (but ensure the task is well-scoped first).
 - **Describe visual outcomes**: "confirm the dialog closed" works better than "click OK and move on".
