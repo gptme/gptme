@@ -114,6 +114,22 @@ class TestScreenRecording:
             rec.stop()
         proc.terminate.assert_not_called()
 
+    def test_stop_repeats_cached_early_exit_error(self, tmp_path):
+        from gptme.tools.computer import ScreenRecording
+
+        proc = mock.MagicMock()
+        proc.poll.return_value = 1
+        proc.returncode = 1
+        stderr = tempfile.TemporaryFile()
+        stderr.write(b"Cannot open display :99\n")
+        stderr.flush()
+        rec = ScreenRecording(proc, tmp_path / "failed-twice.mp4", stderr)
+
+        with pytest.raises(RuntimeError, match="Cannot open display"):
+            rec.stop()
+        with pytest.raises(RuntimeError, match="Cannot open display"):
+            rec.stop()
+
     def test_context_manager_calls_stop(self, tmp_path):
         from gptme.tools.computer import ScreenRecording
 

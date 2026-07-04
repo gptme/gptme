@@ -2212,6 +2212,7 @@ class ScreenRecording:
         self._stderr = stderr
         self.output_path = output_path
         self._stop_lock = threading.Lock()
+        self._stop_error: str | None = None
         self._stopped = threading.Event()
 
     def stop(self) -> Path:
@@ -2221,10 +2222,14 @@ class ScreenRecording:
             Path to the completed video file.
         """
         if self._stopped.is_set():
+            if self._stop_error is not None:
+                raise RuntimeError(self._stop_error)
             return self.output_path
 
         with self._stop_lock:
             if self._stopped.is_set():
+                if self._stop_error is not None:
+                    raise RuntimeError(self._stop_error)
                 return self.output_path
             returncode = self._process.poll()
             if returncode is not None:
@@ -2238,6 +2243,8 @@ class ScreenRecording:
                     )
                     if diagnostic:
                         message += f":\n{diagnostic}"
+                    self._stop_error = message
+                    self._stopped.set()
                     raise RuntimeError(message)
                 self._stopped.set()
                 return self.output_path
