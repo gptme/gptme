@@ -164,11 +164,11 @@ def _discover_cursor_sessions(cursor_dir: Path | None = None) -> list[Path]:
     """
     if cursor_dir is None:
         cursor_dir = Path.home() / ".cursor" / "conversations"
-    if not cursor_dir.exists():
-        return []
-    results: list[Path] = sorted(cursor_dir.glob("*/conversation.json"))
     # cursor-chat-history.json lives at the .cursor/ root, not under conversations/
     alt = cursor_dir.parent / "cursor-chat-history.json"
+    if not cursor_dir.exists():
+        return [alt] if alt.exists() else []
+    results: list[Path] = sorted(cursor_dir.glob("*/conversation.json"))
     if alt.exists():
         results.append(alt)
     return results

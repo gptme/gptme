@@ -58,6 +58,22 @@ def test_discover_cursor_sessions_alternate_only(tmp_path):
     assert results == [alt_file]
 
 
+def test_discover_cursor_sessions_no_conversations_dir(tmp_path):
+    """Returns cursor-chat-history.json even when conversations/ dir does not exist."""
+    conv_dir = tmp_path / "conversations"  # intentionally NOT created
+    alt_file = tmp_path / "cursor-chat-history.json"
+    alt_file.write_text(json.dumps({"allConversations": []}))
+    results = _discover_cursor_sessions(conv_dir)
+    assert results == [alt_file]
+
+
+def test_discover_cursor_sessions_neither_exists(tmp_path):
+    """Returns empty list when neither conversations/ nor alt file exists."""
+    conv_dir = tmp_path / "conversations"  # intentionally NOT created
+    results = _discover_cursor_sessions(conv_dir)
+    assert results == []
+
+
 def test_discover_cursor_sessions_multiple(tmp_path):
     """Returns all conversation.json files sorted alphabetically."""
     for uid in ("bbb-222", "aaa-111"):
