@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from ...message import Message, set_output_format
+from ...message import Message
 from .. import get_tools, load_tool, set_tools
 from .._allowlist import (
     is_hint_pattern,
@@ -350,13 +350,16 @@ def _create_subagent_thread(
     )
     initial_msgs.append(complete_instruction)
 
-    # Suppress terminal output for thread-mode subagents: each thread has its own
-    # ContextVar copy (Python's threading semantics), so setting "quiet" here only
-    # affects this thread and never bleeds into the parent's output stream.
-    set_output_format("quiet")
-
     # Note: workspace parameter is always passed to chat() (required parameter)
     # Workspace context in messages is controlled by initial_msgs
+    #
+    # Suppress terminal output for thread-mode subagents via output_format="quiet":
+    # each thread has its own ContextVar copy (Python's threading semantics), so
+    # this only affects this thread and never bleeds into the parent's output
+    # stream. Passing it through chat()'s own save/restore machinery (rather than
+    # calling set_output_format() before the call) is required — chat() itself
+    # calls set_output_format(output_format) at its start, which would otherwise
+    # immediately override quiet mode back to the default "text".
     chat(
         prompt_msgs,
         initial_msgs,
@@ -368,6 +371,7 @@ def _create_subagent_thread(
         interactive=False,
         show_hidden=False,
         tool_format="markdown",
+        output_format="quiet",
     )
 
 

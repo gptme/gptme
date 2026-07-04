@@ -332,7 +332,7 @@ def reply(
         temperature=temperature,
         top_p=top_p,
     )
-    if not json_mode:
+    if not json_mode and not is_output_quiet():
         rprint(" " * shutil.get_terminal_size().columns, end="\r")
         rprint(f"{prompt_assistant(agent_name)}: {response}")
     return Message("assistant", response, metadata=metadata)
