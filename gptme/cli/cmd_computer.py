@@ -296,7 +296,23 @@ def computer():
     is_flag=True,
     help="Output newline-delimited JSON (one record per line). Useful for streaming to log aggregators.",
 )
-def audit_log(conversation: str | None, last: int, as_json: bool, as_jsonl: bool):
+@click.option(
+    "--agent-id",
+    "agent_id",
+    default=None,
+    help=(
+        "computer_task() agent ID to audit (e.g. 'computer-task-abc12345'). "
+        "Automatically resolves the subagent conversation name. "
+        "Use the 'agent_id' key from the computer_task() result dict."
+    ),
+)
+def audit_log(
+    conversation: str | None,
+    last: int,
+    as_json: bool,
+    as_jsonl: bool,
+    agent_id: str | None,
+):
     """Extract computer-use actions from session trajectories.
 
     Reads conversation JSONL logs (the authoritative audit trail) and prints a
@@ -308,6 +324,9 @@ def audit_log(conversation: str | None, last: int, as_json: bool, as_jsonl: bool
     CONVERSATION is a conversation name or ID. Omit to scan the most-recent
     session(s) (controlled by --last).
 
+    Use --agent-id to audit a specific computer_task() run by its agent ID.
+    The agent ID comes from the 'agent_id' key in the dict returned by computer_task().
+
     Examples:
 
     \b
@@ -316,10 +335,31 @@ def audit_log(conversation: str | None, last: int, as_json: bool, as_jsonl: bool
         gptme-util computer audit-log my-session-name --json
         gptme-util computer audit-log my-session-name --jsonl
         gptme-util computer audit-log --jsonl | jq 'select(.risk_level == "sensitive")'
+        gptme-util computer audit-log --agent-id computer-task-abc12345
     """
     logs_dir = get_logs_dir()
 
-    if conversation:
+    # --agent-id is a shortcut: computer_task() returns agent_id like
+    # "computer-task-abc123", but the conversation is stored as
+    # "subagent-computer-task-abc123". Resolve automatically.
+    if agent_id is not None:
+        # The subagent conversation is stored with a "subagent-" prefix.
+        subagent_conv = f"subagent-{agent_id}"
+        conv_path = logs_dir / subagent_conv / "conversation.jsonl"
+        if not conv_path.exists():
+            # Also try without prefix (backward compat / alternative storage)
+            conv_path_bare = logs_dir / agent_id / "conversation.jsonl"
+            if conv_path_bare.exists():
+                conv_path = conv_path_bare
+            else:
+                click.echo(
+                    f"Error: no conversation found for agent-id '{agent_id}'.\n"
+                    f"Looked for: {logs_dir / subagent_conv} and {logs_dir / agent_id}",
+                    err=True,
+                )
+                sys.exit(1)
+        paths = [conv_path]
+    elif conversation:
         # Single named conversation
         conv_path = logs_dir / conversation / "conversation.jsonl"
         if not conv_path.exists():

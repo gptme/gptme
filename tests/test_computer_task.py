@@ -265,3 +265,72 @@ def test_computer_task_registered_in_tool_spec():
     assert "computer_task" in fn_names, (
         f"computer_task not found in tool.functions; found: {fn_names}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Tests for logdir / conversation in result (audit trail discoverability)
+# ---------------------------------------------------------------------------
+
+
+def test_computer_task_result_includes_logdir_and_conversation(monkeypatch, tmp_path):
+    """When the subagent has a logdir, result carries 'logdir' and 'conversation'."""
+    from unittest.mock import MagicMock
+
+    import gptme.tools.subagent as _sa_mod
+    import gptme.tools.subagent.types as _sa_types
+    from gptme.tools.computer import computer_task
+
+    fake_logdir = tmp_path / "subagent-computer-task-deadbeef"
+    fake_logdir.mkdir()
+
+    fake_sa = MagicMock()
+    fake_sa.agent_id = None  # will be set during the call
+    fake_sa.logdir = fake_logdir
+
+    spawned_ids: list[str] = []
+
+    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
+        spawned_ids.append(agent_id)
+        fake_sa.agent_id = agent_id
+
+    def fake_wait(agent_id, timeout=300):
+        return _make_status("success", "Done.")
+
+    monkeypatch.setattr(_sa_mod, "subagent", fake_subagent)
+    monkeypatch.setattr(_sa_mod, "subagent_wait", fake_wait)
+
+    monkeypatch.setattr(_sa_types, "_subagents", [fake_sa])
+
+    result = computer_task("take a screenshot")
+
+    assert "logdir" in result, "result should include 'logdir'"
+    assert "conversation" in result, "result should include 'conversation'"
+    assert result["logdir"] == str(fake_logdir)
+    assert result["conversation"] == fake_logdir.name
+
+
+def test_computer_task_result_missing_logdir_does_not_crash(monkeypatch):
+    """If the subagent is not in the registry (shouldn't happen), result is still returned."""
+    import gptme.tools.subagent as _sa_mod
+    import gptme.tools.subagent.types as _sa_types
+    from gptme.tools.computer import computer_task
+
+    def fake_subagent(agent_id, prompt, profile=None, model=None, **kw):
+        pass
+
+    def fake_wait(agent_id, timeout=300):
+        return _make_status("success", "Done.")
+
+    monkeypatch.setattr(_sa_mod, "subagent", fake_subagent)
+    monkeypatch.setattr(_sa_mod, "subagent_wait", fake_wait)
+    # Empty _subagents — subagent lookup fails gracefully
+    monkeypatch.setattr(_sa_types, "_subagents", [])
+
+    result = computer_task("take a screenshot")
+
+    # Status and agent_id are always present
+    assert result["status"] == "success"
+    assert "agent_id" in result
+    # logdir / conversation absent when lookup fails — that's fine
+    assert result.get("logdir") is None
+    assert result.get("conversation") is None

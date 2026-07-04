@@ -2310,16 +2310,19 @@ def computer_task(
         model: Optional model override for the subagent.
 
     Returns:
-        Status dict with keys ``status`` (``"success"`` / ``"failure"`` /
-        ``"clarification_needed"`` / ``"timeout"``) and ``result`` (text
-        summary from the subagent).
+        Status dict with keys:
+
+        - ``status``: ``"success"`` / ``"failure"`` / ``"clarification_needed"`` / ``"timeout"``
+        - ``result``: text summary from the subagent
+        - ``agent_id``: subagent identifier — pass to ``subagent_read_log()`` for the full transcript
+        - ``conversation``: conversation name for the audit CLI (``gptme-util computer audit-log CONVERSATION``)
+        - ``logdir``: absolute path to the subagent's conversation directory (str)
+
         ``"clarification_needed"`` is returned if the subagent needs more
         information before it can complete the task.
         ``"timeout"`` is returned when the wall-clock deadline is reached before
         the subagent finishes. The worker thread may still wind down in the
         background, but callers immediately see the terminal timeout result.
-        Call ``subagent_read_log(agent_id)`` for the full step-by-step
-        transcript — the dict also carries the ``agent_id`` key for that.
 
     Example (from IPython in a gptme session)::
 
@@ -2331,15 +2334,18 @@ def computer_task(
         )
         print(result["status"], result["result"])
 
-        # Check if the task produced a file
-        result = computer_task(
-            "Take a screenshot and save it to /tmp/desktop.png"
-        )
-        print(result["status"])
+        # Audit what the subagent actually did (computer-use actions only)
+        import subprocess
+        subprocess.run(["gptme-util", "computer", "audit-log", result["conversation"]])
+
+        # Read the full step-by-step transcript
+        from gptme.tools.subagent import subagent_read_log
+        print(subagent_read_log(result["agent_id"]))
     """
     import uuid as _uuid
 
     from .subagent import subagent, subagent_wait
+    from .subagent.types import _subagents, _subagents_lock
 
     agent_id = f"computer-task-{_uuid.uuid4().hex[:8]}"
     subagent(
@@ -2351,6 +2357,15 @@ def computer_task(
     )
     result = subagent_wait(agent_id, timeout=timeout)
     result["agent_id"] = agent_id
+
+    # Look up the subagent's logdir so callers can find the audit trail without
+    # needing to know that the conversation is stored as "subagent-{agent_id}".
+    with _subagents_lock:
+        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+    if sa is not None:
+        result["logdir"] = str(sa.logdir)
+        result["conversation"] = sa.logdir.name
+
     return result
 
 
