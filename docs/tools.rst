@@ -103,6 +103,96 @@ Subagent
     :members:
     :noindex:
 
+Subagent Isolation Contract
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When spawning a subagent you need to know exactly what it inherits from the parent
+and what it starts fresh. There are four dimensions:
+
+**1. Workspace config loading**
+
+*Thread mode* (default, ``use_subprocess=False``):
+  The subagent inherits the parent's *already-assembled* workspace context —
+  the ``[prompt] files`` from ``gptme.toml`` and the ``context_cmd`` output as
+  they were loaded for the parent session. It does **not** re-read from the
+  subagent's working directory, so a subdirectory with its own ``gptme.toml``
+  will not be picked up automatically.
+
+*Subprocess mode* (``use_subprocess=True``):
+  Spawns a fresh ``gptme`` process with ``workdir`` as the CWD, which naturally
+  loads that directory's ``gptme.toml``. Use this when you want subagents to pick
+  up directory-local workspace config.
+
+Fine-grained control:
+
+- ``context_mode="selective"`` + ``context_include`` — share only specific components
+  (``"agent"``, ``"tools"``, ``"workspace"``) instead of the full workspace.
+
+- ``context_window=N`` — limit how many inherited context messages are forwarded
+  (``0`` = none, ``None`` = all).
+
+- ``context_turns=N`` — forward the last N turns of the parent conversation.
+
+**2. Tool and state inheritance**
+
+By default the subagent starts with the same tool list as the parent (both threads
+share the same initial snapshot; contextvars are thread-isolated so the parent's
+tool state cannot be mutated by the subagent).
+
+Three ways to restrict tools:
+
+- ``profile="explorer"`` (or any built-in profile) — applies a tool allowlist at spawn
+  time. Built-in profiles: ``explorer`` (read-only), ``researcher``, ``developer``
+  (full), ``verifier`` (read-only, always subprocess + isolated).
+
+- ``isolated=True`` — runs the subagent in a git worktree so filesystem writes don't
+  affect the parent repo. The worktree is auto-cleaned after completion.
+
+- ``redact_secrets=True`` (default) — scrubs common secret patterns (API keys, tokens,
+  passwords) from workspace context messages before they reach the subagent.
+
+Signal tools (``complete``, ``clarify``, ``progress``) are always loaded for every
+subagent regardless of allowlist — they are how the subagent communicates back.
+
+**3. Cancellation and timeout**
+
+Subagent termination is cooperative, not pre-emptive:
+
+- ``max_time`` (seconds) — triggers a cancel signal to the running subagent thread;
+  the subagent can check this and stop cleanly. No hard kill in thread mode.
+
+- ``timeout`` (default 1800 s) — subprocess monitor kills the child process after
+  this many seconds. Only applies in subprocess mode.
+
+- The parent does not block waiting for subagents. Completion is delivered via the
+  ``LOOP_CONTINUE`` hook, which re-enters the parent's loop with a notification
+  message.
+
+**4. Child transcript and result delivery**
+
+Subagents always start with a **fresh conversation** — they do not inherit the parent's
+message history by default. The result/transcript lifecycle:
+
+- ``context_turns=N`` — the parent's last N turns are prepended to the subagent's
+  conversation as context.
+
+- On completion the subagent calls the ``complete`` signal tool with a summary; this
+  is queued back to the parent via the ``LOOP_CONTINUE`` hook.
+
+- ``subagent_read_log(agent_id)`` — retrieve the full child transcript from the parent
+  after the subagent completes.
+
+- ``subagent_status(agent_id)`` — poll completion/error state without waiting.
+
+.. note::
+
+   The thread-mode transient ``is_runnable`` race (where a tool may briefly appear
+   non-runnable while a concurrent subagent thread is active) is a known open issue
+   tracked in `gptme#554 <https://github.com/gptme/gptme/issues/554>`_. Since
+   `#3072 <https://github.com/gptme/gptme/pull/3072>`_ the crash is non-fatal —
+   non-runnable structured tool calls get a paired error ``tool_result`` — but the
+   root cause is not yet identified.
+
 Read
 ----
 
