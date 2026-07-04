@@ -3607,6 +3607,11 @@ Similar to Anthropic’s computer use demo, but integrated with gptme’s archit
 <li><p>DISPLAY: X11 display to use (default: “:1”, Linux only)</p></li>
 <li><p>WIDTH: Screen width (default: 1024)</p></li>
 <li><p>HEIGHT: Screen height (default: 768)</p></li>
+<li><p>GPTME_COMPUTER_CONFIRM_SENSITIVE: Pre-execution gate for sensitive actions
+(type, key, left_click_drag, fill_element).  Values:
+- unset / “0”: gate disabled (default, back-compatible)
+- “1”: gate enabled; interactive sessions prompt the user, non-interactive sessions block
+- “auto-allow”: gate enabled but approves silently (useful in automated scripts)</p></li>
 </ul>
 <p class="rubric">Usage</p>
 <p>The tool supports these actions:</p>
