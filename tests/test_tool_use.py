@@ -288,3 +288,48 @@ def test_parse_multiple_tool_calls():
     # Check ordering by start position
     assert tooluses[0].start is not None and tooluses[1].start is not None
     assert tooluses[0].start < tooluses[1].start
+
+
+def test_execute_msg_pairs_unrunnable_structured_tooluse():
+    """A structured (tool-format) tool_use for a non-runnable tool must still
+    yield a tool_result carrying the same call_id.
+
+    Regression for gptme#554: a subagent race could transiently make a loaded
+    tool non-runnable; execute_msg used to silently drop such tool_uses, leaving
+    a dangling tool_use that the Anthropic API rejects with a hard 400. The fix
+    is mechanism-agnostic: any structured tool_use that isn't runnable gets a
+    paired error tool_result so the tool_use/tool_result contract always holds.
+    """
+    from gptme.message import Message
+    from gptme.tools import execute_msg, init_tools
+
+    init_tools(["read"])
+    set_tool_format("tool")
+
+    # A tool that is definitely not loaded -> get_tool() is None -> not runnable.
+    content = '@definitely_not_a_real_tool(toolu_ghost123): {"foo": "bar"}'
+    msg = Message("assistant", content)
+
+    results = list(execute_msg(msg))
+
+    paired = [m for m in results if m.call_id == "toolu_ghost123"]
+    assert len(paired) == 1, f"expected exactly one paired tool_result, got {results}"
+    assert paired[0].role == "system"
+    assert "not available" in paired[0].content
+
+
+def test_execute_msg_ignores_unrunnable_markdown_block():
+    """A markdown code block (call_id is None) is not an API tool_use, so a
+    non-runnable one must NOT produce a spurious tool_result."""
+    from gptme.message import Message
+    from gptme.tools import execute_msg, init_tools
+
+    init_tools(["read"])
+    set_tool_format("markdown")
+
+    # Not a real tool -> parsed (if at all) as non-runnable, no call_id.
+    content = "```definitely_not_a_real_tool\nsome content\n```"
+    msg = Message("assistant", content)
+
+    results = list(execute_msg(msg))
+    assert results == [], f"markdown non-tool block should yield nothing, got {results}"

@@ -321,27 +321,45 @@ def execute_msg(
     """Uses any tools called in a message and returns the response."""
     assert msg.role == "assistant", "Only assistant messages can be executed"
 
-    # Collect all runnable tool uses
-    runnable_tools = [
-        tu for tu in ToolUse.iter_from_content(msg.content) if tu.is_runnable
-    ]
+    # Snapshot runnability once per tool_use. Evaluating `is_runnable` a second
+    # time later would open a TOCTOU gap: a tool whose loaded-state changes
+    # between the two checks (e.g. a subagent thread concurrently (re)initializing
+    # tools) could fall through both branches and leave a structured tool_use with
+    # no tool_result — which the Anthropic API rejects with a hard 400 (#554).
+    classified = [(tu, tu.is_runnable) for tu in ToolUse.iter_from_content(msg.content)]
 
-    if not runnable_tools:
+    if not classified:
         return
 
-    for tooluse in runnable_tools:
-        with terminal_state_title(f"🛠️ running {tooluse.tool}"):
-            try:
-                for tool_response in tooluse.execute(log=log, workspace=workspace):
-                    yield tool_response.replace(call_id=tooluse.call_id)
-            except KeyboardInterrupt:
-                clear_interruptible()
-                yield Message(
-                    "system",
-                    INTERRUPT_CONTENT,
-                    call_id=tooluse.call_id,
-                )
-                break
+    for tooluse, runnable in classified:
+        if runnable:
+            with terminal_state_title(f"🛠️ running {tooluse.tool}"):
+                try:
+                    for tool_response in tooluse.execute(log=log, workspace=workspace):
+                        yield tool_response.replace(call_id=tooluse.call_id)
+                except KeyboardInterrupt:
+                    clear_interruptible()
+                    yield Message(
+                        "system",
+                        INTERRUPT_CONTENT,
+                        call_id=tooluse.call_id,
+                    )
+                    break
+        elif tooluse.call_id is not None:
+            # A structured (tool-format) tool_use that isn't runnable still needs
+            # a paired tool_result, or the next API request dangles it and 400s.
+            # Markdown code blocks (call_id is None) are not API tool_uses, so
+            # they're intentionally left unpaired.
+            logger.warning(
+                "Tool '%s' is not runnable; emitting an error tool_result to keep "
+                "the tool_use/tool_result pairing valid.",
+                tooluse.tool,
+            )
+            yield Message(
+                "system",
+                f"Tool '{tooluse.tool}' is not available for execution.",
+                call_id=tooluse.call_id,
+            )
 
 
 def get_tool_for_langtag(lang: str) -> ToolSpec | None:
