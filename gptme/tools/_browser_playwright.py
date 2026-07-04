@@ -28,6 +28,7 @@ from ._browser_thread import (
     _is_connection_error,
     get_context_options,
 )
+from ._computer_gate import sensitive_action_gate
 
 _browser: BrowserThread | None = None
 _last_logs: dict = {"logs": [], "errors": [], "url": None}
@@ -745,6 +746,7 @@ def fill_element(selector: str, value: str) -> str:
         selector: Playwright selector for the input/textarea element.
         value: Text to fill into the field.
     """
+    sensitive_action_gate("fill_element", value, is_browser=True)
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     logger.info(f"Filling element '{selector}' with value")

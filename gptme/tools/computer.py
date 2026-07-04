@@ -34,6 +34,11 @@ The tool uses these environment variables:
 - DISPLAY: X11 display to use (default: ":1", Linux only)
 - WIDTH: Screen width (default: 1024)
 - HEIGHT: Screen height (default: 768)
+- GPTME_COMPUTER_CONFIRM_SENSITIVE: Pre-execution gate for sensitive actions
+  (type, key, left_click_drag, fill_element).  Values:
+  - unset / "0": gate disabled (default, back-compatible)
+  - "1": gate enabled; interactive sessions prompt the user, non-interactive sessions block
+  - "auto-allow": gate enabled but approves silently (useful in automated scripts)
 
 .. rubric:: Usage
 
@@ -96,6 +101,7 @@ import time
 from enum import Enum
 from typing import TYPE_CHECKING, Literal, TypedDict
 
+from ._computer_gate import sensitive_action_gate
 from .base import ToolFunction, ToolSpec, ToolUse
 from .computer_transport import get_transport
 from .screenshot import screenshot
@@ -1489,6 +1495,7 @@ def computer(
     if action in ("mouse_move", "left_click_drag"):
         if not coordinate:
             raise ValueError(f"coordinate is required for {action}")
+        sensitive_action_gate(action)
         x, y = _scale_coordinates(
             _ScalingSource.API, coordinate[0], coordinate[1], width, height
         )
@@ -1510,6 +1517,7 @@ def computer(
     if action in ("key", "type"):
         if not text:
             raise ValueError(f"text is required for {action}")
+        sensitive_action_gate(action, text)
 
         if IS_MACOS:
             if action == "key":
