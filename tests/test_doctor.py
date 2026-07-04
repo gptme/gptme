@@ -1111,10 +1111,12 @@ class TestCheckComputer:
         assert "Computer: pyatspi" not in names
 
     @patch("sys.platform", "linux")
+    @patch("importlib.util.find_spec")
     @patch("shutil.which")
     @patch.dict("os.environ", {"DISPLAY": ":1"})
-    def test_ffmpeg_present(self, mock_which):
+    def test_ffmpeg_present(self, mock_which, mock_find_spec):
         """When ffmpeg is installed, the screen-recording check is OK."""
+        mock_find_spec.return_value = None
         mock_which.side_effect = lambda t: (
             f"/usr/bin/{t}" if t in ("xdotool", "scrot", "ffmpeg") else None
         )
@@ -1126,10 +1128,12 @@ class TestCheckComputer:
         assert names["Computer: ffmpeg"].status == CheckStatus.OK
 
     @patch("sys.platform", "linux")
+    @patch("importlib.util.find_spec")
     @patch("shutil.which")
     @patch.dict("os.environ", {"DISPLAY": ":1"})
-    def test_ffmpeg_missing(self, mock_which):
+    def test_ffmpeg_missing(self, mock_which, mock_find_spec):
         """When ffmpeg is not installed, the screen-recording check warns with install hint."""
+        mock_find_spec.return_value = None
         mock_which.side_effect = lambda t: (
             f"/usr/bin/{t}" if t in ("xdotool", "scrot") else None
         )
@@ -1144,10 +1148,12 @@ class TestCheckComputer:
         assert "apt install ffmpeg" in hint or "brew install ffmpeg" in hint
 
     @patch("sys.platform", "linux")
+    @patch("importlib.util.find_spec")
     @patch("shutil.which")
     @patch.dict("os.environ", {"DISPLAY": ":1"})
-    def test_ffmpeg_verbose_shows_path(self, mock_which):
+    def test_ffmpeg_verbose_shows_path(self, mock_which, mock_find_spec):
         """Verbose mode should show the ffmpeg path in details."""
+        mock_find_spec.return_value = None
         mock_which.side_effect = lambda t: (
             f"/usr/bin/{t}" if t in ("xdotool", "scrot", "ffmpeg") else None
         )
