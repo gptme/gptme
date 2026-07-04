@@ -178,7 +178,7 @@ explicit observation intent — equivalent to `computer('screenshot')` but signa
 
 ```python
 # From IPython inside a gptme session
-msg = observe_desktop()   # captures a screenshot and returns it as a message
+msg = observe_desktop()   # returns a screenshot message, or None if capture failed
 ```
 
 Take a screenshot and analyse what's on screen:
@@ -282,7 +282,8 @@ Then connect a browser to `http://localhost:6080` to watch the agent work.
 
 - **Use the `computer-use` profile**: it sets the backend selection policy so the agent
   picks the right tool automatically without extra prompting.
-- **Prefer `snapshot_url` for web**: structured ARIA trees are faster and use no vision tokens.
+- **Prefer `observe_web(url)` for web**: it captures a structured ARIA snapshot in one
+  call; use `snapshot_url` directly when you need lower-level control.
 - **Combine with `--non-interactive`**: add `-n` for scripted or CI use where you don't want
   prompts (but ensure the task is well-scoped first).
 - **Describe visual outcomes**: "confirm the dialog closed" works better than "click OK and move on".
