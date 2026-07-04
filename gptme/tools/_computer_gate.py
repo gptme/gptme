@@ -1,4 +1,4 @@
-"""Pre-action confirmation gate for sensitive computer-use actions.
+"""Pre-action confirmation gate and risk-level classification for computer-use actions.
 
 Sensitive actions are those that handle potentially private data:
   computer():      type, key, left_click_drag
@@ -12,6 +12,15 @@ Gating is opt-in via GPTME_COMPUTER_CONFIRM_SENSITIVE:
 When gating is enabled and the session is non-interactive (no TTY on stdin),
 sensitive actions raise PermissionError unless GPTME_COMPUTER_CONFIRM_SENSITIVE
 is set to "auto-allow".
+
+.. rubric:: Risk levels
+
+Every computer-use action carries one of three risk levels:
+
+- ``read``      — observation only, no side effects
+- ``write``     — modifies visible state (clicks, navigation, scroll)
+- ``sensitive`` — write action that also handles potentially private data
+                  (text content is redacted in audit logs; only length recorded)
 """
 
 from __future__ import annotations
@@ -24,6 +33,75 @@ GATE_ACTIONS_COMPUTER: frozenset[str] = frozenset({"key", "type", "left_click_dr
 
 #: Browser actions that handle potentially private data.
 GATE_ACTIONS_BROWSER: frozenset[str] = frozenset({"fill_element"})
+
+# ---------------------------------------------------------------------------
+# Risk-level classification
+# ---------------------------------------------------------------------------
+# This mirrors the three-tier permission model described in the computer-use
+# profile system prompt: observation → structured interaction → raw input.
+# The same sets are used by the audit-log CLI and the real-time streaming hook.
+
+#: Actions that only read state and have no side effects.
+ACTION_RISK_READ: frozenset[str] = frozenset(
+    {
+        "screenshot",
+        "cursor_position",
+        "accessibility_tree",
+        "wait_for_change",
+        # browser observation
+        "snapshot_url",
+        "observe_web",
+        "read_page_text",
+        # high-level wrappers
+        "observe_desktop",
+    }
+)
+
+#: Actions that change visible state (clicks, navigation, scrolling).
+ACTION_RISK_WRITE: frozenset[str] = frozenset(
+    {
+        "left_click",
+        "right_click",
+        "middle_click",
+        "double_click",
+        "mouse_move",
+        "scroll",
+        "window_focus",
+        # browser interaction
+        "click_element",
+        "scroll_page",
+        "open_page",
+    }
+)
+
+#: Actions that handle potentially private data (keyboard input, form fills).
+#: Text content is always redacted in audit logs; only length is recorded.
+ACTION_RISK_SENSITIVE: frozenset[str] = frozenset(
+    {
+        "type",
+        "key",
+        "left_click_drag",
+        # browser
+        "fill_element",
+    }
+)
+
+
+def action_risk_level(action: str) -> str:
+    """Return the risk level for a computer-use action.
+
+    Returns one of ``"read"``, ``"write"``, or ``"sensitive"``.
+    Unknown actions default to ``"write"`` (conservative).
+    """
+    if action in ACTION_RISK_READ:
+        return "read"
+    if action in ACTION_RISK_WRITE:
+        return "write"
+    if action in ACTION_RISK_SENSITIVE:
+        return "sensitive"
+    # write is the conservative default for any unclassified action
+    return "write"
+
 
 VALID_GATE_MODES: frozenset[str] = frozenset({"", "0", "1", "auto-allow"})
 

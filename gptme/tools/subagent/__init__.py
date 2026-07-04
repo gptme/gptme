@@ -23,6 +23,7 @@ from .api import (
     subagent_wait,
 )
 from .batch import BatchJob, subagent_batch
+from .execution import get_current_agent_id
 from .hooks import (
     _get_complete_instruction,
     _subagent_completion_hook,
@@ -426,6 +427,8 @@ __all__ = [
     "notify_progress",
     "_subagent_completion_hook",
     "_get_complete_instruction",
+    # Execution context
+    "get_current_agent_id",
     # Module-level state (re-exported for backward compatibility)
     "_subagents",
     "_subagents_lock",

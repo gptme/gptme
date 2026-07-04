@@ -12,6 +12,12 @@ import click
 
 from ..dirs import get_logs_dir
 from ..logmanager import _gen_read_jsonl
+from ..tools._computer_gate import (
+    ACTION_RISK_READ,
+    ACTION_RISK_SENSITIVE,
+    ACTION_RISK_WRITE,
+    action_risk_level,
+)
 from ..tools.base import ToolUse
 
 # Patterns that indicate text/key content (redact for privacy)
@@ -23,78 +29,14 @@ _URL_BROWSER_FNS = frozenset({"observe_web", "snapshot_url", "open_page"})
 # Browser interaction functions whose first arg is a CSS/DOM selector
 _SELECTOR_BROWSER_FNS = frozenset({"click_element"})
 
-# ---------------------------------------------------------------------------
-# Action risk classification
-# ---------------------------------------------------------------------------
-# read      — no side effects; safe to run without confirmation
-# write     — modifies visible state (mouse/keyboard/browser interaction)
-# sensitive — write action that also handles potentially private data
-#             (text content is redacted in the audit log, but the action itself
-#             is flagged so reviewers know private data may have been processed)
-#
-# This mirrors the three-tier permission model described in the computer-use
-# profile system prompt: observation → structured interaction → raw input.
-
-#: Actions that only read state and have no side effects.
-ACTION_RISK_READ: frozenset[str] = frozenset(
-    {
-        "screenshot",
-        "cursor_position",
-        "accessibility_tree",
-        "wait_for_change",
-        # browser observation
-        "snapshot_url",
-        "observe_web",
-        "read_page_text",
-        # high-level wrappers
-        "observe_desktop",
-    }
-)
-
-#: Actions that change visible state (clicks, navigation, scrolling).
-ACTION_RISK_WRITE: frozenset[str] = frozenset(
-    {
-        "left_click",
-        "right_click",
-        "middle_click",
-        "double_click",
-        "mouse_move",
-        "scroll",
-        "window_focus",
-        # browser interaction
-        "click_element",
-        "scroll_page",
-        "open_page",
-    }
-)
-
-#: Actions that handle potentially private data (keyboard input, form fills).
-#: Text content is always redacted in the audit log; only length is recorded.
-ACTION_RISK_SENSITIVE: frozenset[str] = frozenset(
-    {
-        "type",
-        "key",
-        "left_click_drag",
-        # browser
-        "fill_element",
-    }
-)
-
-
-def action_risk_level(action: str) -> str:
-    """Return the risk level for a computer-use action.
-
-    Returns one of ``"read"``, ``"write"``, or ``"sensitive"``.
-    Unknown actions default to ``"write"`` (conservative).
-    """
-    if action in ACTION_RISK_READ:
-        return "read"
-    if action in ACTION_RISK_WRITE:
-        return "write"
-    if action in ACTION_RISK_SENSITIVE:
-        return "sensitive"
-    # write is the conservative default for any unclassified action
-    return "write"
+# ACTION_RISK_* and action_risk_level are imported from _computer_gate
+# (re-exported here for backward compatibility with any existing callers)
+__all__ = [
+    "ACTION_RISK_READ",
+    "ACTION_RISK_WRITE",
+    "ACTION_RISK_SENSITIVE",
+    "action_risk_level",
+]
 
 
 def _slice_call(code: str, start: int) -> str:
