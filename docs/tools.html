@@ -501,7 +501,10 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#shell">Shell</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python">Python</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tmux">Tmux</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subagent">Subagent</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subagent">Subagent</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#subagent-isolation-contract">Subagent Isolation Contract</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read">Read</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#save">Save</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#patch">Patch</a></li>
@@ -2084,9 +2087,12 @@ see what the orchestrator explicitly tells it).</p>
 or ACP modes (which build their own context as a separate process).</p>
 </p></li>
 <li><p><strong>max_time</strong> – <p>Wall-clock time limit in seconds. When set, a watchdog timer
-auto-cancels the subagent after <code class="docutils literal notranslate"><span class="pre">max_time</span></code> seconds by calling
-<code class="docutils literal notranslate"><span class="pre">subagent_cancel()</span></code> and delivers a “timeout” status notification
-via the LOOP_CONTINUE hook. Defaults to <code class="docutils literal notranslate"><span class="pre">None</span></code> (no limit).</p>
+marks the subagent result as <code class="docutils literal notranslate"><span class="pre">&quot;timeout&quot;</span></code> after <code class="docutils literal notranslate"><span class="pre">max_time</span></code> seconds
+and delivers a timeout status notification via the LOOP_CONTINUE hook.
+In subprocess mode the child process is terminated. In thread mode
+the background thread is not force-stopped; callers see the cached
+timeout result immediately while the thread continues until it
+finishes naturally. Defaults to <code class="docutils literal notranslate"><span class="pre">None</span></code> (no limit).</p>
 <p>Use this for defensive orchestration (prevent a stuck subagent from
 blocking the parent) or hard time budgets in autonomous sessions.
 <code class="docutils literal notranslate"><span class="pre">max_time=None</span></code> is fully backwards-compatible — no change in behavior.</p>
@@ -2287,6 +2293,96 @@ Call subagent_read_log(agent_id) to read the full output.</p></li>
 </dl>
 </dd></dl>
 
+<section id="subagent-isolation-contract">
+<h3>Subagent Isolation Contract<a class="headerlink" href="#subagent-isolation-contract" title="Link to this heading">#</a></h3>
+<p>When spawning a subagent you need to know exactly what it inherits from the parent
+and what it starts fresh. There are four dimensions:</p>
+<p><strong>1. Workspace config loading</strong></p>
+<dl class="simple">
+<dt><em>Thread mode</em> (default, <code class="docutils literal notranslate"><span class="pre">use_subprocess=False</span></code>):</dt><dd><p>The subagent inherits the parent’s <em>already-assembled</em> workspace context —
+the <code class="docutils literal notranslate"><span class="pre">[prompt]</span> <span class="pre">files</span></code> from <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> and the <code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> output as
+they were loaded for the parent session. It does <strong>not</strong> re-read from the
+subagent’s working directory, so a subdirectory with its own <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>
+will not be picked up automatically.</p>
+</dd>
+<dt><em>Subprocess mode</em> (<code class="docutils literal notranslate"><span class="pre">use_subprocess=True</span></code>):</dt><dd><p>Spawns a fresh <code class="docutils literal notranslate"><span class="pre">gptme</span></code> process with <code class="docutils literal notranslate"><span class="pre">workdir</span></code> as the CWD, which naturally
+loads that directory’s <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>. Use this when you want subagents to pick
+up directory-local workspace config.</p>
+</dd>
+</dl>
+<p>Fine-grained control:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">context_mode=&quot;selective&quot;</span></code> + <code class="docutils literal notranslate"><span class="pre">context_include</span></code> — share only specific components
+(<code class="docutils literal notranslate"><span class="pre">&quot;agent&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;tools&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;workspace&quot;</span></code>) instead of the full workspace.</p>
+<p>Behavior by mode:</p>
+<p><strong>Thread</strong>: fully supported — filters the inherited context to the specified components.</p>
+<p><strong>Subprocess</strong>: <code class="docutils literal notranslate"><span class="pre">context_mode</span></code> is ignored (the child loads its own workspace from
+<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>); <code class="docutils literal notranslate"><span class="pre">context_include=[&quot;workspace&quot;]</span></code> maps to the <code class="docutils literal notranslate"><span class="pre">--context</span> <span class="pre">files</span></code>
+CLI flag to include workspace files. Other <code class="docutils literal notranslate"><span class="pre">context_include</span></code> values are ignored in
+this mode.</p>
+<p><strong>ACP</strong>: both parameters are ignored.</p>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">context_window=N</span></code> — limit how many inherited context messages are forwarded
+(<code class="docutils literal notranslate"><span class="pre">0</span></code> = none, <code class="docutils literal notranslate"><span class="pre">None</span></code> = all). Thread mode only; ignored in subprocess and ACP.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">context_turns=N</span></code> — forward the last N turns of the parent conversation.
+Thread mode only; ignored in subprocess and ACP.</p></li>
+</ul>
+<p><strong>2. Tool and state inheritance</strong></p>
+<p>By default the subagent starts with the same tool list as the parent (both threads
+share the same initial snapshot; contextvars are thread-isolated so the parent’s
+tool state cannot be mutated by the subagent).</p>
+<p>Three ways to restrict tools:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">profile=&quot;explorer&quot;</span></code> (or any built-in profile) — applies a tool allowlist at spawn
+time. Built-in profiles: <code class="docutils literal notranslate"><span class="pre">explorer</span></code> (read-only), <code class="docutils literal notranslate"><span class="pre">researcher</span></code>, <code class="docutils literal notranslate"><span class="pre">developer</span></code>
+(full), <code class="docutils literal notranslate"><span class="pre">verifier</span></code> (read-only). Note: <code class="docutils literal notranslate"><span class="pre">role=&quot;verify&quot;</span></code> forces
+<code class="docutils literal notranslate"><span class="pre">use_subprocess=True</span></code> and <code class="docutils literal notranslate"><span class="pre">isolated=True</span></code> in addition to the verifier profile.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">isolated=True</span></code> — runs the subagent in a git worktree so filesystem writes don’t
+affect the parent repo. The worktree is auto-cleaned after completion.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">redact_secrets=True</span></code> (default) — scrubs common secret patterns (API keys, tokens,
+passwords) from workspace context messages before they reach the subagent.
+Thread-mode only; has no effect in subprocess or ACP modes (the child process’s
+own <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> controls its secret handling).</p></li>
+</ul>
+<p>Signal tools are loaded regardless of allowlist so the subagent can communicate
+back. Thread-mode subagents get <code class="docutils literal notranslate"><span class="pre">complete</span></code>, <code class="docutils literal notranslate"><span class="pre">clarify</span></code>, and <code class="docutils literal notranslate"><span class="pre">progress</span></code>.
+Subprocess subagents get <code class="docutils literal notranslate"><span class="pre">complete</span></code> and <code class="docutils literal notranslate"><span class="pre">clarify</span></code>; <code class="docutils literal notranslate"><span class="pre">progress</span></code> is not loaded
+because it depends on the parent’s in-process notification queue.</p>
+<p><strong>3. Cancellation and timeout</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">max_time</span></code> (seconds) — a watchdog timer that marks the subagent result as
+<code class="docutils literal notranslate"><span class="pre">&quot;timeout&quot;</span></code> after the specified duration and delivers a timeout status
+notification. In subprocess mode the child process is terminated. In thread
+mode the background thread is not force-stopped; callers see the cached timeout
+result immediately while the thread continues until it finishes naturally.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">timeout</span></code> (default 1800 s) — subprocess monitor kills the child process after
+this many seconds. Only applies in subprocess mode.</p></li>
+<li><p>The parent does not block waiting for subagents. Completion is delivered via the
+<code class="docutils literal notranslate"><span class="pre">LOOP_CONTINUE</span></code> hook, which re-enters the parent’s loop with a notification
+message.</p></li>
+</ul>
+<p><strong>4. Child transcript and result delivery</strong></p>
+<p>Subagents always start with a <strong>fresh conversation</strong> — they do not inherit the parent’s
+message history by default. The result/transcript lifecycle:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">context_turns=N</span></code> — the parent’s last N turns are prepended to the subagent’s
+conversation as context.</p></li>
+<li><p>On completion the subagent calls the <code class="docutils literal notranslate"><span class="pre">complete</span></code> signal tool with a summary; this
+is queued back to the parent via the <code class="docutils literal notranslate"><span class="pre">LOOP_CONTINUE</span></code> hook.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">subagent_read_log(agent_id)</span></code> — retrieve the full child transcript from the parent
+after the subagent completes.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">subagent_status(agent_id)</span></code> — poll completion/error state without waiting.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The thread-mode transient <code class="docutils literal notranslate"><span class="pre">is_runnable</span></code> race (where a tool may briefly appear
+non-runnable while a concurrent subagent thread is active) is a known open issue
+tracked in <a class="reference external" href="https://github.com/gptme/gptme/issues/554">gptme#554</a>. Since
+<a class="reference external" href="https://github.com/gptme/gptme/pull/3072">#3072</a> the crash is non-fatal —
+non-runnable structured tool calls get a paired error <code class="docutils literal notranslate"><span class="pre">tool_result</span></code> — but the
+root cause is not yet identified.</p>
+</div>
+</section>
 </section>
 <section id="read">
 <h2>Read<a class="headerlink" href="#read" title="Link to this heading">#</a></h2>
@@ -4186,7 +4282,7 @@ single system message explaining what failed and how to fix it.</p>
 
 </section>
 <section id="rag">
-<span id="id1"></span><h2>RAG<a class="headerlink" href="#rag" title="Link to this heading">#</a></h2>
+<span id="id2"></span><h2>RAG<a class="headerlink" href="#rag" title="Link to this heading">#</a></h2>
 <p>RAG (Retrieval-Augmented Generation) tool for context-aware assistance.</p>
 <p>The RAG tool provides context-aware assistance by indexing and semantically searching text files.</p>
 <p class="rubric">Installation</p>
@@ -4464,7 +4560,7 @@ THIRD_EDIT
 
 </section>
 <section id="gh">
-<span id="id2"></span><h2>GH<a class="headerlink" href="#gh" title="Link to this heading">#</a></h2>
+<span id="id3"></span><h2>GH<a class="headerlink" href="#gh" title="Link to this heading">#</a></h2>
 <p>GitHub integration tool.</p>
 <p>Use native handlers only when they help the assistant succeed more reliably
 than a raw <code class="docutils literal notranslate"><span class="pre">gh</span></code> command in the shell tool.  The native path is worth it when
@@ -5443,7 +5539,10 @@ spawning subagents programmatically:</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#shell">Shell</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python">Python</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tmux">Tmux</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subagent">Subagent</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subagent">Subagent</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#subagent-isolation-contract">Subagent Isolation Contract</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read">Read</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#save">Save</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#patch">Patch</a></li>
