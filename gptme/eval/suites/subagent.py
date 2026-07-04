@@ -81,9 +81,12 @@ def check_subagent_parallel_integrated_results(messages: list[Message]) -> bool:
 def check_subagent_complete_spawned(messages: list[Message]) -> bool:
     """Parent log should show the roundtrip subagent being started."""
     assistant_log = _role_contents(messages, "assistant")
+    # Accept both positional and keyword argument syntax
     return (
         'subagent("sum-roundtrip"' in assistant_log
         or "subagent('sum-roundtrip'" in assistant_log
+        or 'agent_id="sum-roundtrip"' in assistant_log
+        or "agent_id='sum-roundtrip'" in assistant_log
     )
 
 
@@ -139,9 +142,14 @@ def check_subagent_complete_waited_before_result(messages: list[Message]) -> boo
 
 def check_clarification_spawned(messages: list[Message]) -> bool:
     """Parent log should show the clarification subagent being started."""
-    return _any_message_contains(
-        messages, "assistant", 'subagent("greeter"'
-    ) or _any_message_contains(messages, "assistant", "subagent('greeter'")
+    # Accept both positional and keyword argument syntax
+    assistant_log = _role_contents(messages, "assistant")
+    return (
+        'subagent("greeter"' in assistant_log
+        or "subagent('greeter'" in assistant_log
+        or 'agent_id="greeter"' in assistant_log
+        or "agent_id='greeter'" in assistant_log
+    )
 
 
 def check_clarification_hook_notification(messages: list[Message]) -> bool:

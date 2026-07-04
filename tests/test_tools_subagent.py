@@ -555,8 +555,14 @@ def test_subagent_wait_basic():
     # Note: This test may take up to timeout seconds
     result = subagent_wait("test-wait-agent", timeout=30)
     assert isinstance(result, dict)
-    # Status should be either success, failure, or running (if it takes too long)
-    assert result.get("status") in ["success", "failure", "running", "timeout"]
+    # Status should be a valid subagent status (including clarification_needed)
+    assert result.get("status") in [
+        "success",
+        "failure",
+        "running",
+        "timeout",
+        "clarification_needed",
+    ]
 
 
 @pytest.mark.slow
