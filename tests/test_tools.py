@@ -1,4 +1,6 @@
+import sys
 import tempfile
+import types
 from pathlib import Path
 from unittest.mock import patch
 
@@ -118,6 +120,52 @@ def test_tool_loading_with_module():
 def test_tool_loading_with_missing_package():
     found = _discover_tools(["gptme.fake_"])
     assert not found
+
+
+def test_tool_loading_handles_mutating_module_members(monkeypatch):
+    from gptme.tools.base import ToolSpec
+
+    class MutatingDirModule(types.ModuleType):
+        raised = False
+
+        def __dir__(self):
+            if not self.raised:
+                self.raised = True
+                self.late_tool = ToolSpec(name="late", desc="Late")
+                raise RuntimeError("dictionary changed size during iteration")
+            return super().__dir__()
+
+    module = MutatingDirModule("fake_mutating_tools")
+    module.__dict__["initial_tool"] = ToolSpec(name="initial", desc="Initial")
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+
+    found = _discover_tools([module.__name__])
+
+    assert {tool.name for tool in found} == {"initial", "late"}
+
+
+def test_load_from_file_handles_mutating_module_members(tmp_path):
+    tool_file = tmp_path / "mutating_tool.py"
+    tool_file.write_text(
+        """
+from gptme.tools.base import ToolSpec
+
+tool = ToolSpec(name="custom", desc="Custom")
+_raised = False
+
+def __dir__():
+    global _raised, late_tool
+    if not _raised:
+        _raised = True
+        late_tool = ToolSpec(name="late_custom", desc="Late custom")
+        raise RuntimeError("dictionary changed size during iteration")
+    return list(globals())
+""".lstrip()
+    )
+
+    found = load_from_file(tool_file)
+
+    assert {tool.name for tool in found} == {"custom", "late_custom"}
 
 
 def test_get_available_tools():

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import inspect
 import logging
 import pkgutil
 import threading
@@ -27,6 +26,7 @@ from .base import (
     ToolFunction,
     ToolSpec,
     ToolUse,
+    _iter_tool_specs,
     get_tool_format,
     set_tool_format,
 )
@@ -125,7 +125,7 @@ def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
 
         # Find instances of ToolSpec in the modules
         for module in modules:
-            for _, obj in inspect.getmembers(module, lambda c: isinstance(c, ToolSpec)):
+            for obj in _iter_tool_specs(module):
                 spec_id = id(obj)
                 if spec_id in seen_specs:
                     continue

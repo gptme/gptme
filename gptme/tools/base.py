@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from ..logmanager import Log
 
 logger = logging.getLogger(__name__)
+_DICT_CHANGED_DURING_ITERATION = "dictionary changed size during iteration"
 
 InitFunc: TypeAlias = Callable[[], "ToolSpec"]
 
@@ -235,6 +236,43 @@ class ToolFunction:
             group=group,
             parameters=params,
         )
+
+
+def _is_dict_changed_during_iteration(exc: RuntimeError) -> bool:
+    return _DICT_CHANGED_DURING_ITERATION in str(exc)
+
+
+def _module_member_names(module: types.ModuleType) -> tuple[str, ...]:
+    """Return a stable snapshot of module member names.
+
+    Some module-level ``__dir__`` implementations mutate module globals while
+    Python is building the member list. Retrying once and then falling back to a
+    copied module dict keeps tool discovery deterministic under concurrent or
+    dynamic imports.
+    """
+    for _ in range(2):
+        try:
+            return tuple(dir(module))
+        except RuntimeError as exc:
+            if not _is_dict_changed_during_iteration(exc):
+                raise
+
+    return tuple(module.__dict__.copy())
+
+
+def _iter_tool_specs(module: types.ModuleType) -> Generator[ToolSpec, None, None]:
+    """Yield ToolSpec instances from a module using a stable member snapshot."""
+    for name in _module_member_names(module):
+        try:
+            obj = getattr(module, name)
+        except AttributeError:
+            continue
+        except RuntimeError as exc:
+            if _is_dict_changed_during_iteration(exc):
+                continue
+            raise
+        if isinstance(obj, ToolSpec):
+            yield obj
 
 
 def derive_type(t) -> str:
@@ -1134,9 +1172,7 @@ def load_from_file(path: Path) -> list[ToolSpec]:
     spec.loader.exec_module(module)
 
     # Discover ToolSpec instances in the imported module
-    tools = [
-        obj for _, obj in inspect.getmembers(module, lambda c: isinstance(c, ToolSpec))
-    ]
+    tools = list(_iter_tool_specs(module))
 
     if tools:
         tool_names = [t.name for t in tools]
