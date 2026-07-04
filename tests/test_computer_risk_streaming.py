@@ -5,8 +5,12 @@ Validates that _stream_action_risk():
 - Only fires when get_current_agent_id() returns a non-None agent id
 - Is a no-op outside of a subagent context (no agent id)
 - Includes coordinate in the record when provided
-- Includes text_len (not raw text) for sensitive actions
+- Includes text_len (byte-length, not raw text) for sensitive actions
 - Silently swallows all exceptions to avoid breaking the action
+
+Gate-ordering guarantee (Greptile P1):
+- Streaming fires AFTER sensitive_action_gate(), so blocked actions never emit
+  a progress record to the parent agent.
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gptme.tools._computer_gate import action_risk_level
-from gptme.tools.computer import _stream_action_risk
+from gptme.tools.computer import _stream_action_risk, computer
 
 # ---------------------------------------------------------------------------
 # Risk-level classification (canonical source is _computer_gate.py)
@@ -121,7 +125,7 @@ def test_emits_sensitive_action_with_text_len_not_text(agent_id):
     record = _parse_progress_call(mock_np)
     assert record["action"] == "type"
     assert record["risk"] == "sensitive"
-    assert record["text_len"] == len(secret)
+    assert record["text_len"] == len(secret.encode())
     # Raw content must never appear in the emitted record
     assert secret not in json.dumps(record)
 
@@ -169,4 +173,33 @@ def test_exception_in_get_current_agent_id_is_swallowed():
     subagent_mod.notify_progress = mock_np
     with patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}):
         _stream_action_risk("screenshot")  # must not raise
+    mock_np.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Gate-ordering guarantee: blocked actions must not emit a progress record
+# ---------------------------------------------------------------------------
+
+
+def test_gate_blocked_action_does_not_emit_progress_record(agent_id):
+    """When sensitive_action_gate raises PermissionError, no streaming record is sent.
+
+    This is the P1 ordering fix: _stream_action_risk() must fire AFTER the gate
+    check so a blocked action never delivers a misleading progress record to the
+    parent agent claiming the action was performed.
+    """
+    mock_np = MagicMock()
+    subagent_mod = _make_subagent_module(agent_id, mock_np)
+
+    # Simulate a non-interactive session with gate enabled — sensitive actions blocked
+    env_override = {"GPTME_COMPUTER_CONFIRM_SENSITIVE": "1"}
+    with (
+        patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}),
+        patch.dict("os.environ", env_override),
+        patch("sys.stdin.isatty", return_value=False),
+        pytest.raises(PermissionError),
+    ):
+        computer("type", text="secret")
+
+    # No progress record should have been emitted for the blocked action
     mock_np.assert_not_called()

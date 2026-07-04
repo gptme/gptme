@@ -163,7 +163,7 @@ def _stream_action_risk(
         if coordinate is not None:
             record["coord"] = list(coordinate)
         if risk == "sensitive" and text is not None:
-            record["text_len"] = len(text)
+            record["text_len"] = len(text.encode())
 
         notify_progress(
             agent_id, f"action:{_json.dumps(record, separators=(',', ':'))}"
@@ -1491,6 +1491,11 @@ def computer(
         text: Text to type or key sequence to send
         coordinate: X,Y coordinates for mouse actions
     """
+    # Gate check before streaming: ensures blocked sensitive actions never emit
+    # a misleading progress record to the parent agent.  No-op for read/write
+    # actions; may raise PermissionError for sensitive ones when gating is on.
+    sensitive_action_gate(action, text)
+
     # Emit a live risk-label record to the parent agent when running inside
     # a computer_task() subagent.  This is a no-op in all other contexts.
     _stream_action_risk(action, text=text, coordinate=coordinate)
@@ -1547,7 +1552,6 @@ def computer(
     if action in ("mouse_move", "left_click_drag"):
         if not coordinate:
             raise ValueError(f"coordinate is required for {action}")
-        sensitive_action_gate(action)
         x, y = _scale_coordinates(
             _ScalingSource.API, coordinate[0], coordinate[1], width, height
         )
@@ -1569,7 +1573,6 @@ def computer(
     if action in ("key", "type"):
         if not text:
             raise ValueError(f"text is required for {action}")
-        sensitive_action_gate(action, text)
 
         if IS_MACOS:
             if action == "key":
