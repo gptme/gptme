@@ -17,6 +17,7 @@ from ..message import (
     MessageMetadata,
     format_msgs,
     is_output_json,
+    is_output_quiet,
     len_tokens,
 )
 from ..telemetry import trace_function
@@ -320,7 +321,7 @@ def reply(
             top_p=top_p,
         )
     json_mode = is_output_json()
-    if not json_mode:
+    if not json_mode and not is_output_quiet():
         rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
     response, metadata = _chat_complete(
         generation_msgs,
@@ -639,11 +640,12 @@ def _reply_stream(
     top_p: float | None = None,
 ) -> Message:
     json_mode = is_output_json()
-    if not json_mode:
+    quiet_mode = is_output_quiet()
+    if not json_mode and not quiet_mode:
         rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
 
     def print_clear(length: int = 0):
-        if json_mode:
+        if json_mode or quiet_mode:
             return
         length = length or shutil.get_terminal_size().columns
         rprint("\r" + " " * length, end="\r")

@@ -6,6 +6,7 @@ import shutil
 import sys
 import textwrap
 from collections.abc import Iterable
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, TypedDict
@@ -29,30 +30,41 @@ from .util.uri import URI, FilePath, parse_file_reference
 logger = logging.getLogger(__name__)
 
 
-# Global output format for the CLI. Defaults to "text".
+# Per-context output format. Defaults to "text".
+# Using ContextVar makes this thread-local: each thread (including subagent threads)
+# gets its own copy, so a subagent can set "quiet" without affecting the parent thread.
 # Set to "json" via set_output_format() to emit line-delimited JSON to stdout.
-_output_format: str = "text"
+# Set to "quiet" to suppress all terminal output (used by thread-mode subagents).
+_output_format: ContextVar[str] = ContextVar("_output_format", default="text")
+
+#: Valid output format identifiers.
+_VALID_OUTPUT_FORMATS = ("text", "json", "quiet")
 
 
 def set_output_format(fmt: str) -> None:
     """Set the output format for print_msg and related rendering.
 
     Args:
-        fmt: "text" for Rich-formatted output (default), "json" for JSONL stdout.
+        fmt: "text" for Rich-formatted output (default), "json" for JSONL stdout,
+             "quiet" to suppress all terminal output (used by thread-mode subagents).
     """
-    assert fmt in ("text", "json"), f"Invalid output format: {fmt}"
-    global _output_format
-    _output_format = fmt
+    assert fmt in _VALID_OUTPUT_FORMATS, f"Invalid output format: {fmt}"
+    _output_format.set(fmt)
 
 
 def get_output_format() -> str:
-    """Return the current output format ("text" or "json")."""
-    return _output_format
+    """Return the current output format ("text", "json", or "quiet")."""
+    return _output_format.get()
 
 
 def is_output_json() -> bool:
     """Return True if the output format is set to JSON (JSONL stdout mode)."""
-    return _output_format == "json"
+    return _output_format.get() == "json"
+
+
+def is_output_quiet() -> bool:
+    """Return True if output is suppressed (quiet mode, used by subagent threads)."""
+    return _output_format.get() == "quiet"
 
 
 class UsageData(TypedDict, total=False):
@@ -557,6 +569,11 @@ def print_msg(
     show_hidden: bool = False,
 ) -> None:
     """Prints the log to the console."""
+    # Quiet mode: suppress all terminal output (used by thread-mode subagents so
+    # their messages don't interleave with the parent agent's terminal output).
+    if is_output_quiet():
+        return
+
     # if not tty, force highlight=False (for tests and such)
     if not sys.stdout.isatty():
         highlight = False
@@ -564,7 +581,7 @@ def print_msg(
     msgs = msg if isinstance(msg, list) else [msg]
 
     # JSON output mode: emit line-delimited dicts to stdout
-    if _output_format == "json":
+    if is_output_json():
         for m in msgs:
             if m.hide and not show_hidden:
                 continue

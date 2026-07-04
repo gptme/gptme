@@ -21,7 +21,13 @@ from .init import init
 from .llm import reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
-from .message import Message, get_output_format, is_output_json, set_output_format
+from .message import (
+    Message,
+    get_output_format,
+    is_output_json,
+    is_output_quiet,
+    set_output_format,
+)
 from .prompt_queue import drain_prompt_queue
 from .telemetry import set_conversation_context, trace_function
 from .tools import (
@@ -121,20 +127,20 @@ def chat(
             )
             stream = False
 
-        if not is_output_json():
+        if not is_output_json() and not is_output_quiet():
             console.log(f"Using logdir: {path_with_tilde(logdir)}")
         manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
 
         # Note: todo replay is now handled via SESSION_START hook
 
         # Initialize workspace
-        if not is_output_json():
+        if not is_output_json() and not is_output_quiet():
             console.log(f"Using workspace: {path_with_tilde(workspace)}")
         require_workspace_exists(workspace)
         os.chdir(workspace)
 
-        # print log (suppressed in JSON output mode)
-        if not is_output_json():
+        # print log (suppressed in JSON output mode and in quiet mode)
+        if not is_output_json() and not is_output_quiet():
             manager.log.print(show_hidden=show_hidden)
             console.print("--- ^^^ past messages ^^^ ---")
 
@@ -158,7 +164,7 @@ def chat(
             output_schema=output_schema,
         )
     except SessionCompleteException as e:
-        if not is_output_json():
+        if not is_output_json() and not is_output_quiet():
             console.log(f"Autonomous mode: {e}. Exiting.")
 
         # Trigger session end hooks
