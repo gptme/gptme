@@ -21,6 +21,77 @@ _URL_BROWSER_FNS = frozenset({"observe_web", "snapshot_url", "open_page"})
 # Browser interaction functions whose first arg is a CSS/DOM selector
 _SELECTOR_BROWSER_FNS = frozenset({"click_element"})
 
+# ---------------------------------------------------------------------------
+# Action risk classification
+# ---------------------------------------------------------------------------
+# read      — no side effects; safe to run without confirmation
+# write     — modifies visible state (mouse/keyboard/browser interaction)
+# sensitive — write action that also handles potentially private data
+#             (text content is redacted in the audit log, but the action itself
+#             is flagged so reviewers know private data may have been processed)
+#
+# This mirrors the three-tier permission model described in the computer-use
+# profile system prompt: observation → structured interaction → raw input.
+
+#: Actions that only read state and have no side effects.
+ACTION_RISK_READ: frozenset[str] = frozenset(
+    {
+        "screenshot",
+        "cursor_position",
+        "accessibility_tree",
+        "wait_for_change",
+        # browser observation
+        "snapshot_url",
+        "observe_web",
+        "read_page_text",
+        # high-level wrappers
+        "observe_desktop",
+    }
+)
+
+#: Actions that change visible state (clicks, navigation, scrolling).
+ACTION_RISK_WRITE: frozenset[str] = frozenset(
+    {
+        "left_click",
+        "right_click",
+        "middle_click",
+        "double_click",
+        "mouse_move",
+        "scroll",
+        "window_focus",
+        # browser interaction
+        "click_element",
+        "scroll_page",
+        "open_page",
+    }
+)
+
+#: Actions that handle potentially private data (keyboard input, form fills).
+#: Text content is always redacted in the audit log; only length is recorded.
+ACTION_RISK_SENSITIVE: frozenset[str] = frozenset(
+    {
+        "type",
+        "key",
+        "left_click_drag",
+        # browser
+        "fill_element",
+    }
+)
+
+
+def action_risk_level(action: str) -> str:
+    """Return the risk level for a computer-use action.
+
+    Returns one of ``"read"``, ``"write"``, or ``"sensitive"``.
+    Unknown actions default to ``"write"`` (conservative).
+    """
+    if action in ACTION_RISK_READ:
+        return "read"
+    if action in ACTION_RISK_SENSITIVE:
+        return "sensitive"
+    # write is the conservative default for any unclassified action
+    return "write"
+
 
 def _slice_call(code: str, start: int) -> str:
     """Return the source span for a function call starting at ``start``."""
@@ -86,7 +157,11 @@ def _extract_computer_calls(messages) -> list[dict]:
             for m in re.finditer(r"""computer\s*\(\s*['"]([^'"]+)['"]""", code):
                 action = m.group(1)
                 call_source = _slice_call(code, m.start())
-                record: dict = {"timestamp": ts, "action": action}
+                record: dict = {
+                    "timestamp": ts,
+                    "action": action,
+                    "risk_level": action_risk_level(action),
+                }
                 coord_m = re.search(
                     r"coordinate\s*=\s*\((\d+)\s*,\s*(\d+)\)", call_source
                 )
@@ -111,6 +186,7 @@ def _extract_computer_calls(messages) -> list[dict]:
                     "timestamp": ts,
                     "action": aao_action,
                     "source": "act_and_observe",
+                    "risk_level": action_risk_level(aao_action),
                 }
                 aao_coord_m = re.search(
                     r"coordinate\s*=\s*\((\d+)\s*,\s*(\d+)\)", aao_call_source
@@ -137,6 +213,7 @@ def _extract_computer_calls(messages) -> list[dict]:
                         "timestamp": ts,
                         "action": "screenshot",
                         "source": "observe_desktop",
+                        "risk_level": "read",
                     },
                 )
                 for m in re.finditer(r"\bobserve_desktop\s*\(", code)
@@ -158,6 +235,7 @@ def _extract_computer_calls(messages) -> list[dict]:
                             "action": fn,
                             "source": "browser",
                             "url": m.group(1) or m.group(2),
+                            "risk_level": action_risk_level(fn),
                         },
                     )
                     for m in re.finditer(
@@ -178,6 +256,7 @@ def _extract_computer_calls(messages) -> list[dict]:
                             "selector": m.group(1)
                             if m.group(1) is not None
                             else m.group(2),
+                            "risk_level": action_risk_level(fn),
                         },
                     )
                     for m in re.finditer(
@@ -200,6 +279,7 @@ def _extract_computer_calls(messages) -> list[dict]:
                         "value_len": len(
                             m.group(3) if m.group(3) is not None else (m.group(4) or "")
                         ),
+                        "risk_level": "sensitive",
                     },
                 )
                 for m in re.finditer(
@@ -212,7 +292,12 @@ def _extract_computer_calls(messages) -> list[dict]:
             browser_positioned.extend(
                 (
                     m.start(),
-                    {"timestamp": ts, "action": "read_page_text", "source": "browser"},
+                    {
+                        "timestamp": ts,
+                        "action": "read_page_text",
+                        "source": "browser",
+                        "risk_level": "read",
+                    },
                 )
                 for m in re.finditer(r"\bread_page_text\s*\(", code)
             )
@@ -226,6 +311,7 @@ def _extract_computer_calls(messages) -> list[dict]:
                         "action": "scroll_page",
                         "source": "browser",
                         "direction": m.group(1),
+                        "risk_level": "write",
                     },
                 )
                 for m in re.finditer(r"""\bscroll_page\s*\(\s*['"]([^'"]+)['"]""", code)
@@ -325,12 +411,13 @@ def audit_log(conversation: str | None, last: int, as_json: bool):
         return
 
     # Human-readable table
-    click.echo(f"{'Timestamp':<30} {'Conv':<25} {'Action':<25} Details")
-    click.echo("-" * 100)
+    click.echo(f"{'Timestamp':<30} {'Conv':<25} {'Risk':<10} {'Action':<25} Details")
+    click.echo("-" * 115)
     for r in all_records:
         ts = (r.get("timestamp") or "")[:19]
         conv = (r.get("conversation") or "")[:24]
         action = r.get("action", "")[:24]
+        risk = r.get("risk_level", "write")[:9]
         details = ""
         source = r.get("source", "")
         if source == "observe_desktop":
@@ -356,7 +443,7 @@ def audit_log(conversation: str | None, last: int, as_json: bool):
                 details = f"@ {r['coordinate']}"
             if "text_len" in r and r["text_len"] is not None:
                 details += f" ({r['text_len']} chars, redacted)"
-        click.echo(f"{ts:<30} {conv:<25} {action:<25} {details}")
+        click.echo(f"{ts:<30} {conv:<25} {risk:<10} {action:<25} {details}")
 
 
 @computer.command("screenshot")

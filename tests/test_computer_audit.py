@@ -14,7 +14,11 @@ from pathlib import Path  # noqa: TC003 — used at runtime in _write_conv_jsonl
 
 from click.testing import CliRunner
 
-from gptme.cli.cmd_computer import _extract_computer_calls, audit_log
+from gptme.cli.cmd_computer import (
+    _extract_computer_calls,
+    action_risk_level,
+    audit_log,
+)
 from gptme.message import Message
 
 # ---------------------------------------------------------------------------
@@ -128,23 +132,142 @@ def test_multiple_actions_in_one_block_scopes_fields_per_call():
         {
             "timestamp": "2026-07-01T12:00:00+00:00",
             "action": "screenshot",
+            "risk_level": "read",
         },
         {
             "timestamp": "2026-07-01T12:00:00+00:00",
             "action": "left_click",
             "coordinate": [50, 75],
+            "risk_level": "write",
         },
         {
             "timestamp": "2026-07-01T12:00:00+00:00",
             "action": "type",
             "text_len": len("short"),
+            "risk_level": "sensitive",
         },
         {
             "timestamp": "2026-07-01T12:00:00+00:00",
             "action": "type",
             "text_len": len("much-longer"),
+            "risk_level": "sensitive",
         },
     ]
+
+
+# ---------------------------------------------------------------------------
+# Risk level classification (action_risk_level)
+# ---------------------------------------------------------------------------
+
+
+def test_risk_level_read_actions():
+    """Observation-only actions are classified as 'read'."""
+    for action in (
+        "screenshot",
+        "cursor_position",
+        "accessibility_tree",
+        "wait_for_change",
+    ):
+        assert action_risk_level(action) == "read", f"Expected 'read' for {action!r}"
+
+
+def test_risk_level_browser_read_actions():
+    """Browser observation functions are classified as 'read'."""
+    for action in ("snapshot_url", "observe_web", "read_page_text", "observe_desktop"):
+        assert action_risk_level(action) == "read", f"Expected 'read' for {action!r}"
+
+
+def test_risk_level_write_actions():
+    """Click/mouse/scroll actions are classified as 'write'."""
+    for action in (
+        "left_click",
+        "right_click",
+        "middle_click",
+        "double_click",
+        "mouse_move",
+        "scroll",
+        "window_focus",
+        "click_element",
+        "scroll_page",
+        "open_page",
+    ):
+        assert action_risk_level(action) == "write", f"Expected 'write' for {action!r}"
+
+
+def test_risk_level_sensitive_actions():
+    """Keyboard input and form fill actions are classified as 'sensitive'."""
+    for action in ("type", "key", "left_click_drag", "fill_element"):
+        assert action_risk_level(action) == "sensitive", (
+            f"Expected 'sensitive' for {action!r}"
+        )
+
+
+def test_risk_level_unknown_action_defaults_to_write():
+    """Unknown actions default to 'write' (conservative)."""
+    assert action_risk_level("some_unknown_action") == "write"
+
+
+def test_risk_level_in_extracted_records():
+    """Each extracted record includes a 'risk_level' key."""
+    code = textwrap.dedent("""\
+        computer('screenshot')
+        computer('left_click', coordinate=(100, 200))
+        computer('type', text='hello')
+    """)
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert all("risk_level" in r for r in records), "All records must have risk_level"
+    assert records[0]["risk_level"] == "read"
+    assert records[1]["risk_level"] == "write"
+    assert records[2]["risk_level"] == "sensitive"
+
+
+def test_risk_level_in_act_and_observe_records():
+    """act_and_observe records include 'risk_level'."""
+    msgs = [
+        _msg(
+            "assistant",
+            _ipython_block("act_and_observe('left_click', coordinate=(100, 200))"),
+        )
+    ]
+    records = _extract_computer_calls(msgs)
+    assert records[0]["risk_level"] == "write"
+
+
+def test_risk_level_in_browser_records():
+    """Browser interaction records include 'risk_level'."""
+    code = textwrap.dedent("""\
+        observe_web('https://example.com')
+        fill_element('[name="q"]', 'hello')
+        click_element('[type="submit"]')
+    """)
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert records[0]["risk_level"] == "read"  # observe_web
+    assert records[1]["risk_level"] == "sensitive"  # fill_element
+    assert records[2]["risk_level"] == "write"  # click_element
+
+
+def test_audit_log_cli_table_shows_risk_level(tmp_path):
+    """Table output includes a Risk column."""
+    conv_dir = tmp_path / "risk-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    msgs = [
+        _msg("assistant", _ipython_block("computer('screenshot')")),
+        _msg(
+            "assistant", _ipython_block("computer('left_click', coordinate=(10, 20))")
+        ),
+        _msg("assistant", _ipython_block("computer('type', text='hello')")),
+    ]
+    _write_conv_jsonl(jsonl, msgs)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl)], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "Risk" in result.output
+    assert "read" in result.output
+    assert "write" in result.output
+    assert "sensitive" in result.output
 
 
 def test_prose_mention_not_counted():
