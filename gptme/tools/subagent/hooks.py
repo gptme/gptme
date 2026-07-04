@@ -62,12 +62,6 @@ def _get_complete_instruction(
         "Your specific question here.\n"
         "```"
     )
-    if output_schema is not None:
-        instruction += (
-            "\n"
-            "IMPORTANT: Your `complete` block MUST contain valid JSON matching the schema above. "
-            "Do not include any text outside the JSON object."
-        )
     if supports_progress:
         instruction += (
             "\n"
@@ -75,6 +69,12 @@ def _get_complete_instruction(
             "```progress\n"
             "Brief status update: what you have done so far and what remains.\n"
             "```"
+        )
+    if output_schema is not None:
+        instruction += (
+            "\n"
+            "IMPORTANT: Your `complete` block MUST contain valid JSON matching the schema above. "
+            "Do not include any text outside the JSON object."
         )
     return instruction
 
