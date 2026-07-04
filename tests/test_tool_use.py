@@ -333,3 +333,49 @@ def test_execute_msg_ignores_unrunnable_markdown_block():
 
     results = list(execute_msg(msg))
     assert results == [], f"markdown non-tool block should yield nothing, got {results}"
+
+
+def test_execute_msg_drains_structured_tooluses_after_interrupt(monkeypatch):
+    """After a KeyboardInterrupt on tool N, all subsequent structured tool_uses
+    (call_id is not None) must still get paired tool_results.
+
+    Regression for gptme#554 interrupt path: the pre-fix `break` exited the
+    loop entirely, leaving any remaining structured tool_uses dangling and
+    causing the next API request to hard-400.
+    """
+    from gptme.message import Message
+    from gptme.tools import execute_msg, init_tools
+    from gptme.tools.base import ToolUse
+
+    init_tools(["read"])
+    set_tool_format("tool")
+
+    # Patch ToolUse.execute on the first call to raise KeyboardInterrupt.
+    original_execute = ToolUse.execute
+    call_count = 0
+
+    def execute_raise_once(self, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise KeyboardInterrupt
+        return original_execute(self, **kwargs)
+
+    monkeypatch.setattr(ToolUse, "execute", execute_raise_once)
+    # Also patch is_runnable to return True for both tool calls.
+    monkeypatch.setattr(ToolUse, "is_runnable", property(lambda self: True))
+
+    # Two structured tool_uses; the first will be interrupted.
+    content = (
+        '@definitely_not_a_real_tool(toolu_first123): {"foo": "bar"}\n'
+        '@definitely_not_a_real_tool(toolu_second456): {"baz": "qux"}'
+    )
+    msg = Message("assistant", content)
+
+    results = list(execute_msg(msg))
+
+    call_ids = {m.call_id for m in results if m.call_id is not None}
+    assert "toolu_first123" in call_ids, "interrupted tool_use must be paired"
+    assert "toolu_second456" in call_ids, (
+        "subsequent tool_use must also be paired after interrupt"
+    )

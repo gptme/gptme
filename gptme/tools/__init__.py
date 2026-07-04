@@ -331,7 +331,8 @@ def execute_msg(
     if not classified:
         return
 
-    for tooluse, runnable in classified:
+    remaining = iter(classified)
+    for tooluse, runnable in remaining:
         if runnable:
             with terminal_state_title(f"🛠️ running {tooluse.tool}"):
                 try:
@@ -344,7 +345,17 @@ def execute_msg(
                         INTERRUPT_CONTENT,
                         call_id=tooluse.call_id,
                     )
-                    break
+                    # Drain the rest: any structured tool_use that's left in the
+                    # message still needs a paired tool_result or the next API
+                    # request will 400 with a dangling tool_use.
+                    for rem_tu, _ in remaining:
+                        if rem_tu.call_id is not None:
+                            yield Message(
+                                "system",
+                                f"Tool '{rem_tu.tool}' was not executed (interrupted).",
+                                call_id=rem_tu.call_id,
+                            )
+                    return
         elif tooluse.call_id is not None:
             # A structured (tool-format) tool_use that isn't runnable still needs
             # a paired tool_result, or the next API request dangles it and 400s.
