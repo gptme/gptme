@@ -6,7 +6,7 @@ Package structure:
 - types.py      — Data classes and module-level state (Subagent, ReturnType, etc.)
 - hooks.py      — Completion notification system (LOOP_CONTINUE hook)
 - api.py        — Public API (subagent, subagent_status, subagent_wait, etc.)
-- batch.py      — Batch execution (BatchJob, subagent_batch)
+- batch.py      — Batch execution (BatchJob, subagent_batch, subagent_parallel)
 - execution.py  — Execution backends (thread, subprocess, process monitoring)
 """
 
@@ -22,7 +22,7 @@ from .api import (
     subagent_status,
     subagent_wait,
 )
-from .batch import BatchJob, subagent_batch
+from .batch import BatchJob, subagent_batch, subagent_parallel
 from .execution import get_current_agent_id
 from .hooks import (
     _get_complete_instruction,
@@ -158,9 +158,30 @@ System: Listing 2 subagents::
   - analyze (running, 42s) -- "Analyze the codebase architecture..."
   - fib-13 (success, 120s) -- "compute the 13th Fibonacci number"
 
-### Batch Execution (parallel tasks)
-User: implement, test, and document a feature in parallel
-Assistant: I'll use subagent_batch for parallel execution with fire-and-gather pattern.
+### Parallel Fan-out (wait for all, ordered results)
+User: implement, test, and document a feature in parallel and collect all results
+Assistant: I'll use subagent_parallel to fan out all tasks and wait for them together.
+{
+        ToolUse(
+            "ipython",
+            [],
+            '''tasks = [
+    ("impl", "Implement the user authentication feature"),
+    ("test", "Write tests for authentication"),
+    ("docs", "Document the authentication API"),
+]
+results = subagent_parallel(tasks, timeout=300)
+for (agent_id, _), result in zip(tasks, results):
+    print(f"{{agent_id}}: {{result['status']}} — {{result['result'][:60]}}")''',
+        ).to_output(tool_format)
+    }
+System: impl: success — Authentication feature implemented in auth.py
+test: success — 12 tests added, all passing
+docs: success — API documented in docs/auth.md
+
+### Batch Execution (fire-and-forget with explicit sync)
+User: start tasks in background and continue working
+Assistant: I'll use subagent_batch to start tasks in the background. Completion hooks will notify me.
 {
         ToolUse(
             "ipython",
@@ -168,18 +189,14 @@ Assistant: I'll use subagent_batch for parallel execution with fire-and-gather p
             '''job = subagent_batch([
     ("impl", "Implement the user authentication feature"),
     ("test", "Write tests for authentication"),
-    ("docs", "Document the authentication API"),
 ])
-# Do other work while subagents run...
-results = job.wait_all(timeout=300)
-for agent_id, result in results.items():
-    print(f"{{agent_id}}: {{result['status']}}")''',
+# Do other work while subagents run — hook notifications arrive automatically:
+# "✅ Subagent 'impl' completed: ..."
+# Or explicitly wait for all when needed:
+results = job.wait_all(timeout=300)''',
         ).to_output(tool_format)
     }
-System: Started batch of 3 subagents: ['impl', 'test', 'docs']
-impl: success
-test: success
-docs: success
+System: Started batch of 2 subagents: ['impl', 'test']
 
 ### Fire-and-Forget with Hook Notifications
 User: start a subagent and continue working
@@ -279,7 +296,8 @@ Key features:
 - redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
 - context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
 - context_window=N: Limit workspace context to at most N messages
-- subagent_batch(): Start multiple subagents in parallel
+- subagent_parallel(tasks, timeout): Fan out N subagents and wait for all — returns ordered list of results
+- subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 - subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 - subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
 - Hook-based notifications: Completions (and clarification requests) delivered as system messages
@@ -393,6 +411,7 @@ tool = ToolSpec(
             subagent_wait,
             subagent_read_log,
             subagent_batch,
+            subagent_parallel,
         ]
     ],
     disabled_by_default=True,
@@ -416,6 +435,7 @@ __all__ = [
     "subagent_wait",
     "subagent_read_log",
     "subagent_batch",
+    "subagent_parallel",
     "BatchJob",
     # Types
     "SubtaskDef",
