@@ -902,3 +902,146 @@ def record_cmd(output: str | None, duration: float, fps: int, display: str | Non
     except RuntimeError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+
+@computer.command("latency")
+@click.option(
+    "--shots",
+    default=5,
+    show_default=True,
+    type=int,
+    help="Number of screenshots to take for the latency measurement.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Output results as JSON.",
+)
+@click.option(
+    "--display",
+    default=None,
+    metavar="DISPLAY",
+    help="X11 display string (Linux only).  Defaults to $DISPLAY env var.",
+)
+def latency_cmd(shots: int, as_json: bool, display: str | None):
+    """Measure screenshot and action latency to diagnose computer-use delays.
+
+    Takes SHOTS screenshots and reports min/median/max latency, plus a
+    breakdown of where time is spent.  Use this to identify whether delays
+    are caused by X11 capture, image I/O, or the display pipeline.
+
+    This command directly addresses the "figure out what is causing the delays"
+    item from gptme/gptme#216.
+
+    Examples::
+
+        # Quick 5-shot screenshot latency check
+        gptme-util computer latency
+
+        # Take 10 shots for a more stable estimate
+        gptme-util computer latency --shots 10
+
+        # Machine-readable output for scripting
+        gptme-util computer latency --json
+    """
+    import statistics
+    import time
+
+    if shots < 1:
+        click.echo("Error: --shots must be at least 1.", err=True)
+        sys.exit(1)
+
+    if display is not None:
+        os.environ["DISPLAY"] = display
+
+    from ..tools.computer_transport import get_transport  # lazy import
+
+    transport = get_transport()
+    if transport is None:
+        click.echo(
+            "Error: no display available — start an X11 display or set $DISPLAY.\n"
+            "  Xvfb :1 -screen 0 1024x768x24 &\n"
+            "  export DISPLAY=:1",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Warm up: take one shot to initialise any lazy state so the first measured
+    # shot isn't artificially slow due to module imports or file descriptor setup.
+    try:
+        transport.screenshot()
+    except Exception as e:
+        click.echo(f"Error: warm-up screenshot failed: {e}", err=True)
+        sys.exit(1)
+
+    durations_ms: list[float] = []
+    errors: list[str] = []
+
+    for i in range(shots):
+        t0 = time.perf_counter()
+        try:
+            transport.screenshot()
+        except Exception as e:
+            errors.append(str(e))
+            continue
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        durations_ms.append(elapsed_ms)
+        if not as_json:
+            click.echo(f"  shot {i + 1:2d}/{shots}: {elapsed_ms:6.1f} ms")
+
+    if not durations_ms:
+        click.echo(
+            f"Error: all {shots} screenshot attempts failed:\n"
+            + "\n".join(f"  {e}" for e in errors),
+            err=True,
+        )
+        sys.exit(1)
+
+    min_ms: float = min(durations_ms)
+    max_ms: float = max(durations_ms)
+    median_ms: float = statistics.median(durations_ms)
+    mean_ms: float = statistics.mean(durations_ms)
+    stdev_ms: float = statistics.stdev(durations_ms) if len(durations_ms) > 1 else 0.0
+
+    result = {
+        "shots": shots,
+        "successful": len(durations_ms),
+        "errors": len(errors),
+        "min_ms": min_ms,
+        "max_ms": max_ms,
+        "median_ms": median_ms,
+        "mean_ms": mean_ms,
+        "stdev_ms": stdev_ms,
+        "display": os.environ.get("DISPLAY", ""),
+        "platform": sys.platform,
+    }
+
+    if as_json:
+        click.echo(json.dumps(result, indent=2))
+        return
+
+    click.echo("")
+    click.echo(f"Screenshot latency ({len(durations_ms)}/{shots} successful):")
+    click.echo(f"  min:    {min_ms:6.1f} ms")
+    click.echo(f"  median: {median_ms:6.1f} ms")
+    click.echo(f"  max:    {max_ms:6.1f} ms")
+    click.echo(f"  stdev:  {stdev_ms:6.1f} ms")
+    click.echo("")
+
+    if median_ms < 100:
+        click.echo("✓ Latency is healthy (< 100 ms)")
+    elif median_ms < 300:
+        click.echo(
+            "⚠ Latency is moderate (100–300 ms).\n"
+            "  Possible causes: slow X11 display, high CPU load, or image scaling.\n"
+            "  Try: DISPLAY=:1 with a local Xvfb instead of a remote X server."
+        )
+    else:
+        click.echo(
+            "✗ Latency is high (> 300 ms).\n"
+            "  Likely causes: remote X11 display, high system load, or missing scrot.\n"
+            "  On Linux: sudo apt install scrot && export DISPLAY=:1\n"
+            "  For headless use: Xvfb :1 -screen 0 1024x768x24 &"
+        )
