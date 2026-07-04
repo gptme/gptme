@@ -85,8 +85,8 @@ def check_subagent_complete_spawned(messages: list[Message]) -> bool:
     return (
         'subagent("sum-roundtrip"' in assistant_log
         or "subagent('sum-roundtrip'" in assistant_log
-        or 'agent_id="sum-roundtrip"' in assistant_log
-        or "agent_id='sum-roundtrip'" in assistant_log
+        or 'subagent(agent_id="sum-roundtrip"' in assistant_log
+        or "subagent(agent_id='sum-roundtrip'" in assistant_log
     )
 
 
@@ -147,8 +147,8 @@ def check_clarification_spawned(messages: list[Message]) -> bool:
     return (
         'subagent("greeter"' in assistant_log
         or "subagent('greeter'" in assistant_log
-        or 'agent_id="greeter"' in assistant_log
-        or "agent_id='greeter'" in assistant_log
+        or 'subagent(agent_id="greeter"' in assistant_log
+        or "subagent(agent_id='greeter'" in assistant_log
     )
 
 
