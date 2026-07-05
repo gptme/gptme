@@ -9,6 +9,7 @@ import json
 import queue
 import threading
 from pathlib import Path
+from typing import Literal
 from unittest.mock import MagicMock
 
 import pytest
@@ -3485,3 +3486,319 @@ class TestOutputSchema:
         assert result.status == "success"
         assert "Task completed (no summary provided)" in (result.result or "")
         assert "not valid JSON" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# _parse_result() helper + subagent_parallel/subagent_batch new parameters
+# ---------------------------------------------------------------------------
+
+
+class TestParseResult:
+    """Tests for the _parse_result() helper in batch.py."""
+
+    def test_passthrough_when_schema_is_none(self):
+        from gptme.tools.subagent.batch import _parse_result
+
+        d = {"status": "success", "result": "some text"}
+        assert _parse_result(d, None) is d
+
+    def test_passthrough_on_failure_status(self):
+        from gptme.tools.subagent.batch import _parse_result
+
+        d = {"status": "failure", "result": '{"value": 1}'}
+
+        class Schema:
+            @classmethod
+            def model_json_schema(cls):
+                return {}
+
+        result = _parse_result(d, Schema)
+        assert result["result"] == '{"value": 1}'
+
+    def test_passthrough_when_result_is_none(self):
+        from gptme.tools.subagent.batch import _parse_result
+
+        d = {"status": "success", "result": None}
+
+        class Schema:
+            @classmethod
+            def model_json_schema(cls):
+                return {}
+
+        result = _parse_result(d, Schema)
+        assert result["result"] is None
+
+    def test_plain_json_parse_without_pydantic(self):
+        from gptme.tools.subagent.batch import _parse_result
+
+        class PlainSchema:
+            pass
+
+        d = {"status": "success", "result": '{"x": 42, "y": "hello"}'}
+        result = _parse_result(d, PlainSchema)
+        assert result["result"] == {"x": 42, "y": "hello"}
+        assert "parse_error" not in result
+
+    def test_pydantic_model_validate_called(self):
+        from gptme.tools.subagent.batch import _parse_result
+
+        class FakePydantic:
+            @classmethod
+            def model_validate(cls, data):
+                return cls()
+
+            def model_dump(self):
+                return {"validated": True}
+
+        d = {"status": "success", "result": '{"validated": true}'}
+        result = _parse_result(d, FakePydantic)
+        assert result["result"] == {"validated": True}
+        assert "parse_error" not in result
+
+    def test_parse_error_key_on_invalid_json(self):
+        from gptme.tools.subagent.batch import _parse_result
+
+        class Schema:
+            pass
+
+        d = {"status": "success", "result": "not valid json {{"}
+        result = _parse_result(d, Schema)
+        assert "parse_error" in result
+        assert result["result"] == "not valid json {{"
+
+    def test_original_result_preserved_on_parse_error(self):
+        from gptme.tools.subagent.batch import _parse_result
+
+        class Schema:
+            pass
+
+        original = "bad json"
+        d = {"status": "success", "result": original}
+        result = _parse_result(d, Schema)
+        assert result["result"] == original
+
+
+class TestSubagentParallelOutputSchema:
+    """Tests for output_schema support in subagent_parallel()."""
+
+    def setup_method(self):
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
+    def _register_fake_agent(
+        self,
+        agent_id: str,
+        result_text: str,
+        status: Literal[
+            "running", "success", "failure", "clarification_needed", "timeout"
+        ] = "success",
+    ):
+        import threading
+
+        t = MagicMock(spec=threading.Thread)
+        t.is_alive.return_value = False
+        t.join = MagicMock()
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt="test prompt",
+            thread=t,
+            logdir=Path("/tmp/fake-log"),
+            model=None,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        with _subagent_results_lock:
+            _subagent_results[agent_id] = ReturnType(status, result_text)
+
+    def test_output_schema_none_returns_raw_strings(self, monkeypatch):
+        """Without output_schema, results have raw string in 'result'."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_parallel
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            self._register_fake_agent(agent_id, '{"value": 1}')
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        results = subagent_parallel([("a", "prompt")], timeout=5)
+        assert results[0]["result"] == '{"value": 1}'
+
+    def test_output_schema_parses_json_results(self, monkeypatch):
+        """With output_schema set, JSON results are automatically parsed."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_parallel
+
+        class MySchema:
+            pass
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            self._register_fake_agent(agent_id, '{"score": 99}')
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        results = subagent_parallel(
+            [("x", "prompt")], output_schema=MySchema, timeout=5
+        )
+        assert results[0]["result"] == {"score": 99}
+        assert "parse_error" not in results[0]
+
+    def test_output_schema_forwarded_to_subagent(self, monkeypatch):
+        """output_schema is forwarded to each subagent() call."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_parallel
+
+        class MySchema:
+            pass
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+            self._register_fake_agent(agent_id, "ok")
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        subagent_parallel(
+            [("s1", "p1"), ("s2", "p2")], output_schema=MySchema, timeout=5
+        )
+
+        assert len(captured) == 2
+        for kw in captured:
+            assert kw.get("output_schema") is MySchema
+
+    def test_output_schema_parse_error_does_not_raise(self, monkeypatch):
+        """Invalid JSON in result adds parse_error but doesn't raise."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_parallel
+
+        class MySchema:
+            pass
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            self._register_fake_agent(agent_id, "not json at all")
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        results = subagent_parallel([("bad", "p")], output_schema=MySchema, timeout=5)
+        assert results[0]["status"] == "success"
+        assert "parse_error" in results[0]
+        assert results[0]["result"] == "not json at all"
+
+    def test_workdir_forwarded_to_subagent(self, monkeypatch, tmp_path):
+        """workdir is forwarded to each subagent() call."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_parallel
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+            self._register_fake_agent(agent_id, "ok")
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        subagent_parallel([("w1", "p1")], workdir=tmp_path, timeout=5)
+
+        assert captured[0].get("workdir") == tmp_path
+
+    def test_context_turns_forwarded_to_subagent(self, monkeypatch):
+        """context_turns is forwarded to each subagent() call."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_parallel
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+            self._register_fake_agent(agent_id, "ok")
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        subagent_parallel([("c1", "p1"), ("c2", "p2")], context_turns=5, timeout=5)
+
+        assert len(captured) == 2
+        for kw in captured:
+            assert kw.get("context_turns") == 5
+
+
+class TestSubagentBatchNewParameters:
+    """Tests for new parameters in subagent_batch()."""
+
+    def setup_method(self):
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
+    def test_model_forwarded_to_subagent(self, monkeypatch):
+        """model parameter is forwarded to each subagent() call."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_batch
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        subagent_batch([("t1", "p1"), ("t2", "p2")], model="openai/gpt-4o")
+
+        assert len(captured) == 2
+        for kw in captured:
+            assert kw.get("model") == "openai/gpt-4o"
+
+    def test_profile_forwarded_to_subagent(self, monkeypatch):
+        """profile parameter is forwarded to each subagent() call."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_batch
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        subagent_batch([("t1", "p1")], profile="explorer")
+
+        assert captured[0].get("profile") == "explorer"
+
+    def test_isolated_forwarded_to_subagent(self, monkeypatch):
+        """isolated parameter is forwarded to each subagent() call."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_batch
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        subagent_batch([("t1", "p1")], isolated=True)
+
+        assert captured[0].get("isolated") is True
+
+    def test_output_schema_forwarded_to_subagent(self, monkeypatch):
+        """output_schema is forwarded to each subagent() call."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_batch
+
+        class Schema:
+            pass
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        subagent_batch([("t1", "p1"), ("t2", "p2")], output_schema=Schema)
+
+        assert len(captured) == 2
+        for kw in captured:
+            assert kw.get("output_schema") is Schema

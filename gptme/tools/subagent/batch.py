@@ -5,16 +5,53 @@ for convenient fire-and-gather patterns. Also provides subagent_parallel()
 for a simpler synchronous fan-out pattern.
 """
 
+import json
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 from .api import subagent, subagent_cancel, subagent_wait
 from .types import ReturnType
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_result(result_dict: dict, output_schema: type | None) -> dict:
+    """Parse a subagent result dict against an output_schema if provided.
+
+    When output_schema is set and the result is a success with a JSON string,
+    attempt to parse it. For Pydantic models, validate with model_validate().
+    On parse failure, keep the raw string and add a "parse_error" key.
+
+    Args:
+        result_dict: Dict from subagent_wait() with "status" and "result" keys.
+        output_schema: Optional Pydantic model class or type to parse against.
+
+    Returns:
+        Updated result dict. On successful parse the "result" value is the
+        parsed object (dict for Pydantic, any JSON value otherwise).
+    """
+    if output_schema is None:
+        return result_dict
+
+    result_text = result_dict.get("result")
+    if result_dict.get("status") != "success" or not result_text:
+        return result_dict
+
+    out = dict(result_dict)
+    try:
+        parsed = json.loads(result_text)
+        if hasattr(output_schema, "model_validate"):
+            out["result"] = output_schema.model_validate(parsed).model_dump()
+        else:
+            out["result"] = parsed
+    except Exception as exc:
+        logger.warning(f"output_schema parse failed: {exc}")
+        out["parse_error"] = str(exc)
+    return out
 
 
 @dataclass
@@ -109,6 +146,10 @@ def subagent_batch(
     use_subprocess: bool = False,
     use_acp: bool = False,
     acp_command: str = "gptme-acp",
+    model: str | None = None,
+    profile: str | None = None,
+    isolated: bool = False,
+    output_schema: type | None = None,
     redact_secrets: bool = True,
 ) -> BatchJob:
     """Start multiple subagents in parallel and return a BatchJob to manage them.
@@ -125,6 +166,14 @@ def subagent_batch(
         use_subprocess: If True, run subagents in subprocesses for output isolation
         use_acp: If True, run subagents via ACP protocol
         acp_command: ACP agent command (default: "gptme-acp")
+        model: Model override applied to every subagent.
+        profile: Agent profile name applied to every subagent.
+        isolated: If True, run each subagent in its own git worktree so file
+            edits don't conflict between agents or with the parent.
+        output_schema: Optional Pydantic model class. When set, subagents are
+            instructed to return JSON matching the schema in their complete block.
+            The schema is used for prompt construction; call ``wait_all()`` and
+            then ``_parse_result()`` to validate results.
         redact_secrets: If True (default), redact secrets from workspace context
             passed to subagents. Pass False only if you need subagents to see
             config values that are incorrectly flagged as secrets.
@@ -159,6 +208,10 @@ def subagent_batch(
             use_subprocess=use_subprocess,
             use_acp=use_acp,
             acp_command=acp_command,
+            model=model,
+            profile=profile,
+            isolated=isolated,
+            output_schema=output_schema,
             redact_secrets=redact_secrets,
         )
 
@@ -175,6 +228,9 @@ def subagent_parallel(
     model: str | None = None,
     profile: str | None = None,
     isolated: bool = False,
+    output_schema: type | None = None,
+    workdir: str | Path | None = None,
+    context_turns: int | None = None,
     redact_secrets: bool = True,
 ) -> list[dict]:
     """Fan out N subagents in parallel, wait for all, return results as an ordered list.
@@ -204,13 +260,25 @@ def subagent_parallel(
             ``"explorer"``, ``"developer"``, ``"verifier"``).
         isolated: If True, run each subagent in its own git worktree so file
             edits don't conflict between agents or with the parent.
+        output_schema: Optional Pydantic model class. When set, subagents are
+            instructed to return valid JSON matching the schema in their
+            ``complete`` block. Results are automatically parsed: on success the
+            ``"result"`` value is the parsed/validated object (a dict for Pydantic
+            models) rather than a raw JSON string. A ``"parse_error"`` key is
+            added to any result that cannot be parsed.
+        workdir: Working directory passed to every subagent. Useful when running
+            subagents against a specific project directory.
+        context_turns: Number of recent parent conversation turns to forward to
+            each subagent as context prefix. Pass ``None`` (default) to use no
+            parent context.
         redact_secrets: If True (default), scrub common secret patterns from
             workspace context before passing it to subagents.
 
     Returns:
         List of result dicts in the same order as ``tasks``. Each dict has
         ``"status"`` (``"success"`` / ``"failure"`` / ``"timeout"``) and
-        ``"result"`` (summary text from the subagent's ``complete`` block).
+        ``"result"`` (parsed object when ``output_schema`` is set, else the
+        summary text from the subagent's ``complete`` block).
 
     Example::
 
@@ -228,6 +296,23 @@ def subagent_parallel(
             [("fix-a", "Fix bug in module A"), ("fix-b", "Fix bug in module B")],
             isolated=True,
         )
+
+        # With structured output (Pydantic model)
+        from pydantic import BaseModel
+
+        class AnalysisResult(BaseModel):
+            summary: str
+            score: int
+            issues: list[str]
+
+        results = subagent_parallel(
+            [("a1", "Analyze module A"), ("a2", "Analyze module B")],
+            output_schema=AnalysisResult,
+        )
+        for r in results:
+            if r["status"] == "success":
+                analysis = r["result"]  # already a validated dict
+                print(f"Score: {analysis['score']}, Issues: {analysis['issues']}")
     """
     if not tasks:
         return []
@@ -245,6 +330,9 @@ def subagent_parallel(
                 model=model,
                 profile=profile,
                 isolated=isolated,
+                output_schema=output_schema,
+                workdir=workdir,
+                context_turns=context_turns,
                 redact_secrets=redact_secrets,
             )
             started_ids.append(agent_id)
@@ -262,8 +350,9 @@ def subagent_parallel(
     job = BatchJob(agent_ids=[t[0] for t in tasks])
     job.wait_all(timeout=timeout)
 
-    # Return results in input order; fall back to failure for missing results
-    return [
+    # Return results in input order; fall back to failure for missing results.
+    # When output_schema is set, parse the JSON result against the schema.
+    raw_results = [
         asdict(
             job.results.get(
                 agent_id, ReturnType("failure", "No result (timeout or missing)")
@@ -271,3 +360,6 @@ def subagent_parallel(
         )
         for agent_id, _ in tasks
     ]
+    if output_schema is not None:
+        return [_parse_result(r, output_schema) for r in raw_results]
+    return raw_results
