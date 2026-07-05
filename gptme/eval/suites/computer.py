@@ -21,6 +21,7 @@ pipelines.
 
 import base64
 import logging
+import re
 import urllib.parse
 from typing import TYPE_CHECKING
 
@@ -484,7 +485,7 @@ def _expect_doom_score_nonzero(ctx) -> bool:
     content = ctx.files.get("game.txt", ctx.stdout)
     if isinstance(content, bytes):
         content = content.decode(errors="replace")
-    return "score:100" in content
+    return bool(re.search(r"score:([1-9]\d*)", content))
 
 
 def check_used_game_control_keys(messages: list[Message]) -> bool:
@@ -495,7 +496,7 @@ def check_used_game_control_keys(messages: list[Message]) -> bool:
     accept any of the four control keys: ArrowLeft, ArrowRight, ArrowUp,
     ArrowDown, or Space (the shoot key).
     """
-    _GAME_KEYS = {"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", " "}
+    _GAME_KEYS = {"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space"}
     for code in _executed_tool_calls(messages):
         if "press_key" in code:
             if any(k in code for k in _GAME_KEYS):
@@ -900,7 +901,6 @@ tests: list["EvalSpec"] = [
         "check_log": {
             "used open_page for navigation": check_used_open_page,
             "used press_key for game control": check_used_game_control_keys,
-            "used press_key overall": check_used_press_key,
         },
     },
 ]
