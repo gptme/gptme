@@ -1,0 +1,1 @@
+python: can't open file '/home/appuser/.local/share/gptme/logs/2026-07-05-gptme-evals-openrouter--meta-llama--llama-3.1-70b-instruct-xml-b3252ba3/workspace/prime.py': [Errno 2] No such file or directory
