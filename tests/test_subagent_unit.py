@@ -4668,3 +4668,111 @@ class TestThreadToolIsolation:
         assert len(current_parent) == 1 and current_parent[0] is sentinel, (
             "Parent's list content must be unchanged after child thread exits"
         )
+
+    def test_create_subagent_thread_isolates_tool_list(self, monkeypatch, tmp_path):
+        """_create_subagent_thread must isolate its tool list from the parent thread.
+
+        This is the actual regression guard for the fix at execution.py:188.
+        The two tests above verify that clear_tools() works in isolation, but
+        neither calls _create_subagent_thread — so removing clear_tools() from
+        execution.py:188 would leave both passing.  This test exercises the real
+        fix site: the child runs in a *copied* context (simulating Python ≤ 3.11
+        thread semantics), and _ensure_subagent_signal_tools_loaded is replaced
+        with a mock that appends to the current tool list.  Without clear_tools(),
+        that append would mutate the parent's list; with it, the child gets an
+        isolated list and the parent's sentinel is untouched.
+        """
+        import contextvars
+        import importlib
+
+        from gptme.message import Message
+        from gptme.tools import _loaded_tools_var
+        from gptme.tools.base import ToolSpec
+
+        gptme_chat = importlib.import_module("gptme.chat")
+        gptme_executor = importlib.import_module("gptme.executor")
+        gptme_llm_models = importlib.import_module("gptme.llm.models")
+        gptme_profiles = importlib.import_module("gptme.profiles")
+        gptme_prompts = importlib.import_module("gptme.prompts")
+        hooks_mod = importlib.import_module("gptme.tools.subagent.hooks")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+
+        # Establish parent's tool list with a sentinel
+        sentinel = MagicMock(spec=ToolSpec)
+        parent_list: list[ToolSpec] = [sentinel]
+        token = _loaded_tools_var.set(parent_list)
+
+        try:
+            # This mock replaces _ensure_subagent_signal_tools_loaded.  It appends
+            # to the *current context's* tool list, exactly like the real function.
+            # If clear_tools() is absent, the current list IS parent_list and this
+            # append mutates it.  If clear_tools() ran first, the current list is a
+            # fresh empty list so parent_list stays clean.
+            injected = MagicMock(spec=ToolSpec)
+
+            def mock_ensure_tools():
+                from gptme.tools import _get_loaded_tools
+
+                _get_loaded_tools().append(injected)
+
+            monkeypatch.setattr(gptme_chat, "chat", lambda *args, **kwargs: None)
+            monkeypatch.setattr(
+                gptme_executor, "prepare_execution_environment", lambda **kwargs: None
+            )
+            monkeypatch.setattr(
+                gptme_llm_models, "set_default_model", lambda *args: None
+            )
+            monkeypatch.setattr(gptme_profiles, "get_profile", lambda _: None)
+            monkeypatch.setattr(
+                gptme_prompts,
+                "get_prompt",
+                lambda *args, **kwargs: [Message("system", "# Agent\ntest")],
+            )
+            monkeypatch.setattr(
+                hooks_mod,
+                "_get_complete_instruction",
+                lambda *args, **kwargs: "done",
+            )
+            monkeypatch.setattr(
+                exec_mod, "_ensure_subagent_signal_tools_loaded", mock_ensure_tools
+            )
+            monkeypatch.setattr(exec_mod, "get_tools", lambda: [])
+
+            thread_exc: list[BaseException] = []
+
+            def thread_target():
+                try:
+                    ctx.run(
+                        exec_mod._create_subagent_thread,
+                        prompt="test",
+                        logdir=tmp_path / "logdir",
+                        model=None,
+                        context_mode="full",
+                        context_include=None,
+                        workspace=tmp_path,
+                        redact_secrets=False,
+                    )
+                except Exception as e:
+                    thread_exc.append(e)
+
+            ctx = contextvars.copy_context()
+            t = threading.Thread(target=thread_target)
+            t.start()
+            t.join()
+
+            if thread_exc:
+                raise thread_exc[0]
+
+            # clear_tools() at execution.py:188 must have routed mock_ensure_tools()'s
+            # append to the child's isolated list, not to parent_list.
+            current_parent = _loaded_tools_var.get()
+            assert current_parent is parent_list, (
+                "Parent's ContextVar binding must not change"
+            )
+            assert injected not in current_parent, (
+                "_create_subagent_thread's tool-list append must not reach the "
+                "parent list — clear_tools() at execution.py:188 is likely missing"
+            )
+            assert sentinel in current_parent, "Parent's original tool must be present"
+        finally:
+            _loaded_tools_var.reset(token)
