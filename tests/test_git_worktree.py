@@ -107,12 +107,22 @@ def test_create_worktree_auto_branch(git_repo: Path, tmp_path: Path):
 
 
 def test_cleanup_worktree(git_repo: Path, tmp_path: Path):
-    """Test cleaning up a git worktree."""
+    """Test cleaning up a git worktree removes the directory and the branch."""
     worktree_base = tmp_path / "worktrees"
     wt = create_worktree(
         git_repo, branch_name="cleanup-test", worktree_base=worktree_base
     )
     assert wt.exists()
+
+    # Verify branch exists before cleanup
+    result = subprocess.run(
+        ["git", "branch", "--list", "cleanup-test"],
+        check=False,
+        cwd=git_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert "cleanup-test" in result.stdout, "Branch should exist before cleanup"
 
     cleanup_worktree(wt, git_repo)
     assert not wt.exists()
@@ -126,6 +136,20 @@ def test_cleanup_worktree(git_repo: Path, tmp_path: Path):
         text=True,
     )
     assert "cleanup-test" not in result.stdout
+
+    # Verify the branch was deleted (the key fix — git worktree remove alone
+    # removes the working tree but leaves the branch behind, causing branch pollution)
+    result = subprocess.run(
+        ["git", "branch", "--list", "cleanup-test"],
+        check=False,
+        cwd=git_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert "cleanup-test" not in result.stdout, (
+        "Branch should be deleted after cleanup_worktree() — "
+        "git worktree remove only removes the directory, not the branch"
+    )
 
 
 def test_cleanup_nonexistent_worktree(tmp_path: Path):

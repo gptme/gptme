@@ -87,9 +87,11 @@ def cleanup_worktree(
     worktree_path: Path,
     repo_path: Path | None = None,
 ) -> None:
-    """Clean up a git worktree.
+    """Clean up a git worktree and its associated branch.
 
     Attempts git worktree remove first, falls back to directory removal.
+    Always attempts to delete the branch named after the worktree directory,
+    since ``git worktree remove`` only removes the working tree, not the branch.
 
     Args:
         worktree_path: Path to the worktree to remove.
@@ -98,6 +100,9 @@ def cleanup_worktree(
     if not worktree_path.exists():
         logger.debug(f"Worktree already removed: {worktree_path}")
         return
+
+    # Branch name matches the last path component (as created by create_worktree)
+    branch_name = worktree_path.name
 
     # Try to find repo_path if not given
     if repo_path is None:
@@ -115,19 +120,36 @@ def cleanup_worktree(
                 timeout=30,
             )
             logger.info(f"Removed git worktree: {worktree_path}")
-            return
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             logger.warning(f"git worktree remove failed: {e}")
+            # Fallback: remove directory manually
+            try:
+                shutil.rmtree(worktree_path)
+                logger.info(f"Removed worktree directory (fallback): {worktree_path}")
+            except OSError as e2:
+                logger.warning(f"Failed to remove worktree directory: {e2}")
 
-    # Fallback: remove directory manually
-    try:
-        shutil.rmtree(worktree_path)
-        logger.info(f"Removed worktree directory (fallback): {worktree_path}")
-    except OSError as e:
-        logger.warning(f"Failed to remove worktree directory: {e}")
+        # Delete the branch that was created for this worktree.
+        # git worktree remove only removes the working tree, not the branch.
+        try:
+            result = subprocess.run(
+                ["git", "branch", "-D", branch_name],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                logger.info(f"Deleted worktree branch: {branch_name}")
+            else:
+                logger.debug(
+                    f"Could not delete branch {branch_name!r}: {result.stderr.strip()}"
+                )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.debug(f"Branch deletion skipped for {branch_name!r}: {e}")
 
-    # Also try to prune stale worktree entries
-    if repo_path:
+        # Prune stale worktree entries
         try:
             subprocess.run(
                 ["git", "worktree", "prune"],
@@ -139,3 +161,10 @@ def cleanup_worktree(
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass
+    else:
+        # No repo_path — just remove the directory
+        try:
+            shutil.rmtree(worktree_path)
+            logger.info(f"Removed worktree directory (no repo): {worktree_path}")
+        except OSError as e:
+            logger.warning(f"Failed to remove worktree directory: {e}")
