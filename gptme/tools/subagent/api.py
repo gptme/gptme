@@ -1165,6 +1165,49 @@ def subagent_wait(
     return result_dict
 
 
+def subagent_wait_any(
+    agent_ids: list[str],
+    timeout: float = 300,
+) -> tuple[str, dict]:
+    """Wait for the first of the given subagents to complete.
+
+    Useful for speculative/hedging patterns: spawn N subagents and take
+    whichever finishes first, then cancel the rest with ``subagent_cancel()``.
+
+    Args:
+        agent_ids: List of agent IDs to wait on.
+        timeout: Maximum seconds to wait for any agent to complete.
+
+    Returns:
+        Tuple of ``(agent_id, result_dict)`` for the first agent that
+        completes. ``result_dict`` has ``"status"`` (``"success"`` /
+        ``"failure"`` / ``"timeout"``) and ``"result"`` keys.
+
+    Raises:
+        ValueError: If ``agent_ids`` is empty.
+        TimeoutError: If no agent completes within ``timeout`` seconds.
+
+    Example::
+
+        # Race pattern: take whichever approach finishes first
+        subagent("fast", "Quick attempt at task X")
+        subagent("thorough", "Thorough attempt at task X")
+        first_id, result = subagent_wait_any(["fast", "thorough"], timeout=120)
+        print(f"{first_id} won the race: {result['status']}")
+        # Cancel the slower agent
+        for aid in ("fast", "thorough"):
+            if aid != first_id:
+                subagent_cancel(aid)
+    """
+    if not agent_ids:
+        raise ValueError("agent_ids must not be empty")
+
+    from .batch import BatchJob
+
+    job = BatchJob(agent_ids=list(agent_ids))
+    return job.wait_any(timeout=timeout)
+
+
 def subagent_read_log(
     agent_id: str,
     max_messages: int = 50,

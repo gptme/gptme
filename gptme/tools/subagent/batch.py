@@ -233,6 +233,94 @@ class BatchJob:
                 }
             return raw
 
+    def wait_any(self, timeout: float = 300) -> tuple[str, dict]:
+        """Wait for the first subagent to complete and return its result.
+
+        Useful for speculative/hedging patterns: spawn N subagents and take
+        whichever finishes first, then cancel the rest.
+
+        Args:
+            timeout: Maximum seconds to wait for any agent to complete.
+
+        Returns:
+            Tuple of ``(agent_id, result_dict)`` for the first agent that
+            completes. When ``output_schema`` is set on the ``BatchJob`` the
+            result is automatically parsed.
+
+        Raises:
+            TimeoutError: If no agent completes within ``timeout`` seconds.
+
+        Example::
+
+            job = subagent_batch([
+                ("attempt-fast", "Try the quick approach for task X"),
+                ("attempt-thorough", "Try the thorough approach for task X"),
+            ])
+            first_id, result = job.wait_any(timeout=120)
+            print(f"{first_id} finished first: {result['status']}")
+            # Cancel the remaining agent
+            from gptme.tools.subagent import subagent_cancel
+            for aid in job.agent_ids:
+                if aid != first_id:
+                    subagent_cancel(aid)
+        """
+        done_event = threading.Event()
+        first_result: list[tuple[str, ReturnType]] = []
+
+        def _wait_one_notify(agent_id: str) -> None:
+            try:
+                raw = subagent_wait(
+                    agent_id, timeout=int(max(1, timeout)), max_result_chars=0
+                )
+                status = raw.get("status", "failure")
+                if status == "running":
+                    status = "timeout"
+                result = ReturnType(
+                    status,
+                    raw.get("result"),
+                    input_tokens=raw.get("input_tokens"),
+                    output_tokens=raw.get("output_tokens"),
+                )
+            except Exception as exc:
+                result = ReturnType("failure", str(exc))
+
+            with self._lock:
+                if agent_id not in self.results:
+                    self.results[agent_id] = result
+                # Signal if this is the first successful/failed terminal result
+                if not done_event.is_set():
+                    first_result.append((agent_id, result))
+                    done_event.set()
+
+        # If any result is already cached, return it immediately.
+        with self._lock:
+            for aid in self.agent_ids:
+                if aid in self.results:
+                    raw = asdict(self.results[aid])
+                    if self.output_schema is not None:
+                        raw = _parse_result(raw, self.output_schema)
+                    return aid, raw
+            pending = [aid for aid in self.agent_ids if aid not in self.results]
+
+        threads = [
+            threading.Thread(target=_wait_one_notify, args=(aid,), daemon=True)
+            for aid in pending
+        ]
+        for t in threads:
+            t.start()
+
+        signalled = done_event.wait(timeout=timeout)
+        if not signalled or not first_result:
+            raise TimeoutError(
+                f"No subagent completed within {timeout}s (waiting for: {pending})"
+            )
+
+        first_id, first_ret = first_result[0]
+        raw = asdict(first_ret)
+        if self.output_schema is not None:
+            raw = _parse_result(raw, self.output_schema)
+        return first_id, raw
+
 
 def subagent_batch(
     tasks: list[tuple[str, str]],

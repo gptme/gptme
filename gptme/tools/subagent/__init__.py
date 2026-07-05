@@ -21,6 +21,7 @@ from .api import (
     subagent_reply,
     subagent_status,
     subagent_wait,
+    subagent_wait_any,
 )
 from .batch import BatchJob, subagent_batch, subagent_parallel, subagent_pipeline
 from .execution import get_current_agent_id
@@ -324,6 +325,7 @@ Key features:
 - subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage's prompt
 - subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 - subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
+- subagent_wait_any(agent_ids, timeout): Wait for the first of N subagents to complete — returns (agent_id, result). Useful for race/hedging patterns.
 - subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
 - Hook-based notifications: Completions (and clarification requests) delivered as system messages
 
@@ -434,6 +436,7 @@ tool = ToolSpec(
             subagent_reply,
             subagent_status,
             subagent_wait,
+            subagent_wait_any,
             subagent_read_log,
             subagent_batch,
             subagent_parallel,
@@ -459,6 +462,7 @@ __all__ = [
     "subagent_reply",
     "subagent_status",
     "subagent_wait",
+    "subagent_wait_any",
     "subagent_read_log",
     "subagent_batch",
     "subagent_parallel",
