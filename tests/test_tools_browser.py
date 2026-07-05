@@ -1041,3 +1041,53 @@ class TestCreatePage:
         browser.new_context.assert_called_once_with(locale="en-US")
         assert managed.page is page
         assert managed._owned_context is context
+
+
+# ── _select_option — no label= fallback (issue #3100) ────────────────
+
+
+@pytest.mark.skipif(not has_playwright(), reason="playwright not installed")
+class TestSelectOption:
+    """Regression tests for _select_option — label= fallback was unreachable
+    and doubled the timeout on a miss (gptme#3100)."""
+
+    def test_select_option_value_calls_select_once(self):
+        """select_option(value=) is called exactly once — no label= retry."""
+        from unittest.mock import MagicMock, patch
+
+        from gptme.tools import _browser_playwright as bp
+
+        mock_page = MagicMock()
+        mock_locator = MagicMock()
+        mock_page.locator.return_value = mock_locator
+
+        with (
+            patch.object(bp, "_current_page", mock_page),
+            patch.object(bp, "_page_snapshot", return_value="snapshot"),
+        ):
+            result = bp._select_option(MagicMock(), "[name='s']", "Large")
+
+        assert result == "snapshot"
+        mock_locator.select_option.assert_called_once_with(value="Large", timeout=10000)
+
+    def test_select_option_timeout_propagates_after_one_call(self):
+        """On timeout, the error surfaces immediately — no second call with label=."""
+        from unittest.mock import MagicMock, patch
+
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        from gptme.tools import _browser_playwright as bp
+
+        mock_page = MagicMock()
+        mock_locator = MagicMock()
+        mock_locator.select_option.side_effect = PlaywrightTimeoutError("timed out")
+        mock_page.locator.return_value = mock_locator
+
+        with (
+            patch.object(bp, "_current_page", mock_page),
+            pytest.raises(PlaywrightTimeoutError),
+        ):
+            bp._select_option(MagicMock(), "[name='s']", "missing-value")
+
+        # Old code would call twice (value= then label=); fix makes it call once.
+        mock_locator.select_option.assert_called_once()

@@ -829,10 +829,10 @@ def _select_option(browser: Browser, selector: str, value: str) -> str:
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     locator = _current_page.locator(selector)
-    try:
-        locator.select_option(value=value, timeout=10000)
-    except PlaywrightTimeoutError:
-        locator.select_option(label=value, timeout=10000)
+    # Playwright's value= already matches by both value attribute and visible
+    # label text, so a label= fallback would never succeed where value= fails.
+    # Drop the fallback to avoid doubling the timeout on a miss.
+    locator.select_option(value=value, timeout=10000)
     return _page_snapshot()
 
 
