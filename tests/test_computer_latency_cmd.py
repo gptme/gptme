@@ -236,6 +236,7 @@ class TestLatencyCmd:
 
         with (
             patch("gptme.tools.computer_transport.get_transport", return_value=None),
+            patch("platform.system", return_value="Linux"),
             patch(
                 "gptme.tools.computer_transport.NativeComputerTransport",
                 return_value=native_transport,
