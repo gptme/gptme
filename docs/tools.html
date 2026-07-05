@@ -503,6 +503,9 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tmux">Tmux</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subagent">Subagent</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#subagent-isolation-contract">Subagent Isolation Contract</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fan-out-and-parallel-execution">Fan-out and Parallel Execution</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#structured-output-output-schema">Structured Output (output_schema)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#token-budget-tracking">Token Budget Tracking</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read">Read</a></li>
@@ -2552,15 +2555,79 @@ is queued back to the parent via the <code class="docutils literal notranslate">
 after the subagent completes.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">subagent_status(agent_id)</span></code> — poll completion/error state without waiting.</p></li>
 </ul>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>The thread-mode transient <code class="docutils literal notranslate"><span class="pre">is_runnable</span></code> race (where a tool may briefly appear
-non-runnable while a concurrent subagent thread is active) is a known open issue
-tracked in <a class="reference external" href="https://github.com/gptme/gptme/issues/554">gptme#554</a>. Since
-<a class="reference external" href="https://github.com/gptme/gptme/pull/3072">#3072</a> the crash is non-fatal —
-non-runnable structured tool calls get a paired error <code class="docutils literal notranslate"><span class="pre">tool_result</span></code> — but the
-root cause is not yet identified.</p>
+</section>
+<section id="fan-out-and-parallel-execution">
+<h3>Fan-out and Parallel Execution<a class="headerlink" href="#fan-out-and-parallel-execution" title="Link to this heading">#</a></h3>
+<p>Two helpers make it easy to run multiple independent tasks concurrently:</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">subagent_parallel(tasks,</span> <span class="pre">...)</span></code></dt><dd><p>Fan out N subagents in parallel and block until all complete. Returns results
+in the same order as the input tasks. Wall-clock time is bounded by the
+slowest agent, not their sum. Use this for straightforward parallel delegation
+where the parent needs all results before continuing:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">([</span>
+    <span class="p">(</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span> <span class="s2">&quot;Research async Python frameworks&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;coder&quot;</span><span class="p">,</span>      <span class="s2">&quot;Implement a basic async HTTP client&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;tester&quot;</span><span class="p">,</span>     <span class="s2">&quot;Write pytest tests for an async HTTP client&quot;</span><span class="p">),</span>
+<span class="p">])</span>
+</pre></div>
 </div>
+<p>Key parameters: <code class="docutils literal notranslate"><span class="pre">isolated=True</span></code> (each agent gets its own git worktree),
+<code class="docutils literal notranslate"><span class="pre">output_schema</span></code> (structured output — see below), <code class="docutils literal notranslate"><span class="pre">model</span></code>, <code class="docutils literal notranslate"><span class="pre">profile</span></code>,
+<code class="docutils literal notranslate"><span class="pre">context_turns</span></code>, <code class="docutils literal notranslate"><span class="pre">workdir</span></code>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">subagent_batch(tasks,</span> <span class="pre">...)</span></code></dt><dd><p>Non-blocking variant. Launches all subagents and returns a <code class="docutils literal notranslate"><span class="pre">BatchJob</span></code>
+object immediately so the parent can continue working while agents run.
+Call <code class="docutils literal notranslate"><span class="pre">job.wait_all()</span></code> later to collect results. Useful when the parent
+has its own work to interleave:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">job</span> <span class="o">=</span> <span class="n">subagent_batch</span><span class="p">([</span>
+    <span class="p">(</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="s2">&quot;...&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;b&quot;</span><span class="p">,</span> <span class="s2">&quot;...&quot;</span><span class="p">),</span>
+<span class="p">])</span>
+<span class="c1"># ... parent does other work ...</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">job</span><span class="o">.</span><span class="n">wait_all</span><span class="p">()</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+</section>
+<section id="structured-output-output-schema">
+<h3>Structured Output (output_schema)<a class="headerlink" href="#structured-output-output-schema" title="Link to this heading">#</a></h3>
+<p>Both <code class="docutils literal notranslate"><span class="pre">subagent_parallel()</span></code> and <code class="docutils literal notranslate"><span class="pre">subagent_batch()</span></code> accept an
+<code class="docutils literal notranslate"><span class="pre">output_schema</span></code> parameter (a Pydantic model class). When set, each subagent
+is instructed to return valid JSON matching the schema inside its <code class="docutils literal notranslate"><span class="pre">complete</span></code>
+block. Results are automatically parsed and validated — the <code class="docutils literal notranslate"><span class="pre">&quot;result&quot;</span></code> value
+in each result dict is the parsed/validated object rather than a raw string:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pydantic</span> <span class="kn">import</span> <span class="n">BaseModel</span>
+
+<span class="k">class</span> <span class="nc">AnalysisResult</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">summary</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">score</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">issues</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+
+<span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span>
+    <span class="p">[(</span><span class="s2">&quot;a1&quot;</span><span class="p">,</span> <span class="s2">&quot;Analyze module A&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;a2&quot;</span><span class="p">,</span> <span class="s2">&quot;Analyze module B&quot;</span><span class="p">)],</span>
+    <span class="n">output_schema</span><span class="o">=</span><span class="n">AnalysisResult</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;success&quot;</span><span class="p">:</span>
+        <span class="n">analysis</span> <span class="o">=</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;result&quot;</span><span class="p">]</span>  <span class="c1"># already a validated dict</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Score: </span><span class="si">{</span><span class="n">analysis</span><span class="p">[</span><span class="s1">&#39;score&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">output_schema</span></code> parameter is also available on the low-level
+<code class="docutils literal notranslate"><span class="pre">subagent()</span></code> call for single-agent structured output.</p>
+</section>
+<section id="token-budget-tracking">
+<h3>Token Budget Tracking<a class="headerlink" href="#token-budget-tracking" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">subagent_wait()</span></code> and <code class="docutils literal notranslate"><span class="pre">BatchJob.wait_all()</span></code> include token usage in their
+result dicts:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">result</span> <span class="o">=</span> <span class="n">subagent_wait</span><span class="p">(</span><span class="s2">&quot;my-agent&quot;</span><span class="p">)</span>
+<span class="c1"># result[&quot;input_tokens&quot;]  — tokens consumed by the subagent&#39;s prompts</span>
+<span class="c1"># result[&quot;output_tokens&quot;] — tokens generated by the subagent</span>
+</pre></div>
+</div>
+<p>This lets the parent track cumulative cost across a fleet of delegated tasks
+and gate further spawning when a budget limit is reached.</p>
 </section>
 </section>
 <section id="read">
@@ -4765,7 +4832,7 @@ to 24+ for smooth game recordings).</p></li>
 
 </section>
 <section id="rag">
-<span id="id2"></span><h2>RAG<a class="headerlink" href="#rag" title="Link to this heading">#</a></h2>
+<span id="id1"></span><h2>RAG<a class="headerlink" href="#rag" title="Link to this heading">#</a></h2>
 <p>RAG (Retrieval-Augmented Generation) tool for context-aware assistance.</p>
 <p>The RAG tool provides context-aware assistance by indexing and semantically searching text files.</p>
 <p class="rubric">Installation</p>
@@ -5043,7 +5110,7 @@ THIRD_EDIT
 
 </section>
 <section id="gh">
-<span id="id3"></span><h2>GH<a class="headerlink" href="#gh" title="Link to this heading">#</a></h2>
+<span id="id2"></span><h2>GH<a class="headerlink" href="#gh" title="Link to this heading">#</a></h2>
 <p>GitHub integration tool.</p>
 <p>Use native handlers only when they help the assistant succeed more reliably
 than a raw <code class="docutils literal notranslate"><span class="pre">gh</span></code> command in the shell tool.  The native path is worth it when
@@ -6024,6 +6091,9 @@ spawning subagents programmatically:</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tmux">Tmux</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subagent">Subagent</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#subagent-isolation-contract">Subagent Isolation Contract</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fan-out-and-parallel-execution">Fan-out and Parallel Execution</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#structured-output-output-schema">Structured Output (output_schema)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#token-budget-tracking">Token Budget Tracking</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read">Read</a></li>
