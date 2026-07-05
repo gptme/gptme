@@ -230,8 +230,8 @@ Two helpers make it easy to run multiple independent tasks concurrently:
   has its own work to interleave::
 
       job = subagent_batch([
-          SubtaskDef(agent_id="a", prompt="..."),
-          SubtaskDef(agent_id="b", prompt="..."),
+          ("a", "..."),
+          ("b", "..."),
       ])
       # ... parent does other work ...
       results = job.wait_all()
