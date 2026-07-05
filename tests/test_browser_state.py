@@ -175,6 +175,55 @@ def test_load_browser_state_closes_current_page(tmp_path, monkeypatch):
     assert close_calls == [True], "expected exactly one close_current_page() call"
 
 
+def test_load_browser_state_refreshes_cdp_session_context(tmp_path, monkeypatch):
+    """CDP mode must rebuild its reusable session context with the loaded state."""
+    import gptme.tools._browser_playwright as browser_pw
+    import gptme.tools._browser_thread as browser_thread
+
+    class FakeContext:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeBrowser:
+        def __init__(self) -> None:
+            self.context_kwargs: list[dict] = []
+            self.context = FakeContext()
+
+        def new_context(self, **kwargs):
+            self.context_kwargs.append(kwargs)
+            return self.context
+
+    class FakeBrowserThread:
+        cdp_url = "http://127.0.0.1:9222"
+
+        def __init__(self, context: FakeContext) -> None:
+            self._session_context = context
+
+    state_file = _make_state_file(tmp_path)
+    old_context = FakeContext()
+    thread = FakeBrowserThread(old_context)
+    fake_browser = FakeBrowser()
+    close_calls: list[bool] = []
+
+    monkeypatch.setattr(browser_pw, "_browser", thread)
+    monkeypatch.setattr(
+        browser_pw, "_close_current_page", lambda: close_calls.append(True)
+    )
+
+    result = browser_pw._do_load_browser_state(fake_browser, str(state_file))  # type: ignore[arg-type]
+
+    assert close_calls == [True]
+    assert old_context.closed
+    assert thread._session_context is fake_browser.context
+    assert fake_browser.context_kwargs
+    assert fake_browser.context_kwargs[0]["storage_state"] == str(state_file)
+    assert browser_thread._override_storage_state == state_file
+    assert "CDP session context refreshed" in result
+
+
 def test_load_browser_state_registered_in_tool_spec():
     """load_browser_state is registered as a ToolFunction in the browser ToolSpec."""
     from gptme.tools.browser import tool

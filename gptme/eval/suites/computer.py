@@ -636,6 +636,7 @@ tests: list["EvalSpec"] = [
         ),
         "tools": ["browser", "computer", "vision", "ipython", "save"],
         "expect": {
+            "state.json written": _expect_state_file_written,
             "result.txt written": _expect_url_after_reload_recorded,
             "clean exit": _expect_clean_exit,
         },

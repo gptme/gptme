@@ -62,6 +62,19 @@ def test_expect_second_page_reached_accepts_navigation_file():
     assert computer_suite._expect_second_page_reached(ctx)
 
 
+def test_session_persistence_eval_requires_state_file_written():
+    spec = next(
+        test
+        for test in computer_suite.tests
+        if test["name"] == "computer-use-web-session-persistence"
+    )
+
+    assert (
+        spec["expect"]["state.json written"]
+        is computer_suite._expect_state_file_written
+    )
+
+
 def test_expect_form_submitted_requires_echoed_field():
     ctx = ResultContext(
         files={"result.txt": "Error: form unavailable"},

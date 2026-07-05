@@ -27,6 +27,7 @@ from ._browser_thread import (
     BrowserThread,
     _is_connection_error,
     get_context_options,
+    set_storage_state_override,
 )
 from ._computer_gate import sensitive_action_gate
 
@@ -688,8 +689,6 @@ def save_browser_state(path: str) -> str:
 
 def _do_load_browser_state(browser: Browser, path: str) -> str:
     """Load a previously saved browser session state for use in the next open_page()."""
-    from ._browser_thread import set_storage_state_override
-
     resolved = Path(path).expanduser()
     if not resolved.exists():
         raise FileNotFoundError(
@@ -703,6 +702,22 @@ def _do_load_browser_state(browser: Browser, path: str) -> str:
 
     # Register the override so get_context_options() uses it on the next context.
     set_storage_state_override(resolved)
+
+    if _is_cdp_connection() and _browser is not None:
+        if _browser._session_context is not None:
+            try:
+                _browser._session_context.close()
+            except Exception:
+                pass
+            _browser._session_context = None
+
+        # CDP mode reuses a session context for future tabs; refresh it now so
+        # the next open_page() does not keep using the pre-load cookies.
+        _browser._session_context = browser.new_context(**get_context_options())
+        return (
+            f"Browser state loaded from {resolved}; CDP session context refreshed. "
+            "Call open_page(url) to start a session with the restored cookies and localStorage."
+        )
 
     return (
         f"Browser state loaded from {resolved}. "
