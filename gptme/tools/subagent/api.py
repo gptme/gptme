@@ -1181,7 +1181,7 @@ def subagent_wait_any(
     Returns:
         Tuple of ``(agent_id, result_dict)`` for the first agent that
         completes. ``result_dict`` has ``"status"`` (``"success"`` /
-        ``"failure"`` / ``"timeout"``) and ``"result"`` keys.
+        ``"failure"`` / ``"clarification_needed"``) and ``"result"`` keys.
 
     Raises:
         ValueError: If ``agent_ids`` is empty.
