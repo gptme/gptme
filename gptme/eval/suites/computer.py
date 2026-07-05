@@ -12,6 +12,7 @@ Validates end-to-end computer-use workflows:
 - Page state inspection: snapshot_page() after interactions, get_current_url() after navigation
 - "Can it Tweet?" end-to-end: full compose→post pipeline using a Twitter-like local fixture
 - "Can it play Doom?" end-to-end: keyboard-driven game-loop using a Doom-like local fixture
+- "Can it play Factorio?" end-to-end: click-driven gather-and-craft loop using a Factorio-like local fixture
 
 These tests run without a physical display because they use Playwright's
 headless mode via the browser tool. Desktop/screenshot tests that require
@@ -189,6 +190,83 @@ _DOOM_MILESTONE_FIXTURE_HTML = (
 )
 _DOOM_MILESTONE_FIXTURE_URL = "data:text/html;base64," + base64.b64encode(
     _DOOM_MILESTONE_FIXTURE_HTML.encode()
+).decode("ascii")
+
+
+# "Can it play Factorio?" fixture (issue #216 milestone).
+#
+# A self-contained click-driven crafting game that validates the full
+# "observe → gather → craft" loop without requiring a real game or display.
+#
+# Game mechanics (readable via read_page_text / ARIA):
+#   - Three iron ore nodes; each click gathers 2 ore
+#   - When iron_ore >= 5 the "Craft iron plate" button becomes enabled
+#   - Clicking it spends 5 ore and creates 1 iron plate
+#   - Status div then shows:
+#       factorio-milestone:automation-started iron_ore:N iron_plate:1
+#
+# The "factorio-milestone:automation-started" marker only appears after a
+# successful craft action, so read_page_text() cannot return it from the
+# initial page state.  Clicking three ore nodes (6 ore) then the craft
+# button is sufficient to win.
+_FACTORIO_MILESTONE_FIXTURE_HTML = (
+    "<!doctype html><html><head><title>gptme Factorio Milestone Fixture</title>"
+    "<style>"
+    "body{font-family:monospace;padding:20px;}"
+    ".ore-node{display:inline-block;width:80px;height:50px;background:#7a5c2e;"
+    "color:#f5c842;text-align:center;line-height:50px;cursor:pointer;margin:4px;"
+    "border:2px solid #5a3c1e;font-size:12px;user-select:none;}"
+    ".ore-node:hover{background:#9a7c4e;}"
+    ".ore-node.depleted{background:#555;color:#888;cursor:not-allowed;}"
+    "#inventory{margin-top:12px;font-size:14px;}"
+    "#craft-btn{margin-top:8px;padding:4px 12px;cursor:pointer;font-family:monospace;}"
+    "#craft-btn:disabled{cursor:not-allowed;opacity:0.5;}"
+    "#status{margin-top:8px;font-size:12px;color:#444;}"
+    "#instructions{margin-top:6px;font-size:11px;color:#888;}"
+    "</style></head><body>"
+    "<h2>Factorio Milestone Fixture</h2>"
+    '<div id="world">'
+    '<div class="ore-node" id="ore-1" data-testid="iron-ore-1">Iron Ore</div>'
+    '<div class="ore-node" id="ore-2" data-testid="iron-ore-2">Iron Ore</div>'
+    '<div class="ore-node" id="ore-3" data-testid="iron-ore-3">Iron Ore</div>'
+    "</div>"
+    '<div id="inventory">Inventory: iron_ore:0 iron_plate:0</div>'
+    '<button id="craft-btn" data-testid="craft-iron-plate" disabled>'
+    "Craft iron plate (needs 5 iron ore)"
+    "</button>"
+    '<div id="status">factorio-milestone:waiting iron_ore:0 iron_plate:0</div>'
+    '<div id="instructions">Click ore nodes to gather, then craft iron plates</div>'
+    "<script>"
+    "var inv={iron_ore:0,iron_plate:0},milestone='waiting';"
+    "function update(){"
+    "document.getElementById('inventory').textContent="
+    "'Inventory: iron_ore:'+inv.iron_ore+' iron_plate:'+inv.iron_plate;"
+    "var btn=document.getElementById('craft-btn');"
+    "btn.disabled=inv.iron_ore<5;"
+    "document.getElementById('status').textContent="
+    "'factorio-milestone:'+milestone+' iron_ore:'+inv.iron_ore+' iron_plate:'+inv.iron_plate;"
+    "}"
+    "document.querySelectorAll('.ore-node').forEach(function(node){"
+    "node.addEventListener('click',function(){"
+    "if(node.classList.contains('depleted')) return;"
+    "inv.iron_ore+=2;"
+    "node.classList.add('depleted');"
+    "node.textContent='(empty)';"
+    "update();"
+    "});"
+    "});"
+    "document.getElementById('craft-btn').addEventListener('click',function(){"
+    "if(inv.iron_ore<5) return;"
+    "inv.iron_ore-=5;inv.iron_plate+=1;"
+    "milestone='automation-started';"
+    "update();"
+    "});"
+    "update();"
+    "</script>"
+    "</body></html>"
+)
+_FACTORIO_MILESTONE_FIXTURE_URL = "data:text/html;base64," + base64.b64encode(
+    _FACTORIO_MILESTONE_FIXTURE_HTML.encode()
 ).decode("ascii")
 
 
@@ -536,6 +614,36 @@ def check_used_game_control_keys(messages: list[Message]) -> bool:
         if any(key in game_keys for key in _press_key_values(code)):
             return True
     return False
+
+
+def _expect_factorio_milestone_achieved(ctx) -> bool:
+    """The "Can it play Factorio?" milestone check.
+
+    The fixture's JS craft handler writes "factorio-milestone:automation-started"
+    into #status only after 5+ iron ore is gathered and the craft button is clicked.
+    It is absent from the initial page state, so this cannot pass on narration alone.
+    """
+    content = ctx.files.get("factorio.txt", ctx.stdout)
+    if isinstance(content, bytes):
+        content = content.decode(errors="replace")
+    return "factorio-milestone:automation-started" in content
+
+
+def _expect_factorio_iron_plate_crafted(ctx) -> bool:
+    """At least one iron plate must appear in the status, proving the craft succeeded."""
+    content = ctx.files.get("factorio.txt", ctx.stdout)
+    if isinstance(content, bytes):
+        content = content.decode(errors="replace")
+    return bool(re.search(r"iron_plate:([1-9]\d*)", content))
+
+
+def check_used_click_for_crafting(messages: list[Message]) -> bool:
+    """Agent must use click_element() to interact (gathering ore or crafting).
+
+    The "Can it play Factorio?" flow requires clicking ore nodes and the craft
+    button — press_key() alone cannot advance this fixture.
+    """
+    return any("click_element(" in code for code in _executed_tool_calls(messages))
 
 
 # ---------------------------------------------------------------------------
@@ -935,6 +1043,55 @@ tests: list["EvalSpec"] = [
         "check_log": {
             "used open_page for navigation": check_used_open_page,
             "used press_key for game control": check_used_game_control_keys,
+        },
+    },
+    # --- "Can it play Factorio?" milestone (issue #216) ---
+    #
+    # End-to-end validation of the click-driven gather-and-craft loop using a
+    # self-contained Factorio-inspired fixture: three iron ore nodes that must
+    # be clicked to gather ore, then a craft button to convert ore → iron plate.
+    #
+    # This test validates a different tool path than the Doom milestone:
+    #   - click_element() for resource gathering (not press_key)
+    #   - DOM state reading via read_page_text() to check inventory
+    #   - wait_for_element() to confirm craft button availability
+    #   - click_element() again for the craft action
+    #
+    # The "factorio-milestone:automation-started" marker only appears in the DOM
+    # after a successful craft action.  It is absent from the initial page state,
+    # so read_page_text() cannot return it without the agent actually playing.
+    {
+        "name": "computer-use-web-factorio-milestone",
+        "files": {},
+        "run": "cat factorio.txt",
+        "prompt": (
+            "You are in computer-use mode. Play a simple Factorio-like game to hit the 'Can it play Factorio?' milestone:\n"
+            f"1. Call open_page('{_FACTORIO_MILESTONE_FIXTURE_URL}') to open the game.\n"
+            "2. Call read_page_text() to read the current game state.\n"
+            "   The status line shows: 'factorio-milestone:waiting iron_ore:0 iron_plate:0'\n"
+            "   There are three iron ore nodes you can click to gather ore.\n"
+            "3. Click the iron ore nodes to gather ore:\n"
+            "   call click_element('[data-testid=\"iron-ore-1\"]') — gathers 2 iron ore\n"
+            "   call click_element('[data-testid=\"iron-ore-2\"]') — gathers 2 more\n"
+            "   call click_element('[data-testid=\"iron-ore-3\"]') — gathers 2 more (6 total)\n"
+            "4. Call wait_for_element('[data-testid=\"craft-iron-plate\"]:not([disabled])') "
+            "to wait for the craft button to become enabled (needs 5+ iron ore).\n"
+            "5. Call click_element('[data-testid=\"craft-iron-plate\"]') to craft an iron plate.\n"
+            "6. Call read_page_text() to verify the result.\n"
+            "7. Write the full page text to factorio.txt."
+        ),
+        "tools": ["browser", "computer", "vision", "ipython", "save"],
+        "expect": {
+            "factorio.txt written": lambda ctx: (
+                "factorio.txt" in ctx.files or len(ctx.stdout.strip()) > 5
+            ),
+            "factorio-milestone:automation-started marker present": _expect_factorio_milestone_achieved,
+            "iron plate crafted (iron_plate >= 1)": _expect_factorio_iron_plate_crafted,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "used open_page for navigation": check_used_open_page,
+            "used click_element for gathering/crafting": check_used_click_for_crafting,
         },
     },
 ]

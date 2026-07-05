@@ -1180,3 +1180,137 @@ def test_doom_milestone_eval_spec_present():
     assert "computer-use-web-doom-milestone" in names, (
         f"'computer-use-web-doom-milestone' not in eval specs: {names}"
     )
+
+
+# ---------------------------------------------------------------------------
+# "Can it play Factorio?" milestone tests
+# ---------------------------------------------------------------------------
+
+
+def test_expect_factorio_milestone_achieved_from_file():
+    """'factorio-milestone:automation-started' must appear in factorio.txt."""
+    ctx = ResultContext(
+        files={
+            "factorio.txt": "factorio-milestone:automation-started iron_ore:1 iron_plate:1"
+        },
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_factorio_milestone_achieved(ctx)
+
+
+def test_expect_factorio_milestone_achieved_from_stdout():
+    """Falls back to stdout when factorio.txt is absent."""
+    ctx = ResultContext(
+        files={},
+        stdout="factorio-milestone:automation-started iron_ore:1 iron_plate:1",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_factorio_milestone_achieved(ctx)
+
+
+def test_expect_factorio_milestone_achieved_fails_waiting():
+    """Initial 'waiting' state must not pass the milestone check."""
+    ctx = ResultContext(
+        files={"factorio.txt": "factorio-milestone:waiting iron_ore:0 iron_plate:0"},
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert not computer_suite._expect_factorio_milestone_achieved(ctx)
+
+
+def test_expect_factorio_milestone_achieved_fails_empty():
+    ctx = ResultContext(files={}, stdout="", stderr="", exit_code=0)
+    assert not computer_suite._expect_factorio_milestone_achieved(ctx)
+
+
+def test_expect_factorio_iron_plate_crafted():
+    """iron_plate count >= 1 must pass the craft check."""
+    ctx = ResultContext(
+        files={
+            "factorio.txt": "factorio-milestone:automation-started iron_ore:1 iron_plate:1"
+        },
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_factorio_iron_plate_crafted(ctx)
+
+
+def test_expect_factorio_iron_plate_crafted_fails_zero():
+    """iron_plate:0 must not pass the craft check."""
+    ctx = ResultContext(
+        files={"factorio.txt": "factorio-milestone:waiting iron_ore:4 iron_plate:0"},
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert not computer_suite._expect_factorio_iron_plate_crafted(ctx)
+
+
+def test_check_used_click_for_crafting_accepts_click_element(monkeypatch):
+    """click_element() calls must pass the crafting check."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["click_element('[data-testid=\"iron-ore-1\"]')"],
+    )
+    assert computer_suite.check_used_click_for_crafting([])
+
+
+def test_check_used_click_for_crafting_rejects_press_key_only(monkeypatch):
+    """press_key() alone (no click_element) must not pass the crafting check."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["press_key('Space')"],
+    )
+    assert not computer_suite.check_used_click_for_crafting([])
+
+
+def test_factorio_milestone_fixture_has_initial_waiting_state():
+    """The fixture must start in 'waiting' state (milestone marker absent from static HTML)."""
+    html = computer_suite._FACTORIO_MILESTONE_FIXTURE_HTML
+    assert "factorio-milestone:waiting" in html
+    assert "factorio-milestone:automation-started" not in html
+
+
+def test_factorio_milestone_fixture_has_ore_nodes():
+    """The fixture must have clickable ore nodes with the expected data-testid attributes."""
+    html = computer_suite._FACTORIO_MILESTONE_FIXTURE_HTML
+    assert 'data-testid="iron-ore-1"' in html
+    assert 'data-testid="iron-ore-2"' in html
+    assert 'data-testid="iron-ore-3"' in html
+
+
+def test_factorio_milestone_fixture_has_craft_button():
+    """The fixture must have a craft button with the expected data-testid."""
+    html = computer_suite._FACTORIO_MILESTONE_FIXTURE_HTML
+    assert 'data-testid="craft-iron-plate"' in html
+
+
+def test_factorio_milestone_fixture_craft_requires_five_ore():
+    """The craft handler must require 5 iron ore."""
+    html = computer_suite._FACTORIO_MILESTONE_FIXTURE_HTML
+    assert "iron_ore<5" in html
+
+
+def test_factorio_milestone_prompt_does_not_leak_marker():
+    """The agent must read the page to discover the marker, not copy it from the prompt."""
+    spec = next(
+        test
+        for test in computer_suite.tests
+        if test["name"] == "computer-use-web-factorio-milestone"
+    )
+    assert "factorio-milestone:automation-started" not in spec["prompt"]
+
+
+def test_factorio_milestone_eval_spec_present():
+    """The 'Can it play Factorio?' eval spec must be registered in the tests list."""
+    names = [t["name"] for t in computer_suite.tests]
+    assert "computer-use-web-factorio-milestone" in names, (
+        f"'computer-use-web-factorio-milestone' not in eval specs: {names}"
+    )
