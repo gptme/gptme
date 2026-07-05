@@ -535,6 +535,12 @@ def audit_log(
             if "url" in r:
                 url = r["url"]
                 details = url[:70] + ("…" if len(url) > 70 else "")
+            elif "key" in r:
+                # press_key(key) — show which key was pressed
+                details = repr(r["key"])
+            elif "selector" in r and "value" in r:
+                # select_option(selector, value) — show both selector and value
+                details = f"{r['selector']!r} → {r['value']!r}"
             elif "selector" in r and "value_len" in r:
                 details = f"{r['selector']!r} → {r['value_len']} chars"
             elif "selector" in r:

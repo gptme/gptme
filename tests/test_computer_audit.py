@@ -701,6 +701,24 @@ def test_audit_log_cli_table_shows_selector_and_value_len(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def test_audit_log_cli_table_shows_press_key_and_select_option(tmp_path):
+    """Table output shows key for press_key and selector+value for select_option."""
+    conv_dir = tmp_path / "browser-actions"
+    jsonl = conv_dir / "conversation.jsonl"
+    msgs = [
+        _msg("assistant", _ipython_block("press_key('Enter')")),
+        _msg("assistant", _ipython_block("select_option('[name=\"size\"]', 'large')")),
+    ]
+    _write_conv_jsonl(jsonl, msgs)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl)], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "'Enter'" in result.output
+    assert '[name="size"]' in result.output
+    assert "'large'" in result.output
+
+
 def test_hover_element_captured():
     """hover_element(selector) appears in the audit log with write risk level."""
     msgs = [_msg("assistant", _ipython_block("hover_element('nav > .dropdown')"))]
@@ -733,6 +751,7 @@ def test_select_option_captured():
     assert records[0]["action"] == "select_option"
     assert records[0]["source"] == "browser"
     assert records[0]["risk_level"] == "write"
+    assert records[0]["selector"] == '[name="size"]'
     assert records[0]["value"] == "large"
 
 
@@ -749,6 +768,7 @@ def test_wait_for_element_captured():
     assert records[0]["action"] == "wait_for_element"
     assert records[0]["source"] == "browser"
     assert records[0]["risk_level"] == "read"
+    assert records[0]["selector"] == '[data-testid="result"]'
 
 
 def test_snapshot_page_captured():
