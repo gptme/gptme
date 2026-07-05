@@ -1000,3 +1000,156 @@ def test_tweet_compose_eval_spec_present():
     assert "computer-use-web-tweet-compose" in names, (
         f"'computer-use-web-tweet-compose' not in eval specs: {names}"
     )
+
+
+# ---------------------------------------------------------------------------
+# "Can it play Doom?" milestone tests
+# ---------------------------------------------------------------------------
+
+
+def test_expect_doom_milestone_achieved_from_file():
+    """Milestone check passes when game.txt contains the marker."""
+    ctx = ResultContext(
+        files={
+            "game.txt": "doom-milestone:enemy-defeated score:100 player-at:5 enemy-at:6 enemy-alive:false"
+        },
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_doom_milestone_achieved(ctx)
+
+
+def test_expect_doom_milestone_achieved_from_stdout():
+    """Milestone check passes when stdout contains the marker (no file written)."""
+    ctx = ResultContext(
+        files={},
+        stdout="doom-milestone:enemy-defeated score:100 player-at:5 enemy-at:6 enemy-alive:false",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_doom_milestone_achieved(ctx)
+
+
+def test_expect_doom_milestone_achieved_fails_waiting():
+    """Milestone check fails when status is still 'waiting' (no shot taken)."""
+    ctx = ResultContext(
+        files={
+            "game.txt": "doom-milestone:waiting score:0 player-at:3 enemy-at:6 enemy-alive:true"
+        },
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert not computer_suite._expect_doom_milestone_achieved(ctx)
+
+
+def test_expect_doom_milestone_achieved_fails_empty():
+    ctx = ResultContext(files={}, stdout="", stderr="", exit_code=0)
+    assert not computer_suite._expect_doom_milestone_achieved(ctx)
+
+
+def test_expect_doom_score_nonzero_from_file():
+    """Score check passes when score:100 appears in output."""
+    ctx = ResultContext(
+        files={"game.txt": "doom-milestone:enemy-defeated score:100"},
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_doom_score_nonzero(ctx)
+
+
+def test_expect_doom_score_nonzero_fails_zero():
+    ctx = ResultContext(
+        files={"game.txt": "doom-milestone:waiting score:0"},
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert not computer_suite._expect_doom_score_nonzero(ctx)
+
+
+def test_check_used_game_control_keys_arrow_right(monkeypatch):
+    """ArrowRight press counts as a game control key."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["press_key('ArrowRight')"],
+    )
+    assert computer_suite.check_used_game_control_keys([])
+
+
+def test_check_used_game_control_keys_space(monkeypatch):
+    """Space (shoot key) counts as a game control key."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["press_key(' ')"],
+    )
+    assert computer_suite.check_used_game_control_keys([])
+
+
+def test_check_used_game_control_keys_space_explicit(monkeypatch):
+    """'Space' string (Playwright key name) counts as a game control key."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["press_key('Space')"],
+    )
+    assert computer_suite.check_used_game_control_keys([])
+
+
+def test_check_used_game_control_keys_rejects_enter(monkeypatch):
+    """Enter is not a game control key for this fixture."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["press_key('Enter')"],
+    )
+    assert not computer_suite.check_used_game_control_keys([])
+
+
+def test_check_used_game_control_keys_rejects_no_press_key(monkeypatch):
+    """fill_element calls are not game control keys."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["fill_element('#msg', 'hello')"],
+    )
+    assert not computer_suite.check_used_game_control_keys([])
+
+
+def test_doom_milestone_fixture_has_initial_waiting_state():
+    """The fixture must start in 'waiting' state (marker absent from static HTML)."""
+    html = computer_suite._DOOM_MILESTONE_FIXTURE_HTML
+    # The status div starts as 'waiting', not 'enemy-defeated'
+    assert "doom-milestone:waiting" in html
+    # enemy-defeated must NOT appear in the initial static HTML
+    assert "doom-milestone:enemy-defeated" not in html
+
+
+def test_doom_milestone_fixture_has_keyboard_listener():
+    """The fixture must attach a keydown listener for game control."""
+    html = computer_suite._DOOM_MILESTONE_FIXTURE_HTML
+    assert "keydown" in html
+    assert "ArrowLeft" in html
+    assert "ArrowRight" in html
+
+
+def test_doom_milestone_prompt_does_not_leak_marker():
+    """The agent must read the page to discover the marker, not copy it from the prompt."""
+    spec = next(
+        test
+        for test in computer_suite.tests
+        if test["name"] == "computer-use-web-doom-milestone"
+    )
+    assert "doom-milestone:enemy-defeated" not in spec["prompt"]
+
+
+def test_doom_milestone_eval_spec_present():
+    """The 'Can it play Doom?' eval spec must be registered in the tests list."""
+    names = [t["name"] for t in computer_suite.tests]
+    assert "computer-use-web-doom-milestone" in names, (
+        f"'computer-use-web-doom-milestone' not in eval specs: {names}"
+    )

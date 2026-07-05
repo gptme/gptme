@@ -11,6 +11,7 @@ Validates end-to-end computer-use workflows:
 - Hover interaction: hover_element() for revealing hover-only menus/tooltips
 - Page state inspection: snapshot_page() after interactions, get_current_url() after navigation
 - "Can it Tweet?" end-to-end: full compose→post pipeline using a Twitter-like local fixture
+- "Can it play Doom?" end-to-end: keyboard-driven game-loop using a Doom-like local fixture
 
 These tests run without a physical display because they use Playwright's
 headless mode via the browser tool. Desktop/screenshot tests that require
@@ -122,6 +123,69 @@ _TWEET_COMPOSE_FIXTURE_HTML = (
 )
 _TWEET_COMPOSE_FIXTURE_URL = "data:text/html;base64," + base64.b64encode(
     _TWEET_COMPOSE_FIXTURE_HTML.encode()
+).decode("ascii")
+
+# "Can it play Doom?" fixture (issue #216 milestone).
+#
+# A self-contained keyboard-driven game that validates the full
+# "read state → press key → verify result" loop without requiring an X11
+# display or a real game binary.
+#
+# Game mechanics (readable via read_page_text / ARIA):
+#   - 7-cell 1-D battlefield rendered as text: . . . @ . . E
+#   - ArrowLeft / ArrowRight move the player (@) one cell
+#   - Space fires a bullet that travels toward the enemy (E)
+#   - When the bullet reaches the enemy the status div shows:
+#       doom-milestone:enemy-defeated score:100
+#
+# The "doom-milestone:enemy-defeated" marker is written only when the JS shoot
+# handler actually reaches the enemy cell, so read_page_text() cannot return
+# it from the initial page state.  Pressing Space once with the player
+# adjacent to the enemy (or with directional auto-aim) is enough to win.
+#
+# The same press_key() calls work against a real game running in the browser;
+# this fixture validates the tool-call pipeline without any external dep.
+_DOOM_MILESTONE_FIXTURE_HTML = (
+    "<!doctype html><html><head><title>gptme Doom Milestone Fixture</title>"
+    "<style>body{font-family:monospace;padding:20px;}"
+    "#game{font-size:24px;letter-spacing:8px;padding:10px;border:1px solid #333;display:inline-block;}"
+    "#status{margin-top:12px;font-size:14px;color:#444;}"
+    "#instructions{margin-top:8px;font-size:12px;color:#888;}</style></head><body>"
+    "<h2>Doom Milestone Fixture</h2>"
+    '<div id="game"></div>'
+    '<div id="status">doom-milestone:waiting score:0 player-at:3 enemy-at:6 enemy-alive:true</div>'
+    '<div id="instructions">ArrowLeft/ArrowRight: move player | Space: shoot</div>'
+    "<script>"
+    "var playerX=3,COLS=7,enemyX=6,enemyAlive=true,score=0,milestone='waiting';"
+    "function render(){"
+    "var row=[];"
+    "for(var i=0;i<COLS;i++) row.push('.');"
+    "if(enemyAlive) row[enemyX]='E';"
+    "row[playerX]='@';"
+    "document.getElementById('game').textContent=row.join(' ');"
+    "document.getElementById('status').textContent="
+    "'doom-milestone:'+milestone+' score:'+score+' player-at:'+playerX+' enemy-at:'+enemyX+' enemy-alive:'+enemyAlive;"
+    "}"
+    "function shoot(){"
+    "if(!enemyAlive) return;"
+    "var dir=enemyX>playerX?1:-1;"
+    "var pos=playerX+dir;"
+    "while(pos>=0&&pos<COLS){"
+    "if(pos===enemyX){enemyAlive=false;score=100;milestone='enemy-defeated';break;}"
+    "pos+=dir;}"
+    "}"
+    "document.addEventListener('keydown',function(e){"
+    "if(e.key==='ArrowLeft'){playerX=Math.max(0,playerX-1);e.preventDefault();}"
+    "else if(e.key==='ArrowRight'){playerX=Math.min(COLS-1,playerX+1);e.preventDefault();}"
+    "else if(e.key===' '){shoot();e.preventDefault();}"
+    "render();"
+    "});"
+    "render();"
+    "</script>"
+    "</body></html>"
+)
+_DOOM_MILESTONE_FIXTURE_URL = "data:text/html;base64," + base64.b64encode(
+    _DOOM_MILESTONE_FIXTURE_HTML.encode()
 ).decode("ascii")
 
 
@@ -399,6 +463,44 @@ def _expect_tweet_text_echoed(ctx) -> bool:
 def check_used_tweet_textarea(messages: list[Message]) -> bool:
     """Agent must address the tweet textarea by its Twitter data-testid selector."""
     return any("tweetTextarea_0" in code for code in _executed_tool_calls(messages))
+
+
+def _expect_doom_milestone_achieved(ctx) -> bool:
+    """The "Can it play Doom?" milestone check.
+
+    The fixture's JS shoot handler writes "doom-milestone:enemy-defeated" into
+    #status only after the player's bullet reaches the enemy cell.  It is not
+    present in the initial page text, so this cannot pass on narration or
+    unfired tool calls.
+    """
+    content = ctx.files.get("game.txt", ctx.stdout)
+    if isinstance(content, bytes):
+        content = content.decode(errors="replace")
+    return "doom-milestone:enemy-defeated" in content
+
+
+def _expect_doom_score_nonzero(ctx) -> bool:
+    """The score must be > 0, proving the enemy was actually hit."""
+    content = ctx.files.get("game.txt", ctx.stdout)
+    if isinstance(content, bytes):
+        content = content.decode(errors="replace")
+    return "score:100" in content
+
+
+def check_used_game_control_keys(messages: list[Message]) -> bool:
+    """Agent must press at least one game-control key (arrows or Space).
+
+    The "Can it play Doom?" flow requires the agent to actually drive the game
+    via press_key() rather than just reading the initial page state.  We
+    accept any of the four control keys: ArrowLeft, ArrowRight, ArrowUp,
+    ArrowDown, or Space (the shoot key).
+    """
+    _GAME_KEYS = {"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", " "}
+    for code in _executed_tool_calls(messages):
+        if "press_key" in code:
+            if any(k in code for k in _GAME_KEYS):
+                return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -749,6 +851,56 @@ tests: list["EvalSpec"] = [
             "used fill_element for tweet text": check_used_fill_element,
             "used click_element for Tweet button": check_used_click_element,
             "addressed compose box by Twitter data-testid": check_used_tweet_textarea,
+        },
+    },
+    # --- "Can it play Doom?" milestone (issue #216) ---
+    #
+    # End-to-end validation of the keyboard-driven game-loop using a
+    # self-contained Doom-like fixture: a 7-cell 1-D battlefield where the
+    # player (@) must shoot the enemy (E) using arrow keys + Space.
+    #
+    # The milestone marker "doom-milestone:enemy-defeated" only appears in the
+    # DOM after a real press_key(' ') fires the shoot handler and the bullet
+    # reaches the enemy cell.  It is absent from the initial page state, so
+    # read_page_text() cannot return it without the agent actually playing.
+    #
+    # This tests the core game-playing loop:
+    #   1. open_page → observe game state via read_page_text()
+    #   2. press_key(ArrowLeft/Right) → move player into position
+    #   3. press_key(' ') → fire
+    #   4. read_page_text() → confirm "doom-milestone:enemy-defeated"
+    #
+    # The same press_key() calls work against a real game in the browser once
+    # that game is open in the interactive browser session.
+    {
+        "name": "computer-use-web-doom-milestone",
+        "files": {},
+        "run": "cat game.txt",
+        "prompt": (
+            "You are in computer-use mode. Play a simple Doom-like game to hit the 'Can it play Doom?' milestone:\n"
+            f"1. Call open_page('{_DOOM_MILESTONE_FIXTURE_URL}') to open the game.\n"
+            "2. Call read_page_text() to read the current game state.\n"
+            "   The status line shows: 'doom-milestone:waiting score:0 player-at:3 enemy-at:6 enemy-alive:true'\n"
+            "   The game board shows: '. . . @ . . E'  (@ = player, E = enemy)\n"
+            "3. Move the player toward the enemy using press_key('ArrowRight') one or more times.\n"
+            "4. When the player is in position, call press_key(' ') (Space) to fire.\n"
+            "   You can also fire from any position — the bullet auto-aims toward the enemy.\n"
+            "5. Call read_page_text() to verify the result.\n"
+            "6. Write the full page text to game.txt."
+        ),
+        "tools": ["browser", "computer", "vision", "ipython", "save"],
+        "expect": {
+            "game.txt written": lambda ctx: (
+                "game.txt" in ctx.files or len(ctx.stdout.strip()) > 5
+            ),
+            "doom-milestone:enemy-defeated marker present": _expect_doom_milestone_achieved,
+            "score is 100 (enemy hit)": _expect_doom_score_nonzero,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "used open_page for navigation": check_used_open_page,
+            "used press_key for game control": check_used_game_control_keys,
+            "used press_key overall": check_used_press_key,
         },
     },
 ]
