@@ -167,6 +167,38 @@ class BatchJob:
         """Check if all subagents have completed."""
         return len(self.results) == len(self.agent_ids)
 
+    def total_tokens(self) -> dict[str, int | None]:
+        """Return aggregated token counts across all completed subagents.
+
+        Sums ``input_tokens`` and ``output_tokens`` from each completed result.
+        Any subagent whose log has no usage metadata contributes ``None`` to its
+        part — the aggregate is ``None`` when *no* completed subagent has token
+        data, otherwise it is the sum of available counts.
+
+        Returns:
+            Dict with keys ``"input_tokens"`` and ``"output_tokens"``.
+            Values are integers (sum of available counts) or ``None`` when no
+            usage metadata was found in any completed subagent's log.
+
+        Example::
+
+            job = subagent_batch([("a", "task A"), ("b", "task B")])
+            results = job.wait_all()
+            stats = job.total_tokens()
+            print(f"Tokens used: {stats['input_tokens']} in / {stats['output_tokens']} out")
+        """
+        with self._lock:
+            completed = list(self.results.values())
+
+        total_in: int | None = None
+        total_out: int | None = None
+        for r in completed:
+            if r.input_tokens is not None:
+                total_in = (total_in or 0) + r.input_tokens
+            if r.output_tokens is not None:
+                total_out = (total_out or 0) + r.output_tokens
+        return {"input_tokens": total_in, "output_tokens": total_out}
+
     def get_completed(self) -> dict[str, dict]:
         """Get results of completed subagents so far.
 

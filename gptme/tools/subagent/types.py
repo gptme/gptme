@@ -138,6 +138,10 @@ def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
 class ReturnType:
     status: Status
     result: str | None = None
+    # Token budget tracking: LLM token counts for the subagent's run.
+    # None means unavailable (e.g. cached terminal result, pre-budget-tracking log).
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 def clarification_result_from_content(content: str) -> ReturnType | None:
@@ -248,6 +252,55 @@ class Subagent:
 
         return LogManager.load(self.logdir)
 
+    def _read_token_stats(self) -> tuple[int | None, int | None]:
+        """Return (input_tokens, output_tokens) from the subagent's conversation log.
+
+        Reads the JSONL log file directly to sum up usage metadata across all
+        assistant turns — same approach as logmanager/conversations.py _full_scan().
+        Returns (None, None) on any error so missing stats never block the caller.
+        """
+        import json
+
+        try:
+            conv_fn = self.logdir / "conversation.jsonl"
+            if not conv_fn.exists():
+                # Some log layouts use the directory name as the file
+                candidates = list(self.logdir.glob("*.jsonl"))
+                if not candidates:
+                    return None, None
+                conv_fn = candidates[0]
+
+            input_tokens = 0
+            output_tokens = 0
+            with open(conv_fn, "rb") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or b'"metadata"' not in line:
+                        continue
+                    try:
+                        msg = json.loads(line)
+                        meta = msg.get("metadata")
+                        if not meta:
+                            continue
+                        usage = meta.get("usage", {})
+                        src = usage or meta
+                        cache_read = src.get("cache_read_tokens", 0) or 0
+                        input_tokens += (
+                            (src.get("input_tokens", 0) or 0)
+                            + cache_read
+                            + (src.get("cache_creation_tokens", 0) or 0)
+                        )
+                        output_tokens += src.get("output_tokens", 0) or 0
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+            # Only return non-zero counts (0,0 means no usage metadata was present)
+            if input_tokens == 0 and output_tokens == 0:
+                return None, None
+            return input_tokens, output_tokens
+        except Exception as e:
+            logger.debug("Could not read token stats for %s: %s", self.agent_id, e)
+            return None, None
+
     def is_running(self) -> bool:
         """Check if the subagent is still running."""
         if self.execution_mode == "subprocess" and self.process:
@@ -279,6 +332,9 @@ class Subagent:
             if self.agent_id in _subagent_results:
                 return _subagent_results[self.agent_id]
 
+        # Read token stats once; attach to every terminal ReturnType we return.
+        in_tok, out_tok = self._read_token_stats()
+
         # Check if executor used the complete tool
         try:
             log = self.get_log().log
@@ -286,9 +342,16 @@ class Subagent:
             return ReturnType(
                 "failure",
                 f"Subagent exited before creating a conversation log: {self.logdir}",
+                input_tokens=in_tok,
+                output_tokens=out_tok,
             )
         if not log:
-            return ReturnType("failure", "No messages in log")
+            return ReturnType(
+                "failure",
+                "No messages in log",
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+            )
 
         last_msg = log[-1]
 
@@ -296,7 +359,13 @@ class Subagent:
         # Must be checked before the complete block so a "clarify" isn't misread as failure.
         clarification_result = clarification_result_from_content(last_msg.content)
         if clarification_result:
-            return clarification_result
+            # Attach token stats to clarification result too
+            return ReturnType(
+                clarification_result.status,
+                clarification_result.result,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+            )
 
         # Check for complete tool call in last message
         # Try parsing as ToolUse first
@@ -314,6 +383,8 @@ class Subagent:
             return ReturnType(
                 "success",
                 result + f"\n\nFull log: {self.logdir}",
+                input_tokens=in_tok,
+                output_tokens=out_tok,
             )
 
         # Fallback: Check for complete code block directly
@@ -332,6 +403,8 @@ class Subagent:
                 return ReturnType(
                     "success",
                     result + f"\n\nFull log: {self.logdir}",
+                    input_tokens=in_tok,
+                    output_tokens=out_tok,
                 )
 
         # Check if session ended with system completion message
@@ -339,10 +412,14 @@ class Subagent:
             return ReturnType(
                 "success",
                 f"Task completed successfully. Full log: {self.logdir}",
+                input_tokens=in_tok,
+                output_tokens=out_tok,
             )
 
         # Task didn't complete properly
         return ReturnType(
             "failure",
             f"Task did not complete properly. Check log: {self.logdir}",
+            input_tokens=in_tok,
+            output_tokens=out_tok,
         )

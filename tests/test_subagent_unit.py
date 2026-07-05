@@ -4021,3 +4021,181 @@ class TestSubagentBatchNewParameters:
         assert len(captured) == 2
         for kw in captured:
             assert kw.get("context_turns") == 5
+
+
+# ---------------------------------------------------------------------------
+# Token budget tracking tests
+# ---------------------------------------------------------------------------
+
+
+class TestTokenBudgetTracking:
+    """Tests for token budget tracking in ReturnType, Subagent._read_token_stats(), and BatchJob."""
+
+    def test_return_type_default_token_fields_are_none(self):
+        """ReturnType defaults to None for both token fields."""
+        rt = ReturnType("success", "done")
+        assert rt.input_tokens is None
+        assert rt.output_tokens is None
+
+    def test_return_type_stores_token_counts(self):
+        """ReturnType stores input_tokens and output_tokens when provided."""
+        rt = ReturnType("success", "done", input_tokens=1000, output_tokens=200)
+        assert rt.input_tokens == 1000
+        assert rt.output_tokens == 200
+
+    def test_read_token_stats_with_usage_metadata(self, tmp_path):
+        """_read_token_stats() reads input/output tokens from conversation.jsonl."""
+        import json
+
+        logdir = tmp_path / "test-agent"
+        logdir.mkdir()
+        conv_file = logdir / "conversation.jsonl"
+
+        # Write a log with two assistant messages that have usage metadata
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {
+                "role": "assistant",
+                "content": "Hello!",
+                "metadata": {"usage": {"input_tokens": 100, "output_tokens": 50}},
+            },
+            {
+                "role": "assistant",
+                "content": "Done.",
+                "metadata": {"usage": {"input_tokens": 150, "output_tokens": 80}},
+            },
+        ]
+        with open(conv_file, "w") as f:
+            f.writelines(json.dumps(msg) + "\n" for msg in messages)
+
+        sa = Subagent(
+            agent_id="test-token-read",
+            prompt="test",
+            thread=None,
+            logdir=logdir,
+            model=None,
+        )
+        in_tok, out_tok = sa._read_token_stats()
+        assert in_tok == 250  # 100 + 150
+        assert out_tok == 130  # 50 + 80
+
+    def test_read_token_stats_with_cache_tokens(self, tmp_path):
+        """_read_token_stats() sums cache_read and cache_creation tokens into input."""
+        import json
+
+        logdir = tmp_path / "test-agent-cache"
+        logdir.mkdir()
+        conv_file = logdir / "conversation.jsonl"
+
+        messages = [
+            {
+                "role": "assistant",
+                "content": "Cached response.",
+                "metadata": {
+                    "usage": {
+                        "input_tokens": 100,
+                        "cache_read_tokens": 200,
+                        "cache_creation_tokens": 50,
+                        "output_tokens": 30,
+                    }
+                },
+            },
+        ]
+        with open(conv_file, "w") as f:
+            f.writelines(json.dumps(msg) + "\n" for msg in messages)
+
+        sa = Subagent(
+            agent_id="test-token-cache",
+            prompt="test",
+            thread=None,
+            logdir=logdir,
+            model=None,
+        )
+        in_tok, out_tok = sa._read_token_stats()
+        assert in_tok == 350  # 100 + 200 (cache_read) + 50 (cache_creation)
+        assert out_tok == 30
+
+    def test_read_token_stats_returns_none_when_no_metadata(self, tmp_path):
+        """_read_token_stats() returns (None, None) when no usage metadata is present."""
+        import json
+
+        logdir = tmp_path / "test-agent-no-meta"
+        logdir.mkdir()
+        conv_file = logdir / "conversation.jsonl"
+
+        messages = [
+            {"role": "system", "content": "System prompt."},
+            {"role": "assistant", "content": "Response without metadata."},
+        ]
+        with open(conv_file, "w") as f:
+            f.writelines(json.dumps(msg) + "\n" for msg in messages)
+
+        sa = Subagent(
+            agent_id="test-no-meta",
+            prompt="test",
+            thread=None,
+            logdir=logdir,
+            model=None,
+        )
+        in_tok, out_tok = sa._read_token_stats()
+        assert in_tok is None
+        assert out_tok is None
+
+    def test_read_token_stats_returns_none_when_logdir_missing(self, tmp_path):
+        """_read_token_stats() returns (None, None) gracefully when logdir doesn't exist."""
+        sa = Subagent(
+            agent_id="test-no-log",
+            prompt="test",
+            thread=None,
+            logdir=tmp_path / "nonexistent-agent",
+            model=None,
+        )
+        in_tok, out_tok = sa._read_token_stats()
+        assert in_tok is None
+        assert out_tok is None
+
+    def test_batch_job_total_tokens_sums_all_results(self):
+        """BatchJob.total_tokens() sums input/output tokens from all completed results."""
+        job = BatchJob(agent_ids=["a", "b", "c"])
+        job.results["a"] = ReturnType(
+            "success", "done", input_tokens=1000, output_tokens=100
+        )
+        job.results["b"] = ReturnType(
+            "success", "done", input_tokens=2000, output_tokens=200
+        )
+        job.results["c"] = ReturnType(
+            "failure", "error", input_tokens=500, output_tokens=50
+        )
+
+        stats = job.total_tokens()
+        assert stats["input_tokens"] == 3500
+        assert stats["output_tokens"] == 350
+
+    def test_batch_job_total_tokens_returns_none_when_no_data(self):
+        """BatchJob.total_tokens() returns None values when no subagent has token data."""
+        job = BatchJob(agent_ids=["a", "b"])
+        job.results["a"] = ReturnType("success", "done")
+        job.results["b"] = ReturnType("failure", "error")
+
+        stats = job.total_tokens()
+        assert stats["input_tokens"] is None
+        assert stats["output_tokens"] is None
+
+    def test_batch_job_total_tokens_partial_data(self):
+        """BatchJob.total_tokens() sums only available data when some subagents lack token info."""
+        job = BatchJob(agent_ids=["a", "b"])
+        job.results["a"] = ReturnType(
+            "success", "done", input_tokens=1000, output_tokens=100
+        )
+        job.results["b"] = ReturnType("failure", "error")  # No token data
+
+        stats = job.total_tokens()
+        assert stats["input_tokens"] == 1000  # Only from 'a'
+        assert stats["output_tokens"] == 100
+
+    def test_batch_job_total_tokens_empty_results(self):
+        """BatchJob.total_tokens() returns None when no results are present yet."""
+        job = BatchJob(agent_ids=["a", "b"])
+        stats = job.total_tokens()
+        assert stats["input_tokens"] is None
+        assert stats["output_tokens"] is None
