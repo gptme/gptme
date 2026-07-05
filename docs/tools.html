@@ -3464,6 +3464,45 @@ menu item that only appears on hover.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.browser.</span></span><span class="sig-name descname"><span class="pre">load_browser_state</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
+<dd><p>Load a previously saved browser session (cookies, localStorage) from a file.</p>
+<p>In-session complement to <code class="docutils literal notranslate"><span class="pre">save_browser_state()</span></code>.  Restores authentication
+state without requiring a process restart or setting the
+<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_STORAGE_STATE</span></code> environment variable.</p>
+<p>After calling this, call <code class="docutils literal notranslate"><span class="pre">open_page(url)</span></code> to start a browser session with
+the restored cookies and localStorage.</p>
+<p>Typical workflow:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># First session — log in and save state:</span>
+<span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://x.com/login&quot;</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;#username&quot;</span><span class="p">,</span> <span class="s2">&quot;you@example.com&quot;</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;#password&quot;</span><span class="p">,</span> <span class="s2">&quot;hunter2&quot;</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Log in&quot;</span><span class="p">)</span>
+<span class="n">save_browser_state</span><span class="p">(</span><span class="s2">&quot;~/.config/gptme/twitter-session.json&quot;</span><span class="p">)</span>
+
+<span class="c1"># Later in the same session (or a new one):</span>
+<span class="n">load_browser_state</span><span class="p">(</span><span class="s2">&quot;~/.config/gptme/twitter-session.json&quot;</span><span class="p">)</span>
+<span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://x.com&quot;</span><span class="p">)</span>           <span class="c1"># opens already logged in</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=What is happening?!&quot;</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s1">&#39;[data-testid=&quot;tweetTextarea_0&quot;]&#39;</span><span class="p">,</span> <span class="s2">&quot;hello from gptme!&quot;</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s1">&#39;[data-testid=&quot;tweetButtonInline&quot;]&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>path</strong> – Path to the session JSON previously written by <code class="docutils literal notranslate"><span class="pre">save_browser_state()</span></code>.
+<code class="docutils literal notranslate"><span class="pre">~</span></code> is expanded to the home directory.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Confirmation string. The next <code class="docutils literal notranslate"><span class="pre">open_page()</span></code> will use the restored state.</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#FileNotFoundError" title="(in Python v3.14)"><strong>FileNotFoundError</strong></a> – If <em>path</em> does not exist.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.browser.</span></span><span class="sig-name descname"><span class="pre">open_page</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
 <dd><p>Open a page for interactive browsing. Returns ARIA accessibility snapshot.</p>
 <p>Use this instead of read_url() when you need to interact with the page
