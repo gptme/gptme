@@ -3637,6 +3637,31 @@ class TestParseResult:
         result = _parse_result(d, Schema)
         assert result["result"] == original
 
+    def test_already_parsed_dict_returned_as_is(self):
+        """_parse_result is idempotent: already-parsed dict results pass through.
+
+        When subagent_wait() parses output_schema automatically (for direct callers),
+        then subagent_parallel() / BatchJob.wait_all() call _parse_result() a second
+        time on the already-parsed dict. This must not raise TypeError or inject a
+        spurious parse_error key.
+        """
+        from gptme.tools.subagent.batch import _parse_result
+
+        class Schema:
+            @classmethod
+            def model_validate(cls, obj):
+                return cls()
+
+            def model_dump(self):
+                return {"key": "value"}
+
+        parsed_dict = {"key": "value"}
+        d = {"status": "success", "result": parsed_dict}
+        result = _parse_result(d, Schema)
+        # Must not add parse_error, must not crash, must return result unchanged
+        assert "parse_error" not in result
+        assert result["result"] is parsed_dict
+
 
 class TestSubagentParallelOutputSchema:
     """Tests for output_schema support in subagent_parallel()."""

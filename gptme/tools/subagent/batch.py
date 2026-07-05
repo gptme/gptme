@@ -64,6 +64,11 @@ def _parse_result(result_dict: dict, output_schema: type | None) -> dict:
     if result_dict.get("status") != "success" or not result_text:
         return result_dict
 
+    # Already parsed (e.g. subagent_wait() parsed it when output_schema is set on
+    # the individual subagent); return as-is to avoid double-parsing.
+    if not isinstance(result_text, str):
+        return result_dict
+
     out = dict(result_dict)
     try:
         # Strip the log-path suffix that thread-mode _read_log() appends
