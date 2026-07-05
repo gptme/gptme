@@ -21,15 +21,15 @@ tests = ["hypothesis", "pytest"]
 
 [[package]]
 name = "agent-client-protocol"
-version = "0.10.1"
+version = "0.11.0"
 description = "A Python implement of Agent Client Protocol (ACP, by Zed Industries)"
 optional = true
 python-versions = "<3.15,>=3.10"
 groups = ["main"]
 markers = "python_version <= \"3.14\" and (extra == \"acp\" or extra == \"all\")"
 files = [
-    {file = "agent_client_protocol-0.10.1-py3-none-any.whl", hash = "sha256:a03d3198f4d772f2e0ec012c00ac1cce131b4710220a3dc9fae3c991d047c750"},
-    {file = "agent_client_protocol-0.10.1.tar.gz", hash = "sha256:355c65ca19f0568344aafc2c1552b7066a8fc491df23ab28e7e253c6c9a85a25"},
+    {file = "agent_client_protocol-0.11.0-py3-none-any.whl", hash = "sha256:2d8570cd4911f8af9fbab4808f7b05f09204a756f346c7409ecdcae3f37cdb2f"},
+    {file = "agent_client_protocol-0.11.0.tar.gz", hash = "sha256:8920a3b27bdcc852fd7c73066f47ab53257dbfbe57b505e20a40c69f80a5391c"},
 ]
 
 [package.dependencies]
@@ -3438,14 +3438,14 @@ files = [
 
 [[package]]
 name = "json-repair"
-version = "0.61.1"
+version = "0.61.2"
 description = "A package to repair broken json strings"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "json_repair-0.61.1-py3-none-any.whl", hash = "sha256:7ab26583e4c73418b8b60cc61202f64f119984a9b5fed61087e84158fa29e7d0"},
-    {file = "json_repair-0.61.1.tar.gz", hash = "sha256:24a68de2891c696ad3bd9a94874e8d3ef2d309c56af2973094b8297c975b5b58"},
+    {file = "json_repair-0.61.2-py3-none-any.whl", hash = "sha256:779a0cdb48f609d6eb669273023cf4c92b5ac6d80a496eb919ee93c84c351ec8"},
+    {file = "json_repair-0.61.2.tar.gz", hash = "sha256:b63ae5ad44c8720158e24bdd7e33506f7036174c287831b187a51619a6f58a34"},
 ]
 
 [package.extras]
@@ -10339,4 +10339,4 @@ telemetry = ["opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "d8fc8b9466cdac6edea3b71354a8cb133fbe21770006f838ec05fd38b166cbef"
+content-hash = "c120ae6dca9597dddb91599d4016e8bea86f6d674439c627800ab61ffe9c1ff8"

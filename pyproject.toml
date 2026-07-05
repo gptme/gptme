@@ -62,7 +62,7 @@ platformdirs = "^4.10"
 lxml = "*"
 pypdf = ">=6.14.2"  # For PDF text extraction in browser tool (CVE fix: RAM exhaustion + infinite loop)
 requests = "^2.34"  # For HTTP requests in browser tool (PDF detection)
-json-repair = "^0.61.1"
+json-repair = "^0.61.2"
 mcp = "^1.28.1"
 questionary = "^2.1.1"
 python-dateutil = "^2.9.0.post0"
@@ -117,7 +117,7 @@ sentence-transformers = {version = "^5.6.0", optional=true}
 pyinstaller = {version="^6.21", python=">=3.10,<3.15", optional=true}  # not yet compatible with Python 3.15+
 
 # acp (Agent Client Protocol)
-agent-client-protocol = {version = ">=0.10.1", optional=true, python=">=3.10,<3.15"}
+agent-client-protocol = {version = ">=0.11.0", optional=true, python=">=3.10,<3.15"}
 
 [tool.poetry.group.dev.dependencies]
 # lint
