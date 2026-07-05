@@ -177,6 +177,7 @@ export function getConnectionConfigFromSources(hash?: string): ConnectionConfig 
       authToken: fragmentUserToken || null,
       useAuthToken: Boolean(fragmentUserToken),
     });
+    connectServer(server.id);
     setActiveServer(server.id);
 
     // Clean fragment from URL

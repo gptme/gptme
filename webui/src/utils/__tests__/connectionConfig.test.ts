@@ -19,7 +19,11 @@ jest.mock('@/stores/servers', () => ({
   updateServer: mockUpdateServer,
 }));
 
-import { processConnectionFromHash, resolveCloudExchangeBaseUrl } from '../connectionConfig';
+import {
+  getConnectionConfigFromSources,
+  processConnectionFromHash,
+  resolveCloudExchangeBaseUrl,
+} from '../connectionConfig';
 
 const runtimeEnvWindow = window as typeof window & {
   __GPTME_WEBUI_ENV__?: Record<string, string | undefined>;
@@ -107,7 +111,7 @@ describe('processConnectionFromHash', () => {
       VITE_GPTME_FLEET_BASE_URL: 'http://fleet.gptme.local:8080',
     };
 
-    await processConnectionFromHash('code=local-ci-code');
+    const result = await processConnectionFromHash('code=local-ci-code');
 
     expect(global.fetch).toHaveBeenCalledWith(
       'http://fleet.gptme.local:8080/api/v1/operator/auth/exchange',
@@ -117,6 +121,39 @@ describe('processConnectionFromHash', () => {
         body: JSON.stringify({ code: 'local-ci-code' }),
       })
     );
+    expect(mockFindOrCreateServerByUrl).toHaveBeenCalledWith(
+      'https://instance-123.fleet.gptme.ai',
+      {
+        authToken: 'token-123',
+        useAuthToken: true,
+      }
+    );
+    expect(mockConnectServer).toHaveBeenCalledWith('server-1');
+    expect(mockSetActiveServer).toHaveBeenCalledWith('server-1');
+    expect(result).toEqual({
+      baseUrl: 'https://instance-123.fleet.gptme.ai',
+      authToken: 'token-123',
+      useAuthToken: true,
+    });
+  });
+
+  it('connects the registered server from legacy fragment URL config', () => {
+    const result = getConnectionConfigFromSources(
+      'baseUrl=https://legacy.example.com&userToken=legacy-token'
+    );
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(mockFindOrCreateServerByUrl).toHaveBeenCalledWith('https://legacy.example.com', {
+      authToken: 'legacy-token',
+      useAuthToken: true,
+    });
+    expect(mockConnectServer).toHaveBeenCalledWith('server-1');
+    expect(mockSetActiveServer).toHaveBeenCalledWith('server-1');
+    expect(result).toEqual({
+      baseUrl: 'https://legacy.example.com',
+      authToken: 'legacy-token',
+      useAuthToken: true,
+    });
   });
 
   it('rejects with error when exchange fails (non-2xx response)', async () => {
