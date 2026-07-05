@@ -5,6 +5,9 @@ Validates end-to-end computer-use workflows:
 - Backend selection policy: prefers snapshot_url / observe_web for web, not screenshot
 - Web content extraction and summarization
 - Interactive web actions: open_page, fill_element, click_element (the "Can it Tweet?" pipeline)
+- Keyboard navigation: press_key (Enter to submit, Tab to move focus)
+- Dropdown selection: select_option for <select> elements
+- Dynamic content: wait_for_element for elements that appear after user actions
 
 These tests run without a physical display because they use Playwright's
 headless mode via the browser tool. Desktop/screenshot tests that require
@@ -90,6 +93,21 @@ def check_used_open_page_or_click_element(messages: list[Message]) -> bool:
     )
 
 
+def check_used_press_key(messages: list[Message]) -> bool:
+    """Agent must use press_key() for keyboard-driven interaction (not click for submit)."""
+    return any("press_key(" in code for code in _executed_tool_calls(messages))
+
+
+def check_used_select_option(messages: list[Message]) -> bool:
+    """Agent must use select_option() for dropdown interaction."""
+    return any("select_option(" in code for code in _executed_tool_calls(messages))
+
+
+def check_used_wait_for_element(messages: list[Message]) -> bool:
+    """Agent must use wait_for_element() to wait for dynamically-rendered content."""
+    return any("wait_for_element(" in code for code in _executed_tool_calls(messages))
+
+
 def check_did_not_screenshot_for_web(messages: list[Message]) -> bool:
     """Structured-first policy: screenshots should NOT be the first observation for web."""
     calls = _executed_tool_calls(messages)
@@ -173,6 +191,23 @@ def _expect_second_page_reached(ctx) -> bool:
     if isinstance(content, bytes):
         content = content.decode(errors="replace")
     return len(content.strip()) > 5
+
+
+def _expect_keyboard_submit_reflected(ctx) -> bool:
+    # httpbin /forms/post returns a JSON/text body containing submitted field values.
+    return "custname" in ctx.stdout or "TestUser" in ctx.stdout
+
+
+def _expect_dropdown_result_written(ctx) -> bool:
+    return "dropdown.txt" in ctx.files or len(ctx.stdout.strip()) > 5
+
+
+def _expect_dropdown_value_echoed(ctx) -> bool:
+    # httpbin echoes form values back; the selected size option should appear.
+    content = ctx.files.get("dropdown.txt", ctx.stdout)
+    if isinstance(content, bytes):
+        content = content.decode(errors="replace")
+    return any(val in content for val in ("large", "medium", "small", "topping"))
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +312,62 @@ tests: list["EvalSpec"] = [
         },
         "check_log": {
             "used open_page or click_element for navigation": check_used_open_page_or_click_element,
+        },
+    },
+    # --- Keyboard navigation tests ---
+    # Validates press_key() for submitting forms without click_element, mirroring
+    # workflows like Twitter where pressing Enter submits the compose box directly.
+    {
+        "name": "computer-use-web-keyboard-submit",
+        "files": {},
+        "run": "cat result.txt",
+        "prompt": (
+            "You are in computer-use mode. Use keyboard navigation to submit a web form:\n"
+            "1. Call open_page('https://httpbin.org/forms/post') to open the pizza order form.\n"
+            "2. Call fill_element('[name=\"custname\"]', 'TestUser') to fill the customer name.\n"
+            "3. Call fill_element('[name=\"custemail\"]', 'test@example.com') to fill the email.\n"
+            "4. Call press_key('Tab') to move focus to the next field, then "
+            "call press_key('Return') to submit the form using the keyboard (do NOT use click_element for submit).\n"
+            "5. Call read_page_text() to read the response.\n"
+            "6. Write the response (or a summary) to result.txt."
+        ),
+        "tools": ["browser", "computer", "vision", "ipython", "save"],
+        "expect": {
+            "result.txt written": _expect_result_written,
+            "form submitted (custname reflected)": _expect_keyboard_submit_reflected,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "used open_page for navigation": check_used_open_page,
+            "used fill_element for input": check_used_fill_element,
+            "used press_key for keyboard submission": check_used_press_key,
+        },
+    },
+    # --- Dropdown selection test ---
+    # Validates select_option() for <select> elements, covering the pattern used in
+    # web forms with dropdowns (ticket categories, account settings, etc.).
+    {
+        "name": "computer-use-web-dropdown-select",
+        "files": {},
+        "run": "cat dropdown.txt",
+        "prompt": (
+            "You are in computer-use mode. Use select_option() to choose a dropdown value:\n"
+            "1. Call open_page('https://httpbin.org/forms/post') to open the pizza order form.\n"
+            "2. Call select_option('[name=\"size\"]', 'large') to pick the pizza size.\n"
+            "3. Call fill_element('[name=\"custname\"]', 'DropdownTest') to fill the name.\n"
+            "4. Call click_element('[type=\"submit\"]') to submit.\n"
+            "5. Call read_page_text() to read the response.\n"
+            "6. Write the response (or a summary confirming the size selection) to dropdown.txt."
+        ),
+        "tools": ["browser", "computer", "vision", "ipython", "save"],
+        "expect": {
+            "dropdown.txt written": _expect_dropdown_result_written,
+            "selection reflected in response": _expect_dropdown_value_echoed,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "used select_option for dropdown": check_used_select_option,
+            "used open_page for navigation": check_used_open_page,
         },
     },
 ]

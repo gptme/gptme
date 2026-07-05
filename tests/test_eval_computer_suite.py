@@ -432,3 +432,208 @@ def test_expect_second_page_reached_decodes_bytes():
         exit_code=0,
     )
     assert computer_suite._expect_second_page_reached(ctx)
+
+
+# ---------------------------------------------------------------------------
+# check_used_press_key
+# ---------------------------------------------------------------------------
+
+
+def test_check_used_press_key_accepts(monkeypatch):
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["press_key('Return')"],
+    )
+    assert computer_suite.check_used_press_key([])
+
+
+def test_check_used_press_key_accepts_tab(monkeypatch):
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["press_key('Tab')", "press_key('Return')"],
+    )
+    assert computer_suite.check_used_press_key([])
+
+
+def test_check_used_press_key_rejects_click_element(monkeypatch):
+    """Using click_element for submit should not satisfy press_key check."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["click_element('[type=\"submit\"]')"],
+    )
+    assert not computer_suite.check_used_press_key([])
+
+
+def test_check_used_press_key_rejects_type_action(monkeypatch):
+    """computer('type', ...) is not press_key."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["computer('type', text='hello')"],
+    )
+    assert not computer_suite.check_used_press_key([])
+
+
+# ---------------------------------------------------------------------------
+# check_used_select_option
+# ---------------------------------------------------------------------------
+
+
+def test_check_used_select_option_accepts(monkeypatch):
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ['select_option(\'[name="size"]\', "large")'],
+    )
+    assert computer_suite.check_used_select_option([])
+
+
+def test_check_used_select_option_rejects_fill_element(monkeypatch):
+    """fill_element is not select_option."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ['fill_element(\'[name="size"]\', "large")'],
+    )
+    assert not computer_suite.check_used_select_option([])
+
+
+def test_check_used_select_option_rejects_empty(monkeypatch):
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: [],
+    )
+    assert not computer_suite.check_used_select_option([])
+
+
+# ---------------------------------------------------------------------------
+# check_used_wait_for_element
+# ---------------------------------------------------------------------------
+
+
+def test_check_used_wait_for_element_accepts(monkeypatch):
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["wait_for_element('[data-testid=\"tweetTextarea_0\"]')"],
+    )
+    assert computer_suite.check_used_wait_for_element([])
+
+
+def test_check_used_wait_for_element_with_timeout(monkeypatch):
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["wait_for_element('#submit-btn', timeout_ms=8000)"],
+    )
+    assert computer_suite.check_used_wait_for_element([])
+
+
+def test_check_used_wait_for_element_rejects_snapshot(monkeypatch):
+    """snapshot_url is not wait_for_element."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["snapshot_url('https://example.com')"],
+    )
+    assert not computer_suite.check_used_wait_for_element([])
+
+
+def test_check_used_wait_for_element_rejects_empty(monkeypatch):
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: [],
+    )
+    assert not computer_suite.check_used_wait_for_element([])
+
+
+# ---------------------------------------------------------------------------
+# _expect_keyboard_submit_reflected
+# ---------------------------------------------------------------------------
+
+
+def test_expect_keyboard_submit_reflected_via_custname(monkeypatch):
+    ctx = ResultContext(
+        files={"result.txt": '{"form": {"custname": "TestUser"}}'},
+        stdout='{"form": {"custname": "TestUser"}}',
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_keyboard_submit_reflected(ctx)
+
+
+def test_expect_keyboard_submit_reflected_via_testuser(monkeypatch):
+    ctx = ResultContext(
+        files={"result.txt": "TestUser submitted"},
+        stdout="TestUser submitted",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_keyboard_submit_reflected(ctx)
+
+
+def test_expect_keyboard_submit_reflected_fails_on_error(monkeypatch):
+    ctx = ResultContext(
+        files={"result.txt": "Error: submission failed"},
+        stdout="Error: submission failed",
+        stderr="",
+        exit_code=1,
+    )
+    assert not computer_suite._expect_keyboard_submit_reflected(ctx)
+
+
+# ---------------------------------------------------------------------------
+# _expect_dropdown_result_written / _expect_dropdown_value_echoed
+# ---------------------------------------------------------------------------
+
+
+def test_expect_dropdown_result_written_file_present():
+    ctx = ResultContext(
+        files={"dropdown.txt": "size=large"}, stdout="", stderr="", exit_code=0
+    )
+    assert computer_suite._expect_dropdown_result_written(ctx)
+
+
+def test_expect_dropdown_result_written_via_stdout():
+    ctx = ResultContext(files={}, stdout="Selected size: large", stderr="", exit_code=0)
+    assert computer_suite._expect_dropdown_result_written(ctx)
+
+
+def test_expect_dropdown_result_written_fails_empty():
+    ctx = ResultContext(files={}, stdout="", stderr="", exit_code=0)
+    assert not computer_suite._expect_dropdown_result_written(ctx)
+
+
+def test_expect_dropdown_value_echoed_from_file():
+    ctx = ResultContext(
+        files={"dropdown.txt": '{"form": {"size": "large"}}'},
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_dropdown_value_echoed(ctx)
+
+
+def test_expect_dropdown_value_echoed_from_stdout_fallback():
+    ctx = ResultContext(
+        files={},
+        stdout="medium pizza selected",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_dropdown_value_echoed(ctx)
+
+
+def test_expect_dropdown_value_echoed_fails_unrelated_content():
+    ctx = ResultContext(
+        files={"dropdown.txt": "Error: form not found"},
+        stdout="Error: form not found",
+        stderr="",
+        exit_code=1,
+    )
+    assert not computer_suite._expect_dropdown_value_echoed(ctx)
