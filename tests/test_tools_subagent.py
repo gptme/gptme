@@ -822,13 +822,8 @@ def test_subprocess_profile_preserves_profile_tools_and_adds_clarify():
     )
 
 
-<<<<<<< HEAD
 def test_subprocess_no_profile_includes_complete_and_clarify():
     """Subprocess without a profile must include both complete and clarify tools."""
-=======
-def test_subprocess_profile_with_tools_none_adds_both_tools():
-    """Profiles with tools=None (e.g. default, developer) should get +complete,+clarify."""
->>>>>>> 9f6569f79 (test: cover profile+tools=None subprocess tools path)
     import tempfile
     from pathlib import Path
 
@@ -849,7 +844,6 @@ def test_subprocess_profile_with_tools_none_adds_both_tools():
         logdir.mkdir()
 
         with patch("gptme.tools.subagent.execution.subprocess.Popen", fake_popen):
-<<<<<<< HEAD
             _run_subagent_subprocess(
                 prompt="Do a task",
                 logdir=logdir,
@@ -904,21 +898,6 @@ def test_subprocess_profile_without_toollist_includes_complete_and_clarify():
 
     assert "--tools" in captured_cmd
     assert captured_cmd[captured_cmd.index("--tools") + 1] == "+complete,+clarify"
-=======
-            # developer profile has tools=None → hits the profile+tools=None branch
-            _run_subagent_subprocess(
-                prompt="Dev task",
-                logdir=logdir,
-                model=None,
-                workspace=Path(tmpdir),
-                profile="developer",
-            )
-
-    assert "--agent-profile" in captured_cmd
-    assert captured_cmd[captured_cmd.index("--agent-profile") + 1] == "developer"
-    assert "--tools" in captured_cmd
-    assert captured_cmd[captured_cmd.index("--tools") + 1] == ("+complete,+clarify")
->>>>>>> 9f6569f79 (test: cover profile+tools=None subprocess tools path)
 
 
 @pytest.mark.slow
