@@ -77,6 +77,15 @@ _SNAPSHOT_FIXTURE_HTML = (
 )
 _SNAPSHOT_FIXTURE_URL = "data:text/html," + urllib.parse.quote(_SNAPSHOT_FIXTURE_HTML)
 
+# Current URL fixture: local page used to verify get_current_url() without an
+# external network dependency.
+_CURRENT_URL_FIXTURE_HTML = (
+    "<!doctype html><html><body><h1>current-url-fixture</h1></body></html>"
+)
+_CURRENT_URL_FIXTURE_URL = "data:text/html," + urllib.parse.quote(
+    _CURRENT_URL_FIXTURE_HTML
+)
+
 
 # ---------------------------------------------------------------------------
 # Trajectory-check helpers
@@ -288,11 +297,11 @@ def _expect_hover_menu_found(ctx) -> bool:
     return "hover-revealed" in content
 
 
-def _expect_snapshot_url_recorded(ctx) -> bool:
+def _expect_current_url_fixture_recorded(ctx) -> bool:
     content = ctx.files.get("url.txt", ctx.stdout)
     if isinstance(content, bytes):
         content = content.decode(errors="replace")
-    return "example.com" in content
+    return _CURRENT_URL_FIXTURE_URL in content
 
 
 def _expect_current_url_captured(ctx) -> bool:
@@ -554,22 +563,22 @@ tests: list["EvalSpec"] = [
     },
     # --- get_current_url() test ---
     # Validates get_current_url() returns the URL after navigation.  The agent
-    # opens example.com, navigates, then calls get_current_url() to record where
-    # it ended up.
+    # opens a self-contained fixture, then calls get_current_url() to record
+    # where it ended up.
     {
         "name": "computer-use-web-get-current-url",
         "files": {},
         "run": "cat url.txt",
         "prompt": (
             "You are in computer-use mode. Use get_current_url() to record the page URL:\n"
-            "1. Call open_page('https://example.com') to open a page.\n"
+            f"1. Call open_page('{_CURRENT_URL_FIXTURE_URL}') to open a page.\n"
             "2. Call get_current_url() to retrieve the current URL.\n"
             "3. Write the URL to url.txt."
         ),
         "tools": ["browser", "computer", "vision", "ipython", "save"],
         "expect": {
             "url.txt written": _expect_current_url_captured,
-            "example.com URL recorded": _expect_snapshot_url_recorded,
+            "fixture URL recorded": _expect_current_url_fixture_recorded,
             "clean exit": _expect_clean_exit,
         },
         "check_log": {

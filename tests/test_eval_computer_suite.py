@@ -777,28 +777,28 @@ def test_expect_hover_menu_found_rejects_no_marker():
 
 
 # ---------------------------------------------------------------------------
-# _expect_snapshot_url_recorded / _expect_current_url_captured
+# _expect_current_url_fixture_recorded / _expect_current_url_captured
 # ---------------------------------------------------------------------------
 
 
-def test_expect_snapshot_url_recorded_accepts_example_com():
+def test_expect_current_url_fixture_recorded_accepts_fixture_url():
     ctx = ResultContext(
-        files={"url.txt": "https://example.com"},
-        stdout="https://example.com",
+        files={"url.txt": computer_suite._CURRENT_URL_FIXTURE_URL},
+        stdout=computer_suite._CURRENT_URL_FIXTURE_URL,
         stderr="",
         exit_code=0,
     )
-    assert computer_suite._expect_snapshot_url_recorded(ctx)
+    assert computer_suite._expect_current_url_fixture_recorded(ctx)
 
 
-def test_expect_snapshot_url_recorded_rejects_unrelated():
+def test_expect_current_url_fixture_recorded_rejects_unrelated():
     ctx = ResultContext(
         files={"url.txt": "Error"},
         stdout="Error",
         stderr="",
         exit_code=1,
     )
-    assert not computer_suite._expect_snapshot_url_recorded(ctx)
+    assert not computer_suite._expect_current_url_fixture_recorded(ctx)
 
 
 def test_expect_current_url_captured_requires_nonempty():

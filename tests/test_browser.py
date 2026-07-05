@@ -391,6 +391,46 @@ def test_read_page_text_without_open_page():
         read_page_text()
 
 
+def test_snapshot_page_uses_retry_wrapper(monkeypatch):
+    """Test that snapshot_page routes current-page reads through retry wrapper."""
+    from gptme.tools import _browser_playwright
+
+    calls = []
+
+    def fake_execute_with_retry(func, *args, **kwargs):
+        calls.append((func, args, kwargs))
+        return func(Mock())
+
+    monkeypatch.setattr(_browser_playwright, "_current_page", object())
+    monkeypatch.setattr(_browser_playwright, "_page_snapshot", lambda: "snapshot")
+    monkeypatch.setattr(
+        _browser_playwright, "_execute_with_retry", fake_execute_with_retry
+    )
+
+    assert _browser_playwright.snapshot_page() == "snapshot"
+    assert calls == [(_browser_playwright._snapshot_current_page, (), {})]
+
+
+def test_get_current_url_uses_retry_wrapper(monkeypatch):
+    """Test that get_current_url routes current-page reads through retry wrapper."""
+    from gptme.tools import _browser_playwright
+
+    calls = []
+    page = Mock(url="data:text/html,current-url-fixture")
+
+    def fake_execute_with_retry(func, *args, **kwargs):
+        calls.append((func, args, kwargs))
+        return func(Mock())
+
+    monkeypatch.setattr(_browser_playwright, "_current_page", page)
+    monkeypatch.setattr(
+        _browser_playwright, "_execute_with_retry", fake_execute_with_retry
+    )
+
+    assert _browser_playwright.get_current_url() == "data:text/html,current-url-fixture"
+    assert calls == [(_browser_playwright._get_current_url, (), {})]
+
+
 def test_scroll_invalid_amount():
     """Test that scroll_page raises ValueError for non-positive amount."""
     # Argument validation runs before page-state check, so no browser needed

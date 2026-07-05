@@ -940,6 +940,13 @@ def hover_element(selector: str) -> str:
     return _execute_with_retry(_hover, selector)
 
 
+def _snapshot_current_page(_browser: Browser) -> str:
+    """Return the current page snapshot from the browser thread."""
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    return _page_snapshot()
+
+
 def snapshot_page() -> str:
     """Get the ARIA accessibility snapshot of the current interactive page.
 
@@ -967,7 +974,14 @@ def snapshot_page() -> str:
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     logger.info("Snapshotting current page state")
-    return _page_snapshot()
+    return _execute_with_retry(_snapshot_current_page)
+
+
+def _get_current_url(_browser: Browser) -> str:
+    """Return the current page URL from the browser thread."""
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    return _current_page.url
 
 
 def get_current_url() -> str:
@@ -992,7 +1006,7 @@ def get_current_url() -> str:
     """
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
-    return _current_page.url
+    return _execute_with_retry(_get_current_url)
 
 
 def _take_screenshot(
