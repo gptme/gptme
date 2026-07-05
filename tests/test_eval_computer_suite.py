@@ -614,7 +614,7 @@ def test_expect_dropdown_result_written_fails_empty():
 
 def test_expect_dropdown_value_echoed_from_file():
     ctx = ResultContext(
-        files={"dropdown.txt": '{"form": {"size": "large"}}'},
+        files={"dropdown.txt": "Page now shows: selected:large"},
         stdout="",
         stderr="",
         exit_code=0,
@@ -625,7 +625,7 @@ def test_expect_dropdown_value_echoed_from_file():
 def test_expect_dropdown_value_echoed_from_stdout_fallback():
     ctx = ResultContext(
         files={},
-        stdout="large pizza selected",
+        stdout="result div now reads selected:large",
         stderr="",
         exit_code=0,
     )
@@ -633,9 +633,11 @@ def test_expect_dropdown_value_echoed_from_stdout_fallback():
 
 
 def test_expect_dropdown_value_echoed_rejects_broad_terms():
-    # "medium", "small", and "topping" should NOT pass — they're too permissive
-    # (static HTML contains "topping"; "small" is common English).
-    for term in ("medium pizza selected", "small issue", "topping choices available"):
+    # A bare "large"/"medium"/"small" mention (without the "selected:" marker
+    # written by the fixture's change-event listener) must NOT pass — that
+    # marker only appears after a genuine select_option() call, not from
+    # narration or static page text.
+    for term in ("medium pizza selected", "small issue", "large pizza chosen"):
         ctx = ResultContext(files={}, stdout=term, stderr="", exit_code=0)
         assert not computer_suite._expect_dropdown_value_echoed(ctx), (
             f"should reject: {term!r}"

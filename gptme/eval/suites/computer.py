@@ -16,6 +16,7 @@ pipelines.
 """
 
 import logging
+import urllib.parse
 from typing import TYPE_CHECKING
 
 from gptme.message import Message
@@ -25,6 +26,29 @@ if TYPE_CHECKING:
     from gptme.eval.types import EvalSpec
 
 logger = logging.getLogger(__name__)
+
+# Self-contained fixture with a real <select> element (httpbin's /forms/post
+# renders "size" as radio buttons, not a <select>, so select_option() would
+# raise against it — see gptme#3097 review discussion). The result marker is
+# only written by a JS "change" listener, so a passing check proves the tool
+# actually drove the <select>, not that "large" happens to appear in static
+# markup.
+_DROPDOWN_FIXTURE_HTML = (
+    "<!doctype html><html><body>"
+    '<form><select name="size" id="size">'
+    '<option value="small">Small</option>'
+    '<option value="medium">Medium</option>'
+    '<option value="large">Large</option>'
+    "</select></form>"
+    '<div id="result">no selection</div>'
+    "<script>"
+    "document.getElementById('size').addEventListener('change', function(e) {"
+    "document.getElementById('result').textContent = 'selected:' + e.target.value;"
+    "});"
+    "</script>"
+    "</body></html>"
+)
+_DROPDOWN_FIXTURE_URL = "data:text/html," + urllib.parse.quote(_DROPDOWN_FIXTURE_HTML)
 
 
 # ---------------------------------------------------------------------------
@@ -205,13 +229,13 @@ def _expect_dropdown_result_written(ctx) -> bool:
 
 
 def _expect_dropdown_value_echoed(ctx) -> bool:
-    # The prompt always selects 'large'; httpbin echoes it in the response JSON.
-    # Scoping to the exact submitted value avoids false positives from broad terms
-    # like "small" (common English) or "topping" (present in the static form HTML).
+    # The fixture page only writes "selected:large" via a JS "change" listener
+    # fired by a real select_option() call — the marker text is absent from the
+    # static HTML, so this can't pass on narration or an unexecuted tool call.
     content = ctx.files.get("dropdown.txt", ctx.stdout)
     if isinstance(content, bytes):
         content = content.decode(errors="replace")
-    return "large" in content
+    return "selected:large" in content or "selected: large" in content
 
 
 # ---------------------------------------------------------------------------
@@ -348,20 +372,21 @@ tests: list["EvalSpec"] = [
         },
     },
     # --- Dropdown selection test ---
-    # Validates select_option() for <select> elements, covering the pattern used in
-    # web forms with dropdowns (ticket categories, account settings, etc.).
+    # Validates select_option() for <select> elements. Uses a self-contained
+    # data: URL fixture (not httpbin) because httpbin's /forms/post renders
+    # "size" as radio buttons, not a <select> — select_option() would raise
+    # against it, and any static-text check would be a false positive since
+    # "large" is already present in that page's radio-button label.
     {
         "name": "computer-use-web-dropdown-select",
         "files": {},
         "run": "cat dropdown.txt",
         "prompt": (
             "You are in computer-use mode. Use select_option() to choose a dropdown value:\n"
-            "1. Call open_page('https://httpbin.org/forms/post') to open the pizza order form.\n"
+            f"1. Call open_page('{_DROPDOWN_FIXTURE_URL}') to open a page with a size dropdown.\n"
             "2. Call select_option('[name=\"size\"]', 'large') to pick the pizza size.\n"
-            "3. Call fill_element('[name=\"custname\"]', 'DropdownTest') to fill the name.\n"
-            "4. Call click_element('[type=\"submit\"]') to submit.\n"
-            "5. Call read_page_text() to read the response.\n"
-            "6. Write the response (or a summary confirming the size selection) to dropdown.txt."
+            "3. Call read_page_text() to read the updated page content.\n"
+            "4. Write the response (or a summary confirming the size selection) to dropdown.txt."
         ),
         "tools": ["browser", "computer", "vision", "ipython", "save"],
         "expect": {
