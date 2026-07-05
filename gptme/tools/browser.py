@@ -1002,6 +1002,52 @@ def save_browser_state(path: str) -> str:
     )
 
 
+def load_browser_state(path: str) -> str:
+    """Load a previously saved browser session (cookies, localStorage) from a file.
+
+    In-session complement to ``save_browser_state()``.  Restores authentication
+    state without requiring a process restart or setting the
+    ``GPTME_BROWSER_STORAGE_STATE`` environment variable.
+
+    After calling this, call ``open_page(url)`` to start a browser session with
+    the restored cookies and localStorage.
+
+    Typical workflow::
+
+        # First session — log in and save state:
+        open_page("https://x.com/login")
+        fill_element("#username", "you@example.com")
+        fill_element("#password", "hunter2")
+        click_element("text=Log in")
+        save_browser_state("~/.config/gptme/twitter-session.json")
+
+        # Later in the same session (or a new one):
+        load_browser_state("~/.config/gptme/twitter-session.json")
+        open_page("https://x.com")           # opens already logged in
+        click_element("text=What is happening?!")
+        fill_element('[data-testid="tweetTextarea_0"]', "hello from gptme!")
+        click_element('[data-testid="tweetButtonInline"]')
+
+    Args:
+        path: Path to the session JSON previously written by ``save_browser_state()``.
+              ``~`` is expanded to the home directory.
+
+    Returns:
+        Confirmation string. The next ``open_page()`` will use the restored state.
+
+    Raises:
+        FileNotFoundError: If *path* does not exist.
+    """
+    assert browser
+    if browser == "playwright":
+        from ._browser_playwright import load_browser_state as load_browser_state_pw
+
+        return load_browser_state_pw(path)
+    raise ValueError(
+        "load_browser_state() is only supported with the playwright backend"
+    )
+
+
 def read_page_text() -> str:
     """Read the full text content of the current interactive page as Markdown.
 
@@ -1243,6 +1289,7 @@ services with APIs, prefer shell or Python over scraping.""",
         "scroll_page()/press_key()/select_option()/wait_for_element()/"
         "hover_element()/snapshot_page()/get_current_url(), "
         "read interactive page content with read_page_text(), "
+        "save/restore browser auth sessions with save_browser_state()/load_browser_state(), "
         "check browser console errors with read_logs(), "
         "or convert a local PDF to images with pdf_to_images().",
     },
@@ -1257,6 +1304,7 @@ services with APIs, prefer shell or Python over scraping.""",
             open_page,
             close_page,
             save_browser_state,
+            load_browser_state,
             read_page_text,
             click_element,
             fill_element,

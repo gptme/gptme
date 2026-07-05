@@ -32,26 +32,57 @@ DEFAULT_CONTEXT_OPTIONS: dict[str, Any] = {
     "permissions": ["geolocation"],
 }
 
+# In-session override set by load_browser_state().  Takes priority over the
+# GPTME_BROWSER_STORAGE_STATE env var so the agent can reload state without
+# restarting the process.
+_override_storage_state: Path | None = None
+
+
+def set_storage_state_override(path: Path | None) -> None:
+    """Set (or clear) the in-session storage-state override.
+
+    Called by ``load_browser_state()`` so the next ``open_page()`` picks up the
+    new authentication state without needing a process restart.
+    """
+    global _override_storage_state
+    _override_storage_state = path
+
 
 def get_context_options() -> dict[str, Any]:
     """Return browser context options, optionally loading a saved session state.
 
-    If ``GPTME_BROWSER_STORAGE_STATE`` points to an existing JSON file (previously
-    created by ``save_browser_state()``), the saved cookies and localStorage are
-    loaded into every new context — enabling authenticated sessions without
-    re-entering credentials on each invocation.
+    Priority order for storage state:
+    1. In-session override set by ``load_browser_state()`` (highest priority).
+    2. ``GPTME_BROWSER_STORAGE_STATE`` environment variable.
+    3. No storage state — fresh (unauthenticated) context (default).
 
-    Typical workflow::
+    Typical workflow for one-time login + persistent sessions::
 
-        # 1. Open a browser manually and log in to the target site, then save state:
-        open_page("https://x.com")
+        # 1. Open the page and log in:
+        open_page("https://x.com/login")
+        fill_element("#username", "you@example.com")
+        fill_element("#password", "hunter2")
+        click_element("text=Log in")
         save_browser_state("~/.config/gptme/twitter-session.json")
 
-        # 2. Next time, load the state automatically:
+        # 2a. Next time via env var (persists across restarts):
         export GPTME_BROWSER_STORAGE_STATE=~/.config/gptme/twitter-session.json
         gptme --agent-profile computer-use "tweet 'hello from gptme'"
+
+        # 2b. Or load programmatically in the same session:
+        load_browser_state("~/.config/gptme/twitter-session.json")
+        open_page("https://x.com")  # opens with saved cookies
     """
     options = dict(DEFAULT_CONTEXT_OPTIONS)
+
+    # In-session override takes precedence over the env var.
+    if _override_storage_state is not None:
+        options["storage_state"] = str(_override_storage_state)
+        logger.info(
+            "Using in-session storage state override: %s", _override_storage_state
+        )
+        return options
+
     storage_path_raw = get_config().get_env("BROWSER_STORAGE_STATE")
     if storage_path_raw:
         storage_path = Path(storage_path_raw).expanduser()
@@ -185,9 +216,7 @@ class BrowserThread:
                 # gptme instances don't share cookies/tabs. Recreated on every
                 # (re)connect so it never points at a dead browser.
                 if self.cdp_url:
-                    self._session_context = browser.new_context(
-                        **get_context_options()
-                    )
+                    self._session_context = browser.new_context(**get_context_options())
                     logger.info("Created isolated session context for CDP connection")
                 return None
             except Exception as e:

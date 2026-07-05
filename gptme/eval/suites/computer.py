@@ -183,6 +183,16 @@ def check_used_get_current_url(messages: list[Message]) -> bool:
     return any("get_current_url(" in code for code in _executed_tool_calls(messages))
 
 
+def check_used_save_browser_state(messages: list[Message]) -> bool:
+    """Agent must use save_browser_state() to persist the browser session."""
+    return any("save_browser_state(" in code for code in _executed_tool_calls(messages))
+
+
+def check_used_load_browser_state(messages: list[Message]) -> bool:
+    """Agent must use load_browser_state() to restore a browser session."""
+    return any("load_browser_state(" in code for code in _executed_tool_calls(messages))
+
+
 def check_did_not_screenshot_for_web(messages: list[Message]) -> bool:
     """Structured-first policy: screenshots should NOT be the first observation for web."""
     calls = _executed_tool_calls(messages)
@@ -308,6 +318,22 @@ def _expect_current_url_captured(ctx) -> bool:
     content = ctx.files.get("url.txt", ctx.stdout)
     if isinstance(content, bytes):
         content = content.decode(errors="replace")
+    return len(content.strip()) > 5
+
+
+def _expect_state_file_written(ctx) -> bool:
+    """State file must have been saved by save_browser_state()."""
+    return "state.json" in ctx.files or (
+        "state.json" in ctx.stdout or "state.json" in ctx.stderr
+    )
+
+
+def _expect_url_after_reload_recorded(ctx) -> bool:
+    """Agent must confirm the page URL after loading state."""
+    content = ctx.files.get("result.txt", ctx.stdout)
+    if isinstance(content, bytes):
+        content = content.decode(errors="replace")
+    # The agent should record the fixture URL or at least a non-empty URL
     return len(content.strip()) > 5
 
 
@@ -583,6 +609,39 @@ tests: list["EvalSpec"] = [
         },
         "check_log": {
             "used get_current_url()": check_used_get_current_url,
+            "used open_page for navigation": check_used_open_page,
+        },
+    },
+    # --- save_browser_state / load_browser_state round-trip test ---
+    # Validates the session-persistence workflow: save state after visiting a
+    # page, then restore it with load_browser_state() and open a second page to
+    # confirm the state was applied.  Uses data: URL fixtures so no network is
+    # needed and no real credentials are involved.
+    #
+    # This directly addresses the "Can it Tweet?" milestone from #216: the
+    # authentication workflow is: log in → save_browser_state → (later)
+    # load_browser_state → open the target page already authenticated.
+    {
+        "name": "computer-use-web-session-persistence",
+        "files": {},
+        "run": "cat result.txt",
+        "prompt": (
+            "You are in computer-use mode. Test browser session persistence:\n"
+            f"1. Call open_page('{_CURRENT_URL_FIXTURE_URL}') to open a fixture page.\n"
+            "2. Call save_browser_state('state.json') to save the current session.\n"
+            "3. Call load_browser_state('state.json') to reload the saved state.\n"
+            f"4. Call open_page('{_CURRENT_URL_FIXTURE_URL}') again with the restored state.\n"
+            "5. Call get_current_url() to confirm the page loaded.\n"
+            "6. Write the URL to result.txt."
+        ),
+        "tools": ["browser", "computer", "vision", "ipython", "save"],
+        "expect": {
+            "result.txt written": _expect_url_after_reload_recorded,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "used save_browser_state": check_used_save_browser_state,
+            "used load_browser_state": check_used_load_browser_state,
             "used open_page for navigation": check_used_open_page,
         },
     },
