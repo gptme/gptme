@@ -567,14 +567,17 @@ def test_expect_keyboard_submit_reflected_via_custname(monkeypatch):
     assert computer_suite._expect_keyboard_submit_reflected(ctx)
 
 
-def test_expect_keyboard_submit_reflected_via_testuser(monkeypatch):
+def test_expect_keyboard_submit_reflected_rejects_narration_without_submit(monkeypatch):
+    # "TestUser" appearing in stdout is a false positive: the agent may narrate
+    # "I filled TestUser" without the form ever being submitted. Only "custname"
+    # (the httpbin JSON field key) confirms a real POST response.
     ctx = ResultContext(
         files={"result.txt": "TestUser submitted"},
         stdout="TestUser submitted",
         stderr="",
         exit_code=0,
     )
-    assert computer_suite._expect_keyboard_submit_reflected(ctx)
+    assert not computer_suite._expect_keyboard_submit_reflected(ctx)
 
 
 def test_expect_keyboard_submit_reflected_fails_on_error(monkeypatch):
@@ -622,11 +625,21 @@ def test_expect_dropdown_value_echoed_from_file():
 def test_expect_dropdown_value_echoed_from_stdout_fallback():
     ctx = ResultContext(
         files={},
-        stdout="medium pizza selected",
+        stdout="large pizza selected",
         stderr="",
         exit_code=0,
     )
     assert computer_suite._expect_dropdown_value_echoed(ctx)
+
+
+def test_expect_dropdown_value_echoed_rejects_broad_terms():
+    # "medium", "small", and "topping" should NOT pass — they're too permissive
+    # (static HTML contains "topping"; "small" is common English).
+    for term in ("medium pizza selected", "small issue", "topping choices available"):
+        ctx = ResultContext(files={}, stdout=term, stderr="", exit_code=0)
+        assert not computer_suite._expect_dropdown_value_echoed(ctx), (
+            f"should reject: {term!r}"
+        )
 
 
 def test_expect_dropdown_value_echoed_fails_unrelated_content():

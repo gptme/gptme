@@ -194,8 +194,10 @@ def _expect_second_page_reached(ctx) -> bool:
 
 
 def _expect_keyboard_submit_reflected(ctx) -> bool:
-    # httpbin /forms/post returns a JSON/text body containing submitted field values.
-    return "custname" in ctx.stdout or "TestUser" in ctx.stdout
+    # httpbin echoes submitted field names in the response JSON (e.g. {"custname": "..."}).
+    # Checking for the field key "custname" (not the user-supplied value "TestUser") avoids
+    # false positives where the agent narrates what it attempted without actually submitting.
+    return "custname" in ctx.stdout
 
 
 def _expect_dropdown_result_written(ctx) -> bool:
@@ -203,11 +205,13 @@ def _expect_dropdown_result_written(ctx) -> bool:
 
 
 def _expect_dropdown_value_echoed(ctx) -> bool:
-    # httpbin echoes form values back; the selected size option should appear.
+    # The prompt always selects 'large'; httpbin echoes it in the response JSON.
+    # Scoping to the exact submitted value avoids false positives from broad terms
+    # like "small" (common English) or "topping" (present in the static form HTML).
     content = ctx.files.get("dropdown.txt", ctx.stdout)
     if isinstance(content, bytes):
         content = content.decode(errors="replace")
-    return any(val in content for val in ("large", "medium", "small", "topping"))
+    return "large" in content
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +372,36 @@ tests: list["EvalSpec"] = [
         "check_log": {
             "used select_option for dropdown": check_used_select_option,
             "used open_page for navigation": check_used_open_page,
+        },
+    },
+    # --- Dynamic-content waiting test ---
+    # Validates wait_for_element() for pages where elements may not be immediately
+    # ready (JS-rendered content, delayed DOM updates, SPAs after navigation).
+    # httpbin /forms/post is used as the host page; the agent must call
+    # wait_for_element() before filling to exercise the tool.
+    {
+        "name": "computer-use-web-wait-for-element",
+        "files": {},
+        "run": "cat result.txt",
+        "prompt": (
+            "You are in computer-use mode. Use wait_for_element() to confirm an element is ready before interacting:\n"
+            "1. Call open_page('https://httpbin.org/forms/post') to open the pizza order form.\n"
+            "2. Call wait_for_element('[name=\"custname\"]') to wait until the customer name field is present in the DOM.\n"
+            "3. Call fill_element('[name=\"custname\"]', 'WaitUser') to fill the customer name field.\n"
+            "4. Call click_element('[type=\"submit\"]') to submit the form.\n"
+            "5. Call read_page_text() to read the response.\n"
+            "6. Write the response (or a summary) to result.txt."
+        ),
+        "tools": ["browser", "computer", "vision", "ipython", "save"],
+        "expect": {
+            "result.txt written": _expect_result_written,
+            "form submitted (custname reflected)": _expect_form_submitted,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "used wait_for_element before interaction": check_used_wait_for_element,
+            "used open_page for navigation": check_used_open_page,
+            "used fill_element for input": check_used_fill_element,
         },
     },
 ]
