@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -33,7 +34,8 @@ def test_tokens_count(tmp_path):
     )
     assert result.exit_code == 0
     assert "Token count" in result.output
-    assert int(result.output.split(": ", 1)[1].strip()) > 0
+    m = re.search(r"Token count [^:]+: (\d+)", result.output)
+    assert m and int(m.group(1)) > 0
 
     # Models tiktoken doesn't natively recognize fall back to an estimate
     # (cl100k_base) rather than erroring — a counter should count, not refuse.
@@ -42,14 +44,16 @@ def test_tokens_count(tmp_path):
     )
     assert result.exit_code == 0
     assert "Token count" in result.output
-    assert int(result.output.split(": ", 1)[1].strip()) > 0
+    m = re.search(r"Token count [^:]+: (\d+)", result.output)
+    assert m and int(m.group(1)) > 0
 
     # Provider-prefixed models needing prefix-strip (e.g. openai/o1) should
     # get the correct encoding (o200k_base), not fall back to cl100k_base.
     result = runner.invoke(main, ["tokens", "count", "--model", "openai/o1", "test"])
     assert result.exit_code == 0
     assert "Token count" in result.output
-    assert int(result.output.split(": ", 1)[1].strip()) > 0
+    m = re.search(r"Token count [^:]+: (\d+)", result.output)
+    assert m and int(m.group(1)) > 0
 
     # Test file input
     tmp_file = Path(tmp_path) / "test.txt"
