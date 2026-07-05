@@ -215,6 +215,16 @@ class TestDoctorLinux:
         monkeypatch.delenv("DISPLAY", raising=False)
         runner = CliRunner()
         transport = _display_asserting_transport(tmp_path, ":99")
+
+        # Mock playwright to avoid ImportError when it's not installed
+        pw_stub = MagicMock()
+        pw_cm = MagicMock()
+        pw_cm.__enter__ = lambda s: MagicMock(
+            chromium=MagicMock(executable_path="/usr/bin/env")
+        )
+        pw_cm.__exit__ = lambda *a: None
+        pw_stub.sync_playwright.return_value = pw_cm
+
         with (
             patch("platform.system", return_value="Linux"),
             patch("platform.machine", return_value="x86_64"),
@@ -226,6 +236,9 @@ class TestDoctorLinux:
             patch(
                 "gptme.tools.computer_transport.NativeComputerTransport",
                 return_value=transport,
+            ),
+            patch.dict(
+                sys.modules, {"playwright.sync_api": pw_stub, "pyatspi": MagicMock()}
             ),
         ):
             result = runner.invoke(doctor_cmd, ["--display", ":99"])
