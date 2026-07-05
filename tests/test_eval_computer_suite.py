@@ -1251,26 +1251,6 @@ def test_expect_factorio_iron_plate_crafted_fails_zero():
     assert not computer_suite._expect_factorio_iron_plate_crafted(ctx)
 
 
-def test_check_used_click_for_crafting_accepts_click_element(monkeypatch):
-    """click_element() calls must pass the crafting check."""
-    monkeypatch.setattr(
-        computer_suite,
-        "_executed_tool_calls",
-        lambda messages: ["click_element('[data-testid=\"iron-ore-1\"]')"],
-    )
-    assert computer_suite.check_used_click_for_crafting([])
-
-
-def test_check_used_click_for_crafting_rejects_press_key_only(monkeypatch):
-    """press_key() alone (no click_element) must not pass the crafting check."""
-    monkeypatch.setattr(
-        computer_suite,
-        "_executed_tool_calls",
-        lambda messages: ["press_key('Space')"],
-    )
-    assert not computer_suite.check_used_click_for_crafting([])
-
-
 def test_factorio_milestone_fixture_has_initial_waiting_state():
     """The fixture must start in 'waiting' state (milestone marker absent from static HTML)."""
     html = computer_suite._FACTORIO_MILESTONE_FIXTURE_HTML

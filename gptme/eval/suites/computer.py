@@ -637,15 +637,6 @@ def _expect_factorio_iron_plate_crafted(ctx) -> bool:
     return bool(re.search(r"iron_plate:([1-9]\d*)", content))
 
 
-def check_used_click_for_crafting(messages: list[Message]) -> bool:
-    """Agent must use click_element() to interact (gathering ore or crafting).
-
-    The "Can it play Factorio?" flow requires clicking ore nodes and the craft
-    button — press_key() alone cannot advance this fixture.
-    """
-    return any("click_element(" in code for code in _executed_tool_calls(messages))
-
-
 # ---------------------------------------------------------------------------
 # Eval specs
 # ---------------------------------------------------------------------------
@@ -1091,7 +1082,7 @@ tests: list["EvalSpec"] = [
         },
         "check_log": {
             "used open_page for navigation": check_used_open_page,
-            "used click_element for gathering/crafting": check_used_click_for_crafting,
+            "used click_element for gathering/crafting": check_used_click_element,
         },
     },
 ]
