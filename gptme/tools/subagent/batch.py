@@ -10,6 +10,7 @@ while item B is still in stage 1.
 import copy
 import json
 import logging
+import math
 import threading
 import time
 from collections.abc import Callable
@@ -233,7 +234,7 @@ class BatchJob:
                 }
             return raw
 
-    def wait_any(self, timeout: float = 300) -> tuple[str, dict]:
+    def wait_any(self, timeout: int = 300) -> tuple[str, dict]:
         """Wait for the first subagent to complete and return its result.
 
         Useful for speculative/hedging patterns: spawn N subagents and take
@@ -267,14 +268,22 @@ class BatchJob:
         done_event = threading.Event()
         first_result: list[tuple[str, ReturnType]] = []
 
+        terminal_statuses = {"success", "failure", "clarification_needed"}
+        deadline = time.monotonic() + timeout
+
         def _wait_one_notify(agent_id: str) -> None:
+            if done_event.is_set():
+                return
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+
             try:
                 raw = subagent_wait(
-                    agent_id, timeout=int(max(1, timeout)), max_result_chars=0
+                    agent_id, timeout=max(1, math.ceil(remaining)), max_result_chars=0
                 )
                 status = raw.get("status", "failure")
-                if status == "running":
-                    status = "timeout"
                 result = ReturnType(
                     status,
                     raw.get("result"),
@@ -283,6 +292,9 @@ class BatchJob:
                 )
             except Exception as exc:
                 result = ReturnType("failure", str(exc))
+
+            if result.status not in terminal_statuses:
+                return
 
             with self._lock:
                 if agent_id not in self.results:

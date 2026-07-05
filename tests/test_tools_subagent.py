@@ -3290,28 +3290,28 @@ def test_subagent_wait_any_returns_first_completed():
 
 
 def test_subagent_wait_any_timeout_raises():
-    """subagent_wait_any should raise TimeoutError when no agent completes."""
-    import threading
+    """subagent_wait_any should raise TimeoutError when all agents keep running."""
     from unittest.mock import patch
-
-    from gptme.tools.subagent import subagent_wait_any
-
-    barrier = threading.Event()
-
-    def blocking_wait(agent_id, timeout, max_result_chars=0):
-        # Block longer than our timeout
-        barrier.wait(timeout=5)
-        return {"status": "success", "result": "too late"}
 
     import pytest
 
+    from gptme.tools.subagent import subagent_wait_any
+
+    wait_timeouts: list[int] = []
+
+    def still_running_wait(agent_id, timeout, max_result_chars=0):
+        wait_timeouts.append(timeout)
+        return {"status": "running", "result": None}
+
     with (
-        patch("gptme.tools.subagent.batch.subagent_wait", side_effect=blocking_wait),
+        patch(
+            "gptme.tools.subagent.batch.subagent_wait", side_effect=still_running_wait
+        ),
         pytest.raises(TimeoutError),
     ):
-        subagent_wait_any(["a", "b"], timeout=0.05)
+        subagent_wait_any(["a", "b"], timeout=1)
 
-    barrier.set()  # unblock background threads
+    assert wait_timeouts == [1, 1]
 
 
 def test_batch_job_wait_any_returns_first():

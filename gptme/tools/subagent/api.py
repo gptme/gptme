@@ -1167,7 +1167,7 @@ def subagent_wait(
 
 def subagent_wait_any(
     agent_ids: list[str],
-    timeout: float = 300,
+    timeout: int = 300,
 ) -> tuple[str, dict]:
     """Wait for the first of the given subagents to complete.
 
