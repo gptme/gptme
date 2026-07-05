@@ -4776,3 +4776,224 @@ class TestThreadToolIsolation:
             assert sentinel in current_parent, "Parent's original tool must be present"
         finally:
             _loaded_tools_var.reset(token)
+
+
+# ---------------------------------------------------------------------------
+# subagent_pipeline tests
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentPipeline:
+    """Tests for subagent_pipeline() staged fan-out helper."""
+
+    def setup_method(self):
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
+    def _make_mocks(self, monkeypatch, results_by_agent: dict[str, dict] | None = None):
+        """Patch batch_mod.subagent and batch_mod.subagent_wait.
+
+        Returns (captured_subagent_calls, captured_wait_calls) lists.
+        """
+        import gptme.tools.subagent.batch as batch_mod
+
+        captured_subagent: list[dict] = []
+        captured_wait: list[dict] = []
+        _results = results_by_agent or {}
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured_subagent.append({"agent_id": agent_id, "prompt": prompt, **kwargs})
+
+        def mock_wait(agent_id, timeout=300, **kwargs):
+            captured_wait.append({"agent_id": agent_id})
+            return _results.get(
+                agent_id, {"status": "success", "result": f"result-{agent_id}"}
+            )
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_wait)
+        return captured_subagent, captured_wait
+
+    def test_empty_items_returns_empty_list(self, monkeypatch):
+        from gptme.tools.subagent.batch import subagent_pipeline
+
+        self._make_mocks(monkeypatch)
+        assert subagent_pipeline([], lambda i, _: i) == []
+
+    def test_no_stages_raises_value_error(self, monkeypatch):
+        from gptme.tools.subagent.batch import subagent_pipeline
+
+        self._make_mocks(monkeypatch)
+        with pytest.raises(ValueError, match="at least one stage"):
+            subagent_pipeline([("a", "do work")])
+
+    def test_single_item_single_stage_result(self, monkeypatch):
+        """Single item, single stage: result appears at results[0][0]."""
+        from gptme.tools.subagent.batch import subagent_pipeline
+
+        calls, _ = self._make_mocks(
+            monkeypatch, {"a-s0": {"status": "success", "result": "done"}}
+        )
+        results = subagent_pipeline(
+            [("a", "item-prompt")], lambda item, _: f"stage0:{item}", timeout=5
+        )
+
+        assert len(results) == 1
+        assert len(results[0]) == 1
+        assert results[0][0]["status"] == "success"
+        assert results[0][0]["result"] == "done"
+        # Stage fn should have been called with (item_prompt, "")
+        assert calls[0]["prompt"] == "stage0:item-prompt"
+
+    def test_stage_fn_receives_prev_result(self, monkeypatch):
+        """Stage 1 stage function receives the result text from stage 0."""
+        from gptme.tools.subagent.batch import subagent_pipeline
+
+        stage_inputs: list[tuple[str, str, str]] = []
+
+        def stage0(item, prev):
+            stage_inputs.append(("s0", item, prev))
+            return f"s0:{item}"
+
+        def stage1(item, prev):
+            stage_inputs.append(("s1", item, prev))
+            return f"s1:{item}:{prev}"
+
+        self._make_mocks(
+            monkeypatch,
+            {
+                "x-s0": {"status": "success", "result": "stage0-output"},
+                "x-s1": {"status": "success", "result": "stage1-output"},
+            },
+        )
+
+        results = subagent_pipeline([("x", "item-x")], stage0, stage1, timeout=5)
+
+        assert len(results) == 1
+        assert len(results[0]) == 2
+        # stage0 receives empty prev
+        assert stage_inputs[0] == ("s0", "item-x", "")
+        # stage1 receives the result text from stage0
+        assert stage_inputs[1] == ("s1", "item-x", "stage0-output")
+
+    def test_stage_failure_marks_remaining_stages_skipped(self, monkeypatch):
+        """When a stage returns a non-success status, remaining stages are skipped."""
+        from gptme.tools.subagent.batch import subagent_pipeline
+
+        self._make_mocks(
+            monkeypatch,
+            {"fail-s0": {"status": "failure", "result": "something broke"}},
+        )
+        results = subagent_pipeline(
+            [("fail", "do work")],
+            lambda i, _: i,
+            lambda i, p: f"verify:{p}",
+            timeout=5,
+        )
+
+        assert results[0][0]["status"] == "failure"
+        assert results[0][1]["status"] == "skipped"
+        assert "skipped" in results[0][1]["result"].lower()
+
+    def test_multiple_items_run_concurrently(self, monkeypatch):
+        """Multiple items are launched in parallel threads."""
+        import threading
+        import time
+
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_pipeline
+
+        lock = threading.Lock()
+        active = 0
+        max_concurrent = 0
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            nonlocal active, max_concurrent
+            with lock:
+                active += 1
+                if active > max_concurrent:
+                    max_concurrent = active
+            time.sleep(0.05)
+            with lock:
+                active -= 1
+
+        def mock_wait(agent_id, **kwargs):
+            return {"status": "success", "result": f"result-{agent_id}"}
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_wait)
+
+        items = [("a", "p-a"), ("b", "p-b"), ("c", "p-c")]
+        results = subagent_pipeline(items, lambda i, _: i, timeout=5)
+
+        assert len(results) == 3
+        assert all(r[0]["status"] == "success" for r in results)
+        # With 3 items all running concurrently, max concurrent should be > 1
+        assert max_concurrent > 1, "Items should run concurrently, not sequentially"
+
+    def test_kwargs_forwarded_to_subagent(self, monkeypatch):
+        """model, isolated, and other kwargs are forwarded to every subagent call."""
+        from gptme.tools.subagent.batch import subagent_pipeline
+
+        calls, _ = self._make_mocks(monkeypatch)
+        subagent_pipeline(
+            [("a", "p-a"), ("b", "p-b")],
+            lambda i, _: i,
+            model="openai/gpt-4o-mini",
+            isolated=True,
+            timeout=5,
+        )
+
+        assert len(calls) == 2
+        for call in calls:
+            assert call.get("model") == "openai/gpt-4o-mini"
+            assert call.get("isolated") is True
+
+    def test_output_schema_only_passed_to_final_stage(self, monkeypatch):
+        """output_schema should only be forwarded to the final stage subagent."""
+        from gptme.tools.subagent.batch import subagent_pipeline
+
+        calls, _ = self._make_mocks(monkeypatch)
+
+        class _Schema:
+            @classmethod
+            def model_json_schema(cls):
+                return {"type": "object", "properties": {"x": {"type": "integer"}}}
+
+        subagent_pipeline(
+            [("a", "p-a")],
+            lambda i, _: f"s0:{i}",
+            lambda i, p: f"s1:{p}",
+            output_schema=_Schema,
+            timeout=5,
+        )
+
+        assert len(calls) == 2
+        # stage 0 (index 0) should NOT have output_schema
+        assert calls[0].get("output_schema") is None
+        # stage 1 (index 1, final) SHOULD have output_schema
+        assert calls[1].get("output_schema") is _Schema
+
+    def test_results_indexed_by_item_and_stage(self, monkeypatch):
+        """results[item_idx][stage_idx] indexing is correct for multi-item pipelines."""
+        from gptme.tools.subagent.batch import subagent_pipeline
+
+        self._make_mocks(
+            monkeypatch,
+            {
+                "a-s0": {"status": "success", "result": "a-stage0"},
+                "b-s0": {"status": "success", "result": "b-stage0"},
+            },
+        )
+        results = subagent_pipeline(
+            [("a", "prompt-a"), ("b", "prompt-b")],
+            lambda i, _: i,
+            timeout=5,
+        )
+
+        assert len(results) == 2  # 2 items
+        assert len(results[0]) == 1  # 1 stage each
+        assert results[0][0]["result"] == "a-stage0"
+        assert results[1][0]["result"] == "b-stage0"
