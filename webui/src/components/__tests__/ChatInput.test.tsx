@@ -174,7 +174,7 @@ describe('ChatInput', () => {
     await waitFor(() => {
       expect(onSend).toHaveBeenCalledWith(
         'ship the refresh',
-        expect.objectContaining({ stream: true, workspace: '.' })
+        expect.objectContaining({ stream: true, workspace: undefined })
       );
     });
   });

@@ -936,6 +936,8 @@ export const ChatInput: FC<Props> = ({
     // Also include any already-uploaded file paths (shouldn't happen with new flow, but defensive)
     const uploadedPaths =
       attachedFiles.length > 0 ? attachedFiles.filter((f) => f.path).map((f) => f.path) : undefined;
+    const workspaceOption =
+      selectedWorkspace && selectedWorkspace !== '.' ? selectedWorkspace : undefined;
 
     if (isBusy) {
       // If there's a message, queue it instead of interrupting
@@ -951,7 +953,7 @@ export const ChatInput: FC<Props> = ({
             options: {
               model: hasExplicitModelSelection ? effectiveModel : undefined,
               stream: streamingEnabled,
-              workspace: selectedWorkspace || undefined,
+              workspace: workspaceOption,
               files: uploadedPaths,
               pendingFiles,
               maxTokens,
@@ -984,7 +986,7 @@ export const ChatInput: FC<Props> = ({
       onSend(message, {
         model: hasExplicitModelSelection ? effectiveModel : undefined,
         stream: streamingEnabled,
-        workspace: selectedWorkspace || undefined,
+        workspace: workspaceOption,
         files: uploadedPaths,
         pendingFiles,
         maxTokens,
