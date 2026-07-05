@@ -411,6 +411,7 @@ class TestJSONRuntimeSuppression:
                 fake_stream(), "openai/gpt-4o-mini"
             ),
         )
+        monkeypatch.setattr(llm, "len_tokens", lambda *_args, **_kwargs: 1)
 
         msg = llm._reply_stream(
             [Message("user", "hello")],
