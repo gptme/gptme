@@ -558,11 +558,11 @@ def subagent_pipeline(
     def process_item(item_idx: int, item_id_prefix: str, item_prompt: str) -> None:
         prev_result_text = ""
         for stage_idx, stage_fn in enumerate(stages):
-            stage_prompt = stage_fn(item_prompt, prev_result_text)
             agent_id = f"{item_id_prefix}-s{stage_idx}"
             # Only pass output_schema to the final stage
             is_final = stage_idx == len(stages) - 1
             try:
+                stage_prompt = stage_fn(item_prompt, prev_result_text)
                 subagent(
                     agent_id=agent_id,
                     prompt=stage_prompt,

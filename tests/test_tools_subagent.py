@@ -2933,6 +2933,29 @@ def test_subagent_pipeline_stage_failure_skips_remaining():
     assert results[0][2]["status"] == "skipped"
 
 
+def test_subagent_pipeline_stage_callable_exception_reported_as_failure():
+    """A stage_fn that raises is reported as 'failure', not 'timeout'."""
+    from gptme.tools.subagent import subagent_pipeline
+
+    def boom(item, prev):
+        raise RuntimeError("bad lambda")
+
+    with (
+        patch("gptme.tools.subagent.batch.subagent"),
+        patch("gptme.tools.subagent.batch.subagent_wait"),
+    ):
+        results = subagent_pipeline(
+            [("item", "prompt")],
+            boom,
+            lambda item, prev: item,
+            timeout=10,
+        )
+
+    assert results[0][0]["status"] == "failure"
+    assert "bad lambda" in results[0][0]["result"]
+    assert results[0][1]["status"] == "skipped"
+
+
 def test_subagent_pipeline_multiple_items_independent():
     """Multiple items are processed in parallel (independent threads)."""
     import threading
