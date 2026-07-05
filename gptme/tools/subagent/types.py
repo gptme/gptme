@@ -272,6 +272,7 @@ class Subagent:
 
             input_tokens = 0
             output_tokens = 0
+            saw_usage = False
             with open(conv_fn, "rb") as f:
                 for line in f:
                     line = line.strip()
@@ -282,8 +283,17 @@ class Subagent:
                         meta = msg.get("metadata")
                         if not meta:
                             continue
-                        usage = meta.get("usage", {})
-                        src = usage or meta
+                        usage = meta.get("usage")
+                        src = usage if isinstance(usage, dict) else meta
+                        token_keys = (
+                            "input_tokens",
+                            "output_tokens",
+                            "cache_read_tokens",
+                            "cache_creation_tokens",
+                        )
+                        if not any(k in src for k in token_keys):
+                            continue
+                        saw_usage = True
                         cache_read = src.get("cache_read_tokens", 0) or 0
                         input_tokens += (
                             (src.get("input_tokens", 0) or 0)
@@ -293,8 +303,7 @@ class Subagent:
                         output_tokens += src.get("output_tokens", 0) or 0
                     except (json.JSONDecodeError, TypeError):
                         continue
-            # Only return non-zero counts (0,0 means no usage metadata was present)
-            if input_tokens == 0 and output_tokens == 0:
+            if not saw_usage:
                 return None, None
             return input_tokens, output_tokens
         except Exception as e:

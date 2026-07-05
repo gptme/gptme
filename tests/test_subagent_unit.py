@@ -4141,6 +4141,35 @@ class TestTokenBudgetTracking:
         assert in_tok is None
         assert out_tok is None
 
+    def test_read_token_stats_preserves_zero_token_metadata(self, tmp_path):
+        """_read_token_stats() returns zeroes when usage metadata is present but zero."""
+        import json
+
+        logdir = tmp_path / "test-agent-zero-usage"
+        logdir.mkdir()
+        conv_file = logdir / "conversation.jsonl"
+
+        messages = [
+            {
+                "role": "assistant",
+                "content": "Zero usage response.",
+                "metadata": {"usage": {"input_tokens": 0, "output_tokens": 0}},
+            },
+        ]
+        with open(conv_file, "w") as f:
+            f.writelines(json.dumps(msg) + "\n" for msg in messages)
+
+        sa = Subagent(
+            agent_id="test-zero-usage",
+            prompt="test",
+            thread=None,
+            logdir=logdir,
+            model=None,
+        )
+        in_tok, out_tok = sa._read_token_stats()
+        assert in_tok == 0
+        assert out_tok == 0
+
     def test_read_token_stats_returns_none_when_logdir_missing(self, tmp_path):
         """_read_token_stats() returns (None, None) gracefully when logdir doesn't exist."""
         sa = Subagent(
@@ -4192,6 +4221,27 @@ class TestTokenBudgetTracking:
         stats = job.total_tokens()
         assert stats["input_tokens"] == 1000  # Only from 'a'
         assert stats["output_tokens"] == 100
+
+    def test_batch_job_wait_all_preserves_token_counts(self):
+        """BatchJob.wait_all() stores token fields returned by subagent_wait()."""
+        from unittest.mock import patch
+
+        def fake_wait(agent_id, timeout=60, max_result_chars=2000):
+            tokens = {
+                "a": {"input_tokens": 1000, "output_tokens": 100},
+                "b": {"input_tokens": 2000, "output_tokens": 200},
+            }[agent_id]
+            return {"status": "success", "result": f"{agent_id} done", **tokens}
+
+        job = BatchJob(agent_ids=["a", "b"])
+        with patch("gptme.tools.subagent.batch.subagent_wait", side_effect=fake_wait):
+            results = job.wait_all(timeout=5)
+
+        assert results["a"]["input_tokens"] == 1000
+        assert results["a"]["output_tokens"] == 100
+        stats = job.total_tokens()
+        assert stats["input_tokens"] == 3000
+        assert stats["output_tokens"] == 300
 
     def test_batch_job_total_tokens_empty_results(self):
         """BatchJob.total_tokens() returns None when no results are present yet."""

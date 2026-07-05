@@ -129,7 +129,12 @@ class BatchJob:
                     return agent_id, ReturnType(
                         "timeout", f"Timed out after {timeout}s"
                     )
-                return agent_id, ReturnType(status, result.get("result"))
+                return agent_id, ReturnType(
+                    status,
+                    result.get("result"),
+                    input_tokens=result.get("input_tokens"),
+                    output_tokens=result.get("output_tokens"),
+                )
             except Exception as e:
                 logger.warning(f"Error waiting for {agent_id}: {e}")
                 return agent_id, ReturnType("failure", str(e))
