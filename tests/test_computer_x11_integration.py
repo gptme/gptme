@@ -94,14 +94,32 @@ def xvfb_display() -> Generator[str, None, None]:
         proc.kill()
         pytest.skip("Xvfb did not start within 10s")
 
-    # Start a minimal window manager so window_focus works
+    # Start a minimal window manager so window_focus / windowactivate work.
+    # Wait up to 3s for it to register itself with the X server (CI can be slow).
     wm_proc = subprocess.Popen(
         ["fluxbox"],
         env={**os.environ, "DISPLAY": display},
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    time.sleep(0.5)  # let fluxbox initialise
+    wm_deadline = time.monotonic() + 3
+    while time.monotonic() < wm_deadline:
+        wm_check = subprocess.run(
+            ["xdotool", "getactivewindow"],
+            env={**os.environ, "DISPLAY": display},
+            capture_output=True,
+            check=False,
+        )
+        if wm_check.returncode == 0:
+            break
+        if wm_proc.poll() is not None:
+            # fluxbox exited prematurely — skip rather than fail
+            proc.kill()
+            pytest.skip(
+                f"fluxbox exited with {wm_proc.returncode} before tests could run"
+            )
+        time.sleep(0.1)
+    # Allow even with no active window — fluxbox may not set one until a window is mapped
 
     yield display
 
