@@ -970,6 +970,30 @@ def test_expect_tweet_text_echoed_fails_wrong_text():
     assert not computer_suite._expect_tweet_text_echoed(ctx)
 
 
+def test_tweet_compose_fixture_uses_contenteditable_div():
+    """The fixture should match Twitter's editable compose element shape."""
+    html = computer_suite._TWEET_COMPOSE_FIXTURE_HTML
+
+    assert 'data-testid="tweetTextarea_0"' in html
+    assert 'contenteditable="true"' in html
+    assert "<textarea" not in html
+    assert ".value" not in html
+    assert "innerText" in html
+
+
+def test_tweet_compose_prompt_does_not_leak_marker():
+    """The agent must read the page instead of copying the expected marker."""
+    spec = next(
+        test
+        for test in computer_suite.tests
+        if test["name"] == "computer-use-web-tweet-compose"
+    )
+
+    assert "tweet-posted" not in spec["prompt"]
+    assert "tweet-posted" not in computer_suite._TWEET_COMPOSE_FIXTURE_URL
+    assert "exact text returned by read_page_text()" in spec["prompt"]
+
+
 def test_tweet_compose_eval_spec_present():
     """The 'Can it Tweet?' eval spec must be registered in the tests list."""
     names = [t["name"] for t in computer_suite.tests]
