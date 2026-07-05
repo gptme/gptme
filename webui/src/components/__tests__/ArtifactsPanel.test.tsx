@@ -81,7 +81,9 @@ describe('ArtifactsPanel', () => {
     });
 
     expect(mockListArtifacts).toHaveBeenCalledWith('conv-1', expect.any(AbortSignal));
-    expect(screen.getByTestId('file-preview')).toHaveTextContent('hero.png:nested/hero.png');
+    await waitFor(() => {
+      expect(screen.getByTestId('file-preview')).toHaveTextContent('hero.png:nested/hero.png');
+    });
   });
 
   it('routes the selected artifact to the workspace viewer', async () => {
@@ -127,7 +129,9 @@ describe('ArtifactsPanel', () => {
 
     // Toggle to the file preview.
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
-    expect(screen.getByTestId('file-preview')).toHaveTextContent('app.py:app.py');
+    await waitFor(() => {
+      expect(screen.getByTestId('file-preview')).toHaveTextContent('app.py:app.py');
+    });
   });
 
   it('shows an error when artifact loading fails', async () => {
