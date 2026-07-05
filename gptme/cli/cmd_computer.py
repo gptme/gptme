@@ -1082,10 +1082,10 @@ _FAIL = click.style("✗", fg="red")
 
 def _check(label: str, ok: bool, warn: bool = False, hint: str = "") -> bool:
     """Print one doctor check line and return True if it passed."""
-    if ok:
-        click.echo(f"  {_PASS}  {label}")
-    elif warn:
+    if warn:
         click.echo(f"  {_WARN}  {label}" + (f"\n       {hint}" if hint else ""))
+    elif ok:
+        click.echo(f"  {_PASS}  {label}")
     else:
         click.echo(f"  {_FAIL}  {label}" + (f"\n       {hint}" if hint else ""))
     return ok
@@ -1119,9 +1119,24 @@ def doctor_cmd(display: str | None):
     import platform
     import statistics
     import time
+    from contextlib import contextmanager
 
     system = platform.system()
     errors = 0
+    effective_display = display or os.environ.get("DISPLAY") or ""
+
+    @contextmanager
+    def _temporary_display(display_value: str):
+        old_display = os.environ.get("DISPLAY")
+        if display_value:
+            os.environ["DISPLAY"] = display_value
+        try:
+            yield
+        finally:
+            if old_display is None:
+                os.environ.pop("DISPLAY", None)
+            else:
+                os.environ["DISPLAY"] = old_display
 
     click.echo("Computer-use doctor\n")
 
@@ -1131,7 +1146,6 @@ def doctor_cmd(display: str | None):
     # --- Display / X11 (Linux) ---
     if system == "Linux":
         click.echo("Display:")
-        effective_display = display or os.environ.get("DISPLAY", "")
         ok_display = bool(effective_display)
         if not _check(
             f"$DISPLAY={effective_display!r}" if ok_display else "$DISPLAY not set",
@@ -1249,55 +1263,56 @@ def doctor_cmd(display: str | None):
     try:
         from ..tools.computer_transport import NativeComputerTransport, get_transport
 
-        transport = get_transport()
-        if transport is None:
-            if (system == "Linux" and os.environ.get("DISPLAY")) or system == "Darwin":
-                transport = NativeComputerTransport()
+        with _temporary_display(effective_display if system == "Linux" else ""):
+            transport = get_transport()
+            if transport is None:
+                if (system == "Linux" and effective_display) or system == "Darwin":
+                    transport = NativeComputerTransport()
 
-        if transport is None:
-            _check(
-                "no display available — skipping latency sample",
-                ok=False,
-                hint="Set $DISPLAY first",
-            )
-            errors += 1
-        else:
-            # Warm-up shot (not measured)
-            try:
-                transport.screenshot()
-            except Exception as exc:
-                _check(f"warm-up screenshot failed: {exc}", ok=False)
+            if transport is None:
+                _check(
+                    "no display available — skipping latency sample",
+                    ok=False,
+                    hint="Set $DISPLAY first",
+                )
                 errors += 1
-                transport = None  # skip the timed loop
-
-            if transport is not None:
-                durations_ms: list[float] = []
-                for _ in range(3):
-                    t0 = time.perf_counter()
-                    try:
-                        transport.screenshot()
-                        durations_ms.append((time.perf_counter() - t0) * 1000)
-                    except Exception:
-                        pass
-
-                if durations_ms:
-                    median_ms = statistics.median(durations_ms)
-                    p = _PASS if median_ms < 300 else _WARN
-                    click.echo(
-                        f"  {p}  median={median_ms:.0f} ms  "
-                        f"min={min(durations_ms):.0f} ms  max={max(durations_ms):.0f} ms"
-                        " (3 shots)"
-                    )
-                    if median_ms >= 300:
-                        click.echo(
-                            "       High latency — possible causes: remote X11, high load, "
-                            "missing scrot.\n"
-                            "       Run `gptme-util computer latency --shots 10` for a "
-                            "detailed breakdown."
-                        )
-                else:
-                    _check("all screenshot attempts failed", ok=False)
+            else:
+                # Warm-up shot (not measured)
+                try:
+                    transport.screenshot()
+                except Exception as exc:
+                    _check(f"warm-up screenshot failed: {exc}", ok=False)
                     errors += 1
+                    transport = None  # skip the timed loop
+
+                if transport is not None:
+                    durations_ms: list[float] = []
+                    for _ in range(3):
+                        t0 = time.perf_counter()
+                        try:
+                            transport.screenshot()
+                            durations_ms.append((time.perf_counter() - t0) * 1000)
+                        except Exception:
+                            pass
+
+                    if durations_ms:
+                        median_ms = statistics.median(durations_ms)
+                        p = _PASS if median_ms < 300 else _WARN
+                        click.echo(
+                            f"  {p}  median={median_ms:.0f} ms  "
+                            f"min={min(durations_ms):.0f} ms  max={max(durations_ms):.0f} ms"
+                            " (3 shots)"
+                        )
+                        if median_ms >= 300:
+                            click.echo(
+                                "       High latency — possible causes: remote X11, high load, "
+                                "missing scrot.\n"
+                                "       Run `gptme-util computer latency --shots 10` for a "
+                                "detailed breakdown."
+                            )
+                    else:
+                        _check("all screenshot attempts failed", ok=False)
+                        errors += 1
     except Exception as exc:
         _check(f"could not measure latency: {exc}", ok=False)
     click.echo()
@@ -1312,3 +1327,4 @@ def doctor_cmd(display: str | None):
             click.style(f"❌  {errors} check(s) failed.", fg="red")
             + "  Fix the items above and re-run `gptme-util computer doctor`."
         )
+        raise SystemExit(1)

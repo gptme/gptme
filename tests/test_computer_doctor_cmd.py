@@ -6,6 +6,7 @@ or Playwright browser binary.  All external dependencies are monkey-patched.
 
 from __future__ import annotations
 
+import os
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -19,6 +20,20 @@ def _fake_transport(tmp_path):
     transport = MagicMock()
 
     def _fake_shot(**_kw):
+        p = tmp_path / "shot.png"
+        p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50)
+        return p
+
+    transport.screenshot.side_effect = _fake_shot
+    return transport
+
+
+def _display_asserting_transport(tmp_path, expected_display: str):
+    """Return a mock transport that verifies DISPLAY is set during screenshots."""
+    transport = MagicMock()
+
+    def _fake_shot(**_kw):
+        assert expected_display == os.environ.get("DISPLAY")
         p = tmp_path / "shot.png"
         p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50)
         return p
@@ -194,6 +209,72 @@ class TestDoctorLinux:
         ):
             result = runner.invoke(doctor_cmd, ["--display", ":99"])
         assert ":99" in result.output
+
+    def test_display_flag_drives_latency_transport(self, monkeypatch, tmp_path):
+        """The latency sample honors --display even when $DISPLAY is unset."""
+        monkeypatch.delenv("DISPLAY", raising=False)
+        runner = CliRunner()
+        transport = _display_asserting_transport(tmp_path, ":99")
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("platform.machine", return_value="x86_64"),
+            patch(
+                "gptme.cli.cmd_computer.shutil.which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}",
+            ),
+            patch("gptme.tools.computer_transport.get_transport", return_value=None),
+            patch(
+                "gptme.tools.computer_transport.NativeComputerTransport",
+                return_value=transport,
+            ),
+        ):
+            result = runner.invoke(doctor_cmd, ["--display", ":99"])
+
+        assert result.exit_code == 0, result.output
+        assert "no display available" not in result.output
+        assert "median=" in result.output or "ms" in result.output
+
+    def test_optional_checks_render_as_warnings(self, monkeypatch):
+        """Advisory checks should show warning output instead of green success."""
+        monkeypatch.setenv("DISPLAY", ":1")
+
+        def fake_which(cmd):
+            if cmd == "scrot":
+                return None
+            return f"/usr/bin/{cmd}"
+
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("platform.machine", return_value="x86_64"),
+            patch("gptme.cli.cmd_computer.shutil.which", side_effect=fake_which),
+            patch("gptme.tools.computer_transport.get_transport", return_value=None),
+            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
+        ):
+            result = runner.invoke(doctor_cmd, [])
+
+        assert "!  scrot not found, ffmpeg available (fallback)" in result.output
+        assert (
+            "!  pyatspi not installed (accessibility_tree action disabled)"
+            in result.output
+        )
+        assert "pip install pyatspi" in result.output
+
+    def test_failures_exit_nonzero(self, monkeypatch):
+        """Failing checks should produce a non-zero exit code."""
+        monkeypatch.delenv("DISPLAY", raising=False)
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("platform.machine", return_value="x86_64"),
+            patch("gptme.cli.cmd_computer.shutil.which", return_value=None),
+            patch("gptme.tools.computer_transport.get_transport", return_value=None),
+            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
+        ):
+            result = runner.invoke(doctor_cmd, [])
+
+        assert result.exit_code == 1
+        assert "check(s) failed" in result.output
 
 
 class TestDoctorMacOS:
