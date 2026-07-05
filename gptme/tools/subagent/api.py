@@ -1138,11 +1138,25 @@ def subagent_wait(
     status = cached_status if cached_status is not None else sa.status()
     result_dict = asdict(status)
 
+    # Apply output_schema parsing before truncation — the parsed object may be
+    # larger or smaller than the raw JSON string, so we measure truncation against
+    # the final result text, not the pre-parse raw.
+    if sa.output_schema is not None and result_dict.get("status") == "success":
+        from .batch import (
+            _parse_result,  # late import avoids circular (batch imports api)
+        )
+
+        result_dict = _parse_result(result_dict, sa.output_schema)
+
     # Compact result: truncate long outputs so they don't flood the parent's context.
     # The complete block is meant to be a brief summary; if it's longer than
     # max_result_chars the parent agent can call subagent_read_log() to get details.
     result_text = result_dict.get("result")
-    if result_text and max_result_chars > 0 and len(result_text) > max_result_chars:
+    if (
+        isinstance(result_text, str)
+        and max_result_chars > 0
+        and len(result_text) > max_result_chars
+    ):
         result_dict["result"] = (
             result_text[:max_result_chars]
             + f"\n... [truncated — call subagent_read_log('{agent_id}') for full output]"

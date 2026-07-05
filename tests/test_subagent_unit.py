@@ -4354,3 +4354,172 @@ class TestTokenBudgetTracking:
         stats = job.total_tokens()
         assert stats["input_tokens"] is None
         assert stats["output_tokens"] is None
+
+
+class TestSubagentWaitOutputSchema:
+    """subagent_wait() applies output_schema parsing automatically (#554).
+
+    subagent_parallel() and subagent_batch().wait_all() already auto-parse
+    results against output_schema via _parse_result(). subagent_wait() should
+    do the same when the subagent was spawned with an output_schema so callers
+    don't need to call model_validate() separately.
+    """
+
+    def _make_subagent_with_schema(
+        self,
+        agent_id: str,
+        output_schema: type | None,
+        result_json: str,
+        tmp_path,
+    ):
+        """Helper: register a completed subagent that returned result_json."""
+        from gptme.tools.subagent.types import (
+            ReturnType,
+            Subagent,
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        logdir = tmp_path / agent_id
+        logdir.mkdir(parents=True)
+
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt="test prompt",
+            thread=None,
+            logdir=logdir,
+            model=None,
+            output_schema=output_schema,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        result = ReturnType("success", result_json)
+        with _subagent_results_lock:
+            _subagent_results[agent_id] = result
+
+        return sa
+
+    def test_wait_parses_json_when_output_schema_set(self, tmp_path):
+        """subagent_wait() returns a parsed dict when output_schema is set."""
+        from pydantic import BaseModel
+
+        from gptme.tools.subagent.api import subagent_wait
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        class MySchema(BaseModel):
+            value: int
+            label: str
+
+        agent_id = "wait-schema-test"
+        try:
+            self._make_subagent_with_schema(
+                agent_id, MySchema, '{"value": 42, "label": "hello"}', tmp_path
+            )
+            result = subagent_wait(agent_id, timeout=1)
+            assert result["status"] == "success"
+            # _parse_result calls model_validate(...).model_dump(), so result is a dict
+            parsed = result["result"]
+            assert isinstance(parsed, dict)
+            assert parsed["value"] == 42
+            assert parsed["label"] == "hello"
+        finally:
+            with _subagents_lock:
+                _subagents[:] = [s for s in _subagents if s.agent_id != agent_id]
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
+
+    def test_wait_returns_raw_result_when_no_schema(self, tmp_path):
+        """subagent_wait() returns raw result string when no output_schema."""
+        from gptme.tools.subagent.api import subagent_wait
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        raw_json = '{"value": 42, "label": "hello"}'
+        agent_id = "wait-no-schema-test"
+        try:
+            self._make_subagent_with_schema(agent_id, None, raw_json, tmp_path)
+            result = subagent_wait(agent_id, timeout=1)
+            assert result["status"] == "success"
+            # Without schema, result is the raw string
+            assert result["result"] == raw_json
+        finally:
+            with _subagents_lock:
+                _subagents[:] = [s for s in _subagents if s.agent_id != agent_id]
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
+
+    def test_wait_adds_parse_error_on_invalid_json(self, tmp_path):
+        """subagent_wait() adds parse_error key if result isn't valid JSON."""
+        from pydantic import BaseModel
+
+        from gptme.tools.subagent.api import subagent_wait
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        class MySchema(BaseModel):
+            value: int
+
+        agent_id = "wait-bad-json-test"
+        try:
+            self._make_subagent_with_schema(
+                agent_id, MySchema, "not valid json at all", tmp_path
+            )
+            result = subagent_wait(agent_id, timeout=1)
+            assert result["status"] == "success"
+            # parse_error is added; result stays as-is
+            assert "parse_error" in result
+            assert result["result"] == "not valid json at all"
+        finally:
+            with _subagents_lock:
+                _subagents[:] = [s for s in _subagents if s.agent_id != agent_id]
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
+
+    def test_wait_skips_parsing_on_failure_status(self, tmp_path):
+        """subagent_wait() does not attempt schema parsing when status != success."""
+        from pydantic import BaseModel
+
+        from gptme.tools.subagent.api import subagent_wait
+        from gptme.tools.subagent.types import (
+            ReturnType,
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        class MySchema(BaseModel):
+            value: int
+
+        agent_id = "wait-failure-schema-test"
+        try:
+            self._make_subagent_with_schema(agent_id, MySchema, "irrelevant", tmp_path)
+            # Override the result to be a failure status
+            with _subagent_results_lock:
+                _subagent_results[agent_id] = ReturnType("failure", "error occurred")
+
+            result = subagent_wait(agent_id, timeout=1)
+            assert result["status"] == "failure"
+            # No parse_error should be added for non-success results
+            assert "parse_error" not in result
+        finally:
+            with _subagents_lock:
+                _subagents[:] = [s for s in _subagents if s.agent_id != agent_id]
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
