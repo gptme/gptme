@@ -28,7 +28,22 @@ _SENSITIVE_ACTIONS = frozenset({"type", "key"})
 _URL_BROWSER_FNS = frozenset({"observe_web", "snapshot_url", "open_page"})
 
 # Browser interaction functions whose first arg is a CSS/DOM selector
-_SELECTOR_BROWSER_FNS = frozenset({"click_element"})
+_SELECTOR_BROWSER_FNS = frozenset(
+    {
+        "click_element",
+        "hover_element",  # added PR #3104
+        "wait_for_element",  # added PR #3095
+    }
+)
+
+# Browser functions with no arguments (observation only)
+_NO_ARG_BROWSER_FNS = frozenset(
+    {
+        "read_page_text",
+        "snapshot_page",  # added PR #3104
+        "get_current_url",  # added PR #3104
+    }
+)
 
 # ACTION_RISK_* and action_risk_level are imported from _computer_gate
 # (re-exported here for backward compatibility with any existing callers)
@@ -79,8 +94,15 @@ def _extract_computer_calls(messages) -> list[dict]:
     - ``snapshot_url(url)`` — one-shot ARIA snapshot
     - ``open_page(url)`` — open an interactive browser session
     - ``click_element(selector)`` — DOM element click
+    - ``hover_element(selector)`` — hover over a DOM element
     - ``fill_element(selector, value)`` — form fill (value length logged, not raw text)
+    - ``press_key(key)`` — navigation key press (Enter, Tab, Escape, …)
+    - ``select_option(selector, value)`` — dropdown/select element change
+    - ``wait_for_element(selector)`` — wait for a DOM element to appear
     - ``read_page_text()`` — read page text content
+    - ``snapshot_page()`` — take current-page ARIA snapshot
+    - ``get_current_url()`` — get the current page URL
+    - ``load_browser_state(path)`` — restore a saved browser session
     - ``scroll_page(direction)`` — scroll the current page
 
     Typed/key text and fill_element values are never logged raw — only their
@@ -235,19 +257,21 @@ def _extract_computer_calls(messages) -> list[dict]:
                 )
             )
 
-            # read_page_text() — no arguments to extract
-            browser_positioned.extend(
-                (
-                    m.start(),
-                    {
-                        "timestamp": ts,
-                        "action": "read_page_text",
-                        "source": "browser",
-                        "risk_level": action_risk_level("read_page_text"),
-                    },
+            # No-argument browser observation functions
+            # (read_page_text, snapshot_page, get_current_url)
+            for fn in _NO_ARG_BROWSER_FNS:
+                browser_positioned.extend(
+                    (
+                        m.start(),
+                        {
+                            "timestamp": ts,
+                            "action": fn,
+                            "source": "browser",
+                            "risk_level": action_risk_level(fn),
+                        },
+                    )
+                    for m in re.finditer(rf"\b{fn}\s*\(", code)
                 )
-                for m in re.finditer(r"\bread_page_text\s*\(", code)
-            )
 
             # scroll_page(direction)
             browser_positioned.extend(
@@ -262,6 +286,60 @@ def _extract_computer_calls(messages) -> list[dict]:
                     },
                 )
                 for m in re.finditer(r"""\bscroll_page\s*\(\s*['"]([^'"]+)['"]""", code)
+            )
+
+            # press_key(key) — navigation key presses (Enter, Tab, Escape, …)
+            browser_positioned.extend(
+                (
+                    m.start(),
+                    {
+                        "timestamp": ts,
+                        "action": "press_key",
+                        "source": "browser",
+                        "key": m.group(1) if m.group(1) is not None else m.group(2),
+                        "risk_level": action_risk_level("press_key"),
+                    },
+                )
+                for m in re.finditer(
+                    r"""\bpress_key\s*\(\s*(?:'([^']*)'|"([^"]*)")""", code
+                )
+            )
+
+            # select_option(selector, value) — dropdown selection; value not sensitive
+            browser_positioned.extend(
+                (
+                    m.start(),
+                    {
+                        "timestamp": ts,
+                        "action": "select_option",
+                        "source": "browser",
+                        "selector": m.group(1)
+                        if m.group(1) is not None
+                        else m.group(2),
+                        "value": m.group(3)
+                        if m.group(3) is not None
+                        else (m.group(4) or ""),
+                        "risk_level": action_risk_level("select_option"),
+                    },
+                )
+                for m in re.finditer(
+                    r"""\bselect_option\s*\(\s*(?:'([^']*)'|"([^"]*)")\s*,\s*(?:'([^']*)'|"([^"]*)")""",
+                    code,
+                )
+            )
+
+            # load_browser_state(path) — restores a saved browser session
+            browser_positioned.extend(
+                (
+                    m.start(),
+                    {
+                        "timestamp": ts,
+                        "action": "load_browser_state",
+                        "source": "browser",
+                        "risk_level": action_risk_level("load_browser_state"),
+                    },
+                )
+                for m in re.finditer(r"\bload_browser_state\s*\(", code)
             )
 
             # Merge desktop and browser records, emit in source order

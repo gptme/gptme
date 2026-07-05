@@ -52,6 +52,10 @@ ACTION_RISK_READ: frozenset[str] = frozenset(
         "snapshot_url",
         "observe_web",
         "read_page_text",
+        "snapshot_page",
+        "get_current_url",
+        "wait_for_element",
+        "load_browser_state",
         # high-level wrappers
         "observe_desktop",
     }
@@ -71,6 +75,9 @@ ACTION_RISK_WRITE: frozenset[str] = frozenset(
         "click_element",
         "scroll_page",
         "open_page",
+        "hover_element",
+        "press_key",
+        "select_option",
     }
 )
 

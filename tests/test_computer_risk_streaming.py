@@ -34,10 +34,25 @@ def test_action_risk_level_read():
     assert action_risk_level("observe_desktop") == "read"
 
 
+def test_action_risk_level_read_new_browser_observation():
+    """New browser observation functions added in PRs #3095/#3104 must be read."""
+    assert action_risk_level("snapshot_page") == "read"
+    assert action_risk_level("get_current_url") == "read"
+    assert action_risk_level("wait_for_element") == "read"
+    assert action_risk_level("load_browser_state") == "read"
+
+
 def test_action_risk_level_write():
     assert action_risk_level("left_click") == "write"
     assert action_risk_level("mouse_move") == "write"
     assert action_risk_level("window_focus") == "write"
+
+
+def test_action_risk_level_write_new_browser_interaction():
+    """New browser interaction functions added in PRs #3095/#3104 must be write."""
+    assert action_risk_level("hover_element") == "write"
+    assert action_risk_level("press_key") == "write"
+    assert action_risk_level("select_option") == "write"
 
 
 def test_action_risk_level_sensitive():

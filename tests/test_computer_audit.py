@@ -697,6 +697,96 @@ def test_audit_log_cli_table_shows_selector_and_value_len(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# New browser functions (PRs #3095/#3104) — audit extraction coverage
+# ---------------------------------------------------------------------------
+
+
+def test_hover_element_captured():
+    """hover_element(selector) appears in the audit log with write risk level."""
+    msgs = [_msg("assistant", _ipython_block("hover_element('nav > .dropdown')"))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "hover_element"
+    assert records[0]["source"] == "browser"
+    assert records[0]["risk_level"] == "write"
+    assert records[0]["selector"] == "nav > .dropdown"
+
+
+def test_press_key_captured():
+    """press_key(key) appears in the audit log with write risk level."""
+    msgs = [_msg("assistant", _ipython_block("press_key('Enter')"))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "press_key"
+    assert records[0]["source"] == "browser"
+    assert records[0]["risk_level"] == "write"
+    assert records[0]["key"] == "Enter"
+
+
+def test_select_option_captured():
+    """select_option(selector, value) appears with write risk, value logged (not sensitive)."""
+    msgs = [
+        _msg("assistant", _ipython_block("select_option('[name=\"size\"]', 'large')"))
+    ]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "select_option"
+    assert records[0]["source"] == "browser"
+    assert records[0]["risk_level"] == "write"
+    assert records[0]["value"] == "large"
+
+
+def test_wait_for_element_captured():
+    """wait_for_element(selector) appears in the audit log with read risk level."""
+    msgs = [
+        _msg(
+            "assistant",
+            _ipython_block("wait_for_element('[data-testid=\"result\"]')"),
+        )
+    ]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "wait_for_element"
+    assert records[0]["source"] == "browser"
+    assert records[0]["risk_level"] == "read"
+
+
+def test_snapshot_page_captured():
+    """snapshot_page() appears in the audit log with read risk level."""
+    msgs = [_msg("assistant", _ipython_block("snapshot_page()"))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "snapshot_page"
+    assert records[0]["source"] == "browser"
+    assert records[0]["risk_level"] == "read"
+
+
+def test_get_current_url_captured():
+    """get_current_url() appears in the audit log with read risk level."""
+    msgs = [_msg("assistant", _ipython_block("get_current_url()"))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "get_current_url"
+    assert records[0]["source"] == "browser"
+    assert records[0]["risk_level"] == "read"
+
+
+def test_load_browser_state_captured():
+    """load_browser_state(path) appears in the audit log with read risk level."""
+    msgs = [
+        _msg(
+            "assistant",
+            _ipython_block("load_browser_state('~/.config/gptme/twitter.json')"),
+        )
+    ]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["action"] == "load_browser_state"
+    assert records[0]["source"] == "browser"
+    assert records[0]["risk_level"] == "read"
+
+
+# ---------------------------------------------------------------------------
 # act_and_observe() audit tracking
 # The computer-use profile recommends act_and_observe() as the primary
 # "act then look" primitive — it must appear in the audit trail.
