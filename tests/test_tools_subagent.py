@@ -822,6 +822,84 @@ def test_subprocess_profile_preserves_profile_tools_and_adds_clarify():
     )
 
 
+def test_subprocess_no_profile_includes_complete_and_clarify():
+    """Subprocess without a profile must include both complete and clarify tools."""
+    import tempfile
+    from pathlib import Path
+
+    from gptme.tools.subagent.execution import _run_subagent_subprocess
+
+    captured_cmd: list[str] = []
+
+    def fake_popen(cmd, **kwargs):
+        captured_cmd.clear()
+        captured_cmd.extend(cmd)
+        mock = MagicMock()
+        mock.poll.return_value = None
+        mock.args = cmd
+        return mock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logdir = Path(tmpdir) / "logs"
+        logdir.mkdir()
+
+        with patch("gptme.tools.subagent.execution.subprocess.Popen", fake_popen):
+            _run_subagent_subprocess(
+                prompt="Do a task",
+                logdir=logdir,
+                model=None,
+                workspace=Path(tmpdir),
+                profile=None,
+            )
+
+    assert "--tools" in captured_cmd
+    assert captured_cmd[captured_cmd.index("--tools") + 1] == "+complete,+clarify"
+
+
+def test_subprocess_profile_without_toollist_includes_complete_and_clarify():
+    """Profile with no tools list must fall back to +complete,+clarify."""
+    import tempfile
+    from pathlib import Path
+
+    from gptme.tools.subagent.execution import _run_subagent_subprocess
+
+    captured_cmd: list[str] = []
+
+    def fake_popen(cmd, **kwargs):
+        captured_cmd.clear()
+        captured_cmd.extend(cmd)
+        mock = MagicMock()
+        mock.poll.return_value = None
+        mock.args = cmd
+        return mock
+
+    # Use a mock profile object with tools=None to hit the else branch inside `if profile:`
+    mock_profile = MagicMock()
+    mock_profile.tools = None
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logdir = Path(tmpdir) / "logs"
+        logdir.mkdir()
+
+        with (
+            patch("gptme.tools.subagent.execution.subprocess.Popen", fake_popen),
+            patch(
+                "gptme.profiles.get_profile",
+                return_value=mock_profile,
+            ),
+        ):
+            _run_subagent_subprocess(
+                prompt="Do a task",
+                logdir=logdir,
+                model=None,
+                workspace=Path(tmpdir),
+                profile="custom",
+            )
+
+    assert "--tools" in captured_cmd
+    assert captured_cmd[captured_cmd.index("--tools") + 1] == "+complete,+clarify"
+
+
 @pytest.mark.slow
 def test_subprocess_working_directory():
     """Test that subprocess runs in the specified working directory."""
