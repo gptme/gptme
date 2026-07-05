@@ -195,12 +195,16 @@ def check_output_schema_result_is_structured(messages: list[Message]) -> bool:
     A trajectory-level check: the parent's final assistant message must contain
     a Python dict literal or JSON object that includes the 'score' key, proving
     the parent received and used a structured (not free-text) result.
+
+    Pattern: matches `'score': <value>` (with dict/list delimiters before the key)
+    where <value> is NOT a type keyword (int, str, etc), but IS a concrete value
+    (number, string literal, object/array, or JSON constant).
     """
     final_msg = _last_assistant_content(messages)
     return (
         re.search(
             r"[\{\[,]\s*['\"]score['\"]\s*:\s*"
-            r"(?!(?:int|str|float|bool|list|dict|tuple|set)\b)"
+            r"(?!(?:int|str|float|bool|list|dict|tuple|set)(?:\b|[,\}\]]))"
             r"(?:-?\d+(?:\.\d+)?|['\"]|\{|\[|true\b|false\b|null\b|None\b)",
             final_msg,
         )

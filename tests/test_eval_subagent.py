@@ -307,7 +307,8 @@ def test_output_schema_structured_check_requires_score_field():
     ]
 
     assert check_output_schema_used(messages)
-    # Prose markers do not count as a structured field reference.
+    # Prose markers (uppercase, no delimiters) do not count as a structured field reference.
+    # The check requires a score key inside a dict or list, not just text with "score=".
     assert not check_output_schema_result_is_structured(messages)
 
 
