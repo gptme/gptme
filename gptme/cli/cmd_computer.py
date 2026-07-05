@@ -971,9 +971,8 @@ def latency_cmd(shots: int, as_json: bool, display: str | None):
             import platform
 
             _display = os.environ.get("DISPLAY")
-            if platform.system() == "Linux" and _display:
-                transport = NativeComputerTransport()
-            elif platform.system() == "Darwin":
+            _system = platform.system()
+            if (_system == "Linux" and _display) or _system == "Darwin":
                 transport = NativeComputerTransport()
             else:
                 click.echo(

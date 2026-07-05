@@ -47,7 +47,10 @@ class TestLatencyCmd:
     def test_no_display_exits_1(self, monkeypatch):
         """When no transport is available, exit with code 1."""
         monkeypatch.delenv("DISPLAY", raising=False)
-        with patch("gptme.tools.computer_transport.get_transport", return_value=None):
+        with (
+            patch("gptme.tools.computer_transport.get_transport", return_value=None),
+            patch("platform.system", return_value="Linux"),
+        ):
             runner = CliRunner()
             result = runner.invoke(latency_cmd, [])
         assert result.exit_code == 1
