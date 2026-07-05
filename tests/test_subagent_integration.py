@@ -92,6 +92,7 @@ class TestCancelLifecycle:
         assert result is not None
         assert result.status == "failure"
         assert result.result is not None
+        assert isinstance(result.result, str)
         assert "cancelled" in result.result.lower()
 
         # Unblock the thread so it can exit cleanly.
