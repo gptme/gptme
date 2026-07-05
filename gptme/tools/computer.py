@@ -1319,7 +1319,12 @@ def _poll_for_change(
     """
     poll_interval = 0.05
     max_poll_interval = 0.5
-    change_threshold = 0.01
+    # 0.2% threshold: detects even small text changes (typing a short command into
+    # a terminal window changes ~0.3–0.5% of a 1024×768 screen; 1% was too high and
+    # caused "No screen change detected" even when the xterm had updated — issue #216).
+    # PNG screenshots are lossless, so consecutive identical frames always read 0.0%,
+    # making false positives effectively impossible in a static Xvfb environment.
+    change_threshold = 0.002
     deadline = _monotonic() + timeout
 
     changed = False  # Have we seen any change from the original baseline?

@@ -107,8 +107,17 @@ def xvfb_display() -> Generator[str, None, None]:
 
     wm_proc.terminate()
     proc.terminate()
-    wm_proc.wait(timeout=5)
-    proc.wait(timeout=5)
+    # fluxbox can take longer than 5s to respond to SIGTERM; SIGKILL as fallback
+    try:
+        wm_proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        wm_proc.kill()
+        wm_proc.wait(timeout=2)
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=2)
 
 
 @pytest.fixture(autouse=True)

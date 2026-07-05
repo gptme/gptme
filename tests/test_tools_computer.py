@@ -1219,6 +1219,61 @@ def test_compute_change_ratio_mismatched_sizes():
         p2.unlink(missing_ok=True)
 
 
+def test_compute_change_ratio_small_text_change():
+    """Simulated terminal text change stays above the 0.2% detection threshold.
+
+    Typing a short command into an xterm on a 1024x768 screen changes roughly
+    0.3–0.5% of pixels (22 chars × ~112px each out of 786,432 total).  This
+    test verifies that a 0.3% change is detectable with the new threshold (0.002)
+    and was NOT detectable with the old threshold (0.01) — catching a regression
+    where act_and_observe always reported "No screen change detected" after typing.
+    """
+    from PIL import Image
+
+    # Simulate a 1024×768 terminal screen: mostly black background
+    size = (1024, 768)
+    img1 = Image.new("RGB", size, (0, 0, 0))
+    img2 = img1.copy()
+
+    # Simulate typing "echo act_and_observe_ok" into an xterm at the bottom of the window.
+    # Each character is roughly 7×14 pixels; 22 chars = 22 × 7 × 14 = 2156 pixels.
+    # We paint a 154×14 pixel rectangle (22 chars wide) to represent the text.
+    char_w, char_h = 7, 14
+    num_chars = 22
+    text_x, text_y = 100, 700  # near the bottom of the terminal
+    for x in range(text_x, text_x + num_chars * char_w):
+        for y in range(text_y, text_y + char_h):
+            img2.putpixel((x, y), (200, 200, 200))  # light text on dark background
+
+    changed_pixels = num_chars * char_w * char_h  # 2156
+    expected_ratio = changed_pixels / (size[0] * size[1])  # ~0.0027
+
+    f1 = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    f2 = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    img1.save(f1.name)
+    img2.save(f2.name)
+    f1.close()
+    f2.close()
+    p1, p2 = Path(f1.name), Path(f2.name)
+    try:
+        ratio = _compute_change_ratio(p1, p2)
+        # Should be approximately the expected ratio
+        assert abs(ratio - expected_ratio) < 0.001, (
+            f"expected ~{expected_ratio:.4f}, got {ratio:.4f}"
+        )
+        # Must be above the new 0.002 threshold so act_and_observe detects it
+        assert ratio >= 0.002, (
+            f"ratio {ratio:.4f} is below new threshold 0.002 — small text changes won't be detected"
+        )
+        # This confirms the old 0.01 threshold was wrong: it was ABOVE the change ratio
+        assert ratio < 0.01, (
+            f"ratio {ratio:.4f} exceeds old 0.01 threshold — old behaviour would have detected this; test premise is wrong"
+        )
+    finally:
+        p1.unlink(missing_ok=True)
+        p2.unlink(missing_ok=True)
+
+
 # ============================================================
 # wait_for_change action tests (unit — mocks screenshot/time)
 # ============================================================
