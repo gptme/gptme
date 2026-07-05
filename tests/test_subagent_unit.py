@@ -702,6 +702,38 @@ class TestSubagentCancel:
         assert status == "clarification_needed"
         assert "Which format" in summary
 
+    def test_subprocess_monitor_preserves_token_counts(self, tmp_path):
+        logdir = tmp_path / "proc-token-log"
+        logdir.mkdir()
+        (logdir / "conversation.jsonl").write_text(
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": "```complete\nDone.\n```",
+                    "timestamp": "2025-01-01T00:00:00+00:00",
+                    "metadata": {"usage": {"input_tokens": 123, "output_tokens": 45}},
+                }
+            )
+            + "\n"
+        )
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = 0
+        mock_proc.returncode = 0
+        sa = self._register(
+            "proc-token",
+            process=mock_proc,
+            execution_mode="subprocess",
+            logdir=logdir,
+        )
+
+        _monitor_subprocess(sa)
+
+        with _subagent_results_lock:
+            result = _subagent_results["proc-token"]
+        assert result.status == "success"
+        assert result.input_tokens == 123
+        assert result.output_tokens == 45
+
     def test_cancel_thread_marks_result(self):
         mock_thread = MagicMock(spec=threading.Thread)
         mock_thread.is_alive.return_value = True
@@ -4182,6 +4214,79 @@ class TestTokenBudgetTracking:
         in_tok, out_tok = sa._read_token_stats()
         assert in_tok is None
         assert out_tok is None
+
+    def test_acp_completion_preserves_token_counts(self, tmp_path, monkeypatch):
+        """ACP mode caches token fields read from the subagent conversation log."""
+        import gptme.acp.client as acp_client
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        logdir = tmp_path / "subagent-acp-token"
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: logdir)
+
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+        while not _completion_queue.empty():
+            try:
+                _completion_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        class FakeUpdate:
+            type = "agent_message_chunk"
+            chunk = {"text": "ACP completed."}
+
+        class FakeRunResult:
+            stop_reason = "end_turn"
+
+        class FakeAcpClient:
+            def __init__(self, *args, on_update=None, **kwargs):
+                self.on_update = on_update
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def run(self, prompt, cwd=None):
+                logdir.mkdir(parents=True, exist_ok=True)
+                (logdir / "conversation.jsonl").write_text(
+                    json.dumps(
+                        {
+                            "role": "assistant",
+                            "content": "ACP completed.",
+                            "metadata": {
+                                "usage": {
+                                    "input_tokens": 321,
+                                    "output_tokens": 54,
+                                }
+                            },
+                        }
+                    )
+                    + "\n"
+                )
+                if self.on_update:
+                    self.on_update("session-1", FakeUpdate())
+                return FakeRunResult()
+
+        monkeypatch.setattr(acp_client, "GptmeAcpClient", FakeAcpClient)
+
+        subagent_api.subagent("acp-token", "test prompt", use_acp=True)
+
+        with _subagents_lock:
+            sa = next(s for s in _subagents if s.agent_id == "acp-token")
+        assert sa.thread is not None
+        sa.thread.join(timeout=5)
+        assert not sa.thread.is_alive()
+
+        with _subagent_results_lock:
+            result = _subagent_results["acp-token"]
+        assert result.status == "success"
+        assert result.result == "ACP completed."
+        assert result.input_tokens == 321
+        assert result.output_tokens == 54
 
     def test_batch_job_total_tokens_sums_all_results(self):
         """BatchJob.total_tokens() sums input/output tokens from all completed results."""

@@ -570,7 +570,21 @@ def subagent(
                 try:
                     status, summary = asyncio.run(_acp_run())
 
-                    result = ReturnType(status, summary)
+                    with _subagents_lock:
+                        sa_ref = next(
+                            (s for s in _subagents if s.agent_id == agent_id), None
+                        )
+                    in_tok, out_tok = (
+                        sa_ref._read_token_stats()
+                        if sa_ref is not None
+                        else (None, None)
+                    )
+                    result = ReturnType(
+                        status,
+                        summary,
+                        input_tokens=in_tok,
+                        output_tokens=out_tok,
+                    )
                     if not set_subagent_result_if_absent(agent_id, result):
                         return
                     notify_completion(

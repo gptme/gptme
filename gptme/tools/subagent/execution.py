@@ -576,6 +576,9 @@ def _monitor_subprocess(
         subagent.process.kill()
         subagent.process.wait()  # reap the killed process
 
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
     # Determine status based on return code
     if subagent.process.returncode == 0:
         status: Status = "success"
@@ -585,6 +588,8 @@ def _monitor_subprocess(
             if log_status.status == "clarification_needed":
                 status = "clarification_needed"
             result = log_status.result
+            input_tokens = log_status.input_tokens
+            output_tokens = log_status.output_tokens
         except Exception:
             result = "Task completed (check log for details)"
     elif _timed_out:
@@ -596,7 +601,12 @@ def _monitor_subprocess(
         result = f"Process exited with code {subagent.process.returncode}"
 
     # Cache the result in module-level dict (Subagent is frozen)
-    final_result = ReturnType(status, result)
+    final_result = ReturnType(
+        status,
+        result,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
     if not set_subagent_result_if_absent(subagent.agent_id, final_result):
         _cleanup_isolation(subagent)
         return
