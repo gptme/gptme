@@ -146,7 +146,7 @@ def cleanup_worktree(
                 logger.debug(
                     f"Could not delete branch {branch_name!r}: {result.stderr.strip()}"
                 )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        except (subprocess.TimeoutExpired, OSError) as e:
             logger.debug(f"Branch deletion skipped for {branch_name!r}: {e}")
 
         # Prune stale worktree entries
