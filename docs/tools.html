@@ -3382,6 +3382,31 @@ If None, converts all pages.</p></li>
 
 <dl class="py function">
 <dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.browser.</span></span><span class="sig-name descname"><span class="pre">press_key</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
+<dd><p>Press a keyboard key or shortcut in the current browser page.</p>
+<p>Dispatches the key event to the focused element (or document). Use for
+submitting forms (<code class="docutils literal notranslate"><span class="pre">Enter</span></code>), navigating menus (<code class="docutils literal notranslate"><span class="pre">ArrowDown</span></code>), dismissing
+dialogs (<code class="docutils literal notranslate"><span class="pre">Escape</span></code>), or triggering shortcuts (e.g. <code class="docutils literal notranslate"><span class="pre">Control+a</span></code>).</p>
+<p>Requires open_page() to be called first.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>key</strong> – Playwright key name. Examples: <code class="docutils literal notranslate"><span class="pre">&quot;Enter&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;Tab&quot;</span></code>,
+<code class="docutils literal notranslate"><span class="pre">&quot;Escape&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;ArrowDown&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;Control+a&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;Meta+k&quot;</span></code>.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Updated ARIA snapshot of the page after the key press.</p>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://example.com/search&quot;</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;[name=&#39;q&#39;]&quot;</span><span class="p">,</span> <span class="s2">&quot;gptme&quot;</span><span class="p">)</span>
+<span class="n">press_key</span><span class="p">(</span><span class="s2">&quot;Enter&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.browser.</span></span><span class="sig-name descname"><span class="pre">read_logs</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
 <dd><p>Read browser console logs from the last read URL.</p>
 </dd></dl>
@@ -3477,6 +3502,30 @@ and falls back to the next usable backend on failure.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.browser.</span></span><span class="sig-name descname"><span class="pre">select_option</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">selector</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
+<dd><p>Select an option from a &lt;select&gt; dropdown on the current page.</p>
+<p>Requires open_page() to be called first.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>selector</strong> – Playwright selector for the <code class="docutils literal notranslate"><span class="pre">&lt;select&gt;</span></code> element.</p></li>
+<li><p><strong>value</strong> – The option value attribute or visible text to select.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Updated ARIA snapshot of the page after the selection.</p>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://example.com/order&quot;</span><span class="p">)</span>
+<span class="n">select_option</span><span class="p">(</span><span class="s2">&quot;[name=&#39;size&#39;]&quot;</span><span class="p">,</span> <span class="s2">&quot;large&quot;</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Add to cart&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.browser.</span></span><span class="sig-name descname"><span class="pre">snapshot_url</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
 <dd><p>Get the ARIA accessibility snapshot of a webpage.</p>
 <p>Returns a structured text representation of the page’s accessibility tree,
@@ -3484,6 +3533,34 @@ showing interactive elements (buttons, links, inputs) with their roles and names
 Useful for understanding page structure and finding elements to interact with.</p>
 <p>The output includes a metadata header with the page title and current URL
 (which may differ from the requested URL after redirects).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.browser.</span></span><span class="sig-name descname"><span class="pre">wait_for_element</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">selector</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout_ms</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">5000</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
+<dd><p>Wait for a DOM element to become visible on the current page.</p>
+<p>Blocks until the element matching <code class="docutils literal notranslate"><span class="pre">selector</span></code> is visible, then returns
+the updated ARIA snapshot. Use after actions that trigger dynamic content
+loading (modals, async renders, redirects).</p>
+<p>Requires open_page() to be called first.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>selector</strong> – Playwright selector for the element to wait for.</p></li>
+<li><p><strong>timeout_ms</strong> – Maximum wait time in milliseconds (default: 5000).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Updated ARIA snapshot once the element is visible.</p>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://x.com/compose/tweet&quot;</span><span class="p">)</span>
+<span class="n">wait_for_element</span><span class="p">(</span><span class="s2">&quot;[data-testid=&#39;tweetTextarea_0&#39;]&quot;</span><span class="p">,</span> <span class="n">timeout_ms</span><span class="o">=</span><span class="mi">8000</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;[data-testid=&#39;tweetTextarea_0&#39;]&quot;</span><span class="p">,</span> <span class="s2">&quot;Hello from gptme!&quot;</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;[data-testid=&#39;tweetButtonInline&#39;]&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
 </dd></dl>
 
 <section id="browser-faq">
