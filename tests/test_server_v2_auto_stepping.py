@@ -240,8 +240,7 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
     assert data["session"]["last_error"] == "disk write failed"
 
 
-@pytest.mark.timeout(30)
-@pytest.mark.flaky(retries=2, delay=1)
+@pytest.mark.timeout(60)
 def test_multi_tool_per_message(
     init_, setup_conversation, event_listener, mock_generation, wait_for_event, tmp_path
 ):
@@ -251,8 +250,8 @@ def test_multi_tool_per_message(
     - Both tools execute serially (second file writes after first)
     - Auto-step fires only after all tools complete
 
-    Note: This test is marked as flaky due to a pre-existing pytest-retry cleanup
-    issue (KeyError on stash object). The test itself passes on retry attempt 2.
+    Keep this as a single-attempt test: pytest-retry can surface a tmp_path
+    teardown KeyError after the retried attempt passes.
     """
     port, conversation_id, session_id = setup_conversation
 
@@ -286,7 +285,12 @@ def test_multi_tool_per_message(
         ]
     )
 
-    with unittest.mock.patch("gptme.server.session_step._stream", mock_stream):
+    with (
+        unittest.mock.patch("gptme.server.session_step._stream", mock_stream),
+        unittest.mock.patch(
+            "gptme.server.session_step._try_auto_name_and_notify", return_value=None
+        ),
+    ):
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
             json={
@@ -323,6 +327,7 @@ def test_multi_tool_per_message(
         # After both tools, auto-step triggers final generation.
         # message_added fires before generation_complete, so wait in that order.
         assert wait_for_event(event_listener, "message_added")  # final assistant
+        assert wait_for_event(event_listener, "generation_complete")
 
     # Verify both files exist (tools actually ran)
     assert os.path.exists(ts_file_a), f"First tool output {ts_file_a} missing"
