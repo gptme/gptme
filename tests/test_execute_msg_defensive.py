@@ -9,18 +9,9 @@ Markdown-format tool_uses (call_id is None) are NOT API tool_uses; they are
 intentionally left unpaired when the tool is unavailable.
 """
 
-import pytest
-
 from gptme.message import Message
 from gptme.tools import execute_msg
 from gptme.tools.base import set_tool_format
-
-
-@pytest.fixture(autouse=True)
-def restore_tool_format():
-    """Reset tool_format to 'markdown' after each test."""
-    yield
-    set_tool_format("markdown")
 
 
 class TestExecuteMsgDefensive:
@@ -30,7 +21,7 @@ class TestExecuteMsgDefensive:
         """Structured tool_use (call_id present) for unknown tool → error tool_result.
 
         This prevents the dangling tool_use → API 400 crash fixed in PR #3072.
-        The clear_tools_before autouse fixture in conftest ensures no tools are loaded.
+        The fake tool name is intentionally absent from the loaded tool registry.
         """
         set_tool_format("tool")
         call_id = "call-abc123"
