@@ -2811,6 +2811,9 @@ def test_subagent_thread_does_not_mutate_parent_tool_list():
     assert child_saw_fresh_list == [True], (
         "child must get a fresh list after clear_tools()"
     )
+    assert child_appended_to_parent == [False], (
+        "child's append went to parent's list, not child's own list"
+    )
     assert len(get_tools()) == parent_len, (
         f"Parent tool list changed from {parent_len} to {len(get_tools())} — "
         "subagent thread mutated parent's tool list (race condition #554)"

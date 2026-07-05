@@ -445,11 +445,18 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
 
 
 def clear_tools():
-    """Clear all context-local tool state."""
+    """Clear all context-local tool state.
+
+    Resets the ContextVar-bound tool list so the current context has a
+    fresh empty list, fully decoupled from any other context (parent
+    thread, sibling thread, etc.).
+
+    Does NOT clear module-global state like _warned_mcp_allowlists, which
+    is shared across all contexts for log-deduplication. Only the
+    context-local tool list and its cache are reset.
+    """
     _set_available_tools_cache(None)
     _loaded_tools_var.set([])
-    with _warned_mcp_allowlists_lock:
-        _warned_mcp_allowlists.clear()
 
 
 def get_tools() -> list[ToolSpec]:
