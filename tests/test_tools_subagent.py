@@ -2818,3 +2818,209 @@ def test_subagent_thread_does_not_mutate_parent_tool_list():
         f"Parent tool list changed from {parent_len} to {len(get_tools())} — "
         "subagent thread mutated parent's tool list (race condition #554)"
     )
+
+
+# Tests for subagent_pipeline
+
+
+def test_subagent_pipeline_empty_returns_empty():
+    """subagent_pipeline([]) returns [] without touching any subagent."""
+    from gptme.tools.subagent import subagent_pipeline
+
+    result = subagent_pipeline([], lambda item, prev: item)
+    assert result == []
+
+
+def test_subagent_pipeline_requires_at_least_one_stage():
+    """subagent_pipeline with no stages raises ValueError."""
+    from gptme.tools.subagent import subagent_pipeline
+
+    with pytest.raises(ValueError, match="at least one stage"):
+        subagent_pipeline([("a", "prompt")])
+
+
+def test_subagent_pipeline_single_stage_single_item():
+    """Single-stage pipeline: spawns one subagent and returns its result."""
+    from gptme.tools.subagent import subagent_pipeline
+
+    with (
+        patch("gptme.tools.subagent.batch.subagent") as mock_subagent,
+        patch("gptme.tools.subagent.batch.subagent_wait") as mock_wait,
+    ):
+        mock_wait.return_value = {"status": "success", "result": "done"}
+
+        results = subagent_pipeline(
+            [("item-a", "Do task A")],
+            lambda item, prev: f"Stage 0 for: {item}",
+            timeout=10,
+        )
+
+    assert len(results) == 1
+    assert len(results[0]) == 1
+    assert results[0][0] == {"status": "success", "result": "done"}
+    mock_subagent.assert_called_once()
+    call_kwargs = mock_subagent.call_args
+    assert call_kwargs.kwargs["agent_id"] == "item-a-s0"
+    assert "Stage 0 for: Do task A" in call_kwargs.kwargs["prompt"]
+
+
+def test_subagent_pipeline_two_stages_prompt_chaining():
+    """Each stage fn receives (item_prompt, prev_result)."""
+    from gptme.tools.subagent import subagent_pipeline
+
+    stage_inputs: list[tuple[str, str, str]] = []
+
+    def stage0(item, prev):
+        stage_inputs.append(("s0", item, prev))
+        return f"s0:{item}"
+
+    def stage1(item, prev):
+        stage_inputs.append(("s1", item, prev))
+        return f"s1:{item}:{prev}"
+
+    with (
+        patch("gptme.tools.subagent.batch.subagent"),
+        patch("gptme.tools.subagent.batch.subagent_wait") as mock_wait,
+    ):
+        mock_wait.side_effect = [
+            {"status": "success", "result": "result-of-s0"},
+            {"status": "success", "result": "result-of-s1"},
+        ]
+
+        results = subagent_pipeline(
+            [("item", "my-prompt")],
+            stage0,
+            stage1,
+            timeout=10,
+        )
+
+    assert len(results) == 1
+    assert len(results[0]) == 2
+    assert results[0][0]["result"] == "result-of-s0"
+    assert results[0][1]["result"] == "result-of-s1"
+
+    # Stage 0 receives (item_prompt, "") — prev_result starts empty
+    s0_call = next(x for x in stage_inputs if x[0] == "s0")
+    assert s0_call[1] == "my-prompt"
+    assert s0_call[2] == ""
+
+    # Stage 1 receives (item_prompt, result-of-s0)
+    s1_call = next(x for x in stage_inputs if x[0] == "s1")
+    assert s1_call[1] == "my-prompt"
+    assert s1_call[2] == "result-of-s0"
+
+
+def test_subagent_pipeline_stage_failure_skips_remaining():
+    """When a stage fails, remaining stages are marked 'skipped'."""
+    from gptme.tools.subagent import subagent_pipeline
+
+    with (
+        patch("gptme.tools.subagent.batch.subagent"),
+        patch("gptme.tools.subagent.batch.subagent_wait") as mock_wait,
+    ):
+        mock_wait.return_value = {"status": "failure", "result": "error msg"}
+
+        results = subagent_pipeline(
+            [("item", "prompt")],
+            lambda item, prev: item,
+            lambda item, prev: item,
+            lambda item, prev: item,
+            timeout=10,
+        )
+
+    assert results[0][0]["status"] == "failure"
+    assert results[0][1]["status"] == "skipped"
+    assert results[0][2]["status"] == "skipped"
+
+
+def test_subagent_pipeline_multiple_items_independent():
+    """Multiple items are processed in parallel (independent threads)."""
+    import threading
+
+    from gptme.tools.subagent import subagent_pipeline
+
+    started_agents: list[str] = []
+    lock = threading.Lock()
+
+    def fake_subagent(**kwargs):
+        with lock:
+            started_agents.append(kwargs["agent_id"])
+
+    with (
+        patch("gptme.tools.subagent.batch.subagent", side_effect=fake_subagent),
+        patch("gptme.tools.subagent.batch.subagent_wait") as mock_wait,
+    ):
+        mock_wait.return_value = {"status": "success", "result": "ok"}
+
+        results = subagent_pipeline(
+            [("a", "task A"), ("b", "task B"), ("c", "task C")],
+            lambda item, prev: item,
+            timeout=10,
+        )
+
+    assert len(results) == 3
+    assert all(r[0]["status"] == "success" for r in results)
+    # All three items should have been processed
+    assert set(started_agents) == {"a-s0", "b-s0", "c-s0"}
+
+
+def test_subagent_pipeline_uses_full_agent_id_format():
+    """Agent IDs follow the {prefix}-s{stage_idx} convention."""
+    from gptme.tools.subagent import subagent_pipeline
+
+    agent_ids_seen: list[str] = []
+
+    def fake_subagent(**kwargs):
+        agent_ids_seen.append(kwargs["agent_id"])
+
+    with (
+        patch("gptme.tools.subagent.batch.subagent", side_effect=fake_subagent),
+        patch("gptme.tools.subagent.batch.subagent_wait") as mock_wait,
+    ):
+        mock_wait.return_value = {"status": "success", "result": "ok"}
+
+        subagent_pipeline(
+            [("review-auth", "Review auth.py"), ("review-db", "Review db.py")],
+            lambda item, prev: f"stage0:{item}",
+            lambda item, prev: f"stage1:{prev}",
+            timeout=10,
+        )
+
+    assert "review-auth-s0" in agent_ids_seen
+    assert "review-auth-s1" in agent_ids_seen
+    assert "review-db-s0" in agent_ids_seen
+    assert "review-db-s1" in agent_ids_seen
+
+
+def test_subagent_pipeline_output_schema_only_on_final_stage():
+    """output_schema is only passed to the final stage, not intermediate stages."""
+    from pydantic import BaseModel
+
+    from gptme.tools.subagent import subagent_pipeline
+
+    class Result(BaseModel):
+        score: int
+
+    schema_kwargs_by_id: dict[str, type | None] = {}
+
+    def fake_subagent(**kwargs):
+        schema_kwargs_by_id[kwargs["agent_id"]] = kwargs.get("output_schema")
+
+    with (
+        patch("gptme.tools.subagent.batch.subagent", side_effect=fake_subagent),
+        patch("gptme.tools.subagent.batch.subagent_wait") as mock_wait,
+    ):
+        mock_wait.return_value = {"status": "success", "result": '{"score": 42}'}
+
+        subagent_pipeline(
+            [("item", "prompt")],
+            lambda item, prev: "stage0",
+            lambda item, prev: "stage1",
+            output_schema=Result,
+            timeout=10,
+        )
+
+    # Stage 0 should NOT get output_schema
+    assert schema_kwargs_by_id.get("item-s0") is None
+    # Stage 1 (final) should get output_schema
+    assert schema_kwargs_by_id.get("item-s1") is Result

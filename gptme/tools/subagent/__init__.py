@@ -6,7 +6,7 @@ Package structure:
 - types.py      — Data classes and module-level state (Subagent, ReturnType, etc.)
 - hooks.py      — Completion notification system (LOOP_CONTINUE hook)
 - api.py        — Public API (subagent, subagent_status, subagent_wait, etc.)
-- batch.py      — Batch execution (BatchJob, subagent_batch, subagent_parallel)
+- batch.py      — Batch execution (BatchJob, subagent_batch, subagent_parallel, subagent_pipeline)
 - execution.py  — Execution backends (thread, subprocess, process monitoring)
 """
 
@@ -22,7 +22,7 @@ from .api import (
     subagent_status,
     subagent_wait,
 )
-from .batch import BatchJob, subagent_batch, subagent_parallel
+from .batch import BatchJob, subagent_batch, subagent_parallel, subagent_pipeline
 from .execution import get_current_agent_id
 from .hooks import (
     _get_complete_instruction,
@@ -179,6 +179,30 @@ System: impl: success — Authentication feature implemented in auth.py
 test: success — 12 tests added, all passing
 docs: success — API documented in docs/auth.md
 
+### Pipeline (multi-stage fan-out, no barrier between stages)
+User: review these files in two stages — first find issues, then verify each finding
+Assistant: I'll use subagent_pipeline so file B's review starts while file A's verification is running.
+{
+        ToolUse(
+            "ipython",
+            [],
+            '''results = subagent_pipeline(
+    [("auth", "Review auth.py for bugs"), ("db", "Review db.py for bugs")],
+    # Stage 0: review each file
+    lambda item, _: item,
+    # Stage 1: adversarially verify the review findings
+    lambda item, prev: "Verify these findings, keep only real bugs: " + prev,
+    timeout=300,
+)
+# auth advances to stage 1 as soon as its stage 0 finishes,
+# while db may still be in stage 0.
+for (prefix, _), stage_results in zip([("auth", ...), ("db", ...)], results):
+    print(f"{prefix}: {stage_results[-1]['status']}")''',
+        ).to_output(tool_format)
+    }
+System: auth-s0 done → auth-s1 started; db-s0 done → db-s1 started
+System: auth: success, db: success
+
 ### Batch Execution (fire-and-forget with explicit sync)
 User: start tasks in background and continue working
 Assistant: I'll use subagent_batch to start tasks in the background. Completion hooks will notify me.
@@ -297,6 +321,7 @@ Key features:
 - context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
 - context_window=N: Limit workspace context to at most N messages
 - subagent_parallel(tasks, timeout): Fan out N subagents and wait for all — returns ordered list of results
+- subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage's prompt
 - subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 - subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 - subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
@@ -412,6 +437,7 @@ tool = ToolSpec(
             subagent_read_log,
             subagent_batch,
             subagent_parallel,
+            subagent_pipeline,
         ]
     ],
     disabled_by_default=True,
@@ -436,6 +462,7 @@ __all__ = [
     "subagent_read_log",
     "subagent_batch",
     "subagent_parallel",
+    "subagent_pipeline",
     "BatchJob",
     # Types
     "SubtaskDef",

@@ -2,12 +2,15 @@
 
 Provides BatchJob for managing groups of subagents and subagent_batch()
 for convenient fire-and-gather patterns. Also provides subagent_parallel()
-for a simpler synchronous fan-out pattern.
+for a simpler synchronous fan-out pattern. subagent_pipeline() provides
+staged fan-out with no barrier between stages — item A advances to stage 2
+while item B is still in stage 1.
 """
 
 import json
 import logging
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import asdict, dataclass, field
@@ -456,3 +459,160 @@ def subagent_parallel(
     if output_schema is not None:
         return [_parse_result(r, output_schema) for r in raw_results]
     return raw_results
+
+
+def subagent_pipeline(
+    items: list[tuple[str, str]],
+    *stages: Callable[[str, str], str],
+    timeout: int = 600,
+    use_subprocess: bool = False,
+    model: str | None = None,
+    profile: str | None = None,
+    isolated: bool = False,
+    output_schema: type | None = None,
+    workdir: str | Path | None = None,
+    context_turns: int | None = None,
+    redact_secrets: bool = True,
+) -> list[list[dict]]:
+    """Process items through multiple stages with no barrier between stages.
+
+    Each item is processed through all stages sequentially. Items at different
+    stages run concurrently — item A can be in stage 2 while item B is still
+    in stage 1. This is the "pipeline" pattern as opposed to repeated
+    subagent_parallel() calls which add a full barrier between stages.
+
+    Wall-clock time is bounded by the slowest single-item chain, not the sum
+    of the slowest per-stage.
+
+    Args:
+        items: List of ``(agent_id_prefix, initial_prompt)`` tuples.
+        *stages: Callables of the form ``stage(item_prompt, prev_result) -> str``
+            where ``item_prompt`` is the original item prompt and ``prev_result``
+            is the raw result text from the previous stage (empty string for the
+            first stage). Each callable returns the prompt to use for the next
+            subagent in the chain.
+        timeout: Maximum seconds to wait for the entire pipeline to finish.
+        use_subprocess: If True, run each subagent in a subprocess.
+        model: Model override applied to every subagent.
+        profile: Agent profile name applied to every subagent.
+        isolated: If True, run each subagent in its own git worktree.
+        output_schema: Optional Pydantic model class. When set, each final-stage
+            subagent is instructed to return JSON matching the schema and results
+            are automatically parsed.
+        workdir: Working directory passed to every subagent.
+        context_turns: Number of recent parent turns to forward to each subagent.
+        redact_secrets: If True (default), redact secrets from workspace context.
+
+    Returns:
+        List of lists of result dicts. ``results[i][j]`` is the result dict for
+        item ``i`` at stage ``j``. Each dict has ``"status"`` and ``"result"``
+        keys (plus ``"input_tokens"`` / ``"output_tokens"`` when available).
+        When ``output_schema`` is set, the final-stage ``"result"`` value is the
+        parsed/validated object rather than a raw JSON string.
+
+    Example::
+
+        # Two-stage review pipeline: find issues, then verify each finding
+        results = subagent_pipeline(
+            [("file-auth", "Review auth.py"), ("file-db", "Review db.py")],
+            # Stage 0: review
+            lambda item, _: f"Review this file for bugs: {item}",
+            # Stage 1: verify each review finding
+            lambda item, prev: (
+                f"Adversarially verify each finding in this review:\\n{prev}\\n"
+                f"Original file to review: {item}"
+            ),
+        )
+        # file-auth advances to stage 1 as soon as its stage 0 completes,
+        # while file-db may still be in stage 0.
+        for (prefix, _), stage_results in zip(items, results):
+            final = stage_results[-1]
+            print(f"{prefix}: {final['status']} — {final['result'][:80]}")
+
+        # With isolated worktrees so concurrent file edits don't conflict
+        results = subagent_pipeline(
+            [("impl-a", "Implement feature A"), ("impl-b", "Implement feature B")],
+            lambda item, _: item,
+            lambda item, prev: f"Write tests for: {prev}",
+            isolated=True,
+        )
+    """
+    if not items:
+        return []
+    if not stages:
+        raise ValueError("subagent_pipeline requires at least one stage")
+
+    # Per-item results: results[item_idx][stage_idx] = result dict
+    all_results: list[list[dict]] = [[None] * len(stages) for _ in items]  # type: ignore[list-item]
+
+    def process_item(item_idx: int, item_id_prefix: str, item_prompt: str) -> None:
+        prev_result_text = ""
+        for stage_idx, stage_fn in enumerate(stages):
+            stage_prompt = stage_fn(item_prompt, prev_result_text)
+            agent_id = f"{item_id_prefix}-s{stage_idx}"
+            # Only pass output_schema to the final stage
+            is_final = stage_idx == len(stages) - 1
+            try:
+                subagent(
+                    agent_id=agent_id,
+                    prompt=stage_prompt,
+                    use_subprocess=use_subprocess,
+                    model=model,
+                    profile=profile,
+                    isolated=isolated,
+                    output_schema=output_schema if is_final else None,
+                    workdir=workdir,
+                    context_turns=context_turns,
+                    redact_secrets=redact_secrets,
+                )
+                result = subagent_wait(
+                    agent_id,
+                    timeout=timeout,
+                    max_result_chars=0,  # full result for schema parsing
+                )
+            except Exception as exc:
+                result = {"status": "failure", "result": str(exc)}
+            all_results[item_idx][stage_idx] = result
+            if result.get("status") != "success":
+                # On failure, mark remaining stages as skipped and abort item
+                for remaining in range(stage_idx + 1, len(stages)):
+                    all_results[item_idx][remaining] = {
+                        "status": "skipped",
+                        "result": f"Skipped: stage {stage_idx} failed",
+                    }
+                return
+            prev_result_text = result.get("result") or ""
+            if "\n\nFull log: " in prev_result_text:
+                prev_result_text = prev_result_text.split("\n\nFull log: ", 1)[0]
+
+    threads = [
+        threading.Thread(
+            target=process_item,
+            args=(idx, item_id, item_prompt),
+            daemon=True,
+        )
+        for idx, (item_id, item_prompt) in enumerate(items)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=timeout)
+
+    # Fill any missing results (thread timed out before join)
+    for item_idx in range(len(items)):
+        for stage_idx in range(len(stages)):
+            if all_results[item_idx][stage_idx] is None:
+                all_results[item_idx][stage_idx] = {
+                    "status": "timeout",
+                    "result": f"Pipeline timed out after {timeout}s",
+                }
+
+    # Parse final-stage results against output_schema if provided
+    if output_schema is not None:
+        for item_idx in range(len(items)):
+            final_idx = len(stages) - 1
+            all_results[item_idx][final_idx] = _parse_result(
+                all_results[item_idx][final_idx], output_schema
+            )
+
+    return all_results
