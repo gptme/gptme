@@ -4786,12 +4786,6 @@ class TestThreadToolIsolation:
 class TestSubagentPipeline:
     """Tests for subagent_pipeline() staged fan-out helper."""
 
-    def setup_method(self):
-        with _subagents_lock:
-            _subagents.clear()
-        with _subagent_results_lock:
-            _subagent_results.clear()
-
     def _make_mocks(self, monkeypatch, results_by_agent: dict[str, dict] | None = None):
         """Patch batch_mod.subagent and batch_mod.subagent_wait.
 
@@ -4900,12 +4894,13 @@ class TestSubagentPipeline:
     def test_multiple_items_run_concurrently(self, monkeypatch):
         """Multiple items are launched in parallel threads."""
         import threading
-        import time
 
         import gptme.tools.subagent.batch as batch_mod
         from gptme.tools.subagent.batch import subagent_pipeline
 
+        items = [("a", "p-a"), ("b", "p-b"), ("c", "p-c")]
         lock = threading.Lock()
+        barrier = threading.Barrier(len(items), timeout=1)
         active = 0
         max_concurrent = 0
 
@@ -4915,9 +4910,11 @@ class TestSubagentPipeline:
                 active += 1
                 if active > max_concurrent:
                     max_concurrent = active
-            time.sleep(0.05)
-            with lock:
-                active -= 1
+            try:
+                barrier.wait()
+            finally:
+                with lock:
+                    active -= 1
 
         def mock_wait(agent_id, **kwargs):
             return {"status": "success", "result": f"result-{agent_id}"}
@@ -4925,7 +4922,6 @@ class TestSubagentPipeline:
         monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
         monkeypatch.setattr(batch_mod, "subagent_wait", mock_wait)
 
-        items = [("a", "p-a"), ("b", "p-b"), ("c", "p-c")]
         results = subagent_pipeline(items, lambda i, _: i, timeout=5)
 
         assert len(results) == 3
