@@ -7,7 +7,7 @@ These tests are the counterpart to ``test_computer_use_integration.py``
 (which covers the browser/Playwright path).  Together they prove both legs
 of the computer-use stack work end-to-end.
 
-Run manually (requires xdotool, scrot, Xvfb, xterm, fluxbox):
+Run manually (requires xdotool, scrot, Xvfb, xterm, fluxbox, ImageMagick):
     pytest tests/test_computer_x11_integration.py -v -m x11
 
 Marked ``x11`` and automatically skipped when the required tools are absent,
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-_REQUIRED_X11_TOOLS = ("Xvfb", "xdotool", "scrot", "xterm", "fluxbox")
+_REQUIRED_X11_TOOLS = ("Xvfb", "xdotool", "scrot", "xterm", "fluxbox", "convert")
 _MISSING_X11_TOOLS = [c for c in _REQUIRED_X11_TOOLS if not shutil.which(c)]
 
 pytestmark = pytest.mark.skipif(
