@@ -19,12 +19,29 @@ from .types import ReturnType
 logger = logging.getLogger(__name__)
 
 
+def _strip_log_suffix(text: str) -> str:
+    """Strip the ``\\n\\nFull log: ...`` suffix that thread-mode subagents append to results.
+
+    ``Subagent._read_log()`` in ``types.py`` appends ``"\\n\\nFull log: {logdir}"``
+    to every thread-mode result string. This suffix breaks JSON parsing when
+    ``output_schema`` is set. This helper strips it so the caller sees clean content.
+    """
+    log_sep = "\n\nFull log: "
+    if log_sep in text:
+        return text.split(log_sep, 1)[0]
+    return text
+
+
 def _parse_result(result_dict: dict, output_schema: type | None) -> dict:
     """Parse a subagent result dict against an output_schema if provided.
 
     When output_schema is set and the result is a success with a JSON string,
     attempt to parse it. For Pydantic models, validate with model_validate().
     On parse failure, keep the raw string and add a "parse_error" key.
+
+    Automatically strips the ``\\n\\nFull log: ...`` suffix added by
+    ``Subagent._read_log()`` before parsing, so thread-mode subagent results
+    with ``output_schema`` work correctly.
 
     Args:
         result_dict: Dict from subagent_wait() with "status" and "result" keys.
@@ -43,7 +60,9 @@ def _parse_result(result_dict: dict, output_schema: type | None) -> dict:
 
     out = dict(result_dict)
     try:
-        parsed = json.loads(result_text)
+        # Strip the log-path suffix that thread-mode _read_log() appends
+        clean = _strip_log_suffix(result_text)
+        parsed = json.loads(clean)
         if hasattr(output_schema, "model_validate"):
             out["result"] = output_schema.model_validate(parsed).model_dump()
         else:
@@ -86,7 +105,11 @@ class BatchJob:
 
             remaining = max(1, int(deadline - time.monotonic()))
             try:
-                result = subagent_wait(agent_id, timeout=remaining)
+                # Pass max_result_chars=0 so _parse_result() receives the full
+                # raw result without truncation. The default of 2000 would clip
+                # JSON from larger schemas and make structured output silently
+                # fail in _parse_result().
+                result = subagent_wait(agent_id, timeout=remaining, max_result_chars=0)
                 status = result.get("status", "failure")
                 # subagent_wait() returns a non-terminal "running" status (with
                 # result=None) when a thread/ACP agent is still alive after the
@@ -150,6 +173,8 @@ def subagent_batch(
     profile: str | None = None,
     isolated: bool = False,
     output_schema: type | None = None,
+    workdir: str | Path | None = None,
+    context_turns: int | None = None,
     redact_secrets: bool = True,
 ) -> BatchJob:
     """Start multiple subagents in parallel and return a BatchJob to manage them.
@@ -174,6 +199,11 @@ def subagent_batch(
             instructed to return JSON matching the schema in their complete block.
             The schema is used for prompt construction; call ``wait_all()`` and
             then ``_parse_result()`` to validate results.
+        workdir: Working directory passed to every subagent. Useful when running
+            subagents against a specific project directory.
+        context_turns: Number of recent parent conversation turns to forward to
+            each subagent as context prefix. Pass ``None`` (default) to use no
+            parent context.
         redact_secrets: If True (default), redact secrets from workspace context
             passed to subagents. Pass False only if you need subagents to see
             config values that are incorrectly flagged as secrets.
@@ -212,6 +242,8 @@ def subagent_batch(
             profile=profile,
             isolated=isolated,
             output_schema=output_schema,
+            workdir=workdir,
+            context_turns=context_turns,
             redact_secrets=redact_secrets,
         )
 

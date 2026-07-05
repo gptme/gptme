@@ -3802,3 +3802,94 @@ class TestSubagentBatchNewParameters:
         assert len(captured) == 2
         for kw in captured:
             assert kw.get("output_schema") is Schema
+
+    def test_strip_log_suffix_strips_full_log(self):
+        """_strip_log_suffix removes the \\n\\nFull log: ... suffix."""
+        from gptme.tools.subagent.batch import _strip_log_suffix
+
+        text = '{"score": 99}\n\nFull log: /tmp/agent-xyz/logs'
+        assert _strip_log_suffix(text) == '{"score": 99}'
+
+    def test_strip_log_suffix_passthrough_when_no_suffix(self):
+        """_strip_log_suffix returns text unchanged when no log suffix."""
+        from gptme.tools.subagent.batch import _strip_log_suffix
+
+        text = '{"score": 99}'
+        assert _strip_log_suffix(text) == '{"score": 99}'
+
+    def test_strip_log_suffix_passthrough_empty_string(self):
+        """_strip_log_suffix handles empty strings."""
+        from gptme.tools.subagent.batch import _strip_log_suffix
+
+        assert _strip_log_suffix("") == ""
+
+    def test_parse_result_handles_full_log_suffix(self):
+        """_parse_result strips the Full log suffix before parsing JSON."""
+        from gptme.tools.subagent.batch import _parse_result
+
+        class Schema:
+            pass
+
+        d = {
+            "status": "success",
+            "result": '{"score": 99}\n\nFull log: /tmp/agent-xyz/logs',
+        }
+        result = _parse_result(d, Schema)
+        assert result["result"] == {"score": 99}
+        assert "parse_error" not in result
+
+    def test_parse_result_handles_full_log_suffix_with_pydantic(self):
+        """_parse_result strips Full log suffix before Pydantic validation."""
+        from gptme.tools.subagent.batch import _parse_result
+
+        class FakePydantic:
+            @classmethod
+            def model_validate(cls, data):
+                return cls()
+
+            def model_dump(self):
+                return {"validated": True}
+
+        d = {
+            "status": "success",
+            "result": '{"validated": true}\n\nFull log: /tmp/agent-xyz/logs',
+        }
+        result = _parse_result(d, FakePydantic)
+        assert result["result"] == {"validated": True}
+        assert "parse_error" not in result
+
+    def test_workdir_forwarded_to_subagent_batch(self, monkeypatch):
+        """workdir is forwarded to each subagent() call from subagent_batch()."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_batch
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subagent_batch([("w1", "p1")], workdir=tmpdir)
+            assert captured[0].get("workdir") == tmpdir
+
+    def test_context_turns_forwarded_to_subagent_batch(self, monkeypatch):
+        """context_turns is forwarded to each subagent() call from subagent_batch()."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_batch
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        subagent_batch([("c1", "p1"), ("c2", "p2")], context_turns=5)
+
+        assert len(captured) == 2
+        for kw in captured:
+            assert kw.get("context_turns") == 5
