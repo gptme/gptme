@@ -352,6 +352,8 @@ if browser == "playwright":
     from ._browser_playwright import click_element as click_element_pw  # fmt: skip
     from ._browser_playwright import close_page as close_page_pw  # fmt: skip
     from ._browser_playwright import fill_element as fill_element_pw  # fmt: skip
+    from ._browser_playwright import get_current_url as get_current_url_pw  # fmt: skip
+    from ._browser_playwright import hover_element as hover_element_pw  # fmt: skip
     from ._browser_playwright import open_page as open_page_pw  # fmt: skip
     from ._browser_playwright import press_key as press_key_pw  # fmt: skip
     from ._browser_playwright import read_logs as read_logs_playwright  # fmt: skip
@@ -364,6 +366,7 @@ if browser == "playwright":
     from ._browser_playwright import scroll_page as scroll_page_pw  # fmt: skip
     from ._browser_playwright import search_duckduckgo, search_google  # fmt: skip
     from ._browser_playwright import select_option as select_option_pw  # fmt: skip
+    from ._browser_playwright import snapshot_page as snapshot_page_pw  # fmt: skip
     from ._browser_playwright import (
         wait_for_element as wait_for_element_pw,  # fmt: skip
     )
@@ -1144,6 +1147,84 @@ def wait_for_element(selector: str, timeout_ms: int = 5000) -> str:
     raise ValueError("Interactive browsing not supported with lynx backend")
 
 
+def hover_element(selector: str) -> str:
+    """Hover over an element on the current page and return updated ARIA snapshot.
+
+    Triggers mouseover/mouseenter events, revealing hover-only content such as
+    dropdown menus, tooltips, and contextual buttons. Use before clicking a
+    menu item that only appears on hover.
+
+    Requires open_page() to be called first.
+
+    Args:
+        selector: Playwright selector for the element to hover over.
+
+    Returns:
+        Updated ARIA snapshot of the page after the hover.
+
+    Example::
+
+        open_page("https://example.com")
+        hover_element("text=Products")   # reveal dropdown
+        click_element("text=Pricing")    # click item that appeared
+    """
+    assert browser
+    if browser == "playwright":
+        return hover_element_pw(selector)
+    raise ValueError("Interactive browsing not supported with lynx backend")
+
+
+def snapshot_page() -> str:
+    """Get the ARIA accessibility snapshot of the current interactive page.
+
+    Returns the structured accessibility tree of the page open via open_page(),
+    reflecting all DOM changes made by subsequent interactions. Use to re-read
+    the current page state without triggering any action.
+
+    Returns:
+        Structured ARIA snapshot including page title and current URL.
+
+    Raises:
+        RuntimeError: If no page is currently open.
+
+    Example::
+
+        open_page("https://example.com/form")
+        fill_element("[name='email']", "user@example.com")
+        state = snapshot_page()   # verify the field was filled before submitting
+        click_element("text=Submit")
+    """
+    assert browser
+    if browser == "playwright":
+        return snapshot_page_pw()
+    raise ValueError("Interactive browsing not supported with lynx backend")
+
+
+def get_current_url() -> str:
+    """Return the URL of the currently open browser page.
+
+    Useful after a redirect, navigation, or login flow to confirm where
+    the browser ended up.
+
+    Returns:
+        The current URL as a string.
+
+    Raises:
+        RuntimeError: If no page is currently open.
+
+    Example::
+
+        open_page("https://example.com/login")
+        fill_element("#username", "alice")
+        click_element("text=Log in")
+        url = get_current_url()   # confirm redirect to /dashboard
+    """
+    assert browser
+    if browser == "playwright":
+        return get_current_url_pw()
+    raise ValueError("Interactive browsing not supported with lynx backend")
+
+
 tool = ToolSpec(
     name="browser",
     desc="Browse, interact with, search, or screenshot the web",
@@ -1159,7 +1240,8 @@ services with APIs, prefer shell or Python over scraping.""",
         "capture screenshots with screenshot_url(), "
         "get ARIA accessibility snapshots with snapshot_url(), "
         "interact with pages using open_page() + click_element()/fill_element()/"
-        "scroll_page()/press_key()/select_option()/wait_for_element(), "
+        "scroll_page()/press_key()/select_option()/wait_for_element()/"
+        "hover_element()/snapshot_page()/get_current_url(), "
         "read interactive page content with read_page_text(), "
         "check browser console errors with read_logs(), "
         "or convert a local PDF to images with pdf_to_images().",

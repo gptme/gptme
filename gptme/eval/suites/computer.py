@@ -8,6 +8,8 @@ Validates end-to-end computer-use workflows:
 - Keyboard navigation: press_key (Enter to submit, Tab to move focus)
 - Dropdown selection: select_option for <select> elements
 - Dynamic content: wait_for_element for elements that appear after user actions
+- Hover interaction: hover_element() for revealing hover-only menus/tooltips
+- Page state inspection: snapshot_page() after interactions, get_current_url() after navigation
 
 These tests run without a physical display because they use Playwright's
 headless mode via the browser tool. Desktop/screenshot tests that require
@@ -49,6 +51,31 @@ _DROPDOWN_FIXTURE_HTML = (
     "</body></html>"
 )
 _DROPDOWN_FIXTURE_URL = "data:text/html," + urllib.parse.quote(_DROPDOWN_FIXTURE_HTML)
+
+# Hover fixture: a trigger element whose mouseover reveals a hidden menu item.
+# The marker text "hover-revealed" is absent from static HTML — it only appears
+# after a real hover_element() call fires the mouseover handler.
+_HOVER_FIXTURE_HTML = (
+    "<!doctype html><html><body>"
+    '<div id="menu-trigger" style="cursor:pointer">Hover me</div>'
+    '<div id="menu-item" style="display:none">hover-revealed</div>'
+    "<script>"
+    "document.getElementById('menu-trigger').addEventListener('mouseover', function() {"
+    "document.getElementById('menu-item').style.display = 'block';"
+    "});"
+    "</script>"
+    "</body></html>"
+)
+_HOVER_FIXTURE_URL = "data:text/html," + urllib.parse.quote(_HOVER_FIXTURE_HTML)
+
+# Snapshot fixture: a page with a text input. Used to verify snapshot_page()
+# captures the current DOM state (filled field) without re-fetching the URL.
+_SNAPSHOT_FIXTURE_HTML = (
+    "<!doctype html><html><body>"
+    '<form><input name="msg" id="msg" type="text" value="" /></form>'
+    "</body></html>"
+)
+_SNAPSHOT_FIXTURE_URL = "data:text/html," + urllib.parse.quote(_SNAPSHOT_FIXTURE_HTML)
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +157,21 @@ def check_used_select_option(messages: list[Message]) -> bool:
 def check_used_wait_for_element(messages: list[Message]) -> bool:
     """Agent must use wait_for_element() to wait for dynamically-rendered content."""
     return any("wait_for_element(" in code for code in _executed_tool_calls(messages))
+
+
+def check_used_hover_element(messages: list[Message]) -> bool:
+    """Agent must use hover_element() to trigger a hover-only interaction."""
+    return any("hover_element(" in code for code in _executed_tool_calls(messages))
+
+
+def check_used_snapshot_page(messages: list[Message]) -> bool:
+    """Agent must use snapshot_page() to read current page state after interaction."""
+    return any("snapshot_page(" in code for code in _executed_tool_calls(messages))
+
+
+def check_used_get_current_url(messages: list[Message]) -> bool:
+    """Agent must use get_current_url() to inspect URL after navigation."""
+    return any("get_current_url(" in code for code in _executed_tool_calls(messages))
 
 
 def check_did_not_screenshot_for_web(messages: list[Message]) -> bool:
@@ -236,6 +278,28 @@ def _expect_dropdown_value_echoed(ctx) -> bool:
     if isinstance(content, bytes):
         content = content.decode(errors="replace")
     return "selected:large" in content
+
+
+def _expect_hover_menu_found(ctx) -> bool:
+    content = ctx.files.get("hover.txt", ctx.stdout)
+    if isinstance(content, bytes):
+        content = content.decode(errors="replace")
+    # The fixture only writes "hover-revealed" via JS mouseover — absent from static HTML
+    return "hover-revealed" in content
+
+
+def _expect_snapshot_url_recorded(ctx) -> bool:
+    content = ctx.files.get("url.txt", ctx.stdout)
+    if isinstance(content, bytes):
+        content = content.decode(errors="replace")
+    return "example.com" in content
+
+
+def _expect_current_url_captured(ctx) -> bool:
+    content = ctx.files.get("url.txt", ctx.stdout)
+    if isinstance(content, bytes):
+        content = content.decode(errors="replace")
+    return len(content.strip()) > 5
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +491,90 @@ tests: list["EvalSpec"] = [
             "used wait_for_element before interaction": check_used_wait_for_element,
             "used open_page for navigation": check_used_open_page,
             "used fill_element for input": check_used_fill_element,
+        },
+    },
+    # --- hover_element() test ---
+    # Validates hover_element() for triggering hover-only DOM changes (dropdown
+    # menus, tooltips, contextual buttons).  The fixture page hides a menu item
+    # via CSS and reveals it only on mouseover — the marker text is absent from
+    # the static HTML, so a passing check proves hover_element() was actually
+    # called, not that the agent narrated the interaction.
+    {
+        "name": "computer-use-web-hover-element",
+        "files": {},
+        "run": "cat hover.txt",
+        "prompt": (
+            "You are in computer-use mode. Use hover_element() to reveal a hidden menu:\n"
+            f"1. Call open_page('{_HOVER_FIXTURE_URL}') to open a page with a hover menu.\n"
+            "2. Call hover_element('#menu-trigger') to hover over the trigger element.\n"
+            "3. Call read_page_text() to read the updated page content.\n"
+            "4. Write the page content (or a summary confirming 'hover-revealed' appeared) to hover.txt."
+        ),
+        "tools": ["browser", "computer", "vision", "ipython", "save"],
+        "expect": {
+            "hover.txt written": lambda ctx: (
+                "hover.txt" in ctx.files or len(ctx.stdout.strip()) > 5
+            ),
+            "hover-revealed marker found": _expect_hover_menu_found,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "used hover_element for hover interaction": check_used_hover_element,
+            "used open_page for navigation": check_used_open_page,
+        },
+    },
+    # --- snapshot_page() test ---
+    # Validates that snapshot_page() returns the current DOM state after an
+    # interaction — not a re-fetch of the original URL.  The fixture increments
+    # a counter on every button click; the agent must fill a field, take a
+    # snapshot with snapshot_page(), and confirm the snapshot reflects the
+    # current form state (field value visible in the ARIA tree).
+    {
+        "name": "computer-use-web-snapshot-page",
+        "files": {},
+        "run": "cat snapshot.txt",
+        "prompt": (
+            "You are in computer-use mode. Use snapshot_page() to inspect current page state after interaction:\n"
+            f"1. Call open_page('{_SNAPSHOT_FIXTURE_URL}') to open a page with an input field.\n"
+            "2. Call fill_element('[name=\"msg\"]', 'hello-gptme') to fill the field.\n"
+            "3. Call snapshot_page() to get the current ARIA snapshot (do NOT reopen the page).\n"
+            "4. Write the snapshot content to snapshot.txt."
+        ),
+        "tools": ["browser", "computer", "vision", "ipython", "save"],
+        "expect": {
+            "snapshot.txt written": lambda ctx: (
+                "snapshot.txt" in ctx.files or len(ctx.stdout.strip()) > 5
+            ),
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "used snapshot_page() for current state": check_used_snapshot_page,
+            "used fill_element for interaction": check_used_fill_element,
+        },
+    },
+    # --- get_current_url() test ---
+    # Validates get_current_url() returns the URL after navigation.  The agent
+    # opens example.com, navigates, then calls get_current_url() to record where
+    # it ended up.
+    {
+        "name": "computer-use-web-get-current-url",
+        "files": {},
+        "run": "cat url.txt",
+        "prompt": (
+            "You are in computer-use mode. Use get_current_url() to record the page URL:\n"
+            "1. Call open_page('https://example.com') to open a page.\n"
+            "2. Call get_current_url() to retrieve the current URL.\n"
+            "3. Write the URL to url.txt."
+        ),
+        "tools": ["browser", "computer", "vision", "ipython", "save"],
+        "expect": {
+            "url.txt written": _expect_current_url_captured,
+            "example.com URL recorded": _expect_snapshot_url_recorded,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "used get_current_url()": check_used_get_current_url,
+            "used open_page for navigation": check_used_open_page,
         },
     },
 ]

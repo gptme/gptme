@@ -652,3 +652,165 @@ def test_expect_dropdown_value_echoed_fails_unrelated_content():
         exit_code=1,
     )
     assert not computer_suite._expect_dropdown_value_echoed(ctx)
+
+
+# ---------------------------------------------------------------------------
+# check_used_hover_element
+# ---------------------------------------------------------------------------
+
+
+def test_check_used_hover_element_accepts(monkeypatch):
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["hover_element('#menu-trigger')"],
+    )
+    assert computer_suite.check_used_hover_element([])
+
+
+def test_check_used_hover_element_rejects_click(monkeypatch):
+    """click_element is not hover_element."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["click_element('#menu-trigger')"],
+    )
+    assert not computer_suite.check_used_hover_element([])
+
+
+def test_check_used_hover_element_rejects_empty(monkeypatch):
+    monkeypatch.setattr(computer_suite, "_executed_tool_calls", lambda messages: [])
+    assert not computer_suite.check_used_hover_element([])
+
+
+# ---------------------------------------------------------------------------
+# check_used_snapshot_page
+# ---------------------------------------------------------------------------
+
+
+def test_check_used_snapshot_page_accepts(monkeypatch):
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["snapshot_page()"],
+    )
+    assert computer_suite.check_used_snapshot_page([])
+
+
+def test_check_used_snapshot_page_rejects_snapshot_url(monkeypatch):
+    """snapshot_url(url) is not snapshot_page()."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["snapshot_url('https://example.com')"],
+    )
+    assert not computer_suite.check_used_snapshot_page([])
+
+
+def test_check_used_snapshot_page_rejects_empty(monkeypatch):
+    monkeypatch.setattr(computer_suite, "_executed_tool_calls", lambda messages: [])
+    assert not computer_suite.check_used_snapshot_page([])
+
+
+# ---------------------------------------------------------------------------
+# check_used_get_current_url
+# ---------------------------------------------------------------------------
+
+
+def test_check_used_get_current_url_accepts(monkeypatch):
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["get_current_url()"],
+    )
+    assert computer_suite.check_used_get_current_url([])
+
+
+def test_check_used_get_current_url_rejects_observe_web(monkeypatch):
+    """observe_web is not get_current_url."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["observe_web('https://example.com')"],
+    )
+    assert not computer_suite.check_used_get_current_url([])
+
+
+def test_check_used_get_current_url_rejects_empty(monkeypatch):
+    monkeypatch.setattr(computer_suite, "_executed_tool_calls", lambda messages: [])
+    assert not computer_suite.check_used_get_current_url([])
+
+
+# ---------------------------------------------------------------------------
+# _expect_hover_menu_found
+# ---------------------------------------------------------------------------
+
+
+def test_expect_hover_menu_found_via_file(monkeypatch):
+    ctx = ResultContext(
+        files={"hover.txt": "The page now shows hover-revealed menu item"},
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_hover_menu_found(ctx)
+
+
+def test_expect_hover_menu_found_via_stdout(monkeypatch):
+    ctx = ResultContext(
+        files={},
+        stdout="hover-revealed item appeared",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_hover_menu_found(ctx)
+
+
+def test_expect_hover_menu_found_rejects_no_marker():
+    ctx = ResultContext(
+        files={"hover.txt": "Error: element not found"},
+        stdout="Error",
+        stderr="",
+        exit_code=1,
+    )
+    assert not computer_suite._expect_hover_menu_found(ctx)
+
+
+# ---------------------------------------------------------------------------
+# _expect_snapshot_url_recorded / _expect_current_url_captured
+# ---------------------------------------------------------------------------
+
+
+def test_expect_snapshot_url_recorded_accepts_example_com():
+    ctx = ResultContext(
+        files={"url.txt": "https://example.com"},
+        stdout="https://example.com",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_snapshot_url_recorded(ctx)
+
+
+def test_expect_snapshot_url_recorded_rejects_unrelated():
+    ctx = ResultContext(
+        files={"url.txt": "Error"},
+        stdout="Error",
+        stderr="",
+        exit_code=1,
+    )
+    assert not computer_suite._expect_snapshot_url_recorded(ctx)
+
+
+def test_expect_current_url_captured_requires_nonempty():
+    ctx = ResultContext(files={}, stdout="", stderr="", exit_code=0)
+    assert not computer_suite._expect_current_url_captured(ctx)
+
+
+def test_expect_current_url_captured_accepts_url():
+    ctx = ResultContext(
+        files={"url.txt": "https://example.com"},
+        stdout="https://example.com",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_current_url_captured(ctx)

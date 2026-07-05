@@ -906,6 +906,95 @@ def wait_for_element(selector: str, timeout_ms: int = 5000) -> str:
     return _execute_with_retry(_wait_for_element, selector, timeout_ms)
 
 
+def _hover(browser: Browser, selector: str) -> str:
+    """Hover over an element on the current page."""
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    _current_page.locator(selector).hover(timeout=10000)
+    _current_page.wait_for_timeout(300)
+    return _page_snapshot()
+
+
+def hover_element(selector: str) -> str:
+    """Hover over an element on the current page and return updated ARIA snapshot.
+
+    Triggers ``mouseover`` and ``mouseenter`` events, revealing hover-only
+    content such as dropdown menus, tooltips, and contextual buttons.  Use it
+    before clicking a menu item that only appears on hover.
+
+    Args:
+        selector: Playwright selector for the element to hover over.
+
+    Returns:
+        Updated ARIA snapshot of the page after the hover.
+
+    Example::
+
+        open_page("https://example.com")
+        hover_element("text=Products")   # reveal dropdown
+        click_element("text=Pricing")    # click item that appeared
+    """
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    logger.info("Hovering over element: '%s'", selector)
+    return _execute_with_retry(_hover, selector)
+
+
+def snapshot_page() -> str:
+    """Get the ARIA accessibility snapshot of the current interactive page.
+
+    Returns the structured accessibility tree of the page that is currently
+    open via ``open_page()``, reflecting all DOM changes made by subsequent
+    interactions (clicks, fills, scrolls, key presses, hover events).
+
+    Use this when you need to re-read the current page state without
+    triggering any action — e.g. after a dynamic update or to verify a
+    form's state before submitting.
+
+    Returns:
+        Structured ARIA snapshot including page title and current URL.
+
+    Raises:
+        RuntimeError: If no page is currently open.
+
+    Example::
+
+        open_page("https://example.com/form")
+        fill_element("[name='email']", "user@example.com")
+        state = snapshot_page()   # verify the field was filled before submitting
+        click_element("text=Submit")
+    """
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    logger.info("Snapshotting current page state")
+    return _page_snapshot()
+
+
+def get_current_url() -> str:
+    """Return the URL of the currently open browser page.
+
+    Useful after a redirect, navigation, or login flow to confirm where
+    the browser ended up.
+
+    Returns:
+        The current URL as a string.
+
+    Raises:
+        RuntimeError: If no page is currently open.
+
+    Example::
+
+        open_page("https://example.com/login")
+        fill_element("#username", "alice")
+        fill_element("#password", "secret")
+        click_element("text=Log in")
+        url = get_current_url()   # confirm redirect to /dashboard
+    """
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    return _current_page.url
+
+
 def _take_screenshot(
     browser: Browser, url: str, path: Path | str | None = None
 ) -> Path:
