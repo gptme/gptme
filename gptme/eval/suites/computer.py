@@ -170,6 +170,7 @@ _DOOM_MILESTONE_FIXTURE_HTML = (
     "}"
     "function shoot(){"
     "if(!enemyAlive) return;"
+    "if(playerX===enemyX){enemyAlive=false;score=100;milestone='enemy-defeated';return;}"
     "var dir=enemyX>playerX?1:-1;"
     "var pos=playerX+dir;"
     "while(pos>=0&&pos<COLS){"

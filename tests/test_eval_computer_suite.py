@@ -1157,6 +1157,13 @@ def test_doom_milestone_fixture_has_keyboard_listener():
     assert "ArrowRight" in html
 
 
+def test_doom_milestone_fixture_shoots_when_player_reaches_enemy_cell():
+    """Auto-aim must still hit if the player moves onto the enemy cell."""
+    html = computer_suite._DOOM_MILESTONE_FIXTURE_HTML
+    assert "if(playerX===enemyX)" in html
+    assert "milestone='enemy-defeated';return;" in html
+
+
 def test_doom_milestone_prompt_does_not_leak_marker():
     """The agent must read the page to discover the marker, not copy it from the prompt."""
     spec = next(
