@@ -2964,6 +2964,100 @@ def test_subagent_pipeline_multiple_items_independent():
     assert set(started_agents) == {"a-s0", "b-s0", "c-s0"}
 
 
+def test_subagent_pipeline_timeout_is_total_deadline():
+    """The outer timeout applies to the whole pipeline, not once per item."""
+    import threading
+    import time
+
+    from gptme.tools.subagent import subagent_pipeline
+
+    release_waits = threading.Event()
+    created_threads = []
+    real_thread = threading.Thread
+
+    def tracking_thread(*args, **kwargs):
+        thread = real_thread(*args, **kwargs)
+        created_threads.append(thread)
+        return thread
+
+    def slow_wait(agent_id, **kwargs):
+        release_waits.wait(timeout=1)
+        return {"status": "success", "result": f"late {agent_id}"}
+
+    try:
+        with (
+            patch("gptme.tools.subagent.batch.threading.Thread", tracking_thread),
+            patch("gptme.tools.subagent.batch.subagent"),
+            patch("gptme.tools.subagent.batch.subagent_wait", side_effect=slow_wait),
+        ):
+            started = time.perf_counter()
+            results = subagent_pipeline(
+                [("a", "task A"), ("b", "task B"), ("c", "task C")],
+                lambda item, prev: item,
+                timeout=0.05,
+            )
+            elapsed = time.perf_counter() - started
+    finally:
+        release_waits.set()
+        for thread in created_threads:
+            thread.join(timeout=1)
+
+    assert elapsed < 0.12
+    assert [item[0]["status"] for item in results] == [
+        "timeout",
+        "timeout",
+        "timeout",
+    ]
+
+
+def test_subagent_pipeline_timeout_result_is_stable_snapshot():
+    """Late worker completion must not mutate the caller's returned timeout list."""
+    import threading
+
+    from gptme.tools.subagent import subagent_pipeline
+
+    release_stage_1 = threading.Event()
+    created_threads = []
+    real_thread = threading.Thread
+
+    def tracking_thread(*args, **kwargs):
+        thread = real_thread(*args, **kwargs)
+        created_threads.append(thread)
+        return thread
+
+    def wait_by_stage(agent_id, **kwargs):
+        if agent_id.endswith("-s0"):
+            return {"status": "success", "result": "stage 0 complete"}
+        release_stage_1.wait(timeout=1)
+        return {"status": "success", "result": "late stage 1 complete"}
+
+    try:
+        with (
+            patch("gptme.tools.subagent.batch.threading.Thread", tracking_thread),
+            patch("gptme.tools.subagent.batch.subagent"),
+            patch(
+                "gptme.tools.subagent.batch.subagent_wait",
+                side_effect=wait_by_stage,
+            ),
+        ):
+            results = subagent_pipeline(
+                [("item", "task")],
+                lambda item, prev: item,
+                lambda item, prev: f"verify {prev}",
+                timeout=0.05,
+            )
+
+        assert results[0][0]["status"] == "success"
+        assert results[0][1]["status"] == "timeout"
+    finally:
+        release_stage_1.set()
+        for thread in created_threads:
+            thread.join(timeout=1)
+
+    assert results[0][1]["status"] == "timeout"
+    assert "timed out" in results[0][1]["result"]
+
+
 def test_subagent_pipeline_uses_full_agent_id_format():
     """Agent IDs follow the {prefix}-s{stage_idx} convention."""
     from gptme.tools.subagent import subagent_pipeline
@@ -2990,6 +3084,38 @@ def test_subagent_pipeline_uses_full_agent_id_format():
     assert "review-auth-s1" in agent_ids_seen
     assert "review-db-s0" in agent_ids_seen
     assert "review-db-s1" in agent_ids_seen
+
+
+def test_subagent_pipeline_forwards_acp_options():
+    """subagent_pipeline forwards ACP options consistently with parallel/batch."""
+    from gptme.tools.subagent import subagent_pipeline
+
+    subagent_kwargs: list[dict] = []
+
+    def fake_subagent(**kwargs):
+        subagent_kwargs.append(kwargs)
+
+    with (
+        patch("gptme.tools.subagent.batch.subagent", side_effect=fake_subagent),
+        patch("gptme.tools.subagent.batch.subagent_wait") as mock_wait,
+    ):
+        mock_wait.return_value = {"status": "success", "result": "ok"}
+
+        subagent_pipeline(
+            [("item", "prompt")],
+            lambda item, prev: "stage0",
+            lambda item, prev: "stage1",
+            timeout=10,
+            use_acp=True,
+            acp_command="fake-acp",
+        )
+
+    assert [kwargs["agent_id"] for kwargs in subagent_kwargs] == [
+        "item-s0",
+        "item-s1",
+    ]
+    assert all(kwargs["use_acp"] is True for kwargs in subagent_kwargs)
+    assert all(kwargs["acp_command"] == "fake-acp" for kwargs in subagent_kwargs)
 
 
 def test_subagent_pipeline_output_schema_only_on_final_stage():

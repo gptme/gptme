@@ -7,14 +7,17 @@ staged fan-out with no barrier between stages — item A advances to stage 2
 while item B is still in stage 1.
 """
 
+import copy
 import json
 import logging
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import cast
 
 from .api import subagent, subagent_cancel, subagent_wait
 from .types import ReturnType
@@ -464,8 +467,10 @@ def subagent_parallel(
 def subagent_pipeline(
     items: list[tuple[str, str]],
     *stages: Callable[[str, str], str],
-    timeout: int = 600,
+    timeout: float = 600,
     use_subprocess: bool = False,
+    use_acp: bool = False,
+    acp_command: str = "gptme-acp",
     model: str | None = None,
     profile: str | None = None,
     isolated: bool = False,
@@ -493,6 +498,9 @@ def subagent_pipeline(
             subagent in the chain.
         timeout: Maximum seconds to wait for the entire pipeline to finish.
         use_subprocess: If True, run each subagent in a subprocess.
+        use_acp: If True, run each subagent via the ACP protocol.
+        acp_command: ACP agent command (default: "gptme-acp"). Only used when
+            ``use_acp=True``.
         model: Model override applied to every subagent.
         profile: Agent profile name applied to every subagent.
         isolated: If True, run each subagent in its own git worktree.
@@ -543,7 +551,9 @@ def subagent_pipeline(
         raise ValueError("subagent_pipeline requires at least one stage")
 
     # Per-item results: results[item_idx][stage_idx] = result dict
-    all_results: list[list[dict]] = [[None] * len(stages) for _ in items]  # type: ignore[list-item]
+    all_results: list[list[dict | None]] = [[None] * len(stages) for _ in items]
+    results_lock = threading.Lock()
+    wait_timeout = max(1, int(timeout))
 
     def process_item(item_idx: int, item_id_prefix: str, item_prompt: str) -> None:
         prev_result_text = ""
@@ -557,6 +567,8 @@ def subagent_pipeline(
                     agent_id=agent_id,
                     prompt=stage_prompt,
                     use_subprocess=use_subprocess,
+                    use_acp=use_acp,
+                    acp_command=acp_command,
                     model=model,
                     profile=profile,
                     isolated=isolated,
@@ -567,19 +579,21 @@ def subagent_pipeline(
                 )
                 result = subagent_wait(
                     agent_id,
-                    timeout=timeout,
+                    timeout=wait_timeout,
                     max_result_chars=0,  # full result for schema parsing
                 )
             except Exception as exc:
                 result = {"status": "failure", "result": str(exc)}
-            all_results[item_idx][stage_idx] = result
+            with results_lock:
+                all_results[item_idx][stage_idx] = result
             if result.get("status") != "success":
                 # On failure, mark remaining stages as skipped and abort item
-                for remaining in range(stage_idx + 1, len(stages)):
-                    all_results[item_idx][remaining] = {
-                        "status": "skipped",
-                        "result": f"Skipped: stage {stage_idx} failed",
-                    }
+                with results_lock:
+                    for remaining in range(stage_idx + 1, len(stages)):
+                        all_results[item_idx][remaining] = {
+                            "status": "skipped",
+                            "result": f"Skipped: stage {stage_idx} failed",
+                        }
                 return
             prev_result_text = result.get("result") or ""
             if "\n\nFull log: " in prev_result_text:
@@ -593,26 +607,31 @@ def subagent_pipeline(
         )
         for idx, (item_id, item_prompt) in enumerate(items)
     ]
+    deadline = time.monotonic() + timeout
     for t in threads:
         t.start()
     for t in threads:
-        t.join(timeout=timeout)
+        remaining = max(0.0, deadline - time.monotonic())
+        t.join(timeout=remaining)
 
-    # Fill any missing results (thread timed out before join)
-    for item_idx in range(len(items)):
-        for stage_idx in range(len(stages)):
-            if all_results[item_idx][stage_idx] is None:
-                all_results[item_idx][stage_idx] = {
-                    "status": "timeout",
-                    "result": f"Pipeline timed out after {timeout}s",
-                }
-
-    # Parse final-stage results against output_schema if provided
-    if output_schema is not None:
+    with results_lock:
+        # Fill any missing results (thread timed out before join). Threads may
+        # continue running after this point, so return a deep-copied snapshot
+        # rather than the mutable worker-owned result matrix.
         for item_idx in range(len(items)):
-            final_idx = len(stages) - 1
-            all_results[item_idx][final_idx] = _parse_result(
-                all_results[item_idx][final_idx], output_schema
-            )
+            for stage_idx in range(len(stages)):
+                if all_results[item_idx][stage_idx] is None:
+                    all_results[item_idx][stage_idx] = {
+                        "status": "timeout",
+                        "result": f"Pipeline timed out after {timeout}s",
+                    }
 
-    return all_results
+        # Parse final-stage results against output_schema if provided
+        if output_schema is not None:
+            for item_idx in range(len(items)):
+                final_idx = len(stages) - 1
+                all_results[item_idx][final_idx] = _parse_result(
+                    all_results[item_idx][final_idx] or {}, output_schema
+                )
+
+        return copy.deepcopy(cast(list[list[dict]], all_results))
