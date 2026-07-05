@@ -1069,3 +1069,246 @@ def latency_cmd(shots: int, as_json: bool, display: str | None):
                 os.environ.pop("DISPLAY", None)
             else:
                 os.environ["DISPLAY"] = original_display
+
+
+# ---------------------------------------------------------------------------
+# doctor command
+# ---------------------------------------------------------------------------
+
+_PASS = click.style("✓", fg="green")
+_WARN = click.style("!", fg="yellow")
+_FAIL = click.style("✗", fg="red")
+
+
+def _check(label: str, ok: bool, warn: bool = False, hint: str = "") -> bool:
+    """Print one doctor check line and return True if it passed."""
+    if ok:
+        click.echo(f"  {_PASS}  {label}")
+    elif warn:
+        click.echo(f"  {_WARN}  {label}" + (f"\n       {hint}" if hint else ""))
+    else:
+        click.echo(f"  {_FAIL}  {label}" + (f"\n       {hint}" if hint else ""))
+    return ok
+
+
+@computer.command("doctor")
+@click.option(
+    "--display",
+    default=None,
+    metavar="DISPLAY",
+    help="X11 display string (Linux only). Defaults to $DISPLAY.",
+)
+def doctor_cmd(display: str | None):
+    """Check computer-use prerequisites and report what is (not) working.
+
+    Verifies that all required system tools, Python packages, and display
+    infrastructure are available for the ``computer`` and ``browser`` tools.
+
+    This command directly addresses the "figure out what is causing the delays"
+    checklist item in gptme/gptme#216 by surfacing missing dependencies and
+    reporting a screenshot latency sample.
+
+    Examples::
+
+        # Check current setup
+        gptme-util computer doctor
+
+        # Check a specific X11 display
+        gptme-util computer doctor --display :1
+    """
+    import platform
+    import statistics
+    import time
+
+    system = platform.system()
+    errors = 0
+
+    click.echo("Computer-use doctor\n")
+
+    # --- Platform ---
+    click.echo(f"Platform: {system} ({platform.machine()})\n")
+
+    # --- Display / X11 (Linux) ---
+    if system == "Linux":
+        click.echo("Display:")
+        effective_display = display or os.environ.get("DISPLAY", "")
+        ok_display = bool(effective_display)
+        if not _check(
+            f"$DISPLAY={effective_display!r}" if ok_display else "$DISPLAY not set",
+            ok=ok_display,
+            hint="Start Xvfb:  Xvfb :1 -screen 0 1024x768x24 &  && export DISPLAY=:1",
+        ):
+            errors += 1
+
+        ok_xdotool = bool(shutil.which("xdotool"))
+        if not _check(
+            "xdotool installed" if ok_xdotool else "xdotool not found (mouse/keyboard)",
+            ok=ok_xdotool,
+            hint="sudo apt install xdotool",
+        ):
+            errors += 1
+
+        ok_scrot = bool(shutil.which("scrot"))
+        ok_ffmpeg_scap = bool(shutil.which("ffmpeg"))
+        # scrot is preferred; ffmpeg fallback works too
+        if ok_scrot:
+            _check("scrot installed (screenshot backend)", ok=True)
+        elif ok_ffmpeg_scap:
+            _check("scrot not found, ffmpeg available (fallback)", ok=True, warn=True)
+        else:
+            _check(
+                "scrot not found (screenshots will fail)",
+                ok=False,
+                hint="sudo apt install scrot",
+            )
+            errors += 1
+
+        # AT-SPI (optional — needed for accessibility_tree action)
+        try:
+            import pyatspi  # type: ignore[import-not-found]  # noqa: F401
+
+            _check("pyatspi installed (AT-SPI accessibility tree)", ok=True)
+        except ImportError:
+            _check(
+                "pyatspi not installed (accessibility_tree action disabled)",
+                ok=True,
+                warn=True,
+                hint="pip install pyatspi  (optional — needed for accessibility_tree action)",
+            )
+        click.echo()
+
+    # --- macOS native tools ---
+    if system == "Darwin":
+        click.echo("macOS tools:")
+        # screencapture is a built-in macOS utility — always present
+        ok_sc = bool(shutil.which("screencapture"))
+        if not _check(
+            "screencapture available"
+            if ok_sc
+            else "screencapture missing (unexpected)",
+            ok=ok_sc,
+        ):
+            errors += 1
+
+        ok_cliclick = bool(shutil.which("cliclick"))
+        if not _check(
+            "cliclick installed (mouse/keyboard)"
+            if ok_cliclick
+            else "cliclick not found (mouse/keyboard disabled)",
+            ok=ok_cliclick,
+            hint="brew install cliclick",
+        ):
+            errors += 1
+
+        # osascript: built-in, needed for accessibility tree on macOS
+        ok_osa = bool(shutil.which("osascript"))
+        _check(
+            "osascript available (macOS accessibility tree)"
+            if ok_osa
+            else "osascript missing (unexpected)",
+            ok=ok_osa,
+        )
+        click.echo()
+
+    # --- Browser / Playwright ---
+    click.echo("Browser (Playwright):")
+    try:
+        from playwright.sync_api import (
+            sync_playwright,  # type: ignore[import-not-found]
+        )
+
+        _check("playwright package installed", ok=True)
+
+        # Check that at least one browser binary is present
+        try:
+            with sync_playwright() as pw:
+                chromium_path = pw.chromium.executable_path
+                ok_chromium = bool(chromium_path) and Path(chromium_path).exists()
+        except Exception:
+            ok_chromium = False
+
+        if not _check(
+            "Playwright chromium available"
+            if ok_chromium
+            else "Playwright chromium not found",
+            ok=ok_chromium,
+            hint="python -m playwright install chromium",
+        ):
+            errors += 1
+    except ImportError:
+        _check(
+            "playwright not installed (browser tool disabled)",
+            ok=False,
+            hint="pip install playwright  &&  python -m playwright install chromium",
+        )
+        errors += 1
+    click.echo()
+
+    # --- Screenshot latency sample ---
+    click.echo("Screenshot latency:")
+    try:
+        from ..tools.computer_transport import NativeComputerTransport, get_transport
+
+        transport = get_transport()
+        if transport is None:
+            if (system == "Linux" and os.environ.get("DISPLAY")) or system == "Darwin":
+                transport = NativeComputerTransport()
+
+        if transport is None:
+            _check(
+                "no display available — skipping latency sample",
+                ok=False,
+                hint="Set $DISPLAY first",
+            )
+            errors += 1
+        else:
+            # Warm-up shot (not measured)
+            try:
+                transport.screenshot()
+            except Exception as exc:
+                _check(f"warm-up screenshot failed: {exc}", ok=False)
+                errors += 1
+                transport = None  # skip the timed loop
+
+            if transport is not None:
+                durations_ms: list[float] = []
+                for _ in range(3):
+                    t0 = time.perf_counter()
+                    try:
+                        transport.screenshot()
+                        durations_ms.append((time.perf_counter() - t0) * 1000)
+                    except Exception:
+                        pass
+
+                if durations_ms:
+                    median_ms = statistics.median(durations_ms)
+                    p = _PASS if median_ms < 300 else _WARN
+                    click.echo(
+                        f"  {p}  median={median_ms:.0f} ms  "
+                        f"min={min(durations_ms):.0f} ms  max={max(durations_ms):.0f} ms"
+                        " (3 shots)"
+                    )
+                    if median_ms >= 300:
+                        click.echo(
+                            "       High latency — possible causes: remote X11, high load, "
+                            "missing scrot.\n"
+                            "       Run `gptme-util computer latency --shots 10` for a "
+                            "detailed breakdown."
+                        )
+                else:
+                    _check("all screenshot attempts failed", ok=False)
+                    errors += 1
+    except Exception as exc:
+        _check(f"could not measure latency: {exc}", ok=False)
+    click.echo()
+
+    # --- Summary ---
+    if errors == 0:
+        click.echo(
+            click.style("✅  All checks passed — computer-use is ready.", fg="green")
+        )
+    else:
+        click.echo(
+            click.style(f"❌  {errors} check(s) failed.", fg="red")
+            + "  Fix the items above and re-run `gptme-util computer doctor`."
+        )
