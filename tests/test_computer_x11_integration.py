@@ -95,7 +95,7 @@ def xvfb_display() -> Generator[str, None, None]:
         pytest.skip("Xvfb did not start within 10s")
 
     # Start a minimal window manager so window_focus / windowactivate work.
-    # Wait up to 3s for it to register itself with the X server (CI can be slow).
+    # Wait up to 3s for it to accept EWMH requests (CI can be slow).
     wm_proc = subprocess.Popen(
         ["fluxbox"],
         env={**os.environ, "DISPLAY": display},
@@ -105,7 +105,7 @@ def xvfb_display() -> Generator[str, None, None]:
     wm_deadline = time.monotonic() + 3
     while time.monotonic() < wm_deadline:
         wm_check = subprocess.run(
-            ["xdotool", "getactivewindow"],
+            ["xdotool", "set_desktop", "0"],
             env={**os.environ, "DISPLAY": display},
             capture_output=True,
             check=False,
@@ -119,7 +119,7 @@ def xvfb_display() -> Generator[str, None, None]:
                 f"fluxbox exited with {wm_proc.returncode} before tests could run"
             )
         time.sleep(0.1)
-    # Allow even with no active window — fluxbox may not set one until a window is mapped
+    # Allow timeout as long as fluxbox stayed alive; xterm mapping will verify activation.
 
     yield display
 
