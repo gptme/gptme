@@ -356,7 +356,7 @@ jobs:
           "
 
       - name: Build the app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -634,7 +634,7 @@ jobs:
 
       - name: Build and publish release (signed macOS)
         if: matrix.platform == 'macos-latest' && env.HAS_APPLE_SIGNING == 'true'
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -654,7 +654,7 @@ jobs:
 
       - name: Build and publish release (unsigned/fallback)
         if: matrix.platform != 'macos-latest' || env.HAS_APPLE_SIGNING != 'true'
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
