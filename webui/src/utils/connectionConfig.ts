@@ -1,5 +1,6 @@
 import {
   findOrCreateServerByUrl,
+  connectServer,
   getActiveServer,
   setActiveServer,
   updateServer,
@@ -223,6 +224,7 @@ export async function processConnectionFromHash(hash?: string): Promise<Connecti
         authToken: result.userToken,
         useAuthToken: true,
       });
+      connectServer(server.id);
       setActiveServer(server.id);
 
       // Clean fragment from URL

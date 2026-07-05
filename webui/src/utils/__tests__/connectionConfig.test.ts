@@ -8,10 +8,12 @@ const mockFindOrCreateServerByUrl = jest.fn((baseUrl: string, config: Record<str
 }));
 const mockGetActiveServer = jest.fn(() => null);
 const mockSetActiveServer = jest.fn();
+const mockConnectServer = jest.fn();
 const mockUpdateServer = jest.fn();
 
 jest.mock('@/stores/servers', () => ({
   findOrCreateServerByUrl: mockFindOrCreateServerByUrl,
+  connectServer: mockConnectServer,
   getActiveServer: mockGetActiveServer,
   setActiveServer: mockSetActiveServer,
   updateServer: mockUpdateServer,
@@ -44,6 +46,7 @@ describe('processConnectionFromHash', () => {
 
   beforeEach(() => {
     mockFindOrCreateServerByUrl.mockClear();
+    mockConnectServer.mockClear();
     mockGetActiveServer.mockClear();
     mockSetActiveServer.mockClear();
     mockUpdateServer.mockClear();
@@ -86,6 +89,7 @@ describe('processConnectionFromHash', () => {
       }
     );
     expect(mockSetActiveServer).toHaveBeenCalledWith('server-1');
+    expect(mockConnectServer).toHaveBeenCalledWith('server-1');
     expect(result).toEqual({
       baseUrl: 'https://instance-123.fleet.gptme.ai',
       authToken: 'token-123',
@@ -106,6 +110,7 @@ describe('processConnectionFromHash', () => {
 
     // Registry should not be mutated on failed exchange
     expect(mockFindOrCreateServerByUrl).not.toHaveBeenCalled();
+    expect(mockConnectServer).not.toHaveBeenCalled();
     expect(mockSetActiveServer).not.toHaveBeenCalled();
   });
 });
