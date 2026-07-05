@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from ...message import Message
-from .. import get_tools, load_tool, set_tools
+from .. import clear_tools, get_tools, load_tool, set_tools
 from .._allowlist import (
     is_hint_pattern,
     matching_allowlist_tools,
@@ -176,6 +176,16 @@ def _create_subagent_thread(
     # Store agent_id in thread-local so the progress tool can identify this subagent
     if agent_id is not None:
         _thread_local.agent_id = agent_id
+
+    # Detach from the parent thread's tool list. Python's threading.Thread copies
+    # the parent's context into the child, so _loaded_tools_var initially points to
+    # the *same list object* as the parent. Any append inside init_tools() or
+    # _ensure_subagent_signal_tools_loaded() would mutate the parent's list, creating
+    # a data race with the parent's concurrent execute_msg() calls. Calling
+    # clear_tools() here replaces the ContextVar binding with a fresh empty list so
+    # all subsequent tool operations operate on an independent list. This is the fix
+    # for the thread-mode "transient non-runnable" race (#554).
+    clear_tools()
 
     # noreorder
     from gptme.chat import chat  # fmt: skip

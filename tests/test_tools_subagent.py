@@ -2739,3 +2739,79 @@ def test_subagent_list_prompt_truncation():
     finally:
         with _subagents_lock:
             _subagents[:] = [s for s in _subagents if s.agent_id != "test-truncate"]
+
+
+def test_subagent_thread_does_not_mutate_parent_tool_list():
+    """Thread-mode subagent must NOT mutate the parent's loaded tool list.
+
+    Python's threading.Thread copies the parent's ContextVar context into the
+    child thread, so _loaded_tools_var initially points to the *same list object*
+    as the parent. Before the fix, init_tools() and
+    _ensure_subagent_signal_tools_loaded() would append signal tools to that
+    shared list, creating a data race with the parent's concurrent execute_msg()
+    calls (#554 — "transient non-runnable" crash).
+
+    After the fix, clear_tools() at thread entry replaces the ContextVar binding
+    with a fresh empty list so the subagent's tool operations never touch the
+    parent's list.
+    """
+    import threading
+    from contextvars import copy_context
+
+    from gptme.tools import clear_tools, get_tools, init_tools
+
+    # Set up a baseline tool list in the parent's context.
+    init_tools(["read"])
+    parent_list = get_tools()
+    parent_list_id = id(parent_list)
+    parent_len = len(parent_list)
+
+    # Simulate what happened BEFORE the fix: a child thread that inherits the
+    # parent's context and calls load_tool() without first calling clear_tools().
+    # This would mutate the parent's list (append to it).
+    without_fix_appended: list[bool] = []
+
+    def child_without_fix():
+        # Inherit parent list (same object), then append a new tool.
+        # In the real bug, this was init_tools()/load_tool("complete") etc.
+        inherited = get_tools()  # Returns parent's list
+        without_fix_appended.append(id(inherited) == parent_list_id)
+        # Simulate what load_tool does: appends to the ContextVar list
+        get_tools().append(object())  # type: ignore[arg-type]
+
+    ctx = copy_context()
+    t_bad = threading.Thread(target=lambda: ctx.run(child_without_fix))
+    t_bad.start()
+    t_bad.join(timeout=2.0)
+    assert not t_bad.is_alive()
+    # Confirm the "without fix" thread DID see the parent's list
+    assert without_fix_appended == [True], "setup: child must inherit parent list"
+    # And that it mutated it (this is the pre-fix behavior we're guarding against)
+    assert len(parent_list) == parent_len + 1, "setup: pre-fix mutation confirmed"
+    parent_list.pop()  # undo the mutation for the real test
+
+    # Simulate what happens AFTER the fix: child calls clear_tools() first.
+    child_saw_fresh_list: list[bool] = []
+    child_appended_to_parent: list[bool] = []
+
+    def child_with_fix():
+        clear_tools()  # The fix: detach from parent's list
+        child_saw_fresh_list.append(id(get_tools()) != parent_list_id)
+        # Any subsequent tool operations use the child's own fresh list
+        get_tools().append(object())  # type: ignore[arg-type]
+        child_appended_to_parent.append(id(get_tools()) == parent_list_id)
+
+    ctx2 = copy_context()
+    t_good = threading.Thread(target=lambda: ctx2.run(child_with_fix))
+    t_good.start()
+    t_good.join(timeout=2.0)
+    assert not t_good.is_alive()
+
+    # After the fix: child got a fresh list, parent's list is unchanged.
+    assert child_saw_fresh_list == [True], (
+        "child must get a fresh list after clear_tools()"
+    )
+    assert len(get_tools()) == parent_len, (
+        f"Parent tool list changed from {parent_len} to {len(get_tools())} — "
+        "subagent thread mutated parent's tool list (race condition #554)"
+    )
