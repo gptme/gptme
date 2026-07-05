@@ -100,7 +100,7 @@ export const WelcomeView = () => {
       const conversationId = await api.createConversationWithPlaceholder(message, {
         model: options?.model,
         stream: options?.stream,
-        workspace: options?.workspace || '.',
+        workspace: options?.workspace,
         pendingFiles: options?.pendingFiles,
         maxTokens: options?.maxTokens,
         temperature: options?.temperature,

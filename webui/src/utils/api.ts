@@ -1187,7 +1187,10 @@ export class ApiClient {
         chat: {
           model: options?.model,
           stream: options?.stream,
-          workspace: options?.workspace || '.',
+          // Don't default to '.' — the server validates workspace is within the
+          // conversation logdir, and '.' (resolved to server CWD) fails that check.
+          // Omitting workspace lets the server use its '@log' default.
+          workspace: options?.workspace,
         },
       });
       try {
@@ -1206,7 +1209,8 @@ export class ApiClient {
         chat: {
           model: options?.model,
           stream: options?.stream,
-          workspace: options?.workspace || '.',
+          // Don't default to '.' — server validates workspace containment within logdir.
+          workspace: options?.workspace,
         },
       });
     }
