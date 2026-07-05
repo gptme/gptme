@@ -3823,6 +3823,106 @@ class TestSubagentBatchNewParameters:
 
         assert _strip_log_suffix("") == ""
 
+    def test_wait_all_auto_parses_output_schema(self, monkeypatch):
+        """subagent_batch(output_schema=...) → wait_all() returns parsed dicts.
+
+        This is the end-to-end regression test for the Greptile P1 finding:
+        BatchJob.wait_all() must apply _parse_result() when output_schema is set,
+        matching the auto-parse behaviour of subagent_parallel(output_schema=...).
+        """
+        import threading
+        from pathlib import Path
+        from unittest.mock import MagicMock
+
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_batch
+        from gptme.tools.subagent.types import (
+            ReturnType,
+            Subagent,
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        class Schema:
+            pass
+
+        # Stub out subagent() so no threads are launched
+        monkeypatch.setattr(batch_mod, "subagent", lambda agent_id, prompt, **kw: None)
+
+        # Pre-populate the result registry with a valid JSON string
+        json_result = '{"x": 42}'
+        t = MagicMock(spec=threading.Thread)
+        t.is_alive.return_value = False
+        t.join = MagicMock()
+        sa = Subagent(
+            agent_id="s1",
+            prompt="test",
+            thread=t,
+            logdir=Path("/tmp/fake-log"),
+            model=None,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        with _subagent_results_lock:
+            _subagent_results["s1"] = ReturnType("success", json_result)
+
+        # Call subagent_batch with output_schema and wait_all()
+        job = subagent_batch([("s1", "do something")], output_schema=Schema)
+        assert job.output_schema is Schema, "BatchJob must store output_schema"
+
+        results = job.wait_all(timeout=5)
+
+        assert "s1" in results
+        assert results["s1"]["status"] == "success"
+        # Auto-parsed: should be a dict, not the raw JSON string
+        assert results["s1"]["result"] == {"x": 42}, (
+            "wait_all() must auto-parse the result when output_schema is set; "
+            f"got {results['s1']['result']!r} instead of {{'x': 42}}"
+        )
+
+    def test_wait_all_without_schema_returns_raw_strings(self, monkeypatch):
+        """wait_all() returns raw strings when output_schema is not set (no regression)."""
+        import threading
+        from pathlib import Path
+        from unittest.mock import MagicMock
+
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_batch
+        from gptme.tools.subagent.types import (
+            ReturnType,
+            Subagent,
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        monkeypatch.setattr(batch_mod, "subagent", lambda agent_id, prompt, **kw: None)
+
+        raw = "plain string result"
+        t = MagicMock(spec=threading.Thread)
+        t.is_alive.return_value = False
+        t.join = MagicMock()
+        sa = Subagent(
+            agent_id="ns1",
+            prompt="test",
+            thread=t,
+            logdir=Path("/tmp/fake-log"),
+            model=None,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        with _subagent_results_lock:
+            _subagent_results["ns1"] = ReturnType("success", raw)
+
+        job = subagent_batch([("ns1", "do something")])
+        assert job.output_schema is None
+        results = job.wait_all(timeout=5)
+
+        assert results["ns1"]["result"] == raw
+
     def test_parse_result_handles_full_log_suffix(self):
         """_parse_result strips the Full log suffix before parsing JSON."""
         from gptme.tools.subagent.batch import _parse_result

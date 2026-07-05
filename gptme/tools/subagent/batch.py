@@ -84,6 +84,7 @@ class BatchJob:
 
     agent_ids: list[str]
     results: dict[str, ReturnType] = field(default_factory=dict)
+    output_schema: type | None = field(default=None)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def wait_all(self, timeout: int = 300) -> dict[str, dict]:
@@ -93,11 +94,18 @@ class BatchJob:
         wall-clock time is bounded by the slowest agent, not the sum of all
         agent times.
 
+        When the ``BatchJob`` was created with an ``output_schema`` (via
+        ``subagent_batch(output_schema=...)``) the results are automatically
+        parsed through ``_parse_result()`` before being returned, matching the
+        auto-parse behaviour of ``subagent_parallel(output_schema=...)``.
+
         Args:
             timeout: Maximum seconds to wait for all subagents
 
         Returns:
-            Dict mapping agent_id to status dict
+            Dict mapping agent_id to status dict. When ``output_schema`` is set,
+            the ``"result"`` value is the parsed/validated object rather than a
+            raw JSON string.
         """
 
         def _wait_one(agent_id: str, deadline: float) -> tuple[str, ReturnType]:
@@ -150,7 +158,10 @@ class BatchJob:
                                 "timeout", f"Timed out after {timeout}s"
                             )
 
-        return {aid: asdict(r) for aid, r in self.results.items()}
+        raw = {aid: asdict(r) for aid, r in self.results.items()}
+        if self.output_schema is not None:
+            return {aid: _parse_result(r, self.output_schema) for aid, r in raw.items()}
+        return raw
 
     def is_complete(self) -> bool:
         """Check if all subagents have completed."""
@@ -197,8 +208,10 @@ def subagent_batch(
             edits don't conflict between agents or with the parent.
         output_schema: Optional Pydantic model class. When set, subagents are
             instructed to return JSON matching the schema in their complete block.
-            The schema is used for prompt construction; call ``wait_all()`` and
-            then ``_parse_result()`` to validate results.
+            Results are automatically parsed when ``wait_all()`` is called — the
+            ``"result"`` value in each returned dict will be the parsed/validated
+            object rather than a raw JSON string, matching the behaviour of
+            ``subagent_parallel(output_schema=...)``.
         workdir: Working directory passed to every subagent. Useful when running
             subagents against a specific project directory.
         context_turns: Number of recent parent conversation turns to forward to
@@ -228,7 +241,7 @@ def subagent_batch(
         # Or explicitly wait for all if needed:
         results = job.wait_all(timeout=300)
     """
-    job = BatchJob(agent_ids=[t[0] for t in tasks])
+    job = BatchJob(agent_ids=[t[0] for t in tasks], output_schema=output_schema)
 
     # Start all subagents (completions delivered via hooks)
     for agent_id, prompt in tasks:
