@@ -443,9 +443,9 @@ def _run_subagent_subprocess(
                     tool_allowlist.append(tool_name)
             cmd.extend(["--tools", ",".join(tool_allowlist)])
         else:
-            cmd.extend(["--tools", "+clarify"])
+            cmd.extend(["--tools", "+complete,+clarify"])
     else:
-        cmd.extend(["--tools", "+clarify"])
+        cmd.extend(["--tools", "+complete,+clarify"])
 
     # Map context_mode/context_include to the --context CLI flag
     if context_mode == "selective" and context_include:

@@ -772,7 +772,7 @@ def test_subprocess_command_includes_required_flags():
             assert "--model" in cmd
             assert "test-model" in cmd
             assert "--tools" in cmd
-            assert cmd[cmd.index("--tools") + 1] == "+clarify"
+            assert cmd[cmd.index("--tools") + 1] == "+complete,+clarify"
             assert "Test task" not in cmd  # Prompt passed via stdin, not argv
 
         finally:
