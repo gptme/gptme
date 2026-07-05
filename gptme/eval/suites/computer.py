@@ -235,7 +235,7 @@ def _expect_dropdown_value_echoed(ctx) -> bool:
     content = ctx.files.get("dropdown.txt", ctx.stdout)
     if isinstance(content, bytes):
         content = content.decode(errors="replace")
-    return "selected:large" in content or "selected: large" in content
+    return "selected:large" in content
 
 
 # ---------------------------------------------------------------------------
