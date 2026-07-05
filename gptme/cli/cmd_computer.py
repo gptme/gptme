@@ -1216,12 +1216,13 @@ def doctor_cmd(display: str | None):
 
         # osascript: built-in, needed for accessibility tree on macOS
         ok_osa = bool(shutil.which("osascript"))
-        _check(
+        if not _check(
             "osascript available (macOS accessibility tree)"
             if ok_osa
             else "osascript missing (unexpected)",
             ok=ok_osa,
-        )
+        ):
+            errors += 1
         click.echo()
 
     # --- Browser / Playwright ---
@@ -1315,6 +1316,7 @@ def doctor_cmd(display: str | None):
                         errors += 1
     except Exception as exc:
         _check(f"could not measure latency: {exc}", ok=False)
+        errors += 1
     click.echo()
 
     # --- Summary ---

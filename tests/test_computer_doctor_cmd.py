@@ -342,6 +342,39 @@ class TestDoctorMacOS:
             result = runner.invoke(doctor_cmd, [])
         assert "cliclick" in result.output
 
+    def test_missing_osascript_exits_nonzero(self, tmp_path):
+        """Missing osascript is a failed macOS doctor check."""
+        runner = CliRunner()
+        pw_stub = MagicMock()
+        pw_cm = MagicMock()
+        pw_cm.__enter__ = lambda s: MagicMock(
+            chromium=MagicMock(executable_path="/usr/bin/env")
+        )
+        pw_cm.__exit__ = lambda *a: None
+        pw_stub.sync_playwright.return_value = pw_cm
+
+        def fake_which(cmd):
+            if cmd == "osascript":
+                return None
+            return f"/usr/bin/{cmd}"
+
+        with (
+            patch("platform.system", return_value="Darwin"),
+            patch("platform.machine", return_value="arm64"),
+            patch("gptme.cli.cmd_computer.shutil.which", side_effect=fake_which),
+            patch(
+                "gptme.tools.computer_transport.get_transport",
+                return_value=_fake_transport(tmp_path),
+            ),
+            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
+            patch.dict(sys.modules, {"playwright.sync_api": pw_stub}),
+        ):
+            result = runner.invoke(doctor_cmd, [])
+
+        assert result.exit_code == 1
+        assert "osascript missing" in result.output
+        assert "check(s) failed" in result.output
+
     def test_no_display_section_on_macos(self):
         """macOS doctor output should not show X11/DISPLAY section."""
         runner = CliRunner()
@@ -453,3 +486,37 @@ class TestDoctorLatencySection:
             result = runner.invoke(doctor_cmd, [])
         # Either "no display" or "display" must appear in the output
         assert "display" in result.output.lower() or "DISPLAY" in result.output
+
+    def test_latency_exception_exits_nonzero(self, monkeypatch):
+        """Unexpected latency-section failures are failed doctor checks."""
+        monkeypatch.setenv("DISPLAY", ":1")
+        runner = CliRunner()
+        pw_stub = MagicMock()
+        pw_cm = MagicMock()
+        pw_cm.__enter__ = lambda s: MagicMock(
+            chromium=MagicMock(executable_path="/usr/bin/env")
+        )
+        pw_cm.__exit__ = lambda *a: None
+        pw_stub.sync_playwright.return_value = pw_cm
+
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("platform.machine", return_value="x86_64"),
+            patch(
+                "gptme.cli.cmd_computer.shutil.which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}",
+            ),
+            patch(
+                "gptme.tools.computer_transport.get_transport",
+                side_effect=RuntimeError("transport boom"),
+            ),
+            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
+            patch.dict(
+                sys.modules, {"playwright.sync_api": pw_stub, "pyatspi": MagicMock()}
+            ),
+        ):
+            result = runner.invoke(doctor_cmd, [])
+
+        assert result.exit_code == 1
+        assert "could not measure latency: transport boom" in result.output
+        assert "check(s) failed" in result.output
