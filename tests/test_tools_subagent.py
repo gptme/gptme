@@ -1005,6 +1005,7 @@ def test_subprocess_monitor_timeout():
     assert result is not None
     assert result.status == "failure"
     assert result.result is not None
+    assert isinstance(result.result, str)
     assert "timeout" in result.result.lower()
 
     # Cleanup

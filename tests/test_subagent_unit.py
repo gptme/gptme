@@ -3478,7 +3478,8 @@ class TestOutputSchema:
         sa = self._make_subagent(tmp_path, content, output_schema=_SampleSchema)
         result = sa._read_log()
         assert result.status == "success"
-        parsed = json.loads((result.result or "").split("\n\nFull log:")[0])
+        assert isinstance(result.result, str)
+        parsed = json.loads(result.result.split("\n\nFull log:")[0])
         assert parsed == {"value": 7, "label": "ok"}
 
     def test_read_log_with_schema_invalid_json_still_succeeds(self, tmp_path, caplog):
@@ -3503,6 +3504,7 @@ class TestOutputSchema:
         assert "hello world" in (result.result or "")
         # Must NOT be interpreted as JSON
         assert result.result is not None
+        assert isinstance(result.result, str)
         assert result.result.startswith("hello world")
 
     def test_read_log_with_schema_empty_complete_tool_no_json_warning(
