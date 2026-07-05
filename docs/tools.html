@@ -1351,7 +1351,7 @@ new-session gptme --non-interactive "fix lint 2"
 - types.py      — Data classes and module-level state (Subagent, ReturnType, etc.)
 - hooks.py      — Completion notification system (LOOP_CONTINUE hook)
 - api.py        — Public API (subagent, subagent_status, subagent_wait, etc.)
-- batch.py      — Batch execution (BatchJob, subagent_batch, subagent_parallel)
+- batch.py      — Batch execution (BatchJob, subagent_batch, subagent_parallel, subagent_pipeline)
 - execution.py  — Execution backends (thread, subprocess, process monitoring)</p>
 <p class="rubric">Instructions</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>You can create, check status, wait for, and read logs from subagents.
@@ -1374,6 +1374,7 @@ Key features:
 <span class="k">-</span><span class="w"> </span>context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
 <span class="k">-</span><span class="w"> </span>context_window=N: Limit workspace context to at most N messages
 <span class="k">-</span><span class="w"> </span>subagent_parallel(tasks, timeout): Fan out N subagents and wait for all — returns ordered list of results
+<span class="k">-</span><span class="w"> </span>subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage&#39;s prompt
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 <span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 <span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
@@ -1719,6 +1720,48 @@ for (agent_id, _), result in zip(tasks, results):
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">impl: success — Authentication feature implemented in auth.py
 test: success — 12 tests added, all passing
 docs: success — API documented in docs/auth.md</pre>
+  </td>
+</tr>
+</table><p>Pipeline (multi-stage fan-out, no barrier between stages)</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">review these files in two stages — first find issues, then verify each finding</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll use subagent_pipeline so file B's review starts while file A's verification is running.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">results = subagent_pipeline(
+    [("auth", "Review auth.py for bugs"), ("db", "Review db.py for bugs")],
+    # Stage 0: review each file
+    lambda item, _: item,
+    # Stage 1: adversarially verify the review findings
+    lambda item, prev: "Verify these findings, keep only real bugs: " + prev,
+    timeout=300,
+)
+
+# auth advances to stage 1 as soon as its stage 0 finishes,
+
+# while db may still be in stage 0.
+for (prefix, _), stage_results in zip([("auth", ...), ("db", ...)], results):
+    print(f"{prefix}: {stage_results[-1]['status']}")
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">auth-s0 done → auth-s1 started; db-s0 done → db-s1 started</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">auth: success, db: success</pre>
   </td>
 </tr>
 </table><p>Batch Execution (fire-and-forget with explicit sync)</p>
@@ -2408,6 +2451,78 @@ summary text from the subagent’s <code class="docutils literal notranslate"><s
     <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;success&quot;</span><span class="p">:</span>
         <span class="n">analysis</span> <span class="o">=</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;result&quot;</span><span class="p">]</span>  <span class="c1"># already a validated dict</span>
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Score: </span><span class="si">{</span><span class="n">analysis</span><span class="p">[</span><span class="s1">&#39;score&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">, Issues: </span><span class="si">{</span><span class="n">analysis</span><span class="p">[</span><span class="s1">&#39;issues&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.subagent.</span></span><span class="sig-name descname"><span class="pre">subagent_pipeline</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">items</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">stages</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Callable" title="(in Python v3.14)"><span class="pre">Callable</span></a><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">600</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_subprocess</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_acp</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">acp_command</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'gptme-acp'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">profile</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">isolated</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_schema</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.14)"><span class="pre">type</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">workdir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context_turns</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">redact_secrets</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Process items through multiple stages with no barrier between stages.</p>
+<p>Each item is processed through all stages sequentially. Items at different
+stages run concurrently — item A can be in stage 2 while item B is still
+in stage 1. This is the “pipeline” pattern as opposed to repeated
+subagent_parallel() calls which add a full barrier between stages.</p>
+<p>Wall-clock time is bounded by the slowest single-item chain, not the sum
+of the slowest per-stage.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>items</strong> – List of <code class="docutils literal notranslate"><span class="pre">(agent_id_prefix,</span> <span class="pre">initial_prompt)</span></code> tuples.</p></li>
+<li><p><strong>*stages</strong> – Callables of the form <code class="docutils literal notranslate"><span class="pre">stage(item_prompt,</span> <span class="pre">prev_result)</span> <span class="pre">-&gt;</span> <span class="pre">str</span></code>
+where <code class="docutils literal notranslate"><span class="pre">item_prompt</span></code> is the original item prompt and <code class="docutils literal notranslate"><span class="pre">prev_result</span></code>
+is the raw result text from the previous stage (empty string for the
+first stage). Each callable returns the prompt to use for the next
+subagent in the chain.</p></li>
+<li><p><strong>timeout</strong> – Maximum seconds to wait for the entire pipeline to finish.</p></li>
+<li><p><strong>use_subprocess</strong> – If True, run each subagent in a subprocess.</p></li>
+<li><p><strong>use_acp</strong> – If True, run each subagent via the ACP protocol.</p></li>
+<li><p><strong>acp_command</strong> – ACP agent command (default: “gptme-acp”). Only used when
+<code class="docutils literal notranslate"><span class="pre">use_acp=True</span></code>.</p></li>
+<li><p><strong>model</strong> – Model override applied to every subagent.</p></li>
+<li><p><strong>profile</strong> – Agent profile name applied to every subagent.</p></li>
+<li><p><strong>isolated</strong> – If True, run each subagent in its own git worktree.</p></li>
+<li><p><strong>output_schema</strong> – Optional Pydantic model class. When set, each final-stage
+subagent is instructed to return JSON matching the schema and results
+are automatically parsed.</p></li>
+<li><p><strong>workdir</strong> – Working directory passed to every subagent.</p></li>
+<li><p><strong>context_turns</strong> – Number of recent parent turns to forward to each subagent.</p></li>
+<li><p><strong>redact_secrets</strong> – If True (default), redact secrets from workspace context.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of lists of result dicts. <code class="docutils literal notranslate"><span class="pre">results[i][j]</span></code> is the result dict for
+item <code class="docutils literal notranslate"><span class="pre">i</span></code> at stage <code class="docutils literal notranslate"><span class="pre">j</span></code>. Each dict has <code class="docutils literal notranslate"><span class="pre">&quot;status&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">&quot;result&quot;</span></code>
+keys (plus <code class="docutils literal notranslate"><span class="pre">&quot;input_tokens&quot;</span></code> / <code class="docutils literal notranslate"><span class="pre">&quot;output_tokens&quot;</span></code> when available).
+When <code class="docutils literal notranslate"><span class="pre">output_schema</span></code> is set, the final-stage <code class="docutils literal notranslate"><span class="pre">&quot;result&quot;</span></code> value is the
+parsed/validated object rather than a raw JSON string.</p>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Two-stage review pipeline: find issues, then verify each finding</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">subagent_pipeline</span><span class="p">(</span>
+    <span class="p">[(</span><span class="s2">&quot;file-auth&quot;</span><span class="p">,</span> <span class="s2">&quot;Review auth.py&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;file-db&quot;</span><span class="p">,</span> <span class="s2">&quot;Review db.py&quot;</span><span class="p">)],</span>
+    <span class="c1"># Stage 0: review</span>
+    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">_</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Review this file for bugs: </span><span class="si">{</span><span class="n">item</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="c1"># Stage 1: verify each review finding</span>
+    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">prev</span><span class="p">:</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Adversarially verify each finding in this review:</span><span class="se">\n</span><span class="si">{</span><span class="n">prev</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;Original file to review: </span><span class="si">{</span><span class="n">item</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+<span class="c1"># file-auth advances to stage 1 as soon as its stage 0 completes,</span>
+<span class="c1"># while file-db may still be in stage 0.</span>
+<span class="k">for</span> <span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="n">_</span><span class="p">),</span> <span class="n">stage_results</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">results</span><span class="p">):</span>
+    <span class="n">final</span> <span class="o">=</span> <span class="n">stage_results</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">final</span><span class="p">[</span><span class="s1">&#39;status&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> — </span><span class="si">{</span><span class="n">final</span><span class="p">[</span><span class="s1">&#39;result&#39;</span><span class="p">][:</span><span class="mi">80</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># With isolated worktrees so concurrent file edits don&#39;t conflict</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">subagent_pipeline</span><span class="p">(</span>
+    <span class="p">[(</span><span class="s2">&quot;impl-a&quot;</span><span class="p">,</span> <span class="s2">&quot;Implement feature A&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;impl-b&quot;</span><span class="p">,</span> <span class="s2">&quot;Implement feature B&quot;</span><span class="p">)],</span>
+    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">_</span><span class="p">:</span> <span class="n">item</span><span class="p">,</span>
+    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">prev</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Write tests for: </span><span class="si">{</span><span class="n">prev</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="n">isolated</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>

@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fcd730f4cc0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fc703d14cc0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2138,6 +2138,7 @@ Key features:
 <span class="k">-</span><span class="w"> </span>context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
 <span class="k">-</span><span class="w"> </span>context_window=N: Limit workspace context to at most N messages
 <span class="k">-</span><span class="w"> </span>subagent_parallel(tasks, timeout): Fan out N subagents and wait for all — returns ordered list of results
+<span class="k">-</span><span class="w"> </span>subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage&#39;s prompt
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 <span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 <span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
@@ -2247,6 +2248,7 @@ The following Python functions are available:
 <span class="s">subagent_read_log(agent_id: str, max_messages: int, include_system: bool, message_filter: Union[str, None]) -&gt; str: Read the conversation log of a subagent.</span>
 <span class="s">subagent_batch(tasks: list[tuple[str, str]], use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: Union[type, None], workdir: Union[str, Path, None], context_turns: Union[int, None], redact_secrets: bool) -&gt; BatchJob: Start multiple subagents in parallel and return a BatchJob to manage them.</span>
 <span class="s">subagent_parallel(tasks: list[tuple[str, str]], timeout: int, use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: Union[type, None], workdir: Union[str, Path, None], context_turns: Union[int, None], redact_secrets: bool) -&gt; list[dict]: Fan out N subagents in parallel, wait for all, return results as an ordered list.</span>
+<span class="s">subagent_pipeline(items: list[tuple[str, str]], stages: Callable[[str, str], str], timeout: float, use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: Union[type, None], workdir: Union[str, Path, None], context_turns: Union[int, None], redact_secrets: bool) -&gt; list[list[dict]]: Process items through multiple stages with no barrier between stages.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -2338,6 +2340,26 @@ The following Python functions are available:
 <span class="k">&gt; </span><span class="ge">test: success — 12 tests added, all passing</span>
 <span class="k">&gt; </span><span class="ge">docs: success — API documented in docs/auth.md</span>
 
+<span class="gu">### Pipeline (multi-stage fan-out, no barrier between stages)</span>
+
+<span class="k">&gt; </span><span class="ge">User: review these files in two stages — first find issues, then verify each finding</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use subagent_pipeline so file B&#39;s review starts while file A&#39;s verification is running.</span>
+<span class="sb">```ipython</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">subagent_pipeline</span><span class="p">(</span>
+    <span class="p">[(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="s2">&quot;Review auth.py for bugs&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="s2">&quot;Review db.py for bugs&quot;</span><span class="p">)],</span>
+    <span class="c1"># Stage 0: review each file</span>
+    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">_</span><span class="p">:</span> <span class="n">item</span><span class="p">,</span>
+    <span class="c1"># Stage 1: adversarially verify the review findings</span>
+    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">prev</span><span class="p">:</span> <span class="s2">&quot;Verify these findings, keep only real bugs: &quot;</span> <span class="o">+</span> <span class="n">prev</span><span class="p">,</span>
+    <span class="n">timeout</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># auth advances to stage 1 as soon as its stage 0 finishes,</span>
+
+<span class="c1"># while db may still be in stage 0.</span>
+<span class="k">for</span> <span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="n">_</span><span class="p">),</span> <span class="n">stage_results</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">([(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="o">...</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="o">...</span><span class="p">)],</span> <span class="n">results</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">stage_results</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s1">&#39;status&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
 <span class="gu">### Batch Execution (fire-and-forget with explicit sync)</span>
 
 <span class="k">&gt; </span><span class="ge">User: start tasks in background and continue working</span>
@@ -2654,7 +2676,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 16555</p>
+<p>Tokens: 16949</p>
 </dd></dl>
 
 <dl class="py function">
