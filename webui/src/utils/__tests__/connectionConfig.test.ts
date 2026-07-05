@@ -21,6 +21,10 @@ jest.mock('@/stores/servers', () => ({
 
 import { processConnectionFromHash, resolveCloudExchangeBaseUrl } from '../connectionConfig';
 
+const runtimeEnvWindow = window as typeof window & {
+  __GPTME_WEBUI_ENV__?: Record<string, string | undefined>;
+};
+
 describe('resolveCloudExchangeBaseUrl', () => {
   it('routes the managed app default through fleet for auth-code exchange', () => {
     expect(resolveCloudExchangeBaseUrl('https://gptme.ai')).toBe('https://fleet.gptme.ai');
@@ -68,6 +72,7 @@ describe('processConnectionFromHash', () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    delete runtimeEnvWindow.__GPTME_WEBUI_ENV__;
   });
 
   it('posts auth-code exchange to fleet.gptme.ai by default', async () => {
@@ -95,6 +100,23 @@ describe('processConnectionFromHash', () => {
       authToken: 'token-123',
       useAuthToken: true,
     });
+  });
+
+  it('posts auth-code exchange to explicit browser runtime fleet URL', async () => {
+    runtimeEnvWindow.__GPTME_WEBUI_ENV__ = {
+      VITE_GPTME_FLEET_BASE_URL: 'http://fleet.gptme.local:8080',
+    };
+
+    await processConnectionFromHash('code=local-ci-code');
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://fleet.gptme.local:8080/api/v1/operator/auth/exchange',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: 'local-ci-code' }),
+      })
+    );
   });
 
   it('rejects with error when exchange fails (non-2xx response)', async () => {
