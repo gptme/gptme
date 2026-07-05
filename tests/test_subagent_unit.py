@@ -446,6 +446,34 @@ class TestBatchJob:
         job = BatchJob(agent_ids=["x"])
         assert job.get_completed() == {}
 
+    def test_get_completed_auto_parses_output_schema(self):
+        """get_completed() auto-parses results when output_schema is set.
+
+        This is the regression test for the Greptile P1 finding:
+        get_completed() on a BatchJob with output_schema should apply _parse_result()
+        just like wait_all() does, so partial results have consistent parsing.
+        """
+        from gptme.tools.subagent.batch import BatchJob
+        from gptme.tools.subagent.types import ReturnType
+
+        class Schema:
+            pass
+
+        job = BatchJob(agent_ids=["a", "b"], output_schema=Schema)
+        # Simulate a completed result with raw JSON string
+        json_result = '{"x": 42}'
+        job.results["a"] = ReturnType("success", json_result)
+
+        completed = job.get_completed()
+        assert "a" in completed
+        assert completed["a"]["status"] == "success"
+        # Auto-parsed: should be a dict, not the raw JSON string
+        assert completed["a"]["result"] == {"x": 42}, (
+            "get_completed() must auto-parse the result when output_schema is set; "
+            f"got {completed['a']['result']!r} instead of {{'x': 42}}"
+        )
+        assert "b" not in completed  # Only completed agent appears
+
     def test_wait_all_does_not_raise_on_as_completed_timeout(self, monkeypatch):
         """wait_all() must not propagate TimeoutError — stalled agents get a result dict."""
         import threading

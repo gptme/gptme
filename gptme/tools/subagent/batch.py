@@ -168,11 +168,22 @@ class BatchJob:
         return len(self.results) == len(self.agent_ids)
 
     def get_completed(self) -> dict[str, dict]:
-        """Get results of completed subagents so far."""
+        """Get results of completed subagents so far.
+
+        When the ``BatchJob`` was created with an ``output_schema`` (via
+        ``subagent_batch(output_schema=...)``) the results are automatically
+        parsed through ``_parse_result()`` before being returned, matching the
+        behaviour of ``wait_all()``.
+        """
         from dataclasses import asdict
 
         with self._lock:
-            return {aid: asdict(r) for aid, r in self.results.items()}
+            raw = {aid: asdict(r) for aid, r in self.results.items()}
+            if self.output_schema is not None:
+                return {
+                    aid: _parse_result(r, self.output_schema) for aid, r in raw.items()
+                }
+            return raw
 
 
 def subagent_batch(
