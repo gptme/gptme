@@ -62,6 +62,7 @@ def _restore_logged_warnings():
     import gptme.llm.models.resolution as res_mod
 
     old = res_mod._logged_warnings.copy()
+    res_mod._logged_warnings.clear()
     yield
     res_mod._logged_warnings.clear()
     res_mod._logged_warnings.update(old)
