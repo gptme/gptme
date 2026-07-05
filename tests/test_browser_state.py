@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+pytest.importorskip("playwright")
+
 if TYPE_CHECKING:
     from pathlib import Path
 
