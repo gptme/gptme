@@ -270,6 +270,25 @@ def test_output_schema_check_fails_without_schema_param():
     assert not check_output_schema_used(messages)
 
 
+def test_output_schema_wait_check_fails_without_wait_call():
+    """Omitting subagent_wait should fail the wait-call check."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            "subagent('reviewer', 'Evaluate reviews.txt', output_schema={'score': int, 'summary': str})\n"
+            "```",
+        ),
+        Message(
+            "assistant",
+            "The structured result was {'score': 7, 'summary': 'Positive'}.",
+        ),
+    ]
+
+    assert check_output_schema_used(messages)
+    assert not check_output_schema_wait_called(messages)
+
+
 def test_output_schema_structured_check_requires_score_field():
     """Final message without a score field fails the structured-result check."""
     messages = [
@@ -288,7 +307,28 @@ def test_output_schema_structured_check_requires_score_field():
     ]
 
     assert check_output_schema_used(messages)
-    # "SCORE=7" in text doesn't count as a structured field reference
+    # Prose markers do not count as a structured field reference.
+    assert not check_output_schema_result_is_structured(messages)
+
+
+def test_output_schema_structured_check_rejects_lowercase_prose_score():
+    """A lowercase prose score marker is still not a structured result."""
+    messages = [
+        Message("assistant", "The score=7 based on my analysis."),
+    ]
+
+    assert not check_output_schema_result_is_structured(messages)
+
+
+def test_output_schema_structured_check_rejects_schema_definition_only():
+    """Re-mentioning output_schema={'score': int} is not using the result."""
+    messages = [
+        Message(
+            "assistant",
+            "I used output_schema={'score': int, 'summary': str} and the overall rating was 8.",
+        ),
+    ]
+
     assert not check_output_schema_result_is_structured(messages)
 
 

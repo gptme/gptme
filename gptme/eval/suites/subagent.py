@@ -197,7 +197,15 @@ def check_output_schema_result_is_structured(messages: list[Message]) -> bool:
     the parent received and used a structured (not free-text) result.
     """
     final_msg = _last_assistant_content(messages)
-    return re.search(r"['\"]?score['\"]?\s*[:=]", final_msg) is not None
+    return (
+        re.search(
+            r"[\{\[,]\s*['\"]score['\"]\s*:\s*"
+            r"(?!(?:int|str|float|bool|list|dict|tuple|set)\b)"
+            r"(?:-?\d+(?:\.\d+)?|['\"]|\{|\[|true\b|false\b|null\b|None\b)",
+            final_msg,
+        )
+        is not None
+    )
 
 
 def check_output_schema_wait_called(messages: list[Message]) -> bool:
