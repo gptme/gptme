@@ -1,5 +1,6 @@
 """Trajectory-focused evals for the subagent tool."""
 
+import re
 from typing import TYPE_CHECKING
 
 from gptme.message import Message
@@ -35,6 +36,14 @@ def _expect_sum_marker(ctx: "ResultContext") -> bool:
 
 def _expect_greeting_marker(ctx: "ResultContext") -> bool:
     return "GREETING=" in ctx.stdout
+
+
+def _expect_score_marker(ctx: "ResultContext") -> bool:
+    return "SCORE=" in ctx.stdout
+
+
+def _expect_reviewed_marker(ctx: "ResultContext") -> bool:
+    return "REVIEWED=" in ctx.stdout
 
 
 def _role_contents(messages: list[Message], role: str) -> str:
@@ -174,6 +183,50 @@ def check_clarification_reply_with_language(messages: list[Message]) -> bool:
     )
 
 
+def check_output_schema_used(messages: list[Message]) -> bool:
+    """Parent should pass output_schema= when spawning the subagent."""
+    assistant_log = _role_contents(messages, "assistant")
+    return "output_schema=" in assistant_log
+
+
+def check_output_schema_result_is_structured(messages: list[Message]) -> bool:
+    """The result retrieved via subagent_wait should look like parsed JSON/dict.
+
+    A trajectory-level check: the parent's final assistant message must contain
+    a Python dict literal or JSON object that includes the 'score' key, proving
+    the parent received and used a structured (not free-text) result.
+    """
+    final_msg = _last_assistant_content(messages)
+    return re.search(r"['\"]?score['\"]?\s*[:=]", final_msg) is not None
+
+
+def check_output_schema_wait_called(messages: list[Message]) -> bool:
+    """Parent must call subagent_wait after spawning the output_schema subagent."""
+    return _any_message_contains(messages, "assistant", "subagent_wait(")
+
+
+def check_pipeline_used(messages: list[Message]) -> bool:
+    """Parent should use subagent_pipeline for staged fan-out."""
+    return _any_message_contains(messages, "assistant", "subagent_pipeline(")
+
+
+def check_pipeline_results_integrated(messages: list[Message]) -> bool:
+    """Final assistant message should include results from the pipeline."""
+    final_msg = _last_assistant_content(messages)
+    return "REVIEWED=" in final_msg or "SUMMARY=" in final_msg
+
+
+def check_pipeline_no_explicit_waits(messages: list[Message]) -> bool:
+    """subagent_pipeline manages its own waits; the parent should not call subagent_wait.
+
+    The point of subagent_pipeline is barrier-free fan-out — the helper handles
+    scheduling internally. If the parent still calls subagent_wait() manually it
+    defeats the purpose and suggests the agent misunderstood the API.
+    """
+    assistant_log = _role_contents(messages, "assistant")
+    return "subagent_wait(" not in assistant_log
+
+
 _PARALLEL_A = "alpha beta gamma delta epsilon zeta\n"
 _PARALLEL_B = "one\ntwo\nthree\nfour\n"
 _NOTES = "Keep this brief. The parent can read this between spawn and wait.\n"
@@ -271,6 +324,69 @@ tests: list["EvalSpec"] = [
             "received clarification hook notification": check_clarification_hook_notification,
             "called subagent_reply": check_clarification_reply_called,
             "replied with English": check_clarification_reply_with_language,
+        },
+    },
+    {
+        "name": "subagent-output-schema",
+        "files": {
+            "reviews.txt": (
+                "Product A: excellent build quality, fast shipping\n"
+                "Product B: poor packaging, slow delivery\n"
+            ),
+        },
+        "run": "cat answer.txt",
+        "prompt": (
+            "Spawn a subagent with agent_id 'reviewer' to evaluate reviews.txt. "
+            "Pass output_schema={'score': int, 'summary': str} so the subagent returns "
+            "structured data. In the subagent prompt tell it to:\n"
+            "  - Read reviews.txt\n"
+            "  - Compute an overall quality score from 1-10\n"
+            "  - Write a one-sentence summary\n"
+            "  - Return the result via complete() as JSON: "
+            '{"score": <int>, "summary": "<text>"}\n'
+            "After spawning, wait for the subagent. "
+            "The result from subagent_wait should be a parsed dict, not raw text. "
+            "Write answer.txt containing:\n"
+            "SCORE=<the integer score>\n"
+            "SUMMARY=<the one-sentence summary>\n"
+            "Include SCORE= in your final assistant message."
+        ),
+        "tools": ["read", "save", "shell", "ipython", "subagent"],
+        "expect": {
+            "writes SCORE marker": _expect_score_marker,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "passed output_schema to subagent": check_output_schema_used,
+            "called subagent_wait for result": check_output_schema_wait_called,
+            "result contains structured score field": check_output_schema_result_is_structured,
+        },
+    },
+    {
+        "name": "subagent-pipeline-staged",
+        "files": {
+            "items.txt": "apple\nbanana\ncherry\n",
+        },
+        "run": "cat answer.txt",
+        "prompt": (
+            "Use subagent_pipeline to process items.txt in two stages without a barrier:\n"
+            "Stage 1: for each fruit name, spawn a subagent that converts it to UPPERCASE.\n"
+            "Stage 2: for each uppercased result, spawn a subagent that wraps it in "
+            "'REVIEWED: <name>'.\n"
+            "subagent_pipeline runs stage 2 on item A while item B is still in stage 1 — "
+            "do NOT call subagent_wait manually; let subagent_pipeline manage scheduling.\n"
+            "When finished, write answer.txt containing the three REVIEWED= lines, one per fruit.\n"
+            "Include 'REVIEWED=' in your final assistant message."
+        ),
+        "tools": ["read", "save", "shell", "ipython", "subagent"],
+        "expect": {
+            "writes REVIEWED marker": _expect_reviewed_marker,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "used subagent_pipeline": check_pipeline_used,
+            "integrated pipeline results": check_pipeline_results_integrated,
+            "did not call subagent_wait manually": check_pipeline_no_explicit_waits,
         },
     },
 ]

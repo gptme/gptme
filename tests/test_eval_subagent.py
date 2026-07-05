@@ -5,6 +5,12 @@ from gptme.eval.suites.subagent import (
     check_clarification_reply_called,
     check_clarification_reply_with_language,
     check_clarification_spawned,
+    check_output_schema_result_is_structured,
+    check_output_schema_used,
+    check_output_schema_wait_called,
+    check_pipeline_no_explicit_waits,
+    check_pipeline_results_integrated,
+    check_pipeline_used,
     check_subagent_complete_hook_notification,
     check_subagent_complete_parent_result,
     check_subagent_complete_roundtrip_marker,
@@ -221,3 +227,122 @@ def test_clarification_checks_fail_without_reply():
     ]
 
     assert not check_clarification_reply_called(messages)
+
+
+def test_output_schema_checks_pass_for_full_trajectory():
+    """output_schema eval: spawn with schema → wait → use structured result."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            "subagent('reviewer', 'Evaluate reviews.txt', output_schema={'score': int, 'summary': str})\n"
+            "```",
+        ),
+        Message(
+            "assistant",
+            "```ipython\nresult = subagent_wait('reviewer')\n```",
+        ),
+        Message(
+            "assistant",
+            "The structured result was {'score': 7, 'summary': 'Generally positive'}. SCORE=7",
+        ),
+    ]
+
+    assert check_output_schema_used(messages)
+    assert check_output_schema_wait_called(messages)
+    assert check_output_schema_result_is_structured(messages)
+
+
+def test_output_schema_check_fails_without_schema_param():
+    """Spawning without output_schema= should fail the schema check."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\nsubagent('reviewer', 'Evaluate reviews.txt')\n```",
+        ),
+        Message(
+            "assistant",
+            "```ipython\nresult = subagent_wait('reviewer')\n```",
+        ),
+        Message("assistant", "SCORE=7"),
+    ]
+
+    assert not check_output_schema_used(messages)
+
+
+def test_output_schema_structured_check_requires_score_field():
+    """Final message without a score field fails the structured-result check."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            "subagent('reviewer', 'Evaluate', output_schema={'score': int, 'summary': str})\n"
+            "```",
+        ),
+        Message(
+            "assistant",
+            "```ipython\nresult = subagent_wait('reviewer')\n```",
+        ),
+        # Parent uses the result but doesn't show any structured field
+        Message("assistant", "The review looks mostly positive. SCORE=7 (from text)"),
+    ]
+
+    assert check_output_schema_used(messages)
+    # "SCORE=7" in text doesn't count as a structured field reference
+    assert not check_output_schema_result_is_structured(messages)
+
+
+def test_pipeline_checks_pass_for_staged_trajectory():
+    """pipeline eval: subagent_pipeline call → results integrated → no manual waits."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            "results = subagent_pipeline(\n"
+            "    ['apple', 'banana', 'cherry'],\n"
+            "    lambda item, _: subagent(f'upper-{item}', f'Uppercase {item}'),\n"
+            "    lambda item, prev: subagent(f'review-{item}', f'Wrap {prev} as REVIEWED: {prev}'),\n"
+            ")\n"
+            "```",
+        ),
+        Message("assistant", "Done. REVIEWED=APPLE REVIEWED=BANANA REVIEWED=CHERRY"),
+    ]
+
+    assert check_pipeline_used(messages)
+    assert check_pipeline_results_integrated(messages)
+    assert check_pipeline_no_explicit_waits(messages)
+
+
+def test_pipeline_check_fails_when_subagent_wait_called_manually():
+    """Using subagent_wait manually defeats pipeline's barrier-free contract."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            "results = subagent_pipeline(['apple'], stage1, stage2)\n"
+            "subagent_wait('apple-stage1')\n"
+            "```",
+        ),
+        Message("assistant", "Done. REVIEWED=APPLE"),
+    ]
+
+    assert check_pipeline_used(messages)
+    assert not check_pipeline_no_explicit_waits(messages)
+
+
+def test_pipeline_check_fails_when_pipeline_not_used():
+    """Manually launching subagents without subagent_pipeline should not pass."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            "subagent('upper-apple', 'Uppercase apple')\n"
+            "subagent_wait('upper-apple')\n"
+            "subagent('review-apple', 'Wrap APPLE as REVIEWED')\n"
+            "subagent_wait('review-apple')\n"
+            "```",
+        ),
+        Message("assistant", "Done. REVIEWED=APPLE"),
+    ]
+
+    assert not check_pipeline_used(messages)
