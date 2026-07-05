@@ -958,17 +958,31 @@ def latency_cmd(shots: int, as_json: bool, display: str | None):
         os.environ["DISPLAY"] = display
 
     try:
-        from ..tools.computer_transport import get_transport  # lazy import
+        from ..tools.computer_transport import (  # lazy import
+            NativeComputerTransport,
+            get_transport,
+        )
 
         transport = get_transport()
         if transport is None:
-            click.echo(
-                "Error: no display available — start an X11 display or set $DISPLAY.\n"
-                "  Xvfb :1 -screen 0 1024x768x24 &\n"
-                "  export DISPLAY=:1",
-                err=True,
-            )
-            sys.exit(1)
+            # No transport explicitly configured — auto-detect native X11/macOS.
+            # This lets `gptme-util computer latency` work without requiring the
+            # user to set GPTME_COMPUTER_TRANSPORT=native first (#216).
+            import platform
+
+            _display = os.environ.get("DISPLAY")
+            if platform.system() == "Linux" and _display:
+                transport = NativeComputerTransport()
+            elif platform.system() == "Darwin":
+                transport = NativeComputerTransport()
+            else:
+                click.echo(
+                    "Error: no display available — start an X11 display or set $DISPLAY.\n"
+                    "  Xvfb :1 -screen 0 1024x768x24 &\n"
+                    "  export DISPLAY=:1",
+                    err=True,
+                )
+                sys.exit(1)
 
         # Warm up: take one shot to initialise any lazy state so the first measured
         # shot isn't artificially slow due to module imports or file descriptor setup.

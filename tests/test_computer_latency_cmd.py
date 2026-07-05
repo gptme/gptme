@@ -221,3 +221,38 @@ class TestLatencyCmd:
         assert result.exit_code == 0
         # Either health tag should appear
         assert any(marker in result.output for marker in ("✓", "⚠", "✗"))
+
+    def test_autodetects_native_transport_when_display_set(self, tmp_path, monkeypatch):
+        """When get_transport() returns None but DISPLAY is set, auto-use NativeComputerTransport.
+
+        Fixes #216: previously the latency command failed with "no display available"
+        even when X11 was running, unless GPTME_COMPUTER_TRANSPORT=native was set explicitly.
+        """
+        monkeypatch.setenv("DISPLAY", ":1")
+        native_transport = _make_transport_mock(tmp_path, shot_duration_s=0.001)
+
+        with (
+            patch("gptme.tools.computer_transport.get_transport", return_value=None),
+            patch(
+                "gptme.tools.computer_transport.NativeComputerTransport",
+                return_value=native_transport,
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(latency_cmd, ["--shots", "1", "--json"])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["successful"] == 1
+
+    def test_no_display_no_transport_exits_1(self, monkeypatch):
+        """No DISPLAY + no transport → exits with an actionable error."""
+        monkeypatch.delenv("DISPLAY", raising=False)
+        with (
+            patch("gptme.tools.computer_transport.get_transport", return_value=None),
+            patch("platform.system", return_value="Linux"),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(latency_cmd, [])
+
+        assert result.exit_code == 1
