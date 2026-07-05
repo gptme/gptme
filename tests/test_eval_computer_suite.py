@@ -1100,12 +1100,32 @@ def test_check_used_game_control_keys_space_explicit(monkeypatch):
     assert computer_suite.check_used_game_control_keys([])
 
 
+def test_check_used_game_control_keys_keyword_arg(monkeypatch):
+    """Keyword form still counts when the key value is a game control key."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["press_key(key='Space')"],
+    )
+    assert computer_suite.check_used_game_control_keys([])
+
+
 def test_check_used_game_control_keys_rejects_enter(monkeypatch):
     """Enter is not a game control key for this fixture."""
     monkeypatch.setattr(
         computer_suite,
         "_executed_tool_calls",
         lambda messages: ["press_key('Enter')"],
+    )
+    assert not computer_suite.check_used_game_control_keys([])
+
+
+def test_check_used_game_control_keys_rejects_enter_with_whitespace(monkeypatch):
+    """Whitespace in a non-game press_key call is not itself a Space key."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["result = press_key('Enter')  # submit form"],
     )
     assert not computer_suite.check_used_game_control_keys([])
 

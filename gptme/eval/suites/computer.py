@@ -19,6 +19,7 @@ an X11 display are not included here — they belong in manual or CI-with-displa
 pipelines.
 """
 
+import ast
 import base64
 import logging
 import re
@@ -141,8 +142,8 @@ _TWEET_COMPOSE_FIXTURE_URL = "data:text/html;base64," + base64.b64encode(
 #
 # The "doom-milestone:enemy-defeated" marker is written only when the JS shoot
 # handler actually reaches the enemy cell, so read_page_text() cannot return
-# it from the initial page state.  Pressing Space once with the player
-# adjacent to the enemy (or with directional auto-aim) is enough to win.
+# it from the initial page state.  Pressing Space once is enough to win because
+# the bullet auto-aims toward the enemy.
 #
 # The same press_key() calls work against a real game running in the browser;
 # this fixture validates the tool-call pipeline without any external dep.
@@ -178,7 +179,7 @@ _DOOM_MILESTONE_FIXTURE_HTML = (
     "document.addEventListener('keydown',function(e){"
     "if(e.key==='ArrowLeft'){playerX=Math.max(0,playerX-1);e.preventDefault();}"
     "else if(e.key==='ArrowRight'){playerX=Math.min(COLS-1,playerX+1);e.preventDefault();}"
-    "else if(e.key===' '){shoot();e.preventDefault();}"
+    "else if(e.key===' '||e.key==='Space'){shoot();e.preventDefault();}"
     "render();"
     "});"
     "render();"
@@ -488,19 +489,51 @@ def _expect_doom_score_nonzero(ctx) -> bool:
     return bool(re.search(r"score:([1-9]\d*)", content))
 
 
+def _press_key_values(code: str) -> list[str]:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+
+    values: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        is_press_key = (
+            isinstance(func, ast.Name)
+            and func.id == "press_key"
+            or isinstance(func, ast.Attribute)
+            and func.attr == "press_key"
+        )
+        if not is_press_key:
+            continue
+
+        if node.args and isinstance(node.args[0], ast.Constant):
+            value = node.args[0].value
+            if isinstance(value, str):
+                values.append(value)
+        for keyword in node.keywords:
+            if keyword.arg == "key" and isinstance(keyword.value, ast.Constant):
+                value = keyword.value.value
+                if isinstance(value, str):
+                    values.append(value)
+    return values
+
+
 def check_used_game_control_keys(messages: list[Message]) -> bool:
     """Agent must press at least one game-control key (arrows or Space).
 
     The "Can it play Doom?" flow requires the agent to actually drive the game
     via press_key() rather than just reading the initial page state.  We
     accept any of the four control keys: ArrowLeft, ArrowRight, ArrowUp,
-    ArrowDown, or Space (the shoot key).
+    ArrowDown, or Space (the shoot key).  Both "Space" and the browser event
+    key value " " are accepted, but only as exact press_key() arguments.
     """
-    _GAME_KEYS = {"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space"}
+    game_keys = {"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", " "}
     for code in _executed_tool_calls(messages):
-        if "press_key" in code:
-            if any(k in code for k in _GAME_KEYS):
-                return True
+        if any(key in game_keys for key in _press_key_values(code)):
+            return True
     return False
 
 
@@ -861,14 +894,14 @@ tests: list["EvalSpec"] = [
     # player (@) must shoot the enemy (E) using arrow keys + Space.
     #
     # The milestone marker "doom-milestone:enemy-defeated" only appears in the
-    # DOM after a real press_key(' ') fires the shoot handler and the bullet
-    # reaches the enemy cell.  It is absent from the initial page state, so
-    # read_page_text() cannot return it without the agent actually playing.
+    # DOM after a real press_key("Space") fires the shoot handler and the
+    # bullet reaches the enemy cell.  It is absent from the initial page state,
+    # so read_page_text() cannot return it without the agent actually playing.
     #
     # This tests the core game-playing loop:
     #   1. open_page → observe game state via read_page_text()
     #   2. press_key(ArrowLeft/Right) → move player into position
-    #   3. press_key(' ') → fire
+    #   3. press_key("Space") → fire
     #   4. read_page_text() → confirm "doom-milestone:enemy-defeated"
     #
     # The same press_key() calls work against a real game in the browser once
@@ -884,7 +917,7 @@ tests: list["EvalSpec"] = [
             "   The status line shows: 'doom-milestone:waiting score:0 player-at:3 enemy-at:6 enemy-alive:true'\n"
             "   The game board shows: '. . . @ . . E'  (@ = player, E = enemy)\n"
             "3. Move the player toward the enemy using press_key('ArrowRight') one or more times.\n"
-            "4. When the player is in position, call press_key(' ') (Space) to fire.\n"
+            "4. When the player is in position, call press_key('Space') to fire.\n"
             "   You can also fire from any position — the bullet auto-aims toward the enemy.\n"
             "5. Call read_page_text() to verify the result.\n"
             "6. Write the full page text to game.txt."
