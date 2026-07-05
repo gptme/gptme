@@ -863,3 +863,116 @@ def test_check_used_load_browser_state_rejects_save(monkeypatch):
         lambda messages: ["save_browser_state('state.json')"],
     )
     assert not computer_suite.check_used_load_browser_state([])
+
+
+# ---------------------------------------------------------------------------
+# "Can it Tweet?" milestone — check_used_tweet_textarea
+# ---------------------------------------------------------------------------
+
+
+def test_check_used_tweet_textarea_accepts_testid_selector(monkeypatch):
+    """Agent must address compose box by Twitter's data-testid."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: [
+            "fill_element('[data-testid=\"tweetTextarea_0\"]', 'Hello from gptme!')"
+        ],
+    )
+    assert computer_suite.check_used_tweet_textarea([])
+
+
+def test_check_used_tweet_textarea_accepts_wait_for_element(monkeypatch):
+    """wait_for_element targeting the testid also counts."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["wait_for_element('[data-testid=\"tweetTextarea_0\"]')"],
+    )
+    assert computer_suite.check_used_tweet_textarea([])
+
+
+def test_check_used_tweet_textarea_rejects_generic_textarea(monkeypatch):
+    """A bare textarea selector without the Twitter testid does not satisfy the check."""
+    monkeypatch.setattr(
+        computer_suite,
+        "_executed_tool_calls",
+        lambda messages: ["fill_element('textarea', 'Hello from gptme!')"],
+    )
+    assert not computer_suite.check_used_tweet_textarea([])
+
+
+def test_check_used_tweet_textarea_rejects_empty(monkeypatch):
+    monkeypatch.setattr(computer_suite, "_executed_tool_calls", lambda messages: [])
+    assert not computer_suite.check_used_tweet_textarea([])
+
+
+# ---------------------------------------------------------------------------
+# "Can it Tweet?" milestone — _expect_tweet_posted / _expect_tweet_text_echoed
+# ---------------------------------------------------------------------------
+
+
+def test_expect_tweet_posted_from_file():
+    """'tweet-posted' marker written by JS click handler must appear in tweet.txt."""
+    ctx = ResultContext(
+        files={"tweet.txt": "tweet-posted:Hello from gptme!"},
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_tweet_posted(ctx)
+
+
+def test_expect_tweet_posted_from_stdout_fallback():
+    ctx = ResultContext(
+        files={},
+        stdout="The page now shows: tweet-posted:Hello from gptme!",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_tweet_posted(ctx)
+
+
+def test_expect_tweet_posted_rejects_narration_without_marker():
+    """Agent narrating 'I clicked Tweet' without the marker must NOT pass."""
+    ctx = ResultContext(
+        files={"tweet.txt": "I clicked the Tweet button successfully."},
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert not computer_suite._expect_tweet_posted(ctx)
+
+
+def test_expect_tweet_posted_fails_empty():
+    ctx = ResultContext(files={}, stdout="", stderr="", exit_code=0)
+    assert not computer_suite._expect_tweet_posted(ctx)
+
+
+def test_expect_tweet_text_echoed_from_file():
+    """The composed tweet text must appear in the output."""
+    ctx = ResultContext(
+        files={"tweet.txt": "tweet-posted:Hello from gptme!"},
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert computer_suite._expect_tweet_text_echoed(ctx)
+
+
+def test_expect_tweet_text_echoed_fails_wrong_text():
+    ctx = ResultContext(
+        files={"tweet.txt": "tweet-posted:something else"},
+        stdout="",
+        stderr="",
+        exit_code=0,
+    )
+    assert not computer_suite._expect_tweet_text_echoed(ctx)
+
+
+def test_tweet_compose_eval_spec_present():
+    """The 'Can it Tweet?' eval spec must be registered in the tests list."""
+    names = [t["name"] for t in computer_suite.tests]
+    assert "computer-use-web-tweet-compose" in names, (
+        f"'computer-use-web-tweet-compose' not in eval specs: {names}"
+    )
