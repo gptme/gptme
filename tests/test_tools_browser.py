@@ -1041,3 +1041,45 @@ class TestCreatePage:
         browser.new_context.assert_called_once_with(locale="en-US")
         assert managed.page is page
         assert managed._owned_context is context
+
+
+@pytest.mark.skipif(not has_playwright(), reason="playwright not installed")
+class TestSelectOption:
+    """select_option should not double the timeout via an unreachable fallback."""
+
+    def test_single_attempt_when_value_matches_nothing(self, monkeypatch):
+        # Playwright's value= already matches by value attribute or label text,
+        # so once value= times out, a label= retry can never match — it only
+        # doubles the wait. _select_option must make exactly one attempt.
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        from gptme.tools import _browser_playwright as bp
+
+        locator = MagicMock()
+        locator.select_option.side_effect = PlaywrightTimeoutError("timeout")
+        page = MagicMock()
+        page.locator.return_value = locator
+
+        monkeypatch.setattr(bp, "_current_page", page)
+        with pytest.raises(PlaywrightTimeoutError):
+            bp._select_option(MagicMock(), "[name='size']", "no-such-option")
+
+        assert locator.select_option.call_count == 1
+        locator.select_option.assert_called_once_with(
+            value="no-such-option", timeout=10000
+        )
+
+    def test_returns_snapshot_on_success(self, monkeypatch):
+        from gptme.tools import _browser_playwright as bp
+
+        locator = MagicMock()
+        page = MagicMock()
+        page.locator.return_value = locator
+
+        monkeypatch.setattr(bp, "_current_page", page)
+        monkeypatch.setattr(bp, "_page_snapshot", lambda: "SNAPSHOT")
+
+        result = bp._select_option(MagicMock(), "[name='size']", "large")
+
+        assert result == "SNAPSHOT"
+        locator.select_option.assert_called_once_with(value="large", timeout=10000)
