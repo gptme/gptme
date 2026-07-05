@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7ff1cc110cc0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7efeabd28cc0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -826,6 +826,9 @@ The following Python functions are available:
 <span class="s">wait_for_element(selector: str, timeout_ms: int) -&gt; str: Wait for a DOM element to become visible on the current page.</span>
 <span class="s">read_logs() -&gt; str: Read browser console logs from the last read URL.</span>
 <span class="s">pdf_to_images(url_or_path: str, output_dir: Union[str, Path, None], pages: Union[tuple[int, int], None], dpi: int) -&gt; list[Path]: Convert PDF pages to images using auto-detected CLI tools.</span>
+<span class="s">hover_element(selector: str) -&gt; str: Hover over an element on the current page and return updated ARIA snapshot.</span>
+<span class="s">snapshot_page() -&gt; str: Get the ARIA accessibility snapshot of the current interactive page.</span>
+<span class="s">get_current_url() -&gt; str: Return the URL of the currently open browser page.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -2650,7 +2653,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 16467</p>
+<p>Tokens: 16529</p>
 </dd></dl>
 
 <dl class="py function">
