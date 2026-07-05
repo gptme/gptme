@@ -137,7 +137,7 @@ def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
 @dataclass(frozen=True)
 class ReturnType:
     status: Status
-    result: str | None = None
+    result: str | dict | None = None
     # Token budget tracking: LLM token counts for the subagent's run.
     # None means unavailable (e.g. cached terminal result, pre-budget-tracking log).
     input_tokens: int | None = None
