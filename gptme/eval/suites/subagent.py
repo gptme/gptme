@@ -256,7 +256,7 @@ def check_wait_any_loser_cancelled(messages: list[Message]) -> bool:
 def check_wait_any_result_used(messages: list[Message]) -> bool:
     """Final assistant message should reference the winning subagent result."""
     final_msg = _last_assistant_content(messages)
-    return "WINNER=" in final_msg or "RACE=" in final_msg
+    return "WINNER=" in final_msg and "RACE=" in final_msg
 
 
 _PARALLEL_A = "alpha beta gamma delta epsilon zeta\n"
