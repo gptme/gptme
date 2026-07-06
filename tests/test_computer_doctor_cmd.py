@@ -143,9 +143,7 @@ class TestDoctorLinux:
                 return_value=_fake_transport(tmp_path),
             ),
             patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
-            patch.dict(
-                sys.modules, {"playwright.sync_api": pw_stub, "pyatspi": MagicMock()}
-            ),
+            patch.dict(sys.modules, {"playwright.sync_api": pw_stub, "pyatspi": None}),
         ):
             result = runner.invoke(doctor_cmd, [])
 
@@ -237,9 +235,7 @@ class TestDoctorLinux:
                 "gptme.tools.computer_transport.NativeComputerTransport",
                 return_value=transport,
             ),
-            patch.dict(
-                sys.modules, {"playwright.sync_api": pw_stub, "pyatspi": MagicMock()}
-            ),
+            patch.dict(sys.modules, {"playwright.sync_api": pw_stub, "pyatspi": None}),
         ):
             result = runner.invoke(doctor_cmd, ["--display", ":99"])
 
@@ -426,7 +422,6 @@ class TestDoctorPlaywright:
                 {
                     "playwright": None,
                     "playwright.sync_api": None,
-                    "pyatspi": MagicMock(),
                 },
             ),
         ):
@@ -534,9 +529,7 @@ class TestDoctorLatencySection:
                 side_effect=RuntimeError("transport boom"),
             ),
             patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
-            patch.dict(
-                sys.modules, {"playwright.sync_api": pw_stub, "pyatspi": MagicMock()}
-            ),
+            patch.dict(sys.modules, {"playwright.sync_api": pw_stub, "pyatspi": None}),
         ):
             result = runner.invoke(doctor_cmd, [])
 
