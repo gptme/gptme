@@ -1727,6 +1727,7 @@ def demo_cmd(text: str, as_json: bool):
                     {
                         "status": "error",
                         "error": "playwright not installed",
+                        "total_ms": 0,
                         "steps": [],
                     }
                 )
@@ -1808,13 +1809,17 @@ def demo_cmd(text: str, as_json: bool):
             el.click()
             el.fill(text)
             actual = el.inner_text()
-            ok_fill = text.strip() in actual or actual.strip() == text.strip()
+            ok_fill = text.strip() in actual
             _step(
                 "fill_element (type tweet)",
                 ok_fill,
                 (time.perf_counter() - t0) * 1000,
                 f"typed {len(text)} chars",
             )
+            if not ok_fill:
+                browser.close()
+                _finish(steps, overall_t0, as_json, failed=True)
+                raise SystemExit(1) from None
         except Exception as exc:
             _step(
                 "fill_element (type tweet)",

@@ -151,6 +151,8 @@ class TestDemoCmd:
         assert result.exit_code == 1
         data = json.loads(result.output)
         assert data["status"] == "error"
+        assert data["total_ms"] == 0
+        assert data["steps"] == []
 
     def test_goto_failure_exits_1(self):
         """If page.goto raises, demo exits 1 and reports the failure."""
@@ -164,6 +166,47 @@ class TestDemoCmd:
         assert data["status"] == "fail"
         failed = [s for s in data["steps"] if not s["ok"]]
         assert any("open_page" in s["step"] for s in failed)
+
+    def test_fill_mismatch_aborts_before_submit(self):
+        """If typed text does not round-trip, demo stops before submit/verify."""
+        page = _make_page_mock()
+
+        compose_el = MagicMock()
+        compose_el.inner_text.return_value = ""
+        compose_el.click.return_value = None
+        compose_el.fill.return_value = None
+
+        btn_el = MagicMock()
+        status_el = MagicMock()
+        status_el.inner_text.return_value = "tweet-posted:"
+
+        def _locator(sel):
+            if "tweetTextarea_0" in sel:
+                return compose_el
+            if "tweetButtonInline" in sel:
+                return btn_el
+            if sel == "#status":
+                return status_el
+            return MagicMock()
+
+        page.locator.side_effect = _locator
+
+        with _make_playwright_patcher(page):
+            runner = CliRunner()
+            result = runner.invoke(demo_cmd, ["--json"])
+
+        assert result.exit_code == 1
+        data = json.loads(result.output)
+        assert data["status"] == "fail"
+        assert [s["step"] for s in data["steps"]] == [
+            "launch browser",
+            "open_page (load fixture)",
+            'wait_for_element [data-testid="tweetTextarea_0"]',
+            "fill_element (type tweet)",
+        ]
+        assert not data["steps"][-1]["ok"]
+        btn_el.click.assert_not_called()
+        status_el.inner_text.assert_not_called()
 
     def test_click_failure_exits_1(self):
         """If click_element raises, demo exits 1."""
