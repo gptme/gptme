@@ -6,9 +6,11 @@ to VNC streaming for viewing the desktop from the gptme web UI.
 
 from __future__ import annotations
 
+import os
 import platform
+import tempfile
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -18,12 +20,95 @@ import pytest
 from gptme.server.app import create_app
 
 
+def _minimal_png_bytes() -> bytes:
+    return bytes(
+        [
+            0x89,
+            0x50,
+            0x4E,
+            0x47,
+            0x0D,
+            0x0A,
+            0x1A,
+            0x0A,  # PNG signature
+            0x00,
+            0x00,
+            0x00,
+            0x0D,
+            0x49,
+            0x48,
+            0x44,
+            0x52,  # IHDR chunk
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            0x08,
+            0x02,
+            0x00,
+            0x00,
+            0x00,
+            0x90,
+            0x77,
+            0x53,
+            0xDE,
+            0x00,
+            0x00,
+            0x00,
+            0x0C,
+            0x49,
+            0x44,
+            0x41,  # IDAT chunk
+            0x54,
+            0x08,
+            0xD7,
+            0x63,
+            0xF8,
+            0xCF,
+            0xC0,
+            0x00,
+            0x00,
+            0x00,
+            0x02,
+            0x00,
+            0x01,
+            0xE2,
+            0x21,
+            0xBC,
+            0x33,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x49,
+            0x45,
+            0x4E,  # IEND chunk
+            0x44,
+            0xAE,
+            0x42,
+            0x60,
+            0x82,
+        ]
+    )
+
+
 @pytest.fixture()
 def client():
     app = create_app(cors_origin=None)
     app.config["TESTING"] = True
     with app.test_client() as c:
         yield c
+
+
+@pytest.fixture()
+def png_file(tmp_path) -> Path:
+    p = tmp_path / "screen.png"
+    p.write_bytes(_minimal_png_bytes())
+    return p
 
 
 # ---------------------------------------------------------------------------
@@ -115,86 +200,6 @@ class TestComputerScreenshot503:
 class TestComputerScreenshotSuccess:
     """When a screenshot can be taken, the endpoint returns image bytes."""
 
-    @pytest.fixture()
-    def png_file(self, tmp_path) -> Path:
-        # Minimal 1x1 PNG (valid PNG header + IHDR + IDAT + IEND)
-        minimal_png = bytes(
-            [
-                0x89,
-                0x50,
-                0x4E,
-                0x47,
-                0x0D,
-                0x0A,
-                0x1A,
-                0x0A,  # PNG signature
-                0x00,
-                0x00,
-                0x00,
-                0x0D,
-                0x49,
-                0x48,
-                0x44,
-                0x52,  # IHDR chunk
-                0x00,
-                0x00,
-                0x00,
-                0x01,
-                0x00,
-                0x00,
-                0x00,
-                0x01,
-                0x08,
-                0x02,
-                0x00,
-                0x00,
-                0x00,
-                0x90,
-                0x77,
-                0x53,
-                0xDE,
-                0x00,
-                0x00,
-                0x00,
-                0x0C,
-                0x49,
-                0x44,
-                0x41,  # IDAT chunk
-                0x54,
-                0x08,
-                0xD7,
-                0x63,
-                0xF8,
-                0xCF,
-                0xC0,
-                0x00,
-                0x00,
-                0x00,
-                0x02,
-                0x00,
-                0x01,
-                0xE2,
-                0x21,
-                0xBC,
-                0x33,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x49,
-                0x45,
-                0x4E,  # IEND chunk
-                0x44,
-                0xAE,
-                0x42,
-                0x60,
-                0x82,
-            ]
-        )
-        p = tmp_path / "screen.png"
-        p.write_bytes(minimal_png)
-        return p
-
     def test_returns_200_with_image(self, client, png_file):
         with (
             patch("gptme.server.computer_api._screenshot_available", return_value=True),
@@ -229,6 +234,46 @@ class TestComputerScreenshotSuccess:
         ):
             resp = client.get("/api/v2/computer/screenshot?quality=50")
         assert resp.status_code == 200
+
+    def test_cleans_up_source_png_after_response(self, client, png_file):
+        with (
+            patch("gptme.server.computer_api._screenshot_available", return_value=True),
+            patch("gptme.server.computer_api._take_screenshot", return_value=png_file),
+        ):
+            resp = client.get("/api/v2/computer/screenshot")
+        assert resp.status_code == 200
+        assert not png_file.exists()
+
+    def test_cleans_up_source_png_and_temp_jpg_after_conversion(
+        self, client, png_file, tmp_path
+    ):
+        jpg_fd, jpg_path = tempfile.mkstemp(dir=tmp_path, suffix=".jpg")
+
+        def fake_convert(*args, **kwargs):
+            with open(jpg_path, "wb") as f:
+                f.write(b"jpeg-data")
+
+        with (
+            patch("gptme.server.computer_api._screenshot_available", return_value=True),
+            patch("gptme.server.computer_api._take_screenshot", return_value=png_file),
+            patch(
+                "gptme.server.computer_api.tempfile.mkstemp",
+                return_value=(jpg_fd, jpg_path),
+            ),
+            patch(
+                "gptme.server.computer_api.shutil.which",
+                side_effect=lambda cmd: (
+                    "/usr/bin/convert" if cmd == "convert" else None
+                ),
+            ),
+            patch("subprocess.run", side_effect=fake_convert),
+        ):
+            resp = client.get("/api/v2/computer/screenshot?quality=50")
+        assert resp.status_code == 200
+        assert resp.content_type == "image/jpeg"
+        assert resp.data == b"jpeg-data"
+        assert not png_file.exists()
+        assert not os.path.exists(jpg_path)
 
 
 # ---------------------------------------------------------------------------
@@ -282,3 +327,50 @@ class TestScreenshotAvailable:
             result = computer_api._screenshot_available()
         # The function reads platform.system() and shutil.which — just check it returns bool
         assert isinstance(result, bool)
+
+    def test_configured_non_native_transport_returns_true(self):
+        from gptme.server.computer_api import _screenshot_available
+
+        with patch(
+            "gptme.tools.computer_transport.get_transport", return_value=object()
+        ):
+            assert _screenshot_available() is True
+
+
+class TestTakeScreenshot:
+    def test_uses_configured_transport_when_present(self, png_file):
+        from gptme.server.computer_api import _take_screenshot
+
+        transport = Mock()
+        transport.screenshot.return_value = png_file
+
+        with (
+            patch(
+                "gptme.tools.computer_transport.get_transport", return_value=transport
+            ),
+            patch("gptme.tools.computer_transport.NativeComputerTransport"),
+        ):
+            path = _take_screenshot()
+
+        assert path == png_file
+        transport.screenshot.assert_called_once_with()
+        transport.close.assert_not_called()
+
+    def test_closes_native_fallback_transport(self, png_file):
+        from gptme.server.computer_api import _take_screenshot
+
+        transport = Mock()
+        transport.screenshot.return_value = png_file
+
+        with (
+            patch("gptme.tools.computer_transport.get_transport", return_value=None),
+            patch(
+                "gptme.tools.computer_transport.NativeComputerTransport",
+                return_value=transport,
+            ),
+        ):
+            path = _take_screenshot()
+
+        assert path == png_file
+        transport.screenshot.assert_called_once_with()
+        transport.close.assert_called_once_with()

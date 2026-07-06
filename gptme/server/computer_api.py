@@ -39,8 +39,8 @@ logger = logging.getLogger(__name__)
 computer_api = flask.Blueprint("computer_api", __name__)
 
 
-def _screenshot_available() -> bool:
-    """Return True when a screenshot backend is available on this machine.
+def _native_screenshot_available() -> bool:
+    """Return True when the native screenshot backend is available.
 
     Mirrors the logic in ``gptme.tools.screenshot._is_available`` to ensure
     the API endpoint's availability check matches the actual screenshot tool
@@ -60,21 +60,40 @@ def _screenshot_available() -> bool:
     return False
 
 
+def _screenshot_available() -> bool:
+    """Return True when a screenshot transport is available on this machine."""
+    from ..tools.computer_transport import NativeComputerTransport, get_transport
+
+    transport = get_transport()
+    if transport is None:
+        return _native_screenshot_available()
+
+    if isinstance(transport, NativeComputerTransport):
+        return _native_screenshot_available()
+
+    return True
+
+
 def _take_screenshot() -> Path:
     """Take a screenshot and return the path to the saved image file.
 
     Raises RuntimeError when the screenshot fails.
     """
-    from ..tools.computer_transport import NativeComputerTransport
+    from ..tools.computer_transport import NativeComputerTransport, get_transport
 
-    transport = NativeComputerTransport()
+    transport = get_transport()
+    owns_transport = False
+    if transport is None:
+        transport = NativeComputerTransport()
+        owns_transport = True
     try:
         path = transport.screenshot()
         if not path.exists():
             raise RuntimeError("Screenshot produced no file")
         return path
     finally:
-        transport.close()
+        if owns_transport:
+            transport.close()
 
 
 @computer_api.route("/api/v2/computer/screenshot")
@@ -117,47 +136,45 @@ def screenshot():
             quality = 80
 
         path = _take_screenshot()
+        temp_paths = [path]
 
-        # Convert to JPEG with requested quality using ImageMagick if available,
-        # otherwise serve the raw PNG.
-        _temp_jpg: str | None = None  # track temp file for cleanup
-        if path.suffix.lower() != ".jpg" and shutil.which("convert"):
-            try:
-                import subprocess
+        try:
+            # Convert to JPEG with requested quality using ImageMagick if available,
+            # otherwise serve the raw PNG.
+            if path.suffix.lower() != ".jpg" and shutil.which("convert"):
+                try:
+                    import subprocess
 
-                jpg_fd, jpg_path = tempfile.mkstemp(suffix=".jpg")
-                os.close(jpg_fd)
-                _temp_jpg = jpg_path
-                subprocess.run(
-                    [
-                        "convert",
-                        str(path),
-                        "-quality",
-                        str(quality),
-                        jpg_path,
-                    ],
-                    check=True,
-                    capture_output=True,
-                    timeout=10,
-                )
-                img_path = Path(jpg_path)
-                content_type = "image/jpeg"
-            except Exception:
-                if _temp_jpg:
-                    os.unlink(_temp_jpg)
+                    jpg_fd, jpg_path = tempfile.mkstemp(suffix=".jpg")
+                    os.close(jpg_fd)
+                    img_path = Path(jpg_path)
+                    temp_paths.append(img_path)
+                    subprocess.run(
+                        [
+                            "convert",
+                            str(path),
+                            "-quality",
+                            str(quality),
+                            jpg_path,
+                        ],
+                        check=True,
+                        capture_output=True,
+                        timeout=10,
+                    )
+                    content_type = "image/jpeg"
+                except Exception:
+                    img_path = path
+                    content_type = "image/png"
+            else:
                 img_path = path
-                content_type = "image/png"
-        else:
-            img_path = path
-            content_type = (
-                "image/jpeg" if path.suffix.lower() == ".jpg" else "image/png"
-            )
+                content_type = (
+                    "image/jpeg" if path.suffix.lower() == ".jpg" else "image/png"
+                )
 
-        data = img_path.read_bytes()
-
-        # Clean up temp JPEG file if conversion succeeded
-        if _temp_jpg and img_path == Path(_temp_jpg):
-            os.unlink(_temp_jpg)
+            data = img_path.read_bytes()
+        finally:
+            for temp_path in temp_paths:
+                temp_path.unlink(missing_ok=True)
 
         return flask.Response(
             response=data,
