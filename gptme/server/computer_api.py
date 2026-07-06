@@ -105,24 +105,24 @@ def screenshot():
         JPEG quality (1–95, default 80).  Lower values produce smaller
         images with faster polling.
     """
-    if not _screenshot_available():
-        system = platform.system()
-        if system == "Linux":
-            hint = (
-                "No supported Linux screenshot backend available. "
-                "Install gnome-screenshot, or install scrot and run under X11/Xvfb."
-            )
-        elif system == "Darwin":
-            hint = "screencapture not found (unexpected on macOS)"
-        else:
-            hint = f"Computer-use not supported on {system}"
-        return flask.Response(
-            response=flask.json.dumps({"error": hint}),
-            status=503,
-            content_type="application/json",
-        )
-
     try:
+        if not _screenshot_available():
+            system = platform.system()
+            if system == "Linux":
+                hint = (
+                    "No supported Linux screenshot backend available. "
+                    "Install gnome-screenshot, or install scrot and run under X11/Xvfb."
+                )
+            elif system == "Darwin":
+                hint = "screencapture not found (unexpected on macOS)"
+            else:
+                hint = f"Computer-use not supported on {system}"
+            return flask.Response(
+                response=flask.json.dumps({"error": hint}),
+                status=503,
+                content_type="application/json",
+            )
+
         quality_raw = flask.request.args.get("quality", "80")
         try:
             quality = max(1, min(95, int(quality_raw)))
@@ -235,15 +235,25 @@ def status():
     except ImportError:
         backends["playwright"] = False
 
+    screenshot_error = None
+    try:
+        screenshot_available = _screenshot_available()
+    except Exception as exc:
+        logger.exception("Screenshot availability check failed")
+        screenshot_available = False
+        screenshot_error = str(exc)
+
+    payload = {
+        "screenshot_available": screenshot_available,
+        "system": system,
+        "display": display,
+        "backends": backends,
+    }
+    if screenshot_error is not None:
+        payload["screenshot_error"] = screenshot_error
+
     return flask.Response(
-        response=flask.json.dumps(
-            {
-                "screenshot_available": _screenshot_available(),
-                "system": system,
-                "display": display,
-                "backends": backends,
-            }
-        ),
+        response=flask.json.dumps(payload),
         status=200,
         content_type="application/json",
     )

@@ -163,6 +163,19 @@ class TestComputerStatus:
         data = resp.get_json()
         assert data["display"] is None
 
+    def test_status_returns_json_when_availability_check_fails(self, client):
+        with patch(
+            "gptme.server.computer_api._screenshot_available",
+            side_effect=RuntimeError("cliclick not found"),
+        ):
+            resp = client.get("/api/v2/computer/status")
+
+        assert resp.status_code == 200
+        assert resp.content_type == "application/json"
+        data = resp.get_json()
+        assert data["screenshot_available"] is False
+        assert data["screenshot_error"] == "cliclick not found"
+
 
 # ---------------------------------------------------------------------------
 # /api/v2/computer/screenshot — 503 when no display
@@ -298,6 +311,18 @@ class TestComputerScreenshot500:
         assert resp.status_code == 500
         data = resp.get_json()
         assert "error" in data
+
+    def test_returns_json_500_when_availability_check_fails(self, client):
+        with patch(
+            "gptme.server.computer_api._screenshot_available",
+            side_effect=RuntimeError("cliclick not found"),
+        ):
+            resp = client.get("/api/v2/computer/screenshot")
+
+        assert resp.status_code == 500
+        assert resp.content_type == "application/json"
+        data = resp.get_json()
+        assert data["error"] == "cliclick not found"
 
 
 # ---------------------------------------------------------------------------
