@@ -21,3 +21,9 @@ done
 
 echo "Xvfb started successfully on display ${DISPLAY}"
 echo "Xvfb PID: $XVFB_PID"
+
+# Load X resources so xterm uses the bitmap "fixed" font (bypasses the
+# multi-second fontconfig scan that caused new-terminal delays — issue #216).
+if [ -f "$HOME/.Xdefaults" ]; then
+    xrdb -merge "$HOME/.Xdefaults" && echo "Loaded X resources from ~/.Xdefaults"
+fi

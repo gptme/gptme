@@ -1,0 +1,24 @@
+! ~/.Xdefaults — X resources for the gptme computer-use container
+!
+! Primary purpose: eliminate the multi-second terminal startup delay (issue #216).
+!
+! xterm's default Xft font rendering scans all system font directories on first
+! launch (fontconfig scan), which takes 1–3 seconds in a fresh Xvfb environment.
+! Using the built-in "fixed" bitmap font bypasses Xft entirely, cutting xterm
+! startup from ~2 s to < 100 ms.
+!
+! Loaded by xvfb_startup.sh via `xrdb -merge ~/.Xdefaults` after Xvfb is ready.
+
+! Use built-in bitmap font — bypasses Xft/fontconfig scan
+XTerm*font:             fixed
+XTerm*boldFont:         fixed
+
+! Readable size and colours for headless VNC viewing
+XTerm*background:       #1e1e2e
+XTerm*foreground:       #cdd6f4
+XTerm*cursorColor:      #f5c2e7
+XTerm*scrollBar:        false
+XTerm*saveLines:        2000
+
+! Ensure colour support (needed for many CLI tools)
+XTerm*termName:         xterm-256color

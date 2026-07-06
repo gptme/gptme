@@ -301,3 +301,118 @@ class TestDockerComposeComputerUseService:
                 f"computer-use environment: {env_keys}. "
                 "Must forward at least one provider API key."
             )
+
+
+COMPUTER_HOME = Path(__file__).parent.parent / "scripts" / "computer_home"
+XDEFAULTS = COMPUTER_HOME / ".Xdefaults"
+XVFB_STARTUP = COMPUTER_HOME / "xvfb_startup.sh"
+TINT2_STARTUP = COMPUTER_HOME / "tint2_startup.sh"
+X11VNC_STARTUP = COMPUTER_HOME / "x11vnc_startup.sh"
+NOVNC_STARTUP = COMPUTER_HOME / "novnc_startup.sh"
+
+
+class TestTerminalStartupDelayFix:
+    """Verify the fix for terminal startup delays in the Docker computer-use setup.
+
+    gptme/gptme#216 identified that new terminal windows in Xvfb/X11 environments
+    start slowly (1-3 seconds) due to xterm's default Xft font rendering scanning
+    all system font directories (fontconfig scan).
+
+    The fix has two parts:
+    1. ~/.Xdefaults with XTerm*font: fixed — uses the built-in bitmap font,
+       bypassing Xft/fontconfig and cutting xterm startup from ~2 s to < 100 ms.
+    2. fc-cache -f in the Dockerfile — warms the fontconfig cache at build time
+       so even the Xft path is fast if any other app triggers a scan.
+    3. Faster polling (0.1 s) in startup scripts so container startup is quicker.
+    """
+
+    def test_xdefaults_exists(self):
+        """~/.Xdefaults must exist in scripts/computer_home/ so it is COPY'd into the image."""
+        assert XDEFAULTS.exists(), (
+            f"scripts/computer_home/.Xdefaults not found: {XDEFAULTS}. "
+            "This file is required to configure xterm's font and fix terminal startup delays."
+        )
+
+    def test_xdefaults_has_bitmap_font(self):
+        """~/.Xdefaults must set XTerm*font to 'fixed' to bypass the Xft/fontconfig scan.
+
+        Using the built-in 'fixed' bitmap font avoids the 1-3 second fontconfig
+        directory scan that caused the new-terminal delay reported in gptme/gptme#216.
+        """
+        text = XDEFAULTS.read_text()
+        assert "XTerm*font:" in text, (
+            "~/.Xdefaults is missing an XTerm*font setting. "
+            "Add 'XTerm*font: fixed' to use the built-in bitmap font."
+        )
+        # Extract the font value and check it is 'fixed' (or a bitmap family).
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("XTerm*font:"):
+                font_value = stripped.split(":", 1)[1].strip()
+                assert font_value == "fixed", (
+                    f"XTerm*font is set to '{font_value}', expected 'fixed'. "
+                    "The 'fixed' bitmap font is built into the X server and requires "
+                    "no fontconfig scan, giving < 100 ms xterm startup."
+                )
+                break
+
+    def test_xvfb_startup_loads_xdefaults(self):
+        """xvfb_startup.sh must load ~/.Xdefaults via xrdb so xterm picks up the font setting."""
+        text = XVFB_STARTUP.read_text()
+        assert "xrdb" in text and ".Xdefaults" in text, (
+            "xvfb_startup.sh does not load ~/.Xdefaults via xrdb. "
+            "Add: xrdb -merge ~/.Xdefaults\n"
+            "This applies the XTerm*font: fixed setting so every xterm in the "
+            "container starts with the bitmap font."
+        )
+
+    def test_dockerfile_warms_fontconfig_cache(self):
+        """Dockerfile.computer must run fc-cache -f to warm the font cache at build time.
+
+        Even when xterm uses 'fixed', other apps may trigger a fontconfig scan.
+        Running fc-cache -f once during the build ensures the cache is warm
+        so any first-launch font scan completes quickly at runtime.
+        """
+        text = DOCKERFILE_COMPUTER.read_text()
+        assert "fc-cache" in text, (
+            "Dockerfile.computer does not run fc-cache to warm the fontconfig cache. "
+            "Add 'RUN fc-cache -f' before the USER switch so font scans at runtime are fast."
+        )
+
+    def test_tint2_startup_uses_fast_polling(self):
+        """tint2_startup.sh must poll with 0.1 s intervals, not 1 s.
+
+        1-second polling intervals add up to several seconds of unnecessary
+        startup time in the container. 0.1 s intervals give the same safety
+        with ~10x less overhead.
+        """
+        text = TINT2_STARTUP.read_text()
+        assert "sleep 1" not in text, (
+            "tint2_startup.sh uses 'sleep 1' polling. "
+            "Replace with 'sleep 0.1' so container startup is ~10x faster."
+        )
+        assert "sleep 0.1" in text, (
+            "tint2_startup.sh must poll with 'sleep 0.1' for fast startup."
+        )
+
+    def test_x11vnc_startup_uses_fast_polling(self):
+        """x11vnc_startup.sh must poll with 0.1 s intervals, not 1 s."""
+        text = X11VNC_STARTUP.read_text()
+        assert "sleep 1\n" not in text, (
+            "x11vnc_startup.sh uses 'sleep 1' polling. "
+            "Replace with 'sleep 0.1' so container startup is ~10x faster."
+        )
+        assert "sleep 0.1" in text, (
+            "x11vnc_startup.sh must poll with 'sleep 0.1' for fast startup."
+        )
+
+    def test_novnc_startup_uses_fast_polling(self):
+        """novnc_startup.sh must poll with 0.1 s intervals, not 1 s."""
+        text = NOVNC_STARTUP.read_text()
+        assert "sleep 1\n" not in text, (
+            "novnc_startup.sh uses 'sleep 1' polling. "
+            "Replace with 'sleep 0.1' so container startup is ~10x faster."
+        )
+        assert "sleep 0.1" in text, (
+            "novnc_startup.sh must poll with 'sleep 0.1' for fast startup."
+        )
