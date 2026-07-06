@@ -11,6 +11,13 @@ from pathlib import Path
 
 import click
 
+# Optional Playwright import — present only when the browser extra is installed.
+# Defined at module level so tests can patch `gptme.cli.cmd_computer.sync_playwright`.
+try:
+    from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover
+    sync_playwright = None  # type: ignore[assignment]
+
 from ..dirs import get_logs_dir
 from ..logmanager import _gen_read_jsonl
 from ..tools._computer_gate import (
@@ -1626,3 +1633,269 @@ def doctor_cmd(display: str | None):
             + "  Fix the items above and re-run `gptme-util computer doctor`."
         )
         raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# demo command
+# ---------------------------------------------------------------------------
+
+# Same HTML fixture used by the eval suite's computer-use-web-tweet-compose spec
+# (gptme/eval/suites/computer.py).  Uses Twitter's real data-testid selectors so
+# the same fill_element / click_element calls that pass here work against a real
+# X.com compose page once the user provides authenticated browser state.
+_DEMO_TWEET_HTML = (
+    "<!doctype html><html><body>"
+    "<h1>Compose</h1>"
+    '<div role="group" aria-label="Tweet compose">'
+    '<div data-testid="tweetTextarea_0" role="textbox" contenteditable="true" '
+    'aria-label="Tweet text" style="width:100%;min-height:80px"></div>'
+    '<button data-testid="tweetButtonInline" data-role="tweet-button" '
+    'style="margin-top:8px">Tweet</button>'
+    "</div>"
+    '<div id="status"></div>'
+    "<script>"
+    "document.querySelector('[data-role=\"tweet-button\"]')"
+    ".addEventListener('click', function() {"
+    "var compose = document.querySelector('[data-testid=\"tweetTextarea_0\"]');"
+    "var text = (compose.innerText || compose.textContent || '').trim();"
+    "document.getElementById('status').textContent = 'tweet-posted:' + text;"
+    "});"
+    "</script>"
+    "</body></html>"
+)
+
+
+def _demo_tweet_url() -> str:
+    import base64
+
+    return "data:text/html;base64," + base64.b64encode(
+        _DEMO_TWEET_HTML.encode()
+    ).decode("ascii")
+
+
+@computer.command("demo")
+@click.option(
+    "--text",
+    default="Hello from gptme!",
+    show_default=True,
+    help="Tweet text to type into the compose box.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Output result as JSON.",
+)
+def demo_cmd(text: str, as_json: bool):
+    """Run a self-contained end-to-end demo of the browser automation pipeline.
+
+    Opens a local HTML fixture that mimics the Twitter/X compose UI (same
+    ``data-testid`` selectors as the real page), types a tweet, clicks the
+    submit button, and verifies that the DOM updated — all without an LLM or
+    network access.
+
+    This is the tool-layer equivalent of the "Can it Tweet?" milestone from
+    gptme/gptme#216.  If the demo passes, the full
+    ``open_page → fill_element → click_element → read_page_text`` pipeline is
+    working and ready for a live gptme computer-use session.
+
+    Examples::
+
+        # Run the demo (exit 0 = pass, exit 1 = fail)
+        gptme-util computer demo
+
+        # Custom tweet text
+        gptme-util computer demo --text "Shipped it!"
+
+        # Machine-readable output for scripting
+        gptme-util computer demo --json
+    """
+    import time
+
+    # sync_playwright is imported at module level; None when playwright is absent.
+    if sync_playwright is None:
+        msg = (
+            "playwright is not installed — browser demo unavailable.\n"
+            "Install it with:\n"
+            "  pip install playwright\n"
+            "  python -m playwright install chromium"
+        )
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "error": "playwright not installed",
+                        "steps": [],
+                    }
+                )
+            )
+        else:
+            click.echo(f"✗ {msg}", err=True)
+        raise SystemExit(1)
+
+    steps: list[dict] = []
+    overall_t0 = time.perf_counter()
+
+    def _step(name: str, ok: bool, elapsed_ms: float, detail: str = "") -> None:
+        steps.append(
+            {"step": name, "ok": ok, "elapsed_ms": round(elapsed_ms), "detail": detail}
+        )
+        if not as_json:
+            icon = _PASS if ok else _FAIL
+            detail_str = f"  ({detail})" if detail else ""
+            click.echo(f"  {icon}  {name}{detail_str}  [{elapsed_ms:.0f} ms]")
+
+    if not as_json:
+        click.echo("Computer-use browser demo (tweet-compose fixture)\n")
+
+    fixture_url = _demo_tweet_url()
+
+    with sync_playwright() as pw:
+        t0 = time.perf_counter()
+        try:
+            browser = pw.chromium.launch(headless=True)
+            context = browser.new_context()
+            page = context.new_page()
+            _step("launch browser", True, (time.perf_counter() - t0) * 1000)
+        except Exception as exc:
+            elapsed = (time.perf_counter() - t0) * 1000
+            _step("launch browser", False, elapsed, str(exc))
+            _finish(steps, overall_t0, as_json, failed=True)
+            raise SystemExit(1) from None
+
+        # Step 1: open_page — load the fixture
+        t0 = time.perf_counter()
+        try:
+            page.goto(fixture_url, wait_until="domcontentloaded", timeout=10_000)
+            _step("open_page (load fixture)", True, (time.perf_counter() - t0) * 1000)
+        except Exception as exc:
+            _step(
+                "open_page (load fixture)",
+                False,
+                (time.perf_counter() - t0) * 1000,
+                str(exc),
+            )
+            browser.close()
+            _finish(steps, overall_t0, as_json, failed=True)
+            raise SystemExit(1) from None
+
+        # Step 2: wait_for_element — compose box ready
+        t0 = time.perf_counter()
+        try:
+            page.wait_for_selector('[data-testid="tweetTextarea_0"]', timeout=5_000)
+            _step(
+                'wait_for_element [data-testid="tweetTextarea_0"]',
+                True,
+                (time.perf_counter() - t0) * 1000,
+            )
+        except Exception as exc:
+            _step(
+                'wait_for_element [data-testid="tweetTextarea_0"]',
+                False,
+                (time.perf_counter() - t0) * 1000,
+                str(exc),
+            )
+            browser.close()
+            _finish(steps, overall_t0, as_json, failed=True)
+            raise SystemExit(1) from None
+
+        # Step 3: fill_element — type the tweet text
+        t0 = time.perf_counter()
+        try:
+            el = page.locator('[data-testid="tweetTextarea_0"]')
+            el.click()
+            el.fill(text)
+            actual = el.inner_text()
+            ok_fill = text.strip() in actual or actual.strip() == text.strip()
+            _step(
+                "fill_element (type tweet)",
+                ok_fill,
+                (time.perf_counter() - t0) * 1000,
+                f"typed {len(text)} chars",
+            )
+        except Exception as exc:
+            _step(
+                "fill_element (type tweet)",
+                False,
+                (time.perf_counter() - t0) * 1000,
+                str(exc),
+            )
+            browser.close()
+            _finish(steps, overall_t0, as_json, failed=True)
+            raise SystemExit(1) from None
+
+        # Step 4: click_element — submit the tweet
+        t0 = time.perf_counter()
+        try:
+            page.locator('[data-testid="tweetButtonInline"]').click()
+            _step(
+                'click_element [data-testid="tweetButtonInline"]',
+                True,
+                (time.perf_counter() - t0) * 1000,
+            )
+        except Exception as exc:
+            _step(
+                'click_element [data-testid="tweetButtonInline"]',
+                False,
+                (time.perf_counter() - t0) * 1000,
+                str(exc),
+            )
+            browser.close()
+            _finish(steps, overall_t0, as_json, failed=True)
+            raise SystemExit(1) from None
+
+        # Step 5: read_page_text — verify the DOM updated
+        t0 = time.perf_counter()
+        try:
+            page_text = page.locator("#status").inner_text(timeout=3_000)
+            ok_verify = page_text.startswith("tweet-posted:")
+            _step(
+                "read_page_text (verify submit)",
+                ok_verify,
+                (time.perf_counter() - t0) * 1000,
+                repr(page_text[:60]) if page_text else "(empty)",
+            )
+        except Exception as exc:
+            _step(
+                "read_page_text (verify submit)",
+                False,
+                (time.perf_counter() - t0) * 1000,
+                str(exc),
+            )
+            browser.close()
+            _finish(steps, overall_t0, as_json, failed=True)
+            raise SystemExit(1) from None
+
+        browser.close()
+
+    failed = any(not s["ok"] for s in steps)
+    _finish(steps, overall_t0, as_json, failed=failed)
+    if failed:
+        raise SystemExit(1)
+
+
+def _finish(steps: list[dict], t0: float, as_json: bool, failed: bool) -> None:
+    import time
+
+    total_ms = round((time.perf_counter() - t0) * 1000)
+    status = "fail" if failed else "pass"
+    if as_json:
+        click.echo(
+            json.dumps(
+                {"status": status, "total_ms": total_ms, "steps": steps}, indent=2
+            )
+        )
+    else:
+        click.echo("")
+        if failed:
+            click.echo(
+                click.style("✗  Demo failed.", fg="red")
+                + "  Check the steps above and run `gptme-util computer doctor`."
+            )
+        else:
+            click.echo(
+                click.style(f"✅  Demo passed in {total_ms} ms.", fg="green")
+                + "  The browser automation pipeline is working end-to-end."
+            )
