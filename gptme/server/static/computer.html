@@ -45,6 +45,41 @@
         button:hover {
             background: #f0f0f0;
         }
+        /* Screenshot polling fallback (shown when VNC is unavailable) */
+        #screenshot-panel {
+            display: none;
+            flex: 2;
+            height: 100vh;
+            background: #111;
+            position: relative;
+            overflow: hidden;
+        }
+        #screenshot-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        #screenshot-status {
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.6);
+            color: #ccc;
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+        #screenshot-error {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #888;
+            text-align: center;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -53,52 +88,164 @@
             <!-- Will be replaced with gptme chat interface -->
             <iframe src="/chat" style="width: 100%; height: 100%; border: none;"></iframe>
         </div>
+        <!-- VNC mode: full live desktop via noVNC -->
         <iframe
             id="vnc"
             class="desktop"
             allow="fullscreen"
+            style="display:none"
         ></iframe>
+        <!-- Screenshot polling fallback: polls /api/v2/computer/screenshot -->
+        <div id="screenshot-panel">
+            <img id="screenshot-img" alt="Desktop screenshot" />
+            <div id="screenshot-status">Connecting…</div>
+            <div id="screenshot-error" style="display:none"></div>
+        </div>
     </div>
     <div class="controls">
-        <button id="toggleViewOnly">Toggle Screen Control (Off)</button>
+        <button id="toggleViewOnly" style="display:none">Toggle Screen Control (Off)</button>
+        <button id="toggleMode">Switch to VNC</button>
         <button id="toggleFullscreen">Toggle Fullscreen</button>
     </div>
     <script>
-        // Derive the VNC host from the current page so remote Docker setups
-        // (e.g. accessing http://remote-host:8080/computer) work without
-        // needing to edit any config.  Query params override for custom setups:
-        //   /computer?vncHost=192.168.1.5&vncPort=6080
         (function () {
             var params = new URLSearchParams(window.location.search);
+
+            // ---------------------------------------------------------------
+            // VNC mode
+            // ---------------------------------------------------------------
             var vncHost = params.get("vncHost") || window.location.hostname;
             var vncPort = params.get("vncPort") || "6080";
             var vncSrc = window.location.protocol + "//" + vncHost + ":" + vncPort +
                 "/vnc.html?&resize=scale&autoconnect=1&view_only=1&reconnect=1&reconnect_delay=2000";
-            document.getElementById("vnc").src = vncSrc;
+
+            // ---------------------------------------------------------------
+            // Screenshot polling mode
+            // ---------------------------------------------------------------
+            var screenshotInterval = null;
+            var screenshotFps = parseInt(params.get("fps") || "2", 10);
+            var screenshotDelay = Math.round(1000 / Math.max(1, Math.min(10, screenshotFps)));
+            var screenshotToken = params.get("token") || "";
+            var img = document.getElementById("screenshot-img");
+            var statusEl = document.getElementById("screenshot-status");
+            var errorEl = document.getElementById("screenshot-error");
+            var lastTs = 0;
+
+            function fetchScreenshot() {
+                var url = "/api/v2/computer/screenshot?quality=70&_t=" + Date.now();
+                var headers = {};
+                if (screenshotToken) {
+                    headers["Authorization"] = "Bearer " + screenshotToken;
+                }
+                fetch(url, {headers: headers, cache: "no-store"})
+                    .then(function(r) {
+                        if (!r.ok) {
+                            return r.json().then(function(j) {
+                                throw new Error(j.error || ("HTTP " + r.status));
+                            }).catch(function() {
+                                throw new Error("HTTP " + r.status);
+                            });
+                        }
+                        return r.blob();
+                    })
+                    .then(function(blob) {
+                        var oldSrc = img.src;
+                        img.src = URL.createObjectURL(blob);
+                        if (oldSrc && oldSrc.startsWith("blob:")) {
+                            URL.revokeObjectURL(oldSrc);
+                        }
+                        var now = Date.now();
+                        var fps = lastTs ? Math.round(1000 / (now - lastTs)) : 0;
+                        lastTs = now;
+                        statusEl.textContent = fps + " fps  |  polling every " + screenshotDelay + " ms";
+                        errorEl.style.display = "none";
+                        img.style.display = "block";
+                    })
+                    .catch(function(err) {
+                        errorEl.textContent = "No desktop: " + err.message;
+                        errorEl.style.display = "block";
+                        img.style.display = "none";
+                        statusEl.textContent = "Error — retrying…";
+                    });
+            }
+
+            function startScreenshotPolling() {
+                fetchScreenshot();
+                screenshotInterval = setInterval(fetchScreenshot, screenshotDelay);
+            }
+
+            function stopScreenshotPolling() {
+                if (screenshotInterval) {
+                    clearInterval(screenshotInterval);
+                    screenshotInterval = null;
+                }
+            }
+
+            // ---------------------------------------------------------------
+            // Mode switching
+            // ---------------------------------------------------------------
+            // Default: show screenshot panel (works on local gptme-server without VNC).
+            // Switching to VNC requires an explicit user gesture (or ?mode=vnc param).
+            var mode = params.get("mode") || "screenshot";
+
+            function showVnc() {
+                mode = "vnc";
+                stopScreenshotPolling();
+                document.getElementById("vnc").src = vncSrc;
+                document.getElementById("vnc").style.display = "";
+                document.getElementById("screenshot-panel").style.display = "none";
+                document.getElementById("toggleViewOnly").style.display = "";
+                document.getElementById("toggleMode").textContent = "Switch to Screenshot";
+            }
+
+            function showScreenshot() {
+                mode = "screenshot";
+                document.getElementById("vnc").src = "";
+                document.getElementById("vnc").style.display = "none";
+                document.getElementById("screenshot-panel").style.display = "";
+                document.getElementById("toggleViewOnly").style.display = "none";
+                document.getElementById("toggleMode").textContent = "Switch to VNC";
+                startScreenshotPolling();
+            }
+
+            if (mode === "vnc") {
+                showVnc();
+            } else {
+                showScreenshot();
+            }
+
+            // ---------------------------------------------------------------
+            // Controls
+            // ---------------------------------------------------------------
+            document.getElementById("toggleMode").addEventListener("click", function() {
+                if (mode === "screenshot") {
+                    showVnc();
+                } else {
+                    showScreenshot();
+                }
+            });
+
+            document.getElementById("toggleViewOnly").addEventListener("click", function() {
+                var vncIframe = document.getElementById("vnc");
+                var button = document.getElementById("toggleViewOnly");
+                var currentSrc = vncIframe.src;
+                if (currentSrc.includes("view_only=1")) {
+                    vncIframe.src = currentSrc.replace("view_only=1", "view_only=0");
+                    button.innerText = "Toggle Screen Control (On)";
+                } else {
+                    vncIframe.src = currentSrc.replace("view_only=0", "view_only=1");
+                    button.innerText = "Toggle Screen Control (Off)";
+                }
+            });
+
+            document.getElementById("toggleFullscreen").addEventListener("click", function() {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen();
+                } else {
+                    document.exitFullscreen();
+                }
+            });
         })();
-
-        // Toggle view-only mode
-        document.getElementById("toggleViewOnly").addEventListener("click", function() {
-            var vncIframe = document.getElementById("vnc");
-            var button = document.getElementById("toggleViewOnly");
-            var currentSrc = vncIframe.src;
-            if (currentSrc.includes("view_only=1")) {
-                vncIframe.src = currentSrc.replace("view_only=1", "view_only=0");
-                button.innerText = "Toggle Screen Control (On)";
-            } else {
-                vncIframe.src = currentSrc.replace("view_only=0", "view_only=1");
-                button.innerText = "Toggle Screen Control (Off)";
-            }
-        });
-
-        // Toggle fullscreen
-        document.getElementById("toggleFullscreen").addEventListener("click", function() {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen();
-            } else {
-                document.exitFullscreen();
-            }
-        });
     </script>
 </body>
 </html>
