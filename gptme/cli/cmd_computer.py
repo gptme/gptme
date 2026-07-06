@@ -988,6 +988,109 @@ def record_cmd(output: str | None, duration: float, fps: int, display: str | Non
         sys.exit(1)
 
 
+def _measure_terminal_startup(display: str, timeout: float = 15.0) -> dict:
+    """Measure time from xterm launch to window focus.
+
+    Launches xterm (or the fastest available terminal emulator) and uses
+    xdotool --sync to detect when the window is ready.  Returns a dict with
+    ``startup_ms`` on success or ``error`` on failure.
+
+    This isolates the "new terminal window delay" from gptme/gptme#216 — a
+    delay caused by X11 font loading and shell init that is separate from the
+    screenshot pipeline measured by the main latency command.
+
+    Mitigation if startup_ms is high (> 500 ms):
+    - Use ``xterm -fn fixed`` to bypass Xft font loading (uses built-in bitmap).
+    - Set ``XTerm*font: fixed`` in ``~/.Xdefaults`` as a permanent fix.
+    - ``fc-cache -f`` warms the fontconfig cache and reduces the first-launch hit.
+    - Use a lighter terminal (st / urxvt) which start in under 100 ms.
+    """
+    import subprocess
+    import time
+
+    # Try terminals in order of typical startup speed (fastest first).
+    # xterm -fn fixed uses a built-in bitmap font, bypassing the Xft/fontconfig
+    # scan that causes the multi-second delay in fresh Xvfb environments.
+    _candidates = [
+        ("xterm", ["-fn", "fixed"], "xterm"),  # bitmap font: avoids font scan
+        ("xterm", [], "xterm"),  # default xterm (may be slow on first launch)
+        ("urxvt", [], "urxvt"),  # rxvt-unicode — lighter than xterm
+    ]
+
+    terminal_cmd: str | None = None
+    terminal_args: list[str] = []
+    title_pattern: str = ""
+    for name, args, pattern in _candidates:
+        if shutil.which(name):
+            terminal_cmd = name
+            terminal_args = args
+            title_pattern = pattern
+            break
+
+    if not terminal_cmd:
+        return {
+            "error": "no terminal emulator found — install xterm: sudo apt install xterm"
+        }
+
+    if not shutil.which("xdotool"):
+        return {"error": "xdotool not found — install it: sudo apt install xdotool"}
+
+    env = os.environ.copy()
+    env["DISPLAY"] = display
+
+    t0 = time.perf_counter()
+    proc = subprocess.Popen(
+        [terminal_cmd] + terminal_args,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    try:
+        subprocess.run(
+            [
+                "xdotool",
+                "search",
+                "--sync",
+                "--limit",
+                "1",
+                "--name",
+                title_pattern,
+                "windowfocus",
+                "--sync",
+            ],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout + 2,
+        )
+        startup_ms = round((time.perf_counter() - t0) * 1000)
+        return {
+            "terminal": terminal_cmd,
+            "args": terminal_args,
+            "startup_ms": startup_ms,
+            "display": display,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "error": f"{terminal_cmd} window did not appear within {timeout:.0f}s — check $DISPLAY and xdotool",
+            "terminal": terminal_cmd,
+        }
+    except subprocess.CalledProcessError as e:
+        return {
+            "error": f"xdotool failed: {e.stderr.strip()}",
+            "terminal": terminal_cmd,
+        }
+    finally:
+        # Always clean up the launched terminal so it doesn't litter the display.
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:
+            proc.kill()
+
+
 @computer.command("latency")
 @click.option(
     "--shots",
@@ -1009,12 +1112,28 @@ def record_cmd(output: str | None, duration: float, fps: int, display: str | Non
     metavar="DISPLAY",
     help="X11 display string (Linux only).  Defaults to $DISPLAY env var.",
 )
-def latency_cmd(shots: int, as_json: bool, display: str | None):
+@click.option(
+    "--terminal",
+    is_flag=True,
+    default=False,
+    help=(
+        "Also measure terminal window startup latency (Linux only). "
+        "Launches xterm and measures time until window is focused. "
+        "Diagnoses the 'new terminal window delay' from gptme/gptme#216."
+    ),
+)
+def latency_cmd(shots: int, as_json: bool, display: str | None, terminal: bool):
     """Measure screenshot and action latency to diagnose computer-use delays.
 
     Takes SHOTS screenshots and reports min/median/max latency, plus a
     breakdown of where time is spent.  Use this to identify whether delays
     are caused by X11 capture, image I/O, or the display pipeline.
+
+    Use ``--terminal`` to also measure terminal window startup latency — the
+    time from launching xterm to the window being ready for input.  This is
+    the separate "new terminal window delay" mentioned in gptme/gptme#216,
+    which is caused by X11 font loading and shell initialization rather than
+    the screenshot pipeline.
 
     This command directly addresses the "figure out what is causing the delays"
     item from gptme/gptme#216.
@@ -1027,8 +1146,14 @@ def latency_cmd(shots: int, as_json: bool, display: str | None):
         # Take 10 shots for a more stable estimate
         gptme-util computer latency --shots 10
 
+        # Also measure terminal window startup time
+        gptme-util computer latency --terminal
+
         # Machine-readable output for scripting
         gptme-util computer latency --json
+
+        # All measurements in JSON
+        gptme-util computer latency --terminal --json
     """
     import statistics
     import time
@@ -1106,7 +1231,7 @@ def latency_cmd(shots: int, as_json: bool, display: str | None):
             statistics.stdev(durations_ms) if len(durations_ms) > 1 else None
         )
 
-        result = {
+        result: dict = {
             "shots": shots,
             "successful": len(durations_ms),
             "errors": len(errors),
@@ -1118,6 +1243,28 @@ def latency_cmd(shots: int, as_json: bool, display: str | None):
             "display": os.environ.get("DISPLAY", ""),
             "platform": sys.platform,
         }
+
+        # Terminal startup latency (optional, Linux/X11 only).
+        # Measures time from xterm launch to window focus — the "new terminal
+        # window delay" from gptme/gptme#216, which is separate from the
+        # screenshot pipeline and caused by X11 font loading and shell init.
+        terminal_startup: dict | None = None
+        if terminal:
+            effective_display = os.environ.get("DISPLAY", "")
+            if sys.platform != "linux":
+                if not as_json:
+                    click.echo(
+                        "⚠ --terminal is only supported on Linux (X11).", err=True
+                    )
+            elif not effective_display:
+                if not as_json:
+                    click.echo(
+                        "⚠ --terminal requires $DISPLAY — skipping terminal measurement.",
+                        err=True,
+                    )
+            else:
+                terminal_startup = _measure_terminal_startup(effective_display)
+            result["terminal_startup"] = terminal_startup
 
         if as_json:
             click.echo(json.dumps(result, indent=2))
@@ -1147,6 +1294,38 @@ def latency_cmd(shots: int, as_json: bool, display: str | None):
                 "  On Linux: sudo apt install scrot && export DISPLAY=:1\n"
                 "  For headless use: Xvfb :1 -screen 0 1024x768x24 &"
             )
+
+        if terminal_startup is not None:
+            click.echo("")
+            click.echo("Terminal window startup latency:")
+            if "error" in terminal_startup:
+                click.echo(f"  ✗ {terminal_startup['error']}")
+            else:
+                startup_ms = terminal_startup["startup_ms"]
+                terminal_name = terminal_startup.get("terminal", "?")
+                args_str = " ".join(terminal_startup.get("args", [])) or "(defaults)"
+                click.echo(f"  terminal: {terminal_name} {args_str}")
+                click.echo(f"  startup:  {startup_ms} ms")
+                click.echo("")
+                if startup_ms < 500:
+                    click.echo("✓ Terminal startup is fast (< 500 ms)")
+                elif startup_ms < 2000:
+                    click.echo(
+                        "⚠ Terminal startup is slow (500 ms–2 s).\n"
+                        "  Likely cause: X11 font loading (fontconfig scan).\n"
+                        "  Fix: use a bitmap font to bypass Xft: xterm -fn fixed\n"
+                        "  Or: run `fc-cache -f` once to warm the font cache.\n"
+                        "  Or: set XTerm*font: fixed in ~/.Xdefaults"
+                    )
+                else:
+                    click.echo(
+                        "✗ Terminal startup is very slow (> 2 s).\n"
+                        "  Root cause: X11 font loading is scanning system font dirs.\n"
+                        "  Quick fix: xterm -fn fixed  (skips Xft, uses built-in bitmap)\n"
+                        "  Permanent: add 'XTerm*font: fixed' to ~/.Xdefaults\n"
+                        "  Alternative: use st (suckless terminal) — starts in < 100 ms:\n"
+                        "    sudo apt install stterm  &&  st &"
+                    )
     finally:
         if display is not None:
             if original_display is None:
