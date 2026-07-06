@@ -15,10 +15,12 @@ if TYPE_CHECKING:
 
 OPENAI_MODELS_DEPRECATED: dict[str, "_ModelDictMeta"] = {
     # GPT-4o (dated versions, superseded by gpt-4o latest)
+    # strict mode introduced in gpt-4o-2024-08-06; the 05-13 snapshot predates it
     "gpt-4o-2024-08-06": {
         "context": 128_000,
         "price_input": 2.5,
         "price_output": 10,
+        "supports_strict_tools": True,
         "knowledge_cutoff": datetime(2023, 10, 1, tzinfo=timezone.utc),
         "deprecated": True,
     },
@@ -34,6 +36,7 @@ OPENAI_MODELS_DEPRECATED: dict[str, "_ModelDictMeta"] = {
         "context": 128_000,
         "price_input": 0.15,
         "price_output": 0.6,
+        "supports_strict_tools": True,
         "knowledge_cutoff": datetime(2023, 10, 1, tzinfo=timezone.utc),
         "deprecated": True,
     },
@@ -43,6 +46,7 @@ OPENAI_MODELS_DEPRECATED: dict[str, "_ModelDictMeta"] = {
         "price_input": 15,
         "price_output": 60,
         "supports_reasoning": True,
+        "supports_strict_tools": True,
         "deprecated": True,
     },
     "o1-preview-2024-09-12": {
@@ -50,6 +54,7 @@ OPENAI_MODELS_DEPRECATED: dict[str, "_ModelDictMeta"] = {
         "price_input": 15,
         "price_output": 60,
         "supports_reasoning": True,
+        "supports_strict_tools": True,
         "deprecated": True,
     },
     "o1-mini": {
@@ -57,6 +62,7 @@ OPENAI_MODELS_DEPRECATED: dict[str, "_ModelDictMeta"] = {
         "price_input": 3,
         "price_output": 12,
         "supports_reasoning": True,
+        "supports_strict_tools": True,
         "deprecated": True,
     },
     "o1-mini-2024-09-12": {
@@ -64,6 +70,7 @@ OPENAI_MODELS_DEPRECATED: dict[str, "_ModelDictMeta"] = {
         "price_input": 3,
         "price_output": 12,
         "supports_reasoning": True,
+        "supports_strict_tools": True,
         "deprecated": True,
     },
     # GPT-4 Turbo (superseded by GPT-4o and GPT-4.1)

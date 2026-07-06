@@ -2773,61 +2773,92 @@ class TestResolveMaxTokens:
 
 
 class TestSpec2ToolStrictSchema:
-    """Tests for strict tool schema support per OpenAI provider."""
+    """Tests for strict tool schema support based on model capability flag."""
 
-    def test_openai_provider_gets_strict_true(self):
-        """openai provider should get strict: True when all params are required."""
-        from gptme.llm.llm_openai import _spec2tool
-        from gptme.llm.models.types import ModelMeta
+    def _all_required_spec(self) -> "ToolSpec":
         from gptme.tools.base import Parameter, ToolSpec
 
-        spec = ToolSpec(
+        return ToolSpec(
             name="test",
             desc="A test tool",
             parameters=[
                 Parameter(name="x", type="string", description="arg", required=True)
             ],
         )
-        model = ModelMeta(provider="openai", model="openai/gpt-4o", context=4096)
-        result = _spec2tool(spec, model)
+
+    def test_model_with_strict_support_gets_strict_true(self):
+        """Models with supports_strict_tools=True get strict:True when all params required."""
+        from gptme.llm.llm_openai import _spec2tool
+        from gptme.llm.models.types import ModelMeta
+
+        model = ModelMeta(
+            provider="openai",
+            model="gpt-4o",
+            context=4096,
+            supports_strict_tools=True,
+        )
+        result = _spec2tool(self._all_required_spec(), model)
         assert result["function"]["strict"] is True
 
-    def test_azure_provider_gets_strict_true(self):
-        """azure provider should get strict: True when all params are required."""
+    def test_registry_gpt4o_gets_strict_true(self):
+        """gpt-4o from the model registry has supports_strict_tools=True."""
+        from gptme.llm.llm_openai import _spec2tool
+        from gptme.llm.models import get_model
+
+        model = get_model("openai/gpt-4o")
+        result = _spec2tool(self._all_required_spec(), model)
+        assert result["function"]["strict"] is True
+
+    def test_registry_legacy_model_no_strict(self):
+        """Deprecated models (gpt-4-turbo, gpt-4) do NOT get strict:True."""
+        from gptme.llm.llm_openai import _spec2tool
+        from gptme.llm.models import get_model
+
+        for legacy in ("openai/gpt-4-turbo", "openai/gpt-4"):
+            model = get_model(legacy)
+            result = _spec2tool(self._all_required_spec(), model)
+            assert "strict" not in result["function"], (
+                f"{legacy} should not get strict=True (pre-strict-mode model)"
+            )
+
+    def test_azure_without_strict_support_no_strict(self):
+        """Azure deployments with unknown capability default to no strict.
+
+        Azure deployment names are arbitrary and may back pre-strict-mode models.
+        Strict mode must be explicitly enabled via supports_strict_tools=True.
+        """
         from gptme.llm.llm_openai import _spec2tool
         from gptme.llm.models.types import ModelMeta
-        from gptme.tools.base import Parameter, ToolSpec
 
-        spec = ToolSpec(
-            name="test",
-            desc="A test tool",
-            parameters=[
-                Parameter(name="x", type="string", description="arg", required=True)
-            ],
+        model = ModelMeta(provider="azure", model="my-company-deployment", context=4096)
+        result = _spec2tool(self._all_required_spec(), model)
+        assert "strict" not in result["function"]
+
+    def test_azure_with_strict_support_gets_strict_true(self):
+        """Azure deployments explicitly marked as supports_strict_tools get strict:True."""
+        from gptme.llm.llm_openai import _spec2tool
+        from gptme.llm.models.types import ModelMeta
+
+        model = ModelMeta(
+            provider="azure",
+            model="my-gpt4o-deployment",
+            context=4096,
+            supports_strict_tools=True,
         )
-        model = ModelMeta(provider="azure", model="gpt-4o", context=4096)
-        result = _spec2tool(spec, model)
+        result = _spec2tool(self._all_required_spec(), model)
         assert result["function"]["strict"] is True
 
     def test_openrouter_provider_no_strict(self):
         """openrouter provider should NOT get strict: True (not supported)."""
         from gptme.llm.llm_openai import _spec2tool
         from gptme.llm.models.types import ModelMeta
-        from gptme.tools.base import Parameter, ToolSpec
 
-        spec = ToolSpec(
-            name="test",
-            desc="A test tool",
-            parameters=[
-                Parameter(name="x", type="string", description="arg", required=True)
-            ],
-        )
         model = ModelMeta(provider="openrouter", model="openai/gpt-4o", context=4096)
-        result = _spec2tool(spec, model)
+        result = _spec2tool(self._all_required_spec(), model)
         assert "strict" not in result["function"]
 
     def test_openai_with_optional_param_no_strict(self):
-        """openai provider should NOT get strict: True when some params are optional.
+        """strict:True is skipped when some params are optional.
 
         OpenAI strict mode requires ALL params in required[], which isn't satisfied
         when a ToolSpec has optional (required=False) parameters.
@@ -2854,17 +2885,27 @@ class TestSpec2ToolStrictSchema:
                 ),
             ],
         )
-        model = ModelMeta(provider="openai", model="openai/gpt-4o", context=4096)
+        model = ModelMeta(
+            provider="openai",
+            model="gpt-4o",
+            context=4096,
+            supports_strict_tools=True,
+        )
         result = _spec2tool(spec, model)
         assert "strict" not in result["function"]
 
     def test_openai_no_params_gets_strict_true(self):
-        """openai provider should get strict: True when there are no parameters."""
+        """strict:True applies to no-parameter tools (all() on empty list is True)."""
         from gptme.llm.llm_openai import _spec2tool
         from gptme.llm.models.types import ModelMeta
         from gptme.tools.base import ToolSpec
 
         spec = ToolSpec(name="test", desc="A tool with no params", parameters=[])
-        model = ModelMeta(provider="openai", model="openai/gpt-4o", context=4096)
+        model = ModelMeta(
+            provider="openai",
+            model="gpt-4o",
+            context=4096,
+            supports_strict_tools=True,
+        )
         result = _spec2tool(spec, model)
         assert result["function"]["strict"] is True

@@ -21,6 +21,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "supports_reasoning": True,
         "supports_responses_api": True,
         "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
         "preferred_edit_format": "diff",
     },
     # GPT-5
@@ -33,6 +34,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "supports_reasoning": True,
         "supports_responses_api": True,
         "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
         "preferred_edit_format": "diff",
         "knowledge_cutoff": datetime(2024, 9, 30, tzinfo=timezone.utc),
     },
@@ -45,6 +47,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "supports_reasoning": True,
         "supports_responses_api": True,
         "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
         "preferred_edit_format": "diff",
         "knowledge_cutoff": datetime(2024, 5, 31, tzinfo=timezone.utc),
     },
@@ -57,6 +60,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "supports_reasoning": True,
         "supports_responses_api": True,
         "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
         "preferred_edit_format": "whole",
         "knowledge_cutoff": datetime(2024, 5, 31, tzinfo=timezone.utc),
     },
@@ -68,6 +72,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "price_output": 8,
         "supports_vision": True,
         "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
         "preferred_edit_format": "diff",
         "knowledge_cutoff": datetime(2024, 6, 1, tzinfo=timezone.utc),
     },
@@ -78,6 +83,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "price_output": 1.6,
         "supports_vision": True,
         "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
         # "diff" despite "mini" in name — GPT-4.1-mini (Apr 2025) is a newer, more capable
         # generation than gpt-4o-mini, with substantially better instruction-following.
         "preferred_edit_format": "diff",
@@ -90,6 +96,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "price_output": 0.4,
         "supports_vision": True,
         "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
         "preferred_edit_format": "whole",
         "knowledge_cutoff": datetime(2024, 6, 1, tzinfo=timezone.utc),
     },
@@ -100,6 +107,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "price_output": 15,
         "supports_vision": True,
         "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
         "preferred_edit_format": "diff",
         # October 2023
         "knowledge_cutoff": datetime(2023, 10, 1, tzinfo=timezone.utc),
@@ -110,6 +118,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "price_input": 0.15,
         "price_output": 0.6,
         "supports_vision": True,
+        "supports_strict_tools": True,
         "preferred_edit_format": "whole",
         "knowledge_cutoff": datetime(2023, 10, 1, tzinfo=timezone.utc),
     },
@@ -121,6 +130,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "price_output": 4.4,
         "supports_vision": True,
         "supports_reasoning": True,
+        "supports_strict_tools": True,
         "preferred_edit_format": "diff",
     },
     # OpenAI o3
@@ -131,6 +141,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "price_output": 8,
         "supports_vision": True,
         "supports_reasoning": True,
+        "supports_strict_tools": True,
         "preferred_edit_format": "diff",
     },
     "o3-mini": {
@@ -139,6 +150,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "price_input": 1.1,
         "price_output": 4.4,
         "supports_reasoning": True,
+        "supports_strict_tools": True,
         "preferred_edit_format": "diff",
     },
     # OpenAI o1
@@ -148,6 +160,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "price_input": 15,
         "price_output": 60,
         "supports_reasoning": True,
+        "supports_strict_tools": True,
         "preferred_edit_format": "diff",
     },
 }

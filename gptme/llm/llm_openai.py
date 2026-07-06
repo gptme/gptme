@@ -1649,7 +1649,7 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
         "local",
     ] or is_custom_provider(model.model.split("/")[0]):
         all_required = all(p.required for p in spec.parameters)
-        supports_strict = model.provider in ("openai", "azure") and all_required
+        supports_strict = model.supports_strict_tools and all_required
         function_def: dict[str, Any] = {
             "name": name,
             "description": description,
