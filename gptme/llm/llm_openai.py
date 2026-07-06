@@ -1648,15 +1648,18 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
         "deepseek",
         "local",
     ] or is_custom_provider(model.model.split("/")[0]):
-        return {
-            "type": "function",
-            "function": {
-                "name": name,
-                "description": description,
-                "parameters": parameters2dict(spec.parameters),
-                # "strict": False,  # not supported by OpenRouter
-            },
+        all_required = not spec.parameters or all(p.required for p in spec.parameters)
+        supports_strict = model.provider in ("openai", "azure") and all_required
+        function_def: dict[str, Any] = {
+            "name": name,
+            "description": description,
+            "parameters": parameters2dict(spec.parameters),
         }
+        if supports_strict:
+            function_def["strict"] = True
+        return cast(
+            "ChatCompletionToolParam", {"type": "function", "function": function_def}
+        )
     raise ValueError("Provider doesn't support tools API")
 
 
