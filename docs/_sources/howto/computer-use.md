@@ -330,6 +330,59 @@ Use `gptme-util computer record` inside the container to capture what the agent 
 | Multi-step task, keep parent context lean | `computer_task(task, timeout=N)` |
 | Record session for demo / debugging | `start_recording(path)` / `record_screen(path, duration=N)` |
 
+## Diagnosing delays
+
+Two separate latency sources can cause slowness in computer-use sessions:
+
+**Screenshot latency** — time to capture and decode one screen frame.
+Usually 50–200 ms on a local Xvfb display; higher on remote X11 or under heavy load.
+
+```bash
+gptme-util computer latency          # 5-shot screenshot latency sample
+gptme-util computer latency --shots 10  # more stable estimate
+```
+
+**Terminal window startup latency** — time from launching a terminal emulator to the
+window being ready for input.  This is the "new terminal window delay" and is caused
+by X11 font loading (fontconfig scanning system font directories) plus shell
+initialization, not by the screenshot pipeline.  It can be 1–4 seconds in a fresh
+Xvfb environment:
+
+```bash
+gptme-util computer latency --terminal   # measure xterm startup time
+```
+
+If terminal startup is slow (> 500 ms), try these mitigations in order:
+
+1. **Use a bitmap font** — bypasses Xft/fontconfig entirely:
+
+   ```bash
+   xterm -fn fixed &
+   ```
+
+   Make it permanent with ``~/.Xdefaults``:
+
+   ```
+   XTerm*font: fixed
+   ```
+
+2. **Warm the font cache** — reduces the first-launch penalty:
+
+   ```bash
+   fc-cache -f
+   ```
+
+3. **Use a lighter terminal** — ``st`` (suckless terminal) starts in under 100 ms:
+
+   ```bash
+   sudo apt install stterm
+   ```
+
+The ``window_focus`` action and ``act_and_observe("window_focus", text="...")`` already
+handle the synchronisation correctly: they wait for the window to appear and the screen
+to settle before returning, so the agent never races against an unready terminal.  The
+mitigations above reduce total session time by shortening the wait, not by fixing a race.
+
 ## Tips
 
 - **Use the `computer-use` profile**: it sets the backend selection policy so the agent

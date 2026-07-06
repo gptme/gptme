@@ -500,6 +500,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#record-a-session-create-demo-videos">Record a session (create demo videos)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-inside-docker-isolated-headless-desktop">Run inside Docker (isolated headless desktop)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backend-selection-cheat-sheet">Backend selection cheat sheet</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#diagnosing-delays">Diagnosing delays</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tips">Tips</a></li>
 </ul>
             </nav>
@@ -830,6 +831,50 @@ Use <code class="docutils literal notranslate"><span class="pre">gptme-util</spa
 </table>
 </div>
 </section>
+<section id="diagnosing-delays">
+<h2>Diagnosing delays<a class="headerlink" href="#diagnosing-delays" title="Link to this heading">#</a></h2>
+<p>Two separate latency sources can cause slowness in computer-use sessions:</p>
+<p><strong>Screenshot latency</strong> — time to capture and decode one screen frame.
+Usually 50–200 ms on a local Xvfb display; higher on remote X11 or under heavy load.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>computer<span class="w"> </span>latency<span class="w">          </span><span class="c1"># 5-shot screenshot latency sample</span>
+gptme-util<span class="w"> </span>computer<span class="w"> </span>latency<span class="w"> </span>--shots<span class="w"> </span><span class="m">10</span><span class="w">  </span><span class="c1"># more stable estimate</span>
+</pre></div>
+</div>
+<p><strong>Terminal window startup latency</strong> — time from launching a terminal emulator to the
+window being ready for input.  This is the “new terminal window delay” and is caused
+by X11 font loading (fontconfig scanning system font directories) plus shell
+initialization, not by the screenshot pipeline.  It can be 1–4 seconds in a fresh
+Xvfb environment:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>computer<span class="w"> </span>latency<span class="w"> </span>--terminal<span class="w">   </span><span class="c1"># measure xterm startup time</span>
+</pre></div>
+</div>
+<p>If terminal startup is slow (&gt; 500 ms), try these mitigations in order:</p>
+<ol class="arabic">
+<li><p><strong>Use a bitmap font</strong> — bypasses Xft/fontconfig entirely:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>xterm<span class="w"> </span>-fn<span class="w"> </span>fixed<span class="w"> </span><span class="p">&amp;</span>
+</pre></div>
+</div>
+<p>Make it permanent with <code class="docutils literal notranslate"><span class="pre">~/.Xdefaults</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">XTerm</span><span class="o">*</span><span class="n">font</span><span class="p">:</span> <span class="n">fixed</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Warm the font cache</strong> — reduces the first-launch penalty:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>fc-cache<span class="w"> </span>-f
+</pre></div>
+</div>
+</li>
+<li><p><strong>Use a lighter terminal</strong> — <code class="docutils literal notranslate"><span class="pre">st</span></code> (suckless terminal) starts in under 100 ms:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>stterm
+</pre></div>
+</div>
+</li>
+</ol>
+<p>The <code class="docutils literal notranslate"><span class="pre">window_focus</span></code> action and <code class="docutils literal notranslate"><span class="pre">act_and_observe(&quot;window_focus&quot;,</span> <span class="pre">text=&quot;...&quot;)</span></code> already
+handle the synchronisation correctly: they wait for the window to appear and the screen
+to settle before returning, so the agent never races against an unready terminal.  The
+mitigations above reduce total session time by shortening the wait, not by fixing a race.</p>
+</section>
 <section id="tips">
 <h2>Tips<a class="headerlink" href="#tips" title="Link to this heading">#</a></h2>
 <ul class="simple">
@@ -903,6 +948,7 @@ prompts (but ensure the task is well-scoped first).</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#record-a-session-create-demo-videos">Record a session (create demo videos)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-inside-docker-isolated-headless-desktop">Run inside Docker (isolated headless desktop)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backend-selection-cheat-sheet">Backend selection cheat sheet</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#diagnosing-delays">Diagnosing delays</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tips">Tips</a></li>
 </ul>
   </nav></div>
