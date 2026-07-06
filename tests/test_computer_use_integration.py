@@ -438,9 +438,10 @@ _HOVER_FIXTURE_URL = "data:text/html;base64," + base64.b64encode(
 def test_hover_element_reveals_hidden_content():
     """hover_element() should trigger mouseover and reveal hidden content in ARIA snapshot.
 
-    The fixture hides a div with display:none — excluded from the ARIA accessibility
-    tree — and reveals it via a JS mouseover handler.  We compare ARIA snapshots
-    (not raw page text, which includes hidden nodes) to verify the hover worked.
+    The fixture starts with an empty #revealed div — empty elements are omitted
+    from the ARIA accessibility tree.  The JS mouseover handler writes text into
+    it, making it appear in the ARIA snapshot.  We compare snapshots before and
+    after to verify the hover event fired.
     """
     from gptme.tools.browser import hover_element, open_page, snapshot_page
 
@@ -496,6 +497,9 @@ def test_snapshot_page_reflects_filled_field(form_server: str):
         keyword in snapshot.lower()
         for keyword in ("input", "form", "button", "textbox")
     ), f"snapshot_page() should include form elements, got:\n{snapshot[:500]}"
+    assert "snapshot-test-value" in snapshot, (
+        f"snapshot_page() should reflect the filled value, got:\n{snapshot[:500]}"
+    )
 
 
 @pytest.mark.integration
@@ -506,7 +510,7 @@ def test_snapshot_page_raises_without_open_page():
 
     close_page()  # ensure no page is open
 
-    with pytest.raises((RuntimeError, Exception)):
+    with pytest.raises(RuntimeError):
         snapshot_page()
 
 
@@ -541,7 +545,7 @@ def test_get_current_url_updates_after_navigation(form_server: str):
     open_page(f"{form_server}/")
     url_before = get_current_url()
 
-    # Submit the form — the server redirects to the result page (/submit)
+    # Submit the form — the browser navigates to the form's action URL (/submit)
     fill_element("#message", "navigation-url-test")
     click_element("#submit-btn")
 
