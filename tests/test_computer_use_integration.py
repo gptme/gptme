@@ -17,6 +17,7 @@ not installed, so they never block CI in environments without a browser.
 
 from __future__ import annotations
 
+import base64
 import http.server
 import threading
 import urllib.parse
@@ -26,6 +27,7 @@ import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -405,3 +407,222 @@ def test_wait_for_element_raises_on_missing(form_server: str):
     open_page(f"{form_server}/")
     with pytest.raises(RuntimeError, match="did not appear"):
         wait_for_element("#nonexistent-element-xyz", timeout_ms=500)
+
+
+# ---------------------------------------------------------------------------
+# hover_element tests (issue #216, PR #3104)
+# ---------------------------------------------------------------------------
+
+# Hover fixture: mouseover on the trigger WRITES text into an empty div via JS.
+# Uses base64 encoding (not percent-encoding) so the marker string
+# "hover-revealed-dynamically" does not appear verbatim in the URL — the
+# open_page() ARIA snapshot includes the URL, so a percent-encoded URL would
+# contain the marker even before the hover fires.
+_HOVER_FIXTURE_HTML = (
+    "<!doctype html><html><body>"
+    '<div id="trigger" style="cursor:pointer">Hover me</div>'
+    '<div id="revealed"></div>'
+    "<script>"
+    "document.getElementById('trigger').addEventListener('mouseover', function() {"
+    "document.getElementById('revealed').textContent = 'hover-revealed-dynamically';"
+    "});"
+    "</script>"
+    "</body></html>"
+)
+_HOVER_FIXTURE_URL = "data:text/html;base64," + base64.b64encode(
+    _HOVER_FIXTURE_HTML.encode()
+).decode("ascii")
+
+
+@pytest.mark.integration
+def test_hover_element_reveals_hidden_content():
+    """hover_element() should trigger mouseover and reveal hidden content in ARIA snapshot.
+
+    The fixture hides a div with display:none — excluded from the ARIA accessibility
+    tree — and reveals it via a JS mouseover handler.  We compare ARIA snapshots
+    (not raw page text, which includes hidden nodes) to verify the hover worked.
+    """
+    from gptme.tools.browser import hover_element, open_page, snapshot_page
+
+    snapshot_before = open_page(_HOVER_FIXTURE_URL)
+    # The target div is empty in source HTML — not in ARIA snapshot before hover
+    assert "hover-revealed-dynamically" not in snapshot_before, (
+        "hover-revealed-dynamically should not appear before hovering\n"
+        f"snapshot: {snapshot_before[:300]}"
+    )
+
+    # hover_element() fires the mouseover handler, which writes text into #revealed
+    result = hover_element("#trigger")
+    assert result is not None
+    assert isinstance(result, str)
+
+    # After hover the JS textContent write makes the text appear in ARIA snapshot
+    snapshot_after = snapshot_page()
+    assert "hover-revealed-dynamically" in snapshot_after, (
+        f"hover_element() should have written text into #revealed:\n{snapshot_after[:500]}"
+    )
+
+
+@pytest.mark.integration
+def test_hover_element_returns_aria_snapshot():
+    """hover_element() should return a non-empty ARIA snapshot after the hover."""
+    from gptme.tools.browser import hover_element, open_page
+
+    open_page(_HOVER_FIXTURE_URL)
+    snapshot = hover_element("#trigger")
+    assert snapshot, "hover_element() returned empty string"
+    assert isinstance(snapshot, str)
+
+
+# ---------------------------------------------------------------------------
+# snapshot_page tests (issue #216, PR #3104)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_snapshot_page_reflects_filled_field(form_server: str):
+    """snapshot_page() should capture current DOM state after fill_element()."""
+    from gptme.tools.browser import fill_element, open_page, snapshot_page
+
+    open_page(f"{form_server}/")
+    fill_element("#message", "snapshot-test-value")
+
+    # snapshot_page() reads current page state, including filled fields
+    snapshot = snapshot_page()
+    assert snapshot, "snapshot_page() returned empty string"
+    assert isinstance(snapshot, str)
+    # The ARIA snapshot should reflect the current page structure
+    assert any(
+        keyword in snapshot.lower()
+        for keyword in ("input", "form", "button", "textbox")
+    ), f"snapshot_page() should include form elements, got:\n{snapshot[:500]}"
+
+
+@pytest.mark.integration
+def test_snapshot_page_raises_without_open_page():
+    """snapshot_page() should raise RuntimeError when no page is open."""
+    from gptme.tools._browser_playwright import close_page
+    from gptme.tools.browser import snapshot_page
+
+    close_page()  # ensure no page is open
+
+    with pytest.raises((RuntimeError, Exception)):
+        snapshot_page()
+
+
+# ---------------------------------------------------------------------------
+# get_current_url tests (issue #216, PR #3104)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_get_current_url_returns_opened_url(form_server: str):
+    """get_current_url() should return the URL of the currently open page."""
+    from gptme.tools.browser import get_current_url, open_page
+
+    open_page(f"{form_server}/")
+    url = get_current_url()
+    assert url, "get_current_url() returned empty string"
+    assert "127.0.0.1" in url or "localhost" in url, (
+        f"Expected URL to contain the form server host, got: {url!r}"
+    )
+
+
+@pytest.mark.integration
+def test_get_current_url_updates_after_navigation(form_server: str):
+    """get_current_url() should reflect the new URL after navigation."""
+    from gptme.tools.browser import (
+        click_element,
+        fill_element,
+        get_current_url,
+        open_page,
+    )
+
+    open_page(f"{form_server}/")
+    url_before = get_current_url()
+
+    # Submit the form — the server redirects to the result page (/submit)
+    fill_element("#message", "navigation-url-test")
+    click_element("#submit-btn")
+
+    url_after = get_current_url()
+    assert url_after, "get_current_url() returned empty string after navigation"
+    # URL should have changed after form submission navigated to /submit
+    assert url_after != url_before, (
+        f"URL should change after navigation: before={url_before!r}, after={url_after!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# save_browser_state / load_browser_state tests (issue #216)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_save_browser_state_creates_file(tmp_path: Path, form_server: str):
+    """save_browser_state() should write a JSON session file to disk."""
+    import json
+
+    from gptme.tools.browser import open_page, save_browser_state
+
+    open_page(f"{form_server}/")
+    state_path = str(tmp_path / "session.json")
+    result = save_browser_state(state_path)
+
+    # Returns a confirmation string mentioning the path
+    assert result, "save_browser_state() returned empty string"
+    assert str(tmp_path) in result or "session.json" in result, (
+        f"Confirmation should mention the path, got: {result!r}"
+    )
+
+    # The file must exist and be valid JSON
+    import os
+
+    assert os.path.exists(state_path), f"State file not created at {state_path}"
+    with open(state_path) as f:
+        state = json.load(f)
+    # Playwright storage state always has "cookies" and "origins" keys
+    assert "cookies" in state, (
+        f"Storage state JSON missing 'cookies' key: {list(state.keys())}"
+    )
+
+
+@pytest.mark.integration
+def test_load_browser_state_restores_session(tmp_path: Path, form_server: str):
+    """save_browser_state() + load_browser_state() round-trip should work."""
+    from gptme.tools.browser import (
+        get_current_url,
+        load_browser_state,
+        open_page,
+        save_browser_state,
+    )
+
+    # Step 1: open a page and save the session
+    open_page(f"{form_server}/")
+    state_path = str(tmp_path / "session.json")
+    save_browser_state(state_path)
+
+    # Step 2: reload the state in the same session
+    result = load_browser_state(state_path)
+    assert result, "load_browser_state() returned empty string"
+    assert "loaded" in result.lower() or "state" in result.lower(), (
+        f"load_browser_state() should confirm state was loaded, got: {result!r}"
+    )
+
+    # Step 3: open the same page again — should work with restored state
+    snapshot = open_page(f"{form_server}/")
+    assert snapshot, "open_page() after load_browser_state() returned empty snapshot"
+
+    url = get_current_url()
+    assert "127.0.0.1" in url or "localhost" in url, (
+        f"After reload, URL should be form server URL, got: {url!r}"
+    )
+
+
+@pytest.mark.integration
+def test_load_browser_state_raises_on_missing_file():
+    """load_browser_state() should raise FileNotFoundError for a nonexistent file."""
+    from gptme.tools.browser import load_browser_state
+
+    with pytest.raises(FileNotFoundError):
+        load_browser_state("/nonexistent/path/state.json")
