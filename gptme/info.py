@@ -5,6 +5,7 @@ Provides functions to inspect gptme's installation state, configuration,
 and runtime environment. Used by both `--version` and `gptme-doctor`.
 """
 
+import importlib
 import importlib.metadata
 import importlib.util
 import json
@@ -57,27 +58,44 @@ _INTERNAL_EXTRAS = {"all", "eval", "pyinstaller"}
 _EXTRAS_CACHE: list[ExtraInfo] | None = None
 
 
+def _load_toml_data(pyproject_path: Path) -> dict:
+    """Load TOML data using whichever parser is available."""
+    toml_module = None
+    for module_name in ("tomllib", "tomli", "tomlkit"):
+        try:
+            toml_module = importlib.import_module(module_name)
+            break
+        except ImportError:
+            continue
+
+    if toml_module is None:
+        return {}
+
+    try:
+        with pyproject_path.open("rb") as f:
+            data = toml_module.load(f)
+    except Exception:
+        return {}
+
+    return data if isinstance(data, dict) else {}
+
+
+def _requirement_package_name(requirement: str) -> str | None:
+    """Extract the distribution name from a dependency specifier."""
+    match = re.match(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)", requirement)
+    if not match:
+        return None
+    return match.group(1)
+
+
 def _parse_extras_from_pyproject(pyproject_path: Path) -> list[ExtraInfo]:
     """Parse extras from pyproject.toml as a fallback for editable installs.
 
     Poetry editable installs don't populate Provides-Extra in package metadata.
     This fallback reads pyproject.toml directly when that happens.
     """
-    try:
-        import tomllib  # Python 3.11+
-    except ImportError:
-        try:
-            import tomli as tomllib  # type: ignore[import-not-found,no-redef]
-        except ImportError:
-            try:
-                import tomlkit as tomllib  # type: ignore[import-not-found,no-redef]
-            except ImportError:
-                return []
-
-    try:
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)  # type: ignore[attr-defined]
-    except Exception:
+    data = _load_toml_data(pyproject_path)
+    if not data:
         return []
 
     extras_dict: dict[str, list[str]] = data.get("tool", {}).get("poetry", {}).get(
@@ -90,6 +108,13 @@ def _parse_extras_from_pyproject(pyproject_path: Path) -> list[ExtraInfo]:
     for name, packages in sorted(extras_dict.items()):
         if name in _INTERNAL_EXTRAS:
             continue
+        normalized_packages = []
+        for package in packages:
+            if not isinstance(package, str):
+                continue
+            package_name = _requirement_package_name(package)
+            if package_name and package_name not in normalized_packages:
+                normalized_packages.append(package_name)
         result.append(
             ExtraInfo(
                 name=name,
@@ -97,7 +122,7 @@ def _parse_extras_from_pyproject(pyproject_path: Path) -> list[ExtraInfo]:
                 description=_EXTRA_DESCRIPTIONS.get(
                     name, name.replace("_", " ").title()
                 ),
-                packages=[p for p in packages if isinstance(p, str)],
+                packages=normalized_packages,
             )
         )
     return result

@@ -370,6 +370,26 @@ class TestCheckPythonDeps:
         finally:
             _info._EXTRAS_CACHE = old_cache
 
+    def test_pyproject_fallback_normalizes_pep621_requirements(self, tmp_path):
+        """PEP 621 optional-dependencies should map to importable package names."""
+        from gptme.info import _parse_extras_from_pyproject
+
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            "[project]\n"
+            "[project.optional-dependencies]\n"
+            'browser = ["playwright>=1.40"]\n'
+            'telemetry = ["opentelemetry-api>=1.20", "opentelemetry-sdk"]\n'
+            'server = ["flask[async]>=3.0"]\n'
+        )
+
+        result = _parse_extras_from_pyproject(pyproject)
+        extras = {extra.name: extra.packages for extra in result}
+
+        assert extras["browser"] == ["playwright"]
+        assert extras["telemetry"] == ["opentelemetry-api", "opentelemetry-sdk"]
+        assert extras["server"] == ["flask"]
+
 
 class TestCheckConfig:
     """Test _check_config function."""
