@@ -1,9 +1,19 @@
 // Mock modules that use import.meta (not available in jest)
+const mockInitConversation = jest.fn();
+const mockSetMaxTokens = jest.fn();
+const mockSetTemperature = jest.fn();
+const mockSetTopP = jest.fn();
+
 jest.mock('@/utils/connectionConfig', () => ({
   getApiBaseUrl: jest.fn(() => 'http://127.0.0.1:5700'),
   CLOUD_BASE_URL: 'https://gptme.ai',
 }));
-jest.mock('@/stores/conversations', () => ({}));
+jest.mock('@/stores/conversations', () => ({
+  initConversation: mockInitConversation,
+  setMaxTokens: mockSetMaxTokens,
+  setTemperature: mockSetTemperature,
+  setTopP: mockSetTopP,
+}));
 jest.mock('@/stores/servers', () => ({
   serverRegistry$: { get: jest.fn(() => ({ servers: [], activeServerId: null })) },
   getActiveServer: jest.fn(),
@@ -347,6 +357,77 @@ describe('ApiClient forkConversation', () => {
       expect.objectContaining({ method: 'POST' })
     );
     expect(client.sessions$.get('forked-conv').get()).toBe('fork-session');
+  });
+});
+
+describe('ApiClient createConversationWithPlaceholder', () => {
+  const originalFetch = global.fetch;
+  const originalCrypto = global.crypto;
+
+  beforeEach(() => {
+    Object.defineProperty(global, 'crypto', {
+      value: {
+        ...originalCrypto,
+        randomUUID: jest.fn(() => 'test-client-id'),
+      },
+      configurable: true,
+    });
+    mockInitConversation.mockClear();
+    mockSetMaxTokens.mockClear();
+    mockSetTemperature.mockClear();
+    mockSetTopP.mockClear();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    Object.defineProperty(global, 'crypto', {
+      value: originalCrypto,
+      configurable: true,
+    });
+    jest.restoreAllMocks();
+  });
+
+  it('omits the default dot workspace so the server can use its @log default', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', session_id: 'session-1' }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await client.createConversationWithPlaceholder('hello', { workspace: '.' });
+
+    const [, initData] = mockInitConversation.mock.calls[0];
+    expect(initData.workspace).toBe('@log');
+
+    const request = (global.fetch as jest.Mock).mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(request.body as string)).toEqual({
+      messages: [expect.objectContaining({ role: 'user', content: 'hello' })],
+      config: { chat: {} },
+    });
+  });
+
+  it('preserves explicitly selected custom workspaces', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', session_id: 'session-1' }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await client.createConversationWithPlaceholder('hello', {
+      workspace: '/workspace/project',
+    });
+
+    const request = (global.fetch as jest.Mock).mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(request.body as string)).toEqual({
+      messages: [expect.objectContaining({ role: 'user', content: 'hello' })],
+      config: { chat: { workspace: '/workspace/project' } },
+    });
   });
 });
 

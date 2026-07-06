@@ -59,6 +59,13 @@ export class ApiClientError extends Error {
   }
 }
 
+function requestWorkspace(workspace?: string): string | undefined {
+  if (!workspace || workspace === '.') {
+    return undefined;
+  }
+  return workspace;
+}
+
 export function getApiErrorPresentation(
   error: unknown,
   options?: {
@@ -1164,7 +1171,7 @@ export class ApiClient {
         log: [message],
         logfile: conversationId,
         branches: {},
-        workspace: options?.workspace || '.',
+        workspace: requestWorkspace(options?.workspace) ?? '@log',
       },
       { needsInitialStep: true, initialStepStream: options?.stream }
     );
@@ -1187,7 +1194,7 @@ export class ApiClient {
         chat: {
           model: options?.model,
           stream: options?.stream,
-          workspace: options?.workspace || '.',
+          workspace: requestWorkspace(options?.workspace),
         },
       });
       try {
@@ -1206,7 +1213,7 @@ export class ApiClient {
         chat: {
           model: options?.model,
           stream: options?.stream,
-          workspace: options?.workspace || '.',
+          workspace: requestWorkspace(options?.workspace),
         },
       });
     }
