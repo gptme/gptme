@@ -585,7 +585,7 @@ class TestDoctorLatencySection:
 
 
 class TestDoctorXdefaults:
-    """Doctor checks ~/.Xdefaults for the terminal startup delay fix (issue #216)."""
+    """Doctor checks X resource files for the terminal startup delay fix."""
 
     def test_warns_when_xdefaults_missing(self, monkeypatch, tmp_path):
         """When ~/.Xdefaults does not exist, doctor emits a warning about xterm startup."""
@@ -704,6 +704,33 @@ class TestDoctorXdefaults:
         assert result.exit_code == 0, result.output
         assert "fast xterm startup" in result.output
 
+    def test_handles_non_utf8_xresources(self, monkeypatch, tmp_path):
+        """Invalid UTF-8 in X resource files should not crash doctor."""
+        monkeypatch.setenv("DISPLAY", ":1")
+        xresources = tmp_path / ".Xresources"
+        xresources.write_bytes(
+            b"! comment with invalid byte: \xff\nXTerm*font: fixed\n"
+        )
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("platform.machine", return_value="x86_64"),
+            patch(
+                "gptme.cli.cmd_computer.shutil.which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}",
+            ),
+            patch(
+                "gptme.tools.computer_transport.get_transport",
+                return_value=_fake_transport(tmp_path),
+            ),
+            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
+            patch("gptme.cli.cmd_computer.Path.home", staticmethod(lambda: tmp_path)),
+        ):
+            result = runner.invoke(doctor_cmd, [])
+
+        assert result.exit_code == 0, result.output
+        assert "fast xterm startup" in result.output
+
     def test_xdefaults_check_skipped_on_macos(self, tmp_path):
         """The ~/.Xdefaults bitmap-font check is Linux-only; macOS should not show it."""
         # Create a tmp_path home with no .Xdefaults
@@ -722,3 +749,5 @@ class TestDoctorXdefaults:
 
         # ~/.Xdefaults is X11-specific; should not appear in macOS output
         assert "Xdefaults" not in result.output
+        assert "Xresources" not in result.output
+        assert "bitmap" not in result.output

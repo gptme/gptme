@@ -1462,7 +1462,9 @@ def doctor_cmd(display: str | None):
         for _fname in (".Xresources", ".Xdefaults"):
             _xp = _xhome / _fname
             if _xp.exists():
-                _xres_content += _xp.read_text() + "\n"
+                _xres_content += (
+                    _xp.read_text(encoding="utf-8", errors="replace") + "\n"
+                )
         _has_bitmap_font = bool(
             re.search(
                 r"(?m)^XTerm\*(?:bold)?[Ff]ont\s*:\s*(?:fixed|6x13|7x13|8x13|9x15)",
