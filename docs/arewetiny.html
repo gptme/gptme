@@ -534,20 +534,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     324282 |               mcp.server.fastmcp
-     324691 |             mcp.server
-     324732 |           mcp.server.session
-     498735 |           mcp.client.session
-     849529 |         mcp
-     849558 |       mcp.types
-     854764 |     gptme.mcp.client
-     857949 |   gptme.mcp
-     857979 | gptme.mcp.client
-     948819 | gptme.cli.main
+     337730 |               mcp.server.fastmcp
+     338117 |             mcp.server
+     338171 |           mcp.server.session
+     511176 |           mcp.client.session
+     875792 |         mcp
+     875825 |       mcp.types
+     881022 |     gptme.mcp.client
+     884302 |   gptme.mcp
+     884331 | gptme.mcp.client
+    1022841 | gptme.cli.main
 
-real	0m2.629s
-user	0m2.305s
-sys	0m0.252s
+real	0m2.730s
+user	0m2.356s
+sys	0m0.288s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -556,10 +556,10 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      3.479 s ±  0.515 s    [User: 2.999 s, System: 0.775 s]
-  Range (min … max):    3.228 s …  4.399 s    5 runs
+  Time (mean ± σ):      3.545 s ±  0.514 s    [User: 3.047 s, System: 0.791 s]
+  Range (min … max):    3.271 s …  4.463 s    5 runs
  
-  Warning: The first benchmarking run for this command was significantly slower than the rest (4.399 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
+  Warning: The first benchmarking run for this command was significantly slower than the rest (4.463 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -886,10 +886,10 @@ tests/test_commands.py                                             147          
 tests/test_skill_installer.py                                      138            154            459
 tests/test_gptme_provider.py                                       156             70            457
 tests/test_tools_shell_background.py                               117             51            456
+tests/test_computer_doctor_cmd.py                                   69             39            430
 tests/test_tools_browser_thread.py                                 113             51            426
 tests/test_lessons_commands.py                                     157             82            422
 tests/test_dirs.py                                                  97             69            421
-tests/test_computer_doctor_cmd.py                                   68             34            420
 tests/test_lessons_index.py                                        137            116            419
 tests/context/test_task_analyzer.py                                 90             44            418
 tests/test_lessons_parser.py                                       188            239            417
@@ -1140,7 +1140,7 @@ tests/test_tools_shell_multiline.py                                  7          
 tests/test_browser_format.py                                         8              6             18
 tests/test_screenshot.py                                             9              6             15
 ----------------------------------------------------------------------------------------------------
-SUM:                                                             27476          18459          93435
+SUM:                                                             27477          18464          93445
 ----------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1284,11 +1284,11 @@ scripts/analyze_compression.py                                                  
 gptme/chat.py                                                                                  74            100            445
 scripts/demo_capture.py                                                                       104             83            445
 gptme/prompts/__init__.py                                                                      72             74            444
+tests/test_computer_doctor_cmd.py                                                              69             39            430
 tests/test_tools_browser_thread.py                                                            113             51            426
 tests/test_lessons_commands.py                                                                157             82            422
 tests/test_dirs.py                                                                             97             69            421
 gptme/eval/dspy/prompt_optimizer.py                                                           109             89            420
-tests/test_computer_doctor_cmd.py                                                              68             34            420
 tests/test_lessons_index.py                                                                   137            116            419
 tests/context/test_task_analyzer.py                                                            90             44            418
 tests/test_lessons_parser.py                                                                  188            239            417
@@ -1902,7 +1902,7 @@ gptme/server/__main__.py                                                        
 gptme/tools/_browser_format.py                                                                  3              5              3
 gptme/oauth/__init__.py                                                                         1              4              0
 -------------------------------------------------------------------------------------------------------------------------------
-SUM:                                                                                        51409          47971         185012
+SUM:                                                                                        51410          47976         185022
 -------------------------------------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1918,7 +1918,7 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Project Overview:
   Files: 725
   Total blocks: 14315
-  Average complexity: 3.6752357666783095
+  Average complexity: 3.6753754802654557
 
 Most Complex Functions (D+):
   gptme/codeblock.py
@@ -2232,6 +2232,7 @@ Largest Files (&gt;300 SLOC):
    445 gptme/chat.py
    437 tests/test_lessons_index.py
    435 gptme/llm/llm_openai_subscription.py
+   430 tests/test_computer_doctor_cmd.py
    430 gptme/util/prompt.py
    428 gptme/tools/subagent/__init__.py
    426 tests/test_tools_browser_thread.py
@@ -2240,7 +2241,6 @@ Largest Files (&gt;300 SLOC):
    421 tests/test_dirs.py
    421 gptme/eval/dspy/prompt_optimizer.py
    420 tests/test_tools_patch_many.py
-   420 tests/test_computer_doctor_cmd.py
    419 gptme/message.py
    419 gptme/agent/service.py
    418 tests/context/test_task_analyzer.py
@@ -2759,7 +2759,7 @@ Clone found (python)
 │ Total:     │ 438            │ 151311      │ 693666       │ 139          │ 1651 (1.09%)     │ 9585 (1.38%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 139 clones.
-time: 325.373ms
+time: 319.376ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
