@@ -40,14 +40,21 @@ computer_api = flask.Blueprint("computer_api", __name__)
 
 
 def _screenshot_available() -> bool:
-    """Return True when a screenshot backend is available on this machine."""
+    """Return True when a screenshot backend is available on this machine.
+
+    Mirrors the logic in ``gptme.tools.screenshot._is_available`` to ensure
+    the API endpoint's availability check matches the actual screenshot tool
+    backends.
+    """
     system = platform.system()
     if system == "Linux":
         display = os.environ.get("DISPLAY", "")
-        has_display = bool(display)
-        has_scrot = bool(shutil.which("scrot"))
-        has_ffmpeg = bool(shutil.which("ffmpeg"))
-        return has_display and (has_scrot or has_ffmpeg)
+        if not display:
+            return False
+        has_gnome = bool(shutil.which("gnome-screenshot"))
+        is_wayland = os.environ.get("XDG_SESSION_TYPE") == "wayland"
+        has_scrot = bool(shutil.which("scrot")) and not is_wayland
+        return has_gnome or has_scrot
     if system == "Darwin":
         return bool(shutil.which("screencapture"))
     return False
@@ -113,12 +120,14 @@ def screenshot():
 
         # Convert to JPEG with requested quality using ImageMagick if available,
         # otherwise serve the raw PNG.
+        _temp_jpg: str | None = None  # track temp file for cleanup
         if path.suffix.lower() != ".jpg" and shutil.which("convert"):
             try:
                 import subprocess
 
                 jpg_fd, jpg_path = tempfile.mkstemp(suffix=".jpg")
                 os.close(jpg_fd)
+                _temp_jpg = jpg_path
                 subprocess.run(
                     [
                         "convert",
@@ -134,6 +143,8 @@ def screenshot():
                 img_path = Path(jpg_path)
                 content_type = "image/jpeg"
             except Exception:
+                if _temp_jpg:
+                    os.unlink(_temp_jpg)
                 img_path = path
                 content_type = "image/png"
         else:
@@ -143,6 +154,11 @@ def screenshot():
             )
 
         data = img_path.read_bytes()
+
+        # Clean up temp JPEG file if conversion succeeded
+        if _temp_jpg and img_path == Path(_temp_jpg):
+            os.unlink(_temp_jpg)
+
         return flask.Response(
             response=data,
             status=200,
@@ -184,7 +200,7 @@ def status():
     if system == "Linux":
         backends["xdotool"] = bool(shutil.which("xdotool"))
         backends["scrot"] = bool(shutil.which("scrot"))
-        backends["ffmpeg"] = bool(shutil.which("ffmpeg"))
+        backends["gnome_screenshot"] = bool(shutil.which("gnome-screenshot"))
         backends["imagemagick"] = bool(shutil.which("convert"))
     elif system == "Darwin":
         backends["screencapture"] = bool(shutil.which("screencapture"))
