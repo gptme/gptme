@@ -30,8 +30,10 @@ class TestMeasureTerminalStartup:
 
     def test_returns_startup_ms_on_success(self):
         """Happy path: xterm and xdotool both available, window appears."""
+        captured_cmds: list[list[str]] = []
 
         def fake_run(cmd, **kwargs):
+            captured_cmds.append(cmd)
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
         with (
@@ -40,6 +42,7 @@ class TestMeasureTerminalStartup:
             patch("subprocess.run", side_effect=fake_run),
         ):
             mock_proc = MagicMock()
+            mock_proc.pid = 4242
             mock_popen.return_value = mock_proc
 
             result = _measure_terminal_startup(":1")
@@ -50,6 +53,19 @@ class TestMeasureTerminalStartup:
         assert result["startup_ms"] >= 0
         assert result["terminal"] == "xterm"
         assert result["display"] == ":1"
+        assert captured_cmds == [
+            [
+                "xdotool",
+                "search",
+                "--sync",
+                "--limit",
+                "1",
+                "--pid",
+                "4242",
+                "windowfocus",
+                "--sync",
+            ]
+        ]
 
     def test_returns_error_when_no_terminal_found(self):
         """No terminal emulator installed → error dict."""
@@ -124,6 +140,7 @@ class TestMeasureTerminalStartup:
             _measure_terminal_startup(":1")
 
         mock_proc.terminate.assert_called_once()
+        mock_proc.wait.assert_called_once_with(timeout=2)
 
     def test_process_is_terminated_on_timeout(self):
         """Launched xterm process is cleaned up even when xdotool times out."""
@@ -142,6 +159,27 @@ class TestMeasureTerminalStartup:
             _measure_terminal_startup(":1")
 
         mock_proc.terminate.assert_called_once()
+        mock_proc.wait.assert_called_once_with(timeout=2)
+
+    def test_process_is_reaped_after_forced_kill(self):
+        """Forced cleanup kills and reaps the process instead of leaving a zombie."""
+
+        def fake_run_timeout(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, 15.0)
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/xterm"),
+            patch("subprocess.Popen") as mock_popen,
+            patch("subprocess.run", side_effect=fake_run_timeout),
+        ):
+            mock_proc = MagicMock()
+            mock_proc.terminate.side_effect = ProcessLookupError("already exited")
+            mock_popen.return_value = mock_proc
+
+            _measure_terminal_startup(":1")
+
+        mock_proc.kill.assert_called_once()
+        mock_proc.wait.assert_called_once_with()
 
     def test_bitmap_font_args_used_first(self):
         """xterm -fn fixed (bitmap font) is tried first to avoid font scan."""

@@ -1012,19 +1012,16 @@ def _measure_terminal_startup(display: str, timeout: float = 15.0) -> dict:
     # xterm -fn fixed uses a built-in bitmap font, bypassing the Xft/fontconfig
     # scan that causes the multi-second delay in fresh Xvfb environments.
     _candidates = [
-        ("xterm", ["-fn", "fixed"], "xterm"),  # bitmap font: avoids font scan
-        ("xterm", [], "xterm"),  # default xterm (may be slow on first launch)
-        ("urxvt", [], "urxvt"),  # rxvt-unicode — lighter than xterm
+        ("xterm", ["-fn", "fixed"]),  # bitmap font: avoids font scan
+        ("urxvt", []),  # rxvt-unicode — lighter than xterm
     ]
 
     terminal_cmd: str | None = None
     terminal_args: list[str] = []
-    title_pattern: str = ""
-    for name, args, pattern in _candidates:
+    for name, args in _candidates:
         if shutil.which(name):
             terminal_cmd = name
             terminal_args = args
-            title_pattern = pattern
             break
 
     if not terminal_cmd:
@@ -1054,8 +1051,8 @@ def _measure_terminal_startup(display: str, timeout: float = 15.0) -> dict:
                 "--sync",
                 "--limit",
                 "1",
-                "--name",
-                title_pattern,
+                "--pid",
+                str(proc.pid),
                 "windowfocus",
                 "--sync",
             ],
@@ -1089,6 +1086,7 @@ def _measure_terminal_startup(display: str, timeout: float = 15.0) -> dict:
             proc.wait(timeout=2)
         except Exception:
             proc.kill()
+            proc.wait()
 
 
 @computer.command("latency")
