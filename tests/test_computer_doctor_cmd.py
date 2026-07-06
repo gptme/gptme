@@ -466,6 +466,52 @@ class TestDoctorPlaywright:
             "chromium" in result.output.lower() or "playwright" in result.output.lower()
         )
 
+    def test_chromium_binary_missing_is_warning_not_error(self, monkeypatch, tmp_path):
+        """When playwright package is installed but chromium binary is absent, doctor exits 0.
+
+        A missing chromium binary is optional (only needed for the browser tool) — the
+        computer tool (screenshot, click, keyboard) works without it.  This mirrors
+        the treatment of a missing playwright *package* (PR #3129): both are warnings,
+        not hard failures.
+        """
+        monkeypatch.setenv("DISPLAY", ":1")
+
+        pw_stub = MagicMock()
+        pw_cm = MagicMock()
+        pw_cm.__enter__ = lambda s: MagicMock(
+            chromium=MagicMock(executable_path="/nonexistent/chromium")
+        )
+        pw_cm.__exit__ = lambda *a: None
+        pw_stub.sync_playwright.return_value = pw_cm
+
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("platform.machine", return_value="x86_64"),
+            patch(
+                "gptme.cli.cmd_computer.shutil.which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}",
+            ),
+            patch(
+                "gptme.tools.computer_transport.get_transport",
+                return_value=_fake_transport(tmp_path),
+            ),
+            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
+            patch.dict(sys.modules, {"playwright.sync_api": pw_stub, "pyatspi": None}),
+        ):
+            result = runner.invoke(doctor_cmd, [])
+
+        # Exit 0: missing chromium binary is a warning, not a hard failure
+        assert result.exit_code == 0, (
+            f"Expected exit 0 (warning), got {result.exit_code}:\n{result.output}"
+        )
+        # The warning marker '!' should appear, not the error marker '✗'
+        assert "!" in result.output
+        assert (
+            "optional" in result.output.lower()
+            or "browser tool" in result.output.lower()
+        )
+
 
 class TestDoctorLatencySection:
     """Doctor's latency sample section."""

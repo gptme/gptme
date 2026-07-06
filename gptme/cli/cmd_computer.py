@@ -1503,14 +1503,16 @@ def doctor_cmd(display: str | None):
         except Exception:
             ok_chromium = False
 
-        if not _check(
+        # Chromium binary is optional — the computer tool works without it.
+        # Treat a missing binary the same way as a missing playwright package.
+        _check(
             "Playwright chromium available"
             if ok_chromium
-            else "Playwright chromium not found",
+            else "Playwright chromium not installed (browser tool disabled)",
             ok=ok_chromium,
-            hint="python -m playwright install chromium",
-        ):
-            errors += 1
+            warn=not ok_chromium,
+            hint="python -m playwright install chromium  (optional — needed for browser tool)",
+        )
     except ImportError:
         _check(
             "playwright not installed (browser tool disabled)",
