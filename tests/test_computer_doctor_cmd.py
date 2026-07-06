@@ -582,3 +582,167 @@ class TestDoctorLatencySection:
         assert result.exit_code == 1
         assert "could not measure latency: transport boom" in result.output
         assert "check(s) failed" in result.output
+
+
+class TestDoctorXdefaults:
+    """Doctor checks ~/.Xdefaults for the terminal startup delay fix (issue #216)."""
+
+    def _linux_patches(self, tmp_path, xdefaults_content: str | None = None):
+        """Shared Linux patches with optional ~/.Xdefaults content override."""
+        transport = _fake_transport(tmp_path)
+        xdefaults_path = tmp_path / ".Xdefaults"
+        if xdefaults_content is not None:
+            xdefaults_path.write_text(xdefaults_content)
+
+        def _fake_home():
+            return tmp_path
+
+        return [
+            patch("platform.system", return_value="Linux"),
+            patch("platform.machine", return_value="x86_64"),
+            patch(
+                "gptme.cli.cmd_computer.shutil.which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}",
+            ),
+            patch(
+                "gptme.tools.computer_transport.get_transport", return_value=transport
+            ),
+            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
+            patch("gptme.cli.cmd_computer.Path.home", staticmethod(_fake_home)),
+        ]
+
+    def test_warns_when_xdefaults_missing(self, monkeypatch, tmp_path):
+        """When ~/.Xdefaults does not exist, doctor emits a warning about xterm startup."""
+        monkeypatch.setenv("DISPLAY", ":1")
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("platform.machine", return_value="x86_64"),
+            patch(
+                "gptme.cli.cmd_computer.shutil.which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}",
+            ),
+            patch(
+                "gptme.tools.computer_transport.get_transport",
+                return_value=_fake_transport(tmp_path),
+            ),
+            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
+            patch("gptme.cli.cmd_computer.Path.home", staticmethod(lambda: tmp_path)),
+        ):
+            result = runner.invoke(doctor_cmd, [])
+
+        # Missing .Xdefaults: warning marker expected, but not a hard failure (exit 0)
+        assert result.exit_code == 0, result.output
+        assert "!" in result.output
+        assert (
+            "Xdefaults" in result.output
+            or "bitmap" in result.output
+            or "xterm" in result.output.lower()
+        )
+
+    def test_warns_when_xdefaults_lacks_bitmap_font(self, monkeypatch, tmp_path):
+        """When ~/.Xdefaults exists but lacks XTerm*font: fixed, doctor warns."""
+        monkeypatch.setenv("DISPLAY", ":1")
+        xdefaults = tmp_path / ".Xdefaults"
+        xdefaults.write_text("! some unrelated X resource\nXTerm*background: #000000\n")
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("platform.machine", return_value="x86_64"),
+            patch(
+                "gptme.cli.cmd_computer.shutil.which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}",
+            ),
+            patch(
+                "gptme.tools.computer_transport.get_transport",
+                return_value=_fake_transport(tmp_path),
+            ),
+            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
+            patch("gptme.cli.cmd_computer.Path.home", staticmethod(lambda: tmp_path)),
+        ):
+            result = runner.invoke(doctor_cmd, [])
+
+        assert result.exit_code == 0, result.output
+        assert "!" in result.output
+        assert "Xdefaults" in result.output or "bitmap" in result.output
+
+    def test_passes_when_xterm_font_fixed(self, monkeypatch, tmp_path):
+        """When ~/.Xdefaults has XTerm*font: fixed, the check passes (no warning)."""
+        monkeypatch.setenv("DISPLAY", ":1")
+        xdefaults = tmp_path / ".Xdefaults"
+        xdefaults.write_text(
+            "XTerm*font:             fixed\nXTerm*background: #1e1e2e\n"
+        )
+        runner = CliRunner()
+        pw_stub = MagicMock()
+        pw_cm = MagicMock()
+        pw_cm.__enter__ = lambda s: MagicMock(
+            chromium=MagicMock(executable_path="/usr/bin/env")
+        )
+        pw_cm.__exit__ = lambda *a: None
+        pw_stub.sync_playwright.return_value = pw_cm
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("platform.machine", return_value="x86_64"),
+            patch(
+                "gptme.cli.cmd_computer.shutil.which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}",
+            ),
+            patch(
+                "gptme.tools.computer_transport.get_transport",
+                return_value=_fake_transport(tmp_path),
+            ),
+            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
+            patch("gptme.cli.cmd_computer.Path.home", staticmethod(lambda: tmp_path)),
+            patch.dict(sys.modules, {"playwright.sync_api": pw_stub, "pyatspi": None}),
+        ):
+            result = runner.invoke(doctor_cmd, [])
+
+        assert result.exit_code == 0, result.output
+        assert "bitmap font" in result.output
+        # Should show a pass (✓), not a warning (!)
+        assert "fast xterm startup" in result.output
+
+    def test_passes_when_xterm_font_alternate_bitmap(self, monkeypatch, tmp_path):
+        """Other standard bitmap fonts (6x13, 8x13) also satisfy the check."""
+        monkeypatch.setenv("DISPLAY", ":1")
+        xdefaults = tmp_path / ".Xdefaults"
+        xdefaults.write_text("XTerm*font: 8x13\n")
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("platform.machine", return_value="x86_64"),
+            patch(
+                "gptme.cli.cmd_computer.shutil.which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}",
+            ),
+            patch(
+                "gptme.tools.computer_transport.get_transport",
+                return_value=_fake_transport(tmp_path),
+            ),
+            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
+            patch("gptme.cli.cmd_computer.Path.home", staticmethod(lambda: tmp_path)),
+        ):
+            result = runner.invoke(doctor_cmd, [])
+
+        assert result.exit_code == 0, result.output
+        assert "fast xterm startup" in result.output
+
+    def test_xdefaults_check_skipped_on_macos(self, tmp_path):
+        """The ~/.Xdefaults bitmap-font check is Linux-only; macOS should not show it."""
+        # Create a tmp_path home with no .Xdefaults
+        runner = CliRunner()
+        with (
+            patch("platform.system", return_value="Darwin"),
+            patch("platform.machine", return_value="arm64"),
+            patch(
+                "gptme.cli.cmd_computer.shutil.which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}",
+            ),
+            patch("gptme.tools.computer_transport.get_transport", return_value=None),
+            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
+        ):
+            result = runner.invoke(doctor_cmd, [])
+
+        # ~/.Xdefaults is X11-specific; should not appear in macOS output
+        assert "Xdefaults" not in result.output
