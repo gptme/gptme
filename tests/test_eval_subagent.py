@@ -663,3 +663,60 @@ def test_workdir_expect_functions_are_picklable():
 
     pickle.dumps(_expect_task_marker)
     pickle.dumps(_expect_workdir_ok_content)
+
+
+def test_wait_any_fails_when_winner_id_cancelled():
+    """Cancelling via winner_id variable should be rejected (winner, not loser)."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("fast", "Read data.txt")\n'
+            'subagent("thorough", "Read data.txt")\n'
+            'first_id, result = subagent_wait_any(["fast", "thorough"])\n'
+            "winner_id = first_id\n"
+            "subagent_cancel(winner_id)\n"
+            "```",
+        ),
+        Message("assistant", "WINNER=fast RACE=done"),
+    ]
+
+    assert not check_wait_any_loser_cancelled(messages)
+
+
+def test_wait_any_allows_loser_expression_starting_with_first_id():
+    """Comparison expressions starting with first_id still compute the loser."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("fast", "Read data.txt")\n'
+            'subagent("thorough", "Read data.txt")\n'
+            'first_id, result = subagent_wait_any(["fast", "thorough"])\n'
+            'other = first_id == "fast" and "thorough" or "fast"\n'
+            "subagent_cancel(other)\n"
+            "```",
+        ),
+        Message("assistant", "WINNER=fast RACE=done"),
+    ]
+
+    assert check_wait_any_loser_cancelled(messages)
+
+
+def test_wait_any_fails_when_loser_variable_holds_winner():
+    """Cancelling via loser variable that holds first_id should be rejected."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("fast", "Read data.txt")\n'
+            'subagent("thorough", "Read data.txt")\n'
+            'first_id, result = subagent_wait_any(["fast", "thorough"])\n'
+            "loser = first_id\n"
+            "subagent_cancel(loser)\n"
+            "```",
+        ),
+        Message("assistant", "WINNER=fast RACE=done"),
+    ]
+
+    assert not check_wait_any_loser_cancelled(messages)

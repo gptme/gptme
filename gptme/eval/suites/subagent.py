@@ -263,8 +263,17 @@ def check_wait_any_loser_cancelled(messages: list[Message]) -> bool:
     assistant_log = _role_contents(messages, "assistant")
     if "subagent_cancel(" not in assistant_log:
         return False
-    # Reject the obvious wrong pattern: directly cancelling the winner by name
+    # Reject directly cancelling the winner by name
     if re.search(r"subagent_cancel\(\s*first_id\s*\)", assistant_log):
+        return False
+    # Reject cancelling a variable directly assigned from first_id (winner cancellation)
+    # e.g., `loser = first_id; subagent_cancel(loser)` instead of ternary loser
+    if re.search(
+        r"(?:loser|other|slower|remaining)\s*=\s*first_id\s*(?:[#;\n]|$)",
+        assistant_log,
+    ) and re.search(
+        r"subagent_cancel\(\s*(?:loser|other|slower|remaining)\s*\)", assistant_log
+    ):
         return False
     return any(
         re.search(pattern, assistant_log, re.DOTALL) is not None
@@ -272,10 +281,10 @@ def check_wait_any_loser_cancelled(messages: list[Message]) -> bool:
             # if var != first_id: ... subagent_cancel(var)
             # Allows multi-line bodies and indented cancel calls
             r"if\s+\w+\s*!=\s*first_id\s*:.*?subagent_cancel\(",
-            # Named loser/other/slower/remaining variable derived from first_id
-            r"(?:loser|other|slower|remaining|winner_id)\s*=.*first_id.*\n.*subagent_cancel\(",
-            # subagent_cancel(loser/other/slower/remaining) — named non-winner variable
-            r"subagent_cancel\(\s*(?:loser|other|slower|remaining)\s*\)",
+            # Named loser/other/slower/remaining variable derived from first_id (multi-line)
+            r"(?:loser|other|slower|remaining)\s*=.*first_id.*\n.*subagent_cancel\(",
+            # Named loser/other/slower/remaining variable derived from first_id (same expression line)
+            r"(?:loser|other|slower|remaining)\s*=.*first_id.*;.*subagent_cancel\(",
             # if first_id == <value>: subagent_cancel(<other>) — direct branch on winner
             r"if\s+first_id\s*==.*subagent_cancel\(",
         )
