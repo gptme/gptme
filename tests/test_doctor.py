@@ -1,6 +1,8 @@
 """Tests for the gptme doctor command."""
 
 import json
+from collections import UserDict
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -389,6 +391,32 @@ class TestCheckPythonDeps:
         assert extras["browser"] == ["playwright"]
         assert extras["telemetry"] == ["opentelemetry-api", "opentelemetry-sdk"]
         assert extras["server"] == ["flask"]
+
+    def test_pyproject_fallback_accepts_tomlkit_mapping(self, tmp_path):
+        """tomlkit returns a mapping, not a plain dict."""
+        from gptme.info import _parse_extras_from_pyproject
+
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("")
+        tomlkit_like = SimpleNamespace(
+            load=lambda _f: UserDict(
+                {"tool": {"poetry": {"extras": {"browser": ["playwright"]}}}}
+            )
+        )
+
+        def fake_import_module(module_name):
+            if module_name == "tomlkit":
+                return tomlkit_like
+            raise ImportError(module_name)
+
+        with patch(
+            "gptme.info.importlib.import_module", side_effect=fake_import_module
+        ):
+            result = _parse_extras_from_pyproject(pyproject)
+
+        assert [(extra.name, extra.packages) for extra in result] == [
+            ("browser", ["playwright"])
+        ]
 
 
 class TestCheckConfig:

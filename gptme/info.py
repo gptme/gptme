@@ -12,6 +12,7 @@ import json
 import platform
 import re
 import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -77,7 +78,7 @@ def _load_toml_data(pyproject_path: Path) -> dict:
     except Exception:
         return {}
 
-    return data if isinstance(data, dict) else {}
+    return dict(data) if isinstance(data, Mapping) else {}
 
 
 def _requirement_package_name(requirement: str) -> str | None:
