@@ -587,30 +587,6 @@ class TestDoctorLatencySection:
 class TestDoctorXdefaults:
     """Doctor checks ~/.Xdefaults for the terminal startup delay fix (issue #216)."""
 
-    def _linux_patches(self, tmp_path, xdefaults_content: str | None = None):
-        """Shared Linux patches with optional ~/.Xdefaults content override."""
-        transport = _fake_transport(tmp_path)
-        xdefaults_path = tmp_path / ".Xdefaults"
-        if xdefaults_content is not None:
-            xdefaults_path.write_text(xdefaults_content)
-
-        def _fake_home():
-            return tmp_path
-
-        return [
-            patch("platform.system", return_value="Linux"),
-            patch("platform.machine", return_value="x86_64"),
-            patch(
-                "gptme.cli.cmd_computer.shutil.which",
-                side_effect=lambda cmd: f"/usr/bin/{cmd}",
-            ),
-            patch(
-                "gptme.tools.computer_transport.get_transport", return_value=transport
-            ),
-            patch("gptme.tools.computer_transport.NativeComputerTransport", MagicMock),
-            patch("gptme.cli.cmd_computer.Path.home", staticmethod(_fake_home)),
-        ]
-
     def test_warns_when_xdefaults_missing(self, monkeypatch, tmp_path):
         """When ~/.Xdefaults does not exist, doctor emits a warning about xterm startup."""
         monkeypatch.setenv("DISPLAY", ":1")
