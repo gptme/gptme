@@ -77,12 +77,12 @@ def _parse_extras_from_pyproject(pyproject_path: Path) -> list[ExtraInfo]:
     try:
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)  # type: ignore[attr-defined]
-    except (OSError, Exception):
+    except Exception:
         return []
 
-    extras_dict: dict[str, list[str]] = (
-        data.get("tool", {}).get("poetry", {}).get("extras", {})
-    )
+    extras_dict: dict[str, list[str]] = data.get("tool", {}).get("poetry", {}).get(
+        "extras", {}
+    ) or data.get("project", {}).get("optional-dependencies", {})
     if not extras_dict:
         return []
 
@@ -126,9 +126,7 @@ def _parse_extras_from_metadata() -> list[ExtraInfo]:
         try:
             direct_url = dist.read_text("direct_url.json")
             if direct_url:
-                import json as _json
-
-                url_data = _json.loads(direct_url)
+                url_data = json.loads(direct_url)
                 dir_info = url_data.get("dir_info", {})
                 if dir_info.get("editable"):
                     src_url = url_data.get("url", "")
