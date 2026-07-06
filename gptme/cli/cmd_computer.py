@@ -1509,7 +1509,7 @@ def doctor_cmd(display: str | None):
             "Playwright chromium available"
             if ok_chromium
             else "Playwright chromium not installed (browser tool disabled)",
-            ok=ok_chromium,
+            ok=True,
             warn=not ok_chromium,
             hint="python -m playwright install chromium  (optional — needed for browser tool)",
         )
