@@ -313,6 +313,63 @@ class TestCheckPythonDeps:
         assert any("browser" in name for name in dep_names)
         assert any("dspy" in name for name in dep_names)
 
+    def test_pyproject_fallback_used_when_metadata_empty(self, tmp_path):
+        """Test that pyproject.toml is read when Provides-Extra is absent.
+
+        Poetry / uv editable installs often omit Provides-Extra from the
+        package metadata.  The fallback must parse pyproject.toml instead
+        so that gptme-doctor can show optional deps in dev environments.
+        """
+        import json
+
+        from gptme.info import _parse_extras_from_metadata
+
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            "[tool.poetry.extras]\n"
+            'browser = ["playwright"]\n'
+            "computer = []\n"
+            'dspy = ["dspy"]\n'
+        )
+        direct_url = tmp_path / "direct_url.json"
+        direct_url.write_text(
+            json.dumps({"url": f"file://{tmp_path}", "dir_info": {"editable": True}})
+        )
+
+        import gptme.info as _info
+
+        old_cache = _info._EXTRAS_CACHE
+        try:
+            _info._EXTRAS_CACHE = None  # clear cache so fresh parse runs
+
+            def _fake_dist(name):
+                class FakeMeta:
+                    def get_all(self, key):
+                        return [] if key == "Provides-Extra" else None
+
+                class FakeDist:
+                    metadata = FakeMeta()
+                    requires = []
+
+                    def read_text(self, fname):
+                        if fname == "direct_url.json":
+                            return direct_url.read_text()
+                        return None
+
+                return FakeDist()
+
+            import importlib.metadata as _imeta
+
+            with patch.object(_imeta, "distribution", side_effect=_fake_dist):
+                result = _parse_extras_from_metadata()
+
+            names = [e.name for e in result]
+            assert "browser" in names
+            assert "computer" in names
+            assert "dspy" in names
+        finally:
+            _info._EXTRAS_CACHE = old_cache
+
 
 class TestCheckConfig:
     """Test _check_config function."""

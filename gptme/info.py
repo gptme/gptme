@@ -57,11 +57,59 @@ _INTERNAL_EXTRAS = {"all", "eval", "pyinstaller"}
 _EXTRAS_CACHE: list[ExtraInfo] | None = None
 
 
+def _parse_extras_from_pyproject(pyproject_path: Path) -> list[ExtraInfo]:
+    """Parse extras from pyproject.toml as a fallback for editable installs.
+
+    Poetry editable installs don't populate Provides-Extra in package metadata.
+    This fallback reads pyproject.toml directly when that happens.
+    """
+    try:
+        import tomllib  # Python 3.11+
+    except ImportError:
+        try:
+            import tomli as tomllib  # type: ignore[import-not-found,no-redef]
+        except ImportError:
+            try:
+                import tomlkit as tomllib  # type: ignore[import-not-found,no-redef]
+            except ImportError:
+                return []
+
+    try:
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)  # type: ignore[attr-defined]
+    except (OSError, Exception):
+        return []
+
+    extras_dict: dict[str, list[str]] = (
+        data.get("tool", {}).get("poetry", {}).get("extras", {})
+    )
+    if not extras_dict:
+        return []
+
+    result = []
+    for name, packages in sorted(extras_dict.items()):
+        if name in _INTERNAL_EXTRAS:
+            continue
+        result.append(
+            ExtraInfo(
+                name=name,
+                installed=False,
+                description=_EXTRA_DESCRIPTIONS.get(
+                    name, name.replace("_", " ").title()
+                ),
+                packages=[p for p in packages if isinstance(p, str)],
+            )
+        )
+    return result
+
+
 def _parse_extras_from_metadata() -> list[ExtraInfo]:
     """Parse extras from package metadata.
 
     Dynamically reads extras and their dependencies from the installed
     gptme package metadata, ensuring the list stays in sync with pyproject.toml.
+    Falls back to reading pyproject.toml directly when the editable install
+    (e.g. Poetry or uv) does not populate Provides-Extra in the metadata.
     """
     try:
         dist = importlib.metadata.distribution("gptme")
@@ -71,6 +119,27 @@ def _parse_extras_from_metadata() -> list[ExtraInfo]:
     # Get list of extras from package metadata
     all_extras = dist.metadata.get_all("Provides-Extra") or []
     extras = [e for e in all_extras if e not in _INTERNAL_EXTRAS]
+
+    # Fallback: Poetry and uv editable installs often omit Provides-Extra.
+    # Read pyproject.toml from the install source directory instead.
+    if not extras:
+        try:
+            direct_url = dist.read_text("direct_url.json")
+            if direct_url:
+                import json as _json
+
+                url_data = _json.loads(direct_url)
+                dir_info = url_data.get("dir_info", {})
+                if dir_info.get("editable"):
+                    src_url = url_data.get("url", "")
+                    if src_url.startswith("file://"):
+                        src_dir = Path(src_url[7:])
+                        pyproject = src_dir / "pyproject.toml"
+                        if pyproject.exists():
+                            return _parse_extras_from_pyproject(pyproject)
+        except Exception:
+            pass
+        return []
 
     # Parse dependencies for each extra from Requires-Dist
     requires = dist.requires or []
