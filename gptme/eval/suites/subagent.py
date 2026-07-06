@@ -239,9 +239,30 @@ def check_pipeline_no_explicit_waits(messages: list[Message]) -> bool:
     return "subagent_wait(" not in assistant_log
 
 
+def _expect_race_marker(ctx: "ResultContext") -> bool:
+    return "RACE=done" in ctx.stdout
+
+
+def check_wait_any_used(messages: list[Message]) -> bool:
+    """Parent should call subagent_wait_any to race two subagents."""
+    return _any_message_contains(messages, "assistant", "subagent_wait_any(")
+
+
+def check_wait_any_loser_cancelled(messages: list[Message]) -> bool:
+    """Parent should cancel the agent that did not win the race."""
+    return _any_message_contains(messages, "assistant", "subagent_cancel(")
+
+
+def check_wait_any_result_used(messages: list[Message]) -> bool:
+    """Final assistant message should reference the winning subagent result."""
+    final_msg = _last_assistant_content(messages)
+    return "WINNER=" in final_msg or "RACE=" in final_msg
+
+
 _PARALLEL_A = "alpha beta gamma delta epsilon zeta\n"
 _PARALLEL_B = "one\ntwo\nthree\nfour\n"
 _NOTES = "Keep this brief. The parent can read this between spawn and wait.\n"
+_RACE_FILE = "The answer is FORTYTWO.\n"
 
 
 tests: list["EvalSpec"] = [
@@ -399,6 +420,35 @@ tests: list["EvalSpec"] = [
             "used subagent_pipeline": check_pipeline_used,
             "integrated pipeline results": check_pipeline_results_integrated,
             "did not call subagent_wait manually": check_pipeline_no_explicit_waits,
+        },
+    },
+    {
+        "name": "subagent-wait-any-race",
+        "files": {
+            "data.txt": _RACE_FILE,
+        },
+        "run": "cat answer.txt",
+        "prompt": (
+            "Demonstrate the race/hedging pattern with subagent_wait_any:\n"
+            "1. Spawn TWO subagents concurrently — agent_id 'fast' and 'thorough' — "
+            "each instructed to read data.txt and return its content via the complete tool.\n"
+            "2. Call subagent_wait_any(['fast', 'thorough']) to wait for whichever "
+            "finishes first.\n"
+            "3. Cancel the slower agent with subagent_cancel().\n"
+            "4. Write answer.txt containing:\n"
+            "WINNER=<the agent_id that won>\n"
+            "RACE=done\n"
+            "Include both WINNER= and RACE= in your final assistant message."
+        ),
+        "tools": ["read", "save", "shell", "ipython", "subagent"],
+        "expect": {
+            "writes RACE marker": _expect_race_marker,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "called subagent_wait_any": check_wait_any_used,
+            "cancelled the losing agent": check_wait_any_loser_cancelled,
+            "used winner result": check_wait_any_result_used,
         },
     },
 ]

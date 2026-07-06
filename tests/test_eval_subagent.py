@@ -19,6 +19,9 @@ from gptme.eval.suites.subagent import (
     check_subagent_parallel_integrated_results,
     check_subagent_parallel_started_before_wait,
     check_subagent_parallel_used,
+    check_wait_any_loser_cancelled,
+    check_wait_any_result_used,
+    check_wait_any_used,
 )
 from gptme.eval.suites.subagent import tests as subagent_evals
 from gptme.message import Message
@@ -387,3 +390,69 @@ def test_pipeline_check_fails_when_pipeline_not_used():
     ]
 
     assert not check_pipeline_used(messages)
+
+
+def test_wait_any_checks_pass_for_race_trajectory():
+    """wait_any eval: spawn two racers → subagent_wait_any → cancel loser → report winner."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("fast", "Read data.txt and return its content")\n'
+            'subagent("thorough", "Read data.txt carefully and return its content")\n'
+            "```",
+        ),
+        Message(
+            "assistant",
+            '```ipython\nfirst_id, result = subagent_wait_any(["fast", "thorough"])\n```',
+        ),
+        Message(
+            "assistant",
+            "```ipython\n"
+            'for aid in ("fast", "thorough"):\n'
+            "    if aid != first_id:\n"
+            "        subagent_cancel(aid)\n"
+            "```",
+        ),
+        Message("assistant", "WINNER=fast RACE=done"),
+    ]
+
+    assert check_wait_any_used(messages)
+    assert check_wait_any_loser_cancelled(messages)
+    assert check_wait_any_result_used(messages)
+
+
+def test_wait_any_check_fails_without_wait_any_call():
+    """Using subagent_wait instead of subagent_wait_any should fail the check."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("fast", "Read data.txt")\n'
+            'subagent("thorough", "Read data.txt")\n'
+            'result = subagent_wait("fast")\n'
+            "```",
+        ),
+        Message("assistant", "WINNER=fast RACE=done"),
+    ]
+
+    assert not check_wait_any_used(messages)
+
+
+def test_wait_any_check_fails_without_cancel():
+    """Omitting subagent_cancel on the loser should fail the cancel check."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("fast", "Read data.txt")\n'
+            'subagent("thorough", "Read data.txt")\n'
+            'first_id, result = subagent_wait_any(["fast", "thorough"])\n'
+            "```",
+        ),
+        # Parent does not cancel the loser
+        Message("assistant", "WINNER=fast RACE=done"),
+    ]
+
+    assert check_wait_any_used(messages)
+    assert not check_wait_any_loser_cancelled(messages)
