@@ -2586,6 +2586,48 @@ Two helpers make it easy to run multiple independent tasks concurrently:
       # ... parent does other work ...
       results = job.wait_all()
 
+``subagent_pipeline(items, *stages, ...)``
+  Staged fan-out **without a barrier** between stages. Each item is processed
+  through all stages in order, but items at different stages run concurrently —
+  item A advances to stage 2 as soon as its stage-1 subagent completes, while
+  item B may still be in stage 1. Wall-clock time is bounded by the slowest
+  single-item chain, not the sum of the slowest per stage.
+
+  This is more efficient than repeated ``subagent_parallel()`` calls (which add
+  a full synchronisation barrier between stages) when items are independent.
+  Each stage is a callable ``stage(item_prompt, prev_result) -> next_prompt``::
+
+      items = [("auth", "Review auth.py"), ("db", "Review db.py")]
+      results = subagent_pipeline(
+          items,
+          # Stage 0: review
+          lambda item, _: f"Find bugs in this file: {item}",
+          # Stage 1: verify — runs on auth while db is still in stage 0
+          lambda item, prev: f"Adversarially verify these findings:\n{prev}",
+      )
+      # results[i][j] — result for item i at stage j
+      for (prefix, _), stage_results in zip(items, results):
+          print(f"{prefix}: {stage_results[-1]['result'][:80]}")
+
+  Set ``isolated=True`` so concurrent file-editing subagents each get their own
+  git worktree.
+
+``subagent_wait_any(agent_ids, ...)``
+  Return the first of the given subagents to complete. Useful for
+  **speculative / hedging patterns**: spawn N subagents racing on the same
+  task and take whichever finishes first, then cancel the rest::
+
+      subagent("fast",     "Quick attempt at task X")
+      subagent("thorough", "Thorough attempt at task X")
+      first_id, result = subagent_wait_any(["fast", "thorough"], timeout=120)
+      print(f"{first_id} won: {result['status']}")
+      for aid in ("fast", "thorough"):
+          if aid != first_id:
+              subagent_cancel(aid)
+
+  ``agent_ids`` is the list of IDs to wait on. Raises ``TimeoutError`` if no
+  agent completes within ``timeout`` seconds (default 300).
+
 Structured Output (output_schema)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

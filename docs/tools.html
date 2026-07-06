@@ -2778,6 +2778,45 @@ has its own work to interleave:</p>
 </pre></div>
 </div>
 </dd>
+<dt><code class="docutils literal notranslate"><span class="pre">subagent_pipeline(items,</span> <span class="pre">*stages,</span> <span class="pre">...)</span></code></dt><dd><p>Staged fan-out <strong>without a barrier</strong> between stages. Each item is processed
+through all stages in order, but items at different stages run concurrently —
+item A advances to stage 2 as soon as its stage-1 subagent completes, while
+item B may still be in stage 1. Wall-clock time is bounded by the slowest
+single-item chain, not the sum of the slowest per stage.</p>
+<p>This is more efficient than repeated <code class="docutils literal notranslate"><span class="pre">subagent_parallel()</span></code> calls (which add
+a full synchronisation barrier between stages) when items are independent.
+Each stage is a callable <code class="docutils literal notranslate"><span class="pre">stage(item_prompt,</span> <span class="pre">prev_result)</span> <span class="pre">-&gt;</span> <span class="pre">next_prompt</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">items</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="s2">&quot;Review auth.py&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="s2">&quot;Review db.py&quot;</span><span class="p">)]</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">subagent_pipeline</span><span class="p">(</span>
+    <span class="n">items</span><span class="p">,</span>
+    <span class="c1"># Stage 0: review</span>
+    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">_</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Find bugs in this file: </span><span class="si">{</span><span class="n">item</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="c1"># Stage 1: verify — runs on auth while db is still in stage 0</span>
+    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">prev</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Adversarially verify these findings:</span><span class="se">\n</span><span class="si">{</span><span class="n">prev</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="c1"># results[i][j] — result for item i at stage j</span>
+<span class="k">for</span> <span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="n">_</span><span class="p">),</span> <span class="n">stage_results</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">results</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">stage_results</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s1">&#39;result&#39;</span><span class="p">][:</span><span class="mi">80</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Set <code class="docutils literal notranslate"><span class="pre">isolated=True</span></code> so concurrent file-editing subagents each get their own
+git worktree.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">subagent_wait_any(agent_ids,</span> <span class="pre">...)</span></code></dt><dd><p>Return the first of the given subagents to complete. Useful for
+<strong>speculative / hedging patterns</strong>: spawn N subagents racing on the same
+task and take whichever finishes first, then cancel the rest:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;fast&quot;</span><span class="p">,</span>     <span class="s2">&quot;Quick attempt at task X&quot;</span><span class="p">)</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;thorough&quot;</span><span class="p">,</span> <span class="s2">&quot;Thorough attempt at task X&quot;</span><span class="p">)</span>
+<span class="n">first_id</span><span class="p">,</span> <span class="n">result</span> <span class="o">=</span> <span class="n">subagent_wait_any</span><span class="p">([</span><span class="s2">&quot;fast&quot;</span><span class="p">,</span> <span class="s2">&quot;thorough&quot;</span><span class="p">],</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">first_id</span><span class="si">}</span><span class="s2"> won: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;status&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">aid</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;fast&quot;</span><span class="p">,</span> <span class="s2">&quot;thorough&quot;</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">aid</span> <span class="o">!=</span> <span class="n">first_id</span><span class="p">:</span>
+        <span class="n">subagent_cancel</span><span class="p">(</span><span class="n">aid</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">agent_ids</span></code> is the list of IDs to wait on. Raises <code class="docutils literal notranslate"><span class="pre">TimeoutError</span></code> if no
+agent completes within <code class="docutils literal notranslate"><span class="pre">timeout</span></code> seconds (default 300).</p>
+</dd>
 </dl>
 </section>
 <section id="structured-output-output-schema">
