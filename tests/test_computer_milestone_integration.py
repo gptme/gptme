@@ -22,6 +22,8 @@ block CI in environments without a browser.
 
 from __future__ import annotations
 
+import functools
+
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -38,7 +40,10 @@ def _playwright_available() -> bool:
         return False
 
 
+@functools.lru_cache(maxsize=1)
 def _chromium_ok() -> bool:
+    if not _playwright_available():
+        return False
     try:
         from playwright.sync_api import sync_playwright
 
