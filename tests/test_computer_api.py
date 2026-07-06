@@ -17,6 +17,10 @@ if TYPE_CHECKING:
 
 import pytest
 
+pytest.importorskip("flask")
+pytest.importorskip("flask_compress")
+pytest.importorskip("flask_cors")
+
 from gptme.server.app import create_app
 
 
@@ -302,13 +306,34 @@ class TestComputerScreenshot500:
 
 
 class TestScreenshotAvailable:
-    def test_linux_no_display_returns_false(self, monkeypatch):
+    def test_linux_without_screenshot_tools_returns_false(self, monkeypatch):
         if platform.system() != "Linux":
             pytest.skip("Linux-only test")
         monkeypatch.delenv("DISPLAY", raising=False)
-        from gptme.server.computer_api import _screenshot_available
+        monkeypatch.delenv("XDG_SESSION_TYPE", raising=False)
 
-        assert _screenshot_available() is False
+        with patch("shutil.which", return_value=None):
+            from gptme.server.computer_api import _screenshot_available
+
+            assert _screenshot_available() is False
+
+    def test_linux_wayland_gnome_screenshot_without_display_returns_true(
+        self, monkeypatch
+    ):
+        if platform.system() != "Linux":
+            pytest.skip("Linux-only test")
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+
+        with patch(
+            "shutil.which",
+            side_effect=lambda cmd: (
+                "/usr/bin/gnome-screenshot" if cmd == "gnome-screenshot" else None
+            ),
+        ):
+            from gptme.server.computer_api import _screenshot_available
+
+            assert _screenshot_available() is True
 
     def test_linux_with_display_and_scrot_returns_true(self, monkeypatch):
         if platform.system() != "Linux":

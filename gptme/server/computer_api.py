@@ -9,8 +9,8 @@ Endpoints
 ---------
 ``GET /api/v2/computer/screenshot``
     Take a screenshot and return it as a JPEG image.  Returns 503 when
-    no display is available (``$DISPLAY`` not set on Linux, or
-    ``screencapture`` absent on macOS).
+    no screenshot backend is available (``gnome-screenshot`` / ``scrot``
+    absent on Linux, or ``screencapture`` absent on macOS).
 
 ``GET /api/v2/computer/status``
     Return a JSON status object describing what computer-use backends
@@ -48,9 +48,6 @@ def _native_screenshot_available() -> bool:
     """
     system = platform.system()
     if system == "Linux":
-        display = os.environ.get("DISPLAY", "")
-        if not display:
-            return False
         has_gnome = bool(shutil.which("gnome-screenshot"))
         is_wayland = os.environ.get("XDG_SESSION_TYPE") == "wayland"
         has_scrot = bool(shutil.which("scrot")) and not is_wayland
@@ -115,8 +112,8 @@ def screenshot():
         system = platform.system()
         if system == "Linux":
             hint = (
-                "No X11 display available. "
-                "Set $DISPLAY or start Xvfb: Xvfb :1 -screen 0 1024x768x24 &"
+                "No supported Linux screenshot backend available. "
+                "Install gnome-screenshot, or install scrot and run under X11/Xvfb."
             )
         elif system == "Darwin":
             hint = "screencapture not found (unexpected on macOS)"
