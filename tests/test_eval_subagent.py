@@ -2,6 +2,8 @@ import pickle
 
 from gptme.eval.suites.subagent import (
     _expect_race_marker,
+    _expect_task_marker,
+    _expect_workdir_ok_content,
     check_clarification_hook_notification,
     check_clarification_reply_called,
     check_clarification_reply_with_language,
@@ -23,6 +25,9 @@ from gptme.eval.suites.subagent import (
     check_wait_any_loser_cancelled,
     check_wait_any_result_used,
     check_wait_any_used,
+    check_workdir_result_returned,
+    check_workdir_subagent_spawned,
+    check_workdir_subprocess_params,
 )
 from gptme.eval.suites.subagent import tests as subagent_evals
 from gptme.eval.types import ResultContext
@@ -491,3 +496,170 @@ def test_wait_any_race_marker_requires_winner():
             exit_code=0,
         )
     )
+
+
+def test_wait_any_loser_cancelled_via_ternary_other():
+    """Cancel via ternary expression storing result in 'other' variable."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("fast", "Read data.txt")\n'
+            'subagent("thorough", "Read data.txt")\n'
+            'first_id, result = subagent_wait_any(["fast", "thorough"])\n'
+            'other = "thorough" if first_id == "fast" else "fast"\n'
+            "subagent_cancel(other)\n"
+            "```",
+        ),
+        Message("assistant", "WINNER=fast RACE=done"),
+    ]
+
+    assert check_wait_any_used(messages)
+    assert check_wait_any_loser_cancelled(messages)
+
+
+def test_wait_any_loser_cancelled_via_conditional_branch_on_winner():
+    """Cancel via explicit conditional on first_id value."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("fast", "Read")\n'
+            'subagent("thorough", "Read")\n'
+            'first_id, result = subagent_wait_any(["fast", "thorough"])\n'
+            'if first_id == "fast":\n'
+            '    subagent_cancel("thorough")\n'
+            "else:\n"
+            '    subagent_cancel("fast")\n'
+            "```",
+        ),
+        Message("assistant", "WINNER=fast RACE=done"),
+    ]
+
+    assert check_wait_any_used(messages)
+    assert check_wait_any_loser_cancelled(messages)
+
+
+def test_wait_any_loser_cancelled_via_loser_variable_ternary():
+    """Cancel using 'loser' variable set via ternary (no first_id in same line)."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'first_id, result = subagent_wait_any(["fast", "thorough"])\n'
+            'loser = "thorough" if first_id == "fast" else "fast"\n'
+            "subagent_cancel(loser)\n"
+            "```",
+        ),
+        Message("assistant", "WINNER=fast RACE=done"),
+    ]
+
+    assert check_wait_any_loser_cancelled(messages)
+
+
+# ---------------------------------------------------------------------------
+# Workdir / subprocess isolation checks
+# ---------------------------------------------------------------------------
+
+
+def test_workdir_checks_pass_for_full_subprocess_trajectory():
+    """workdir eval: subprocess subagent in subdirectory reads local file and returns result."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("task-reader", "Read task.txt and return its content", '
+            "use_subprocess=True, workdir='./subproject')\n"
+            "```",
+        ),
+        Message(
+            "assistant",
+            "```ipython\nresult = subagent_wait('task-reader')\n```",
+        ),
+        Message("assistant", "TASK_MARKER=WORKDIR_OK=confirmed"),
+    ]
+
+    assert check_workdir_subagent_spawned(messages)
+    assert check_workdir_subprocess_params(messages)
+    assert check_workdir_result_returned(messages)
+
+
+def test_workdir_spawn_check_fails_without_subproject_reference():
+    """Missing reference to subproject directory fails the spawn check."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("task-reader", "Read task.txt", use_subprocess=True)\n'
+            "```",
+        ),
+        Message("assistant", "TASK_MARKER=content"),
+    ]
+
+    assert not check_workdir_subagent_spawned(messages)
+
+
+def test_workdir_subprocess_check_fails_without_use_subprocess():
+    """Missing use_subprocess=True fails the subprocess params check."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("task-reader", "Read task.txt", workdir="./subproject")\n'
+            "```",
+        ),
+        Message("assistant", "TASK_MARKER=content"),
+    ]
+
+    assert check_workdir_subagent_spawned(messages)
+    assert not check_workdir_subprocess_params(messages)
+
+
+def test_workdir_subprocess_check_fails_without_workdir():
+    """Missing workdir= fails the subprocess params check."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("task-reader", "Read task.txt", use_subprocess=True)\n'
+            "```",
+        ),
+        Message("assistant", "TASK_MARKER=content"),
+    ]
+
+    assert not check_workdir_subprocess_params(messages)
+
+
+def test_workdir_result_check_passes_with_task_marker():
+    """TASK_MARKER in final message satisfies the result-returned check."""
+    messages = [
+        Message("assistant", "The subagent returned: TASK_MARKER=WORKDIR_OK=confirmed"),
+    ]
+
+    assert check_workdir_result_returned(messages)
+
+
+def test_workdir_result_check_passes_with_workdir_ok():
+    """WORKDIR_OK in final message also satisfies the result-returned check."""
+    messages = [
+        Message("assistant", "Content was: WORKDIR_OK=confirmed"),
+    ]
+
+    assert check_workdir_result_returned(messages)
+
+
+def test_workdir_result_check_fails_without_marker():
+    """Final message without TASK_MARKER or WORKDIR_OK fails the result check."""
+    messages = [
+        Message("assistant", "The subagent returned some content from the file."),
+    ]
+
+    assert not check_workdir_result_returned(messages)
+
+
+def test_workdir_expect_functions_are_picklable():
+    """workdir expect functions must be picklable for ProcessPoolExecutor."""
+    import pickle
+
+    pickle.dumps(_expect_task_marker)
+    pickle.dumps(_expect_workdir_ok_content)
