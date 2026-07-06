@@ -1,6 +1,7 @@
 import pickle
 
 from gptme.eval.suites.subagent import (
+    _expect_race_marker,
     check_clarification_hook_notification,
     check_clarification_reply_called,
     check_clarification_reply_with_language,
@@ -24,6 +25,7 @@ from gptme.eval.suites.subagent import (
     check_wait_any_used,
 )
 from gptme.eval.suites.subagent import tests as subagent_evals
+from gptme.eval.types import ResultContext
 from gptme.message import Message
 
 
@@ -456,3 +458,36 @@ def test_wait_any_check_fails_without_cancel():
 
     assert check_wait_any_used(messages)
     assert not check_wait_any_loser_cancelled(messages)
+
+
+def test_wait_any_check_fails_when_winner_cancelled():
+    """Cancelling first_id means the parent killed the winner, not the loser."""
+    messages = [
+        Message(
+            "assistant",
+            "```ipython\n"
+            'subagent("fast", "Read data.txt")\n'
+            'subagent("thorough", "Read data.txt")\n'
+            'first_id, result = subagent_wait_any(["fast", "thorough"])\n'
+            "subagent_cancel(first_id)\n"
+            "```",
+        ),
+        Message("assistant", "WINNER=fast RACE=done"),
+    ]
+
+    assert check_wait_any_used(messages)
+    assert not check_wait_any_loser_cancelled(messages)
+
+
+def test_wait_any_race_marker_requires_winner():
+    assert not _expect_race_marker(
+        ResultContext(files={}, stdout="RACE=done", stderr="", exit_code=0)
+    )
+    assert _expect_race_marker(
+        ResultContext(
+            files={},
+            stdout="WINNER=thorough\nRACE=done\n",
+            stderr="",
+            exit_code=0,
+        )
+    )

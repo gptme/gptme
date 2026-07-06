@@ -240,7 +240,10 @@ def check_pipeline_no_explicit_waits(messages: list[Message]) -> bool:
 
 
 def _expect_race_marker(ctx: "ResultContext") -> bool:
-    return "RACE=done" in ctx.stdout
+    return (
+        "RACE=done" in ctx.stdout
+        and re.search(r"\bWINNER=(fast|thorough)\b", ctx.stdout) is not None
+    )
 
 
 def check_wait_any_used(messages: list[Message]) -> bool:
@@ -250,7 +253,19 @@ def check_wait_any_used(messages: list[Message]) -> bool:
 
 def check_wait_any_loser_cancelled(messages: list[Message]) -> bool:
     """Parent should cancel the agent that did not win the race."""
-    return _any_message_contains(messages, "assistant", "subagent_cancel(")
+    assistant_log = _role_contents(messages, "assistant")
+    if "subagent_cancel(" not in assistant_log:
+        return False
+    if re.search(r"subagent_cancel\(\s*first_id\s*\)", assistant_log):
+        return False
+    return any(
+        re.search(pattern, assistant_log, re.DOTALL) is not None
+        for pattern in (
+            r"if\s+\w+\s*!=\s*first_id\s*:\s*\n\s*subagent_cancel\(\s*\w+\s*\)",
+            r"loser\s*=.*first_id.*subagent_cancel\(\s*loser\s*\)",
+            r"slower\s*=.*first_id.*subagent_cancel\(\s*slower\s*\)",
+        )
+    )
 
 
 def check_wait_any_result_used(messages: list[Message]) -> bool:
