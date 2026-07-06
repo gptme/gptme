@@ -134,7 +134,21 @@ The server provides tools across several categories:
 - **Performance**: ``performance_analyze_insight``, ``lighthouse_audit``
 - **Automation**: ``click``, ``type_text``, ``fill_form``, ``hover``, ``drag``
 
-Useful flags: ``--headless`` for server environments, ``--isolated`` for clean browser state per session, ``--slim`` for navigation and screenshots only.
+Useful flags:
+
+- ``--headless`` — run without a visible window (server environments)
+- ``--isolated`` — clean browser state per session
+- ``--slim`` — navigation and screenshots only (lightweight)
+
+For example, to run headless with an isolated browser profile:
+
+.. code-block:: toml
+
+    [[mcp.servers]]
+    name = "chrome-devtools"
+    enabled = true
+    command = "npx"
+    args = ["-y", "chrome-devtools-mcp@latest", "--headless", "--isolated"]
 
 Running MCP Servers
 -------------------
