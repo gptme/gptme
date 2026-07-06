@@ -494,6 +494,7 @@ document.write(`
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-examples">MCP Server Examples</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#sqlite-server">SQLite Server</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#chrome-devtools-server">Chrome DevTools Server</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-mcp-servers">Running MCP Servers</a></li>
@@ -609,6 +610,41 @@ document.write(`
 </ul>
 <p>The server also includes a demonstration prompt <code class="docutils literal notranslate"><span class="pre">mcp-demo</span></code> that guides users through database operations and analysis.</p>
 </section>
+<section id="chrome-devtools-server">
+<h3>Chrome DevTools Server<a class="headerlink" href="#chrome-devtools-server" title="Link to this heading">#</a></h3>
+<p>The <a class="reference external" href="https://github.com/ChromeDevTools/chrome-devtools-mcp">Chrome DevTools MCP server</a> exposes Chrome DevTools Protocol capabilities — DOM inspection, network traffic analysis, JavaScript console, performance profiling, and Lighthouse audits — directly as MCP tools.</p>
+<p>Requires Node.js and <code class="docutils literal notranslate"><span class="pre">npx</span></code>.</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[mcp.servers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;chrome-devtools&quot;</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;npx&quot;</span>
+<span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;-y&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;chrome-devtools-mcp@latest&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>The server provides tools across several categories:</p>
+<ul class="simple">
+<li><p><strong>Navigation</strong>: <code class="docutils literal notranslate"><span class="pre">navigate_page</span></code>, <code class="docutils literal notranslate"><span class="pre">new_page</span></code>, <code class="docutils literal notranslate"><span class="pre">close_page</span></code>, <code class="docutils literal notranslate"><span class="pre">select_page</span></code></p></li>
+<li><p><strong>Inspection</strong>: <code class="docutils literal notranslate"><span class="pre">take_snapshot</span></code>, <code class="docutils literal notranslate"><span class="pre">take_screenshot</span></code>, <code class="docutils literal notranslate"><span class="pre">evaluate_script</span></code></p></li>
+<li><p><strong>Network</strong>: <code class="docutils literal notranslate"><span class="pre">list_network_requests</span></code>, <code class="docutils literal notranslate"><span class="pre">get_network_request</span></code></p></li>
+<li><p><strong>Console</strong>: <code class="docutils literal notranslate"><span class="pre">list_console_messages</span></code>, <code class="docutils literal notranslate"><span class="pre">get_console_message</span></code></p></li>
+<li><p><strong>Performance</strong>: <code class="docutils literal notranslate"><span class="pre">performance_analyze_insight</span></code>, <code class="docutils literal notranslate"><span class="pre">lighthouse_audit</span></code></p></li>
+<li><p><strong>Automation</strong>: <code class="docutils literal notranslate"><span class="pre">click</span></code>, <code class="docutils literal notranslate"><span class="pre">type_text</span></code>, <code class="docutils literal notranslate"><span class="pre">fill_form</span></code>, <code class="docutils literal notranslate"><span class="pre">hover</span></code>, <code class="docutils literal notranslate"><span class="pre">drag</span></code></p></li>
+</ul>
+<p>Useful flags:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--headless</span></code> — run without a visible window (server environments)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--isolated</span></code> — clean browser state per session</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--slim</span></code> — navigation and screenshots only (lightweight)</p></li>
+</ul>
+<p>For example, to run headless with an isolated browser profile:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[mcp.servers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;chrome-devtools&quot;</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;npx&quot;</span>
+<span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;-y&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;chrome-devtools-mcp@latest&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--headless&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--isolated&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+</section>
 </section>
 <section id="running-mcp-servers">
 <h2>Running MCP Servers<a class="headerlink" href="#running-mcp-servers" title="Link to this heading">#</a></h2>
@@ -695,6 +731,7 @@ gptme-util<span class="w"> </span>mcp<span class="w"> </span>info<span class="w"
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-examples">MCP Server Examples</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#sqlite-server">SQLite Server</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#chrome-devtools-server">Chrome DevTools Server</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-mcp-servers">Running MCP Servers</a></li>

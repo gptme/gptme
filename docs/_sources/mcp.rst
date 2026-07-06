@@ -110,6 +110,46 @@ Resources:
 
 The server also includes a demonstration prompt ``mcp-demo`` that guides users through database operations and analysis.
 
+Chrome DevTools Server
+~~~~~~~~~~~~~~~~~~~~~~
+
+The `Chrome DevTools MCP server <https://github.com/ChromeDevTools/chrome-devtools-mcp>`_ exposes Chrome DevTools Protocol capabilities — DOM inspection, network traffic analysis, JavaScript console, performance profiling, and Lighthouse audits — directly as MCP tools.
+
+Requires Node.js and ``npx``.
+
+.. code-block:: toml
+
+    [[mcp.servers]]
+    name = "chrome-devtools"
+    enabled = true
+    command = "npx"
+    args = ["-y", "chrome-devtools-mcp@latest"]
+
+The server provides tools across several categories:
+
+- **Navigation**: ``navigate_page``, ``new_page``, ``close_page``, ``select_page``
+- **Inspection**: ``take_snapshot``, ``take_screenshot``, ``evaluate_script``
+- **Network**: ``list_network_requests``, ``get_network_request``
+- **Console**: ``list_console_messages``, ``get_console_message``
+- **Performance**: ``performance_analyze_insight``, ``lighthouse_audit``
+- **Automation**: ``click``, ``type_text``, ``fill_form``, ``hover``, ``drag``
+
+Useful flags:
+
+- ``--headless`` — run without a visible window (server environments)
+- ``--isolated`` — clean browser state per session
+- ``--slim`` — navigation and screenshots only (lightweight)
+
+For example, to run headless with an isolated browser profile:
+
+.. code-block:: toml
+
+    [[mcp.servers]]
+    name = "chrome-devtools"
+    enabled = true
+    command = "npx"
+    args = ["-y", "chrome-devtools-mcp@latest", "--headless", "--isolated"]
+
 Running MCP Servers
 -------------------
 
