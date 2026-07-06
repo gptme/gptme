@@ -1337,10 +1337,10 @@ def doctor_cmd(display: str | None):
     except ImportError:
         _check(
             "playwright not installed (browser tool disabled)",
-            ok=False,
-            hint="pip install playwright  &&  python -m playwright install chromium",
+            ok=True,
+            warn=True,
+            hint="pip install playwright  &&  python -m playwright install chromium  (optional — needed for browser tool)",
         )
-        errors += 1
     click.echo()
 
     # --- Screenshot latency sample ---
