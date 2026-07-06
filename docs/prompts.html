@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f01e26b0cc0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fc72f4d8cc0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2141,6 +2141,7 @@ Key features:
 <span class="k">-</span><span class="w"> </span>subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage&#39;s prompt
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 <span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
+<span class="k">-</span><span class="w"> </span>subagent_wait_any(agent_ids, timeout): Wait for the first of N subagents to complete — returns (agent_id, result). Useful for race/hedging patterns.
 <span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
 <span class="k">-</span><span class="w"> </span>Hook-based notifications: Completions (and clarification requests) delivered as system messages
 
@@ -2245,6 +2246,7 @@ The following Python functions are available:
 <span class="s">subagent_reply(agent_id: str, reply: str): Re-spawn a subagent that requested clarification.</span>
 <span class="s">subagent_status(agent_id: str) -&gt; dict: Returns the status of a subagent.</span>
 <span class="s">subagent_wait(agent_id: str, timeout: int, max_result_chars: int) -&gt; dict: Waits for a subagent to finish.</span>
+<span class="s">subagent_wait_any(agent_ids: list[str], timeout: int) -&gt; tuple[str, dict]: Wait for the first of the given subagents to complete.</span>
 <span class="s">subagent_read_log(agent_id: str, max_messages: int, include_system: bool, message_filter: Union[str, None]) -&gt; str: Read the conversation log of a subagent.</span>
 <span class="s">subagent_batch(tasks: list[tuple[str, str]], use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: Union[type, None], workdir: Union[str, Path, None], context_turns: Union[int, None], redact_secrets: bool) -&gt; BatchJob: Start multiple subagents in parallel and return a BatchJob to manage them.</span>
 <span class="s">subagent_parallel(tasks: list[tuple[str, str]], timeout: int, use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: Union[type, None], workdir: Union[str, Path, None], context_turns: Union[int, None], redact_secrets: bool) -&gt; list[dict]: Fan out N subagents in parallel, wait for all, return results as an ordered list.</span>
@@ -2676,7 +2678,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 16949</p>
+<p>Tokens: 17019</p>
 </dd></dl>
 
 <dl class="py function">
