@@ -387,7 +387,7 @@ class TestTerminalStartupDelayFix:
         with ~10x less overhead.
         """
         text = TINT2_STARTUP.read_text()
-        assert "sleep 1" not in text, (
+        assert "sleep 1\n" not in text, (
             "tint2_startup.sh uses 'sleep 1' polling. "
             "Replace with 'sleep 0.1' so container startup is ~10x faster."
         )

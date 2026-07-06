@@ -24,6 +24,8 @@ echo "Xvfb PID: $XVFB_PID"
 
 # Load X resources so xterm uses the bitmap "fixed" font (bypasses the
 # multi-second fontconfig scan that caused new-terminal delays — issue #216).
+# Failure is non-critical — container should start even if xrdb is unavailable.
 if [ -f "$HOME/.Xdefaults" ]; then
-    xrdb -merge "$HOME/.Xdefaults" && echo "Loaded X resources from ~/.Xdefaults"
+    xrdb -merge "$HOME/.Xdefaults" && echo "Loaded X resources from ~/.Xdefaults" \
+        || echo "Warning: xrdb failed to load ~/.Xdefaults, continuing without X resources" >&2
 fi
