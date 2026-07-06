@@ -247,8 +247,9 @@ Two helpers make it easy to run multiple independent tasks concurrently:
   a full synchronisation barrier between stages) when items are independent.
   Each stage is a callable ``stage(item_prompt, prev_result) -> next_prompt``::
 
+      items = [("auth", "Review auth.py"), ("db", "Review db.py")]
       results = subagent_pipeline(
-          [("auth", "Review auth.py"), ("db", "Review db.py")],
+          items,
           # Stage 0: review
           lambda item, _: f"Find bugs in this file: {item}",
           # Stage 1: verify — runs on auth while db is still in stage 0
