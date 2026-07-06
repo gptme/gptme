@@ -125,6 +125,7 @@
             var screenshotInterval = null;
             var screenshotFps = parseInt(params.get("fps") || "2", 10);
             var screenshotDelay = Math.round(1000 / Math.max(1, Math.min(10, screenshotFps)));
+            var screenshotQuality = Math.max(1, Math.min(95, parseInt(params.get("quality") || "70", 10) || 70));
             var screenshotToken = params.get("token") || "";
             var img = document.getElementById("screenshot-img");
             var statusEl = document.getElementById("screenshot-status");
@@ -132,7 +133,7 @@
             var lastTs = 0;
 
             function fetchScreenshot() {
-                var url = "/api/v2/computer/screenshot?quality=70&_t=" + Date.now();
+                var url = "/api/v2/computer/screenshot?quality=" + screenshotQuality + "&_t=" + Date.now();
                 var headers = {};
                 if (screenshotToken) {
                     headers["Authorization"] = "Bearer " + screenshotToken;
@@ -202,7 +203,7 @@
                 mode = "screenshot";
                 document.getElementById("vnc").src = "";
                 document.getElementById("vnc").style.display = "none";
-                document.getElementById("screenshot-panel").style.display = "";
+                document.getElementById("screenshot-panel").style.display = "flex";
                 document.getElementById("toggleViewOnly").style.display = "none";
                 document.getElementById("toggleMode").textContent = "Switch to VNC";
                 startScreenshotPolling();

@@ -381,21 +381,17 @@ class TestTakeScreenshot:
         transport.screenshot.assert_called_once_with()
         transport.close.assert_not_called()
 
-    def test_closes_native_fallback_transport(self, png_file):
+    def test_default_native_path_uses_screenshot_tool_directly(self, png_file):
         from gptme.server.computer_api import _take_screenshot
-
-        transport = Mock()
-        transport.screenshot.return_value = png_file
 
         with (
             patch("gptme.tools.computer_transport.get_transport", return_value=None),
             patch(
                 "gptme.tools.computer_transport.NativeComputerTransport",
-                return_value=transport,
-            ),
+            ) as native_transport,
+            patch("gptme.tools.screenshot.screenshot", return_value=png_file),
         ):
             path = _take_screenshot()
 
         assert path == png_file
-        transport.screenshot.assert_called_once_with()
-        transport.close.assert_called_once_with()
+        native_transport.assert_not_called()

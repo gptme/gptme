@@ -76,21 +76,18 @@ def _take_screenshot() -> Path:
 
     Raises RuntimeError when the screenshot fails.
     """
-    from ..tools.computer_transport import NativeComputerTransport, get_transport
+    from ..tools.computer_transport import get_transport
+    from ..tools.screenshot import screenshot as take_native_screenshot
 
     transport = get_transport()
-    owns_transport = False
     if transport is None:
-        transport = NativeComputerTransport()
-        owns_transport = True
-    try:
+        path = take_native_screenshot()
+    else:
         path = transport.screenshot()
-        if not path.exists():
-            raise RuntimeError("Screenshot produced no file")
-        return path
-    finally:
-        if owns_transport:
-            transport.close()
+
+    if not path.exists():
+        raise RuntimeError("Screenshot produced no file")
+    return path
 
 
 @computer_api.route("/api/v2/computer/screenshot")
