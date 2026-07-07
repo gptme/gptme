@@ -172,8 +172,8 @@ jobs:
     - name: Install system dependencies (Ubuntu)
       if: runner.os == 'Linux'
       run: |
-        # GitHub's Ubuntu runner image can ship Microsoft apt sources that 403.
-        sudo rm -f /etc/apt/sources.list.d/microsoft*.list
+        # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
+        sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
         sudo apt-get update
         sudo apt-get install -y python3-dev build-essential libffi-dev
 
