@@ -252,18 +252,41 @@ def check_wait_any_used(messages: list[Message]) -> bool:
 
 
 def check_wait_any_loser_cancelled(messages: list[Message]) -> bool:
-    """Parent should cancel the agent that did not win the race."""
+    """Parent should cancel the agent that did not win the race.
+
+    Accepts any of several common patterns for cancelling the non-winner:
+    - Conditional: ``if var != first_id: subagent_cancel(var)``
+    - Named loser/other/slower variable referencing first_id
+    - Conditional on first_id value: ``if first_id == "fast": subagent_cancel("thorough")``
+    - Ternary or comprehension: ``other = ...; subagent_cancel(other)``
+    """
     assistant_log = _role_contents(messages, "assistant")
     if "subagent_cancel(" not in assistant_log:
         return False
+    # Reject directly cancelling the winner by name
     if re.search(r"subagent_cancel\(\s*first_id\s*\)", assistant_log):
+        return False
+    # Reject cancelling a variable directly assigned from first_id (winner cancellation)
+    # e.g., `loser = first_id; subagent_cancel(loser)` instead of ternary loser
+    if re.search(
+        r"(?:loser|other|slower|remaining)\s*=\s*first_id\s*(?:[#;\n]|$)",
+        assistant_log,
+    ) and re.search(
+        r"subagent_cancel\(\s*(?:loser|other|slower|remaining)\s*\)", assistant_log
+    ):
         return False
     return any(
         re.search(pattern, assistant_log, re.DOTALL) is not None
         for pattern in (
-            r"if\s+\w+\s*!=\s*first_id\s*:\s*\n\s*subagent_cancel\(\s*\w+\s*\)",
-            r"loser\s*=.*first_id.*subagent_cancel\(\s*loser\s*\)",
-            r"slower\s*=.*first_id.*subagent_cancel\(\s*slower\s*\)",
+            # if var != first_id: ... subagent_cancel(var)
+            # Allows multi-line bodies and indented cancel calls
+            r"if\s+\w+\s*!=\s*first_id\s*:.*?subagent_cancel\(",
+            # Named loser/other/slower/remaining variable derived from first_id (multi-line)
+            r"(?:loser|other|slower|remaining)\s*=.*first_id.*\n.*subagent_cancel\(",
+            # Named loser/other/slower/remaining variable derived from first_id (same expression line)
+            r"(?:loser|other|slower|remaining)\s*=.*first_id.*;.*subagent_cancel\(",
+            # if first_id == <value>: subagent_cancel(<other>) — direct branch on winner
+            r"if\s+first_id\s*==.*subagent_cancel\(",
         )
     )
 
@@ -274,10 +297,42 @@ def check_wait_any_result_used(messages: list[Message]) -> bool:
     return "WINNER=" in final_msg and "RACE=" in final_msg
 
 
+def check_workdir_subagent_spawned(messages: list[Message]) -> bool:
+    """Parent should spawn a subagent referencing the subdirectory."""
+    assistant_log = _role_contents(messages, "assistant")
+    return "subagent(" in assistant_log and "subproject" in assistant_log
+
+
+def check_workdir_subprocess_params(messages: list[Message]) -> bool:
+    """Parent should use subprocess mode and workdir parameter together.
+
+    The whole point of the workdir eval is that subprocess-mode subagents run
+    in a fresh process rooted at the given directory, so the subagent sees that
+    directory's files without path prefixes.
+    """
+    assistant_log = _role_contents(messages, "assistant")
+    return "use_subprocess=True" in assistant_log and "workdir=" in assistant_log
+
+
+def check_workdir_result_returned(messages: list[Message]) -> bool:
+    """Final assistant message should include the task marker from the subdir file."""
+    final_msg = _last_assistant_content(messages)
+    return "TASK_MARKER" in final_msg or "WORKDIR_OK" in final_msg
+
+
+def _expect_task_marker(ctx: "ResultContext") -> bool:
+    return "TASK_MARKER" in ctx.stdout
+
+
+def _expect_workdir_ok_content(ctx: "ResultContext") -> bool:
+    return "WORKDIR_OK=confirmed" in ctx.stdout
+
+
 _PARALLEL_A = "alpha beta gamma delta epsilon zeta\n"
 _PARALLEL_B = "one\ntwo\nthree\nfour\n"
 _NOTES = "Keep this brief. The parent can read this between spawn and wait.\n"
 _RACE_FILE = "The answer is FORTYTWO.\n"
+_SUBPROJECT_TASK = "WORKDIR_OK=confirmed\n"
 
 
 tests: list["EvalSpec"] = [
@@ -464,6 +519,36 @@ tests: list["EvalSpec"] = [
             "called subagent_wait_any": check_wait_any_used,
             "cancelled the losing agent": check_wait_any_loser_cancelled,
             "used winner result": check_wait_any_result_used,
+        },
+    },
+    {
+        "name": "subagent-workdir-subprocess",
+        "files": {
+            "subproject/task.txt": _SUBPROJECT_TASK,
+        },
+        "run": "cat answer.txt",
+        "prompt": (
+            "There is a subdirectory 'subproject/' in the current workspace that contains "
+            "a file called 'task.txt'. "
+            "Spawn a subprocess-mode subagent (use_subprocess=True) with "
+            "workdir='./subproject' so the subagent's working directory is 'subproject/'. "
+            "In the subagent's prompt, instruct it to read 'task.txt' (just the filename, "
+            "not the full path — it will be in the subagent's working directory) and "
+            "return the exact file content via the complete tool. "
+            "Wait for the subagent to finish, then write answer.txt with exactly:\n"
+            "TASK_MARKER=<the content the subagent returned>\n"
+            "Include 'TASK_MARKER' in your final assistant message."
+        ),
+        "tools": ["read", "save", "shell", "ipython", "subagent"],
+        "expect": {
+            "writes TASK_MARKER": _expect_task_marker,
+            "content contains WORKDIR_OK": _expect_workdir_ok_content,
+            "clean exit": _expect_clean_exit,
+        },
+        "check_log": {
+            "spawned subagent referencing subproject": check_workdir_subagent_spawned,
+            "used subprocess mode and workdir": check_workdir_subprocess_params,
+            "result returned to parent": check_workdir_result_returned,
         },
     },
 ]
