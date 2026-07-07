@@ -597,3 +597,63 @@ def test_get_toolchain_nonstrict_skips_unavailable():
         assert "fake_unavailable_nonstrict" not in tool_names
     finally:
         available.remove(unavailable_tool)
+
+
+def test_plain_thread_subagent_cannot_clobber_parent_tool_list():
+    """Regression guard for the #554 "transient non-runnable" root cause.
+
+    The historical hypothesis was that a thread-mode subagent shares the parent's
+    ``_loaded_tools_var`` list object (because "threading.Thread copies the parent
+    context") and mutates it mid-turn, making an already-loaded parent tool
+    transiently non-runnable. That premise is false:
+
+    - A plain ``threading.Thread`` starts with a *fresh, empty* contextvars
+      context, so the child's ``_loaded_tools_var`` is independent of the parent's.
+    - The loaded-tools list is only ever appended to in place or replaced via
+      ``.set()`` (a context-local rebind); it is never cleared/removed in place.
+
+    Together these make it impossible for a plain-thread subagent to remove a
+    tool the parent already loaded. This test locks that invariant in.
+    """
+    import threading
+
+    from gptme.tools import _loaded_tools_var
+    from gptme.tools.base import ToolSpec
+
+    def _noop_execute(*_args, **_kwargs):
+        yield None
+
+    read_like = ToolSpec(
+        name="read", desc="d", execute=_noop_execute, block_types=["read"]
+    )
+    parent_list = [read_like]
+    token = _loaded_tools_var.set(parent_list)
+    try:
+        loaded_read = get_tool("read")
+        assert loaded_read is not None and loaded_read.execute
+
+        observations: dict[str, object] = {}
+
+        def child():
+            # A plain thread must NOT see the parent's list — fresh context.
+            observations["child_sees_parent_list"] = (
+                _loaded_tools_var.get() is parent_list
+            )
+            # Whatever the child does to its own tool list (clear + repopulate,
+            # exactly like _create_subagent_thread does) must not touch the parent.
+            clear_tools()
+            _loaded_tools_var.set(
+                [ToolSpec(name="save", desc="d", execute=_noop_execute)]
+            )
+
+        t = threading.Thread(target=child)
+        t.start()
+        t.join()
+
+        assert observations["child_sees_parent_list"] is False
+        # Parent's read is still loaded and runnable after the child ran.
+        assert _loaded_tools_var.get() is parent_list
+        read_after = get_tool("read")
+        assert read_after is not None and read_after.execute
+    finally:
+        _loaded_tools_var.reset(token)

@@ -177,14 +177,26 @@ def _create_subagent_thread(
     if agent_id is not None:
         _thread_local.agent_id = agent_id
 
-    # Detach from the parent thread's tool list. Python's threading.Thread copies
-    # the parent's context into the child, so _loaded_tools_var initially points to
-    # the *same list object* as the parent. Any append inside init_tools() or
-    # _ensure_subagent_signal_tools_loaded() would mutate the parent's list, creating
-    # a data race with the parent's concurrent execute_msg() calls. Calling
-    # clear_tools() here replaces the ContextVar binding with a fresh empty list so
-    # all subsequent tool operations operate on an independent list. This is the fix
-    # for the thread-mode "transient non-runnable" race (#554).
+    # Start this subagent thread with a known-empty tool list.
+    #
+    # NOTE: a plain threading.Thread does NOT copy the parent's context — a new
+    # thread begins with a fresh, empty contextvars context, so _loaded_tools_var
+    # here already reads its default (None), independent of the parent's list.
+    # (Only contextvars.copy_context() / asyncio tasks / thread pools that
+    # explicitly run under a copied context share the parent's list object.)
+    # So in the normal thread-mode spawn path this clear_tools() is a defensive
+    # no-op rather than the load-bearing isolation it was once believed to be.
+    #
+    # It is kept as belt-and-suspenders in case this function is ever invoked
+    # under a *copied* parent context (e.g. a future spawn path, or the server's
+    # copy_context() step threads): clear_tools() rebinds _loaded_tools_var to a
+    # fresh list in the current context, so the parent's list is never mutated.
+    #
+    # This does NOT explain the historical #554 "transient non-runnable" symptom:
+    # the loaded-tools list is only ever appended to in place or replaced via
+    # .set() (a context-local rebind) — never cleared/removed in place — so an
+    # already-loaded parent tool cannot be made non-runnable by any concurrent
+    # context. The crash is handled mechanism-agnostically in execute_msg (#3072).
     clear_tools()
 
     # noreorder
