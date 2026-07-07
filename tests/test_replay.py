@@ -3,7 +3,9 @@
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
+from gptme.llm.models.resolution import _default_model_var
 from gptme.message import Message
 from gptme.util.replay import inject_relevant_evidence, score_messages_bm25
 
@@ -242,4 +244,61 @@ def test_inject_respects_remaining_context_budget():
         # This is a loose check; real constraint is in the actual code
         assert total_evidence_tokens < 20_000, (
             f"Injected evidence too large: {total_evidence_tokens} tokens"
+        )
+
+
+def test_inject_respects_context_headroom():
+    """Overflow working context should block injection; sparse context should allow it.
+
+    Uses a 100-token context window. working_full exceeds the window (>100 tiktoken
+    tokens) so remaining=0 and no evidence is injected. working_small fits easily,
+    leaving room for several evidence messages.
+
+    Sets model.model = "gpt-4" so count_tokens() can use the cl100k_base tokenizer.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        tmpdir = Path(td)
+
+        # Evidence messages matching the query; ~10 tokens each (40 chars)
+        master_msgs = [
+            {"role": "user", "content": f"Python decorator tip {i} " + "y" * 15}
+            for i in range(20)
+        ]
+        logfile = _make_master_log(master_msgs, tmpdir)
+
+        # Model with a 100-token context window
+        mock_model = MagicMock()
+        mock_model.context = 100
+        mock_model.model = "gpt-4"  # needed by count_tokens() for tokenizer selection
+
+        # working_full: 1000 "a" chars → ~167-250 tiktoken tokens → exceeds 100 context
+        # remaining = max(0, 100 - 200) = 0 → budget = 0 → 0 injected
+        working_full = [
+            Message("system", "System.", pinned=True),
+            Message("assistant", "a" * 1000),
+            Message("user", "Tell me about Python decorators"),
+        ]
+
+        # working_small: ~8 tokens → remaining ≈ 92 → budget = min(20, 73) = 20 tokens
+        # 20 / 10 = 2 evidence messages fit
+        working_small = [
+            Message("system", "You are helpful.", pinned=True),
+            Message("user", "Tell me about Python decorators"),
+        ]
+
+        token = _default_model_var.set(mock_model)
+        try:
+            result_full = inject_relevant_evidence(working_full, logfile, top_k=10)
+            result_small = inject_relevant_evidence(working_small, logfile, top_k=10)
+        finally:
+            _default_model_var.reset(token)
+
+        full_injected = [m for m in result_full if "Evidence" in m.content]
+        small_injected = [m for m in result_small if "Evidence" in m.content]
+
+        # Overflow context → no headroom → 0 injected
+        # Sparse context → headroom → at least 1 injected
+        assert len(full_injected) < len(small_injected), (
+            f"Overflow context ({len(full_injected)} injected) should inject"
+            f" fewer messages than sparse context ({len(small_injected)} injected)"
         )
