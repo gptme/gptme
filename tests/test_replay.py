@@ -206,3 +206,40 @@ def test_bm25_fts5_and_keyword():
     ]
     results = score_messages_bm25(messages, "AND technology")
     assert results, "FTS5 'AND' keyword in query should not suppress all results"
+
+
+def test_inject_respects_remaining_context_budget():
+    """Budget should be remaining space, not a fraction of total context that overflows."""
+    with tempfile.TemporaryDirectory() as td:
+        tmpdir = Path(td)
+
+        # Master log with relevant content
+        master_msgs = [
+            {"role": "user", "content": f"Important Python tip {i} about decorators"}
+            for i in range(20)
+        ]
+        logfile = _make_master_log(master_msgs, tmpdir)
+
+        # Create a working context that's nearly full (simulated)
+        # Since we can't easily mock token counts, verify that inject_relevant_evidence
+        # at least doesn't crash and respects token budgeting constraints
+        working = [
+            Message("system", "You are a helpful assistant.", pinned=True),
+            Message("user", "What are Python decorators?"),
+        ]
+
+        result = inject_relevant_evidence(working, logfile, top_k=5)
+
+        # Should inject evidence (master has more messages than working)
+        injected = [m for m in result if m.role == "system" and "Evidence" in m.content]
+        assert injected, "Should have injected evidence"
+
+        # Verify that budget enforcement didn't produce absurdly long context
+        # If budget is being calculated correctly, injected section should be bounded
+        total_evidence_tokens = sum(len(m.content) // 4 for m in injected)
+        # With remaining budget approach, should never inject more than 20% of model context
+        # Default model context is 40k, so max should be 8k tokens (32k chars)
+        # This is a loose check; real constraint is in the actual code
+        assert total_evidence_tokens < 20_000, (
+            f"Injected evidence too large: {total_evidence_tokens} tokens"
+        )

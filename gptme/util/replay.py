@@ -101,13 +101,13 @@ def inject_relevant_evidence(
 
     Scores master log messages by relevance to the last user message, then
     injects those not already present in the working context. Caps injected
-    content at ``token_budget_fraction`` of the model's context limit.
+    content at the available remaining context (model.context - current_tokens).
 
     Args:
-        msgs: Current working context (already reduced/compacted by reduce_log).
+        msgs: Current working context (already reduced/compacted by limit_log).
         master_logfile: Path to the lossless conversation.jsonl.
         top_k: Maximum number of messages to inject.
-        token_budget_fraction: Fraction of model context to spend on replayed evidence.
+        token_budget_fraction: Unused; kept for API compatibility.
 
     Returns:
         Updated message list with relevant evidence injected as pinned system messages.
@@ -131,14 +131,19 @@ def inject_relevant_evidence(
     if not scored:
         return msgs
 
-    # Approximate token budget (~4 chars per token)
+    # Calculate budget as remaining space in context, not a fraction of total
     try:
         from ..llm.models import get_default_model
+        from ..message import len_tokens as count_tokens
 
         model = get_default_model()
-        token_budget = int((model.context if model else 40_000) * token_budget_fraction)
+        model_context = model.context if model else 40_000
+        current_tokens = count_tokens(msgs, model.model if model else "gpt-4")
+        remaining = max(0, model_context - current_tokens)
+        # Cap at 20% of total context to avoid aggressive over-filling
+        token_budget = min(int(model_context * 0.20), remaining)
     except Exception:
-        token_budget = 4_000
+        token_budget = 2_000
 
     # Build dedup set from current working context
     existing_content = {m.content for m in msgs}
