@@ -737,51 +737,50 @@ def test_subprocess_actual_process_creation():
                 process.wait()
 
 
-@pytest.mark.slow
 def test_subprocess_command_includes_required_flags():
     """Test that subprocess command includes all required gptme flags."""
-    import subprocess
     import tempfile
     from pathlib import Path
 
     from gptme.tools.subagent.execution import _run_subagent_subprocess
 
+    captured_cmd: list[str] = []
+
+    def fake_popen(cmd, **kwargs):
+        captured_cmd.clear()
+        captured_cmd.extend(cmd)
+        mock = MagicMock()
+        mock.poll.return_value = None
+        mock.args = cmd
+        return mock
+
     with tempfile.TemporaryDirectory() as tmpdir:
         logdir = Path(tmpdir) / "logs"
         logdir.mkdir()
 
-        process = _run_subagent_subprocess(
-            prompt="Test task",
-            logdir=logdir,
-            model="test-model",
-            workspace=Path(tmpdir),
-        )
+        with patch("gptme.tools.subagent.execution.subprocess.Popen", fake_popen):
+            _run_subagent_subprocess(
+                prompt="Test task",
+                logdir=logdir,
+                model="test-model",
+                workspace=Path(tmpdir),
+            )
 
-        try:
-            # The command is available as process.args
-            cmd = process.args
-            assert isinstance(cmd, list)
+    cmd = captured_cmd
+    assert isinstance(cmd, list)
 
-            # Verify required elements
-            assert sys.executable in cmd[0] or "python" in cmd[0]
-            assert "-m" in cmd
-            assert "gptme" in cmd
-            assert "-n" in cmd  # Non-interactive
-            assert "--no-confirm" in cmd
-            assert any("--name=" in str(arg) for arg in cmd)
-            assert "--model" in cmd
-            assert "test-model" in cmd
-            assert "--tools" in cmd
-            assert cmd[cmd.index("--tools") + 1] == "+complete,+clarify"
-            assert "Test task" not in cmd  # Prompt passed via stdin, not argv
-
-        finally:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
+    # Verify required elements
+    assert sys.executable in cmd[0] or "python" in cmd[0]
+    assert "-m" in cmd
+    assert "gptme" in cmd
+    assert "-n" in cmd  # Non-interactive
+    assert "--no-confirm" in cmd
+    assert any("--name=" in str(arg) for arg in cmd)
+    assert "--model" in cmd
+    assert "test-model" in cmd
+    assert "--tools" in cmd
+    assert cmd[cmd.index("--tools") + 1] == "+complete,+clarify"
+    assert "Test task" not in cmd  # Prompt passed via stdin, not argv
 
 
 def test_subprocess_profile_preserves_profile_tools_and_adds_clarify():
