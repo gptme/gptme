@@ -767,7 +767,9 @@ def ephemeral_cache_boundary(
 
 
 def prepare_messages(
-    msgs: list[Message], workspace: Path | None = None
+    msgs: list[Message],
+    workspace: Path | None = None,
+    logdir: Path | None = None,
 ) -> list[Message]:
     """
     Prepares the messages before sending to the LLM.
@@ -775,6 +777,8 @@ def prepare_messages(
     - Enhances it with context such as file contents
     - Transforms it to the format expected by LLM providers
     """
+
+    import os  # fmt: skip
 
     from gptme.llm.models import get_default_model  # fmt: skip
 
@@ -807,6 +811,15 @@ def prepare_messages(
         logger.info(
             f"Limited log from {len(msgs_pruned)} to {len(msgs_limited)} messages"
         )
+
+    # Evidence replay: re-inject relevant earlier messages lost to compaction.
+    # Enabled with GPTME_EVIDENCE_REPLAY=1. Only activates when logdir is known.
+    if os.environ.get("GPTME_EVIDENCE_REPLAY") and logdir is not None:
+        master_logfile = logdir / "conversation.jsonl"
+        if master_logfile.exists():
+            from ..util.replay import inject_relevant_evidence  # fmt: skip
+
+            msgs_limited = inject_relevant_evidence(msgs_limited, master_logfile)
 
     return msgs_limited
 
