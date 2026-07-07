@@ -57,6 +57,9 @@ def _setup_patches(monkeypatch, tmp_path):
 @pytest.fixture(autouse=True)
 def clean_state():
     """Clear global subagent state before each test."""
+    from gptme.tools import clear_tools
+
+    clear_tools()
     with _subagents_lock:
         _subagents.clear()
     with _subagent_results_lock:
@@ -68,6 +71,7 @@ def clean_state():
     with _subagent_results_lock:
         _subagent_results.clear()
     _drain_completion_queue()
+    clear_tools()
 
 
 def _make_log_file(logdir: Path, content: str) -> None:
@@ -283,35 +287,50 @@ class TestParentToolIsolationDuringSubagentRun:
         """
         from contextvars import copy_context
 
-        from gptme.tools import clear_tools, get_tools, load_tool
+        from gptme.tools import clear_tools, get_tools, init_tools, load_tool
 
         # Set up a known parent tool list
+        init_tools(["read"])
         parent_tools_before = list(get_tools())
 
         parent_list = parent_tools_before[:]  # snapshot before child starts
 
         ready = threading.Event()
         done = threading.Event()
+        child_errors: list[BaseException] = []
+        child_tool_names: list[set[str]] = []
 
         def child_with_clear():
             """Simulates _create_subagent_thread with clear_tools() at entry."""
-            clear_tools()  # detach from parent's list
-            load_tool("shell")  # append to OWN fresh list; shell is always available
-            ready.set()
+            try:
+                clear_tools()  # detach from parent's list
+                load_tool(
+                    "shell"
+                )  # append to OWN fresh list; shell is always available
+                child_tool_names.append({tool.name for tool in get_tools()})
+            except BaseException as exc:
+                child_errors.append(exc)
+            finally:
+                ready.set()
             done.wait(timeout=5)
 
         ctx = copy_context()
         t = threading.Thread(target=lambda: ctx.run(child_with_clear), daemon=True)
         t.start()
 
-        ready.wait(timeout=5)
+        assert ready.wait(timeout=5), "child thread did not reach tool-loading point"
         # While child is running, parent's tool list should be unchanged
         parent_tools_after = list(get_tools())
         done.set()
         t.join(timeout=5)
+        assert not t.is_alive(), "child thread did not stop"
+        if child_errors:
+            raise child_errors[0]
 
         parent_names_before = {tool.name for tool in parent_list}
         parent_names_after = {tool.name for tool in parent_tools_after}
+        assert parent_names_before == {"read"}
+        assert child_tool_names == [{"shell"}]
         assert parent_names_before == parent_names_after, (
             f"Parent tool list mutated by child thread: "
             f"before={parent_names_before}, after={parent_names_after}"
