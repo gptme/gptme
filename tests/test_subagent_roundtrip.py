@@ -46,6 +46,14 @@ def _drain_completion_queue():
             break
 
 
+def _setup_patches(monkeypatch, tmp_path):
+    """Shared helper: apply the four monkeypatches needed for roundtrip tests."""
+    monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+    monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+    monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+    monkeypatch.setattr(subagent_api._exec, "_cleanup_isolation", lambda sa: None)
+
+
 @pytest.fixture(autouse=True)
 def clean_state():
     """Clear global subagent state before each test."""
@@ -92,15 +100,9 @@ class TestThreadModeCompletionRoundtrip:
     result and that notify_completion() is queued.
     """
 
-    def _setup_patches(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
-        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
-        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
-        monkeypatch.setattr(subagent_api._exec, "_cleanup_isolation", lambda sa: None)
-
     def test_success_result_from_complete_block(self, monkeypatch, tmp_path):
         """subagent_wait returns success when subagent log contains a complete block."""
-        self._setup_patches(monkeypatch, tmp_path)
+        _setup_patches(monkeypatch, tmp_path)
 
         def fast_thread(**kwargs):
             logdir = kwargs["logdir"]
@@ -116,7 +118,7 @@ class TestThreadModeCompletionRoundtrip:
 
     def test_failure_result_when_no_log(self, monkeypatch, tmp_path):
         """subagent_wait returns failure when subagent exits without writing a log."""
-        self._setup_patches(monkeypatch, tmp_path)
+        _setup_patches(monkeypatch, tmp_path)
 
         def no_op_thread(**kwargs):
             pass  # does not create any log file
@@ -131,7 +133,7 @@ class TestThreadModeCompletionRoundtrip:
 
     def test_completion_hook_notified_on_success(self, monkeypatch, tmp_path):
         """notify_completion is called after a successful subagent run."""
-        self._setup_patches(monkeypatch, tmp_path)
+        _setup_patches(monkeypatch, tmp_path)
 
         def fast_thread(**kwargs):
             logdir = kwargs["logdir"]
@@ -156,7 +158,7 @@ class TestThreadModeCompletionRoundtrip:
 
     def test_hook_delivers_notification_as_system_message(self, monkeypatch, tmp_path):
         """_subagent_completion_hook yields a system message for the parent."""
-        self._setup_patches(monkeypatch, tmp_path)
+        _setup_patches(monkeypatch, tmp_path)
 
         def fast_thread(**kwargs):
             logdir = kwargs["logdir"]
@@ -185,7 +187,7 @@ class TestThreadModeCompletionRoundtrip:
 
     def test_result_stored_in_cache_for_subagent_wait(self, monkeypatch, tmp_path):
         """After thread completes, result is in _subagent_results for subagent_wait."""
-        self._setup_patches(monkeypatch, tmp_path)
+        _setup_patches(monkeypatch, tmp_path)
 
         def fast_thread(**kwargs):
             logdir = kwargs["logdir"]
@@ -207,15 +209,9 @@ class TestThreadModeCompletionRoundtrip:
 class TestClarificationRoundtrip:
     """Verify the clarification request path works end-to-end."""
 
-    def _setup_patches(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
-        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
-        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
-        monkeypatch.setattr(subagent_api._exec, "_cleanup_isolation", lambda sa: None)
-
     def test_clarify_block_detected(self, monkeypatch, tmp_path):
         """A clarify block in the log sets status to clarification_needed."""
-        self._setup_patches(monkeypatch, tmp_path)
+        _setup_patches(monkeypatch, tmp_path)
 
         def clarify_thread(**kwargs):
             logdir = kwargs["logdir"]
@@ -234,7 +230,7 @@ class TestClarificationRoundtrip:
         self, monkeypatch, tmp_path
     ):
         """Clarification hook notification includes ❓ emoji and subagent_reply hint."""
-        self._setup_patches(monkeypatch, tmp_path)
+        _setup_patches(monkeypatch, tmp_path)
 
         def clarify_thread(**kwargs):
             logdir = kwargs["logdir"]
@@ -248,7 +244,8 @@ class TestClarificationRoundtrip:
 
         with _subagents_lock:
             sa = next((s for s in _subagents if s.agent_id == "clarify-hook"), None)
-        if sa and sa.thread:
+        assert sa is not None, "subagent clarify-hook should be registered"
+        if sa.thread:
             sa.thread.join(timeout=10)
 
         manager = MagicMock()
@@ -267,8 +264,9 @@ class TestParentToolIsolationDuringSubagentRun:
 
     When a subagent thread starts, it calls clear_tools() to detach from the
     parent's tool list.  Without this fix, both threads initially share the
-    same list object (Python ≤ 3.11 threading.Thread copies ContextVar values
-    but not the underlying mutable objects), so appends inside the subagent's
+    same list object (Python ≥ 3.7 threading.Thread copies ContextVar values
+    but not the underlying mutable objects — this semantic is stable across
+    all supported Python versions), so appends inside the subagent's
     init_tools() would mutate the parent's list and could make tools appear
     non-runnable in the parent's concurrent execute_msg() calls.
     """
@@ -278,7 +276,7 @@ class TestParentToolIsolationDuringSubagentRun:
     ):
         """Parent's tool list is stable while a subagent thread is initializing.
 
-        Uses copy_context().run() to simulate Python ≤ 3.11 semantics where
+        Uses copy_context().run() to simulate Python ≥ 3.7 semantics where
         the child thread inherits the parent's ContextVar mapping (same list
         object).  Verifies that clear_tools() at thread entry prevents the
         child's tool operations from affecting the parent.
@@ -298,7 +296,7 @@ class TestParentToolIsolationDuringSubagentRun:
         def child_with_clear():
             """Simulates _create_subagent_thread with clear_tools() at entry."""
             clear_tools()  # detach from parent's list
-            load_tool("ipython")  # append to OWN fresh list
+            load_tool("shell")  # append to OWN fresh list; shell is always available
             ready.set()
             done.wait(timeout=5)
 
