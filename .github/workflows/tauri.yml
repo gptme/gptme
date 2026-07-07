@@ -47,7 +47,7 @@ jobs:
           # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
           sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
           # Also clean from /etc/apt/sources.list when configured directly
-          sudo sed -i '\/packages\.microsoft\.com/d'\ /etc/apt/sources.list 2>/dev/null || true
+          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
@@ -86,7 +86,7 @@ jobs:
           # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
           sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
           # Also clean from /etc/apt/sources.list when configured directly
-          sudo sed -i '\/packages\.microsoft\.com/d'\ /etc/apt/sources.list 2>/dev/null || true
+          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
@@ -134,7 +134,7 @@ jobs:
           # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
           sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
           # Also clean from /etc/apt/sources.list when configured directly
-          sudo sed -i '\/packages\.microsoft\.com/d'\ /etc/apt/sources.list 2>/dev/null || true
+          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf \
@@ -297,7 +297,7 @@ jobs:
           # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
           sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
           # Also clean from /etc/apt/sources.list when configured directly
-          sudo sed -i '\/packages\.microsoft\.com/d'\ /etc/apt/sources.list 2>/dev/null || true
+          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
@@ -399,7 +399,7 @@ jobs:
           # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
           sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
           # Also clean from /etc/apt/sources.list when configured directly
-          sudo sed -i '\/packages\.microsoft\.com/d'\ /etc/apt/sources.list 2>/dev/null || true
+          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y python3-dev build-essential libffi-dev
 
@@ -479,7 +479,7 @@ jobs:
           # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
           sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
           # Also clean from /etc/apt/sources.list when configured directly
-          sudo sed -i '\/packages\.microsoft\.com/d'\ /etc/apt/sources.list 2>/dev/null || true
+          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
