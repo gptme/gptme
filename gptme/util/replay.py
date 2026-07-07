@@ -42,7 +42,7 @@ def score_messages_bm25(
     tokens = [t for t in tokens if len(t) > 2]
     if not tokens:
         return []
-    safe_query = " OR ".join(tokens)
+    safe_query = " OR ".join(f'"{t}"' for t in tokens)
 
     try:
         with sqlite3.connect(":memory:") as conn:
@@ -159,7 +159,7 @@ def inject_relevant_evidence(
 
         est_tokens = max(1, len(content) // 4)
         if tokens_used + est_tokens > token_budget:
-            continue
+            break
 
         evidence_msg = Message(
             role="system",

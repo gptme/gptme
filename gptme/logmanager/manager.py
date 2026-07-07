@@ -778,8 +778,6 @@ def prepare_messages(
     - Transforms it to the format expected by LLM providers
     """
 
-    import os  # fmt: skip
-
     from gptme.llm.models import get_default_model  # fmt: skip
 
     # Enrich with enabled context enhancements (RAG, fresh context)

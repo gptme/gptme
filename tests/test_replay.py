@@ -184,3 +184,25 @@ def test_inject_inserts_after_pinned_system():
             assert result[0].role == "system" and result[0].pinned, (
                 "Pinned system message should remain first"
             )
+
+
+def test_bm25_fts5_reserved_keywords():
+    """FTS5 reserved keywords (NOT, AND, NEAR) should be quoted, not parsed as operators."""
+    messages = [
+        {"role": "user", "content": "Python NOT Java -- comparing languages"},
+        {"role": "user", "content": "The capital of France is Paris"},
+    ]
+    results = score_messages_bm25(messages, "Python NOT Java")
+    assert results, "FTS5 reserved keywords in query should not suppress all results"
+    top_idx = results[0][0]
+    assert top_idx == 0, "Message about Python NOT Java should rank first"
+
+
+def test_bm25_fts5_and_keyword():
+    """FTS5 reserved keyword 'AND' should work as a literal term."""
+    messages = [
+        {"role": "user", "content": "Science AND technology are important"},
+        {"role": "user", "content": "What is the weather today?"},
+    ]
+    results = score_messages_bm25(messages, "AND technology")
+    assert results, "FTS5 'AND' keyword in query should not suppress all results"
