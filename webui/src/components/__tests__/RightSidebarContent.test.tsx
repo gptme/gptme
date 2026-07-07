@@ -11,6 +11,10 @@ jest.mock('../BrowserPreview', () => ({
   BrowserPreview: () => <div data-testid="browser-panel">browser</div>,
 }));
 
+jest.mock('../ComputerPreview', () => ({
+  ComputerPreview: () => <div data-testid="computer-panel">computer</div>,
+}));
+
 jest.mock('../ArtifactsPanel', () => ({
   ArtifactsPanel: ({ conversationId }: { conversationId: string }) => (
     <div data-testid="artifacts-panel">{conversationId}</div>
@@ -30,9 +34,9 @@ describe('RightSidebarContent', () => {
     expect(screen.getByTestId('artifacts-panel')).toHaveTextContent('conv-art');
   });
 
-  it('renders the computer panel iframe', () => {
-    render(<RightSidebarContent conversationId="conv-vnc" activeTab="computer" />);
+  it('renders the computer panel', () => {
+    render(<RightSidebarContent conversationId="conv-computer" activeTab="computer" />);
 
-    expect(screen.getByTitle('VNC Viewer')).toBeInTheDocument();
+    expect(screen.getByTestId('computer-panel')).toBeInTheDocument();
   });
 });
