@@ -635,7 +635,6 @@ def test_plain_thread_subagent_cannot_clobber_parent_tool_list():
         observations: dict[str, object] = {}
 
         def child():
-            # A plain thread must NOT see the parent's list — fresh context.
             observations["child_sees_parent_list"] = (
                 _loaded_tools_var.get() is parent_list
             )
@@ -650,7 +649,16 @@ def test_plain_thread_subagent_cannot_clobber_parent_tool_list():
         t.start()
         t.join()
 
-        assert observations["child_sees_parent_list"] is False
+        # In standard GIL-enabled builds a plain thread starts with a fresh
+        # context, so the child must NOT see the parent's list.
+        # In Python 3.13 free-threaded builds (python3.13t, PEP 703) the thread
+        # DOES copy the parent's context at creation time, so the child WILL see
+        # the parent's list — clear_tools() is the load-bearing isolation there.
+        _is_freethreaded = not getattr(sys, "_is_gil_enabled", lambda: True)()
+        if _is_freethreaded:
+            assert observations["child_sees_parent_list"] is True
+        else:
+            assert observations["child_sees_parent_list"] is False
         # Parent's read is still loaded and runnable after the child ran.
         assert _loaded_tools_var.get() is parent_list
         read_after = get_tool("read")

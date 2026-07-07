@@ -179,13 +179,20 @@ def _create_subagent_thread(
 
     # Start this subagent thread with a known-empty tool list.
     #
-    # NOTE: a plain threading.Thread does NOT copy the parent's context — a new
-    # thread begins with a fresh, empty contextvars context, so _loaded_tools_var
-    # here already reads its default (None), independent of the parent's list.
-    # (Only contextvars.copy_context() / asyncio tasks / thread pools that
-    # explicitly run under a copied context share the parent's list object.)
-    # So in the normal thread-mode spawn path this clear_tools() is a defensive
-    # no-op rather than the load-bearing isolation it was once believed to be.
+    # NOTE: in standard GIL-enabled Python builds (3.10–3.13 default) a plain
+    # threading.Thread does NOT copy the parent's context — a new thread begins
+    # with a fresh, empty contextvars context, so _loaded_tools_var here already
+    # reads its default (None), independent of the parent's list.
+    # Exception: Python 3.13 free-threaded builds (python3.13t, PEP 703) DO
+    # copy the parent's context at thread-creation time, so in that build the
+    # child would initially share the parent's _loaded_tools_var list object.
+    # clear_tools() below handles both cases: it rebinds _loaded_tools_var to a
+    # fresh list in the current context, so the parent's list is never mutated
+    # regardless of whether the context was copied or not.
+    # (Other copy paths: contextvars.copy_context() / asyncio tasks / thread
+    # pools that explicitly run under a copied context.)
+    # So on the common GIL-enabled path this clear_tools() is a defensive no-op;
+    # on free-threaded 3.13t it is the load-bearing isolation step.
     #
     # It is kept as belt-and-suspenders in case this function is ever invoked
     # under a *copied* parent context (e.g. a future spawn path, or the server's
