@@ -130,6 +130,7 @@ export const ComputerPreview: FC = () => {
   useEffect(() => {
     fetchScreenshot().then(schedulePoll);
     return () => {
+      isPollingRef.current = false;
       abortControllerRef.current?.abort();
       if (pollTimerRef.current) {
         clearTimeout(pollTimerRef.current);
