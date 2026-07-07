@@ -177,14 +177,33 @@ def _create_subagent_thread(
     if agent_id is not None:
         _thread_local.agent_id = agent_id
 
-    # Detach from the parent thread's tool list. Python's threading.Thread copies
-    # the parent's context into the child, so _loaded_tools_var initially points to
-    # the *same list object* as the parent. Any append inside init_tools() or
-    # _ensure_subagent_signal_tools_loaded() would mutate the parent's list, creating
-    # a data race with the parent's concurrent execute_msg() calls. Calling
-    # clear_tools() here replaces the ContextVar binding with a fresh empty list so
-    # all subsequent tool operations operate on an independent list. This is the fix
-    # for the thread-mode "transient non-runnable" race (#554).
+    # Start this subagent thread with a known-empty tool list.
+    #
+    # NOTE: in standard GIL-enabled Python builds (3.10–3.13 default) a plain
+    # threading.Thread does NOT copy the parent's context — a new thread begins
+    # with a fresh, empty contextvars context, so _loaded_tools_var here already
+    # reads its default (None), independent of the parent's list.
+    # Exception: Python 3.13 free-threaded builds (python3.13t, PEP 703) DO
+    # copy the parent's context at thread-creation time, so in that build the
+    # child would initially share the parent's _loaded_tools_var list object.
+    # clear_tools() below handles both cases: it rebinds _loaded_tools_var to a
+    # fresh list in the current context, so the parent's list is never mutated
+    # regardless of whether the context was copied or not.
+    # (Other copy paths: contextvars.copy_context() / asyncio tasks / thread
+    # pools that explicitly run under a copied context.)
+    # So on the common GIL-enabled path this clear_tools() is a defensive no-op;
+    # on free-threaded 3.13t it is the load-bearing isolation step.
+    #
+    # It is kept as belt-and-suspenders in case this function is ever invoked
+    # under a *copied* parent context (e.g. a future spawn path, or the server's
+    # copy_context() step threads): clear_tools() rebinds _loaded_tools_var to a
+    # fresh list in the current context, so the parent's list is never mutated.
+    #
+    # This does NOT explain the historical #554 "transient non-runnable" symptom:
+    # the loaded-tools list is only ever appended to in place or replaced via
+    # .set() (a context-local rebind) — never cleared/removed in place — so an
+    # already-loaded parent tool cannot be made non-runnable by any concurrent
+    # context. The crash is handled mechanism-agnostically in execute_msg (#3072).
     clear_tools()
 
     # noreorder
