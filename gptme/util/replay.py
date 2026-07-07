@@ -21,6 +21,17 @@ from ..message import Message
 
 logger = logging.getLogger(__name__)
 
+EVIDENCE_PREFIX = "[Evidence from earlier in this conversation ("
+
+
+def _dedup_content(content: str) -> str:
+    """Return raw message content for both normal and replay-injected messages."""
+    if content.startswith(EVIDENCE_PREFIX):
+        _, sep, payload = content.partition("\n")
+        if sep:
+            return payload
+    return content
+
 
 def score_messages_bm25(
     messages: list[dict],
@@ -145,8 +156,9 @@ def inject_relevant_evidence(
     except Exception:
         token_budget = 2_000
 
-    # Build dedup set from current working context
-    existing_content = {m.content for m in msgs}
+    # Build dedup set from current working context, including replay-injected
+    # messages whose content is wrapped with an evidence prefix.
+    existing_content = {_dedup_content(m.content) for m in msgs}
 
     injected: list[Message] = []
     tokens_used = 0

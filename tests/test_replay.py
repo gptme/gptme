@@ -140,6 +140,37 @@ def test_inject_skips_already_present_content():
         )
 
 
+def test_inject_skips_previously_injected_evidence():
+    """Replay-injected evidence should dedup against its raw master-log content."""
+    with tempfile.TemporaryDirectory() as td:
+        tmpdir = Path(td)
+
+        content = "Python decorators preserve function metadata with functools.wraps"
+        master_msgs = [
+            {"role": "user", "content": content},
+            {"role": "user", "content": "Python decorators wrap callable objects"},
+            {"role": "assistant", "content": "Decorators return replacement callables"},
+            {"role": "user", "content": "Unrelated note about deployment"},
+            {"role": "assistant", "content": "Another unrelated note"},
+        ]
+        logfile = _make_master_log(master_msgs, tmpdir)
+
+        working = [
+            Message("system", "You are a helpful assistant.", pinned=True),
+            Message("user", "Tell me about Python decorators and functools wraps"),
+        ]
+
+        first = inject_relevant_evidence(working, logfile, top_k=1)
+        second = inject_relevant_evidence(first, logfile, top_k=1)
+
+        matching_evidence = [
+            m for m in second if "Evidence" in m.content and content in m.content
+        ]
+        assert len(matching_evidence) == 1, (
+            "Previously injected evidence should not be re-injected"
+        )
+
+
 def test_inject_no_user_message():
     """No injection when there's no user message to derive the query from."""
     with tempfile.TemporaryDirectory() as td:
