@@ -16,12 +16,12 @@ beforeAll(() => {
   global.URL.revokeObjectURL = jest.fn();
 });
 
-function mockFetch(screenshotStatus: 200 | 503 = 200, backdendAvailable = true) {
+function mockFetch(screenshotStatus: 200 | 503 = 200, backendAvailable = true) {
   const statusPayload = {
-    screenshot_available: backdendAvailable,
+    screenshot_available: backendAvailable,
     system: 'Linux',
     display: ':1',
-    backends: backdendAvailable ? { xdotool: true, scrot: true } : {},
+    backends: backendAvailable ? { xdotool: true, scrot: true } : {},
   };
 
   global.fetch = jest.fn().mockImplementation((url: string) => {

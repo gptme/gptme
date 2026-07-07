@@ -34,6 +34,15 @@ export const ComputerPreview: FC = () => {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevSrcRef = useRef<string | null>(null);
+  // Ref so schedulePoll always reads the latest isPolling without stale-closure issues
+  const isPollingRef = useRef(true);
+  // AbortController for the in-flight screenshot fetch — cancelled on unmount
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Keep isPollingRef in sync so timer callbacks see current pause state
+  useEffect(() => {
+    isPollingRef.current = isPolling;
+  }, [isPolling]);
 
   const fetchStatus = useCallback(async () => {
     const headers: Record<string, string> = {};
@@ -50,12 +59,17 @@ export const ComputerPreview: FC = () => {
   }, [baseUrl, api.authHeader]);
 
   const fetchScreenshot = useCallback(async () => {
+    abortControllerRef.current?.abort();
+    const ac = new AbortController();
+    abortControllerRef.current = ac;
+
     const headers: Record<string, string> = {};
     if (api.authHeader) headers.Authorization = api.authHeader;
     try {
       const resp = await fetch(`${baseUrl}/api/v2/computer/screenshot?quality=75`, {
         headers,
         cache: 'no-store',
+        signal: ac.signal,
       });
 
       if (resp.status === 503) {
@@ -86,21 +100,25 @@ export const ComputerPreview: FC = () => {
       setIsLoading(false);
       setLastUpdated(new Date());
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Failed to fetch screenshot');
       setIsLoading(false);
     }
   }, [baseUrl, api.authHeader]);
 
+  // Reads isPolling from the ref so recursive .then() chains always see the
+  // current pause state — avoids the stale-closure bug where clicking Pause
+  // while a fetch is in-flight leaves the loop running indefinitely.
   const schedulePoll = useCallback(() => {
     if (pollTimerRef.current) {
       clearTimeout(pollTimerRef.current);
     }
-    if (isPolling) {
+    if (isPollingRef.current) {
       pollTimerRef.current = setTimeout(() => {
         fetchScreenshot().then(schedulePoll);
       }, DEFAULT_POLL_INTERVAL_MS);
     }
-  }, [isPolling, fetchScreenshot]);
+  }, [fetchScreenshot]);
 
   // Fetch status once on mount
   useEffect(() => {
@@ -112,6 +130,7 @@ export const ComputerPreview: FC = () => {
   useEffect(() => {
     fetchScreenshot().then(schedulePoll);
     return () => {
+      abortControllerRef.current?.abort();
       if (pollTimerRef.current) {
         clearTimeout(pollTimerRef.current);
       }
