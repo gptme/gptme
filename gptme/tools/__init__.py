@@ -50,6 +50,8 @@ __all__ = [
     # functions
     "get_tool_format",
     "set_tool_format",
+    # context-local storage (for testing tool isolation)
+    "_loaded_tools_var",
 ]
 
 # Context-local storage for tools
