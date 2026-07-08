@@ -66,7 +66,9 @@ def _sanitize_project_name(name: str) -> str:
     sanitized = re.sub(r"[/\\\s]+", "_", name)
     # Remove any remaining non-alphanumeric/underscore/hyphen/dot characters
     sanitized = re.sub(r"[^\w\-.]", "_", sanitized)
-    return sanitized.strip("_") or "default"
+    # Strip leading/trailing underscores and dots; bare dots (".", "..") are
+    # path-traversal hazards that must not survive as the final component.
+    return sanitized.strip("_.") or "default"
 
 
 def _project_persist_dir(project: str | None) -> Path | None:
@@ -238,10 +240,9 @@ def rag_status(project: str | None = None) -> str:
     if persist_dir is not None:
         # gptme-rag status does not support --persist-dir, so we report directory info
         if persist_dir.exists():
-            file_count = sum(1 for f in persist_dir.rglob("*") if f.is_file())
-            size_bytes = sum(
-                f.stat().st_size for f in persist_dir.rglob("*") if f.is_file()
-            )
+            files = [f for f in persist_dir.rglob("*") if f.is_file()]
+            file_count = len(files)
+            size_bytes = sum(f.stat().st_size for f in files)
             size_kb = size_bytes / 1024
             return (
                 f"Project index '{project}' at {persist_dir}\n"

@@ -274,6 +274,26 @@ def test_sanitize_project_name_special_chars():
     assert len(result) > 0
 
 
+def test_sanitize_project_name_dot_traversal():
+    # "." and ".." must not survive as the sanitized name (path-traversal hazard)
+    assert _sanitize_project_name(".") == "default"
+    assert _sanitize_project_name("..") == "default"
+    # Internal dots in valid names must be preserved
+    assert _sanitize_project_name("v1.2.3") == "v1.2.3"
+    assert _sanitize_project_name("my.project") == "my.project"
+
+
+def test_project_persist_dir_dot_traversal(tmp_path):
+    with patch("gptme.tools.rag.get_data_dir", return_value=tmp_path):
+        d_dot = _project_persist_dir(".")
+        d_dotdot = _project_persist_dir("..")
+    assert d_dot is not None
+    # Must stay under rag/ — not resolve to rag/../ or rag/ root itself
+    assert d_dot.name == "default"
+    assert d_dotdot is not None
+    assert d_dotdot.name == "default"
+
+
 def test_project_persist_dir_none():
     assert _project_persist_dir(None) is None
 
