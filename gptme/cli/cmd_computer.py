@@ -1684,13 +1684,14 @@ def _demo_tweet_url() -> str:
     "--milestone",
     "milestone",
     type=click.Choice(["tweet", "factorio", "doom"], case_sensitive=False),
-    default="tweet",
-    show_default=True,
+    default=None,
+    show_default=False,
     help=(
         "Which issue #216 milestone to demonstrate: "
         "'tweet' (fill+submit form), "
         "'factorio' (gather ore → craft iron plate), "
-        "'doom' (keyboard-driven game loop)."
+        "'doom' (keyboard-driven game loop). "
+        "Defaults to 'tweet'. Mutually exclusive with --all."
     ),
 )
 @click.option(
@@ -1707,7 +1708,7 @@ def _demo_tweet_url() -> str:
     default=False,
     help="Output result as JSON.",
 )
-def demo_cmd(text: str, milestone: str, run_all: bool, as_json: bool):
+def demo_cmd(text: str, milestone: str | None, run_all: bool, as_json: bool):
     """Run a self-contained end-to-end demo of the browser automation pipeline.
 
     Without ``--milestone`` / ``--all``, runs the default "Can it Tweet?"
@@ -1752,6 +1753,13 @@ def demo_cmd(text: str, milestone: str, run_all: bool, as_json: bool):
         gptme-util computer demo --all --json
     """
     import time
+
+    if run_all and milestone is not None:
+        raise click.UsageError(
+            "--all and --milestone are mutually exclusive; use one or the other."
+        )
+    if milestone is None:
+        milestone = "tweet"
 
     # sync_playwright is imported at module level; None when playwright is absent.
     if sync_playwright is None:
@@ -1896,6 +1904,8 @@ def _run_milestone_demo(
             else:
                 failed = True
                 click.echo(f"  {_FAIL}  unknown milestone: {milestone!r}", err=True)
+        except Exception as exc:
+            return _fail(str(exc))
         finally:
             browser.close()
 
@@ -2211,6 +2221,7 @@ def _demo_doom(page, _step) -> bool:
 
 def _print_finish(steps: list[dict], total_ms: int, failed: bool) -> None:
     """Print the final pass/fail line for a single milestone demo."""
+    click.echo("")
     if failed:
         click.echo(
             click.style("✗  Demo failed.", fg="red")

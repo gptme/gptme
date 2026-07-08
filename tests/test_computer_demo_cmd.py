@@ -637,3 +637,62 @@ class TestDemoAllFlag:
         assert 'data-testid="tweetTextarea_0"' in _DEMO_TWEET_HTML
         assert 'data-testid="tweetButtonInline"' in _DEMO_TWEET_HTML
         assert "tweet-posted:" in _DEMO_TWEET_HTML
+
+
+# ---------------------------------------------------------------------------
+# --all / --milestone mutual exclusivity
+# ---------------------------------------------------------------------------
+
+
+class TestDemoMutualExclusivity:
+    """--all and --milestone are mutually exclusive."""
+
+    def test_all_and_milestone_raises_usage_error(self):
+        """Combining --all with --milestone should exit with a usage error."""
+        runner = CliRunner()
+        result = runner.invoke(demo_cmd, ["--all", "--milestone", "factorio"])
+        assert result.exit_code != 0
+        assert (
+            "mutually exclusive" in result.output.lower()
+            or "mutually exclusive"
+            in (result.exception and str(result.exception) or "")
+        )
+
+    def test_milestone_alone_is_valid(self):
+        """--milestone without --all should not error on the flag check itself."""
+        # We just verify the mutual-exclusivity guard is not triggered.
+        # (Playwright is not mocked here, so the demo will fail, but NOT due to the flag check.)
+        runner = CliRunner()
+        result = runner.invoke(demo_cmd, ["--milestone", "tweet"])
+        # Exit code may be non-zero (playwright absent) but NOT from UsageError
+        assert "mutually exclusive" not in result.output
+
+    def test_all_alone_is_valid(self):
+        """--all without --milestone should not error on the flag check."""
+        runner = CliRunner()
+        result = runner.invoke(demo_cmd, ["--all"])
+        assert "mutually exclusive" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# Exception handling in _run_milestone_demo
+# ---------------------------------------------------------------------------
+
+
+class TestDemoExceptionHandling:
+    """Unexpected exceptions inside _run_milestone_demo return a clean fail dict."""
+
+    def test_unexpected_exception_returns_fail_not_traceback(self):
+        """An unexpected error during the demo returns status='fail', not a raw traceback."""
+        page = _make_page_mock()
+        page.goto.side_effect = RuntimeError("unexpected internal error")
+
+        with _make_playwright_patcher(page):
+            runner = CliRunner()
+            result = runner.invoke(demo_cmd, ["--json"])
+
+        # Should not propagate as an unhandled exception
+        assert result.exit_code == 1
+        # Output must be valid JSON (not a raw traceback)
+        data = json.loads(result.output)
+        assert data["status"] == "fail"
