@@ -8,6 +8,7 @@ subagent() function in api.py.
 """
 
 import logging
+import os
 import random
 import string
 import subprocess
@@ -530,8 +531,6 @@ def _run_subagent_subprocess(
         tmpfile_path = Path(tmpf.name)
 
     # Environment for the subprocess: convey agent identity and progress channel.
-    import os
-
     env = os.environ.copy()
     env["GPTME_SUBAGENT_AGENT_ID"] = logdir.name.removeprefix("subagent-")
     env["GPTME_PROGRESS_FILE"] = str(progress_file)
