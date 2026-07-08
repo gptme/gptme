@@ -28,6 +28,8 @@ from .._allowlist import (
 from .concurrency import get_slot_sem
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .types import ReturnType, Status, Subagent, SubtaskDef
 
 logger = logging.getLogger(__name__)
@@ -587,6 +589,67 @@ def _cleanup_isolation(subagent: "Subagent") -> None:
         logger.warning(f"Failed to cleanup isolation for {subagent.agent_id}: {e}")
 
 
+def _drain_progress_file(
+    progress_file: "Path",
+    file_pos: int,
+    default_agent_id: str,
+    notify_fn: "Callable[[str, str], None]",
+) -> int:
+    """Read new progress entries from progress_file and deliver them via notify_fn.
+
+    Reads from ``file_pos`` forward, advancing only past complete
+    newline-terminated lines. Stops (without advancing) on any incomplete line
+    at EOF so the partial write can be retried on the next poll.
+
+    Args:
+        progress_file: Path to the ``progress.jsonl`` file written by the child.
+        file_pos: Byte offset to start reading from.
+        default_agent_id: Used when an entry omits ``agent_id``.
+        notify_fn: Callable with signature ``(agent_id: str, message: str)``.
+
+    Returns:
+        Updated file_pos (advanced past every complete line that was processed).
+    """
+    import json
+
+    if not progress_file.exists():
+        return file_pos
+    try:
+        with open(progress_file) as f:
+            f.seek(file_pos)
+            while True:
+                raw_line = f.readline()
+                if not raw_line:
+                    break  # EOF — no new content
+                if not raw_line.endswith("\n"):
+                    # Incomplete line at EOF: partial write in progress.
+                    # Don't advance file_pos; retry next poll when the write completes.
+                    break
+                stripped = raw_line.strip()
+                if not stripped:
+                    file_pos = f.tell()
+                    continue
+                try:
+                    entry = json.loads(stripped)
+                    agent_id = entry.get("agent_id", default_agent_id)
+                    message = entry.get("message", "")
+                    if message:
+                        notify_fn(agent_id, message)
+                        logger.debug(
+                            f"Delivered subprocess progress for '{agent_id}': {message[:80]}"
+                        )
+                except json.JSONDecodeError:
+                    logger.debug(
+                        f"Skipping unparseable progress line: {stripped[:80]!r}"
+                    )
+                # Advance past this complete line (parsed or corrupt) so
+                # we don't re-process it on the next poll.
+                file_pos = f.tell()
+    except OSError:
+        pass  # file not yet created or already removed
+    return file_pos
+
+
 def _poll_subprocess_progress(
     subagent: "Subagent", stop_event: threading.Event
 ) -> None:
@@ -603,7 +666,6 @@ def _poll_subprocess_progress(
             loop runs one final drain pass after the event is set to catch any
             progress updates written in the last moments before exit.
     """
-    import json
     import time
 
     from .hooks import notify_progress
@@ -614,29 +676,9 @@ def _poll_subprocess_progress(
 
     def _drain() -> None:
         nonlocal file_pos
-        if not progress_file.exists():
-            return
-        try:
-            with open(progress_file) as f:
-                f.seek(file_pos)
-                for raw_line in f:
-                    raw_line = raw_line.strip()
-                    if not raw_line:
-                        continue
-                    try:
-                        entry = json.loads(raw_line)
-                        agent_id = entry.get("agent_id", subagent.agent_id)
-                        message = entry.get("message", "")
-                        if message:
-                            notify_progress(agent_id, message)
-                            logger.debug(
-                                f"Delivered subprocess progress for '{agent_id}': {message[:80]}"
-                            )
-                    except json.JSONDecodeError:
-                        pass  # partial write; will be retried next iteration
-                file_pos = f.tell()
-        except OSError:
-            pass  # file not yet created or already removed
+        file_pos = _drain_progress_file(
+            progress_file, file_pos, subagent.agent_id, notify_progress
+        )
 
     while not stop_event.is_set():
         _drain()

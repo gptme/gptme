@@ -1031,6 +1031,46 @@ def test_poll_subprocess_progress_delivers_via_notify(tmp_path):
     assert delivered[0] == ("poll-agent", "Step 1 done")
 
 
+def test_drain_progress_file_partial_write_retry(tmp_path):
+    """_drain_progress_file retries partial (no-newline) lines on the next call.
+
+    Regression test: the old code advanced file_pos unconditionally after the
+    loop, silently skipping any line that raised JSONDecodeError — including
+    partial writes that would have been complete on the next poll.
+    """
+    import json
+
+    from gptme.tools.subagent.execution import _drain_progress_file
+
+    progress_file = tmp_path / "progress.jsonl"
+    delivered: list[tuple[str, str]] = []
+
+    def fake_notify(agent_id: str, message: str) -> None:
+        delivered.append((agent_id, message))
+
+    complete = json.dumps({"agent_id": "a", "message": "done"})
+    partial = '{"agent_id": "a", "message": "in-flight'  # missing closing } and \n
+
+    # First poll: one complete line + one partial (no trailing newline)
+    progress_file.write_text(complete + "\n" + partial)
+    pos = _drain_progress_file(progress_file, 0, "a", fake_notify)
+
+    assert len(delivered) == 1, "only the complete line should be delivered"
+    assert delivered[0] == ("a", "done")
+
+    # file_pos must be just after the complete line, not at EOF
+    assert pos == len(complete) + 1, "file_pos should not advance past the partial line"
+
+    # Second poll: the write completes (partial line now has its closing bytes + \n)
+    full_second = json.dumps({"agent_id": "a", "message": "in-flight-complete"})
+    # Overwrite the file with both lines fully written
+    progress_file.write_text(complete + "\n" + full_second + "\n")
+    pos = _drain_progress_file(progress_file, pos, "a", fake_notify)
+
+    assert len(delivered) == 2, "second poll should pick up the now-complete line"
+    assert delivered[1] == ("a", "in-flight-complete")
+
+
 @pytest.mark.slow
 def test_subprocess_working_directory():
     """Test that subprocess runs in the specified working directory."""

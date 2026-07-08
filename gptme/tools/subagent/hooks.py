@@ -102,8 +102,9 @@ def notify_progress(agent_id: str, message: str) -> None:
     The parent's LOOP_CONTINUE hook delivers it as a system message so the
     orchestrator can react without blocking on subagent_wait().
 
-    Note: Only works for thread-mode subagents (same process). Subprocess-mode
-    subagents cannot share the in-process queue.
+    Note: For thread-mode subagents the progress tool calls this directly (same
+    process). For subprocess-mode subagents, ``_poll_subprocess_progress`` reads
+    from the file channel and calls this function on behalf of the child process.
 
     Args:
         agent_id: The subagent's identifier
