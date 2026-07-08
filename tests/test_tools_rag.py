@@ -9,7 +9,16 @@ import pytest
 
 from gptme.config import RagConfig
 from gptme.message import Message
-from gptme.tools.rag import _has_gptme_rag, _rag_context_hook, rag_index_conversations
+from gptme.tools.rag import (
+    _has_gptme_rag,
+    _project_persist_dir,
+    _rag_context_hook,
+    _sanitize_project_name,
+    rag_index,
+    rag_index_conversations,
+    rag_search,
+    rag_status,
+)
 
 
 @pytest.mark.skipif(not _has_gptme_rag(), reason="RAG is not available")
@@ -241,3 +250,164 @@ def test_rag_index_conversations_uses_tmpdir_by_default(tmp_path):
     assert "Indexed 1 conversations" in result
     # The temp dir path should have been passed to gptme-rag index
     assert "gptme-rag-convs-" in captured_cmd[-1]
+
+
+# --- Project-specific index tests ---
+
+
+def test_sanitize_project_name_basic():
+    assert _sanitize_project_name("myproject") == "myproject"
+
+
+def test_sanitize_project_name_slashes():
+    assert _sanitize_project_name("org/repo") == "org_repo"
+
+
+def test_sanitize_project_name_spaces():
+    assert _sanitize_project_name("my project") == "my_project"
+
+
+def test_sanitize_project_name_special_chars():
+    result = _sanitize_project_name("proj!@#$")
+    assert "/" not in result
+    assert " " not in result
+    assert len(result) > 0
+
+
+def test_project_persist_dir_none():
+    assert _project_persist_dir(None) is None
+
+
+def test_project_persist_dir_empty_string():
+    assert _project_persist_dir("") is None
+
+
+def test_project_persist_dir_returns_path(tmp_path):
+    with patch("gptme.tools.rag.get_data_dir", return_value=tmp_path):
+        d = _project_persist_dir("myproject")
+    assert d is not None
+    assert d == tmp_path / "rag" / "myproject"
+
+
+def test_project_persist_dir_sanitizes_name(tmp_path):
+    with patch("gptme.tools.rag.get_data_dir", return_value=tmp_path):
+        d = _project_persist_dir("org/repo")
+    assert d is not None
+    # slash replaced with underscore
+    assert d.name == "org_repo"
+
+
+def test_rag_index_no_project_no_persist_dir():
+    """Without project, no --persist-dir is passed to the CLI."""
+    mock_proc = MagicMock()
+    mock_proc.stdout = "Indexed 1 paths\n"
+    with patch("gptme.tools.rag._run_rag_cmd", return_value=mock_proc) as mock_run:
+        rag_index(".")
+    cmd = mock_run.call_args[0][0]
+    assert "--persist-dir" not in cmd
+
+
+def test_rag_index_with_project_passes_persist_dir(tmp_path):
+    """With project set, --persist-dir is appended pointing to the project dir."""
+    mock_proc = MagicMock()
+    mock_proc.stdout = "Indexed 1 paths\n"
+    with (
+        patch("gptme.tools.rag.get_data_dir", return_value=tmp_path),
+        patch("gptme.tools.rag._run_rag_cmd", return_value=mock_proc) as mock_run,
+    ):
+        rag_index(".", project="myproject")
+    cmd = mock_run.call_args[0][0]
+    assert "--persist-dir" in cmd
+    persist_dir_idx = cmd.index("--persist-dir")
+    assert cmd[persist_dir_idx + 1] == str(tmp_path / "rag" / "myproject")
+
+
+def test_rag_search_no_project_no_persist_dir():
+    """Without project, no --persist-dir is passed."""
+    mock_proc = MagicMock()
+    mock_proc.stdout = "results\n"
+    with patch("gptme.tools.rag._run_rag_cmd", return_value=mock_proc) as mock_run:
+        rag_search("query")
+    cmd = mock_run.call_args[0][0]
+    assert "--persist-dir" not in cmd
+
+
+def test_rag_search_with_project_passes_persist_dir(tmp_path):
+    """With project set, search is scoped to the project-specific persist dir."""
+    mock_proc = MagicMock()
+    mock_proc.stdout = "results\n"
+    with (
+        patch("gptme.tools.rag.get_data_dir", return_value=tmp_path),
+        patch("gptme.tools.rag._run_rag_cmd", return_value=mock_proc) as mock_run,
+    ):
+        rag_search("query", project="myproject")
+    cmd = mock_run.call_args[0][0]
+    assert "--persist-dir" in cmd
+    persist_dir_idx = cmd.index("--persist-dir")
+    assert cmd[persist_dir_idx + 1] == str(tmp_path / "rag" / "myproject")
+
+
+def test_rag_status_no_project_calls_cli():
+    """Without project, delegates to gptme-rag status CLI."""
+    mock_proc = MagicMock()
+    mock_proc.stdout = "Index contains 42 documents\n"
+    with patch("gptme.tools.rag._run_rag_cmd", return_value=mock_proc) as mock_run:
+        result = rag_status()
+    assert "42 documents" in result
+    cmd = mock_run.call_args[0][0]
+    assert cmd == ["gptme-rag", "status"]
+
+
+def test_rag_status_with_project_not_found(tmp_path):
+    """project status reports missing index cleanly when dir doesn't exist."""
+    with patch("gptme.tools.rag.get_data_dir", return_value=tmp_path):
+        result = rag_status(project="myproject")
+    assert "not found" in result
+    assert "myproject" in result
+
+
+def test_rag_status_with_project_found(tmp_path):
+    """project status reports directory info when the index dir exists."""
+    project_dir = tmp_path / "rag" / "myproject"
+    project_dir.mkdir(parents=True)
+    (project_dir / "chroma.sqlite3").write_bytes(b"x" * 1024)
+
+    with patch("gptme.tools.rag.get_data_dir", return_value=tmp_path):
+        result = rag_status(project="myproject")
+
+    assert "myproject" in result
+    assert str(project_dir) in result
+
+
+def test_project_isolation(tmp_path):
+    """Index in project A must not appear when searching project B."""
+    calls = []
+
+    def fake_run_rag_cmd(cmd):
+        calls.append(cmd[:])
+        proc = MagicMock()
+        proc.stdout = "results\n"
+        return proc
+
+    with (
+        patch("gptme.tools.rag.get_data_dir", return_value=tmp_path),
+        patch("gptme.tools.rag._run_rag_cmd", side_effect=fake_run_rag_cmd),
+    ):
+        rag_index(".", project="projectA")
+        rag_search("query", project="projectB")
+
+        index_cmd, search_cmd = calls
+        # Both commands use --persist-dir
+        assert "--persist-dir" in index_cmd
+        assert "--persist-dir" in search_cmd
+
+        # The persist dirs must differ between project A and project B
+        idx_persist = index_cmd[index_cmd.index("--persist-dir") + 1]
+        search_persist = search_cmd[search_cmd.index("--persist-dir") + 1]
+        assert idx_persist != search_persist
+
+        # Global search (no project) must not pass --persist-dir at all
+        calls.clear()
+        rag_search("query")
+        global_cmd = calls[0]
+        assert "--persist-dir" not in global_cmd
