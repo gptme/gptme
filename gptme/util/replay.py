@@ -134,10 +134,6 @@ def inject_relevant_evidence(
     query = last_user.content[:500]
 
     master_messages = _read_master_messages(master_logfile)
-    if len(master_messages) <= len(msgs):
-        # No compaction happened; nothing to recover
-        return msgs
-
     scored = score_messages_bm25(master_messages, query, top_k=top_k * 4)
     if not scored:
         return msgs

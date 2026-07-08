@@ -110,6 +110,36 @@ def test_inject_no_evidence_when_context_not_compacted():
         assert result == working, "Should return unchanged when no compaction occurred"
 
 
+def test_inject_adds_evidence_when_content_reduced_same_message_count():
+    """Reduced content should be recoverable even when message count is unchanged."""
+    with tempfile.TemporaryDirectory() as td:
+        tmpdir = Path(td)
+
+        recovered_content = (
+            "Architecture decision: the zephyr protocol uses retry jitter to avoid "
+            "coordinated reconnect storms during failover."
+        )
+        master_msgs = [
+            {"role": "user", "content": recovered_content},
+            {"role": "assistant", "content": "Recorded."},
+            {"role": "user", "content": "Why does zephyr need retry jitter?"},
+        ]
+        logfile = _make_master_log(master_msgs, tmpdir)
+
+        working = [
+            Message("user", "[truncated previous architecture decision]"),
+            Message("assistant", "Recorded."),
+            Message("user", "Why does zephyr need retry jitter?"),
+        ]
+
+        result = inject_relevant_evidence(working, logfile, top_k=3)
+
+        injected = [m for m in result if "Evidence" in m.content]
+        assert any(recovered_content in m.content for m in injected), (
+            "Should recover reduced master-log content even when counts match"
+        )
+
+
 def test_inject_skips_already_present_content():
     """Evidence already visible in working context should not be re-injected."""
     with tempfile.TemporaryDirectory() as td:
