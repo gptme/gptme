@@ -27,7 +27,8 @@ import {
   type SetupWizardStep,
 } from '@/stores/setupWizard';
 import { use$ } from '@legendapp/state/react';
-import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucide-react';
+import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink, Copy } from 'lucide-react';
+import { toast } from 'sonner';
 
 type SetupStep = SetupWizardStep;
 type SetupModelInfo = {
@@ -373,6 +374,19 @@ export function SetupWizard() {
     setIsOpen(false);
   };
 
+  const serverCommand = `gptme-server --cors-origin='${window.location.origin}'`;
+  const pipxRunCommand = `pipx run --spec 'gptme[server]' ${serverCommand}`;
+  const copyServerCommand = (command: string) => {
+    void navigator.clipboard.writeText(command).then(
+      () => {
+        toast.success('Command copied to clipboard');
+      },
+      () => {
+        toast.error('Failed to copy command. Please copy it manually.');
+      }
+    );
+  };
+
   const handleLocalSetup = async () => {
     if (isConnected) {
       // Already connected — check provider config and advance.
@@ -657,12 +671,35 @@ export function SetupWizard() {
                   <p className="text-sm text-muted-foreground">
                     Start the server in your terminal:
                   </p>
-                  <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
-                    pipx run --spec &apos;gptme[server]&apos; gptme-server
-                  </code>
+                  <p className="text-xs text-muted-foreground">Already have gptme installed:</p>
+                  <div className="flex items-center gap-2 rounded bg-muted px-3 py-2">
+                    <code className="flex-1 break-all font-mono text-sm">{serverCommand}</code>
+                    <button
+                      onClick={() => copyServerCommand(serverCommand)}
+                      className="shrink-0 rounded p-1 hover:bg-muted-foreground/10"
+                      aria-label="Copy installed server command"
+                      title="Copy command"
+                    >
+                      <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    Or if you have gptme installed:{' '}
-                    <code className="rounded bg-muted px-1">gptme-server</code>
+                    First time? Install and start it with one command:
+                  </p>
+                  <div className="flex items-center gap-2 rounded bg-muted px-3 py-2">
+                    <code className="flex-1 break-all font-mono text-sm">{pipxRunCommand}</code>
+                    <button
+                      onClick={() => copyServerCommand(pipxRunCommand)}
+                      className="shrink-0 rounded p-1 hover:bg-muted-foreground/10"
+                      aria-label="Copy pipx run server command"
+                      title="Copy command"
+                    >
+                      <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    The <code className="rounded bg-muted px-1">--cors-origin</code> flag lets this
+                    page connect to your local server.
                   </p>
                 </div>
               )}
