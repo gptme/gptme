@@ -378,6 +378,7 @@ def _process_message_conversation(
                     workspace=manager.workspace,
                     model=model,
                     output_schema=output_schema,
+                    logdir=manager.logdir,
                 )
             )
         except KeyboardInterrupt:
@@ -532,6 +533,7 @@ def step(
     model: str | None = None,
     output_schema: type | None = None,
     on_token: Callable[[str], None] | None = None,
+    logdir: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Runs a single pass of the chat - generates response and executes tools."""
     default_model = get_default_model()
@@ -549,7 +551,7 @@ def step(
         set_interruptible()
 
         # performs reduction/context trimming, if necessary
-        msgs = prepare_messages(log.messages, workspace)
+        msgs = prepare_messages(log.messages, workspace, logdir=logdir)
 
         tools = None
         if tool_format == "tool":

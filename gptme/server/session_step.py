@@ -665,7 +665,7 @@ def step(
         logger.debug("Wrote step.pre hook messages to disk")
 
     # Prepare messages for the model
-    msgs = prepare_messages(manager.log.messages)
+    msgs = prepare_messages(manager.log.messages, logdir=manager.logdir)
     if not msgs:
         _persist_generation_error(manager, session, "No messages to process")
         error_event: ErrorEvent = {
