@@ -140,6 +140,11 @@ jest.mock('lucide-react', () => ({
   Check: () => <span>Check</span>,
   Terminal: () => <span>Terminal</span>,
   ExternalLink: () => <span>ExternalLink</span>,
+  Copy: () => <span>Copy</span>,
+}));
+
+jest.mock('sonner', () => ({
+  toast: { success: jest.fn(), error: jest.fn() },
 }));
 
 describe('SetupWizard', () => {
