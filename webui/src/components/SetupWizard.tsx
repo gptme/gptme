@@ -27,7 +27,8 @@ import {
   type SetupWizardStep,
 } from '@/stores/setupWizard';
 import { use$ } from '@legendapp/state/react';
-import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucide-react';
+import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink, Copy } from 'lucide-react';
+import { toast } from 'sonner';
 
 type SetupStep = SetupWizardStep;
 type SetupModelInfo = {
@@ -373,6 +374,13 @@ export function SetupWizard() {
     setIsOpen(false);
   };
 
+  const serverCommand = `gptme-server --cors-origin='${window.location.origin}'`;
+  const copyServerCommand = () => {
+    void navigator.clipboard.writeText(serverCommand).then(() => {
+      toast.success('Command copied to clipboard');
+    });
+  };
+
   const handleLocalSetup = async () => {
     if (isConnected) {
       // Already connected — check provider config and advance.
@@ -657,12 +665,22 @@ export function SetupWizard() {
                   <p className="text-sm text-muted-foreground">
                     Start the server in your terminal:
                   </p>
-                  <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
-                    pipx run --spec &apos;gptme[server]&apos; gptme-server
-                  </code>
+                  <div className="flex items-center gap-2 rounded bg-muted px-3 py-2">
+                    <code className="flex-1 break-all font-mono text-sm">{serverCommand}</code>
+                    <button
+                      onClick={copyServerCommand}
+                      className="shrink-0 rounded p-1 hover:bg-muted-foreground/10"
+                      title="Copy command"
+                    >
+                      <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    Or if you have gptme installed:{' '}
-                    <code className="rounded bg-muted px-1">gptme-server</code>
+                    The <code className="rounded bg-muted px-1">--cors-origin</code> flag lets this
+                    page connect to your local server. Or install gptme first:{' '}
+                    <code className="rounded bg-muted px-1">
+                      pipx install &apos;gptme[server]&apos;
+                    </code>
                   </p>
                 </div>
               )}
