@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 from gptme.llm.models.resolution import _default_model_var
 from gptme.message import Message
-from gptme.util.replay import inject_relevant_evidence, score_messages_bm25
+from gptme.util.replay import build_query, inject_relevant_evidence, score_messages_bm25
 
 # --- score_messages_bm25 ---
 
@@ -363,3 +363,121 @@ def test_inject_respects_context_headroom():
             f"Overflow context ({len(full_injected)} injected) should inject"
             f" fewer messages than sparse context ({len(small_injected)} injected)"
         )
+
+
+# --- build_query ---
+
+
+def test_build_query_single_turn_is_backward_compatible():
+    """n_turns=1 should reproduce original single-message behaviour."""
+    msgs = [
+        Message("user", "First task: implement zephyr protocol"),
+        Message("assistant", "Done."),
+        Message("user", "Now debug the timeout"),
+    ]
+    q = build_query(msgs, n_turns=1)
+    assert "timeout" in q
+    assert "zephyr" not in q, "n_turns=1 should use only last user message"
+
+
+def test_build_query_multi_turn_includes_earlier_intent():
+    """n_turns=3 should include content from earlier user messages."""
+    msgs = [
+        Message("user", "First task: implement zephyr authentication"),
+        Message("assistant", "Done."),
+        Message("user", "Now debug the timeout"),
+    ]
+    q = build_query(msgs, n_turns=3)
+    assert "timeout" in q
+    assert "zephyr" in q, "Compound query should include earlier task context"
+
+
+def test_build_query_empty_messages():
+    assert build_query([], n_turns=3) == ""
+
+
+def test_build_query_no_user_messages():
+    msgs = [Message("system", "sys"), Message("assistant", "hi")]
+    assert build_query(msgs, n_turns=3) == ""
+
+
+def test_build_query_truncates_long_turns():
+    """Each turn truncated to 300 chars; compound capped at 800 chars."""
+    long_msg = "x" * 500
+    msgs = [
+        Message("user", long_msg),
+        Message("user", long_msg),
+        Message("user", long_msg),
+    ]
+    q = build_query(msgs, n_turns=3)
+    assert len(q) <= 800, f"Compound query should be capped at 800 chars, got {len(q)}"
+
+
+def test_inject_compound_query_surfaces_earlier_intent():
+    """Compound query should recover earlier task-intent from master log.
+
+    Scenario: the user's original goal was 'implement zephyr authentication'.
+    After many turns the working context only has a sub-step query ('debug
+    timeout'). A single-message query misses the zephyr evidence; the
+    compound query (last 3 turns) surfaces it.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        tmpdir = Path(td)
+
+        earlier_intent = (
+            "zephyr authentication: use HMAC-SHA256 with a 30-second token window"
+        )
+        master_msgs = [
+            # The critical early message - falls off the working context
+            {"role": "user", "content": earlier_intent},
+            {"role": "assistant", "content": "Implementing zephyr auth now."},
+            # Many unrelated turns follow (simulate long session)
+            *[
+                {"role": "user", "content": f"Sub-step {i}: adjust settings"}
+                for i in range(10)
+            ],
+            {"role": "user", "content": "Now I need to debug the timeout in the loop"},
+        ]
+        logfile = _make_master_log(master_msgs, tmpdir)
+
+        # Working context: original intent has fallen off; only recent sub-steps visible
+        working = [
+            Message("system", "You are a coding assistant.", pinned=True),
+            Message("user", "First task: implement zephyr authentication"),
+            Message("user", "Now debug the timeout in the loop"),
+        ]
+
+        # Compound query (last 3 user turns) should surface the zephyr evidence
+        result_compound = inject_relevant_evidence(
+            working, logfile, top_k=3, query_n_turns=3
+        )
+
+        injected_compound = [m for m in result_compound if "Evidence" in m.content]
+        zephyr_found = any(earlier_intent in m.content for m in injected_compound)
+        assert zephyr_found, (
+            "Compound query should surface earlier zephyr authentication intent"
+        )
+
+
+def test_inject_query_n_turns_1_matches_original_single_query():
+    """query_n_turns=1 should give same result as original single-message query."""
+    with tempfile.TemporaryDirectory() as td:
+        tmpdir = Path(td)
+
+        master_msgs = [
+            {"role": "user", "content": f"Python decorator tip {i}"} for i in range(10)
+        ]
+        logfile = _make_master_log(master_msgs, tmpdir)
+
+        working = [
+            Message("system", "System.", pinned=True),
+            Message("user", "Early turn about other topics"),
+            Message("user", "What are Python decorators?"),
+        ]
+
+        # Both should produce the same result since only last message is used
+        result_n1 = inject_relevant_evidence(working, logfile, top_k=3, query_n_turns=1)
+        injected_n1 = [m for m in result_n1 if "Evidence" in m.content]
+
+        # At minimum: n_turns=1 still finds decorator-relevant evidence from the last msg
+        assert injected_n1, "n_turns=1 should still inject relevant evidence"

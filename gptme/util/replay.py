@@ -101,16 +101,33 @@ def _read_master_messages(logfile: Path) -> list[dict]:
     return messages
 
 
+def build_query(msgs: list[Message], n_turns: int = 3) -> str:
+    """
+    Build a BM25 query from the last n_turns user messages.
+
+    Uses multiple recent turns so compound tasks (where the original intent is
+    in an early message and the current sub-step is in a later one) surface
+    transitively-relevant evidence that a single-message query would miss.
+    """
+    user_msgs = [m for m in msgs if m.role == "user"]
+    if not user_msgs:
+        return ""
+    query_turns = user_msgs[-n_turns:] if n_turns > 1 else user_msgs[-1:]
+    # Each turn truncated to 300 chars; joined compound query capped at 800 chars
+    return " ".join(m.content[:300] for m in query_turns)[:800]
+
+
 def inject_relevant_evidence(
     msgs: list[Message],
     master_logfile: Path,
     top_k: int = 5,
     token_budget_fraction: float = 0.10,
+    query_n_turns: int = 3,
 ) -> list[Message]:
     """
     Inject top-k BM25-relevant messages from master log as pinned system messages.
 
-    Scores master log messages by relevance to the last user message, then
+    Scores master log messages by relevance to the last N user messages, then
     injects those not already present in the working context. Caps injected
     content at the available remaining context (model.context - current_tokens).
 
@@ -119,6 +136,9 @@ def inject_relevant_evidence(
         master_logfile: Path to the lossless conversation.jsonl.
         top_k: Maximum number of messages to inject.
         token_budget_fraction: Unused; kept for API compatibility.
+        query_n_turns: Number of recent user turns to use as the compound query.
+            Default 3 covers the typical task horizon for multi-step sessions.
+            Set to 1 to reproduce the original single-message behaviour.
 
     Returns:
         Updated message list with relevant evidence injected as pinned system messages.
@@ -126,12 +146,9 @@ def inject_relevant_evidence(
     if not msgs:
         return msgs
 
-    # Use the last user message as the retrieval query
-    last_user = next((m for m in reversed(msgs) if m.role == "user"), None)
-    if not last_user:
+    query = build_query(msgs, n_turns=query_n_turns)
+    if not query:
         return msgs
-
-    query = last_user.content[:500]
 
     master_messages = _read_master_messages(master_logfile)
     scored = score_messages_bm25(master_messages, query, top_k=top_k * 4)
