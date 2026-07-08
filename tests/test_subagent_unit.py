@@ -4081,6 +4081,96 @@ class TestSubagentBatchNewParameters:
         for kw in captured:
             assert kw.get("context_turns") == 5
 
+    def test_context_window_forwarded_to_subagent_batch(self, monkeypatch):
+        """context_window is forwarded to each subagent() call from subagent_batch()."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_batch
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        subagent_batch([("w1", "p1"), ("w2", "p2")], context_window=0)
+
+        assert len(captured) == 2
+        for kw in captured:
+            assert kw.get("context_window") == 0
+
+    def test_context_window_forwarded_to_subagent_parallel(self, monkeypatch):
+        """context_window is forwarded to each subagent() call from subagent_parallel()."""
+        from unittest.mock import MagicMock
+
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import BatchJob, ReturnType, subagent_parallel
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+
+        mock_job = MagicMock(spec=BatchJob)
+        mock_job.agent_ids = ["pw1", "pw2"]
+        mock_job.results = {
+            "pw1": ReturnType("success", "done"),
+            "pw2": ReturnType("success", "done"),
+        }
+        mock_job.wait_all.return_value = None
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", lambda aid: None)
+        monkeypatch.setattr(batch_mod, "BatchJob", lambda agent_ids, **kw: mock_job)
+
+        subagent_parallel([("pw1", "p1"), ("pw2", "p2")], context_window=0)
+
+        assert len(captured) == 2
+        for kw in captured:
+            assert kw.get("context_window") == 0
+
+    def test_context_window_forwarded_to_subagent_pipeline(self, monkeypatch):
+        """context_window is forwarded to each subagent() call from subagent_pipeline()."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_pipeline
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+
+        def mock_wait(agent_id, **kwargs):
+            return {"status": "success", "result": "done"}
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_wait)
+
+        subagent_pipeline(
+            [("pp1", "prompt1")],
+            lambda item, _: item,
+            context_window=0,
+        )
+
+        assert len(captured) == 1
+        assert captured[0].get("context_window") == 0
+
+    def test_context_window_none_by_default_in_batch(self, monkeypatch):
+        """context_window defaults to None in subagent_batch() (full workspace context)."""
+        import gptme.tools.subagent.batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_batch
+
+        captured: list[dict] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            captured.append(kwargs)
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+
+        subagent_batch([("d1", "p1")])
+
+        assert len(captured) == 1
+        assert captured[0].get("context_window") is None
+
 
 # ---------------------------------------------------------------------------
 # Token budget tracking tests
