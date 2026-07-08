@@ -4169,7 +4169,8 @@ class TestSubagentBatchNewParameters:
         subagent_batch([("d1", "p1")])
 
         assert len(captured) == 1
-        assert captured[0].get("context_window") is None
+        assert "context_window" in captured[0]
+        assert captured[0]["context_window"] is None
 
 
 # ---------------------------------------------------------------------------
