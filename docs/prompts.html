@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f1643af0c20&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f8190204f40&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1849,9 +1849,9 @@ Index first with <span class="sb">`rag_index`</span>, then search with <span cla
 The following Python functions are available:
 
 <span class="sb">```txt</span>
-<span class="s">rag_index(paths: str, glob: Union[str, None]) -&gt; str: Index documents in specified paths.</span>
-<span class="s">rag_search(query: str, return_full: bool, top_k: Union[int, None]) -&gt; str: Search indexed documents.</span>
-<span class="s">rag_status() -&gt; str: Show index status.</span>
+<span class="s">rag_index(paths: str, glob: Union[str, None], project: Union[str, None]) -&gt; str: Index documents in specified paths.</span>
+<span class="s">rag_search(query: str, return_full: bool, top_k: Union[int, None], project: Union[str, None]) -&gt; str: Search indexed documents.</span>
+<span class="s">rag_status(project: Union[str, None]) -&gt; str: Show index status.</span>
 <span class="s">rag_index_conversations(n: int, output_dir: Union[str, None]) -&gt; str: Index past gptme conversations for semantic search.</span>
 <span class="sb">```</span>
 
@@ -2678,7 +2678,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 17043</p>
+<p>Tokens: 17063</p>
 </dd></dl>
 
 <dl class="py function">
