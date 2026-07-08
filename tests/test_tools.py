@@ -532,6 +532,7 @@ def test_get_toolchain_glob_matches_mcp_tools():
 
 def test_get_toolchain_warns_when_plain_allowlist_excludes_mcp_tools(caplog):
     """Plain allowlists should warn when they filter out available MCP tools."""
+    import gptme.tools
     from gptme.tools.base import ToolSpec
 
     clear_tools()
@@ -543,6 +544,7 @@ def test_get_toolchain_warns_when_plain_allowlist_excludes_mcp_tools(caplog):
 
     with (
         patch("gptme.tools.get_available_tools", return_value=fake_tools),
+        patch.object(gptme.tools, "_warned_mcp_allowlists", set()),
         caplog.at_level("WARNING", logger="gptme.tools"),
     ):
         tools = get_toolchain(["save"], strict=True)
