@@ -354,18 +354,14 @@ class TestLogWarnOnce:
             log_warn_once(test_msg)
         assert test_msg in caplog.text
 
-    def test_does_not_warn_second_time(self, caplog):
+    def test_does_not_warn_second_time(self):
         """Second call with same message should not log again."""
         test_msg = f"dedup-test-message-{id(self)}"
 
-        import logging
-
-        with caplog.at_level(logging.WARNING):
+        with patch("gptme.llm.models.resolution.logger.warning") as warning:
             log_warn_once(test_msg)  # first call
-        caplog.clear()
-        with caplog.at_level(logging.WARNING):
             log_warn_once(test_msg)  # second call — should be suppressed
-        assert test_msg not in caplog.text
+        warning.assert_called_once_with(test_msg)
 
     def test_threaded_warn_once(self):
         """Concurrent callers should not race the warning de-dup cache."""
