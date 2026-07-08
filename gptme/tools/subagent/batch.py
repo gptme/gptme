@@ -345,6 +345,7 @@ def subagent_batch(
     output_schema: type | None = None,
     workdir: str | Path | None = None,
     context_turns: int | None = None,
+    context_window: int | None = None,
     redact_secrets: bool = True,
 ) -> BatchJob:
     """Start multiple subagents in parallel and return a BatchJob to manage them.
@@ -376,6 +377,10 @@ def subagent_batch(
         context_turns: Number of recent parent conversation turns to forward to
             each subagent as context prefix. Pass ``None`` (default) to use no
             parent context.
+        context_window: Limit workspace context messages passed to each subagent.
+            Pass ``0`` for strongest isolation (subagent sees only agent identity
+            and tools, no workspace files). Pass ``None`` (default) for the full
+            inherited workspace context. Only applies to thread-mode subagents.
         redact_secrets: If True (default), redact secrets from workspace context
             passed to subagents. Pass False only if you need subagents to see
             config values that are incorrectly flagged as secrets.
@@ -416,6 +421,7 @@ def subagent_batch(
             output_schema=output_schema,
             workdir=workdir,
             context_turns=context_turns,
+            context_window=context_window,
             redact_secrets=redact_secrets,
         )
 
@@ -435,6 +441,7 @@ def subagent_parallel(
     output_schema: type | None = None,
     workdir: str | Path | None = None,
     context_turns: int | None = None,
+    context_window: int | None = None,
     redact_secrets: bool = True,
 ) -> list[dict]:
     """Fan out N subagents in parallel, wait for all, return results as an ordered list.
@@ -475,6 +482,10 @@ def subagent_parallel(
         context_turns: Number of recent parent conversation turns to forward to
             each subagent as context prefix. Pass ``None`` (default) to use no
             parent context.
+        context_window: Limit workspace context messages passed to each subagent.
+            Pass ``0`` for strongest isolation (subagent sees only agent identity
+            and tools, no workspace files). Pass ``None`` (default) for the full
+            inherited workspace context. Only applies to thread-mode subagents.
         redact_secrets: If True (default), scrub common secret patterns from
             workspace context before passing it to subagents.
 
@@ -537,6 +548,7 @@ def subagent_parallel(
                 output_schema=output_schema,
                 workdir=workdir,
                 context_turns=context_turns,
+                context_window=context_window,
                 redact_secrets=redact_secrets,
             )
             started_ids.append(agent_id)
@@ -582,6 +594,7 @@ def subagent_pipeline(
     output_schema: type | None = None,
     workdir: str | Path | None = None,
     context_turns: int | None = None,
+    context_window: int | None = None,
     redact_secrets: bool = True,
 ) -> list[list[dict]]:
     """Process items through multiple stages with no barrier between stages.
@@ -614,6 +627,10 @@ def subagent_pipeline(
             are automatically parsed.
         workdir: Working directory passed to every subagent.
         context_turns: Number of recent parent turns to forward to each subagent.
+        context_window: Limit workspace context messages passed to each subagent.
+            Pass ``0`` for strongest isolation (subagent sees only agent identity
+            and tools, no workspace files). Pass ``None`` (default) for the full
+            inherited workspace context. Only applies to thread-mode subagents.
         redact_secrets: If True (default), redact secrets from workspace context.
 
     Returns:
@@ -680,6 +697,7 @@ def subagent_pipeline(
                     output_schema=output_schema if is_final else None,
                     workdir=workdir,
                     context_turns=context_turns,
+                    context_window=context_window,
                     redact_secrets=redact_secrets,
                 )
                 result = subagent_wait(
