@@ -4,6 +4,7 @@ import { observable } from '@legendapp/state';
 import { SetupWizard } from '../SetupWizard';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { setupWizard$ } from '@/stores/setupWizard';
+import { toast } from 'sonner';
 
 const mockConnect = jest.fn();
 const mockOpen = jest.fn();
@@ -184,6 +185,14 @@ describe('SetupWizard', () => {
       writable: true,
       value: mockOpen,
     });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: jest.fn().mockResolvedValue(undefined),
+      },
+    });
+    (toast.success as jest.Mock).mockClear();
+    (toast.error as jest.Mock).mockClear();
   });
 
   it('stays closed in demo mode even for first-time users', () => {
@@ -431,6 +440,59 @@ describe('SetupWizard', () => {
     });
     expect(setupWizard$.providerStatusVersion.get()).toBe(1);
     expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
+  });
+
+  it('shows copyable local server commands for installed and first-time users', async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const serverCommand = `gptme-server --cors-origin='${window.location.origin}'`;
+    const pipxRunCommand = `pipx run --spec 'gptme[server]' ${serverCommand}`;
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+
+    expect(screen.getByText(serverCommand)).toBeInTheDocument();
+    expect(screen.getByText(pipxRunCommand)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /copy pipx run server command/i }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(pipxRunCommand);
+    });
+    expect(toast.success).toHaveBeenCalledWith('Command copied to clipboard');
+  });
+
+  it('shows an error toast when copying the local server command fails', async () => {
+    const writeText = jest.fn().mockRejectedValue(new Error('clipboard denied'));
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const serverCommand = `gptme-server --cors-origin='${window.location.origin}'`;
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /copy installed server command/i }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(serverCommand);
+      expect(toast.error).toHaveBeenCalledWith('Failed to copy command. Please copy it manually.');
+    });
   });
 
   it('shows desktop API key entry when the local server lacks a provider', async () => {
