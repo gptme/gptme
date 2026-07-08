@@ -112,7 +112,7 @@ def build_query(msgs: list[Message], n_turns: int = 3) -> str:
     user_msgs = [m for m in msgs if m.role == "user"]
     if not user_msgs:
         return ""
-    query_turns = user_msgs[-n_turns:] if n_turns > 1 else user_msgs[-1:]
+    query_turns = user_msgs[-n_turns:] if n_turns > 0 else user_msgs[-1:]
     # Each turn truncated to 300 chars; joined compound query capped at 800 chars
     return " ".join(m.content[:300] for m in query_turns)[:800]
 
@@ -138,7 +138,8 @@ def inject_relevant_evidence(
         token_budget_fraction: Unused; kept for API compatibility.
         query_n_turns: Number of recent user turns to use as the compound query.
             Default 3 covers the typical task horizon for multi-step sessions.
-            Set to 1 to reproduce the original single-message behaviour.
+            Set to 1 to use only the last user message (note: per-turn truncation
+            is 300 chars vs 500 chars in the original single-message implementation).
 
     Returns:
         Updated message list with relevant evidence injected as pinned system messages.
