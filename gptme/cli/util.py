@@ -444,7 +444,7 @@ def _walk_directory(
     excludes: list[str],
     max_depth: int | None,
     depth: int = 1,
-) -> None:  # type: ignore[name-defined]
+) -> None:
     from rich.filesize import decimal
     from rich.markup import escape
     from rich.text import Text
@@ -556,7 +556,7 @@ def context_files(config: str | None):
         root, ok = _git_run(["rev-parse", "--show-toplevel"])
         if ok and root:
             candidates.append(Path(root) / "gptme.toml")
-        toml_path = next((p for p in candidates if p.exists()), None)  # type: ignore[arg-type]
+        toml_path = next((p for p in candidates if p.exists()), None)
 
     if not toml_path or not toml_path.exists():
         click.echo("No gptme.toml found. Use --config to specify path.", err=True)

@@ -341,7 +341,7 @@ def _get_macos_display_scale() -> float:
     """
     # Method 1: AppKit (preferred — works for all display configs including external monitors)
     try:
-        import AppKit  # type: ignore[import-not-found,import-untyped]
+        import AppKit
 
         screen = AppKit.NSScreen.mainScreen()
         if screen is not None:
@@ -681,14 +681,14 @@ def _linux_scroll(
 def _macos_scroll(x: int, y: int, direction: str, amount: int = 3) -> None:
     """Scroll in a direction at (x, y) on macOS using Quartz scroll wheel events."""
     try:
-        from Quartz import (  # type: ignore[import-not-found]
+        from Quartz import (
             CGEventCreateScrollWheelEvent,
             CGEventPost,
             CGEventSetLocation,
             kCGHIDEventTap,
             kCGScrollEventUnitLine,
         )
-        from Quartz.CoreGraphics import CGPoint  # type: ignore[import-not-found]
+        from Quartz.CoreGraphics import CGPoint
     except ImportError:
         raise RuntimeError(
             "pyobjc-framework-Quartz is required for scroll on macOS. "
@@ -779,7 +779,7 @@ def _linux_accessibility_tree(display: str, max_depth: int = 8) -> str:
         RuntimeError: If pyatspi is not installed or the desktop is not accessible.
     """
     try:
-        import pyatspi  # type: ignore[import-not-found,import-untyped]
+        import pyatspi
     except ImportError:
         raise RuntimeError(
             "pyatspi not installed. Install with: pip install pyatspi\n"
@@ -859,7 +859,7 @@ def _linux_click_accessible_element(
             no geometry.
     """
     try:
-        import pyatspi  # type: ignore[import-not-found,import-untyped]
+        import pyatspi
     except ImportError:
         raise RuntimeError(
             "pyatspi not installed. Install with: pip install pyatspi\n"

@@ -333,7 +333,7 @@ def _init_openai_client(
     if timeout is None:
         timeout_str = config.get_env("LLM_API_TIMEOUT")
         try:
-            timeout = float(timeout_str) if timeout_str else NOT_GIVEN  # type: ignore[assignment]
+            timeout = float(timeout_str) if timeout_str else NOT_GIVEN
         except ValueError as parse_err:
             raise ValueError(
                 f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}. Must be a valid number."
@@ -345,13 +345,13 @@ def _init_openai_client(
             api_key=api_key,
             api_version="2023-07-01-preview",
             azure_endpoint=azure_endpoint,
-            timeout=timeout,  # type: ignore[arg-type]
+            timeout=timeout,
         )
     else:
         clients[provider] = OpenAI(
             api_key=api_key,
             base_url=base_url or None,
-            timeout=timeout,  # type: ignore[arg-type]
+            timeout=timeout,
         )
 
 

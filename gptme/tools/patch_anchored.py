@@ -94,7 +94,7 @@ immediately before ``patch_anchored`` — never reuse stale anchors.
 """.strip()
 
 
-def _view_examples(tool_format) -> str:  # type: ignore[no-untyped-def]
+def _view_examples(tool_format) -> str:
     return f"""
 > User: show me hello.py with anchors so I can edit it
 > Assistant:
@@ -181,7 +181,7 @@ Never reuse anchors from a previous ``view_anchored`` call.
 """.strip()
 
 
-def _patch_examples(tool_format) -> str:  # type: ignore[no-untyped-def]
+def _patch_examples(tool_format) -> str:
     ops = '[{"anchor": "9c2eb1d4f7a36e52:1", "op": "replace", "text": "    print(\\"Hello, world!\\")", "expected": "    print(\\"Hello world\\")"}]'
     return f"""
 > User: update the greeting in hello.py

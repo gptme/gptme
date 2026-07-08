@@ -239,6 +239,7 @@ ignore = ["E402", "E501", "B905", "PERF203"]  # PERF203: try-except-in-loop ofte
 [tool.mypy]
 check_untyped_defs = true
 disable_error_code = "import-untyped"
+warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
 module = "tomli_w"

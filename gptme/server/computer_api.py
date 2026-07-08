@@ -219,7 +219,7 @@ def status():
         backends["osascript"] = bool(shutil.which("osascript"))
 
     try:
-        import pyatspi  # type: ignore[import-not-found]  # noqa: F401
+        import pyatspi  # noqa: F401
 
         backends["pyatspi"] = True
     except ImportError:
@@ -228,7 +228,7 @@ def status():
 
     try:
         from playwright.sync_api import (
-            sync_playwright,  # type: ignore[import-not-found]  # noqa: F401
+            sync_playwright,  # noqa: F401
         )
 
         backends["playwright"] = True

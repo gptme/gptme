@@ -117,7 +117,7 @@ def get_gate_recommendation(
     key = _normalize_model_key(model, lookup)
     rec = lookup.get(key, {}).get(eval_name, {}).get("gate_recommendation")
     if rec in ("inject", "suppress"):
-        return rec  # type: ignore[return-value]
+        return rec
     return "default"
 
 

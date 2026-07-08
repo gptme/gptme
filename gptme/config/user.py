@@ -66,7 +66,7 @@ def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
     changed = False
     for key in keys:
         if key in doc:
-            del doc[key]  # type: ignore[attr-defined]
+            del doc[key]
             changed = True
     if changed:
         try:
@@ -380,7 +380,7 @@ def set_config_value(
             existing = d[k]
             if not isinstance(existing, MutableMapping):
                 raise ValueError(f"Cannot set '{key}': '{k}' exists but is not a table")
-        d = d[k]  # type: ignore[assignment]
+        d = d[k]
     d[keypath[-1]] = value
 
     # Write the config
@@ -427,10 +427,10 @@ def save_provider_config(
         provider_table.add("default_model", provider.default_model)
 
     if "providers" not in doc:
-        doc.add("providers", tomlkit.aot())  # type: ignore[attr-defined]
+        doc.add("providers", tomlkit.aot())
 
     providers = doc["providers"]
-    for idx, existing_provider in enumerate(providers):  # type: ignore[union-attr]
+    for idx, existing_provider in enumerate(providers):
         if existing_provider.get("name") == provider.name:
             providers[idx] = provider_table
             break

@@ -949,8 +949,8 @@ def api_conversation_transcript(conversation_id: str):
         return req_json
 
     # Validate request matches our expected shape
-    turns = req_json.get("turns")  # type: ignore[union-attr]
-    call_metadata = req_json.get("call_metadata")  # type: ignore[union-attr]
+    turns = req_json.get("turns")
+    call_metadata = req_json.get("call_metadata")
 
     if not turns or not isinstance(turns, list):
         return flask.jsonify({"error": "turns (list) is required"}), 400
