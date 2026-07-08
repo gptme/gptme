@@ -734,7 +734,7 @@ def chat(
 
     _temperature = temperature if temperature is not None else TEMPERATURE
     _top_p = top_p if top_p is not None else TOP_P
-    response = client.messages.create(
+    response = client.messages.create(  # type: ignore[call-overload]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
@@ -838,16 +838,16 @@ def stream(
 
     _temperature = temperature if temperature is not None else TEMPERATURE
     _top_p = top_p if top_p is not None else TOP_P
-    with client.messages.stream(
+    with client.messages.stream(  # type: ignore[call-arg]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
         temperature=_temperature if not model_meta.supports_reasoning else 1,
-        top_p=_top_p if not model_meta.supports_reasoning else NOT_GIVEN,
+        top_p=_top_p if not model_meta.supports_reasoning else NOT_GIVEN,  # type: ignore[arg-type]
         max_tokens=max_tokens,
-        tools=tools_dict or NOT_GIVEN,
-        thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
-        **output_config_kwargs,
+        tools=tools_dict or NOT_GIVEN,  # type: ignore[arg-type]
+        thinking=thinking_param if thinking_param is not None else NOT_GIVEN,  # type: ignore[arg-type]
+        **output_config_kwargs,  # type: ignore[arg-type]
         **_fast_mode_kwargs(),
     ) as stream:
         for chunk in stream:

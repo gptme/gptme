@@ -303,6 +303,14 @@ module = "scipy.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "gptme.llm.llm_anthropic"
+disable_error_code = ["unused-ignore"]
+
+[[tool.mypy.overrides]]
+module = "gptme.server.external_sessions"
+disable_error_code = ["unused-ignore"]
+
+[[tool.mypy.overrides]]
 module = "sounddevice.*"
 ignore_missing_imports = true
 
