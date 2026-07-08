@@ -39,11 +39,6 @@ export const ComputerPreview: FC = () => {
   // AbortController for the in-flight screenshot fetch — cancelled on unmount
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Keep isPollingRef in sync so timer callbacks see current pause state
-  useEffect(() => {
-    isPollingRef.current = isPolling;
-  }, [isPolling]);
-
   const fetchStatus = useCallback(async () => {
     const headers: Record<string, string> = {};
     if (api.authHeader) headers.Authorization = api.authHeader;
@@ -87,6 +82,10 @@ export const ComputerPreview: FC = () => {
       }
 
       const blob = await resp.blob();
+      // If the component unmounted while the blob was being read, bail out.
+      // The abort signal is set in the cleanup return; without this check the
+      // blob URL is created but never revoked (the cleanup already ran).
+      if (ac.signal.aborted) return;
       const url = URL.createObjectURL(blob);
 
       // Revoke previous blob URL to prevent memory leak
@@ -151,11 +150,30 @@ export const ComputerPreview: FC = () => {
   }, [isPolling, schedulePoll]);
 
   const handleRefresh = () => {
+    // Cancel any pending poll timer so it cannot abort this user-initiated fetch.
+    // Without this, a timer firing mid-refresh calls fetchScreenshot() which
+    // aborts the user's request; the AbortError path skips setIsLoading(false)
+    // so the spinner stays indefinitely until the next scheduled poll completes.
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
     setIsLoading(true);
     fetchScreenshot().then(schedulePoll);
   };
 
-  const togglePolling = () => setIsPolling((p) => !p);
+  const togglePolling = () => {
+    // Update the ref immediately (not via a deferred useEffect) so that any
+    // schedulePoll call already in a .then() chain sees the new value before
+    // React flushes the state update and re-runs effects.
+    const next = !isPollingRef.current;
+    isPollingRef.current = next;
+    setIsPolling(next);
+    if (!next && pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  };
 
   if (showVnc) {
     return (
