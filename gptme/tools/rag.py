@@ -42,6 +42,7 @@ Configure RAG in your ``gptme.toml``::
 """
 
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -51,12 +52,31 @@ from functools import lru_cache
 from pathlib import Path
 
 from ..config import RagConfig, get_project_config
-from ..dirs import get_logs_dir, get_project_gptme_dir
+from ..dirs import get_data_dir, get_logs_dir, get_project_gptme_dir
 from ..llm import _chat_complete
 from ..message import Message
 from .base import ToolFunction, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_project_name(name: str) -> str:
+    """Sanitize a project name for use as a filesystem path component."""
+    # Replace path separators and whitespace with underscores
+    sanitized = re.sub(r"[/\\\s]+", "_", name)
+    # Remove any remaining non-alphanumeric/underscore/hyphen/dot characters
+    sanitized = re.sub(r"[^\w\-.]", "_", sanitized)
+    # Strip leading/trailing underscores and dots; bare dots (".", "..") are
+    # path-traversal hazards that must not survive as the final component.
+    return sanitized.strip("_.") or "default"
+
+
+def _project_persist_dir(project: str | None) -> Path | None:
+    """Return the persist directory for a project, or None to use the global index."""
+    if not project:
+        return None
+    return get_data_dir() / "rag" / _sanitize_project_name(project)
+
 
 instructions = """
 ### When to use RAG
@@ -156,33 +176,82 @@ def _run_rag_cmd(cmd: list[str]) -> subprocess.CompletedProcess:
         )
 
 
-def rag_index(*paths: str, glob: str | None = None) -> str:
-    """Index documents in specified paths."""
+def rag_index(*paths: str, glob: str | None = None, project: str | None = None) -> str:
+    """Index documents in specified paths.
+
+    Args:
+        paths: Paths to index (files or directories). Defaults to current directory.
+        glob: Glob pattern to filter files.
+        project: Project name to scope the index to. When set, documents are stored
+            in a project-specific index isolated from all other projects and the
+            global index. When omitted, uses the global index.
+    """
     paths = paths or (".",)
     cmd = ["gptme-rag", "index"]
     cmd.extend(paths)
     if glob:
         cmd.extend(["--glob", glob])
+    persist_dir = _project_persist_dir(project)
+    if persist_dir is not None:
+        cmd.extend(["--persist-dir", str(persist_dir)])
 
     result = _run_rag_cmd(cmd)
     return result.stdout.strip()
 
 
-def rag_search(query: str, return_full: bool = False, top_k: int | None = None) -> str:
-    """Search indexed documents."""
+def rag_search(
+    query: str,
+    return_full: bool = False,
+    top_k: int | None = None,
+    project: str | None = None,
+) -> str:
+    """Search indexed documents.
+
+    Args:
+        query: Search query.
+        return_full: Return full document content instead of excerpts.
+        top_k: Maximum number of results to return.
+        project: Project name to restrict the search to. Must match the project
+            used when indexing. When omitted, searches the global index.
+    """
     cmd = ["gptme-rag", "search", query]
     if return_full:
         # shows full context of the search results
         cmd.extend(["--raw"])
     if top_k is not None:
         cmd.extend(["--top-k", str(top_k)])
+    persist_dir = _project_persist_dir(project)
+    if persist_dir is not None:
+        cmd.extend(["--persist-dir", str(persist_dir)])
 
     result = _run_rag_cmd(cmd)
     return result.stdout.strip()
 
 
-def rag_status() -> str:
-    """Show index status."""
+def rag_status(project: str | None = None) -> str:
+    """Show index status.
+
+    Args:
+        project: Project name to show status for. When set, shows information
+            about the project-specific index directory. When omitted, shows the
+            global index status.
+    """
+    persist_dir = _project_persist_dir(project)
+    if persist_dir is not None:
+        # gptme-rag status does not support --persist-dir, so we report directory info
+        if persist_dir.exists():
+            files = [f for f in persist_dir.rglob("*") if f.is_file()]
+            file_count = len(files)
+            size_bytes = sum(f.stat().st_size for f in files)
+            size_kb = size_bytes / 1024
+            return (
+                f"Project index '{project}' at {persist_dir}\n"
+                f"Storage files: {file_count} ({size_kb:.1f} KB)"
+            )
+        return (
+            f"Project index '{project}' not found at {persist_dir}\n"
+            f"Run rag_index(project='{project}') to create it."
+        )
     cmd = ["gptme-rag", "status"]
     result = _run_rag_cmd(cmd)
     return result.stdout.strip()
