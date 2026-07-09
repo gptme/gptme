@@ -4,8 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApi } from '@/contexts/ApiContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { use$ } from '@legendapp/state/react';
-import { observable } from '@legendapp/state';
+import { use$, useObservable } from '@legendapp/state/react';
 import { ChatInput, type ChatOptions } from '@/components/ChatInput';
 import { History, Server, Copy, RotateCcw } from 'lucide-react';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -78,8 +77,8 @@ export const WelcomeView = () => {
     activeServerBaseUrl
   );
 
-  // Create observables that ChatInput expects
-  const autoFocus$ = observable(true);
+  // Stable observable for ChatInput autoFocus — must not be recreated on re-renders
+  const autoFocus$ = useObservable(true);
 
   const handleServerSwitch = async (serverId: string) => {
     try {

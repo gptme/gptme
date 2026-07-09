@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import { ChatInput } from '../ChatInput';
 
@@ -199,6 +199,37 @@ describe('ChatInput', () => {
     const stopButton = screen.getByRole('button', { name: 'Stop generation' });
     expect(stopButton).toBeEnabled();
     expect(stopButton).toHaveTextContent('Stop');
+  });
+
+  it('focuses the textarea on mount when autoFocus$ is true and resets the observable', async () => {
+    // autoFocus$ must be reset to false after focusing so a stable observable
+    // (useObservable in WelcomeView) doesn't re-trigger focus on subsequent renders.
+    const autoFocus$ = observable(true);
+    render(<ChatInput conversationId="conv-a" onSend={jest.fn()} autoFocus$={autoFocus$} />);
+
+    const textarea = screen.getByRole('textbox', { name: 'Chat message' });
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
+    expect(autoFocus$.get()).toBe(false);
+  });
+
+  it('does not steal focus on re-render when autoFocus$ is false', () => {
+    // Regression guard for the WelcomeView focus-steal bug:
+    // before the fix, WelcomeView created a new observable(true) on every render,
+    // so each state change stole focus from open popups and settings inputs.
+    // With the fix (useObservable), the observable is stable and stays false after
+    // the initial focus, so subsequent re-renders must not move focus.
+    const autoFocus$ = observable(false);
+    const onSend = jest.fn();
+    const { rerender } = render(
+      <ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={autoFocus$} />
+    );
+
+    const textarea = screen.getByRole('textbox', { name: 'Chat message' });
+    act(() => textarea.blur());
+    expect(document.activeElement).not.toBe(textarea);
+
+    rerender(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={autoFocus$} />);
+    expect(document.activeElement).not.toBe(textarea);
   });
 
   it('preserves existing attachments in edit mode', async () => {
