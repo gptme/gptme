@@ -519,7 +519,7 @@ def test_web_search_tool_with_other_tools():
             (t for t in tools_dict if t.get("type") == "web_search_20250305"), None
         )
         assert web_search_tool is not None
-        assert web_search_tool["max_uses"] == 5  # type: ignore[typeddict-item]
+        assert web_search_tool.get("max_uses") == 5
     finally:
         os.environ.pop("GPTME_ANTHROPIC_WEB_SEARCH", None)
 

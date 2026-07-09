@@ -215,7 +215,7 @@ def test_load_browser_state_refreshes_cdp_session_context(tmp_path, monkeypatch)
         browser_pw, "_close_current_page", lambda: close_calls.append(True)
     )
 
-    result = browser_pw._do_load_browser_state(fake_browser, str(state_file))  # type: ignore[arg-type]
+    result = browser_pw._do_load_browser_state(fake_browser, str(state_file))
 
     assert close_calls == [True]
     assert old_context.closed

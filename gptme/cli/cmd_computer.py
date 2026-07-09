@@ -16,7 +16,7 @@ import click
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:  # pragma: no cover
-    sync_playwright = None  # type: ignore[assignment]
+    sync_playwright = None
 
 from ..dirs import get_logs_dir
 from ..logmanager import _gen_read_jsonl
