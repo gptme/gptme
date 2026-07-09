@@ -8,6 +8,7 @@ subagent() function in api.py.
 """
 
 import logging
+import os
 import random
 import string
 import subprocess
@@ -28,6 +29,8 @@ from .._allowlist import (
 from .concurrency import get_slot_sem
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .types import ReturnType, Status, Subagent, SubtaskDef
 
 logger = logging.getLogger(__name__)
@@ -457,14 +460,14 @@ def _run_subagent_subprocess(
         profile_obj = get_profile(profile)
         if profile_obj and profile_obj.tools is not None:
             tool_allowlist = list(profile_obj.tools)
-            for tool_name in ("complete", "clarify"):
+            for tool_name in ("complete", "clarify", "progress"):
                 if tool_name not in tool_allowlist:
                     tool_allowlist.append(tool_name)
             cmd.extend(["--tools", ",".join(tool_allowlist)])
         else:
-            cmd.extend(["--tools", "+complete,+clarify"])
+            cmd.extend(["--tools", "+complete,+clarify,+progress"])
     else:
-        cmd.extend(["--tools", "+complete,+clarify"])
+        cmd.extend(["--tools", "+complete,+clarify,+progress"])
 
     # Map context_mode/context_include to the --context CLI flag
     if context_mode == "selective" and context_include:
@@ -504,11 +507,17 @@ def _run_subagent_subprocess(
         )
         prompt = prompt + memory_section
 
-    # Add completion instruction to the prompt for subprocess mode
-    # (In thread mode, this is added as a system message)
+    # Progress file for subprocess-mode progress delivery.
+    # The subprocess writes JSON lines here; _monitor_subprocess polls and
+    # delivers them to the parent via notify_progress().
+    progress_file = logdir / "progress.jsonl"
+
+    # Add completion instruction to the prompt for subprocess mode.
+    # (In thread mode, this is added as a system message.)
+    # Subprocess mode supports progress via the file channel, so enable it.
     complete_section = (
         "\n\n[Completion Instructions]\n"
-        f"{_get_complete_instruction('orchestrator', supports_progress=False)}\n"
+        f"{_get_complete_instruction('orchestrator', supports_progress=True)}\n"
     )
     prompt = prompt + complete_section
 
@@ -521,6 +530,11 @@ def _run_subagent_subprocess(
         tmpf.write(prompt)
         tmpfile_path = Path(tmpf.name)
 
+    # Environment for the subprocess: convey agent identity and progress channel.
+    env = os.environ.copy()
+    env["GPTME_SUBAGENT_AGENT_ID"] = logdir.name.removeprefix("subagent-")
+    env["GPTME_PROGRESS_FILE"] = str(progress_file)
+
     try:
         with open(tmpfile_path) as stdin_file:
             process = subprocess.Popen(
@@ -529,6 +543,7 @@ def _run_subagent_subprocess(
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 cwd=workspace,
+                env=env,
                 text=True,
             )
     finally:
@@ -573,6 +588,104 @@ def _cleanup_isolation(subagent: "Subagent") -> None:
         logger.warning(f"Failed to cleanup isolation for {subagent.agent_id}: {e}")
 
 
+def _drain_progress_file(
+    progress_file: "Path",
+    file_pos: int,
+    default_agent_id: str,
+    notify_fn: "Callable[[str, str], None]",
+) -> int:
+    """Read new progress entries from progress_file and deliver them via notify_fn.
+
+    Reads from ``file_pos`` forward, advancing only past complete
+    newline-terminated lines. Stops (without advancing) on any incomplete line
+    at EOF so the partial write can be retried on the next poll.
+
+    Args:
+        progress_file: Path to the ``progress.jsonl`` file written by the child.
+        file_pos: Byte offset to start reading from.
+        default_agent_id: Used when an entry omits ``agent_id``.
+        notify_fn: Callable with signature ``(agent_id: str, message: str)``.
+
+    Returns:
+        Updated file_pos (advanced past every complete line that was processed).
+    """
+    import json
+
+    if not progress_file.exists():
+        return file_pos
+    try:
+        with open(progress_file) as f:
+            f.seek(file_pos)
+            while True:
+                raw_line = f.readline()
+                if not raw_line:
+                    break  # EOF — no new content
+                if not raw_line.endswith("\n"):
+                    # Incomplete line at EOF: partial write in progress.
+                    # Don't advance file_pos; retry next poll when the write completes.
+                    break
+                stripped = raw_line.strip()
+                if not stripped:
+                    file_pos = f.tell()
+                    continue
+                try:
+                    entry = json.loads(stripped)
+                    agent_id = entry.get("agent_id", default_agent_id)
+                    message = entry.get("message", "")
+                    if message:
+                        notify_fn(agent_id, message)
+                        logger.debug(
+                            f"Delivered subprocess progress for '{agent_id}': {message[:80]}"
+                        )
+                except json.JSONDecodeError:
+                    logger.debug(
+                        f"Skipping unparseable progress line: {stripped[:80]!r}"
+                    )
+                # Advance past this complete line (parsed or corrupt) so
+                # we don't re-process it on the next poll.
+                file_pos = f.tell()
+    except OSError:
+        pass  # file not yet created or already removed
+    return file_pos
+
+
+def _poll_subprocess_progress(
+    subagent: "Subagent", stop_event: threading.Event
+) -> None:
+    """Poll the progress file for a subprocess-mode subagent and deliver updates.
+
+    Runs in a background thread alongside _monitor_subprocess. Reads JSON lines
+    from ``logdir/progress.jsonl`` (written by the subprocess via the progress
+    tool's file channel) and calls ``notify_progress`` so the parent receives
+    ⏳ system messages via the LOOP_CONTINUE hook.
+
+    Args:
+        subagent: The subagent being monitored.
+        stop_event: Set by _monitor_subprocess after the process exits. The poll
+            loop runs one final drain pass after the event is set to catch any
+            progress updates written in the last moments before exit.
+    """
+    import time
+
+    from .hooks import notify_progress
+
+    progress_file = subagent.logdir / "progress.jsonl"
+    file_pos = 0
+    POLL_INTERVAL = 0.5
+
+    def _drain() -> None:
+        nonlocal file_pos
+        file_pos = _drain_progress_file(
+            progress_file, file_pos, subagent.agent_id, notify_progress
+        )
+
+    while not stop_event.is_set():
+        _drain()
+        time.sleep(POLL_INTERVAL)
+    # Final drain after the process exits to catch last-moment writes.
+    _drain()
+
+
 def _monitor_subprocess(
     subagent: "Subagent",
 ) -> None:
@@ -581,6 +694,10 @@ def _monitor_subprocess(
     Runs in a background thread to enable non-blocking operation.
     Subprocess stdout/stderr are sent to DEVNULL since results are read
     from the conversation log, not the process pipes.
+
+    Also starts a progress-polling thread that reads ``logdir/progress.jsonl``
+    written by the subprocess-mode ``progress`` tool and delivers intermediate
+    updates to the parent via ``notify_progress``.
     """
     from .hooks import notify_completion
     from .types import (
@@ -590,6 +707,17 @@ def _monitor_subprocess(
 
     if not subagent.process:
         return
+
+    # Start progress polling in a background thread so the parent receives
+    # ⏳ updates while the subprocess is still running.
+    progress_stop = threading.Event()
+    progress_thread = threading.Thread(
+        target=_poll_subprocess_progress,
+        args=(subagent, progress_stop),
+        daemon=True,
+        name=f"progress-poll-{subagent.agent_id}",
+    )
+    progress_thread.start()
 
     # Track whether the process was killed due to our timeout (vs external SIGKILL)
     _timed_out = False
@@ -604,6 +732,10 @@ def _monitor_subprocess(
         _timed_out = True
         subagent.process.kill()
         subagent.process.wait()  # reap the killed process
+
+    # Stop the progress-poll thread and let it do a final drain.
+    progress_stop.set()
+    progress_thread.join(timeout=2.0)
 
     input_tokens: int | None = None
     output_tokens: int | None = None

@@ -779,7 +779,7 @@ def test_subprocess_command_includes_required_flags():
     assert "--model" in cmd
     assert "test-model" in cmd
     assert "--tools" in cmd
-    assert cmd[cmd.index("--tools") + 1] == "+complete,+clarify"
+    assert cmd[cmd.index("--tools") + 1] == "+complete,+clarify,+progress"
     assert "Test task" not in cmd  # Prompt passed via stdin, not argv
 
 
@@ -817,7 +817,7 @@ def test_subprocess_profile_preserves_profile_tools_and_adds_clarify():
     assert captured_cmd[captured_cmd.index("--agent-profile") + 1] == "explorer"
     assert "--tools" in captured_cmd
     assert captured_cmd[captured_cmd.index("--tools") + 1] == (
-        "read,chats,complete,clarify"
+        "read,chats,complete,clarify,progress"
     )
 
 
@@ -852,11 +852,14 @@ def test_subprocess_no_profile_includes_complete_and_clarify():
             )
 
     assert "--tools" in captured_cmd
-    assert captured_cmd[captured_cmd.index("--tools") + 1] == "+complete,+clarify"
+    assert (
+        captured_cmd[captured_cmd.index("--tools") + 1]
+        == "+complete,+clarify,+progress"
+    )
 
 
 def test_subprocess_profile_without_toollist_includes_complete_and_clarify():
-    """Profile with no tools list must fall back to +complete,+clarify."""
+    """Profile with no tools list must fall back to +complete,+clarify,+progress."""
     import tempfile
     from pathlib import Path
 
@@ -896,7 +899,176 @@ def test_subprocess_profile_without_toollist_includes_complete_and_clarify():
             )
 
     assert "--tools" in captured_cmd
-    assert captured_cmd[captured_cmd.index("--tools") + 1] == "+complete,+clarify"
+    assert (
+        captured_cmd[captured_cmd.index("--tools") + 1]
+        == "+complete,+clarify,+progress"
+    )
+
+
+def test_subprocess_sets_progress_env_vars():
+    """Subprocess must receive GPTME_SUBAGENT_AGENT_ID and GPTME_PROGRESS_FILE env vars."""
+    import tempfile
+    from pathlib import Path
+
+    from gptme.tools.subagent.execution import _run_subagent_subprocess
+
+    captured_env: dict[str, str] = {}
+
+    def fake_popen(cmd, **kwargs):
+        captured_env.update(kwargs.get("env") or {})
+        mock = MagicMock()
+        mock.poll.return_value = None
+        mock.args = cmd
+        return mock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logdir = Path(tmpdir) / "subagent-test-agent"
+        logdir.mkdir()
+
+        with patch("gptme.tools.subagent.execution.subprocess.Popen", fake_popen):
+            _run_subagent_subprocess(
+                prompt="Test progress env",
+                logdir=logdir,
+                model=None,
+                workspace=Path(tmpdir),
+            )
+
+    assert "GPTME_SUBAGENT_AGENT_ID" in captured_env
+    assert captured_env["GPTME_SUBAGENT_AGENT_ID"] == "test-agent"
+    assert "GPTME_PROGRESS_FILE" in captured_env
+    assert captured_env["GPTME_PROGRESS_FILE"].endswith("progress.jsonl")
+
+
+def test_progress_tool_file_delivery(tmp_path):
+    """progress tool writes to file channel when running in subprocess env."""
+    import json
+    import os
+    from unittest.mock import patch
+
+    from gptme.tools.progress import execute_progress
+
+    progress_file = tmp_path / "progress.jsonl"
+    env = {
+        "GPTME_SUBAGENT_AGENT_ID": "sub-1",
+        "GPTME_PROGRESS_FILE": str(progress_file),
+    }
+
+    # Patch at the source so execute_progress's local import resolves to None
+    with (
+        patch.dict(os.environ, env, clear=False),
+        patch("gptme.tools.subagent.execution.get_current_agent_id", return_value=None),
+    ):
+        messages = list(execute_progress("Phase 1 done, starting phase 2", None, None))
+
+    assert len(messages) == 1
+    assert (
+        "parent" in messages[0].content.lower()
+        or "file channel" in messages[0].content.lower()
+    )
+    assert progress_file.exists()
+    lines = [
+        json.loads(line) for line in progress_file.read_text().strip().splitlines()
+    ]
+    assert len(lines) == 1
+    assert lines[0]["agent_id"] == "sub-1"
+    assert "Phase 1 done" in lines[0]["message"]
+
+
+def test_progress_tool_no_env_gives_graceful_message():
+    """progress tool gives clear message when not in a managed subagent context."""
+    import os
+    from unittest.mock import patch
+
+    from gptme.tools.progress import execute_progress
+
+    clean_env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("GPTME_SUBAGENT_AGENT_ID", "GPTME_PROGRESS_FILE")
+    }
+
+    with (
+        patch.dict(os.environ, clean_env, clear=True),
+        patch("gptme.tools.subagent.execution.get_current_agent_id", return_value=None),
+    ):
+        messages = list(execute_progress("some progress", None, None))
+
+    assert len(messages) == 1
+    assert "not" in messages[0].content.lower()
+
+
+def test_poll_subprocess_progress_delivers_via_notify(tmp_path):
+    """_poll_subprocess_progress reads progress.jsonl and calls notify_progress."""
+    import json
+    import threading
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.subagent.execution import _poll_subprocess_progress
+
+    progress_file = tmp_path / "progress.jsonl"
+    delivered: list[tuple[str, str]] = []
+
+    def fake_notify(agent_id, message):
+        delivered.append((agent_id, message))
+
+    # Write a progress entry to the file before polling starts
+    entry = json.dumps({"agent_id": "poll-agent", "message": "Step 1 done"})
+    progress_file.write_text(entry + "\n")
+
+    stop_event = threading.Event()
+
+    # Create a minimal fake subagent object with the fields _poll_subprocess_progress needs
+    mock_sa = MagicMock()
+    mock_sa.agent_id = "poll-agent"
+    mock_sa.logdir = tmp_path
+
+    with patch("gptme.tools.subagent.hooks.notify_progress", fake_notify):
+        # Set stop immediately so the loop exits after the final drain
+        stop_event.set()
+        _poll_subprocess_progress(mock_sa, stop_event)
+
+    assert len(delivered) >= 1
+    assert delivered[0] == ("poll-agent", "Step 1 done")
+
+
+def test_drain_progress_file_partial_write_retry(tmp_path):
+    """_drain_progress_file retries partial (no-newline) lines on the next call.
+
+    Regression test: the old code advanced file_pos unconditionally after the
+    loop, silently skipping any line that raised JSONDecodeError — including
+    partial writes that would have been complete on the next poll.
+    """
+    import json
+
+    from gptme.tools.subagent.execution import _drain_progress_file
+
+    progress_file = tmp_path / "progress.jsonl"
+    delivered: list[tuple[str, str]] = []
+
+    def fake_notify(agent_id: str, message: str) -> None:
+        delivered.append((agent_id, message))
+
+    complete = json.dumps({"agent_id": "a", "message": "done"})
+    partial = '{"agent_id": "a", "message": "in-flight'  # missing closing } and \n
+
+    # First poll: one complete line + one partial (no trailing newline)
+    progress_file.write_text(complete + "\n" + partial)
+    pos = _drain_progress_file(progress_file, 0, "a", fake_notify)
+
+    assert len(delivered) == 1, "only the complete line should be delivered"
+    assert delivered[0] == ("a", "done")
+
+    # file_pos must be just after the complete line, not at EOF
+    assert pos == len(complete) + 1, "file_pos should not advance past the partial line"
+
+    # Second poll: the write completes (partial line now has its closing bytes + \n)
+    full_second = json.dumps({"agent_id": "a", "message": "in-flight-complete"})
+    # Overwrite the file with both lines fully written
+    progress_file.write_text(complete + "\n" + full_second + "\n")
+    pos = _drain_progress_file(progress_file, pos, "a", fake_notify)
+
+    assert len(delivered) == 2, "second poll should pick up the now-complete line"
+    assert delivered[1] == ("a", "in-flight-complete")
 
 
 @pytest.mark.slow
