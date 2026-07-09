@@ -7,7 +7,7 @@ authors = [
 ]
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.10"
 dependencies = ["gptme[acp]>=0.31.0"]
 
 [project.urls]
