@@ -91,7 +91,8 @@ if [ -z "$TYPE" ]; then
         echo "The latest tag is ${VERSION_TAG} but the version in pyproject.toml is ${VERSION_PYPROJECT}"
         echo "Updating the version in pyproject.toml to match the latest tag"
         poetry version "${VERSION_TAG}"
-        git add pyproject.toml
+        sed -i "s/^version = \".*\"/version = \"${VERSION_TAG}\"/" packages/gptme-acp/pyproject.toml
+        git add pyproject.toml packages/gptme-acp/pyproject.toml
         git commit -m "chore: bump version to ${VERSION_TAG}" || echo "No version bump needed"
     else
         read -rp "Enter new version number: " VERSION_NEW
@@ -102,7 +103,8 @@ if [ -z "$TYPE" ]; then
         fi
         echo "Bumping version to ${VERSION_NEW}"
         poetry version "${VERSION_NEW}"
-        git add pyproject.toml
+        sed -i "s/^version = \".*\"/version = \"${VERSION_NEW}\"/" packages/gptme-acp/pyproject.toml
+        git add pyproject.toml packages/gptme-acp/pyproject.toml
         git commit -m "chore: bump version to ${VERSION_NEW}"
         git tag -s "v${VERSION_NEW}" -m "v${VERSION_NEW}"
 
@@ -163,8 +165,12 @@ echo "Bumping version: $LAST_STABLE → $TAG (type=$TYPE, pre-release=$PRERELEAS
 poetry version "$NEW_VERSION"
 echo "Updated pyproject.toml: $(grep '^version' pyproject.toml)"
 
+# Also bump gptme-acp shim to keep it in sync with main package
+sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" packages/gptme-acp/pyproject.toml
+echo "Updated packages/gptme-acp/pyproject.toml: $(grep '^version' packages/gptme-acp/pyproject.toml)"
+
 # Commit and tag
-git add pyproject.toml
+git add pyproject.toml packages/gptme-acp/pyproject.toml
 git commit -m "chore: bump version to ${NEW_VERSION}"
 git tag "$TAG"
 echo "Created commit and tag: $TAG"
