@@ -77,3 +77,4 @@ scripts/changelog_contributors_twitter.csv
 
 # Keep the compose example env template tracked
 !.env.example
+state/
