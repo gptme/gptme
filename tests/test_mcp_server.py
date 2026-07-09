@@ -189,8 +189,8 @@ class TestMCPServerHandlers:
         result = await server_with_mock_tools._server.request_handlers[
             types.ListToolsRequest
         ](req)
-        assert result.root.tools  # type: ignore[attr-defined]
-        tool_names = [t.name for t in result.root.tools]  # type: ignore[attr-defined]
+        assert result.root.tools  # type: ignore[union-attr]
+        tool_names = [t.name for t in result.root.tools]  # type: ignore[union-attr]
         assert "shell" in tool_names
 
     @pytest.mark.asyncio
@@ -208,7 +208,7 @@ class TestMCPServerHandlers:
 
         req = types.ListToolsRequest(method="tools/list", params=None)
         result = await server._server.request_handlers[types.ListToolsRequest](req)
-        tool_names = [t.name for t in result.root.tools]  # type: ignore[attr-defined]
+        tool_names = [t.name for t in result.root.tools]  # type: ignore[union-attr]
         assert "noexec" not in tool_names
 
     @pytest.mark.asyncio
@@ -226,10 +226,10 @@ class TestMCPServerHandlers:
             types.CallToolRequest
         ](req)
         # MCP wraps handler exceptions into an isError=True CallToolResult
-        assert result.root.isError is True  # type: ignore[attr-defined]
+        assert result.root.isError is True  # type: ignore[union-attr]
         assert any(
             "nonexistent" in c.text
-            for c in result.root.content  # type: ignore[attr-defined]
+            for c in result.root.content  # type: ignore[union-attr]
             if hasattr(c, "text")
         )
 
@@ -266,7 +266,7 @@ class TestMCPServerHandlers:
             types.CallToolRequest
         ](req)
 
-        content = result.root.content  # type: ignore[attr-defined]
+        content = result.root.content  # type: ignore[union-attr]
         assert any("hello from tool" in c.text for c in content if hasattr(c, "text"))
 
 
