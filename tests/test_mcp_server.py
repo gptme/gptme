@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+pytest.importorskip("mcp", reason="mcp extra not installed")
+
 from gptme.mcp.server import (
     _EXCLUDED_TOOLS,
     DEFAULT_TOOLS,
