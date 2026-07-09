@@ -13,6 +13,7 @@ import os
 import types
 import unittest
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 from gptme.tools.computer_transport import (
@@ -600,7 +601,9 @@ class TestDispatchTransportClickCoordinateForwarding(unittest.TestCase):
                 stub.mouse_move = MagicMock()  # type: ignore[method-assign]
                 setattr(stub, action, MagicMock())
 
-                _dispatch_transport(stub, action, coordinate=(50, 75))  # type: ignore[arg-type]
+                from gptme.tools.computer import Action
+
+                _dispatch_transport(stub, cast(Action, action), coordinate=(50, 75))
 
                 stub.mouse_move.assert_called_once_with(50, 75)
                 getattr(stub, action).assert_called_once()

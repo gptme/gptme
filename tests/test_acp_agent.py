@@ -35,7 +35,7 @@ def _mock_permission_response(option_id: str | None = None, cancelled: bool = Fa
         cancelled: If True, return a denied/cancelled response
     """
     try:
-        from acp.schema import (  # type: ignore[import-not-found]
+        from acp.schema import (
             AllowedOutcome,
             DeniedOutcome,
             RequestPermissionResponse,
@@ -720,7 +720,7 @@ class TestSendAvailableCommands:
     @pytest.mark.skipif(not _import_acp(), reason="requires acp package")
     def test_command_names_have_no_slash_prefix(self):
         """Command names must not have a '/' prefix — the ACP client (Zed) adds it."""
-        from acp.schema import AvailableCommand  # type: ignore[import-not-found]
+        from acp.schema import AvailableCommand
 
         agent = _make_agent_with_conn()
         _run(agent._send_available_commands("session_1"))

@@ -563,9 +563,9 @@ def test_reinit_preserves_existing_base_url(monkeypatch):
     import gptme.llm.llm_openai as llm_openai
 
     llm_openai.clients.clear()
-    llm_openai.clients["openrouter"] = SimpleNamespace(
+    llm_openai.clients["openrouter"] = SimpleNamespace(  # type: ignore[assignment]
         base_url="https://openrouter.ai/api/v1"
-    )  # type: ignore[assignment]
+    )
 
     captured: dict[str, str | None] = {}
 
@@ -2139,7 +2139,7 @@ class TestExtraBody:
     """Tests for OpenRouter extra_body provider routing preferences."""
 
     @staticmethod
-    def _make_model(model: str, **kwargs):  # type: ignore[no-untyped-def]
+    def _make_model(model: str, **kwargs):
         from gptme.llm.models.types import ModelMeta
 
         return ModelMeta(

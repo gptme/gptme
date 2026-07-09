@@ -11,6 +11,7 @@ import json
 import textwrap
 from datetime import datetime, timezone
 from pathlib import Path  # noqa: TC003 — used at runtime in _write_conv_jsonl
+from typing import Literal
 
 from click.testing import CliRunner
 
@@ -26,9 +27,9 @@ from gptme.message import Message
 # ---------------------------------------------------------------------------
 
 
-def _msg(role: str, content: str) -> Message:
+def _msg(role: Literal["system", "user", "assistant"], content: str) -> Message:
     ts = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
-    return Message(role=role, content=content, timestamp=ts)  # type: ignore[arg-type,call-arg]
+    return Message(role=role, content=content, timestamp=ts)
 
 
 def _ipython_block(code: str) -> str:

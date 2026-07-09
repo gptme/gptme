@@ -18,7 +18,7 @@ def _msg(role: Role, content: str = "hello", ttl: int | None = None) -> Message:
         content,
         timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
         ephemeral_ttl=ttl,
-    )  # type: ignore[call-arg]
+    )
 
 
 def _assert_no_consecutive_same_role(msgs: list[Message]) -> None:

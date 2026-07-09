@@ -77,7 +77,7 @@ class TestMinimalClient:
     # -- request_permission ---------------------------------------------------
 
     def test_request_permission_auto_confirm_true(self):
-        from acp.schema import (  # type: ignore[import-not-found]
+        from acp.schema import (
             AllowedOutcome,
             PermissionOption,
             RequestPermissionResponse,
@@ -102,7 +102,7 @@ class TestMinimalClient:
         assert resp.outcome.option_id == "opt-allow"
 
     def test_request_permission_auto_confirm_false(self):
-        from acp.schema import (  # type: ignore[import-not-found]
+        from acp.schema import (
             DeniedOutcome,
             RequestPermissionResponse,
         )
@@ -120,7 +120,7 @@ class TestMinimalClient:
 
     def test_request_permission_no_options(self):
         """With no options, client should still return an AllowedOutcome."""
-        from acp.schema import (  # type: ignore[import-not-found]
+        from acp.schema import (
             AllowedOutcome,
             RequestPermissionResponse,
         )

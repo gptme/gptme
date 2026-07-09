@@ -1544,7 +1544,7 @@ def api_conversation_put(conversation_id: str):
                 shutil.rmtree(logdir, ignore_errors=True)
                 return validated_files
             file_paths = validated_files
-        msgs.append(Message(role, content, timestamp=timestamp, files=file_paths))  # type: ignore[arg-type]  # list[Path] is valid for list[FilePath]
+        msgs.append(Message(role, content, timestamp=timestamp, files=file_paths))
 
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
     log.write()
@@ -1659,7 +1659,7 @@ def api_conversation_post(conversation_id: str):
     msg = Message(
         req_json["role"],
         req_json["content"],
-        files=file_paths,  # type: ignore[arg-type]  # list[Path] is valid for list[FilePath]
+        files=file_paths,
     )
 
     # Check if the message is a slash command (e.g. /help, /model, /tools)

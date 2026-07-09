@@ -502,8 +502,8 @@ class TestBrowserThreadSessionContext:
         reconnected browser, never leaving a stale one bound to the dead conn."""
         mock_pw, _ = mock_playwright
         browser1, browser2 = MagicMock(name="browser1"), MagicMock(name="browser2")
-        ctx1 = browser1.new_context.return_value
-        ctx2 = browser2.new_context.return_value
+        ctx1: MagicMock = browser1.new_context.return_value
+        ctx2: MagicMock = browser2.new_context.return_value
         mock_pw.chromium.connect_over_cdp.side_effect = [browser1, browser2]
 
         bt = BrowserThread(cdp_url="http://127.0.0.1:9222")
@@ -521,7 +521,7 @@ class TestBrowserThreadSessionContext:
 
             assert bt.execute(flaky) == "ok"
             # Stale context closed; fresh one created on the reconnected browser.
-            ctx1.close.assert_called_once()  # type: ignore[union-attr]
+            ctx1.close.assert_called_once()
             assert bt._session_context is ctx2
         finally:
             bt.stop()

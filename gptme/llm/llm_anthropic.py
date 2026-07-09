@@ -734,7 +734,7 @@ def chat(
 
     _temperature = temperature if temperature is not None else TEMPERATURE
     _top_p = top_p if top_p is not None else TOP_P
-    response = client.messages.create(  # type: ignore[call-overload, misc]
+    response = client.messages.create(  # type: ignore[call-overload]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
@@ -838,7 +838,7 @@ def stream(
 
     _temperature = temperature if temperature is not None else TEMPERATURE
     _top_p = top_p if top_p is not None else TOP_P
-    with client.messages.stream(  # type: ignore[call-arg, misc]
+    with client.messages.stream(  # type: ignore[call-arg]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,

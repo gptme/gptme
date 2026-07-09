@@ -12,7 +12,7 @@ iframe panel.
 """
 
 import logging
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlparse
 
 import flask
@@ -243,17 +243,19 @@ def _build_live_app_panel(
     url = str(hint.get("url", ""))
     sandbox = _resolve_sandbox(hint.get("sandbox"))
 
-    valid_statuses = {"loading", "running", "stopped", "error", "unavailable"}
-    status: str = hint.get("status", "loading")
-    if status not in valid_statuses:
-        status = "loading"
+    _valid_statuses = {"loading", "running", "stopped", "error", "unavailable"}
+    _raw_status: str = hint.get("status", "loading")
+    status = cast(
+        Literal["loading", "running", "stopped", "error", "unavailable"],
+        _raw_status if _raw_status in _valid_statuses else "loading",
+    )
 
     return LiveAppPanelOut(
         id=panel_id,
         kind="live_app",
         title=title,
         url=url.strip(),
-        status=status,  # type: ignore
+        status=status,
         status_message=str(hint["status_message"])
         if isinstance(hint.get("status_message"), str)
         else None,

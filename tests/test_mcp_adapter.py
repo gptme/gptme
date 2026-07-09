@@ -377,7 +377,7 @@ try:
 
     if hasattr(_mcp_types, "ElicitRequestFormParams"):
         _has_mcp_elicitation = True
-        _ElicitFormParams = _mcp_types.ElicitRequestFormParams  # type: ignore[attr-defined]
+        _ElicitFormParams = _mcp_types.ElicitRequestFormParams
 except ImportError:
     pass
 

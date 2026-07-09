@@ -1103,7 +1103,7 @@ def test_derive_test_sets_import_failure(monkeypatch):
     sys.modules.pop("gptme.eval.suites", None)
 
     with (
-        patch.dict(sys.modules, {"gptme.eval.suites": None}),  # type: ignore[dict-item]
+        patch.dict(sys.modules, {"gptme.eval.suites": None}),
         patch.object(lb.logger, "warning") as mock_warn,
     ):
         basic, practical = lb._derive_test_sets()

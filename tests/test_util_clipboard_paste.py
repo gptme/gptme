@@ -26,7 +26,7 @@ class TestPasteImage:
                     return None
                 return None
 
-            cb.paste_image = _paste_image_no_pil  # type: ignore
+            cb.paste_image = _paste_image_no_pil
             try:
                 result = cb.paste_image()
                 assert result is None

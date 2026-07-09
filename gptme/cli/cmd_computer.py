@@ -8,15 +8,16 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import click
 
 # Optional Playwright import — present only when the browser extra is installed.
 # Defined at module level so tests can patch `gptme.cli.cmd_computer.sync_playwright`.
 try:
-    from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+    from playwright.sync_api import sync_playwright
 except ImportError:  # pragma: no cover
-    sync_playwright = None  # type: ignore[assignment]
+    sync_playwright = cast(Any, None)
 
 from ..dirs import get_logs_dir
 from ..logmanager import _gen_read_jsonl
@@ -1447,7 +1448,7 @@ def doctor_cmd(display: str | None):
 
         # AT-SPI (optional — needed for accessibility_tree action)
         try:
-            import pyatspi  # type: ignore[import-not-found]  # noqa: F401
+            import pyatspi  # noqa: F401
 
             _check("pyatspi installed (AT-SPI accessibility tree)", ok=True)
         except ImportError:
@@ -1530,7 +1531,7 @@ def doctor_cmd(display: str | None):
     click.echo("Browser (Playwright):")
     try:
         from playwright.sync_api import (
-            sync_playwright,  # type: ignore[import-not-found]
+            sync_playwright,
         )
 
         _check("playwright package installed", ok=True)

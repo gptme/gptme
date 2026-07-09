@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -63,7 +63,7 @@ def test_load_browser_state_sets_override(tmp_path, monkeypatch):
         lambda: closed.append(True),
     )
 
-    result = _do_load_browser_state(None, str(state_file))  # type: ignore[arg-type]
+    result = _do_load_browser_state(None, str(state_file))
 
     assert _bt._override_storage_state == state_file
     assert "open_page" in result  # message tells user what to do next
@@ -80,7 +80,7 @@ def test_load_browser_state_missing_file_raises(tmp_path, monkeypatch):
 
     missing = tmp_path / "does-not-exist.json"
     with pytest.raises(FileNotFoundError) as exc_info:
-        _do_load_browser_state(None, str(missing))  # type: ignore[arg-type]
+        _do_load_browser_state(None, str(missing))
     assert "does-not-exist.json" in str(exc_info.value)
     assert "save_browser_state" in str(exc_info.value)
 
@@ -98,7 +98,7 @@ def test_load_browser_state_expands_tilde(tmp_path, monkeypatch):
         "gptme.tools._browser_playwright._close_current_page", lambda: None
     )
 
-    _do_load_browser_state(None, "~/session.json")  # type: ignore[arg-type]
+    _do_load_browser_state(None, "~/session.json")
 
     assert _bt._override_storage_state == tmp_path / "session.json"
 
@@ -172,7 +172,7 @@ def test_load_browser_state_closes_current_page(tmp_path, monkeypatch):
         lambda: close_calls.append(True),
     )
 
-    _do_load_browser_state(None, str(state_file))  # type: ignore[arg-type]
+    _do_load_browser_state(None, str(state_file))
 
     assert close_calls == [True], "expected exactly one close_current_page() call"
 
@@ -207,7 +207,7 @@ def test_load_browser_state_refreshes_cdp_session_context(tmp_path, monkeypatch)
     state_file = _make_state_file(tmp_path)
     old_context = FakeContext()
     thread = FakeBrowserThread(old_context)
-    fake_browser = FakeBrowser()
+    fake_browser: Any = FakeBrowser()
     close_calls: list[bool] = []
 
     monkeypatch.setattr(browser_pw, "_browser", thread)
@@ -215,7 +215,7 @@ def test_load_browser_state_refreshes_cdp_session_context(tmp_path, monkeypatch)
         browser_pw, "_close_current_page", lambda: close_calls.append(True)
     )
 
-    result = browser_pw._do_load_browser_state(fake_browser, str(state_file))  # type: ignore[arg-type]
+    result = browser_pw._do_load_browser_state(fake_browser, str(state_file))
 
     assert close_calls == [True]
     assert old_context.closed
@@ -247,7 +247,7 @@ def test_save_and_load_round_trip(tmp_path, monkeypatch):
         "gptme.tools._browser_playwright._close_current_page", lambda: None
     )
 
-    _do_load_browser_state(None, str(state_file))  # type: ignore[arg-type]
+    _do_load_browser_state(None, str(state_file))
 
     # The override should point at the same file we started with
     assert _bt._override_storage_state is not None

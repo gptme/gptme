@@ -326,7 +326,7 @@ class TestListSessionsSorting:
             def to_dict(self) -> dict:
                 return self._d
 
-        provider._read_transcript = lambda p: _FakeTranscript(transcripts[str(p)])  # type: ignore[assignment]
+        provider._read_transcript = lambda p: _FakeTranscript(transcripts[str(p)])
 
         items = provider.list_sessions(limit=10, days=30)
         assert [i.session_id for i in items] == ["new", "mid", "old"]
@@ -351,7 +351,7 @@ class TestListSessionsSorting:
                     "last_activity": "2026-04-07T00:00:00+00:00",
                 }
 
-        provider._read_transcript = lambda p: _FakeTranscript(p)  # type: ignore[assignment]
+        provider._read_transcript = lambda p: _FakeTranscript(p)
 
         items = provider.list_sessions(limit=2, days=30)
         assert len(items) == 2
@@ -387,7 +387,7 @@ class TestListSessionsSorting:
             def to_dict(self) -> dict:
                 return self._d
 
-        provider._read_transcript = lambda p: _FakeTranscript(transcripts[str(p)])  # type: ignore[assignment]
+        provider._read_transcript = lambda p: _FakeTranscript(transcripts[str(p)])
 
         items = provider.list_sessions(limit=10, days=30)
         # "without" has started_at=Apr 6, "with" has last_activity=Apr 5
