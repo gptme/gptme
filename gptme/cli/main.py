@@ -1331,9 +1331,12 @@ def main(
     finally:
         shutdown_telemetry()
         if get_config().get_env_bool("GPTME_EXIT_STATS"):
-            from ..util.cost import print_exit_stats
+            try:
+                from ..util.cost import print_exit_stats
 
-            print_exit_stats()
+                print_exit_stats()
+            except Exception:
+                pass
 
 
 def pick_log(limit=20) -> Path:  # pragma: no cover
