@@ -220,7 +220,7 @@ def capture_webui_screenshots(
             print(f"  Capturing screenshot: {name}")
 
             context = browser.new_context(
-                viewport=viewport,  # type: ignore[arg-type]
+                viewport=viewport,
                 device_scale_factor=2,  # Retina quality
             )
             page = context.new_page()

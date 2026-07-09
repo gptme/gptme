@@ -32,7 +32,7 @@ def tot():
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules.setdefault("treeofthoughts", mod)
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    spec.loader.exec_module(mod)
     return mod
 
 

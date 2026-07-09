@@ -908,7 +908,7 @@ def test_health_check_cleans_dead_subprocess(monkeypatch, tmp_path):
     runtime = rt_mod.AcpSessionRuntime(workspace=tmp_path)
 
     # Mock client with dead process
-    runtime._client = type(  # type: ignore[assignment]
+    runtime._client = type(
         "C",
         (),
         {"_process": type("P", (), {"pid": 99, "poll": lambda self: 1})()},
@@ -944,7 +944,7 @@ def test_health_check_skips_generating_sessions(monkeypatch, tmp_path):
     runtime = rt_mod.AcpSessionRuntime(workspace=tmp_path)
 
     # Even with dead process, should not be cleaned while generating
-    runtime._client = type(  # type: ignore[assignment]
+    runtime._client = type(
         "C",
         (),
         {"_process": type("P", (), {"pid": 88, "poll": lambda self: 1})()},

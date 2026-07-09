@@ -700,7 +700,7 @@ def test_external_session_provider_get_session_searches_beyond_list_limit():
                 "messages": [{"role": "user", "content": "hello"}],
             }
 
-    provider._read_transcript = lambda path: _Transcript()  # type: ignore[assignment]
+    provider._read_transcript = lambda path: _Transcript()
 
     result = provider.get_session(_make_external_session_id(str(late_path)), days=30)
 
@@ -740,7 +740,7 @@ def test_external_session_provider_list_sessions_skips_unreadable_transcripts():
             raise ValueError("broken transcript")
         return _Transcript(path)
 
-    provider._read_transcript = _read_transcript  # type: ignore[assignment]
+    provider._read_transcript = _read_transcript
 
     result = provider.list_sessions(limit=10, days=30)
 
@@ -762,7 +762,7 @@ def test_external_session_provider_get_session_skips_unreadable_matching_transcr
     def _read_transcript(path: Path) -> Any:
         raise ValueError(f"cannot read {path}")
 
-    provider._read_transcript = _read_transcript  # type: ignore[assignment]
+    provider._read_transcript = _read_transcript
 
     result = provider.get_session(_make_external_session_id(str(bad_path)), days=30)
 
@@ -1026,7 +1026,7 @@ def test_external_session_list_then_get_roundtrip(client: FlaskClient, monkeypat
                 "messages": [{"role": "user", "content": "hello"}],
             }
 
-    provider._read_transcript = lambda path: _Transcript()  # type: ignore[assignment]
+    provider._read_transcript = lambda path: _Transcript()
     monkeypatch.setattr(
         "gptme.server.api_v2.get_external_session_provider", lambda: provider
     )
@@ -1085,16 +1085,16 @@ def test_external_session_gptme_directory_roundtrip(tmp_path: Path):
 
     provider = ExternalSessionProvider.__new__(ExternalSessionProvider)
     # Simulate discover_gptme_sessions returning directory paths
-    provider._discover_gptme_sessions = lambda start, end: [session_dir]  # type: ignore[attr-defined]
-    provider._discover_cc_sessions = lambda start, end: []  # type: ignore[attr-defined]
-    provider._discover_codex_sessions = lambda start, end: []  # type: ignore[attr-defined]
-    provider._discover_copilot_sessions = lambda start, end: []  # type: ignore[attr-defined]
+    provider._discover_gptme_sessions = lambda start, end: [session_dir]
+    provider._discover_cc_sessions = lambda start, end: []
+    provider._discover_codex_sessions = lambda start, end: []
+    provider._discover_copilot_sessions = lambda start, end: []
 
-    from gptme_sessions.transcript import (  # type: ignore[import-not-found]
+    from gptme_sessions.transcript import (
         read_transcript,
     )
 
-    provider._read_transcript = read_transcript  # type: ignore[assignment]
+    provider._read_transcript = read_transcript
 
     # List: should succeed (not IsADirectoryError) and return a session
     items = provider.list_sessions(limit=10, days=7)
@@ -1123,16 +1123,16 @@ def test_external_session_gptme_directory_no_jsonl_skipped(tmp_path: Path):
     session_dir.mkdir()
 
     provider = ExternalSessionProvider.__new__(ExternalSessionProvider)
-    provider._discover_gptme_sessions = lambda start, end: [session_dir]  # type: ignore[attr-defined]
-    provider._discover_cc_sessions = lambda start, end: []  # type: ignore[attr-defined]
-    provider._discover_codex_sessions = lambda start, end: []  # type: ignore[attr-defined]
-    provider._discover_copilot_sessions = lambda start, end: []  # type: ignore[attr-defined]
+    provider._discover_gptme_sessions = lambda start, end: [session_dir]
+    provider._discover_cc_sessions = lambda start, end: []
+    provider._discover_codex_sessions = lambda start, end: []
+    provider._discover_copilot_sessions = lambda start, end: []
 
-    from gptme_sessions.transcript import (  # type: ignore[import-not-found]
+    from gptme_sessions.transcript import (
         read_transcript,
     )
 
-    provider._read_transcript = read_transcript  # type: ignore[assignment]
+    provider._read_transcript = read_transcript
 
     # Should return 0 items — the directory is skipped early, not propagated as an error
     items = provider.list_sessions(limit=10, days=7)
@@ -1213,7 +1213,7 @@ def test_v2_server_health_yellow(client: FlaskClient, monkeypatch):
     # Verify generating slot has elapsed time
     gen_slot = next(s for s in data["slots"] if s["generating"])
     assert gen_slot["elapsed_seconds"] is not None
-    assert gen_slot["elapsed_seconds"] >= 0  # type: ignore[operator]
+    assert gen_slot["elapsed_seconds"] >= 0
 
 
 def test_v2_server_health_red(client: FlaskClient, monkeypatch):

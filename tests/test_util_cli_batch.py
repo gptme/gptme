@@ -195,13 +195,13 @@ def test_summarize_child_output_reports_error_tail():
 
 def test_usage_tokens_handles_missing_usage():
     """Usage key=None should return 0 tokens."""
-    assert cmd_batch._usage_tokens({"usage": None}) == 0  # type: ignore[arg-type]
+    assert cmd_batch._usage_tokens({"usage": None}) == 0
     assert cmd_batch._usage_tokens({}) == 0
 
 
 def test_usage_tokens_handles_non_int_values():
     """Non-int token values should be skipped."""
-    record = {"usage": {"input_tokens": "10", "output_tokens": 5}}  # type: ignore[dict-item]
+    record = {"usage": {"input_tokens": "10", "output_tokens": 5}}
     assert cmd_batch._usage_tokens(record) == 5
 
 

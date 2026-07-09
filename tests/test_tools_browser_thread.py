@@ -521,7 +521,7 @@ class TestBrowserThreadSessionContext:
 
             assert bt.execute(flaky) == "ok"
             # Stale context closed; fresh one created on the reconnected browser.
-            ctx1.close.assert_called_once()  # type: ignore[union-attr]
+            ctx1.close.assert_called_once()
             assert bt._session_context is ctx2
         finally:
             bt.stop()

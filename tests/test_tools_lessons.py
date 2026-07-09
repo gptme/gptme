@@ -233,7 +233,7 @@ class TestExtractRecentTools:
             Codeblock(lang="recent_tool", content="c")
         ]
         log: list = old_msgs + [recent]
-        result = _extract_recent_tools(log, limit=1)  # type: ignore[arg-type]
+        result = _extract_recent_tools(log, limit=1)
         assert "recent_tool" in result
 
     def test_extracts_tool_name_only(self):

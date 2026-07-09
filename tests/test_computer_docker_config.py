@@ -146,7 +146,7 @@ def _parse_compose(path: Path) -> dict:
     """Parse docker-compose.yml without requiring PyYAML — uses a minimal regex approach
     for the specific checks we need, falling back to yaml if available."""
     try:
-        import yaml  # type: ignore[import-untyped]
+        import yaml
 
         return yaml.safe_load(path.read_text())
     except ImportError:

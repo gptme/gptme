@@ -175,7 +175,7 @@ def test_trigger_hook_filters_unknown_kwargs_for_legacy_hooks():
         calls.append((manager, interactive, prompt_queue))
         yield Message("system", "legacy hook ran")
 
-    register_hook(  # type: ignore[call-overload]
+    register_hook(
         "legacy_loop",
         HookType.LOOP_CONTINUE,
         legacy_loop_hook,

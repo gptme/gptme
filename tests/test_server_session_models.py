@@ -215,14 +215,14 @@ class TestConversationSession:
         """Two sessions do not share the same events list."""
         s1 = SessionManager.create_session("conv-1")
         s2 = SessionManager.create_session("conv-2")
-        s1.events.append({"type": "ping"})  # type: ignore[arg-type]
+        s1.events.append({"type": "ping"})
         assert s2.events == []
 
     def test_events_count_matches_len_initially(self):
         """events_count equals len(events) when no trimming has occurred."""
         session = SessionManager.create_session("conv-1")
         for _i in range(5):
-            session.events.append({"type": "ping"})  # type: ignore[arg-type]
+            session.events.append({"type": "ping"})
         assert session.events_count == 5
         assert session.events_count == len(session.events)
 
@@ -738,7 +738,7 @@ class TestSessionManagerThreadSafety:
                 try:
                     SessionManager.add_event(
                         "event-conv",
-                        {"type": "error", "error": f"e{i}"},  # type: ignore[arg-type]
+                        {"type": "error", "error": f"e{i}"},
                     )
                 except Exception as e:
                     errors.append(e)
