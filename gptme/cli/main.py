@@ -31,7 +31,7 @@ import gptme
 
 from ..chat import chat
 from ..commands import _gen_help
-from ..config import ensure_workspace_dir, setup_config_from_cli
+from ..config import ensure_workspace_dir, get_config, setup_config_from_cli
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
 from ..init import init_logging
@@ -1330,7 +1330,7 @@ def main(
         sys.exit(1)
     finally:
         shutdown_telemetry()
-        if os.getenv("GPTME_EXIT_STATS"):
+        if get_config().get_env_bool("GPTME_EXIT_STATS"):
             from ..util.cost import print_exit_stats
 
             print_exit_stats()
