@@ -1678,7 +1678,28 @@ def _demo_tweet_url() -> str:
     "--text",
     default="Hello from gptme!",
     show_default=True,
-    help="Tweet text to type into the compose box.",
+    help="Tweet text to type into the compose box (tweet milestone only).",
+)
+@click.option(
+    "--milestone",
+    "milestone",
+    type=click.Choice(["tweet", "factorio", "doom"], case_sensitive=False),
+    default=None,
+    show_default=False,
+    help=(
+        "Which issue #216 milestone to demonstrate: "
+        "'tweet' (fill+submit form), "
+        "'factorio' (gather ore → craft iron plate), "
+        "'doom' (keyboard-driven game loop). "
+        "Defaults to 'tweet'. Mutually exclusive with --all."
+    ),
+)
+@click.option(
+    "--all",
+    "run_all",
+    is_flag=True,
+    default=False,
+    help="Run all three milestone demos in sequence (tweet, factorio, doom).",
 )
 @click.option(
     "--json",
@@ -1687,31 +1708,58 @@ def _demo_tweet_url() -> str:
     default=False,
     help="Output result as JSON.",
 )
-def demo_cmd(text: str, as_json: bool):
+def demo_cmd(text: str, milestone: str | None, run_all: bool, as_json: bool):
     """Run a self-contained end-to-end demo of the browser automation pipeline.
 
-    Opens a local HTML fixture that mimics the Twitter/X compose UI (same
-    ``data-testid`` selectors as the real page), types a tweet, clicks the
+    Without ``--milestone`` / ``--all``, runs the default "Can it Tweet?"
+    milestone: opens a local HTML fixture that mimics the Twitter/X compose UI
+    (same ``data-testid`` selectors as the real page), types a tweet, clicks the
     submit button, and verifies that the DOM updated — all without an LLM or
     network access.
 
-    This is the tool-layer equivalent of the "Can it Tweet?" milestone from
-    gptme/gptme#216.  If the demo passes, the full
-    ``open_page → fill_element → click_element → read_page_text`` pipeline is
-    working and ready for a live gptme computer-use session.
+    Use ``--milestone factorio`` to verify the gather-and-craft loop (issue #216
+    "Can it play Factorio?" milestone): clicks three iron ore nodes and the craft
+    button, then reads the success marker from the DOM.
+
+    Use ``--milestone doom`` to verify keyboard-driven game control (issue #216
+    "Can it play Doom?" milestone): sends an arrow-key sequence and the Space bar
+    to defeat an enemy in a 1-D shooter fixture, then reads the success marker.
+
+    Use ``--all`` to run tweet → factorio → doom in sequence and report a combined
+    pass/fail.  Exit code is 0 only when all milestones pass.
+
+    If any demo passes, the corresponding browser-automation pipeline is working
+    and ready for a live gptme computer-use session.
 
     Examples::
 
-        # Run the demo (exit 0 = pass, exit 1 = fail)
+        # Run the tweet demo (exit 0 = pass, exit 1 = fail)
         gptme-util computer demo
+
+        # Run the Factorio milestone demo
+        gptme-util computer demo --milestone factorio
+
+        # Run the Doom milestone demo
+        gptme-util computer demo --milestone doom
+
+        # Verify all three milestones in one command
+        gptme-util computer demo --all
 
         # Custom tweet text
         gptme-util computer demo --text "Shipped it!"
 
         # Machine-readable output for scripting
         gptme-util computer demo --json
+        gptme-util computer demo --all --json
     """
     import time
+
+    if run_all and milestone is not None:
+        raise click.UsageError(
+            "--all and --milestone are mutually exclusive; use one or the other."
+        )
+    if milestone is None:
+        milestone = "tweet"
 
     # sync_playwright is imported at module level; None when playwright is absent.
     if sync_playwright is None:
@@ -1736,8 +1784,82 @@ def demo_cmd(text: str, as_json: bool):
             click.echo(f"✗ {msg}", err=True)
         raise SystemExit(1)
 
-    steps: list[dict] = []
+    milestones_to_run = ["tweet", "factorio", "doom"] if run_all else [milestone]
     overall_t0 = time.perf_counter()
+    all_results: list[dict] = []
+
+    for ms in milestones_to_run:
+        if not as_json:
+            label = {
+                "tweet": "tweet-compose fixture  (Can it Tweet? — gptme/gptme#216)",
+                "factorio": "factorio fixture       (Can it play Factorio? — gptme/gptme#216)",
+                "doom": "doom fixture           (Can it play Doom? — gptme/gptme#216)",
+            }[ms]
+            if len(milestones_to_run) > 1:
+                click.echo(f"\nMilestone: {label}")
+            else:
+                click.echo(f"Computer-use browser demo ({label})\n")
+
+        result = _run_milestone_demo(ms, text=text, as_json=as_json)
+        all_results.append(result)
+
+        if not as_json and len(milestones_to_run) > 1:
+            _print_finish(
+                result["steps"], result["total_ms"], result["status"] != "pass"
+            )
+
+    total_ms = round((time.perf_counter() - overall_t0) * 1000)
+    any_failed = any(r["status"] != "pass" for r in all_results)
+
+    if as_json:
+        if len(milestones_to_run) == 1:
+            click.echo(json.dumps(all_results[0], indent=2))
+        else:
+            click.echo(
+                json.dumps(
+                    {
+                        "status": "fail" if any_failed else "pass",
+                        "total_ms": total_ms,
+                        "milestones": all_results,
+                    },
+                    indent=2,
+                )
+            )
+    elif len(milestones_to_run) == 1:
+        _print_finish(all_results[0]["steps"], all_results[0]["total_ms"], any_failed)
+    else:
+        click.echo("")
+        n_pass = sum(1 for r in all_results if r["status"] == "pass")
+        n_total = len(all_results)
+        if any_failed:
+            click.echo(
+                click.style(
+                    f"✗  {n_pass}/{n_total} milestone(s) passed in {total_ms} ms.",
+                    fg="red",
+                )
+                + "  Check the steps above."
+            )
+        else:
+            click.echo(
+                click.style(
+                    f"✅  All {n_total} milestones passed in {total_ms} ms.",
+                    fg="green",
+                )
+                + "  The browser automation pipeline is working end-to-end."
+            )
+
+    if any_failed:
+        raise SystemExit(1)
+
+
+def _run_milestone_demo(
+    milestone: str, *, text: str = "Hello from gptme!", as_json: bool = False
+) -> dict:
+    """Run a single milestone demo and return a result dict with steps/status/total_ms."""
+    import time
+
+    steps: list[dict] = []
+    t_start = time.perf_counter()
 
     def _step(name: str, ok: bool, elapsed_ms: float, detail: str = "") -> None:
         steps.append(
@@ -1748,10 +1870,18 @@ def demo_cmd(text: str, as_json: bool):
             detail_str = f"  ({detail})" if detail else ""
             click.echo(f"  {icon}  {name}{detail_str}  [{elapsed_ms:.0f} ms]")
 
-    if not as_json:
-        click.echo("Computer-use browser demo (tweet-compose fixture)\n")
+    def _fail(msg: str = "") -> dict:
+        if msg and not as_json:
+            click.echo(f"  {_FAIL}  {msg}")
+        total_ms = round((time.perf_counter() - t_start) * 1000)
+        return {
+            "milestone": milestone,
+            "status": "fail",
+            "total_ms": total_ms,
+            "steps": steps,
+        }
 
-    fixture_url = _demo_tweet_url()
+    assert sync_playwright is not None
 
     with sync_playwright() as pw:
         t0 = time.perf_counter()
@@ -1761,146 +1891,344 @@ def demo_cmd(text: str, as_json: bool):
             page = context.new_page()
             _step("launch browser", True, (time.perf_counter() - t0) * 1000)
         except Exception as exc:
-            elapsed = (time.perf_counter() - t0) * 1000
-            _step("launch browser", False, elapsed, str(exc))
-            _finish(steps, overall_t0, as_json, failed=True)
-            raise SystemExit(1) from None
+            _step("launch browser", False, (time.perf_counter() - t0) * 1000, str(exc))
+            return _fail()
 
-        # Step 1: open_page — load the fixture
-        t0 = time.perf_counter()
         try:
-            page.goto(fixture_url, wait_until="domcontentloaded", timeout=10_000)
-            _step("open_page (load fixture)", True, (time.perf_counter() - t0) * 1000)
+            if milestone == "tweet":
+                failed = _demo_tweet(page, text, _step)
+            elif milestone == "factorio":
+                failed = _demo_factorio(page, _step)
+            elif milestone == "doom":
+                failed = _demo_doom(page, _step)
+            else:
+                failed = True
+                click.echo(f"  {_FAIL}  unknown milestone: {milestone!r}", err=True)
         except Exception as exc:
-            _step(
-                "open_page (load fixture)",
-                False,
-                (time.perf_counter() - t0) * 1000,
-                str(exc),
-            )
+            return _fail(str(exc))
+        finally:
             browser.close()
-            _finish(steps, overall_t0, as_json, failed=True)
-            raise SystemExit(1) from None
 
-        # Step 2: wait_for_element — compose box ready
-        t0 = time.perf_counter()
-        try:
-            page.wait_for_selector('[data-testid="tweetTextarea_0"]', timeout=5_000)
-            _step(
-                'wait_for_element [data-testid="tweetTextarea_0"]',
-                True,
-                (time.perf_counter() - t0) * 1000,
-            )
-        except Exception as exc:
-            _step(
-                'wait_for_element [data-testid="tweetTextarea_0"]',
-                False,
-                (time.perf_counter() - t0) * 1000,
-                str(exc),
-            )
-            browser.close()
-            _finish(steps, overall_t0, as_json, failed=True)
-            raise SystemExit(1) from None
-
-        # Step 3: fill_element — type the tweet text
-        t0 = time.perf_counter()
-        try:
-            el = page.locator('[data-testid="tweetTextarea_0"]')
-            el.click()
-            el.fill(text)
-            actual = el.inner_text()
-            ok_fill = text.strip() in actual
-            _step(
-                "fill_element (type tweet)",
-                ok_fill,
-                (time.perf_counter() - t0) * 1000,
-                f"typed {len(text)} chars",
-            )
-            if not ok_fill:
-                browser.close()
-                _finish(steps, overall_t0, as_json, failed=True)
-                raise SystemExit(1) from None
-        except Exception as exc:
-            _step(
-                "fill_element (type tweet)",
-                False,
-                (time.perf_counter() - t0) * 1000,
-                str(exc),
-            )
-            browser.close()
-            _finish(steps, overall_t0, as_json, failed=True)
-            raise SystemExit(1) from None
-
-        # Step 4: click_element — submit the tweet
-        t0 = time.perf_counter()
-        try:
-            page.locator('[data-testid="tweetButtonInline"]').click()
-            _step(
-                'click_element [data-testid="tweetButtonInline"]',
-                True,
-                (time.perf_counter() - t0) * 1000,
-            )
-        except Exception as exc:
-            _step(
-                'click_element [data-testid="tweetButtonInline"]',
-                False,
-                (time.perf_counter() - t0) * 1000,
-                str(exc),
-            )
-            browser.close()
-            _finish(steps, overall_t0, as_json, failed=True)
-            raise SystemExit(1) from None
-
-        # Step 5: read_page_text — verify the DOM updated
-        t0 = time.perf_counter()
-        try:
-            page_text = page.locator("#status").inner_text(timeout=3_000)
-            ok_verify = page_text.startswith("tweet-posted:")
-            _step(
-                "read_page_text (verify submit)",
-                ok_verify,
-                (time.perf_counter() - t0) * 1000,
-                repr(page_text[:60]) if page_text else "(empty)",
-            )
-        except Exception as exc:
-            _step(
-                "read_page_text (verify submit)",
-                False,
-                (time.perf_counter() - t0) * 1000,
-                str(exc),
-            )
-            browser.close()
-            _finish(steps, overall_t0, as_json, failed=True)
-            raise SystemExit(1) from None
-
-        browser.close()
-
-    failed = any(not s["ok"] for s in steps)
-    _finish(steps, overall_t0, as_json, failed=failed)
-    if failed:
-        raise SystemExit(1)
+    total_ms = round((time.perf_counter() - t_start) * 1000)
+    return {
+        "milestone": milestone,
+        "status": "fail" if failed else "pass",
+        "total_ms": total_ms,
+        "steps": steps,
+    }
 
 
-def _finish(steps: list[dict], t0: float, as_json: bool, failed: bool) -> None:
+def _demo_tweet(page, text: str, _step) -> bool:
+    """Run the tweet-compose milestone demo steps. Returns True on failure."""
     import time
 
-    total_ms = round((time.perf_counter() - t0) * 1000)
-    status = "fail" if failed else "pass"
-    if as_json:
-        click.echo(
-            json.dumps(
-                {"status": status, "total_ms": total_ms, "steps": steps}, indent=2
+    fixture_url = _demo_tweet_url()
+
+    t0 = time.perf_counter()
+    try:
+        page.goto(fixture_url, wait_until="domcontentloaded", timeout=10_000)
+        _step("open_page (load fixture)", True, (time.perf_counter() - t0) * 1000)
+    except Exception as exc:
+        _step(
+            "open_page (load fixture)",
+            False,
+            (time.perf_counter() - t0) * 1000,
+            str(exc),
+        )
+        return True
+
+    t0 = time.perf_counter()
+    try:
+        page.wait_for_selector('[data-testid="tweetTextarea_0"]', timeout=5_000)
+        _step(
+            'wait_for_element [data-testid="tweetTextarea_0"]',
+            True,
+            (time.perf_counter() - t0) * 1000,
+        )
+    except Exception as exc:
+        _step(
+            'wait_for_element [data-testid="tweetTextarea_0"]',
+            False,
+            (time.perf_counter() - t0) * 1000,
+            str(exc),
+        )
+        return True
+
+    t0 = time.perf_counter()
+    try:
+        el = page.locator('[data-testid="tweetTextarea_0"]')
+        el.click()
+        el.fill(text)
+        actual = el.inner_text()
+        ok_fill = text.strip() in actual
+        _step(
+            "fill_element (type tweet)",
+            ok_fill,
+            (time.perf_counter() - t0) * 1000,
+            f"typed {len(text)} chars",
+        )
+        if not ok_fill:
+            return True
+    except Exception as exc:
+        _step(
+            "fill_element (type tweet)",
+            False,
+            (time.perf_counter() - t0) * 1000,
+            str(exc),
+        )
+        return True
+
+    t0 = time.perf_counter()
+    try:
+        page.locator('[data-testid="tweetButtonInline"]').click()
+        _step(
+            'click_element [data-testid="tweetButtonInline"]',
+            True,
+            (time.perf_counter() - t0) * 1000,
+        )
+    except Exception as exc:
+        _step(
+            'click_element [data-testid="tweetButtonInline"]',
+            False,
+            (time.perf_counter() - t0) * 1000,
+            str(exc),
+        )
+        return True
+
+    t0 = time.perf_counter()
+    try:
+        page_text = page.locator("#status").inner_text(timeout=3_000)
+        ok_verify = page_text.startswith("tweet-posted:")
+        _step(
+            "read_page_text (verify submit)",
+            ok_verify,
+            (time.perf_counter() - t0) * 1000,
+            repr(page_text[:60]) if page_text else "(empty)",
+        )
+        return not ok_verify
+    except Exception as exc:
+        _step(
+            "read_page_text (verify submit)",
+            False,
+            (time.perf_counter() - t0) * 1000,
+            str(exc),
+        )
+        return True
+
+
+def _demo_factorio(page, _step) -> bool:
+    """Run the Factorio milestone demo steps. Returns True on failure.
+
+    Simulates the 'Can it play Factorio?' loop from gptme/gptme#216:
+    click three ore nodes (6 ore total) → craft button → verify iron plate produced.
+    Uses the same HTML fixture as the eval suite's computer-use-web-factorio-milestone spec.
+    """
+    import time
+
+    from gptme.eval.suites.computer import _FACTORIO_MILESTONE_FIXTURE_URL
+
+    t0 = time.perf_counter()
+    try:
+        page.goto(
+            _FACTORIO_MILESTONE_FIXTURE_URL,
+            wait_until="domcontentloaded",
+            timeout=10_000,
+        )
+        _step(
+            "open_page (load Factorio fixture)", True, (time.perf_counter() - t0) * 1000
+        )
+    except Exception as exc:
+        _step(
+            "open_page (load Factorio fixture)",
+            False,
+            (time.perf_counter() - t0) * 1000,
+            str(exc),
+        )
+        return True
+
+    # Click all three ore nodes to gather enough iron ore (3 nodes × 2 ore = 6 ore ≥ 5 needed)
+    for i in range(1, 4):
+        t0 = time.perf_counter()
+        selector = f'[data-testid="iron-ore-{i}"]'
+        try:
+            page.locator(selector).click(timeout=3_000)
+            _step(
+                f"click_element (iron-ore-{i})",
+                True,
+                (time.perf_counter() - t0) * 1000,
+                f"ore node {i}/3",
             )
+        except Exception as exc:
+            _step(
+                f"click_element (iron-ore-{i})",
+                False,
+                (time.perf_counter() - t0) * 1000,
+                str(exc),
+            )
+            return True
+
+    # Wait for the craft button to become enabled (needs ≥5 ore)
+    t0 = time.perf_counter()
+    try:
+        page.wait_for_selector(
+            '[data-testid="craft-iron-plate"]:not([disabled])', timeout=3_000
+        )
+        _step(
+            "wait_for_element (craft button enabled)",
+            True,
+            (time.perf_counter() - t0) * 1000,
+        )
+    except Exception as exc:
+        _step(
+            "wait_for_element (craft button enabled)",
+            False,
+            (time.perf_counter() - t0) * 1000,
+            str(exc),
+        )
+        return True
+
+    # Click the craft button
+    t0 = time.perf_counter()
+    try:
+        page.locator('[data-testid="craft-iron-plate"]').click(timeout=3_000)
+        _step(
+            "click_element (craft-iron-plate)", True, (time.perf_counter() - t0) * 1000
+        )
+    except Exception as exc:
+        _step(
+            "click_element (craft-iron-plate)",
+            False,
+            (time.perf_counter() - t0) * 1000,
+            str(exc),
+        )
+        return True
+
+    # Verify the milestone marker appeared
+    t0 = time.perf_counter()
+    try:
+        page_text = page.locator("#status").inner_text(timeout=3_000)
+        ok = (
+            "factorio-milestone:automation-started" in page_text
+            and "iron_plate:1" in page_text
+        )
+        _step(
+            "read_page_text (verify craft)",
+            ok,
+            (time.perf_counter() - t0) * 1000,
+            repr(page_text[:80]) if page_text else "(empty)",
+        )
+        return not ok
+    except Exception as exc:
+        _step(
+            "read_page_text (verify craft)",
+            False,
+            (time.perf_counter() - t0) * 1000,
+            str(exc),
+        )
+        return True
+
+
+def _demo_doom(page, _step) -> bool:
+    """Run the Doom milestone demo steps. Returns True on failure.
+
+    Simulates the 'Can it play Doom?' keyboard loop from gptme/gptme#216:
+    load the 1-D shooter fixture → press Space to fire → verify enemy defeated.
+    Uses the same HTML fixture as the eval suite's computer-use-web-doom-milestone spec.
+
+    The fixture auto-aims: pressing Space from any player position fires toward
+    the enemy, so a single keypress is enough to win.
+    """
+    import time
+
+    from gptme.eval.suites.computer import _DOOM_MILESTONE_FIXTURE_URL
+
+    t0 = time.perf_counter()
+    try:
+        page.goto(
+            _DOOM_MILESTONE_FIXTURE_URL, wait_until="domcontentloaded", timeout=10_000
+        )
+        _step("open_page (load Doom fixture)", True, (time.perf_counter() - t0) * 1000)
+    except Exception as exc:
+        _step(
+            "open_page (load Doom fixture)",
+            False,
+            (time.perf_counter() - t0) * 1000,
+            str(exc),
+        )
+        return True
+
+    # Read initial state
+    t0 = time.perf_counter()
+    try:
+        initial = page.locator("#status").inner_text(timeout=3_000)
+        ok_initial = (
+            "doom-milestone:waiting" in initial and "enemy-alive:true" in initial
+        )
+        _step(
+            "read_page_text (initial state)",
+            ok_initial,
+            (time.perf_counter() - t0) * 1000,
+            repr(initial[:60]),
+        )
+        if not ok_initial:
+            return True
+    except Exception as exc:
+        _step(
+            "read_page_text (initial state)",
+            False,
+            (time.perf_counter() - t0) * 1000,
+            str(exc),
+        )
+        return True
+
+    # Press Space to fire — the fixture auto-aims so one shot is always enough
+    t0 = time.perf_counter()
+    try:
+        page.keyboard.press("Space")
+        _step(
+            "press_key Space (fire)",
+            True,
+            (time.perf_counter() - t0) * 1000,
+            "auto-aim fires toward enemy",
+        )
+    except Exception as exc:
+        _step(
+            "press_key Space (fire)", False, (time.perf_counter() - t0) * 1000, str(exc)
+        )
+        return True
+
+    # Verify the enemy was defeated
+    t0 = time.perf_counter()
+    try:
+        page_text = page.locator("#status").inner_text(timeout=3_000)
+        ok = "doom-milestone:enemy-defeated" in page_text and "score:100" in page_text
+        _step(
+            "read_page_text (verify enemy defeated)",
+            ok,
+            (time.perf_counter() - t0) * 1000,
+            repr(page_text[:80]) if page_text else "(empty)",
+        )
+        return not ok
+    except Exception as exc:
+        _step(
+            "read_page_text (verify enemy defeated)",
+            False,
+            (time.perf_counter() - t0) * 1000,
+            str(exc),
+        )
+        return True
+
+
+def _print_finish(steps: list[dict], total_ms: int, failed: bool) -> None:
+    """Print the final pass/fail line for a single milestone demo."""
+    click.echo("")
+    if failed:
+        click.echo(
+            click.style("✗  Demo failed.", fg="red")
+            + "  Check the steps above and run `gptme-util computer doctor`."
         )
     else:
-        click.echo("")
-        if failed:
-            click.echo(
-                click.style("✗  Demo failed.", fg="red")
-                + "  Check the steps above and run `gptme-util computer doctor`."
-            )
-        else:
-            click.echo(
-                click.style(f"✅  Demo passed in {total_ms} ms.", fg="green")
-                + "  The browser automation pipeline is working end-to-end."
-            )
+        click.echo(
+            click.style(f"✅  Demo passed in {total_ms} ms.", fg="green")
+            + "  The browser automation pipeline is working end-to-end."
+        )
