@@ -1,3 +1,6 @@
+import json
+import sys
+
 from ..message import Message, len_tokens
 from . import console
 
@@ -66,3 +69,28 @@ def log_costs(msgs: list[Message]) -> None:
         if turns > 1:
             cost_msg += f" (session: ${sum(costs):.2f})"
         console.log(cost_msg)
+
+
+def print_exit_stats() -> None:
+    """Print a JSON session cost summary to stderr.
+
+    Uses API-reported token counts from CostTracker (more accurate than the
+    message-length estimates in log_costs). Enable with GPTME_EXIT_STATS=1
+    so harnesses that spawn gptme as a subprocess can parse per-session costs
+    without requiring a full OpenTelemetry stack.
+
+    Output format (one JSON line on stderr)::
+
+        {"session_id": "...", "total_cost": 0.05, "total_input_tokens": 12000,
+         "total_output_tokens": 800, "cache_read_tokens": 9000,
+         "cache_creation_tokens": 3000, "cache_hit_rate": 0.75,
+         "request_count": 5}
+
+    No output if no LLM requests were made in the session.
+    """
+    from .cost_tracker import CostTracker
+
+    summary = CostTracker.get_summary()
+    if summary is None or summary.request_count == 0:
+        return
+    print(json.dumps(summary.to_dict()), file=sys.stderr, flush=True)

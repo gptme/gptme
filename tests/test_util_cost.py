@@ -1,11 +1,13 @@
 """Tests for gptme.util.cost — token counting and cost calculation."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gptme.message import Message
-from gptme.util.cost import _cost, _tokens_inout
+from gptme.util.cost import _cost, _tokens_inout, print_exit_stats
+from gptme.util.cost_tracker import CostEntry, CostTracker
 
 # ──────────────────────────────────────────────
 # _tokens_inout
@@ -141,3 +143,76 @@ class TestCost:
         with patch.object(Message, "cost", return_value=0.0):
             result = _cost(msgs)
         assert result == 0.0
+
+
+# ──────────────────────────────────────────────
+# print_exit_stats
+# ──────────────────────────────────────────────
+
+
+class TestPrintExitStats:
+    @pytest.fixture(autouse=True)
+    def reset_tracker(self):
+        CostTracker.reset()
+        yield
+        CostTracker.reset()
+
+    def test_emits_json_to_stderr(self, capsys):
+        """print_exit_stats writes a JSON cost summary to stderr."""
+        CostTracker.start_session("test-exit")
+        CostTracker.record(
+            CostEntry(
+                timestamp=1.0,
+                model="anthropic/claude-sonnet-4-5",
+                input_tokens=1000,
+                output_tokens=200,
+                cache_read_tokens=800,
+                cache_creation_tokens=300,
+                cost=0.012,
+            )
+        )
+        print_exit_stats()
+        captured = capsys.readouterr()
+        assert captured.out == ""  # nothing on stdout
+        data = json.loads(captured.err)
+        assert data["total_input_tokens"] == 1000
+        assert data["total_output_tokens"] == 200
+        assert data["cache_read_tokens"] == 800
+        assert data["cache_creation_tokens"] == 300
+        assert data["request_count"] == 1
+        assert abs(data["total_cost"] - 0.012) < 1e-9
+
+    def test_silent_when_no_session(self, capsys):
+        """No output when CostTracker has no active session."""
+        print_exit_stats()
+        captured = capsys.readouterr()
+        assert captured.err == ""
+
+    def test_silent_when_no_requests(self, capsys):
+        """No output when session started but no LLM requests were made."""
+        CostTracker.start_session("empty-session")
+        print_exit_stats()
+        captured = capsys.readouterr()
+        assert captured.err == ""
+
+    def test_aggregates_multiple_requests(self, capsys):
+        """Totals across multiple requests are correctly summed."""
+        CostTracker.start_session("multi-request")
+        for i in range(3):
+            CostTracker.record(
+                CostEntry(
+                    timestamp=float(i),
+                    model="test-model",
+                    input_tokens=100,
+                    output_tokens=50,
+                    cache_read_tokens=0,
+                    cache_creation_tokens=0,
+                    cost=0.001,
+                )
+            )
+        print_exit_stats()
+        data = json.loads(capsys.readouterr().err)
+        assert data["request_count"] == 3
+        assert data["total_input_tokens"] == 300
+        assert data["total_output_tokens"] == 150
+        assert abs(data["total_cost"] - 0.003) < 1e-9
