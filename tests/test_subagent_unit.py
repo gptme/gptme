@@ -1367,6 +1367,7 @@ class TestClarifyBlock:
             "use_acp": True,
             "acp_command": "claude-code-acp",
             "profile": "custom-reviewer",
+            "workdir": None,
             "isolated": True,
             "timeout": 42,
             "role": "verify",
@@ -1456,6 +1457,59 @@ class TestClarifyBlock:
             _subagents[:] = [s for s in _subagents if s.agent_id != "atomic-agent"]
         with _subagent_results_lock:
             _subagent_results.pop("atomic-agent", None)
+
+    def test_subagent_reply_preserves_workdir(self, tmp_path, monkeypatch):
+        """subagent_reply() must forward the original workdir to the re-spawned subagent."""
+
+        from gptme.tools.subagent.api import subagent_reply
+
+        workspace_dir = tmp_path / "project"
+        workspace_dir.mkdir()
+
+        sa = Subagent(
+            agent_id="workdir-agent",
+            prompt="original task",
+            thread=None,
+            logdir=tmp_path / "log",
+            model=None,
+            workdir=workspace_dir,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        with _subagent_results_lock:
+            _subagent_results["workdir-agent"] = ReturnType(
+                "clarification_needed", "Which file should I edit?"
+            )
+
+        captured: dict = {}
+
+        def fake_subagent(**kwargs):
+            captured.update(kwargs)
+            with _subagents_lock:
+                _subagents.append(
+                    Subagent(
+                        agent_id=kwargs["agent_id"],
+                        prompt=kwargs["prompt"],
+                        thread=None,
+                        logdir=tmp_path / "new-log",
+                        model=None,
+                        workdir=kwargs.get("workdir"),
+                    )
+                )
+
+        monkeypatch.setattr(subagent_api, "subagent", fake_subagent)
+
+        subagent_reply("workdir-agent", "Edit config.py")
+
+        assert captured.get("workdir") == workspace_dir, (
+            "subagent_reply must forward the original workdir to the re-spawned subagent; "
+            f"expected {workspace_dir!r}, got {captured.get('workdir')!r}"
+        )
+        # cleanup
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "workdir-agent"]
+        with _subagent_results_lock:
+            _subagent_results.pop("workdir-agent", None)
 
 
 # ---------------------------------------------------------------------------
