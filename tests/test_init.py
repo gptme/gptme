@@ -590,7 +590,7 @@ class TestInitModelParsing:
         dummy_model_meta,
     ):
         """A provider-less model name with a slash (e.g. OpenRouter's
-        'meta-llama/llama-3.1-405b-instruct') should be resolved via get_model(),
+        'meta-llama/llama-3.3-70b-instruct') should be resolved via get_model(),
         not mistaken for a provider name. Regression test: the CLI previously
         crashed on model names that get_model() resolves fine."""
         from gptme.init import init_model
@@ -603,11 +603,11 @@ class TestInitModelParsing:
         # get_model resolves the bare OpenRouter-style name to provider=openrouter
         mock_get_model.return_value = ModelMeta(
             provider="openrouter",
-            model="meta-llama/llama-3.1-405b-instruct",
+            model="meta-llama/llama-3.3-70b-instruct",
             context=128_000,
         )
 
-        init_model(model="meta-llama/llama-3.1-405b-instruct")
+        init_model(model="meta-llama/llama-3.3-70b-instruct")
 
         # Provider resolved from get_model, not from treating the whole string
         # as a provider; model_name was resolved so get_recommended_model is unused.
