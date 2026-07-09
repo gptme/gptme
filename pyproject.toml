@@ -311,11 +311,36 @@ module = "gptme.server.external_sessions"
 disable_error_code = ["unused-ignore"]
 
 [[tool.mypy.overrides]]
+module = "gptme.cli.cmd_computer"
+disable_error_code = ["unused-ignore"]
+
+[[tool.mypy.overrides]]
+module = [
+    "test_llm_anthropic",
+    "test_tools_browser_thread",
+    "test_browser_state",
+    "test_computer_transport",
+]
+disable_error_code = ["unused-ignore"]
+
+[[tool.mypy.overrides]]
 module = "sounddevice.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "cua_sandbox"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["AppKit", "Quartz", "Quartz.CoreGraphics"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pyatspi"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "gptme_sessions.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

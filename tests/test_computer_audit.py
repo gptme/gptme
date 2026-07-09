@@ -28,7 +28,7 @@ from gptme.message import Message
 
 def _msg(role: str, content: str) -> Message:
     ts = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
-    return Message(role=role, content=content, timestamp=ts)  # type: ignore[arg-type,call-arg]
+    return Message(role=role, content=content, timestamp=ts)  # type: ignore[arg-type]
 
 
 def _ipython_block(code: str) -> str:

@@ -687,7 +687,7 @@ def save_browser_state(path: str) -> str:
     return _execute_with_retry(_do_save_browser_state, path)
 
 
-def _do_load_browser_state(browser: Browser, path: str) -> str:
+def _do_load_browser_state(browser: Browser | None, path: str) -> str:
     """Load a previously saved browser session state for use in the next open_page()."""
     resolved = Path(path).expanduser()
     if not resolved.exists():
@@ -713,6 +713,7 @@ def _do_load_browser_state(browser: Browser, path: str) -> str:
 
         # CDP mode reuses a session context for future tabs; refresh it now so
         # the next open_page() does not keep using the pre-load cookies.
+        assert browser is not None, "browser required in CDP mode"
         _browser._session_context = browser.new_context(**get_context_options())
         return (
             f"Browser state loaded from {resolved}; CDP session context refreshed. "

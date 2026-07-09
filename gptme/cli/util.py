@@ -545,7 +545,7 @@ def context_files(config: str | None):
     if sys.version_info >= (3, 11):
         import tomllib
     else:
-        import tomli as tomllib  # type: ignore[no-redef]
+        import tomli as tomllib
 
     # Discover gptme.toml from cwd → git root
     toml_path: Path | None
