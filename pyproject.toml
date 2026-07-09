@@ -40,6 +40,7 @@ gptme-dspy = "gptme.eval.dspy:main"
 gptme-eval-trends = "gptme.eval.trends:main"
 gptme-status = "gptme.cli.cmd_status:status"
 gptme-resume = "gptme.cli.cmd_resume:resume"
+gptme-mcp-server = "gptme.cli.cmd_mcp_serve:main"
 
 [tool.poetry]
 packages = [
