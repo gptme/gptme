@@ -373,7 +373,7 @@ def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
     if provider == "openai-subscription":
         return "gpt-5.4"
     if provider == "openrouter":
-        return "meta-llama/llama-3.1-405b-instruct"
+        return "meta-llama/llama-3.3-70b-instruct"
     if provider == "gemini":
         return "gemini-2.5-pro"
     if provider == "anthropic":
@@ -401,7 +401,7 @@ def get_summary_model(provider: Provider) -> str | None:  # pragma: no cover
     if provider == "openai":
         return "gpt-5-mini"
     if provider == "openrouter":
-        return "meta-llama/llama-3.1-8b-instruct"
+        return "meta-llama/llama-3.2-3b-instruct"
     if provider == "gemini":
         return "gemini-2.5-flash"
     if provider == "anthropic":
