@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -207,7 +207,7 @@ def test_load_browser_state_refreshes_cdp_session_context(tmp_path, monkeypatch)
     state_file = _make_state_file(tmp_path)
     old_context = FakeContext()
     thread = FakeBrowserThread(old_context)
-    fake_browser = FakeBrowser()
+    fake_browser: Any = FakeBrowser()
     close_calls: list[bool] = []
 
     monkeypatch.setattr(browser_pw, "_browser", thread)
@@ -215,7 +215,7 @@ def test_load_browser_state_refreshes_cdp_session_context(tmp_path, monkeypatch)
         browser_pw, "_close_current_page", lambda: close_calls.append(True)
     )
 
-    result = browser_pw._do_load_browser_state(fake_browser, str(state_file))  # type: ignore[arg-type]
+    result = browser_pw._do_load_browser_state(fake_browser, str(state_file))
 
     assert close_calls == [True]
     assert old_context.closed
