@@ -2141,8 +2141,9 @@ during the next LOOP_CONTINUE cycle.</p>
 <p>Called by the progress tool when a subagent sends an intermediate update.
 The parent’s LOOP_CONTINUE hook delivers it as a system message so the
 orchestrator can react without blocking on subagent_wait().</p>
-<p>Note: Only works for thread-mode subagents (same process). Subprocess-mode
-subagents cannot share the in-process queue.</p>
+<p>Note: For thread-mode subagents the progress tool calls this directly (same
+process). For subprocess-mode subagents, <code class="docutils literal notranslate"><span class="pre">_poll_subprocess_progress</span></code> reads
+from the file channel and calls this function on behalf of the child process.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
