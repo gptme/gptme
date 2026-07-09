@@ -17,6 +17,7 @@ from tomlkit import TOMLDocument
 
 if TYPE_CHECKING:
     from tomlkit.container import Container
+    from tomlkit.items import AoT
 
 from ..util import path_with_tilde
 from .models import (
@@ -429,7 +430,7 @@ def save_provider_config(
     if "providers" not in doc:
         doc.add("providers", tomlkit.aot())
 
-    providers = doc["providers"]
+    providers: AoT = doc["providers"]
     for idx, existing_provider in enumerate(providers):
         if existing_provider.get("name") == provider.name:
             providers[idx] = provider_table
