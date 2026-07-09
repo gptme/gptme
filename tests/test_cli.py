@@ -1195,6 +1195,7 @@ def test_fileblock(args: list[str], runner: CliRunner):
     assert content == 'print("hello world")\n'
 
 
+@pytest.mark.timeout(30)
 def test_shell(args: list[str], runner: CliRunner):
     args.append("/shell echo 'yes'")
     result = runner.invoke(cli.main, args)
