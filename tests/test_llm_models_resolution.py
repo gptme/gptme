@@ -182,6 +182,41 @@ class TestAliasResolution:
         # Should be None since there's no alias and no base model after stripping date
         assert props is None
 
+    def test_openai_gpt56_alias_resolves_metadata(self):
+        """openai/gpt-5.6 should resolve real metadata (context, pricing) from gpt-5.6-sol.
+
+        The model name stays as gpt-5.6 — OpenAI accepts this alias in API calls.
+        What we're checking is that the alias lookup populates real metadata, not
+        the 128k fallback that would appear if the alias wasn't resolved.
+        """
+        model = get_model("openai/gpt-5.6")
+        assert model.provider == "openai"
+        # Model name should stay as the alias (OpenAI accepts gpt-5.6 in API calls)
+        assert model.model == "gpt-5.6"
+        # Critical: metadata must come from gpt-5.6-sol, not the 128k fallback
+        assert model.context == 1_000_000, (
+            f"Expected 1M context (from gpt-5.6-sol), got {model.context}. "
+            "Alias lookup must resolve metadata from the canonical model."
+        )
+        assert model.price_input > 0
+
+    def test_bare_gpt56_alias_resolves_with_provider(self):
+        """Bare 'gpt-5.6' (no provider prefix) should resolve to openai/gpt-5.6-sol."""
+        model = get_model("gpt-5.6")
+        assert model.provider == "openai"
+        assert model.model == "gpt-5.6-sol"
+
+    def test_all_openai_aliases_resolve_known_metadata(self):
+        """Every openai alias should resolve real metadata (not the 128k unknown fallback)."""
+        for alias, canonical in MODEL_ALIASES.get("openai", {}).items():
+            model = get_model(f"openai/{alias}")
+            assert model.provider == "openai"
+            # Must have real context from the canonical model, not the generic 128k fallback
+            assert model.context > 128_000 or model.price_input > 0, (
+                f"openai/{alias} has generic fallback metadata (context={model.context}, "
+                f"price_input={model.price_input}). Alias must resolve to {canonical!r} metadata."
+            )
+
 
 # ── Provider alias resolution ────────────────────────────────────────────
 
