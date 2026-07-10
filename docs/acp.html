@@ -489,6 +489,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-agent">Running the Agent</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id1">ACP Agent Registry</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#editor-integration">Editor Integration</a></li>
 </ul>
 </li>
@@ -521,12 +522,19 @@ Future phases will add tool call reporting, session persistence, and enhanced fe
 </div>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
-<p>To use gptme as an ACP agent, install with the <code class="docutils literal notranslate"><span class="pre">acp</span></code> extra:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[acp]&#39;</span>
+<p><strong>Quickest (no install required)</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uvx<span class="w"> </span>gptme-acp
 </pre></div>
 </div>
-<p>Or with pip:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[acp]&#39;</span>
+<p><code class="docutils literal notranslate"><span class="pre">gptme-acp</span></code> is a thin shim package that pulls in <code class="docutils literal notranslate"><span class="pre">gptme[acp]</span></code> and exposes the ACP server as its default executable.  This is the form used by editor integrations and the <a class="reference external" href="https://github.com/agentclientprotocol/registry">ACP agent registry</a>.</p>
+<p><strong>Persistent install via pipx</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span>gptme-acp
+gptme-acp
+</pre></div>
+</div>
+<p><strong>Direct install of gptme with the acp extra</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[acp]&#39;</span>
+gptme-acp
 </pre></div>
 </div>
 </section>
@@ -535,11 +543,28 @@ Future phases will add tool call reporting, session persistence, and enhanced fe
 <section id="running-the-agent">
 <h3>Running the Agent<a class="headerlink" href="#running-the-agent" title="Link to this heading">#</a></h3>
 <p>Start the gptme ACP agent:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Via module</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Recommended: via the gptme-acp shim (no install needed)</span>
+uvx<span class="w"> </span>gptme-acp
+
+<span class="c1"># Or directly if gptme[acp] is installed</span>
+gptme-acp
+
+<span class="c1"># Or via module</span>
 python<span class="w"> </span>-m<span class="w"> </span>gptme.acp
 </pre></div>
 </div>
 <p>The agent communicates via stdio using the ACP protocol, making it compatible with any ACP client.</p>
+</section>
+<section id="id1">
+<h3>ACP Agent Registry<a class="headerlink" href="#id1" title="Link to this heading">#</a></h3>
+<p>gptme can be discovered and launched automatically by ACP-compatible editors via the <a class="reference external" href="https://github.com/agentclientprotocol/registry">ACP agent registry</a>.  The registry entry uses the <code class="docutils literal notranslate"><span class="pre">gptme-acp</span></code> package:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;package&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;gptme-acp&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;launch&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;uvx&quot;</span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The separate <code class="docutils literal notranslate"><span class="pre">gptme-acp</span></code> package is necessary because the registry only supports launching the default executable of a plain PyPI package name — extras-qualified specs (<code class="docutils literal notranslate"><span class="pre">gptme[acp]</span></code>) and <code class="docutils literal notranslate"><span class="pre">--from</span></code> flags are not supported.</p>
 </section>
 <section id="editor-integration">
 <h3>Editor Integration<a class="headerlink" href="#editor-integration" title="Link to this heading">#</a></h3>
@@ -745,6 +770,7 @@ python<span class="w"> </span>-m<span class="w"> </span>gptme.acp
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-agent">Running the Agent</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id1">ACP Agent Registry</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#editor-integration">Editor Integration</a></li>
 </ul>
 </li>

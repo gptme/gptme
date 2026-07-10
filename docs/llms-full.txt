@@ -6539,17 +6539,27 @@ This enables a seamless integration where your editor can leverage gptme's power
 Installation
 ------------
 
-To use gptme as an ACP agent, install with the ``acp`` extra:
+**Quickest (no install required)**
+
+.. code-block:: bash
+
+    uvx gptme-acp
+
+``gptme-acp`` is a thin shim package that pulls in ``gptme[acp]`` and exposes the ACP server as its default executable.  This is the form used by editor integrations and the `ACP agent registry <https://github.com/agentclientprotocol/registry>`_.
+
+**Persistent install via pipx**
+
+.. code-block:: bash
+
+    pipx install gptme-acp
+    gptme-acp
+
+**Direct install of gptme with the acp extra**
 
 .. code-block:: bash
 
     pipx install 'gptme[acp]'
-
-Or with pip:
-
-.. code-block:: bash
-
-    pip install 'gptme[acp]'
+    gptme-acp
 
 Usage
 -----
@@ -6561,10 +6571,30 @@ Start the gptme ACP agent:
 
 .. code-block:: bash
 
-    # Via module
+    # Recommended: via the gptme-acp shim (no install needed)
+    uvx gptme-acp
+
+    # Or directly if gptme[acp] is installed
+    gptme-acp
+
+    # Or via module
     python -m gptme.acp
 
 The agent communicates via stdio using the ACP protocol, making it compatible with any ACP client.
+
+ACP Agent Registry
+~~~~~~~~~~~~~~~~~~
+
+gptme can be discovered and launched automatically by ACP-compatible editors via the `ACP agent registry <https://github.com/agentclientprotocol/registry>`_.  The registry entry uses the ``gptme-acp`` package:
+
+.. code-block:: json
+
+    {
+      "package": "gptme-acp",
+      "launch": {"type": "uvx"}
+    }
+
+The separate ``gptme-acp`` package is necessary because the registry only supports launching the default executable of a plain PyPI package name — extras-qualified specs (``gptme[acp]``) and ``--from`` flags are not supported.
 
 Editor Integration
 ~~~~~~~~~~~~~~~~~~
