@@ -13,6 +13,7 @@ debug-python
 automate-task
 refactor
 computer-use
+tts-setup
 ```
 
 ## Minimal Context
@@ -35,6 +36,9 @@ computer-use
 
 ## Automate GUIs (Computer Use)
 [Control desktop apps and automate web UIs](computer-use.md) — screenshots, mouse/keyboard, and structured browser interaction.
+
+## Text-to-Speech
+[Set up TTS for voice output](tts-setup.md) — configure OpenRouter, the local gptme-tts server, or browser synthesis.
 
 ---
 

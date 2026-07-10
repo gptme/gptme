@@ -255,13 +255,13 @@ export function SettingsContent({
               </Select>
               <p className="text-xs text-muted-foreground">
                 {settings.ttsProvider === 'server' &&
-                  'Uses the connected gptme-server /api/v2/audio/speech endpoint (provider-backed, e.g. OpenRouter — higher quality). Requires the server to have a TTS provider configured.'}
+                  'Uses the connected gptme-server /api/v2/audio/speech endpoint (provider-backed, e.g. OpenRouter — higher quality). Requires OPENROUTER_API_KEY to be set on the server. For local TTS without an API key, use the gptme-tts server option instead.'}
                 {settings.ttsProvider === 'external' &&
-                  'Uses a standalone gptme-tts server (set the URL below).'}
+                  'Uses a standalone gptme-tts server for local TTS (no API key needed). Install with: pip install gptme-tts, then run: gptme-tts.'}
                 {settings.ttsProvider === 'browser' &&
-                  "Uses the browser's built-in speech synthesis."}
+                  "Uses the browser's built-in speech synthesis (always available, no setup required)."}
                 {settings.ttsProvider === 'auto' &&
-                  'Tries the gptme-server endpoint, then a gptme-tts server (if set), then the browser.'}
+                  'Tries the gptme-server endpoint (requires OPENROUTER_API_KEY), then a gptme-tts server (if URL is set below), then the browser.'}
               </p>
             </div>
 

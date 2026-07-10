@@ -13,6 +13,7 @@
 let currentAudio: HTMLAudioElement | null = null;
 let currentFetchController: AbortController | null = null;
 const LOCAL_TTS_NOT_CONFIGURED = 'tts-local-not-configured';
+let _ttsNotConfiguredHintShown = false;
 
 // Which logical item (e.g. a message key) is currently being spoken, so the UI
 // can show a stop/playing state. null = nothing playing.
@@ -94,7 +95,8 @@ function isAbortError(error: unknown): boolean {
 }
 
 async function isLocalTtsNotConfigured(response: Response): Promise<boolean> {
-  if (response.status !== 400) return false;
+  // 503 = new servers (no TTS provider configured), 400 = legacy servers
+  if (response.status !== 503 && response.status !== 400) return false;
   try {
     const data = await response.clone().json();
     return (
@@ -252,7 +254,17 @@ async function speak(rawText: string, key: string): Promise<void> {
     return;
   } catch (err) {
     if (isAbortError(err)) return;
-    if ((err as Error)?.message !== LOCAL_TTS_NOT_CONFIGURED) {
+    if ((err as Error)?.message === LOCAL_TTS_NOT_CONFIGURED) {
+      if (!_ttsNotConfiguredHintShown) {
+        _ttsNotConfiguredHintShown = true;
+        console.info(
+          '[gptme TTS] Server TTS not configured (no OPENROUTER_API_KEY). ' +
+            'For local TTS, install the gptme-tts server (pip install gptme-tts) ' +
+            'and add its URL in Settings → TTS engine → gptme-tts server URL. ' +
+            'Falling back to browser speech synthesis.'
+        );
+      }
+    } else {
       console.warn('Local /api/v2/audio/speech unavailable, trying alternatives:', err);
     }
   }
