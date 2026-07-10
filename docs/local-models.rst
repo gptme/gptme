@@ -109,7 +109,7 @@ Model list: https://console.groq.com/docs/models
 +===============================+==================================+==================================================+
 | 401 with ``OPENAI_API_KEY``   | Groq needs its own key           | Set ``GROQ_API_KEY``; use ``groq/<model>``       |
 +-------------------------------+----------------------------------+--------------------------------------------------+
-| No API key for OpenAI/...     | Default model check runs first   | Set ``MODEL`` or ``[models].default`` to Groq    |
+| ``OPENAI_API_KEY`` not set    | Default model is OpenAI          | Set ``MODEL`` or ``[models].default`` to Groq    |
 +-------------------------------+----------------------------------+--------------------------------------------------+
 
 .. warning::
@@ -154,8 +154,8 @@ custom ``[[providers]]`` entry.
 gptme may fetch the OpenAI ``cl100k_base`` tokenizer to count tokens. Offline, that
 can time out with errors mentioning ``openaipublic.blob.core.windows.net``.
 
-In gptme **≥ 0.22.0**, ``get_tokenizer()`` falls back to a character-based estimate
-(~4 characters per token) when the download fails.
+In recent gptme versions, token counting can fall back to a character-based estimate
+(~4 characters per token) when the tokenizer download fails.
 
 On older versions, pre-cache tiktoken once while online:
 
