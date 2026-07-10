@@ -231,6 +231,22 @@ class TestAliasResolution:
         # Non-OpenAI alias: must NOT be resolved (Anthropic accepts undated forms)
         assert _get_base_model("anthropic/claude-haiku-4-5") == "claude-haiku-4-5"
 
+    def test_get_base_model_resolves_subscription_alias(self):
+        """_get_base_model must resolve OpenAI aliases for the openai-subscription provider.
+
+        Greptile P1: the subscription path used a different prefix ("openai-subscription/")
+        so the alias guard only checked "openai/" and let gpt-5.6 pass through unresolved,
+        causing the API to receive the synthetic alias instead of the canonical gpt-5.6-sol.
+        """
+        from gptme.llm import _get_base_model
+
+        # Subscription path alias: must resolve just like the openai/ path
+        assert _get_base_model("openai-subscription/gpt-5.6") == "gpt-5.6-sol"
+        # Already canonical: pass through unchanged
+        assert _get_base_model("openai-subscription/gpt-5.6-sol") == "gpt-5.6-sol"
+        # Other subscription models: pass through unchanged
+        assert _get_base_model("openai-subscription/gpt-5") == "gpt-5"
+
 
 # ── Provider alias resolution ────────────────────────────────────────────
 

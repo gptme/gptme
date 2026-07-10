@@ -374,7 +374,9 @@ def _get_base_model(model: str) -> str:
     from .models.types import MODEL_ALIASES  # fmt: skip
 
     base = model.split("/", 1)[1]
-    if model.startswith("openai/") and base in MODEL_ALIASES.get("openai", {}):
+    if model.startswith(
+        ("openai/", "openai-subscription/")
+    ) and base in MODEL_ALIASES.get("openai", {}):
         return MODEL_ALIASES["openai"][base]
     return base
 
