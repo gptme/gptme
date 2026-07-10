@@ -487,6 +487,7 @@ document.write(`
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisites">Prerequisites</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#validate-your-setup">Validate your setup</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#start-a-computer-use-session">Start a computer-use session</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-automation-structured-first">Web automation (structured-first)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authenticated-sessions-save-and-reuse-login-state">Authenticated sessions (save and reuse login state)</a></li>
@@ -558,6 +559,30 @@ install the AT-SPI2 stack:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>Xvfb<span class="w"> </span>:1<span class="w"> </span>-screen<span class="w"> </span><span class="m">0</span><span class="w"> </span>1024x768x24<span class="w"> </span><span class="p">&amp;</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">DISPLAY</span><span class="o">=</span>:1
 fluxbox<span class="w"> </span><span class="p">&amp;</span><span class="w">   </span><span class="c1"># or any window manager</span>
+</pre></div>
+</div>
+</section>
+<section id="validate-your-setup">
+<h2>Validate your setup<a class="headerlink" href="#validate-your-setup" title="Link to this heading">#</a></h2>
+<p>After installing prerequisites, confirm everything is working:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Check computer-use specific prerequisites (X11 tools, Playwright, ffmpeg, AT-SPI2...)</span>
+gptme-util<span class="w"> </span>computer<span class="w"> </span>doctor
+
+<span class="c1"># Run all three milestone demos (tweet, factorio, doom) against local HTML fixtures</span>
+gptme-util<span class="w"> </span>computer<span class="w"> </span>demo<span class="w"> </span>--all
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">computer</span> <span class="pre">doctor</span></code> reports Playwright and Chromium availability as
+warnings rather than hard errors. If it warns about a missing browser runtime,
+<code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">computer</span> <span class="pre">demo</span> <span class="pre">--all</span></code> will also fail — install the missing dependency
+before proceeding.</p>
+<p><code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">computer</span> <span class="pre">demo</span> <span class="pre">--all</span></code> drives the real Playwright browser tool against
+local HTML fixtures — the same <code class="docutils literal notranslate"><span class="pre">open_page</span></code>, <code class="docutils literal notranslate"><span class="pre">fill_element</span></code>, and <code class="docutils literal notranslate"><span class="pre">click_element</span></code>
+calls that work against live sites. When all three milestones pass, browser
+interaction and selector resolution are working.</p>
+<p>For X11/native-desktop diagnostics (requires a running display):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>computer<span class="w"> </span>latency<span class="w">            </span><span class="c1"># screenshot capture latency (target: &lt; 100 ms)</span>
+gptme-util<span class="w"> </span>computer<span class="w"> </span>latency<span class="w"> </span>--terminal<span class="w"> </span><span class="c1"># terminal startup latency (target: &lt; 500 ms)</span>
 </pre></div>
 </div>
 </section>
@@ -935,6 +960,7 @@ prompts (but ensure the task is well-scoped first).</p></li>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisites">Prerequisites</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#validate-your-setup">Validate your setup</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#start-a-computer-use-session">Start a computer-use session</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-automation-structured-first">Web automation (structured-first)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authenticated-sessions-save-and-reuse-login-state">Authenticated sessions (save and reuse login state)</a></li>
