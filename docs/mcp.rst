@@ -3,9 +3,7 @@
 MCP
 ===
 
-gptme acts as a MCP client supporting MCP servers (`Model Context Protocol <https://modelcontextprotocol.io/>`_), allowing integration with external tools and services through a standardized protocol.
-
-We also intend to expose tools in gptme as MCP servers, allowing you to use gptme tools in other MCP clients.
+gptme works as both an MCP **client** (consuming external MCP servers) and an MCP **server** (exposing gptme tools to Claude Desktop, Cursor, and other MCP clients).
 
 Configuration
 -------------
@@ -183,3 +181,45 @@ gptme provides CLI commands to manage and test your MCP servers:
     gptme-util mcp info server-name
 
 These commands help you verify that your MCP servers are properly configured and accessible.
+
+gptme as an MCP Server
+-----------------------
+
+gptme can expose its own tools (shell, Python REPL, file read/save, browser, etc.) as an MCP server so that Claude Desktop, Cursor, and other MCP clients can use them directly.
+
+Quick start for Claude Desktop — add to ``~/.claude/claude_desktop_config.json``:
+
+.. code-block:: json
+
+    {
+      "mcpServers": {
+        "gptme": {
+          "command": "gptme-mcp-server",
+          "args": ["--tools", "shell,ipython,save,read"]
+        }
+      }
+    }
+
+Then restart Claude Desktop. The ``shell``, ``ipython``, ``save``, and ``read`` tools will appear in Claude's tool menu.
+
+Running the server manually:
+
+.. code-block:: bash
+
+    # Standalone entrypoint (recommended for Claude Desktop)
+    gptme-mcp-server --tools shell,ipython,save,read
+
+    # Or via gptme-util (equivalent)
+    gptme-util mcp serve --tools shell,ipython,save,read
+
+Options:
+
+- ``--tools``: Comma-separated tool names to expose. Default: ``shell,ipython,save,append,read``. ``subagent`` and ``mcp`` are always excluded.
+
+- ``--workspace DIR``: Working directory for all tool operations (default: current directory).
+
+- ``--log-level``: Log level sent to stderr (``DEBUG``, ``INFO``, ``WARNING``, ``ERROR``).
+
+The server is **session-backed**: one persistent gptme session per MCP connection, so the bash shell
+retains state, the Python REPL keeps variables, and file operations share a consistent working directory
+across multiple tool calls.

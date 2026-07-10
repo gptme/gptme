@@ -512,3 +512,55 @@ class TestMCPSearch:
         assert result.exit_code == 1
         assert "Search failed" in result.output
         assert "Network timeout" in result.output
+
+
+class TestMCPServe:
+    """Tests for 'mcp serve' command."""
+
+    def test_serve_help(self):
+        """Test that mcp serve --help shows expected options."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["mcp", "serve", "--help"])
+        assert result.exit_code == 0
+        assert "--tools" in result.output
+        assert "--workspace" in result.output
+        assert "--log-level" in result.output
+
+    def test_serve_launches_server(self, mocker):
+        """Test that mcp serve creates and starts a GptmeMCPServer."""
+        mock_server = Mock()
+        mock_create = mocker.patch(
+            "gptme.mcp.server.GptmeMCPServer", return_value=mock_server
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["mcp", "serve"])
+        assert result.exit_code == 0
+        mock_create.assert_called_once()
+        mock_server.serve_stdio.assert_called_once()
+
+    def test_serve_with_tools(self, mocker):
+        """Test that --tools are parsed and passed to the server."""
+        mock_server = Mock()
+        mock_create = mocker.patch(
+            "gptme.mcp.server.GptmeMCPServer", return_value=mock_server
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["mcp", "serve", "--tools", "shell,ipython"])
+        assert result.exit_code == 0
+        mock_create.assert_called_once_with(
+            tool_names=["shell", "ipython"], workspace=None
+        )
+
+    def test_serve_with_workspace(self, mocker, tmp_path):
+        """Test that --workspace is passed to the server."""
+        mock_server = Mock()
+        mock_create = mocker.patch(
+            "gptme.mcp.server.GptmeMCPServer", return_value=mock_server
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["mcp", "serve", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        mock_create.assert_called_once_with(tool_names=None, workspace=str(tmp_path))
