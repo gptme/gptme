@@ -20,7 +20,12 @@ from gptme.init import init
 from gptme.tools import clear_tools
 from gptme.tools import shell as shell_module
 from gptme.tools.rag import _has_gptme_rag
-from gptme.tools.subagent import _subagent_results, _subagent_results_lock, _subagents
+from gptme.tools.subagent import (
+    _subagent_results,
+    _subagent_results_lock,
+    _subagents,
+    _subagents_lock,
+)
 from gptme.tools.subagent.concurrency import _reset_slot_sem
 
 logger = logging.getLogger(__name__)
@@ -263,7 +268,11 @@ def cleanup_subagents_after():
     # sequence could take exactly 10s, triggering the timeout and leaving shared
     # globals dirty for the next test.  Shorter timeouts give headroom.
     try:
-        for subagent in _subagents:
+        with _subagents_lock:
+            # Make a copy to iterate over to avoid "dictionary changed size during iteration"
+            # if another thread or setup_method modifies _subagents during cleanup
+            subagents_copy = list(_subagents)
+        for subagent in subagents_copy:
             # Clean up threads (2s cap — well under the 10s teardown limit)
             if subagent.thread is not None and subagent.thread.is_alive():
                 subagent.thread.join(timeout=2.0)

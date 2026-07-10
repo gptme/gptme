@@ -365,7 +365,13 @@ def get_provider_from_model(model: str) -> Provider:
 
 
 def _get_base_model(model: str) -> str:
-    """Get base model name without provider prefix."""
+    """Get base model name without provider prefix.
+
+    No alias rewriting here: aliases in MODEL_ALIASES are accepted by the
+    providers' APIs (e.g. OpenAI serves gpt-5.6 as gpt-5.6-sol, verified
+    2026-07-10), so the requested name is sent as-is. Aliases are resolved
+    for metadata lookup only, in models/resolution.py.
+    """
     return model.split("/", 1)[1]
 
 
