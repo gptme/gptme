@@ -124,8 +124,7 @@ class EvalResult:
             "tokens_output": self.tokens_output,
             "tokens_total": self.tokens_total,
         }
-        if self.cost_usd is not None:
-            d["cost_usd"] = self.cost_usd
+        d["cost_usd"] = self.cost_usd  # always present; null when pricing unavailable
         if self.cost is not None:
             d["cost"] = self.cost.to_dict()
         return d

@@ -230,6 +230,10 @@ def test_eval_result_token_fields_defaults():
     assert result.tokens_output == 0
     assert result.tokens_total == 0
     assert result.cost_usd is None
+    # cost_usd must always appear in JSON output so consumers can rely on the field
+    d = result.to_dict()
+    assert "cost_usd" in d
+    assert d["cost_usd"] is None
 
 
 def test_eval_result_token_fields_populated():
