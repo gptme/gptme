@@ -291,7 +291,7 @@ class TestMCPServerHandlers:
 
         # Use a MagicMock so we avoid spawning a real bash subprocess in tests.
         mock_session = MagicMock()
-        server_with_mock_tools._shell_session = mock_session  # type: ignore[assignment]
+        server_with_mock_tools._shell_session = mock_session
 
         captured_sessions: list[object] = []
 
