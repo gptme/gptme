@@ -19,14 +19,26 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Python built-in types that are valid as values in a {field_name: python_type} mapping.
+# Any dict whose values are all in this set is treated as a field-type map and converted
+# to JSON Schema.  Any other dict (including all real JSON Schema dicts) is returned as-is.
+_PYTHON_FIELD_TYPES: frozenset[type] = frozenset(
+    {int, float, bool, str, bytes, list, dict, tuple, set}
+)
+
+
 def _dict_to_jsonschema(d: dict) -> dict:
     """Convert a simple ``{field: type}`` dict to a JSON Schema object.
 
     Handles two cases:
-    - Already a JSON Schema dict (has ``"type"`` or ``"properties"`` key) → returned as-is.
-    - Plain Python ``{str: type}`` mapping → converted to an ``object`` schema with
-      ``properties`` derived from the Python type names (``int`` → ``"integer"``,
-      ``float`` → ``"number"``, ``bool`` → ``"boolean"``, everything else → ``"string"``).
+    - Plain Python ``{str: type}`` mapping (all values are Python type objects) →
+      converted to an ``object`` schema with ``properties`` derived from the Python
+      type names (``int`` → ``"integer"``, ``float`` → ``"number"``,
+      ``bool`` → ``"boolean"``, everything else → ``"string"``).
+    - Anything else (empty dict, or any value that is not a Python type object) →
+      returned as-is.  This covers all valid JSON Schema dicts regardless of which
+      keywords they use (``type``, ``properties``, ``items``, ``minimum``,
+      ``format``, ``$ref``, etc.).
 
     Args:
         d: A dict that is either an existing JSON Schema or a ``{field: type}`` mapping.
@@ -34,26 +46,14 @@ def _dict_to_jsonschema(d: dict) -> dict:
     Returns:
         A JSON Schema dict.
     """
-    if d.keys() & {
-        "type",
-        "properties",
-        "$schema",
-        "$ref",
-        "oneOf",
-        "anyOf",
-        "allOf",
-        "enum",
-        "const",
-        "not",
-        "if",
-        "then",
-        "else",
-        "patternProperties",
-        "dependentRequired",
-        "dependentSchemas",
-        "$defs",
-        "definitions",
-    }:
+    # Pass through empty dicts and any dict that is not a pure {field: PythonType} map.
+    # JSON Schema dicts always have at least one value that is not a Python type object
+    # (e.g. string literals like "string"/"object", nested dicts, lists, numbers, …).
+    # `isinstance(v, type)` short-circuits before the `in` check, which avoids
+    # a TypeError on unhashable values (dicts, lists, etc.) from real JSON Schema dicts.
+    if not d or not all(
+        isinstance(v, type) and v in _PYTHON_FIELD_TYPES for v in d.values()
+    ):
         return d
 
     type_map = {int: "integer", float: "number", bool: "boolean"}

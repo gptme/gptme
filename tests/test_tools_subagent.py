@@ -3631,6 +3631,40 @@ def test_dict_to_jsonschema_passthrough_extended_keywords():
     assert _dict_to_jsonschema(if_then_schema) is if_then_schema
 
 
+def test_dict_to_jsonschema_passthrough_non_keyword_json_schemas():
+    """_dict_to_jsonschema passes through valid JSON Schemas that don't use the old keyword set.
+
+    Greptile P1 finding: schemas using keywords like `items`, `minimum`, `format`,
+    `required`, or `additionalProperties` were not in the previous keyword guard and
+    would be incorrectly converted as if they were {field: python_type} maps.
+    """
+    from gptme.tools.subagent.hooks import _dict_to_jsonschema
+
+    # array schema — uses `items`, not in the old keyword set
+    array_schema = {"items": {"type": "string"}}
+    assert _dict_to_jsonschema(array_schema) is array_schema
+
+    # numeric constraint — `minimum` value is an int but NOT a Python type object
+    num_schema = {"minimum": 0, "maximum": 100}
+    assert _dict_to_jsonschema(num_schema) is num_schema
+
+    # format constraint
+    format_schema = {"format": "email"}
+    assert _dict_to_jsonschema(format_schema) is format_schema
+
+    # required-only constraint (no properties/type)
+    req_schema = {"required": ["name", "age"]}
+    assert _dict_to_jsonschema(req_schema) is req_schema
+
+    # additionalProperties constraint
+    addl_schema = {"additionalProperties": False}
+    assert _dict_to_jsonschema(addl_schema) is addl_schema
+
+    # string constraint — pattern
+    str_schema = {"minLength": 1, "maxLength": 100}
+    assert _dict_to_jsonschema(str_schema) is str_schema
+
+
 def test_subprocess_output_schema_dict_via_prompt():
     """subprocess mode routes a plain-dict schema via output_schema_dict (not the CLI flag).
 
