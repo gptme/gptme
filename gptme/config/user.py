@@ -26,6 +26,7 @@ from .models import (
     ModelsConfig,
     PluginsConfig,
     ProviderConfig,
+    SettingsConfig,
     UserConfig,
     UserIdentityConfig,
     UserPromptConfig,
@@ -247,6 +248,30 @@ def load_user_config(path: str | None = None) -> UserConfig:
     providers_config = config.pop("providers", [])
     providers = [ProviderConfig(**provider) for provider in providers_config]
 
+    settings_data = config.pop("settings", {})
+    if not isinstance(settings_data, dict):
+        logger.warning(
+            f"[settings] should be a table, got {type(settings_data).__name__}"
+        )
+        settings_data = {}
+    settings_known = {f.name for f in fields(SettingsConfig)}
+    settings_unknown = set(settings_data) - settings_known
+    if settings_unknown:
+        logger.warning(
+            f"Unknown keys in [settings] config: {sorted(settings_unknown)} (ignored)"
+        )
+    settings = SettingsConfig(
+        **{k: v for k, v in settings_data.items() if k in settings_known}
+    )
+    if settings.gear is not None:
+        from ..gears import parse_gear
+
+        try:
+            settings.gear = parse_gear(settings.gear)
+        except ValueError:
+            logger.warning("[settings].gear should be an integer from 0 to 4")
+            settings.gear = None
+
     # Parse [models] section (model-related preferences like favorites)
     models_data = config.pop("models", {})
     if not isinstance(models_data, dict):
@@ -313,6 +338,7 @@ def load_user_config(path: str | None = None) -> UserConfig:
         lessons=lessons,
         models=models_config,
         plugins=plugins,
+        settings=settings,
         plugin=plugin_config,
     )
 

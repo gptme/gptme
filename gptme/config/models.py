@@ -170,6 +170,13 @@ class ModelsConfig:
 
 
 @dataclass
+class SettingsConfig:
+    """Project/user settings that affect CLI defaults."""
+
+    gear: int | None = None
+
+
+@dataclass
 class UserConfig:
     """User-level configuration, such as user-specific prompts and environment variables."""
 
@@ -187,6 +194,9 @@ class UserConfig:
     # Plugin system configuration (search paths + enabled allowlist).
     # Layered with project-level [plugins] (see Config.get_plugin_config).
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
+
+    # CLI/runtime defaults. Mirrors project-level [settings].
+    settings: SettingsConfig = field(default_factory=SettingsConfig)
 
     # Plugin-specific configuration namespace (user-level)
     # Allows plugins to have their own config sections like [plugin.retrieval]
@@ -301,6 +311,8 @@ class ProjectConfig:
 
     subagent: SubagentConfig = field(default_factory=SubagentConfig)
 
+    settings: SettingsConfig = field(default_factory=SettingsConfig)
+
     # Plugin-specific configuration namespace
     # Allows plugins to have their own config sections like [plugin.retrieval]
     # These are preserved as raw dicts for plugins to validate and use
@@ -408,6 +420,17 @@ class ProjectConfig:
             "subagent", SubagentConfig, _pop_object_section(config_data, "subagent")
         )
 
+        settings = _build_section(
+            "settings", SettingsConfig, _pop_object_section(config_data, "settings")
+        )
+        if settings.gear is not None:
+            from ..gears import parse_gear
+
+            try:
+                settings.gear = parse_gear(settings.gear)
+            except ValueError as exc:
+                raise ValueError(f"settings.gear {exc}") from exc
+
         # Warn about unknown keys and drop them instead of passing them through
         # as kwargs (which would crash with "unexpected keyword argument").
         if config_data:
@@ -433,6 +456,7 @@ class ProjectConfig:
             env=env,
             mcp=mcp,
             subagent=subagent,
+            settings=settings,
         )
 
     def merge(self, other: Self) -> Self:
