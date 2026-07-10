@@ -77,8 +77,11 @@ def synthesize_speech():
     api_key = config.get_env("OPENROUTER_API_KEY")
     if not api_key:
         return {
-            "error": "OPENROUTER_API_KEY not configured. Set the environment variable or add it to config."
-        }, 400
+            "error": "OPENROUTER_API_KEY not configured. "
+            "Set the environment variable or add it to config. "
+            "For local TTS without an API key, install and run the gptme-tts server "
+            "(pip install gptme-tts) and set its URL in the webui TTS settings."
+        }, 503
 
     model, error = _optional_string(data, "model", DEFAULT_MODEL)
     if error is not None:
