@@ -63,6 +63,7 @@ You can find our model recommendations on the :doc:`evals` page.
 .. toctree::
    :maxdepth: 2
 
+   local-models
    custom-providers
 
 To select a provider and model, run ``gptme`` with the ``-m``/``--model`` flag set to ``<provider>/<model>``, for example:
