@@ -183,7 +183,7 @@ class Subagent:
     context_mode: Literal["full", "selective"] = "full"
     context_include: list[str] | None = None
     profile: str | None = None
-    output_schema: type | None = None
+    output_schema: "type | dict | None" = None
     use_acp: bool = False
     # Subprocess mode fields
     process: subprocess.Popen | None = None

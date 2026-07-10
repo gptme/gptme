@@ -19,11 +19,60 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Python built-in types that are valid as values in a {field_name: python_type} mapping.
+# Any dict whose values are all in this set is treated as a field-type map and converted
+# to JSON Schema.  Any other dict (including all real JSON Schema dicts) is returned as-is.
+_PYTHON_FIELD_TYPES: frozenset[type] = frozenset(
+    {int, float, bool, str, bytes, list, dict, tuple, set}
+)
+
+
+def _dict_to_jsonschema(d: dict) -> dict:
+    """Convert a simple ``{field: type}`` dict to a JSON Schema object.
+
+    Handles two cases:
+    - Plain Python ``{str: type}`` mapping (all values are Python type objects) →
+      converted to an ``object`` schema with ``properties`` derived from the Python
+      type names (``int`` → ``"integer"``, ``float`` → ``"number"``,
+      ``bool`` → ``"boolean"``, everything else → ``"string"``).
+    - Anything else (empty dict, or any value that is not a Python type object) →
+      returned as-is.  This covers all valid JSON Schema dicts regardless of which
+      keywords they use (``type``, ``properties``, ``items``, ``minimum``,
+      ``format``, ``$ref``, etc.).
+
+    Args:
+        d: A dict that is either an existing JSON Schema or a ``{field: type}`` mapping.
+
+    Returns:
+        A JSON Schema dict.
+    """
+    # Pass through empty dicts and any dict that is not a pure {field: PythonType} map.
+    # JSON Schema dicts always have at least one value that is not a Python type object
+    # (e.g. string literals like "string"/"object", nested dicts, lists, numbers, …).
+    # `isinstance(v, type)` short-circuits before the `in` check, which avoids
+    # a TypeError on unhashable values (dicts, lists, etc.) from real JSON Schema dicts.
+    if not d or not all(
+        isinstance(v, type) and v in _PYTHON_FIELD_TYPES for v in d.values()
+    ):
+        return d
+
+    type_map = {int: "integer", float: "number", bool: "boolean"}
+    props = {}
+    for key, val in d.items():
+        json_type = type_map.get(val, "string")
+        props[key] = {"type": json_type}
+    return {
+        "type": "object",
+        "properties": props,
+        "required": list(d.keys()),
+    }
+
+
 def _get_complete_instruction(
     target: str = "orchestrator",
     *,
     supports_progress: bool = True,
-    output_schema: type | None = None,
+    output_schema: "type | dict | None" = None,
 ) -> str:
     """Get the standard instruction for using the complete tool.
 
@@ -34,19 +83,22 @@ def _get_complete_instruction(
     Args:
         target: Who will review the result ("orchestrator", "parent", "planner")
         supports_progress: Whether to include the progress block instructions
-        output_schema: Optional Pydantic model class. When set, the complete
-            block must contain valid JSON matching the model's schema. The
-            instruction is extended with the expected schema.
+        output_schema: Optional schema for the complete block. Accepted forms:
+            - Pydantic model class: ``model.model_json_schema()`` is used.
+            - Plain ``{field: type}`` dict: converted to a JSON Schema object.
+            - Raw JSON Schema dict (has ``"type"``/``"properties"``): used as-is.
+            When set, the instruction is extended with the expected schema.
     """
     if output_schema is not None:
         import json
 
-        schema_str = json.dumps(
-            output_schema.model_json_schema()
-            if hasattr(output_schema, "model_json_schema")
-            else {"type": "object"},
-            indent=2,
-        )
+        if hasattr(output_schema, "model_json_schema"):
+            schema = output_schema.model_json_schema()
+        elif isinstance(output_schema, dict):
+            schema = _dict_to_jsonschema(output_schema)
+        else:
+            schema = {"type": "object"}
+        schema_str = json.dumps(schema, indent=2)
         complete_block_hint = f"Valid JSON matching this schema:\n{schema_str}"
     else:
         complete_block_hint = "Your complete answer here."

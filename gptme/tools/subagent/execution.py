@@ -150,7 +150,7 @@ def _create_subagent_thread(
     context_include: list[str] | None,
     workspace: Path,
     target: str = "parent",
-    output_schema: type | None = None,
+    output_schema: "type | dict | None" = None,
     profile_name: str | None = None,
     agent_id: str | None = None,
     redact_secrets: bool = True,
@@ -415,6 +415,7 @@ def _run_subagent_subprocess(
     context_mode: Literal["full", "selective"] | None = None,
     context_include: list[str] | None = None,
     output_schema: str | None = None,
+    output_schema_dict: dict | None = None,
     profile: str | None = None,
 ) -> subprocess.Popen:
     """Run a subagent in a subprocess for output isolation.
@@ -433,7 +434,11 @@ def _run_subagent_subprocess(
             "files", "cmd", and "all" are still accepted in subprocess mode.
             "agent" and "tools" are ignored here because the CLI already
             includes them.
-        output_schema: JSON schema for structured output
+        output_schema: ``module:ClassName`` reference for structured output (Pydantic models).
+            Passed directly to the CLI's ``--output-schema`` flag.
+        output_schema_dict: Pre-parsed JSON Schema dict (from plain-dict callers).
+            Injected into the prompt via ``_get_complete_instruction`` rather than
+            the CLI flag, because the CLI only accepts ``module:ClassName`` format.
         profile: Agent profile name to apply via --agent-profile flag
 
     Returns:
@@ -515,9 +520,11 @@ def _run_subagent_subprocess(
     # Add completion instruction to the prompt for subprocess mode.
     # (In thread mode, this is added as a system message.)
     # Subprocess mode supports progress via the file channel, so enable it.
+    # Pass output_schema_dict (plain-dict callers) so the schema hint is
+    # injected here — the CLI --output-schema flag only accepts module:ClassName.
     complete_section = (
         "\n\n[Completion Instructions]\n"
-        f"{_get_complete_instruction('orchestrator', supports_progress=True)}\n"
+        f"{_get_complete_instruction('orchestrator', supports_progress=True, output_schema=output_schema_dict)}\n"
     )
     prompt = prompt + complete_section
 
