@@ -171,6 +171,7 @@ def test_show_prompt_stats_exits_before_chat(monkeypatch, tmp_path: Path, runner
             workspace=tmp_path,
             stream=False,
             agent=None,
+            gear=None,
         ),
         project=None,
     )
@@ -229,6 +230,7 @@ def test_no_workspace_flag_wires_correctly(monkeypatch, tmp_path: Path, runner):
             workspace=tmp_path,
             stream=False,
             agent=None,
+            gear=None,
         ),
         project=None,
     )
