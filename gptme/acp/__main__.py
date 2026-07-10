@@ -9,7 +9,7 @@ Or via the CLI:
 
     gptme --acp
 
-After ``_capture_stdio_transport()``, fd 1 is redirected to stderr via
+After ``capture_stdio_transport()``, fd 1 is redirected to stderr via
 ``os.dup2(2, 1)``.  The only way to write to the real stdout is through
 the file objects returned by that function.  This is intentional —
 JSON-RPC owns stdout.
@@ -23,6 +23,8 @@ import logging
 import os
 import sys
 from typing import IO, Any
+
+from gptme.util.stdio import capture_stdio_transport
 
 logger = logging.getLogger(__name__)
 
@@ -72,34 +74,6 @@ class _WritePipeProtocol(asyncio.BaseProtocol):
             raise ConnectionResetError("Connection lost")
         if self._paused and self._drain_waiter is not None:
             await self._drain_waiter
-
-
-def _capture_stdio_transport() -> tuple[IO[bytes], IO[bytes]]:
-    """Capture real stdin/stdout fds, then redirect fd 1 to fd 2 at the OS level.
-
-    After this call:
-    - The returned (stdin_file, stdout_file) are the ONLY way to talk to the
-      real stdin/stdout (i.e., the JSON-RPC channel).
-    - fd 1 now points to stderr, so print(), rprint(), Console(),
-      sys.stdout.write(), and even C extensions writing to fd 1 all go to stderr.
-    - No monkey-patching, no import-order sensitivity.
-    """
-    # 1. Duplicate the real fds before we clobber them
-    real_stdin_fd = os.dup(0)
-    real_stdout_fd = os.dup(1)
-
-    # 2. Point fd 1 (stdout) at fd 2 (stderr) — OS level, bulletproof
-    os.dup2(2, 1)
-
-    # 3. Rebuild Python's sys.stdout on the now-redirected fd 1
-    #    so even sys.stdout.write() goes to stderr
-    sys.stdout = open(1, "w", buffering=1, closefd=False)
-
-    # 4. Return raw binary file objects for the JSON-RPC transport
-    real_stdin = os.fdopen(real_stdin_fd, "rb", buffering=0)
-    real_stdout = os.fdopen(real_stdout_fd, "wb", buffering=0)
-
-    return real_stdin, real_stdout
 
 
 def _truncate(value: Any, max_len: int = 200) -> str:
@@ -215,7 +189,7 @@ async def _run_acp(real_stdin: IO[bytes], real_stdout: IO[bytes]) -> None:
 def main() -> int:
     """Run the gptme ACP agent."""
     # === FIRST: capture fds before ANY gptme imports ===
-    real_stdin, real_stdout = _capture_stdio_transport()
+    real_stdin, real_stdout = capture_stdio_transport()
 
     # Logging goes to stderr (fd 2, untouched).
     # Respect GPTME_LOG_LEVEL env var for debugging ACP protocol issues.
