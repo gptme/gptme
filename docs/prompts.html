@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7efe57af91c0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fddc8a251c0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2240,7 +2240,7 @@ complete the task without losing context.
 The following Python functions are available:
 
 <span class="sb">```txt</span>
-<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: Union[type, None], use_subprocess: Union[bool, None], use_acp: bool, acp_command: str, profile: Union[str, None], model: Union[str, None], isolated: Union[bool, None], timeout: int, role: Union[Literal[&quot;general&quot;, &quot;explore&quot;, &quot;implement&quot;, &quot;verify&quot;], None], redact_secrets: bool, context_window: Union[int, None], max_time: Union[float, None], context_turns: Union[int, None], workdir: Union[str, Path, None]): Starts an asynchronous subagent. Returns None immediately.</span>
+<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: type | dict | None, use_subprocess: Union[bool, None], use_acp: bool, acp_command: str, profile: Union[str, None], model: Union[str, None], isolated: Union[bool, None], timeout: int, role: Union[Literal[&quot;general&quot;, &quot;explore&quot;, &quot;implement&quot;, &quot;verify&quot;], None], redact_secrets: bool, context_window: Union[int, None], max_time: Union[float, None], context_turns: Union[int, None], workdir: Union[str, Path, None]): Starts an asynchronous subagent. Returns None immediately.</span>
 <span class="s">subagent_cancel(agent_id: str) -&gt; str: Cancel a running subagent.</span>
 <span class="s">subagent_list() -&gt; list[dict]: Returns a list of all subagents with their current status.</span>
 <span class="s">subagent_reply(agent_id: str, reply: str): Re-spawn a subagent that requested clarification.</span>
@@ -2248,9 +2248,9 @@ The following Python functions are available:
 <span class="s">subagent_wait(agent_id: str, timeout: int, max_result_chars: int) -&gt; dict: Waits for a subagent to finish.</span>
 <span class="s">subagent_wait_any(agent_ids: list[str], timeout: int) -&gt; tuple[str, dict]: Wait for the first of the given subagents to complete.</span>
 <span class="s">subagent_read_log(agent_id: str, max_messages: int, include_system: bool, message_filter: Union[str, None]) -&gt; str: Read the conversation log of a subagent.</span>
-<span class="s">subagent_batch(tasks: list[tuple[str, str]], use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: Union[type, None], workdir: Union[str, Path, None], context_turns: Union[int, None], context_window: Union[int, None], redact_secrets: bool) -&gt; BatchJob: Start multiple subagents in parallel and return a BatchJob to manage them.</span>
-<span class="s">subagent_parallel(tasks: list[tuple[str, str]], timeout: int, use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: Union[type, None], workdir: Union[str, Path, None], context_turns: Union[int, None], context_window: Union[int, None], redact_secrets: bool) -&gt; list[dict]: Fan out N subagents in parallel, wait for all, return results as an ordered list.</span>
-<span class="s">subagent_pipeline(items: list[tuple[str, str]], stages: Callable[[str, str], str], timeout: float, use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: Union[type, None], workdir: Union[str, Path, None], context_turns: Union[int, None], context_window: Union[int, None], redact_secrets: bool) -&gt; list[list[dict]]: Process items through multiple stages with no barrier between stages.</span>
+<span class="s">subagent_batch(tasks: list[tuple[str, str]], use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: type | dict | None, workdir: Union[str, Path, None], context_turns: Union[int, None], context_window: Union[int, None], redact_secrets: bool) -&gt; BatchJob: Start multiple subagents in parallel and return a BatchJob to manage them.</span>
+<span class="s">subagent_parallel(tasks: list[tuple[str, str]], timeout: int, use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: type | dict | None, workdir: Union[str, Path, None], context_turns: Union[int, None], context_window: Union[int, None], redact_secrets: bool) -&gt; list[dict]: Fan out N subagents in parallel, wait for all, return results as an ordered list.</span>
+<span class="s">subagent_pipeline(items: list[tuple[str, str]], stages: Callable[[str, str], str], timeout: float, use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: type | dict | None, workdir: Union[str, Path, None], context_turns: Union[int, None], context_window: Union[int, None], redact_secrets: bool) -&gt; list[list[dict]]: Process items through multiple stages with no barrier between stages.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -2678,7 +2678,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 17063</p>
+<p>Tokens: 17067</p>
 </dd></dl>
 
 <dl class="py function">
