@@ -34,7 +34,20 @@ def _dict_to_jsonschema(d: dict) -> dict:
     Returns:
         A JSON Schema dict.
     """
-    if "type" in d or "properties" in d or "$schema" in d:
+    if d.keys() & {
+        "type",
+        "properties",
+        "$schema",
+        "$ref",
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "enum",
+        "not",
+        "if",
+        "$defs",
+        "definitions",
+    }:
         return d
 
     type_map = {int: "integer", float: "number", bool: "boolean"}

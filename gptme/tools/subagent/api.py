@@ -660,6 +660,10 @@ def subagent(
             # Convert pydantic model or type to JSON schema string
             if hasattr(output_schema, "model_json_schema"):
                 output_schema_str = json.dumps(output_schema.model_json_schema())
+            elif isinstance(output_schema, dict):
+                from .hooks import _dict_to_jsonschema
+
+                output_schema_str = json.dumps(_dict_to_jsonschema(output_schema))
             elif hasattr(output_schema, "__annotations__"):
                 # TypedDict or dataclass - create simple schema
                 output_schema_str = json.dumps({"type": "object"})

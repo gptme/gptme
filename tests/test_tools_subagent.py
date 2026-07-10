@@ -3594,3 +3594,55 @@ def test_output_schema_dict_stored_on_subagent():
     assert new_agents, "Subagent should have been registered"
     sa = next(a for a in new_agents if a.agent_id == "schema-test")
     assert sa.output_schema == {"score": int, "label": str}
+
+
+def test_dict_to_jsonschema_passthrough_ref_schema():
+    """_dict_to_jsonschema passes through $ref and oneOf JSON Schema dicts unchanged."""
+    from gptme.tools.subagent.hooks import _dict_to_jsonschema
+
+    ref_schema = {"$ref": "#/$defs/Foo"}
+    assert _dict_to_jsonschema(ref_schema) is ref_schema
+
+    one_of_schema = {"oneOf": [{"type": "string"}, {"type": "null"}]}
+    assert _dict_to_jsonschema(one_of_schema) is one_of_schema
+
+    any_of_schema = {"anyOf": [{"type": "integer"}, {"type": "string"}]}
+    assert _dict_to_jsonschema(any_of_schema) is any_of_schema
+
+
+def test_subprocess_output_schema_dict_serialized():
+    """subprocess mode serializes a plain-dict output_schema to JSON (not left as None)."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    captured: list[str | None] = []
+
+    def fake_run_subprocess(**kwargs):
+        captured.append(kwargs.get("output_schema"))
+        return MagicMock()
+
+    initial_count = len(_subagents)
+    with (
+        patch(
+            "gptme.tools.subagent.execution._run_subagent_subprocess",
+            side_effect=fake_run_subprocess,
+        ),
+        patch("gptme.tools.subagent.execution._monitor_subprocess"),
+    ):
+        subagent(
+            agent_id="subprocess-schema-test",
+            prompt="Return JSON",
+            output_schema={"score": int, "summary": str},
+            use_subprocess=True,
+        )
+        _wait_for_new_subagent_threads(initial_count)
+
+    assert captured, "subprocess launcher should have called _run_subagent_subprocess"
+    schema_str = captured[0]
+    assert schema_str is not None, (
+        "output_schema_str must not be None for a plain dict schema"
+    )
+    schema = json.loads(schema_str)
+    assert schema["type"] == "object"
+    assert schema["properties"]["score"] == {"type": "integer"}
+    assert schema["properties"]["summary"] == {"type": "string"}
