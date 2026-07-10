@@ -68,15 +68,20 @@ gptme-util computer doctor
 gptme-util computer demo --all
 ```
 
+`gptme-util computer doctor` reports Playwright and Chromium availability as
+warnings rather than hard errors. If it warns about a missing browser runtime,
+`gptme-util computer demo --all` will also fail — install the missing dependency
+before proceeding.
+
 `gptme-util computer demo --all` drives the real Playwright browser tool against
 local HTML fixtures — the same `open_page`, `fill_element`, and `click_element`
-calls that work against live sites. All three milestones should pass in under
-3 seconds. If they do, browser interaction and selector resolution are working.
+calls that work against live sites. When all three milestones pass, browser
+interaction and selector resolution are working.
 
 For X11/native-desktop diagnostics (requires a running display):
 
 ```bash
-gptme-util computer latency            # screenshot capture latency (target: < 200 ms)
+gptme-util computer latency            # screenshot capture latency (target: < 100 ms)
 gptme-util computer latency --terminal # terminal startup latency (target: < 500 ms)
 ```
 
