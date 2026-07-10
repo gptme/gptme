@@ -236,10 +236,12 @@ def get_model(model: str) -> ModelMeta:
             if provider == "openai-subscription" and ":" in model_name:
                 lookup_model_name = model_name.rsplit(":", 1)[0]
 
-            # Resolve model aliases for metadata lookup (e.g., gpt-5.6 -> gpt-5.6-sol)
-            # Update lookup_model_name so we get the correct metadata from MODELS.
-            # Keep model_name as-is: providers accept the alias form in API calls
-            # (e.g. Anthropic accepts claude-haiku-4-5, OpenAI accepts gpt-5.6).
+            # Resolve model aliases for metadata lookup (e.g., gpt-5.6 -> gpt-5.6-sol).
+            # For OpenAI, also update model_name: gpt-5.6 / gpt-5.6-terra are our
+            # synthetic convenience aliases, not tier IDs accepted by the OpenAI API.
+            # The API requires explicit tier IDs (gpt-5.6-sol / gpt-5.6-terra / etc.).
+            # Other providers (Anthropic etc.) accept the alias form directly in the
+            # API (e.g. claude-haiku-4-5 works), so we keep model_name for those.
             if (
                 provider in MODEL_ALIASES
                 and lookup_model_name in MODEL_ALIASES[provider]
@@ -249,6 +251,8 @@ def get_model(model: str) -> ModelMeta:
                     f"Resolved alias {lookup_model_name!r} -> {canonical_name!r} for provider {provider!r}"
                 )
                 lookup_model_name = canonical_name
+                if provider == "openai":
+                    model_name = canonical_name
 
             # First try static MODELS dict for performance
             if provider in MODELS and lookup_model_name in MODELS[provider]:

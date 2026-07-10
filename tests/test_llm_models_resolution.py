@@ -182,22 +182,22 @@ class TestAliasResolution:
         # Should be None since there's no alias and no base model after stripping date
         assert props is None
 
-    def test_openai_gpt56_alias_resolves_metadata(self):
-        """openai/gpt-5.6 should resolve real metadata (context, pricing) from gpt-5.6-sol.
+    def test_openai_gpt56_alias_resolves_to_canonical_api_name(self):
+        """openai/gpt-5.6 should resolve to gpt-5.6-sol for the API call.
 
-        The model name stays as gpt-5.6 — OpenAI accepts this alias in API calls.
-        What we're checking is that the alias lookup populates real metadata, not
-        the 128k fallback that would appear if the alias wasn't resolved.
+        gpt-5.6 is a synthetic convenience alias we define internally; the OpenAI
+        API requires the explicit tier ID (gpt-5.6-sol). We must not send gpt-5.6
+        to the API because OpenAI may not accept short-form aliases.
         """
         model = get_model("openai/gpt-5.6")
         assert model.provider == "openai"
-        # Model name should stay as the alias (OpenAI accepts gpt-5.6 in API calls)
-        assert model.model == "gpt-5.6"
-        # Critical: metadata must come from gpt-5.6-sol, not the 128k fallback
-        assert model.context == 1_000_000, (
-            f"Expected 1M context (from gpt-5.6-sol), got {model.context}. "
-            "Alias lookup must resolve metadata from the canonical model."
+        # model name must be the canonical tier ID sent to the API, not our alias
+        assert model.model == "gpt-5.6-sol", (
+            f"Expected 'gpt-5.6-sol' (canonical tier ID), got {model.model!r}. "
+            "OpenAI aliases must resolve to the API-accepted tier ID."
         )
+        # Must have real metadata from gpt-5.6-sol, not the 128k fallback
+        assert model.context == 1_000_000
         assert model.price_input > 0
 
     def test_bare_gpt56_alias_resolves_with_provider(self):
