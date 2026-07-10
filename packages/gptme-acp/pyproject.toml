@@ -1,6 +1,6 @@
 [project]
 name = "gptme-acp"
-version = "0.31.0"
+version = "0.31.1.dev202607102"
 description = "ACP (Agent Client Protocol) entry point for gptme — lets editors like Zed and JetBrains launch gptme via uvx"
 authors = [
     { name = "Erik Bjäreholt", email = "erik@bjareho.lt" },
