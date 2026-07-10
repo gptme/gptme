@@ -35,9 +35,9 @@ def extract_keywords(problem_statement: str) -> list[str]:
     paths. These are the most discriminating signals for file localization.
     """
     camel = re.findall(r"\b[A-Z][a-zA-Z0-9]{4,}\b", problem_statement)
-    snake = re.findall(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}\b", problem_statement)
+    snake = re.findall(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+){1,}\b", problem_statement)
     dotted = re.findall(
-        r"\b[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]+){2,}\b", problem_statement
+        r"\b[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]+){1,}\b", problem_statement
     )
 
     stopwords = {
@@ -122,7 +122,9 @@ def rank_source_files(
     for path, score in file_scores.items():
         if any(p in path for p in _EXCLUDE_PATTERNS):
             continue
-        if not include_tests and ("test_" in path or "/tests/" in path):
+        if not include_tests and (
+            Path(path).name.startswith("test_") or "/tests/" in path
+        ):
             continue
         filtered.append((path, score))
 
@@ -174,9 +176,7 @@ def build_embedded_content_prompt(
 
         if len(content.encode()) > max_file_bytes:
             # Truncate large files — first N bytes usually contain the relevant code
-            content = (
-                content[: max_file_bytes // 2] + "\n... [truncated for context] ..."
-            )
+            content = content[:max_file_bytes] + "\n... [truncated for context] ..."
 
         ext = full_path.suffix.lstrip(".")
         embedded_files.append(
@@ -200,7 +200,7 @@ def build_embedded_content_prompt(
 1. Study the issue description to understand what bug needs to be fixed.
 2. Read the provided source files below.
 3. Apply the MINIMAL fix to resolve the issue described.
-4. ONLY modify the files listed below. Do NOT explore or modify other files.
+4. Focus on the files listed below. If the fix requires editing another file, you may do so, but keep changes minimal.
 5. Do NOT fix unrelated issues you notice (symlinks, formatting, style, etc.).
 6. After making your changes, run `git diff` to verify only the expected files changed.
 
