@@ -41,14 +41,14 @@ def test_tts_endpoint_rejects_non_string_optional_fields(
     assert response.get_json() == {"error": f"{field} must be a string"}
 
 
-def test_tts_endpoint_returns_503_when_api_key_missing(
+def test_tts_endpoint_returns_400_when_api_key_missing(
     client: FlaskClient, monkeypatch: pytest.MonkeyPatch
 ):
     _set_openrouter_key(monkeypatch, None)
 
     response = client.post("/api/v2/audio/speech", json={"text": "Hello"})
 
-    assert response.status_code == 503
+    assert response.status_code == 400
     body = response.get_json()
     assert body is not None
     assert "OPENROUTER_API_KEY not configured" in body["error"]
