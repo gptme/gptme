@@ -99,6 +99,29 @@ class EvalResult:
     runnable tool-uses in assistant messages only (matching ``execute_msg``
     semantics); nested subagent tool-uses are not counted.
     """
+    tokens_input: int = field(default=0)
+    """Total input (prompt) tokens consumed during this eval task."""
+    tokens_output: int = field(default=0)
+    """Total output (completion) tokens generated during this eval task."""
+    cost_usd: float | None = field(default=None)
+    """Total cost in USD for this eval task, if model pricing is available."""
+    cache_read_tokens: int = field(default=0)
+    """Prompt-cache read tokens: input tokens served from cache (saved cost)."""
+    cache_creation_tokens: int = field(default=0)
+    """Prompt-cache write tokens: tokens used to populate the cache (extra cost)."""
+    cache_hit_rate: float = field(default=0.0)
+    """Fraction of input tokens served from cache (0.0–1.0)."""
+    num_steps: int = field(default=0)
+    """Number of LLM API calls made during this eval task (request_count).
+
+    Each step is one generation round-trip. Combined with tokens_input this
+    gives tokens-per-step — a cost lever independent of model choice.
+    """
+
+    @property
+    def tokens_total(self) -> int:
+        """Total tokens consumed (input + output) for this eval task."""
+        return self.tokens_input + self.tokens_output
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict."""
@@ -109,7 +132,15 @@ class EvalResult:
             "cases": [c.to_dict() for c in self.results],
             "timings": self.timings,
             "tool_calls": self.tool_calls,
+            "tokens_input": self.tokens_input,
+            "tokens_output": self.tokens_output,
+            "tokens_total": self.tokens_total,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_creation_tokens": self.cache_creation_tokens,
+            "cache_hit_rate": self.cache_hit_rate,
+            "num_steps": self.num_steps,
         }
+        d["cost_usd"] = self.cost_usd  # always present; null when pricing unavailable
         if self.cost is not None:
             d["cost"] = self.cost.to_dict()
         return d

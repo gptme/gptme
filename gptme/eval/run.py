@@ -325,6 +325,13 @@ def execute(
     time_run = 0.0
     time_eval = 0.0
     tool_calls = 0
+    tokens_input = 0
+    tokens_output = 0
+    cost_usd: float | None = None
+    cache_read_tokens = 0
+    cache_creation_tokens = 0
+    cache_hit_rate = 0.0
+    num_steps = 0
 
     prompt = test["prompt"]
     if adversarial:
@@ -394,6 +401,14 @@ def execute(
                 from .cost import CostSummary
 
                 cost = CostSummary.from_dict(cost_dict)
+
+            tokens_input = cost.total_input_tokens if cost else 0
+            tokens_output = cost.total_output_tokens if cost else 0
+            cost_usd = cost.total_cost if cost else None
+            cache_read_tokens = cost.cache_read_tokens if cost else 0
+            cache_creation_tokens = cost.cache_creation_tokens if cost else 0
+            cache_hit_rate = cost.cache_hit_rate if cost else 0.0
+            num_steps = cost.request_count if cost else 0
         else:
             exit_code = p.exitcode
             error_msg = (
@@ -509,6 +524,13 @@ def execute(
             workspace_dir=workspace_dir,
             cost=cost,
             tool_calls=tool_calls,
+            tokens_input=tokens_input,
+            tokens_output=tokens_output,
+            cost_usd=cost_usd,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+            cache_hit_rate=cache_hit_rate,
+            num_steps=num_steps,
         )
 
 

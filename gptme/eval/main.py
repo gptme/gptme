@@ -900,6 +900,7 @@ def read_results_from_csv(filename: str) -> dict[ModelConfig, list[EvalResult]]:
                     config = ModelConfig(model=model_name, tool_format="markdown")
                 test_dir = results_dir / model_name / row["Test"]
 
+            cost_usd_str = row.get("Cost USD", "")
             result = EvalResult(
                 name=row["Test"],
                 status="success" if row["Passed"] == "true" else "error",
@@ -916,6 +917,13 @@ def read_results_from_csv(filename: str) -> dict[ModelConfig, list[EvalResult]]:
                 log_dir=Path(row.get("Log Dir", str(test_dir))),
                 workspace_dir=Path(row.get("Workspace Dir", str(test_dir))),
                 tool_calls=int(row.get("Tool Calls", 0) or 0),
+                num_steps=int(row.get("Num Steps", 0) or 0),
+                tokens_input=int(row.get("Tokens Input", 0) or 0),
+                tokens_output=int(row.get("Tokens Output", 0) or 0),
+                cache_read_tokens=int(row.get("Cache Read Tokens", 0) or 0),
+                cache_creation_tokens=int(row.get("Cache Creation Tokens", 0) or 0),
+                cache_hit_rate=float(row.get("Cache Hit Rate", 0) or 0),
+                cost_usd=float(cost_usd_str) if cost_usd_str else None,
             )
             model_results[config].append(result)
     return dict(model_results)
@@ -1012,6 +1020,14 @@ def write_results(
             "Passed",
             "Score",
             "Tool Calls",
+            "Num Steps",
+            "Tokens Input",
+            "Tokens Output",
+            "Tokens Total",
+            "Cache Read Tokens",
+            "Cache Creation Tokens",
+            "Cache Hit Rate",
+            "Cost USD",
             "Total Duration",
             "Generation Time",
             "Run Time",
@@ -1056,6 +1072,14 @@ def write_results(
                     "Passed": "true" if passed else "false",
                     "Score": score,
                     "Tool Calls": result.tool_calls,
+                    "Num Steps": result.num_steps,
+                    "Tokens Input": result.tokens_input,
+                    "Tokens Output": result.tokens_output,
+                    "Tokens Total": result.tokens_total,
+                    "Cache Read Tokens": result.cache_read_tokens,
+                    "Cache Creation Tokens": result.cache_creation_tokens,
+                    "Cache Hit Rate": result.cache_hit_rate,
+                    "Cost USD": result.cost_usd if result.cost_usd is not None else "",
                     "Total Duration": round(sum(result.timings.values()), 2),
                     "Generation Time": round(result.timings["gen"], 2),
                     "Run Time": round(result.timings["run"], 2),
