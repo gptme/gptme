@@ -45,7 +45,7 @@ description = "Happy Eyeballs for asyncio"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "(extra == \"eval\" or extra == \"swebench\" or python_full_version <= \"3.13.0\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"swebench\" or extra == \"dspy\" or extra == \"all\") and (python_full_version <= \"3.13.0\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
 files = [
     {file = "aiohappyeyeballs-2.6.2-py3-none-any.whl", hash = "sha256:4708045e2d7a6c6bdf8aafa8ed39649eaf926a4543b54560659129e3365953c4"},
     {file = "aiohappyeyeballs-2.6.2.tar.gz", hash = "sha256:e202810ee718bd01fc6ef49e8ea53d023d5cb6b581076d7925aa499fa55dbe64"},
@@ -58,7 +58,7 @@ description = "Async http client/server framework (asyncio)"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "(extra == \"eval\" or extra == \"swebench\" or python_full_version <= \"3.13.0\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"swebench\" or extra == \"dspy\" or extra == \"all\") and (python_full_version <= \"3.13.0\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
 files = [
     {file = "aiohttp-3.14.1-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:8f6bb621e5863cfe8fe5ff5468002d200ec31f30f1280b259dc505b02595099e"},
     {file = "aiohttp-3.14.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:4f7215cb3933784f79ed20e5f050e15984f390424339b22375d5a53c933a0491"},
@@ -202,7 +202,7 @@ description = "aiosignal: a list of registered asynchronous callbacks"
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "(extra == \"eval\" or extra == \"swebench\" or python_full_version <= \"3.13.0\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"swebench\" or extra == \"dspy\" or extra == \"all\") and (python_full_version <= \"3.13.0\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
 files = [
     {file = "aiosignal-1.4.0-py3-none-any.whl", hash = "sha256:053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e"},
     {file = "aiosignal-1.4.0.tar.gz", hash = "sha256:f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7"},
@@ -270,7 +270,7 @@ description = "Document parameters, class attributes, return types, and variable
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\""
 files = [
     {file = "annotated_doc-0.0.4-py3-none-any.whl", hash = "sha256:571ac1dc6991c450b25a9c2d84a3705e2ae7a53467b5d111c24fa8baabbed320"},
     {file = "annotated_doc-0.0.4.tar.gz", hash = "sha256:fbcda96e87e9c92ad167c2e53839e57503ecfda18804ea28102353485033faa4"},
@@ -526,7 +526,7 @@ description = "Backport of compression.zstd"
 optional = true
 python-versions = "<3.14,>=3.10"
 groups = ["main"]
-markers = "python_version < \"3.14\" and (extra == \"server\" or extra == \"all\")"
+markers = "(extra == \"server\" or extra == \"all\") and python_version < \"3.14\""
 files = [
     {file = "backports_zstd-1.5.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:09045a00d9dad12dab49e029b26c197637b882cf4adc737a373404ba2aaabbca"},
     {file = "backports_zstd-1.5.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:e51edd66db6855bee020c951ca5c2e816777bfe77f87742fbbfae9a32d482fec"},
@@ -679,7 +679,7 @@ description = "Fast, simple object-to-object and broadcast signaling"
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"server\" or extra == \"all\") and (python_version >= \"3.12\" or extra == \"server\" or extra == \"all\") and (extra == \"server\" or extra == \"all\" or extra == \"eval\")"
+markers = "extra == \"server\" or extra == \"all\" or python_version >= \"3.12\" and (extra == \"server\" or extra == \"all\" or extra == \"eval\")"
 files = [
     {file = "blinker-1.9.0-py3-none-any.whl", hash = "sha256:ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc"},
     {file = "blinker-1.9.0.tar.gz", hash = "sha256:b4ce2265a7abece45e7cc896e98dbebe6cead56bcf805a3d23136d145f5445bf"},
@@ -877,7 +877,7 @@ description = "Extensible memoizing collections and decorators"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "(extra == \"eval\" or python_full_version <= \"3.13.0\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\")"
+markers = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\") and (python_full_version <= \"3.13.0\" or extra == \"eval\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\")"
 files = [
     {file = "cachetools-7.1.4-py3-none-any.whl", hash = "sha256:323dc4127934744db5b54eb4924482d7edafbf9554e820d1531c2e08c0e4ef54"},
     {file = "cachetools-7.1.4.tar.gz", hash = "sha256:437f55a4e0c1b01a4f3077cc470e6991d47430970e36fbcb77e2be0df4fc1cd6"},
@@ -1286,6 +1286,25 @@ files = [
     {file = "colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44"},
 ]
 markers = {main = "platform_system == \"Windows\" or sys_platform == \"win32\""}
+
+[[package]]
+name = "coloredlogs"
+version = "15.0.1"
+description = "Colored terminal output for Python's logging module"
+optional = true
+python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
+groups = ["main"]
+markers = "python_version == \"3.10\" and (extra == \"tts\" or extra == \"all\")"
+files = [
+    {file = "coloredlogs-15.0.1-py2.py3-none-any.whl", hash = "sha256:612ee75c546f53e92e70049c9dbfcc18c935a2b9a53b66085ce9ef6a6e5c0934"},
+    {file = "coloredlogs-15.0.1.tar.gz", hash = "sha256:7c991aa71a4577af2f82600d8f8f3a89f936baeaf9b50a9c197da014e5bf16b0"},
+]
+
+[package.dependencies]
+humanfriendly = ">=9.1"
+
+[package.extras]
+cron = ["capturer (>=2.4)"]
 
 [[package]]
 name = "colorlog"
@@ -1720,7 +1739,7 @@ description = "Python bindings for CUDA"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and python_version <= \"3.14\""
 files = [
     {file = "cuda_bindings-13.3.1-cp310-cp310-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:120fcc53d57903df529c3486962c56528cba5b7d6c57c99537320ed9922c8b86"},
     {file = "cuda_bindings-13.3.1-cp310-cp310-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9851b0caa8bfd3bc6fa054eaf57bea7c8e9c3a62db2d2621224677f49f3c53d0"},
@@ -1755,7 +1774,7 @@ description = "Pathfinder for CUDA components"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and python_version <= \"3.14\""
 files = [
     {file = "cuda_pathfinder-1.5.5-py3-none-any.whl", hash = "sha256:0228c023f95d1480f143ef5c8922d27a2ab052087a942e81dc289c9eb8f91689"},
 ]
@@ -1767,7 +1786,7 @@ description = "CUDA Toolkit meta-package"
 optional = true
 python-versions = "*"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and python_version <= \"3.14\""
 files = [
     {file = "cuda_toolkit-13.0.2-py2.py3-none-any.whl", hash = "sha256:b198824cf2f54003f50d64ada3a0f184b42ca0846c1c94192fa269ecd97a66eb"},
 ]
@@ -1979,7 +1998,7 @@ description = "A Python library for the Docker Engine API."
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"swebench\" or extra == \"eval\")"
+markers = "extra == \"swebench\" or extra == \"eval\""
 files = [
     {file = "docker-7.1.0-py3-none-any.whl", hash = "sha256:c96b93b7f0a746f9e77d325bcfb87422a3d8bd4f03136ae8a85b37f1898d5fc0"},
     {file = "docker-7.1.0.tar.gz", hash = "sha256:ad8c70e6e3f8926cb8a92619b832b4ea5299e2831c14284663184e200546fa6c"},
@@ -2170,7 +2189,7 @@ description = "Python bindings to Rust's UUID library."
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "(extra == \"eval\" or python_full_version <= \"3.13.0\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\")"
+markers = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\") and (python_full_version <= \"3.13.0\" or extra == \"eval\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\")"
 files = [
     {file = "fastuuid-0.14.0-cp310-cp310-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:6e6243d40f6c793c3e2ee14c13769e341b90be5ef0c23c82fa6515a96145181a"},
     {file = "fastuuid-0.14.0-cp310-cp310-macosx_10_12_x86_64.whl", hash = "sha256:13ec4f2c3b04271f62be2e1ce7e95ad2dd1cf97e94503a3760db739afbd48f00"},
@@ -2263,7 +2282,7 @@ files = [
     {file = "filelock-3.16.1-py3-none-any.whl", hash = "sha256:2082e5703d51fbf98ea75855d9d5527e33d8ff23099bec374a134febee6946b0"},
     {file = "filelock-3.16.1.tar.gz", hash = "sha256:c249fbfcd5db47e5e2d6d62198e565475ee65e4831e2561c8e313fa7eb961435"},
 ]
-markers = {main = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"}
+markers = {main = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\""}
 
 [package.extras]
 docs = ["furo (>=2024.8.6)", "sphinx (>=8.0.2)", "sphinx-autodoc-typehints (>=2.4.1)"]
@@ -2425,7 +2444,7 @@ description = "A list-like structure which implements collections.abc.MutableSeq
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "(extra == \"eval\" or extra == \"swebench\" or python_full_version <= \"3.13.0\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"swebench\" or extra == \"dspy\" or extra == \"all\") and (python_full_version <= \"3.13.0\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
 files = [
     {file = "frozenlist-1.8.0-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:b37f6d31b3dcea7deb5e9696e529a6aa4a898adc33db82da12e4c60a7c4d2011"},
     {file = "frozenlist-1.8.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:ef2b7b394f208233e471abc541cc6991f907ffd47dc72584acee3147899d6565"},
@@ -2566,7 +2585,7 @@ description = "File-system specification"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\""
 files = [
     {file = "fsspec-2026.4.0-py3-none-any.whl", hash = "sha256:11ef7bb35dab8a394fde6e608221d5cf3e8499401c249bebaeaad760a1a8dec2"},
     {file = "fsspec-2026.4.0.tar.gz", hash = "sha256:301d8ac70ae90ef3ad05dcf94d6c3754a097f9b5fe4667d2787aa359ec7df7e4"},
@@ -2648,7 +2667,7 @@ description = "Git Object Database"
 optional = true
 python-versions = ">=3.7"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"swebench\" or extra == \"eval\")"
+markers = "extra == \"swebench\" or extra == \"eval\""
 files = [
     {file = "gitdb-4.0.12-py3-none-any.whl", hash = "sha256:67073e15955400952c6565cc3e707c554a4eea2e428946f7a4c162fab9bd9bcf"},
     {file = "gitdb-4.0.12.tar.gz", hash = "sha256:5ef71f855d191a3326fcfbc0d5da835f26b13fbcba60c32c21091c349ffdb571"},
@@ -2664,7 +2683,7 @@ description = "GitPython is a Python library used to interact with Git repositor
 optional = true
 python-versions = ">=3.7"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"swebench\" or extra == \"eval\")"
+markers = "extra == \"swebench\" or extra == \"eval\""
 files = [
     {file = "gitpython-3.1.50-py3-none-any.whl", hash = "sha256:d352abe2908d07355014abdd21ddf798c2a961469239afec4962e9da884858f9"},
     {file = "gitpython-3.1.50.tar.gz", hash = "sha256:80da2d12504d52e1f998772dc5baf6e553f8d2fcfe1fcc226c9d9a2ee3372dcc"},
@@ -2796,7 +2815,7 @@ files = [
     {file = "greenlet-3.5.3-cp315-cp315t-win_arm64.whl", hash = "sha256:b7068bd09f761f3f5b4d214c2bed063186b2a86148c740b3873e3f56d79bac31"},
     {file = "greenlet-3.5.3.tar.gz", hash = "sha256:a61efc018fd3eb317eeca31aba90ee9e7f26f22884a79b6c6ec715bf71bb62f1"},
 ]
-markers = {main = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"browser\" or extra == \"all\") and (platform_machine == \"aarch64\" or platform_machine == \"ppc64le\" or platform_machine == \"x86_64\" or platform_machine == \"amd64\" or platform_machine == \"AMD64\" or platform_machine == \"win32\" or platform_machine == \"WIN32\" or extra == \"browser\" or extra == \"all\") and (python_version >= \"3.12\" or extra == \"browser\" or extra == \"all\") and (extra == \"browser\" or extra == \"all\" or extra == \"eval\")"}
+markers = {main = "extra == \"browser\" or extra == \"all\" or python_version >= \"3.12\" and (extra == \"browser\" or extra == \"all\" or extra == \"eval\") and (platform_machine == \"aarch64\" or platform_machine == \"ppc64le\" or platform_machine == \"x86_64\" or platform_machine == \"amd64\" or platform_machine == \"AMD64\" or platform_machine == \"win32\" or platform_machine == \"WIN32\")"}
 
 [package.extras]
 docs = ["Sphinx", "furo"]
@@ -2897,7 +2916,7 @@ description = "Pure-Python gRPC implementation for asyncio"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"swebench\" or extra == \"eval\")"
+markers = "(extra == \"swebench\" or extra == \"eval\") and python_version <= \"3.14\""
 files = [
     {file = "grpclib-0.4.9-py3-none-any.whl", hash = "sha256:7762ec1c8ed94dfad597475152dd35cbd11aecaaca2f243e29702435ca24cf0e"},
     {file = "grpclib-0.4.9.tar.gz", hash = "sha256:cc589c330fa81004c6400a52a566407574498cb5b055fa927013361e21466c46"},
@@ -2929,7 +2948,7 @@ description = "Pure-Python HTTP/2 protocol implementation"
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"swebench\" or extra == \"eval\")"
+markers = "extra == \"swebench\" or extra == \"eval\""
 files = [
     {file = "h2-4.3.0-py3-none-any.whl", hash = "sha256:c438f029a25f7945c69e0ccf0fb951dc3f73a5f6412981daee861431b70e2bdd"},
     {file = "h2-4.3.0.tar.gz", hash = "sha256:6c59efe4323fa18b47a632221a1888bd7fde6249819beda254aeca909f221bf1"},
@@ -2946,7 +2965,7 @@ description = "Fast transfer of large files with the Hugging Face Hub."
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "(platform_machine == \"x86_64\" or platform_machine == \"amd64\" or platform_machine == \"AMD64\" or platform_machine == \"arm64\" or platform_machine == \"aarch64\") and (python_version <= \"3.14\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\") and (platform_machine == \"x86_64\" or platform_machine == \"amd64\" or platform_machine == \"AMD64\" or platform_machine == \"arm64\" or platform_machine == \"aarch64\")"
 files = [
     {file = "hf_xet-1.5.1-cp313-cp313t-macosx_10_12_x86_64.whl", hash = "sha256:dbf48c0d02cf0b2e568944330c60d9120c272dabe013bd892d48e25bc6797577"},
     {file = "hf_xet-1.5.1-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:e78e4e5192ad2b674c2e1160b651cb9134db974f8ae1835bdfbfb0166b894a43"},
@@ -2985,7 +3004,7 @@ description = "Pure-Python HPACK header encoding"
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"swebench\" or extra == \"eval\")"
+markers = "extra == \"swebench\" or extra == \"eval\""
 files = [
     {file = "hpack-4.1.0-py3-none-any.whl", hash = "sha256:157ac792668d995c657d93111f46b4535ed114f0c9c8d672271bbec7eae1b496"},
     {file = "hpack-4.1.0.tar.gz", hash = "sha256:ec5eca154f7056aa06f196a557655c5b009b382873ac8d1e66e79e87535f1dca"},
@@ -3119,7 +3138,7 @@ description = "Client library to download and publish models, datasets and other
 optional = true
 python-versions = ">=3.10.0"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\""
 files = [
     {file = "huggingface_hub-1.16.1-py3-none-any.whl", hash = "sha256:64340de934b9ce37857ef85a82de72f5629e8a270f9119eabb12bf495eb53c22"},
     {file = "huggingface_hub-1.16.1.tar.gz", hash = "sha256:7f1dc4c5ec21aed69be630ad0c3378616be16f3de1a47b141c0e812965d9c832"},
@@ -3150,13 +3169,29 @@ torch = ["safetensors[torch]", "torch"]
 typing = ["types-PyYAML", "types-simplejson", "types-toml", "types-tqdm", "types-urllib3", "typing-extensions (>=4.8.0)"]
 
 [[package]]
+name = "humanfriendly"
+version = "10.0"
+description = "Human friendly output for text interfaces using Python"
+optional = true
+python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
+groups = ["main"]
+markers = "python_version == \"3.10\" and (extra == \"tts\" or extra == \"all\")"
+files = [
+    {file = "humanfriendly-10.0-py2.py3-none-any.whl", hash = "sha256:1697e1a8a8f550fd43c2865cd84542fc175a61dcb779b6fee18cf6b6ccba1477"},
+    {file = "humanfriendly-10.0.tar.gz", hash = "sha256:6b0b831ce8f15f7300721aa49829fc4e83921a9a301cc7f606be6686a2288ddc"},
+]
+
+[package.dependencies]
+pyreadline3 = {version = "*", markers = "sys_platform == \"win32\" and python_version >= \"3.8\""}
+
+[[package]]
 name = "hyperframe"
 version = "6.1.0"
 description = "Pure-Python HTTP/2 framing"
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"swebench\" or extra == \"eval\")"
+markers = "extra == \"swebench\" or extra == \"eval\""
 files = [
     {file = "hyperframe-6.1.0-py3-none-any.whl", hash = "sha256:b03380493a519fce58ea5af42e4a42317bf9bd425596f7a0835ffce80f1a42e5"},
     {file = "hyperframe-6.1.0.tar.gz", hash = "sha256:f630908a00854a7adeabd6382b43923a4c4cd4b821fcb527e6ab9e15382a3b08"},
@@ -3212,7 +3247,7 @@ description = "Read metadata from Python packages"
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "(extra == \"eval\" or extra == \"telemetry\" or extra == \"all\" or python_full_version <= \"3.13.0\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"telemetry\")"
+markers = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"telemetry\" or extra == \"all\" or extra == \"dspy\") and (python_full_version <= \"3.13.0\" or extra == \"eval\" or extra == \"telemetry\" or extra == \"all\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"telemetry\")"
 files = [
     {file = "importlib_metadata-8.7.1-py3-none-any.whl", hash = "sha256:5a1f80bf1daa489495071efbb095d75a634cf28a8bc299581244063b53176151"},
     {file = "importlib_metadata-8.7.1.tar.gz", hash = "sha256:49fef1ae6440c182052f407c8d34a68f72efc36db9ca90dc0113398f2fdde8bb"},
@@ -3334,7 +3369,7 @@ description = "Safely pass data to untrusted environments and back."
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"server\" or extra == \"all\") and (python_version >= \"3.12\" or extra == \"server\" or extra == \"all\") and (extra == \"server\" or extra == \"all\" or extra == \"eval\")"
+markers = "extra == \"server\" or extra == \"all\" or python_version >= \"3.12\" and (extra == \"server\" or extra == \"all\" or extra == \"eval\")"
 files = [
     {file = "itsdangerous-2.2.0-py3-none-any.whl", hash = "sha256:c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef"},
     {file = "itsdangerous-2.2.0.tar.gz", hash = "sha256:e0050c0b7da1eea53ffaf149c0cfbb5c6e2e2b69c4bef22c81fa6eb73e5f6173"},
@@ -3371,7 +3406,7 @@ files = [
     {file = "jinja2-3.1.4-py3-none-any.whl", hash = "sha256:bc5dd2abb727a5319567b7a813e6a2e7318c39f4f487cfe6c89c6f9c7d25197d"},
     {file = "jinja2-3.1.4.tar.gz", hash = "sha256:4a3aee7acbbe7303aede8e9648d13b8bf88a429282aa6122a993f0ac800cb369"},
 ]
-markers = {main = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"server\" or extra == \"all\" or extra == \"dspy\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"server\")"}
+markers = {main = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"server\""}
 
 [package.dependencies]
 MarkupSafe = ">=2.0"
@@ -3947,7 +3982,7 @@ description = "Library to easily interface with LLM API providers"
 optional = true
 python-versions = "!=2.7.*,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,!=3.6.*,!=3.7.*,>=3.8"
 groups = ["main"]
-markers = "(extra == \"eval\" or python_full_version <= \"3.13.0\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\")"
+markers = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\") and (python_full_version <= \"3.13.0\" or extra == \"eval\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\")"
 files = [
     {file = "litellm-1.80.0-py3-none-any.whl", hash = "sha256:fd0009758f4772257048d74bf79bb64318859adb4ea49a8b66fdbc718cd80b6e"},
     {file = "litellm-1.80.0.tar.gz", hash = "sha256:eeac733eb6b226f9e5fb020f72fe13a32b3354b001dc62bcf1bc4d9b526d6231"},
@@ -4254,7 +4289,7 @@ files = [
     {file = "MarkupSafe-3.0.2-cp39-cp39-win_amd64.whl", hash = "sha256:6e296a513ca3d94054c2c881cc913116e90fd030ad1c656b3869762b754f5f8a"},
     {file = "markupsafe-3.0.2.tar.gz", hash = "sha256:ee55d3edf80167e48ea11a923c7386f4669df67d7994554387f84e7d8b0a2bf0"},
 ]
-markers = {main = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"server\" or extra == \"all\" or extra == \"dspy\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"server\")"}
+markers = {main = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"server\""}
 
 [[package]]
 name = "matplotlib"
@@ -4504,7 +4539,7 @@ description = "Python library for arbitrary-precision floating-point arithmetic"
 optional = true
 python-versions = "*"
 groups = ["main"]
-markers = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or python_version == \"3.10\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"tts\")"
+markers = "python_version == \"3.10\" and (extra == \"tts\" or extra == \"all\" or extra == \"dspy\" or extra == \"eval\") or extra == \"dspy\" or extra == \"eval\" or extra == \"all\""
 files = [
     {file = "mpmath-1.3.0-py3-none-any.whl", hash = "sha256:a0b2b9fe80bbcd81a6647ff13108738cfb482d481d826cc0e02f5b35e5c88d2c"},
     {file = "mpmath-1.3.0.tar.gz", hash = "sha256:7a28eb2a9774d00c7bc92411c19a89209d5da7c4c9a9e227be8330a23a25b91f"},
@@ -4523,7 +4558,7 @@ description = "multidict implementation"
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "(extra == \"eval\" or extra == \"swebench\" or python_full_version <= \"3.13.0\") and (extra == \"swebench\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\")"
+markers = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"swebench\" or extra == \"dspy\" or extra == \"all\") and (python_full_version <= \"3.13.0\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"swebench\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\")"
 files = [
     {file = "multidict-6.7.1-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:c93c3db7ea657dd4637d57e74ab73de31bccefe144d3d4ce370052035bc85fb5"},
     {file = "multidict-6.7.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:974e72a2474600827abaeda71af0c53d9ebbc3c2eb7da37b37d7829ae31232d8"},
@@ -4907,7 +4942,7 @@ description = "Python package for creating and manipulating graphs and networks"
 optional = true
 python-versions = "!=3.14.1,>=3.11"
 groups = ["main"]
-markers = "python_version >= \"3.11\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and (python_version < \"3.14\" or python_version >= \"3.15\")"
+markers = "(python_version < \"3.14\" or python_version >= \"3.15\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and python_version >= \"3.11\""
 files = [
     {file = "networkx-3.6.1-py3-none-any.whl", hash = "sha256:d47fbf302e7d9cbbb9e2555a0d267983d2aa476bac30e90dfbe5669bd57f3762"},
     {file = "networkx-3.6.1.tar.gz", hash = "sha256:26b7c357accc0c8cde558ad486283728b65b6a95d85ee1cd66bafab4c8168509"},
@@ -5010,7 +5045,7 @@ description = "CUBLAS native runtime libraries"
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and python_version <= \"3.14\""
 files = [
     {file = "nvidia_cublas-13.1.1.3-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:b7a210458267ac818974c53038fbec2e969d5c99f305ab15c72522fa9f001dd5"},
     {file = "nvidia_cublas-13.1.1.3-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:37936a16db8fe4ac1f065c2139360608a543a09275cb1a1af612e08cfa065436"},
@@ -5041,7 +5076,7 @@ description = "CUDA profiling tools runtime libs."
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and (sys_platform == \"linux\" or sys_platform == \"win32\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and (sys_platform == \"linux\" or sys_platform == \"win32\") and python_version <= \"3.14\""
 files = [
     {file = "nvidia_cuda_cupti-13.0.85-py3-none-manylinux_2_25_aarch64.whl", hash = "sha256:796bd679890ee55fb14a94629b698b6db54bcfd833d391d5e94017dd9d7d3151"},
     {file = "nvidia_cuda_cupti-13.0.85-py3-none-manylinux_2_25_x86_64.whl", hash = "sha256:4eb01c08e859bf924d222250d2e8f8b8ff6d3db4721288cf35d14252a4d933c8"},
@@ -5071,7 +5106,7 @@ description = "NVRTC native runtime libraries"
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and python_version <= \"3.14\""
 files = [
     {file = "nvidia_cuda_nvrtc-13.0.88-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:ad9b6d2ead2435f11cbb6868809d2adeeee302e9bb94bcf0539c7a40d80e8575"},
     {file = "nvidia_cuda_nvrtc-13.0.88-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:d27f20a0ca67a4bb34268a5e951033496c5b74870b868bacd046b1b8e0c3267b"},
@@ -5099,7 +5134,7 @@ description = "CUDA Runtime native Libraries"
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and (sys_platform == \"linux\" or sys_platform == \"win32\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and (sys_platform == \"linux\" or sys_platform == \"win32\") and python_version <= \"3.14\""
 files = [
     {file = "nvidia_cuda_runtime-13.0.96-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:ef9bcbe90493a2b9d810e43d249adb3d02e98dd30200d86607d8d02687c43f55"},
     {file = "nvidia_cuda_runtime-13.0.96-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:7f82250d7782aa23b6cfe765ecc7db554bd3c2870c43f3d1821f1d18aebf0548"},
@@ -5146,7 +5181,7 @@ description = "cuDNN runtime libraries"
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and python_version <= \"3.14\""
 files = [
     {file = "nvidia_cudnn_cu13-9.20.0.48-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:e31454ae00094b0c55319d9d15b6fa2fc50a9e1c0f5c8c80fb75258234e731e1"},
     {file = "nvidia_cudnn_cu13-9.20.0.48-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:0c45dd8eeb50b603f07995b1b300c62ffe6a1980482b82b3bcf94a4ca9d49304"},
@@ -5163,7 +5198,7 @@ description = "CUFFT native runtime libraries"
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and (sys_platform == \"linux\" or sys_platform == \"win32\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and (sys_platform == \"linux\" or sys_platform == \"win32\") and python_version <= \"3.14\""
 files = [
     {file = "nvidia_cufft-12.0.0.61-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:2708c852ef8cd89d1d2068bdbece0aa188813a0c934db3779b9b1faa8442e5f5"},
     {file = "nvidia_cufft-12.0.0.61-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:6c44f692dce8fd5ffd3e3df134b6cdb9c2f72d99cf40b62c32dde45eea9ddad3"},
@@ -5199,7 +5234,7 @@ description = "cuFile GPUDirect libraries"
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and sys_platform == \"linux\" and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and sys_platform == \"linux\" and python_version <= \"3.14\""
 files = [
     {file = "nvidia_cufile-1.15.1.6-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:08a3ecefae5a01c7f5117351c64f17c7c62efa5fffdbe24fc7d298da19cd0b44"},
     {file = "nvidia_cufile-1.15.1.6-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:bdc0deedc61f548bddf7733bdc216456c2fdb101d020e1ab4b88d232d5e2f6d1"},
@@ -5225,7 +5260,7 @@ description = "CURAND native runtime libraries"
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and (sys_platform == \"linux\" or sys_platform == \"win32\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and (sys_platform == \"linux\" or sys_platform == \"win32\") and python_version <= \"3.14\""
 files = [
     {file = "nvidia_curand-10.4.0.35-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:133df5a7509c3e292aaa2b477afd0194f06ce4ea24d714d616ff36439cee349a"},
     {file = "nvidia_curand-10.4.0.35-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:1aee33a5da6e1db083fe2b90082def8915f30f3248d5896bcec36a579d941bfc"},
@@ -5255,7 +5290,7 @@ description = "CUDA solver native runtime libraries"
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and (sys_platform == \"linux\" or sys_platform == \"win32\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and (sys_platform == \"linux\" or sys_platform == \"win32\") and python_version <= \"3.14\""
 files = [
     {file = "nvidia_cusolver-12.0.4.66-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:02c2457eaa9e39de20f880f4bd8820e6a1cfb9f9a34f820eb12a155aa5bc92d2"},
     {file = "nvidia_cusolver-12.0.4.66-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:0a759da5dea5c0ea10fd307de75cdeb59e7ea4fcb8add0924859b944babf1112"},
@@ -5295,7 +5330,7 @@ description = "CUSPARSE native runtime libraries"
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and (sys_platform == \"linux\" or sys_platform == \"win32\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and (sys_platform == \"linux\" or sys_platform == \"win32\") and python_version <= \"3.14\""
 files = [
     {file = "nvidia_cusparse-12.6.3.3-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:80bcc4662f23f1054ee334a15c72b8940402975e0eab63178fc7e670aa59472c"},
     {file = "nvidia_cusparse-12.6.3.3-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:2b3c89c88d01ee0e477cb7f82ef60a11a4bcd57b6b87c33f789350b59759360b"},
@@ -5345,7 +5380,7 @@ description = "NVIDIA cuSPARSELt"
 optional = true
 python-versions = "*"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and python_version <= \"3.14\""
 files = [
     {file = "nvidia_cusparselt_cu13-0.8.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:4dca476c50bf4780d46cd0bfbd82e2bc10a08e4fef7950917ce8d7578d22a23f"},
     {file = "nvidia_cusparselt_cu13-0.8.1-py3-none-manylinux2014_x86_64.whl", hash = "sha256:786ce87568c303fadb5afcc7102d454cd3040d75f6f8626f5db460d1871f4dd0"},
@@ -5372,7 +5407,7 @@ description = "NVIDIA Collective Communication Library (NCCL) Runtime"
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and python_version <= \"3.14\""
 files = [
     {file = "nvidia_nccl_cu13-2.29.7-py3-none-manylinux_2_18_aarch64.whl", hash = "sha256:674a12383e3c38a1bcccae7d4f3633b37852230b6047883cb2f4c2d1b36d9bf5"},
     {file = "nvidia_nccl_cu13-2.29.7-py3-none-manylinux_2_18_x86_64.whl", hash = "sha256:edd81538446786ec3b73972543e53bb43bcaf0bfc8ef76cb679fcc390ffe136d"},
@@ -5385,7 +5420,7 @@ description = "Nvidia JIT LTO Library"
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and (sys_platform == \"linux\" or sys_platform == \"win32\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and (sys_platform == \"linux\" or sys_platform == \"win32\") and python_version <= \"3.14\""
 files = [
     {file = "nvidia_nvjitlink-13.0.88-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:13a74f429e23b921c1109976abefacc69835f2f433ebd323d3946e11d804e47b"},
     {file = "nvidia_nvjitlink-13.0.88-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:e931536ccc7d467a98ba1d8b89ff7fa7f1fa3b13f2b0069118cd7f47bff07d0c"},
@@ -5413,7 +5448,7 @@ description = "NVSHMEM creates a global address space that provides efficient an
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and python_version <= \"3.14\""
 files = [
     {file = "nvidia_nvshmem_cu13-3.4.5-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:6dc2a197f38e5d0376ad52cd1a2a3617d3cdc150fd5966f4aee9bcebb1d68fe9"},
     {file = "nvidia_nvshmem_cu13-3.4.5-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:290f0a2ee94c9f3687a02502f3b9299a9f9fe826e6d0287ee18482e78d495b80"},
@@ -5426,7 +5461,7 @@ description = "NVIDIA Tools Extension"
 optional = true
 python-versions = ">=3"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and (sys_platform == \"linux\" or sys_platform == \"win32\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and (sys_platform == \"linux\" or sys_platform == \"win32\") and python_version <= \"3.14\""
 files = [
     {file = "nvidia_nvtx-13.0.85-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:4936d1d6780fbe68db454f5e72a42ff64d1fd6397df9f363ae786930fd5c1cd4"},
     {file = "nvidia_nvtx-13.0.85-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:cb7780edb6b14107373c835bf8b72e7a178bac7367e23da7acb108f973f157a6"},
@@ -5451,12 +5486,53 @@ files = [
 
 [[package]]
 name = "onnxruntime"
-version = "1.24.3"
+version = "1.23.2"
 description = "ONNX Runtime is a runtime accelerator for Machine Learning models"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
 markers = "python_version == \"3.10\" and (extra == \"tts\" or extra == \"all\")"
+files = [
+    {file = "onnxruntime-1.23.2-cp310-cp310-macosx_13_0_arm64.whl", hash = "sha256:a7730122afe186a784660f6ec5807138bf9d792fa1df76556b27307ea9ebcbe3"},
+    {file = "onnxruntime-1.23.2-cp310-cp310-macosx_13_0_x86_64.whl", hash = "sha256:b28740f4ecef1738ea8f807461dd541b8287d5650b5be33bca7b474e3cbd1f36"},
+    {file = "onnxruntime-1.23.2-cp310-cp310-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8f7d1fe034090a1e371b7f3ca9d3ccae2fabae8c1d8844fb7371d1ea38e8e8d2"},
+    {file = "onnxruntime-1.23.2-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:4ca88747e708e5c67337b0f65eed4b7d0dd70d22ac332038c9fc4635760018f7"},
+    {file = "onnxruntime-1.23.2-cp310-cp310-win_amd64.whl", hash = "sha256:0be6a37a45e6719db5120e9986fcd30ea205ac8103fd1fb74b6c33348327a0cc"},
+    {file = "onnxruntime-1.23.2-cp311-cp311-macosx_13_0_arm64.whl", hash = "sha256:6f91d2c9b0965e86827a5ba01531d5b669770b01775b23199565d6c1f136616c"},
+    {file = "onnxruntime-1.23.2-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:87d8b6eaf0fbeb6835a60a4265fde7a3b60157cf1b2764773ac47237b4d48612"},
+    {file = "onnxruntime-1.23.2-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:bbfd2fca76c855317568c1b36a885ddea2272c13cb0e395002c402f2360429a6"},
+    {file = "onnxruntime-1.23.2-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:da44b99206e77734c5819aa2142c69e64f3b46edc3bd314f6a45a932defc0b3e"},
+    {file = "onnxruntime-1.23.2-cp311-cp311-win_amd64.whl", hash = "sha256:902c756d8b633ce0dedd889b7c08459433fbcf35e9c38d1c03ddc020f0648c6e"},
+    {file = "onnxruntime-1.23.2-cp312-cp312-macosx_13_0_arm64.whl", hash = "sha256:b8f029a6b98d3cf5be564d52802bb50a8489ab73409fa9db0bf583eabb7c2321"},
+    {file = "onnxruntime-1.23.2-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:218295a8acae83905f6f1aed8cacb8e3eb3bd7513a13fe4ba3b2664a19fc4a6b"},
+    {file = "onnxruntime-1.23.2-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:76ff670550dc23e58ea9bc53b5149b99a44e63b34b524f7b8547469aaa0dcb8c"},
+    {file = "onnxruntime-1.23.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:0f9b4ae77f8e3c9bee50c27bc1beede83f786fe1d52e99ac85aa8d65a01e9b77"},
+    {file = "onnxruntime-1.23.2-cp312-cp312-win_amd64.whl", hash = "sha256:25de5214923ce941a3523739d34a520aac30f21e631de53bba9174dc9c004435"},
+    {file = "onnxruntime-1.23.2-cp313-cp313-macosx_13_0_arm64.whl", hash = "sha256:2ff531ad8496281b4297f32b83b01cdd719617e2351ffe0dba5684fb283afa1f"},
+    {file = "onnxruntime-1.23.2-cp313-cp313-macosx_13_0_x86_64.whl", hash = "sha256:162f4ca894ec3de1a6fd53589e511e06ecdc3ff646849b62a9da7489dee9ce95"},
+    {file = "onnxruntime-1.23.2-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:45d127d6e1e9b99d1ebeae9bcd8f98617a812f53f46699eafeb976275744826b"},
+    {file = "onnxruntime-1.23.2-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8bace4e0d46480fbeeb7bbe1ffe1f080e6663a42d1086ff95c1551f2d39e7872"},
+    {file = "onnxruntime-1.23.2-cp313-cp313-win_amd64.whl", hash = "sha256:1f9cc0a55349c584f083c1c076e611a7c35d5b867d5d6e6d6c823bf821978088"},
+    {file = "onnxruntime-1.23.2-cp313-cp313t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:9d2385e774f46ac38f02b3a91a91e30263d41b2f1f4f26ae34805b2a9ddef466"},
+    {file = "onnxruntime-1.23.2-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e2b9233c4947907fd1818d0e581c049c41ccc39b2856cc942ff6d26317cee145"},
+]
+
+[package.dependencies]
+coloredlogs = "*"
+flatbuffers = "*"
+numpy = ">=1.21.6"
+packaging = "*"
+protobuf = "*"
+sympy = "*"
+
+[[package]]
+name = "onnxruntime"
+version = "1.24.3"
+description = "ONNX Runtime is a runtime accelerator for Machine Learning models"
+optional = true
+python-versions = ">=3.10"
+groups = ["main"]
+markers = "<empty>"
 files = [
     {file = "onnxruntime-1.24.3-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:3e6456801c66b095c5cd68e690ca25db970ea5202bd0c5b84a2c3ef7731c5a3c"},
     {file = "onnxruntime-1.24.3-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8b2ebc54c6d8281dccff78d4b06e47d4cf07535937584ab759448390a70f4978"},
@@ -6036,7 +6112,7 @@ files = [
     {file = "packaging-24.2-py3-none-any.whl", hash = "sha256:09abb1bccd265c01f4a3aa3f7a7db064b36514d2cba19a2f694fe6150451a759"},
     {file = "packaging-24.2.tar.gz", hash = "sha256:c228a6dc5e932d346bc5739379109d49e8853dd8223571c7c5b55260edc0b97f"},
 ]
-markers = {main = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\" or extra == \"swebench\" or extra == \"datascience\" or extra == \"tts\" or extra == \"telemetry\") and (extra == \"pyinstaller\" or extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\" or extra == \"datascience\" or extra == \"tts\" or extra == \"telemetry\")"}
+markers = {main = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\" or extra == \"swebench\" or extra == \"datascience\" or extra == \"tts\" or extra == \"telemetry\" or extra == \"pyinstaller\") and (python_version <= \"3.14\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\" or extra == \"swebench\" or extra == \"datascience\" or extra == \"tts\" or extra == \"telemetry\") and (extra == \"pyinstaller\" or extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\" or extra == \"datascience\" or extra == \"tts\" or extra == \"telemetry\")"}
 
 [[package]]
 name = "pandas"
@@ -6045,7 +6121,7 @@ description = "Powerful data structures for data analysis, time series, and stat
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\" or extra == \"datascience\" or extra == \"all\") and (extra == \"swebench\" or extra == \"eval\" or extra == \"datascience\" or extra == \"all\")"
+markers = "extra == \"swebench\" or extra == \"eval\" or extra == \"datascience\" or extra == \"all\""
 files = [
     {file = "pandas-2.3.3-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:376c6446ae31770764215a6c937f72d917f214b43560603cd60da6408f183b6c"},
     {file = "pandas-2.3.3-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:e19d192383eab2f4ceb30b412b22ea30690c9e618f78870357ae1d682912015a"},
@@ -6515,7 +6591,7 @@ description = "Accelerated property cache"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "(extra == \"eval\" or extra == \"swebench\" or python_full_version <= \"3.13.0\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"swebench\" or extra == \"dspy\" or extra == \"all\") and (python_full_version <= \"3.13.0\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
 files = [
     {file = "propcache-0.5.2-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:d5a81be28596d6559f6131ef33e10200de6e17643b3c74ce03f9eb103be6ae8b"},
     {file = "propcache-0.5.2-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:29cbaac5ea0212663e6845e04b5e188d5a6ae6dd919810ac835bf1d3b42c3f4c"},
@@ -6647,7 +6723,7 @@ description = ""
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\" or extra == \"tts\" or extra == \"all\" or extra == \"telemetry\") and (extra == \"swebench\" or extra == \"eval\" or extra == \"tts\" or extra == \"all\" or extra == \"telemetry\")"
+markers = "extra == \"swebench\" or extra == \"eval\" or extra == \"tts\" or extra == \"all\" or extra == \"telemetry\""
 files = [
     {file = "protobuf-5.29.6-cp310-abi3-win32.whl", hash = "sha256:62e8a3114992c7c647bce37dcc93647575fc52d50e48de30c6fcb28a6a291eb1"},
     {file = "protobuf-5.29.6-cp310-abi3-win_amd64.whl", hash = "sha256:7e6ad413275be172f67fdee0f43484b6de5a904cc1c3ea9804cb6fe2ff366eda"},
@@ -6775,7 +6851,7 @@ description = "Python library for Apache Arrow"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"swebench\" or extra == \"eval\")"
+markers = "extra == \"swebench\" or extra == \"eval\""
 files = [
     {file = "pyarrow-24.0.0-cp310-cp310-macosx_12_0_arm64.whl", hash = "sha256:7c2b98645d576a0b9616892ead22b64a83a5f043c5e2ca15ebcefcb5b70c80cb"},
     {file = "pyarrow-24.0.0-cp310-cp310-macosx_12_0_x86_64.whl", hash = "sha256:644a246325b8c69c595ad1dd4b463eba4b0cdb731370e4a86137d433208d6147"},
@@ -7246,6 +7322,22 @@ full = ["Pillow (>=8.0.0)", "cryptography (>3.0)", "fonttools"]
 image = ["Pillow (>=8.0.0)"]
 
 [[package]]
+name = "pyreadline3"
+version = "3.5.6"
+description = "A python implementation of GNU readline."
+optional = true
+python-versions = ">=3.8"
+groups = ["main"]
+markers = "sys_platform == \"win32\" and python_version == \"3.10\" and (extra == \"tts\" or extra == \"all\")"
+files = [
+    {file = "pyreadline3-3.5.6-py3-none-any.whl", hash = "sha256:8449b734232e42a5dcd74048e39b60db2839a4c38cf3ae2bf7707d58b5389c0d"},
+    {file = "pyreadline3-3.5.6.tar.gz", hash = "sha256:61e53218b99656091ddb077df9e71f25850e72e030b6183b39c9b7e6e4f4a9bf"},
+]
+
+[package.extras]
+dev = ["build", "flake8", "mypy", "pytest", "twine"]
+
+[[package]]
 name = "pytest"
 version = "9.1.1"
 description = "pytest: simple powerful testing with Python"
@@ -7479,7 +7571,7 @@ description = "World timezone definitions, modern and historical"
 optional = true
 python-versions = "*"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\" or extra == \"datascience\" or extra == \"all\") and (extra == \"swebench\" or extra == \"eval\" or extra == \"datascience\" or extra == \"all\")"
+markers = "extra == \"swebench\" or extra == \"eval\" or extra == \"datascience\" or extra == \"all\""
 files = [
     {file = "pytz-2026.2-py2.py3-none-any.whl", hash = "sha256:04156e608bee23d3792fd45c94ae47fae1036688e75032eea2e3bf0323d1f126"},
     {file = "pytz-2026.2.tar.gz", hash = "sha256:0e60b47b29f21574376f218fe21abc009894a2321ea16c6754f3cad6eb7cdd6a"},
@@ -8412,7 +8504,7 @@ description = "Tool to Detect Surrounding Shell"
 optional = true
 python-versions = ">=3.7"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\""
 files = [
     {file = "shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686"},
     {file = "shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de"},
@@ -8437,7 +8529,7 @@ description = "A pure Python implementation of a sliding window memory map manag
 optional = true
 python-versions = ">=3.7"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"swebench\" or extra == \"eval\")"
+markers = "extra == \"swebench\" or extra == \"eval\""
 files = [
     {file = "smmap-5.0.3-py3-none-any.whl", hash = "sha256:c106e05d5a61449cf6ba9a1e650227ecfb141590d2a98412103ff35d89fc7b2f"},
     {file = "smmap-5.0.3.tar.gz", hash = "sha256:4d9debb8b99007ae47165abc08670bd74cb74b5227dda7f643eccc4e9eb5642c"},
@@ -9173,7 +9265,7 @@ description = "Computer algebra system (CAS) in Python"
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or python_version == \"3.10\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"tts\")"
+markers = "python_version == \"3.10\" and (extra == \"tts\" or extra == \"all\" or extra == \"dspy\" or extra == \"eval\") or extra == \"dspy\" or extra == \"eval\" or extra == \"all\""
 files = [
     {file = "sympy-1.14.0-py3-none-any.whl", hash = "sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5"},
     {file = "sympy-1.14.0.tar.gz", hash = "sha256:d3d3fe8df1e5a0b42f0e7bdf50541697dbe7d23746e894990c030e2b05e72517"},
@@ -9245,7 +9337,7 @@ description = "Retry code until it succeeds"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"swebench\" or extra == \"eval\" or python_full_version <= \"3.13.0\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "(python_full_version <= \"3.13.0\" or extra == \"eval\" or extra == \"swebench\") and (python_version == \"3.10\" or extra == \"eval\" or extra == \"swebench\" or extra == \"dspy\" or extra == \"all\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
 files = [
     {file = "tenacity-9.1.4-py3-none-any.whl", hash = "sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55"},
     {file = "tenacity-9.1.4.tar.gz", hash = "sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a"},
@@ -9400,7 +9492,7 @@ description = ""
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\")"
+markers = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\""
 files = [
     {file = "tokenizers-0.22.2-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:544dd704ae7238755d790de45ba8da072e9af3eea688f698b137915ae959281c"},
     {file = "tokenizers-0.22.2-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:1e418a55456beedca4621dbab65a318981467a2b188e982a23e117f115ce5001"},
@@ -9443,7 +9535,7 @@ description = "Python Library for Tom's Obvious, Minimal Language"
 optional = true
 python-versions = ">=2.6, !=3.0.*, !=3.1.*, !=3.2.*"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"swebench\" or extra == \"eval\")"
+markers = "extra == \"swebench\" or extra == \"eval\""
 files = [
     {file = "toml-0.10.2-py2.py3-none-any.whl", hash = "sha256:806143ae5bfb6a3c6e736a764057db0e6a0e05e338b5630894a5f779cabb4f9b"},
     {file = "toml-0.10.2.tar.gz", hash = "sha256:b3bda1d108d5dd99f4a20d24d9c348e91c4db7ab1b749200bded2f839ccbe68f"},
@@ -9767,7 +9859,7 @@ description = "A language and compiler for custom Deep Learning operations"
 optional = true
 python-versions = "<3.15,>=3.10"
 groups = ["main"]
-markers = "python_version <= \"3.14\" and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\""
+markers = "(extra == \"dspy\" or extra == \"eval\" or extra == \"all\") and platform_system == \"Linux\" and python_version <= \"3.14\""
 files = [
     {file = "triton-3.7.0-cp310-cp310-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:223ac302091491436c248a34ee1e6c47a1026486579103c906ffd805be50cb89"},
     {file = "triton-3.7.0-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c631b65668d4951213b948a413c0564184305b77bb45cc9d686d3e1ecc4701a3"},
@@ -9813,7 +9905,7 @@ description = "Typer, build great CLIs. Easy to code. Based on Python type hints
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\""
 files = [
     {file = "typer-0.26.7-py3-none-any.whl", hash = "sha256:5c87cfbc5d34491c5346ebf49c23e18d56ccb863268d3a8d592b26087c2f5e58"},
     {file = "typer-0.26.7.tar.gz", hash = "sha256:e314a34c617e419c091b2830dda3ea1f257134ff593061a8f5b9717ab8dddb3a"},
@@ -9946,7 +10038,7 @@ description = "Provider of IANA time zone data"
 optional = true
 python-versions = ">=2"
 groups = ["main"]
-markers = "(python_version <= \"3.14\" or extra == \"eval\" or extra == \"swebench\" or extra == \"datascience\" or extra == \"all\") and (extra == \"swebench\" or extra == \"eval\" or extra == \"datascience\" or extra == \"all\")"
+markers = "extra == \"swebench\" or extra == \"eval\" or extra == \"datascience\" or extra == \"all\""
 files = [
     {file = "tzdata-2026.2-py2.py3-none-any.whl", hash = "sha256:bbe9af844f658da81a5f95019480da3a89415801f6cc966806612cc7169bffe7"},
     {file = "tzdata-2026.2.tar.gz", hash = "sha256:9173fde7d80d9018e02a662e168e5a2d04f87c41ea174b139fbef642eda62d10"},
@@ -10420,7 +10512,7 @@ description = "Python binding for xxHash"
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "(extra == \"swebench\" or extra == \"eval\" or python_full_version <= \"3.13.0\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "(python_version == \"3.10\" or extra == \"swebench\" or extra == \"eval\" or extra == \"dspy\" or extra == \"all\") and (python_full_version <= \"3.13.0\" or extra == \"swebench\" or extra == \"eval\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
 files = [
     {file = "xxhash-3.7.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:cd8ab85c916a58d5c8656ea15e3ce9df836fe2f120a74c296e01d69fab2614b4"},
     {file = "xxhash-3.7.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:85f5c0e26d945b5bb475e0a3d95193117498130baa7619357bdc7869c2391b5a"},
@@ -10618,7 +10710,7 @@ description = "Yet another URL library"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "(extra == \"eval\" or extra == \"swebench\" or python_full_version <= \"3.13.0\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
+markers = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"swebench\" or extra == \"dspy\" or extra == \"all\") and (python_full_version <= \"3.13.0\" or extra == \"eval\" or extra == \"swebench\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"swebench\")"
 files = [
     {file = "yarl-1.24.2-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:5249a113065c2b7a958bc699759e359cd61cfc81e3069662208f48f191b7ed12"},
     {file = "yarl-1.24.2-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:7f4425fa244fbf530b006d0c5f79ce920114cfff5b4f5f6056e669f8e160fdc0"},
@@ -10738,7 +10830,7 @@ description = "Backport of pathlib-compatible object wrapper for zip files"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "(extra == \"eval\" or extra == \"telemetry\" or extra == \"all\" or python_full_version <= \"3.13.0\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"telemetry\")"
+markers = "(python_version == \"3.10\" or extra == \"eval\" or extra == \"telemetry\" or extra == \"all\" or extra == \"dspy\") and (python_full_version <= \"3.13.0\" or extra == \"eval\" or extra == \"telemetry\" or extra == \"all\") and (extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"telemetry\")"
 files = [
     {file = "zipp-4.1.0-py3-none-any.whl", hash = "sha256:25ad4e16390cd314347dd8f1de67a2ac538ae658ed4ab9db16029c07c188e97f"},
     {file = "zipp-4.1.0.tar.gz", hash = "sha256:4cb57381f544315db7688e976e922a2b18cdb513d21cc194eb42232ba2a3e602"},
@@ -10754,7 +10846,7 @@ type = ["pytest-mypy (>=1.0.1) ; platform_python_implementation != \"PyPy\""]
 
 [extras]
 acp = ["agent-client-protocol"]
-all = ["agent-client-protocol", "dspy", "flask", "flask-compress", "flask-cors", "kokoro-onnx", "matplotlib", "numpy", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-instrumentation-threading", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "scipy", "sentence-transformers", "sounddevice", "soundfile"]
+all = ["agent-client-protocol", "dspy", "flask", "flask-compress", "flask-cors", "kokoro-onnx", "matplotlib", "numpy", "onnxruntime", "onnxruntime", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-instrumentation-threading", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "scipy", "sentence-transformers", "sounddevice", "soundfile"]
 browser = ["playwright"]
 computer = []
 datascience = ["matplotlib", "numpy", "pandas"]
@@ -10765,9 +10857,9 @@ server = ["flask", "flask-compress", "flask-cors", "prometheus-client", "pydanti
 sounds = ["scipy", "sounddevice"]
 swebench = ["datasets", "swebench"]
 telemetry = ["opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-instrumentation-threading", "opentelemetry-sdk"]
-tts = ["kokoro-onnx", "soundfile"]
+tts = ["kokoro-onnx", "onnxruntime", "onnxruntime", "soundfile"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "48402087c358f605ffa0d70c17b20b29488e14be44b4ba5d2849d079edf6e688"
+content-hash = "20ea9e08113f8a6a7b334a8d6930b2941b98ccab1b03c5431babf65a413ea301"

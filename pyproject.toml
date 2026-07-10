@@ -98,6 +98,12 @@ scipy = {version = "*", optional=true}
 # local TTS (kokoro-onnx fallback)
 kokoro-onnx = {version = ">=0.4.0", optional=true}
 soundfile = {version = ">=0.12", optional=true}
+# onnxruntime is kokoro-onnx's transitive dep; 1.24+ ships no Python 3.10 wheels,
+# so constrain it per-Python to keep `-E all`/`-E tts` installable on 3.10
+onnxruntime = [
+    {version = ">=1.20.1,<1.24", python = ">=3.10,<3.11", optional=true},
+    {version = ">=1.24", python = ">=3.11", optional=true},
+]
 # server
 flask = {version = "^3.0", optional=true}
 flask-cors = {version = ">=6.0.5,<7", optional=true}
@@ -171,7 +177,7 @@ server = ["flask", "flask-cors", "flask-compress", "pydantic", "prometheus-clien
 browser = ["playwright"]
 datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
 sounds = ["sounddevice", "scipy"]
-tts = ["kokoro-onnx", "soundfile"]
+tts = ["kokoro-onnx", "soundfile", "onnxruntime"]
 computer = []  # pillow (non-opt); AT-SPI2 accessibility needs system pkg: apt install python3-pyatspi
 pyinstaller = ["pyinstaller"]
 acp = ["agent-client-protocol"]
@@ -197,7 +203,7 @@ all = [
     # tool sounds
     "sounddevice", "scipy",
     # local tts
-    "kokoro-onnx", "soundfile",
+    "kokoro-onnx", "soundfile", "onnxruntime",
     # computer
     # "pillow",
     # dspy prompt optimization
