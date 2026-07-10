@@ -7,6 +7,7 @@ from pathlib import Path
 from gptme.eval.agents import Agent
 from gptme.eval.cost import get_eval_costs, token_fields_from_cost
 from gptme.eval.types import CaseResult, EvalResult
+from gptme.util.cost_tracker import CostTracker
 
 from .utils import (
     KEY_INSTANCE_ID,
@@ -146,6 +147,10 @@ def evaluate_instance(
 
     logger.info(f"Evaluating instance: {instance_id}")
     logger.debug(f"Problem statement: {problem_statement}")
+
+    # Reset cost tracker so each task captures only its own tokens, not
+    # accumulated totals from previous tasks in the same sequential loop.
+    CostTracker.start_session(f"swebench:{instance_id}")
 
     start_time = time.time()
     patch = ""

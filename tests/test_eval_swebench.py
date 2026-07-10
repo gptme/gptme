@@ -344,3 +344,54 @@ def test_run_swe_extra_exits_with_helpful_message(monkeypatch):
 
     with pytest.raises(SystemExit, match="staged runner unavailable"):
         run_swe_extra.main(model="test-model")
+
+
+def test_evaluate_instance_resets_cost_tracker_per_task(monkeypatch, tmp_path):
+    """Each evaluate_instance call gets isolated cost data, not cumulative totals."""
+    from gptme.eval.agents import GPTMe
+    from gptme.eval.swebench.evaluate import evaluate_instance
+    from gptme.util.cost_tracker import CostEntry, CostTracker
+
+    agent = GPTMe(model="test-model")
+    instance = {
+        "instance_id": "django__django-11099",
+        "problem_statement": "Fix the bug",
+        "expected_spans": {},
+    }
+
+    monkeypatch.setattr(
+        "gptme.eval.swebench.evaluate.setup_swebench_repo",
+        lambda *_args, **_kwargs: tmp_path / "repo",
+    )
+    monkeypatch.setattr(
+        "gptme.eval.swebench.evaluate.shutil.copytree",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "gptme.eval.swebench.evaluate.subprocess.run",
+        lambda *_args, **_kwargs: type("Result", (), {"stdout": "", "returncode": 0})(),
+    )
+
+    # Simulate stale cost data left over from a previous task
+    CostTracker.start_session("previous-task")
+    CostTracker.record(
+        CostEntry(
+            timestamp=0.0,
+            model="test-model",
+            cost=9.99,
+            input_tokens=99999,
+            output_tokens=9999,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+        )
+    )
+
+    # act() doesn't add any new cost entries (no real LLM calls)
+    monkeypatch.setattr(agent, "act", lambda *_args, **_kwargs: {})
+
+    result, _ = evaluate_instance(agent, instance, repo_base_dir=str(tmp_path))
+
+    # The result should reflect only THIS task's costs (zero), not the stale 99999
+    assert result.tokens_input == 0, (
+        f"tokens_input={result.tokens_input!r} leaked from previous task"
+    )
