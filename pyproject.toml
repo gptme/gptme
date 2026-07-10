@@ -352,6 +352,7 @@ markers = [
     "timeout: marks tests with timeout value in seconds",
     "requires_api: marks tests that require API access",
     "flaky: marks tests as flaky (retried automatically)",
+    "no_retry: marks tests that must not be retried (e.g. tmp_path teardown issues with pytest-retry)",
     "integration: marks tests as integration tests requiring external services",
     "x11: marks tests that require a real or headless X11 display (Xvfb, xdotool, scrot)",
     "xdist_group: marks tests that should run in the same xdist group",
