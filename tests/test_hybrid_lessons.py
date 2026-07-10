@@ -372,7 +372,9 @@ def test_semantic_score_zero_norm_returns_zero():
     np = pytest.importorskip("numpy")
     from unittest.mock import MagicMock
 
-    config = HybridConfig(enable_semantic=True)
+    # enable_semantic=False skips real model loading; embedder is set below.
+    # _semantic_score only checks self.embedder, not config.enable_semantic.
+    config = HybridConfig(enable_semantic=False)
     matcher = HybridLessonMatcher(config=config)
 
     # Mock the embedder to return a zero vector
@@ -402,7 +404,8 @@ def test_semantic_score_uses_description_field():
     np = pytest.importorskip("numpy")
     from unittest.mock import MagicMock
 
-    config = HybridConfig(enable_semantic=True)
+    # enable_semantic=False skips real model loading; embedder is set below.
+    config = HybridConfig(enable_semantic=False)
     matcher = HybridLessonMatcher(config=config)
 
     mock_embedder = MagicMock()
@@ -471,7 +474,8 @@ def test_semantic_score_caches_lesson_embeddings():
     np = pytest.importorskip("numpy")
     from unittest.mock import MagicMock
 
-    config = HybridConfig(enable_semantic=True)
+    # enable_semantic=False skips real model loading; embedder is set below.
+    config = HybridConfig(enable_semantic=False)
     matcher = HybridLessonMatcher(config=config)
 
     mock_embedder = MagicMock()
