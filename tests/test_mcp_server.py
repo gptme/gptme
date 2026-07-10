@@ -271,6 +271,60 @@ class TestMCPServerHandlers:
         content = result.root.content  # type: ignore[union-attr]
         assert any("hello from tool" in c.text for c in content if hasattr(c, "text"))
 
+    @pytest.mark.asyncio
+    async def test_shell_session_reused_across_calls(
+        self, server_with_mock_tools: GptmeMCPServer
+    ) -> None:
+        """The same ShellSession must be injected into every executor thread.
+
+        run_in_executor copies the async context via copy_context(), so _shell_var
+        resets to None in each thread without explicit injection. This test verifies
+        that the server pre-seeds _shell_var with its persistent session so stateful
+        tools (shell, ipython) see the same subprocess on every call.
+        """
+        from unittest.mock import MagicMock
+
+        import mcp.types as types
+
+        from gptme.message import Message
+        from gptme.tools.shell import _shell_var
+
+        # Use a MagicMock so we avoid spawning a real bash subprocess in tests.
+        mock_session = MagicMock()
+        server_with_mock_tools._shell_session = mock_session  # type: ignore[assignment]
+
+        captured_sessions: list[object] = []
+
+        def session_spy(code, args, kwargs):
+            captured_sessions.append(_shell_var.get())
+            yield Message("system", "ok")
+
+        server_with_mock_tools._loaded_tools[0] = ToolSpec(
+            name="shell",
+            desc="Shell.",
+            execute=session_spy,
+            block_types=["shell"],
+            parameters=[Parameter(name="command", type="string", required=True)],
+        )
+
+        req = types.CallToolRequest(
+            method="tools/call",
+            params=types.CallToolRequestParams(
+                name="shell", arguments={"command": "echo test"}
+            ),
+        )
+        handlers = server_with_mock_tools._server.request_handlers
+        await handlers[types.CallToolRequest](req)
+        await handlers[types.CallToolRequest](req)
+
+        assert len(captured_sessions) == 2, "spy must run twice"
+        assert captured_sessions[0] is mock_session, (
+            "First call must see the persistent session"
+        )
+        assert captured_sessions[1] is mock_session, (
+            "Second call must reuse the same session"
+        )
+
 
 class TestMCPServerCLI:
     """Tests for the gptme-mcp-server CLI command."""

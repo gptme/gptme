@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from ..tools.base import ToolSpec
+    from ..tools.shell import ShellSession
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,24 @@ class GptmeMCPServer:
         self._workspace = workspace
         self._server = Server("gptme")
         self._loaded_tools: list[ToolSpec] = []
+        # Persistent shell session shared across all tool calls. Lazily created
+        # on first use; injected into each executor thread via _shell_var so that
+        # stateful tools (shell, ipython) retain state between MCP requests.
+        self._shell_session: ShellSession | None = None
         self._setup_handlers()
+
+    def _get_or_create_shell_session(self) -> ShellSession:
+        """Lazily create and return the server's persistent shell session.
+
+        Called from inside executor threads; the returned session is then injected
+        into the thread's ContextVar copy so that subsequent get_shell() calls in
+        that thread return the same subprocess instead of spawning a fresh one.
+        """
+        if self._shell_session is None:
+            from ..tools.shell import ShellSession
+
+            self._shell_session = ShellSession(cwd=self._workspace)
+        return self._shell_session
 
     def _setup_handlers(self) -> None:
         server = self._server
@@ -145,10 +163,27 @@ class GptmeMCPServer:
             # lookup in ToolUse.execute(). Auto-confirm is handled by the registered
             # hook (register_auto_confirm called in _init_tools).
             def _run_tool() -> str:
+                # run_in_executor copies the async context via copy_context(), so
+                # _shell_var resets to None in each new thread — every call would
+                # spawn a fresh subprocess, breaking the advertised shell persistence.
+                # Pre-seed the ContextVar with the server's persistent session so
+                # get_shell() reuses it instead of creating a new one.
+                from ..tools.shell import _shell_var as _shell_ctxvar
+
+                _shell_ctxvar.set(self._get_or_create_shell_session())
+
                 result = tool.execute(None, None, kwargs)  # type: ignore[misc]
                 if hasattr(result, "__iter__"):
-                    return _collect_tool_output(result)  # type: ignore[arg-type]
-                return str(result.content) if result and result.content else ""
+                    output = _collect_tool_output(result)  # type: ignore[arg-type]
+                else:
+                    output = str(result.content) if result and result.content else ""
+
+                # Sync back any session replaced during execution (e.g. by set_shell).
+                updated = _shell_ctxvar.get()
+                if updated is not None:
+                    self._shell_session = updated
+
+                return output
 
             # Run in a thread executor to avoid blocking the event loop during
             # long-running operations (bash commands, Python REPL, etc.)
