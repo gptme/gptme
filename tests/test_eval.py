@@ -351,6 +351,50 @@ def test_results_to_json_all_passing():
     assert data["models"][0]["total"] == 2
 
 
+def test_results_to_json_tokens_per_task_aggregate():
+    """Model summary includes mean tokens_per_task for harness comparison."""
+    config = ModelConfig(model="efficient-model", tool_format="tool")
+    results = [
+        EvalResult(
+            name="task-a",
+            status="success",
+            results=[CaseResult(name="ok", passed=True, duration=0.1)],
+            timings={"gen": 1.0, "run": 0.5, "eval": 0.1},
+            gen_stdout="",
+            gen_stderr="",
+            run_stdout="",
+            run_stderr="",
+            log_dir=Path("/tmp/log"),
+            workspace_dir=Path("/tmp/ws"),
+            tokens_input=1000,
+            tokens_output=200,
+            cost_usd=0.01,
+        ),
+        EvalResult(
+            name="task-b",
+            status="success",
+            results=[CaseResult(name="ok", passed=True, duration=0.1)],
+            timings={"gen": 1.0, "run": 0.5, "eval": 0.1},
+            gen_stdout="",
+            gen_stderr="",
+            run_stdout="",
+            run_stderr="",
+            log_dir=Path("/tmp/log"),
+            workspace_dir=Path("/tmp/ws"),
+            tokens_input=3000,
+            tokens_output=600,
+            cost_usd=0.03,
+        ),
+    ]
+    data = results_to_json({config: results})
+    model_data = data["models"][0]
+    assert model_data["tokens_per_task"] == 2400.0
+    assert model_data["tokens_input_per_task"] == 2000.0
+    assert model_data["tokens_output_per_task"] == 400.0
+    assert model_data["total_tokens"] == 4800
+    assert model_data["total_cost_usd"] == 0.04
+
+
 @pytest.mark.slow
 def test_eval_module_loading(tmp_path):
     """Test that --eval-module loads and registers tests from an external module."""

@@ -5,7 +5,9 @@ import time
 from pathlib import Path
 
 from gptme.eval.agents import Agent
+from gptme.eval.cost import get_eval_costs, token_fields_from_cost
 from gptme.eval.types import CaseResult, EvalResult
+from gptme.util.cost_tracker import CostTracker
 
 from .utils import (
     KEY_INSTANCE_ID,
@@ -146,6 +148,10 @@ def evaluate_instance(
     logger.info(f"Evaluating instance: {instance_id}")
     logger.debug(f"Problem statement: {problem_statement}")
 
+    # Reset cost tracker so each task captures only its own tokens, not
+    # accumulated totals from previous tasks in the same sequential loop.
+    CostTracker.start_session(f"swebench:{instance_id}")
+
     start_time = time.time()
     patch = ""
     try:
@@ -158,6 +164,7 @@ def evaluate_instance(
         agent.act(None, problem_statement)
     except Exception as e:
         logger.error(f"Error during agent execution for instance {instance_id}: {e}")
+        cost = get_eval_costs()
         return (
             EvalResult(
                 name=instance_id,
@@ -170,6 +177,8 @@ def evaluate_instance(
                 run_stderr="",
                 log_dir=agent.log_dir,
                 workspace_dir=agent.workspace_dir,
+                cost=cost,
+                **token_fields_from_cost(cost),
             ),
             patch,
         )
@@ -209,6 +218,7 @@ def evaluate_instance(
         f"(not authoritative — run official harness for real results)"
     )
 
+    cost = get_eval_costs()
     return (
         EvalResult(
             name=instance_id,
@@ -227,6 +237,8 @@ def evaluate_instance(
             run_stderr="",
             log_dir=agent.log_dir,
             workspace_dir=agent.workspace_dir,
+            cost=cost,
+            **token_fields_from_cost(cost),
         ),
         patch,
     )

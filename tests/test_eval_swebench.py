@@ -98,6 +98,59 @@ def test_file_coverage_heuristic_fail():
     assert _file_coverage_heuristic(instance, patch) is False
 
 
+def test_evaluate_instance_populates_token_fields(monkeypatch, tmp_path):
+    """SWE-bench evaluate_instance wires CostSummary into EvalResult."""
+    from gptme.eval.agents import GPTMe
+    from gptme.eval.swebench.evaluate import evaluate_instance
+    from gptme.util.cost_tracker import CostSummary
+
+    agent = GPTMe(model="test-model")
+    instance = {
+        "instance_id": "django__django-11099",
+        "problem_statement": "Fix the bug",
+        "expected_spans": {},
+    }
+
+    monkeypatch.setattr(
+        "gptme.eval.swebench.evaluate.setup_swebench_repo",
+        lambda *_args, **_kwargs: tmp_path / "repo",
+    )
+    monkeypatch.setattr(
+        "gptme.eval.swebench.evaluate.shutil.copytree",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(agent, "act", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        "gptme.eval.swebench.evaluate.subprocess.run",
+        lambda *_args, **_kwargs: type(
+            "Result", (), {"stdout": "diff --git a/foo.py b/foo.py\n", "returncode": 0}
+        )(),
+    )
+    monkeypatch.setattr(
+        "gptme.eval.swebench.evaluate.get_eval_costs",
+        lambda: CostSummary(
+            session_id="swebench-test",
+            total_cost=0.05,
+            total_input_tokens=1200,
+            total_output_tokens=300,
+            cache_read_tokens=400,
+            cache_creation_tokens=100,
+            cache_hit_rate=0.33,
+            request_count=3,
+        ),
+    )
+
+    result, patch = evaluate_instance(agent, instance, repo_base_dir=str(tmp_path))
+
+    assert patch.startswith("diff")
+    assert result.tokens_input == 1200
+    assert result.tokens_output == 300
+    assert result.tokens_total == 1500
+    assert result.cost_usd == 0.05
+    assert result.cache_read_tokens == 400
+    assert result.num_steps == 3
+
+
 def test_file_coverage_heuristic_no_expected_spans():
     """Heuristic returns True when expected_spans is absent (no data to check)."""
     from gptme.eval.swebench.evaluate import _file_coverage_heuristic
@@ -291,3 +344,54 @@ def test_run_swe_extra_exits_with_helpful_message(monkeypatch):
 
     with pytest.raises(SystemExit, match="staged runner unavailable"):
         run_swe_extra.main(model="test-model")
+
+
+def test_evaluate_instance_resets_cost_tracker_per_task(monkeypatch, tmp_path):
+    """Each evaluate_instance call gets isolated cost data, not cumulative totals."""
+    from gptme.eval.agents import GPTMe
+    from gptme.eval.swebench.evaluate import evaluate_instance
+    from gptme.util.cost_tracker import CostEntry, CostTracker
+
+    agent = GPTMe(model="test-model")
+    instance = {
+        "instance_id": "django__django-11099",
+        "problem_statement": "Fix the bug",
+        "expected_spans": {},
+    }
+
+    monkeypatch.setattr(
+        "gptme.eval.swebench.evaluate.setup_swebench_repo",
+        lambda *_args, **_kwargs: tmp_path / "repo",
+    )
+    monkeypatch.setattr(
+        "gptme.eval.swebench.evaluate.shutil.copytree",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "gptme.eval.swebench.evaluate.subprocess.run",
+        lambda *_args, **_kwargs: type("Result", (), {"stdout": "", "returncode": 0})(),
+    )
+
+    # Simulate stale cost data left over from a previous task
+    CostTracker.start_session("previous-task")
+    CostTracker.record(
+        CostEntry(
+            timestamp=0.0,
+            model="test-model",
+            cost=9.99,
+            input_tokens=99999,
+            output_tokens=9999,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+        )
+    )
+
+    # act() doesn't add any new cost entries (no real LLM calls)
+    monkeypatch.setattr(agent, "act", lambda *_args, **_kwargs: {})
+
+    result, _ = evaluate_instance(agent, instance, repo_base_dir=str(tmp_path))
+
+    # The result should reflect only THIS task's costs (zero), not the stale 99999
+    assert result.tokens_input == 0, (
+        f"tokens_input={result.tokens_input!r} leaked from previous task"
+    )
