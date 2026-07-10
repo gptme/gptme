@@ -27,10 +27,10 @@ def _git(repo: Path, *args: str) -> str:
     env = os.environ.copy()
     env.update(
         {
-            "GIT_AUTHOR_NAME": "Test User",
-            "GIT_AUTHOR_EMAIL": "test@example.com",
-            "GIT_COMMITTER_NAME": "Test User",
-            "GIT_COMMITTER_EMAIL": "test@example.com",
+            "GIT_AUTHOR_NAME": "Bob",
+            "GIT_AUTHOR_EMAIL": "bob@superuserlabs.org",
+            "GIT_COMMITTER_NAME": "Bob",
+            "GIT_COMMITTER_EMAIL": "bob@superuserlabs.org",
         }
     )
     result = subprocess.run(
@@ -46,8 +46,8 @@ def _git(repo: Path, *args: str) -> str:
 
 def _init_repo(repo: Path) -> None:
     _git(repo, "init", "-b", "feat/test-attest")
-    _git(repo, "config", "user.name", "Test User")
-    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Bob")
+    _git(repo, "config", "user.email", "bob@superuserlabs.org")
     _git(repo, "config", "commit.gpgsign", "false")
     (repo / "README.md").write_text("hello\n")
     _git(repo, "add", "README.md")
@@ -100,12 +100,13 @@ def test_attest_verify_rejects_missing_workspace_commit(tmp_path, monkeypatch):
 
     monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
     monkeypatch.setenv("BOB_SESSION_ID", "84b9")
+    monkeypatch.setenv("CC_MODEL", "gpt-5.4")
 
     runner = CliRunner()
     sign = runner.invoke(
         main, ["attest", "sign", str(output_file)], catch_exceptions=False
     )
-    attestation_path = Path(sign.output.strip())
+    attestation_path = Path(sign.output.strip().split("\n")[-1])
 
     payload = json.loads(attestation_path.read_text())
     payload["agent"]["workspace_commit"] = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
@@ -149,6 +150,7 @@ def test_attest_sign_text_uses_unknown_session_without_env(tmp_path, monkeypatch
     ):
         monkeypatch.delenv(key, raising=False)
 
+    monkeypatch.setenv("CC_MODEL", "gpt-5.4")
     runner = CliRunner()
     sign = runner.invoke(
         main,
@@ -157,7 +159,7 @@ def test_attest_sign_text_uses_unknown_session_without_env(tmp_path, monkeypatch
     )
     assert sign.exit_code == 0
 
-    payload = json.loads(Path(sign.output.strip()).read_text())
+    payload = json.loads(Path(sign.output.strip().split("\n")[-1]).read_text())
     assert payload["agent"]["session_id"] == "unknown"
     assert payload["output"]["type"] == "text"
 
@@ -173,13 +175,14 @@ def test_attest_verify_rejects_embedded_path_outside_workspace(tmp_path, monkeyp
     secret_file.write_text("top secret\n")
 
     monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
+    monkeypatch.setenv("CC_MODEL", "gpt-5.4")
     runner = CliRunner()
     sign = runner.invoke(
         main, ["attest", "sign", str(output_file)], catch_exceptions=False
     )
     assert sign.exit_code == 0
 
-    attestation_path = Path(sign.output.strip())
+    attestation_path = Path(sign.output.strip().split("\n")[-1])
     payload = json.loads(attestation_path.read_text())
     payload["output"]["path"] = "../secret.txt"
     payload["output"]["sha256"] = (
@@ -208,6 +211,7 @@ def test_verify_attestation_rejects_content_path_and_text_together(
     output_file.write_text("signed content\n")
 
     monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
+    monkeypatch.setenv("CC_MODEL", "gpt-5.4")
     runner = CliRunner()
     sign = runner.invoke(
         main, ["attest", "sign", str(output_file)], catch_exceptions=False
@@ -216,7 +220,7 @@ def test_verify_attestation_rejects_content_path_and_text_together(
 
     with pytest.raises(AttestationError, match="either content_path or text"):
         verify_attestation(
-            Path(sign.output.strip()),
+            Path(sign.output.strip().split("\n")[-1]),
             workspace=repo,
             content_path=output_file,
             text="signed content\n",
@@ -236,6 +240,7 @@ def test_attest_verify_rejects_explicit_content_path_outside_workspace(
     secret_file.write_text("signed content\n")
 
     monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
+    monkeypatch.setenv("CC_MODEL", "gpt-5.4")
     runner = CliRunner()
     sign = runner.invoke(
         main, ["attest", "sign", str(output_file)], catch_exceptions=False
@@ -247,7 +252,7 @@ def test_attest_verify_rejects_explicit_content_path_outside_workspace(
         [
             "attest",
             "verify",
-            str(Path(sign.output.strip())),
+            str(Path(sign.output.strip().split("\n")[-1])),
             "--workspace",
             str(repo),
             "--content-file",
@@ -285,6 +290,7 @@ def test_create_file_attestation_resolves_symlinked_workspace_root(
     symlink_root.symlink_to(repo, target_is_directory=True)
 
     monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
+    monkeypatch.setenv("CC_MODEL", "gpt-5.4")
 
     attestation, workspace_root = create_file_attestation(
         symlink_root / "output.txt",
@@ -305,6 +311,7 @@ def test_create_text_attestation_resolves_symlinked_workspace_root(
     symlink_root.symlink_to(repo, target_is_directory=True)
 
     monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
+    monkeypatch.setenv("CC_MODEL", "gpt-5.4")
 
     _, workspace_root = create_text_attestation(
         "signed content\n",
