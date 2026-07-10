@@ -154,15 +154,18 @@ custom ``[[providers]]`` entry.
 gptme may fetch the OpenAI ``cl100k_base`` tokenizer to count tokens. Offline, that
 can time out with errors mentioning ``openaipublic.blob.core.windows.net``.
 
-In recent gptme versions, token counting can fall back to a character-based estimate
-(~4 characters per token) when the tokenizer download fails.
-
-On older versions, pre-cache tiktoken once while online:
+Pre-cache tiktoken once while online to avoid this:
 
 .. code-block:: sh
 
     pip install tiktoken
     python3 -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
+
+.. note::
+
+   Source installs newer than v0.31.0 gracefully fall back to a character-based
+   estimate (~4 chars/token) when the download fails. PyPI releases do not yet
+   include this fallback, so the pre-cache step is recommended regardless.
 
 Setting a default model
 -----------------------
