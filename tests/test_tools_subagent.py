@@ -3528,3 +3528,245 @@ def test_batch_job_wait_any_already_done():
     assert first_id == "x"
     assert result["status"] == "success"
     assert result["result"] == "cached result"
+
+
+# ── output_schema dict support ─────────────────────────────────────────────────
+
+
+def test_dict_to_jsonschema_plain_type_mapping():
+    """_dict_to_jsonschema converts {field: type} to a JSON Schema object."""
+    from gptme.tools.subagent.hooks import _dict_to_jsonschema
+
+    schema = _dict_to_jsonschema({"score": int, "summary": str, "ratio": float})
+    assert schema["type"] == "object"
+    assert schema["properties"]["score"] == {"type": "integer"}
+    assert schema["properties"]["summary"] == {"type": "string"}
+    assert schema["properties"]["ratio"] == {"type": "number"}
+    assert set(schema["required"]) == {"score", "summary", "ratio"}
+
+
+def test_dict_to_jsonschema_passthrough_for_raw_schema():
+    """_dict_to_jsonschema leaves an existing JSON Schema dict unchanged."""
+    from gptme.tools.subagent.hooks import _dict_to_jsonschema
+
+    raw = {"type": "object", "properties": {"x": {"type": "integer"}}}
+    assert _dict_to_jsonschema(raw) is raw
+
+
+def test_get_complete_instruction_dict_schema_hint():
+    """When output_schema is a plain dict, the instruction contains the field names."""
+    from gptme.tools.subagent.hooks import _get_complete_instruction
+
+    instruction = _get_complete_instruction(
+        output_schema={"score": int, "summary": str}
+    )
+    assert '"score"' in instruction
+    assert '"summary"' in instruction
+    assert '"integer"' in instruction
+    assert '"string"' in instruction
+    # Should NOT fall back to the generic/uninformative hint
+    assert '{"type": "object"}' not in instruction
+
+
+def test_get_complete_instruction_no_schema_unchanged():
+    """Without output_schema the instruction uses the default 'Your complete answer here.'."""
+    from gptme.tools.subagent.hooks import _get_complete_instruction
+
+    instruction = _get_complete_instruction()
+    assert "Your complete answer here." in instruction
+    assert "JSON" not in instruction
+
+
+def test_output_schema_dict_stored_on_subagent():
+    """subagent() accepts a plain-dict output_schema and stores it on the Subagent object."""
+    from unittest.mock import patch
+
+    initial_count = len(_subagents)
+    with patch("gptme.tools.subagent.execution._create_subagent_thread") as mock_thread:
+        mock_thread.return_value = MagicMock()
+        subagent(
+            agent_id="schema-test",
+            prompt="Return JSON",
+            output_schema={"score": int, "label": str},
+        )
+
+    new_agents = _subagents[initial_count:]
+    assert new_agents, "Subagent should have been registered"
+    sa = next(a for a in new_agents if a.agent_id == "schema-test")
+    assert sa.output_schema == {"score": int, "label": str}
+
+
+def test_dict_to_jsonschema_passthrough_ref_schema():
+    """_dict_to_jsonschema passes through $ref and oneOf JSON Schema dicts unchanged."""
+    from gptme.tools.subagent.hooks import _dict_to_jsonschema
+
+    ref_schema = {"$ref": "#/$defs/Foo"}
+    assert _dict_to_jsonschema(ref_schema) is ref_schema
+
+    one_of_schema = {"oneOf": [{"type": "string"}, {"type": "null"}]}
+    assert _dict_to_jsonschema(one_of_schema) is one_of_schema
+
+    any_of_schema = {"anyOf": [{"type": "integer"}, {"type": "string"}]}
+    assert _dict_to_jsonschema(any_of_schema) is any_of_schema
+
+
+def test_dict_to_jsonschema_passthrough_extended_keywords():
+    """_dict_to_jsonschema passes through dicts with const, patternProperties, etc."""
+    from gptme.tools.subagent.hooks import _dict_to_jsonschema
+
+    # const — literal value constraint
+    const_schema = {"const": "approved"}
+    assert _dict_to_jsonschema(const_schema) is const_schema
+
+    # patternProperties — regex-keyed property schema
+    pattern_schema = {"patternProperties": {"^S_": {"type": "string"}}}
+    assert _dict_to_jsonschema(pattern_schema) is pattern_schema
+
+    # dependentRequired — conditional required fields
+    dep_schema = {"dependentRequired": {"credit_card": ["billing_address"]}}
+    assert _dict_to_jsonschema(dep_schema) is dep_schema
+
+    # then/else — if/then/else conditional
+    if_then_schema = {"if": {"properties": {"foo": {}}}, "then": {"required": ["bar"]}}
+    assert _dict_to_jsonschema(if_then_schema) is if_then_schema
+
+
+def test_dict_to_jsonschema_passthrough_non_keyword_json_schemas():
+    """_dict_to_jsonschema passes through valid JSON Schemas that don't use the old keyword set.
+
+    Greptile P1 finding: schemas using keywords like `items`, `minimum`, `format`,
+    `required`, or `additionalProperties` were not in the previous keyword guard and
+    would be incorrectly converted as if they were {field: python_type} maps.
+    """
+    from gptme.tools.subagent.hooks import _dict_to_jsonschema
+
+    # array schema — uses `items`, not in the old keyword set
+    array_schema = {"items": {"type": "string"}}
+    assert _dict_to_jsonschema(array_schema) is array_schema
+
+    # numeric constraint — `minimum` value is an int but NOT a Python type object
+    num_schema = {"minimum": 0, "maximum": 100}
+    assert _dict_to_jsonschema(num_schema) is num_schema
+
+    # format constraint
+    format_schema = {"format": "email"}
+    assert _dict_to_jsonschema(format_schema) is format_schema
+
+    # required-only constraint (no properties/type)
+    req_schema = {"required": ["name", "age"]}
+    assert _dict_to_jsonschema(req_schema) is req_schema
+
+    # additionalProperties constraint
+    addl_schema = {"additionalProperties": False}
+    assert _dict_to_jsonschema(addl_schema) is addl_schema
+
+    # string constraint — pattern
+    str_schema = {"minLength": 1, "maxLength": 100}
+    assert _dict_to_jsonschema(str_schema) is str_schema
+
+
+def test_subprocess_output_schema_dict_via_prompt():
+    """subprocess mode routes a plain-dict schema via output_schema_dict (not the CLI flag).
+
+    The CLI --output-schema flag only accepts 'module:ClassName' format, so plain-dict
+    schemas must be injected via the prompt instruction, not as a CLI arg.
+    """
+    from unittest.mock import MagicMock, patch
+
+    captured: list[dict] = []
+
+    def fake_run_subprocess(**kwargs):
+        captured.append(
+            {
+                "output_schema": kwargs.get("output_schema"),
+                "output_schema_dict": kwargs.get("output_schema_dict"),
+            }
+        )
+        return MagicMock()
+
+    initial_count = len(_subagents)
+    with (
+        patch(
+            "gptme.tools.subagent.execution._run_subagent_subprocess",
+            side_effect=fake_run_subprocess,
+        ),
+        patch("gptme.tools.subagent.execution._monitor_subprocess"),
+    ):
+        subagent(
+            agent_id="subprocess-schema-test",
+            prompt="Return JSON",
+            output_schema={"score": int, "summary": str},
+            use_subprocess=True,
+        )
+        _wait_for_new_subagent_threads(initial_count)
+
+    assert captured, "subprocess launcher should have called _run_subagent_subprocess"
+    call = captured[0]
+    # Plain dict schemas must NOT be passed via the CLI --output-schema flag
+    # (that flag only accepts module:ClassName; passing JSON crashes the subprocess)
+    assert call["output_schema"] is None, (
+        "output_schema (CLI flag) must be None for plain-dict schemas"
+    )
+    # The parsed schema dict should be routed via output_schema_dict for prompt injection
+    schema_dict = call["output_schema_dict"]
+    assert schema_dict is not None, "output_schema_dict must not be None"
+    assert schema_dict["type"] == "object"
+    assert schema_dict["properties"]["score"] == {"type": "integer"}
+    assert schema_dict["properties"]["summary"] == {"type": "string"}
+
+
+def test_subprocess_pydantic_schema_via_prompt():
+    """subprocess mode routes a Pydantic model schema via output_schema_dict (not the CLI flag).
+
+    The CLI --output-schema flag only accepts 'module:ClassName' format and tries to
+    import it. Passing a JSON schema string there crashes the child process. Pydantic
+    schemas must be injected via the prompt instruction, same as plain-dict schemas.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from pydantic import BaseModel
+
+    class MyResult(BaseModel):
+        score: int
+        summary: str
+
+    captured: list[dict] = []
+
+    def fake_run_subprocess(**kwargs):
+        captured.append(
+            {
+                "output_schema": kwargs.get("output_schema"),
+                "output_schema_dict": kwargs.get("output_schema_dict"),
+            }
+        )
+        return MagicMock()
+
+    initial_count = len(_subagents)
+    with (
+        patch(
+            "gptme.tools.subagent.execution._run_subagent_subprocess",
+            side_effect=fake_run_subprocess,
+        ),
+        patch("gptme.tools.subagent.execution._monitor_subprocess"),
+    ):
+        subagent(
+            agent_id="subprocess-pydantic-schema-test",
+            prompt="Return JSON",
+            output_schema=MyResult,
+            use_subprocess=True,
+        )
+        _wait_for_new_subagent_threads(initial_count)
+
+    assert captured, "subprocess launcher should have called _run_subagent_subprocess"
+    call = captured[0]
+    # Pydantic schemas must NOT be passed via the CLI --output-schema flag
+    # (that flag only accepts module:ClassName; passing JSON crashes the subprocess)
+    assert call["output_schema"] is None, (
+        "output_schema (CLI flag) must be None for Pydantic model schemas"
+    )
+    # The Pydantic JSON Schema should be routed via output_schema_dict for prompt injection
+    schema_dict = call["output_schema_dict"]
+    assert schema_dict is not None, "output_schema_dict must not be None"
+    assert schema_dict["type"] == "object"
+    assert "score" in schema_dict.get("properties", {})
+    assert "summary" in schema_dict.get("properties", {})

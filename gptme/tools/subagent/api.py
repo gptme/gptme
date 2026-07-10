@@ -60,7 +60,7 @@ def subagent(
     execution_mode: Literal["parallel", "sequential"] = "parallel",
     context_mode: Literal["full", "selective"] = "full",
     context_include: list[str] | None = None,
-    output_schema: type | None = None,
+    output_schema: "type | dict | None" = None,
     use_subprocess: bool | None = None,
     use_acp: bool = False,
     acp_command: str = "gptme-acp",
@@ -652,17 +652,23 @@ def subagent(
             )
         if profile:
             logger.info(f"  with profile: {profile}")
-        # Convert output_schema type to JSON string if present
+        # Convert output_schema for the subprocess launcher.
+        # The CLI --output-schema flag only accepts "module:ClassName" format,
+        # so all schemas (Pydantic, plain-dict, annotated) are passed via
+        # output_schema_dict and injected into the prompt instead.
         output_schema_str = None
+        output_schema_dict = None
         if output_schema is not None:
-            import json
-
-            # Convert pydantic model or type to JSON schema string
             if hasattr(output_schema, "model_json_schema"):
-                output_schema_str = json.dumps(output_schema.model_json_schema())
+                # Pydantic model: extract JSON Schema and inject via prompt,
+                # not via --output-schema (which expects module:ClassName).
+                output_schema_dict = output_schema.model_json_schema()
+            elif isinstance(output_schema, dict):
+                from .hooks import _dict_to_jsonschema
+
+                output_schema_dict = _dict_to_jsonschema(output_schema)
             elif hasattr(output_schema, "__annotations__"):
-                # TypedDict or dataclass - create simple schema
-                output_schema_str = json.dumps({"type": "object"})
+                output_schema_dict = {"type": "object"}
 
         def _launch_subprocess():
             _sem = get_slot_sem()
@@ -683,6 +689,7 @@ def subagent(
                     context_mode=context_mode,
                     context_include=context_include,
                     output_schema=output_schema_str,
+                    output_schema_dict=output_schema_dict,
                     profile=profile,
                 )
                 # Subagent is a frozen dataclass; install the live process on the
