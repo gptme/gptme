@@ -217,6 +217,20 @@ class TestAliasResolution:
                 f"price_input={model.price_input}). Alias must resolve to {canonical!r} metadata."
             )
 
+    def test_get_base_model_resolves_openai_alias(self):
+        """_get_base_model should resolve OpenAI aliases to the canonical tier ID.
+
+        This ensures the API call sends gpt-5.6-sol, not the synthetic alias gpt-5.6.
+        """
+        from gptme.llm import _get_base_model
+
+        # OpenAI alias: must resolve to canonical API tier ID
+        assert _get_base_model("openai/gpt-5.6") == "gpt-5.6-sol"
+        # Non-aliased model: must pass through unchanged
+        assert _get_base_model("openai/gpt-5.6-sol") == "gpt-5.6-sol"
+        # Non-OpenAI alias: must NOT be resolved (Anthropic accepts undated forms)
+        assert _get_base_model("anthropic/claude-haiku-4-5") == "claude-haiku-4-5"
+
 
 # ── Provider alias resolution ────────────────────────────────────────────
 
