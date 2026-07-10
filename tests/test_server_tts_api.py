@@ -122,6 +122,7 @@ def test_tts_no_key_kokoro_returns_wav(
 
     fake_kokoro = MagicMock()
     fake_kokoro.create.return_value = (samples, sample_rate)
+    fake_kokoro.get_voices.return_value = ["af_heart", "af_bella"]
     monkeypatch.setattr("gptme.server.tts_api._kokoro_instance", fake_kokoro)
     monkeypatch.setattr("gptme.server.tts_api._KokoroClass", MagicMock())
 
@@ -130,10 +131,69 @@ def test_tts_no_key_kokoro_returns_wav(
     assert response.status_code == 200
     assert response.content_type == "audio/wav"
     assert response.headers.get("X-TTS-Backend") == "kokoro-onnx"
+    fake_kokoro.create.assert_called_once_with(
+        "Hello", voice="af_heart", speed=1.0, lang="en-us"
+    )
     # Response body must be a parseable WAV
     buf = io.BytesIO(response.data)
     data, sr = sf.read(buf)
     assert sr == sample_rate
+
+
+def test_tts_no_key_kokoro_uses_requested_voice_when_available(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """A requested voice present in get_voices() is passed through to kokoro."""
+    import numpy as np
+
+    _set_openrouter_key(monkeypatch, None)
+    pytest.importorskip("soundfile", reason="soundfile not installed")
+
+    samples = np.zeros(100, dtype=np.float32)
+    sample_rate = 22050
+
+    fake_kokoro = MagicMock()
+    fake_kokoro.create.return_value = (samples, sample_rate)
+    fake_kokoro.get_voices.return_value = ["af_heart", "my_voice"]
+    monkeypatch.setattr("gptme.server.tts_api._kokoro_instance", fake_kokoro)
+    monkeypatch.setattr("gptme.server.tts_api._KokoroClass", MagicMock())
+
+    response = client.post(
+        "/api/v2/audio/speech", json={"text": "Hello", "voice": "my_voice"}
+    )
+
+    assert response.status_code == 200
+    fake_kokoro.create.assert_called_once_with(
+        "Hello", voice="my_voice", speed=1.0, lang="en-us"
+    )
+
+
+def test_tts_no_key_kokoro_unavailable_voice_falls_back_to_default(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """A requested voice absent from get_voices() falls back to af_heart."""
+    import numpy as np
+
+    _set_openrouter_key(monkeypatch, None)
+    pytest.importorskip("soundfile", reason="soundfile not installed")
+
+    samples = np.zeros(100, dtype=np.float32)
+    sample_rate = 22050
+
+    fake_kokoro = MagicMock()
+    fake_kokoro.create.return_value = (samples, sample_rate)
+    fake_kokoro.get_voices.return_value = ["af_heart", "af_bella"]
+    monkeypatch.setattr("gptme.server.tts_api._kokoro_instance", fake_kokoro)
+    monkeypatch.setattr("gptme.server.tts_api._KokoroClass", MagicMock())
+
+    response = client.post(
+        "/api/v2/audio/speech", json={"text": "Hello", "voice": "nonexistent_voice"}
+    )
+
+    assert response.status_code == 200
+    fake_kokoro.create.assert_called_once_with(
+        "Hello", voice="af_heart", speed=1.0, lang="en-us"
+    )
 
 
 def test_tts_with_key_uses_openrouter_not_kokoro(
