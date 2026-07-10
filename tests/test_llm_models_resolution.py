@@ -182,29 +182,28 @@ class TestAliasResolution:
         # Should be None since there's no alias and no base model after stripping date
         assert props is None
 
-    def test_openai_gpt56_alias_resolves_to_canonical_api_name(self):
-        """openai/gpt-5.6 should resolve to gpt-5.6-sol for the API call.
+    def test_openai_gpt56_alias_gets_canonical_metadata(self):
+        """openai/gpt-5.6 gets gpt-5.6-sol's metadata but keeps the requested name.
 
-        gpt-5.6 is a synthetic convenience alias we define internally; the OpenAI
-        API requires the explicit tier ID (gpt-5.6-sol). We must not send gpt-5.6
-        to the API because OpenAI may not accept short-form aliases.
+        The OpenAI API accepts gpt-5.6 directly and serves it as gpt-5.6-sol
+        (server-side alias, verified live 2026-07-10), so the requested name is
+        sent as-is; the MODEL_ALIASES entry only makes metadata resolve to Sol's
+        real specs instead of the 128k fallback.
         """
         model = get_model("openai/gpt-5.6")
         assert model.provider == "openai"
-        # model name must be the canonical tier ID sent to the API, not our alias
-        assert model.model == "gpt-5.6-sol", (
-            f"Expected 'gpt-5.6-sol' (canonical tier ID), got {model.model!r}. "
-            "OpenAI aliases must resolve to the API-accepted tier ID."
-        )
+        # Requested name is preserved on the wire — no synthetic rewriting
+        assert model.model == "gpt-5.6"
         # Must have real metadata from gpt-5.6-sol, not the 128k fallback
         assert model.context == 1_000_000
         assert model.price_input > 0
 
     def test_bare_gpt56_alias_resolves_with_provider(self):
-        """Bare 'gpt-5.6' (no provider prefix) should resolve to openai/gpt-5.6-sol."""
+        """Bare 'gpt-5.6' resolves to openai, keeping the name, with Sol metadata."""
         model = get_model("gpt-5.6")
         assert model.provider == "openai"
-        assert model.model == "gpt-5.6-sol"
+        assert model.model == "gpt-5.6"
+        assert model.context == 1_000_000
 
     def test_all_openai_aliases_resolve_known_metadata(self):
         """Every openai alias should resolve real metadata (not the 128k unknown fallback)."""
@@ -217,35 +216,27 @@ class TestAliasResolution:
                 f"price_input={model.price_input}). Alias must resolve to {canonical!r} metadata."
             )
 
-    def test_get_base_model_resolves_openai_alias(self):
-        """_get_base_model should resolve OpenAI aliases to the canonical tier ID.
+    def test_get_base_model_never_rewrites_names(self):
+        """_get_base_model strips the provider prefix and nothing else.
 
-        This ensures the API call sends gpt-5.6-sol, not the synthetic alias gpt-5.6.
+        Aliases are valid wire IDs (OpenAI serves gpt-5.6 as gpt-5.6-sol;
+        verified live 2026-07-10), so no rewriting happens at request time.
+        This also protects openai-subscription, whose backend expects family
+        IDs like gpt-5.6 (see OPENAI_SUBSCRIPTION_MODELS), and keeps suffixed
+        forms (gpt-5.6:high) consistent with their unsuffixed counterparts.
         """
         from gptme.llm import _get_base_model
 
-        # OpenAI alias: must resolve to canonical API tier ID
-        assert _get_base_model("openai/gpt-5.6") == "gpt-5.6-sol"
-        # Non-aliased model: must pass through unchanged
+        # Alias passes through unchanged — the API resolves it server-side
+        assert _get_base_model("openai/gpt-5.6") == "gpt-5.6"
         assert _get_base_model("openai/gpt-5.6-sol") == "gpt-5.6-sol"
-        # Non-OpenAI alias: must NOT be resolved (Anthropic accepts undated forms)
         assert _get_base_model("anthropic/claude-haiku-4-5") == "claude-haiku-4-5"
-
-    def test_get_base_model_resolves_subscription_alias(self):
-        """_get_base_model must resolve OpenAI aliases for the openai-subscription provider.
-
-        Greptile P1: the subscription path used a different prefix ("openai-subscription/")
-        so the alias guard only checked "openai/" and let gpt-5.6 pass through unresolved,
-        causing the API to receive the synthetic alias instead of the canonical gpt-5.6-sol.
-        """
-        from gptme.llm import _get_base_model
-
-        # Subscription path alias: must resolve just like the openai/ path
-        assert _get_base_model("openai-subscription/gpt-5.6") == "gpt-5.6-sol"
-        # Already canonical: pass through unchanged
-        assert _get_base_model("openai-subscription/gpt-5.6-sol") == "gpt-5.6-sol"
-        # Other subscription models: pass through unchanged
+        # Subscription models keep their family IDs (rewriting these would
+        # diverge from OPENAI_SUBSCRIPTION_MODELS, where gpt-5.6 is concrete)
+        assert _get_base_model("openai-subscription/gpt-5.6") == "gpt-5.6"
         assert _get_base_model("openai-subscription/gpt-5") == "gpt-5"
+        # Reasoning-suffix forms behave identically to unsuffixed ones
+        assert _get_base_model("openai-subscription/gpt-5.6:high") == "gpt-5.6:high"
 
 
 # ── Provider alias resolution ────────────────────────────────────────────

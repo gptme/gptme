@@ -365,20 +365,14 @@ def get_provider_from_model(model: str) -> Provider:
 
 
 def _get_base_model(model: str) -> str:
-    """Get base model name without provider prefix, resolving provider aliases.
+    """Get base model name without provider prefix.
 
-    For providers where aliases are synthetic (not accepted by the API), resolves
-    to the canonical name. Currently this applies to OpenAI only: gpt-5.6 is our
-    convenience alias for gpt-5.6-sol, not a model ID the OpenAI API accepts.
+    No alias rewriting here: aliases in MODEL_ALIASES are accepted by the
+    providers' APIs (e.g. OpenAI serves gpt-5.6 as gpt-5.6-sol, verified
+    2026-07-10), so the requested name is sent as-is. Aliases are resolved
+    for metadata lookup only, in models/resolution.py.
     """
-    from .models.types import MODEL_ALIASES  # fmt: skip
-
-    base = model.split("/", 1)[1]
-    if model.startswith(
-        ("openai/", "openai-subscription/")
-    ) and base in MODEL_ALIASES.get("openai", {}):
-        return MODEL_ALIASES["openai"][base]
-    return base
+    return model.split("/", 1)[1]
 
 
 def _gptme_backend(model: str) -> tuple[str, str] | None:

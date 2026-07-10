@@ -237,11 +237,11 @@ def get_model(model: str) -> ModelMeta:
                 lookup_model_name = model_name.rsplit(":", 1)[0]
 
             # Resolve model aliases for metadata lookup (e.g., gpt-5.6 -> gpt-5.6-sol).
-            # For OpenAI, also update model_name: gpt-5.6 / gpt-5.6-terra are our
-            # synthetic convenience aliases, not tier IDs accepted by the OpenAI API.
-            # The API requires explicit tier IDs (gpt-5.6-sol / gpt-5.6-terra / etc.).
-            # Other providers (Anthropic etc.) accept the alias form directly in the
-            # API (e.g. claude-haiku-4-5 works), so we keep model_name for those.
+            # Metadata lookup ONLY — model_name is never rewritten. Providers accept
+            # the alias form on the wire (OpenAI serves gpt-5.6 as gpt-5.6-sol,
+            # verified live 2026-07-10; Anthropic accepts undated names like
+            # claude-haiku-4-5). Rewriting would also break openai-subscription,
+            # whose backend expects family IDs (gpt-5.6), not tier IDs.
             if (
                 provider in MODEL_ALIASES
                 and lookup_model_name in MODEL_ALIASES[provider]
@@ -251,8 +251,6 @@ def get_model(model: str) -> ModelMeta:
                     f"Resolved alias {lookup_model_name!r} -> {canonical_name!r} for provider {provider!r}"
                 )
                 lookup_model_name = canonical_name
-                if provider == "openai":
-                    model_name = canonical_name
 
             # First try static MODELS dict for performance
             if provider in MODELS and lookup_model_name in MODELS[provider]:
@@ -349,14 +347,15 @@ def get_model(model: str) -> ModelMeta:
     for provider in cast(list[Provider], MODELS.keys()):
         if model in MODELS[provider]:
             return ModelMeta(provider, model, **MODELS[provider][model])
-        # Also resolve bare model aliases (e.g., gpt-5.6 -> openai/gpt-5.6-sol)
+        # Also resolve bare model aliases (e.g., gpt-5.6 -> openai/gpt-5.6-sol).
+        # Metadata only: keep the requested name (APIs accept the alias form).
         if model in MODEL_ALIASES.get(provider, {}):
             canonical = MODEL_ALIASES[provider][model]
             if canonical in MODELS[provider]:
                 logger.debug(
                     f"Resolved bare alias {model!r} -> {provider}/{canonical!r}"
                 )
-                return ModelMeta(provider, canonical, **MODELS[provider][canonical])
+                return ModelMeta(provider, model, **MODELS[provider][canonical])
 
     # For model name without provider, also try dynamic fetching for openrouter.
     # Skip if the model name has no "/" — OpenRouter models are always

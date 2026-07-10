@@ -28,6 +28,8 @@ _MODEL_FAMILY_PATTERN = re.compile(r"^([a-z]+-?[a-z]*)")
 # Avoids duplicating full metadata entries for models with both short and dated names.
 MODEL_ALIASES: dict[str, dict[str, str]] = {
     "openai": {
+        # OpenAI serves gpt-5.6 as gpt-5.6-sol server-side (verified live
+        # 2026-07-10); this entry is for metadata lookup, not wire rewriting.
         "gpt-5.6": "gpt-5.6-sol",
     },
     "anthropic": {
