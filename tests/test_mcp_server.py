@@ -197,6 +197,7 @@ class TestMCPServerHandlers:
         result = await server_with_mock_tools._server.request_handlers[
             types.ListToolsRequest
         ](req)
+        assert isinstance(result.root, types.ListToolsResult)
         assert result.root.tools
         tool_names = [t.name for t in result.root.tools]
         assert "shell" in tool_names
@@ -216,6 +217,7 @@ class TestMCPServerHandlers:
 
         req = types.ListToolsRequest(method="tools/list", params=None)
         result = await server._server.request_handlers[types.ListToolsRequest](req)
+        assert isinstance(result.root, types.ListToolsResult)
         tool_names = [t.name for t in result.root.tools]
         assert "noexec" not in tool_names
 
@@ -233,6 +235,7 @@ class TestMCPServerHandlers:
         result = await server_with_mock_tools._server.request_handlers[
             types.CallToolRequest
         ](req)
+        assert isinstance(result.root, types.CallToolResult)
         # MCP wraps handler exceptions into an isError=True CallToolResult
         assert result.root.isError is True
         assert any(
@@ -271,6 +274,7 @@ class TestMCPServerHandlers:
         result = await server_with_mock_tools._server.request_handlers[
             types.CallToolRequest
         ](req)
+        assert isinstance(result.root, types.CallToolResult)
 
         content = result.root.content
         assert any("hello from tool" in c.text for c in content if hasattr(c, "text"))

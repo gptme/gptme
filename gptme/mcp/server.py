@@ -218,6 +218,10 @@ class GptmeMCPServer:
         stdout: IO[bytes] | None = None,
     ) -> None:
         """Run the MCP server over stdio (for Claude Desktop and similar clients)."""
+        if stdin is None and stdout is None:
+            from ..util.stdio import capture_stdio_transport
+
+            stdin, stdout = capture_stdio_transport()
         if self._workspace:
             # Change CWD so that all tools (read, save, append, shell) resolve
             # relative paths against the configured workspace directory instead of
