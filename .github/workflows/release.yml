@@ -220,6 +220,10 @@ jobs:
       !cancelled() &&
       (needs.prepare.result == 'success' || github.event_name == 'release')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+      id-token: write  # Required for Trusted Publisher (OIDC) PyPI publishing
     env:
       TAG: ${{ needs.prepare.outputs.tag || github.event.release.tag_name || github.ref_name }}
 
@@ -273,12 +277,13 @@ jobs:
 
     - name: Publish gptme-acp shim to PyPI
       continue-on-error: true
-      env:
-        TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
-      run: |
-        pip install twine
-        twine upload packages/gptme-acp/dist/*
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        packages-dir: packages/gptme-acp/dist/
+        # Uses OIDC Trusted Publisher — no token needed.
+        # Requires a pending trusted publisher configured at:
+        #   https://pypi.org/manage/account/publishing/
+        # with: owner=gptme, repo=gptme, workflow=release.yml
 
     - name: Upload packages to GitHub release
       env:
