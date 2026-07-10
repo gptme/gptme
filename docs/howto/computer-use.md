@@ -56,6 +56,30 @@ export DISPLAY=:1
 fluxbox &   # or any window manager
 ```
 
+## Validate your setup
+
+After installing prerequisites, confirm everything is working:
+
+```bash
+# Check computer-use specific prerequisites (X11 tools, Playwright, ffmpeg, AT-SPI2...)
+gptme-util computer doctor
+
+# Run all three milestone demos (tweet, factorio, doom) against local HTML fixtures
+gptme-util computer demo --all
+```
+
+`gptme-util computer demo --all` drives the real Playwright browser tool against
+local HTML fixtures — the same `open_page`, `fill_element`, and `click_element`
+calls that work against live sites. All three milestones should pass in under
+3 seconds. If they do, browser interaction and selector resolution are working.
+
+For X11/native-desktop diagnostics (requires a running display):
+
+```bash
+gptme-util computer latency            # screenshot capture latency (target: < 200 ms)
+gptme-util computer latency --terminal # terminal startup latency (target: < 500 ms)
+```
+
 ## Start a computer-use session
 
 The `computer-use` profile sets the right tool access and backend selection policy:
