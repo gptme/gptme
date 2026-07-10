@@ -254,12 +254,6 @@ jobs:
         rm -f dist/*.whl dist/*.tar.gz
         poetry build
 
-    - name: Build gptme-acp shim
-      run: |
-        pip install build
-        cd packages/gptme-acp
-        python -m build
-
     - name: Validate package (dry-run publish)
       run: |
         # Dry-run validates artifact structure and metadata — no upload, no auth check
@@ -270,7 +264,15 @@ jobs:
         POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
       run: poetry publish
 
+    - name: Build gptme-acp shim
+      continue-on-error: true
+      run: |
+        pip install build
+        cd packages/gptme-acp
+        python -m build
+
     - name: Publish gptme-acp shim to PyPI
+      continue-on-error: true
       env:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
@@ -288,7 +290,11 @@ jobs:
           echo "Waiting for release $TAG to become visible... ($i/5)"
           sleep 5
         done
-        gh release upload "$TAG" dist/*.whl dist/*.tar.gz packages/gptme-acp/dist/*.whl packages/gptme-acp/dist/*.tar.gz --clobber
+        gh release upload "$TAG" dist/*.whl dist/*.tar.gz --clobber
+        # Upload shim artifacts if the shim was built successfully
+        if ls packages/gptme-acp/dist/*.whl 2>/dev/null; then
+          gh release upload "$TAG" packages/gptme-acp/dist/*.whl packages/gptme-acp/dist/*.tar.gz --clobber
+        fi
 
     - name: Trigger artifact builds
       env:
