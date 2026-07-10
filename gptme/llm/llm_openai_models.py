@@ -10,6 +10,48 @@ if TYPE_CHECKING:
 # and merged in below. They still work when explicitly requested via --model.
 
 _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
+    # GPT-5.6 — three-tier family released July 2026, 1M context, 128K max output
+    # https://developers.openai.com/api/docs/changelog
+    # Sol=flagship, Terra=balanced, Luna=fastest/cheapest. Alias gpt-5.6 -> sol.
+    "gpt-5.6-sol": {
+        "context": 1_000_000,
+        "max_output": 128_000,
+        "price_input": 5,
+        "price_output": 30,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_responses_api": True,
+        "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
+        "preferred_edit_format": "diff",
+        "knowledge_cutoff": datetime(2026, 2, 16, tzinfo=timezone.utc),
+    },
+    "gpt-5.6-terra": {
+        "context": 1_000_000,
+        "max_output": 128_000,
+        "price_input": 2.5,
+        "price_output": 15,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_responses_api": True,
+        "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
+        "preferred_edit_format": "diff",
+        "knowledge_cutoff": datetime(2026, 2, 16, tzinfo=timezone.utc),
+    },
+    "gpt-5.6-luna": {
+        "context": 1_000_000,
+        "max_output": 128_000,
+        "price_input": 1,
+        "price_output": 6,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_responses_api": True,
+        "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
+        "preferred_edit_format": "diff",
+        "knowledge_cutoff": datetime(2026, 2, 16, tzinfo=timezone.utc),
+    },
     # GPT-5.5 — flagship released April 2026, 1M context
     # https://developers.openai.com/api/docs/changelog
     "gpt-5.5": {

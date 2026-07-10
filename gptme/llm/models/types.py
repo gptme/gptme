@@ -27,6 +27,9 @@ _MODEL_FAMILY_PATTERN = re.compile(r"^([a-z]+-?[a-z]*)")
 # Model aliases: maps short alias names to their canonical model IDs per provider.
 # Avoids duplicating full metadata entries for models with both short and dated names.
 MODEL_ALIASES: dict[str, dict[str, str]] = {
+    "openai": {
+        "gpt-5.6": "gpt-5.6-sol",
+    },
     "anthropic": {
         "claude-opus-4-1": "claude-opus-4-1-20250805",
         "claude-opus-4-0": "claude-opus-4-20250514",
