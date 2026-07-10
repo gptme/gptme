@@ -122,8 +122,8 @@ def rank_source_files(
     for path, score in file_scores.items():
         if any(p in path for p in _EXCLUDE_PATTERNS):
             continue
-        if not include_tests and (
-            Path(path).name.startswith("test_") or "/tests/" in path
+        if not include_tests and any(
+            part in ("tests", "test") for part in Path(path).parts[:-1]
         ):
             continue
         filtered.append((path, score))

@@ -59,6 +59,21 @@ def test_rank_source_files_allows_test_support_helpers():
     assert not any("test_validators" in p for p in paths)
 
 
+def test_rank_source_files_keeps_production_helpers_named_test():
+    # A production helper named test_*.py that lives outside a test directory
+    # must not be excluded — only files under tests/ or test/ directories are tests.
+    ranked = rank_source_files(
+        {
+            "django/test_utils.py": 5,  # production helper, not under tests/
+            "django/tests/test_validators.py": 4,  # real test, must be excluded
+        }
+    )
+
+    paths = [p for p, _ in ranked]
+    assert "django/test_utils.py" in paths
+    assert "django/tests/test_validators.py" not in paths
+
+
 def test_build_embedded_content_prompt_embeds_only_existing_files(tmp_path: Path):
     source = tmp_path / "django" / "contrib" / "auth" / "validators.py"
     source.parent.mkdir(parents=True)
