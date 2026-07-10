@@ -241,6 +241,7 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
 
 
 @pytest.mark.timeout(60)
+@pytest.mark.no_retry
 def test_multi_tool_per_message(
     init_, setup_conversation, event_listener, mock_generation, wait_for_event, tmp_path
 ):
@@ -250,8 +251,8 @@ def test_multi_tool_per_message(
     - Both tools execute serially (second file writes after first)
     - Auto-step fires only after all tools complete
 
-    Keep this as a single-attempt test: pytest-retry can surface a tmp_path
-    teardown KeyError after the retried attempt passes.
+    Must not be retried: pytest-retry with --retries surfaces a tmp_path
+    teardown KeyError after the retried attempt passes (stash key missing).
     """
     port, conversation_id, session_id = setup_conversation
 
