@@ -177,6 +177,44 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
 # API-equivalent cost for comparison. models.py adds default_tool_format="tool".
 # Reasoning level suffix (e.g., :high) is stripped at lookup time in get_model().
 OPENAI_SUBSCRIPTION_MODELS: dict[str, "_ModelDictMeta"] = {
+    # GPT-5.6 Sol — flagship tier of the Sol/Terra/Luna family (GA: 2026-07-09)
+    # https://openai.com/index/previewing-gpt-5-6-sol/
+    # Sol: $5/$30 per 1M; +5.8 pts above GPT-5.5 on Agents' Last Exam (52.7%)
+    "gpt-5.6": {
+        "context": 1_000_000,
+        "max_output": 128_000,
+        "price_input": 5,
+        "price_output": 30,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+        "preferred_edit_format": "diff",
+        "knowledge_cutoff": datetime(2026, 2, 16, tzinfo=timezone.utc),
+    },
+    # GPT-5.6 Terra — balanced tier; matches GPT-5.5 quality at ~half the price
+    "gpt-5.6-terra": {
+        "context": 1_000_000,
+        "max_output": 128_000,
+        "price_input": 2.5,
+        "price_output": 15,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+        "preferred_edit_format": "diff",
+        "knowledge_cutoff": datetime(2026, 2, 16, tzinfo=timezone.utc),
+    },
+    # GPT-5.6 Luna — fast/cheap tier; positioned above GPT-5.4 in capability
+    "gpt-5.6-luna": {
+        "context": 1_000_000,
+        "max_output": 128_000,
+        "price_input": 1,
+        "price_output": 6,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+        "preferred_edit_format": "diff",
+        "knowledge_cutoff": datetime(2026, 2, 16, tzinfo=timezone.utc),
+    },
     # GPT-5.5 Pro — Responses API only, "more compute to think harder"
     # https://developers.openai.com/api/docs/changelog
     "gpt-5.5-pro": {

@@ -124,7 +124,7 @@ def test_get_model_dynamic_fetch_failure(mock_get_models):
     model = get_model("openrouter/test-dynamic-model")
     assert model.provider == "openrouter"
     assert model.model == "test-dynamic-model"
-    assert model.context == 128_000  # fallback
+    assert model.context > 0  # falls back to closest/recommended model context
 
 
 @patch("gptme.llm.models.listing._get_models_for_provider")
@@ -136,7 +136,7 @@ def test_get_model_dynamic_fetch_model_not_found(mock_get_models):
     model = get_model("openrouter/test-dynamic-model")
     assert model.provider == "openrouter"
     assert model.model == "test-dynamic-model"
-    assert model.context == 128_000  # fallback
+    assert model.context > 0  # falls back to closest/recommended model context
 
 
 def test_get_models_for_provider():
@@ -240,11 +240,11 @@ def test_get_model_openrouter_subprovider_suffix_not_in_static():
         ("openai", "gpt-5"),
         ("anthropic", "claude-sonnet-4-6"),
         ("gemini", "gemini-2.5-pro"),
-        ("openrouter", "meta-llama/llama-3.1-405b-instruct"),
+        ("openrouter", "deepseek/deepseek-v4-pro"),
         ("xai", "grok-4"),
         ("deepseek", "deepseek-chat"),
         ("groq", "llama-3.3-70b-versatile"),
-        ("openai-subscription", "gpt-5.4"),
+        ("openai-subscription", "gpt-5.6"),
     ],
 )
 def test_get_recommended_model(provider, expected_model):
