@@ -151,6 +151,49 @@ def test_evaluate_instance_populates_token_fields(monkeypatch, tmp_path):
     assert result.num_steps == 3
 
 
+def test_evaluate_instance_error_path_has_no_stale_cost(monkeypatch, tmp_path):
+    """Early failure before agent.act() must not report a previous task's token totals."""
+    from gptme.eval.agents import GPTMe
+    from gptme.eval.swebench.evaluate import evaluate_instance
+    from gptme.util.cost_tracker import CostTracker
+
+    # Seed stale state from a prior successful task.
+    CostTracker.start_session("prior-task")
+    from gptme.util.cost_tracker import CostEntry
+
+    CostTracker.record(
+        CostEntry(
+            timestamp=0.0,
+            model="test-model",
+            input_tokens=5000,
+            output_tokens=1000,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.10,
+        )
+    )
+
+    agent = GPTMe(model="test-model")
+    instance = {
+        "instance_id": "django__django-99999",
+        "problem_statement": "Fix the bug",
+        "expected_spans": {},
+    }
+
+    # Fail during workspace setup — before agent.act() (and before start_session).
+    monkeypatch.setattr(
+        "gptme.eval.swebench.evaluate.setup_swebench_repo",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("disk full")),
+    )
+
+    result, patch = evaluate_instance(agent, instance, repo_base_dir=str(tmp_path))
+
+    assert result.status == "error"
+    assert result.tokens_input == 0, "stale cost from prior task must not bleed in"
+    assert result.tokens_output == 0
+    assert result.cost_usd is None
+
+
 def test_file_coverage_heuristic_no_expected_spans():
     """Heuristic returns True when expected_spans is absent (no data to check)."""
     from gptme.eval.swebench.evaluate import _file_coverage_heuristic

@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from gptme.eval.agents import Agent
-from gptme.eval.cost import get_eval_costs, token_fields_from_cost
+from gptme.eval.cost import get_eval_costs, reset_eval_costs, token_fields_from_cost
 from gptme.eval.types import CaseResult, EvalResult
 
 from .utils import (
@@ -149,6 +149,7 @@ def evaluate_instance(
 
     start_time = time.time()
     patch = ""
+    reset_eval_costs()
     try:
         logger.info(f"Executing agent for instance {instance_id}")
         repo_dir = setup_swebench_repo(instance, repo_base_dir)

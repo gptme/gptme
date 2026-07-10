@@ -37,6 +37,7 @@ __all__ = [
     "CostSummary",
     "get_eval_costs",
     "get_session_costs",
+    "reset_eval_costs",
     "token_fields_from_cost",
 ]
 
@@ -71,6 +72,16 @@ def token_fields_from_cost(cost: CostSummary | None) -> EvalTokenFields:
         "cache_hit_rate": cost.cache_hit_rate,
         "num_steps": cost.request_count,
     }
+
+
+def reset_eval_costs() -> None:
+    """Reset cost tracking at the start of each eval instance.
+
+    Clears any stale ContextVar state left by a previous instance so that a
+    failure before CostTracker.start_session() is called (e.g. in workspace
+    setup) reports zero tokens rather than the previous task's totals.
+    """
+    CostTracker.reset()
 
 
 def get_session_costs() -> SessionCosts | None:
