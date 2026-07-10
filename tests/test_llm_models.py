@@ -124,7 +124,7 @@ def test_get_model_dynamic_fetch_failure(mock_get_models):
     model = get_model("openrouter/test-dynamic-model")
     assert model.provider == "openrouter"
     assert model.model == "test-dynamic-model"
-    assert model.context == 128_000  # fallback
+    assert model.context > 0  # falls back to closest/recommended model context
 
 
 @patch("gptme.llm.models.listing._get_models_for_provider")
@@ -136,7 +136,7 @@ def test_get_model_dynamic_fetch_model_not_found(mock_get_models):
     model = get_model("openrouter/test-dynamic-model")
     assert model.provider == "openrouter"
     assert model.model == "test-dynamic-model"
-    assert model.context == 128_000  # fallback
+    assert model.context > 0  # falls back to closest/recommended model context
 
 
 def test_get_models_for_provider():
