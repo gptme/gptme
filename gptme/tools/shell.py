@@ -45,6 +45,7 @@ from .base import (
     ToolSpec,
     ToolUse,
 )
+from .pruner import plan_tool_output_prune
 from .shell_background import (
     execute_bg_command,
     execute_jobs_command,
@@ -1252,6 +1253,53 @@ def _format_gh_list_preview(cmd: str, stdout: str, logdir: Path | None) -> str |
     return body
 
 
+def _format_query_pruned_output(
+    cmd: str,
+    stdout: str,
+    logdir: Path | None,
+) -> str | None:
+    plan = plan_tool_output_prune("shell", stdout, context_label=cmd)
+    if not plan:
+        return None
+
+    lines = stdout.splitlines()
+    pruned_stdout = plan.apply(lines)
+    effective_logdir = logdir or get_path_fn()
+
+    saved_path: Path | None = None
+    if effective_logdir:
+        _, saved_path = save_large_output(
+            content=stdout,
+            logdir=effective_logdir,
+            output_type="shell",
+            command_info=cmd,
+        )
+
+    detail = f"Pruned to {plan.kept_lines} of {plan.total_lines} lines for the current query."
+    if saved_path:
+        detail += f" Full output saved to {saved_path}; read that file for the complete result."
+    else:
+        detail += " Full output was not saved because no conversation logdir is active."
+
+    body = detail + "\n\n" + md_codeblock("stdout", pruned_stdout)
+
+    if effective_logdir:
+        try:
+            kept_tokens = len_tokens(body, plan.model)
+        except Exception:
+            kept_tokens = plan.kept_tokens
+        record_context_savings(
+            logdir=effective_logdir,
+            source="shell",
+            original_tokens=plan.original_tokens,
+            kept_tokens=kept_tokens,
+            command_info=f"query-pruned: {cmd}",
+            saved_path=saved_path,
+        )
+
+    return body
+
+
 def _format_shell_output(
     cmd: str,
     stdout: str,
@@ -1294,6 +1342,14 @@ def _format_shell_output(
             compact_stdout = _format_gh_list_preview(cmd, stdout, logdir)
         except OSError as e:
             logger.warning("Failed to format compact shell output: %s", e)
+
+    if compact_stdout is None and (
+        returncode == 0 and stdout and not stderr and not interrupted and not timed_out
+    ):
+        try:
+            compact_stdout = _format_query_pruned_output(cmd, stdout, logdir)
+        except OSError as e:
+            logger.warning("Failed to format query-pruned shell output: %s", e)
 
     if compact_stdout is None:
         # Apply shortening logic with output storage

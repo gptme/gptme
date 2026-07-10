@@ -3,9 +3,11 @@
 import os
 import stat
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from gptme.tools.pruner import PrunePlan
 from gptme.tools.read import execute_read
 
 
@@ -117,6 +119,32 @@ def test_read_binary_file(tmp_path: Path):
     messages = list(execute_read(None, [str(path)], None))
     assert len(messages) == 1
     assert "Cannot read binary file" in messages[0].content
+
+
+def test_read_file_query_prunes_output(tmp_path: Path):
+    path = tmp_path / "test.txt"
+    path.write_text("keep 1\ndrop 2\nkeep 3\ndrop 4\n")
+    plan = PrunePlan(
+        ranges=((1, 1), (3, 3)),
+        total_lines=4,
+        kept_lines=2,
+        original_tokens=40,
+        kept_tokens=10,
+        model="mock/echo",
+    )
+
+    with (
+        patch("gptme.tools.read.plan_tool_output_prune", return_value=plan),
+        patch("gptme.tools.read._current_logdir", return_value=tmp_path / "logdir"),
+    ):
+        messages = list(execute_read(None, [str(path)], None))
+
+    assert len(messages) == 1
+    content = messages[0].content
+    assert "Pruned to 2 of 4 lines" in content
+    assert "1\tkeep 1" in content
+    assert "3\tkeep 3" in content
+    assert "2\tdrop 2" not in content
 
 
 def test_read_empty_file(tmp_path: Path):

@@ -496,6 +496,12 @@ Run 'gptme-util --help' for all utility commands."""
     help="Tool format to use.",
 )
 @click.option(
+    "--prune-tool-output/--no-prune-tool-output",
+    "prune_tool_output",
+    default=None,
+    help="Use a summary model to keep only the relevant lines from large shell/read tool outputs.",
+)
+@click.option(
     "--stream/--no-stream",
     "stream",
     default=True,
@@ -602,6 +608,7 @@ def main(
     tool_allowlist: tuple[str, ...],
     agent_profile: str | None,
     tool_format: ToolFormat | None,
+    prune_tool_output: bool | None,
     stream: bool,
     verbose: bool,
     no_confirm: bool,
@@ -934,6 +941,7 @@ def main(
                     model=model,
                     tool_allowlist=tool_allowlist_str,
                     tool_format=tool_format,
+                    prune_tool_output=prune_tool_output,
                     stream=stream,
                     interactive=interactive,
                     agent_path=Path(agent_path) if agent_path else None,
@@ -1067,6 +1075,7 @@ def main(
             model=model,
             tool_allowlist=tool_allowlist_str,
             tool_format=tool_format,
+            prune_tool_output=prune_tool_output,
             stream=stream,
             interactive=interactive,
             agent_path=Path(agent_path) if agent_path else None,
