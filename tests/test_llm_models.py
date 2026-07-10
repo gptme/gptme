@@ -240,11 +240,11 @@ def test_get_model_openrouter_subprovider_suffix_not_in_static():
         ("openai", "gpt-5"),
         ("anthropic", "claude-sonnet-4-6"),
         ("gemini", "gemini-2.5-pro"),
-        ("openrouter", "meta-llama/llama-3.3-70b-instruct"),
+        ("openrouter", "deepseek/deepseek-v4-pro"),
         ("xai", "grok-4"),
         ("deepseek", "deepseek-chat"),
         ("groq", "llama-3.3-70b-versatile"),
-        ("openai-subscription", "gpt-5.4"),
+        ("openai-subscription", "gpt-5.5"),
     ],
 )
 def test_get_recommended_model(provider, expected_model):
