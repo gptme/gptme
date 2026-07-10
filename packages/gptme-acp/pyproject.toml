@@ -24,6 +24,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-# No Python source files — the package is purely an entry-point shim.
-# All logic lives in `gptme[acp]` which is a declared dependency.
-packages = []
+# Minimal stub package — all logic lives in `gptme[acp]` (a declared dependency).
+# The gptme_acp/__init__.py is empty; it exists only to satisfy hatchling's
+# requirement that the wheel contain at least one Python package.
+packages = ["gptme_acp"]
