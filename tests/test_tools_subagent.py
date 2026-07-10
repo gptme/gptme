@@ -3679,3 +3679,60 @@ def test_subprocess_output_schema_dict_via_prompt():
     assert schema_dict["type"] == "object"
     assert schema_dict["properties"]["score"] == {"type": "integer"}
     assert schema_dict["properties"]["summary"] == {"type": "string"}
+
+
+def test_subprocess_pydantic_schema_via_prompt():
+    """subprocess mode routes a Pydantic model schema via output_schema_dict (not the CLI flag).
+
+    The CLI --output-schema flag only accepts 'module:ClassName' format and tries to
+    import it. Passing a JSON schema string there crashes the child process. Pydantic
+    schemas must be injected via the prompt instruction, same as plain-dict schemas.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from pydantic import BaseModel
+
+    class MyResult(BaseModel):
+        score: int
+        summary: str
+
+    captured: list[dict] = []
+
+    def fake_run_subprocess(**kwargs):
+        captured.append(
+            {
+                "output_schema": kwargs.get("output_schema"),
+                "output_schema_dict": kwargs.get("output_schema_dict"),
+            }
+        )
+        return MagicMock()
+
+    initial_count = len(_subagents)
+    with (
+        patch(
+            "gptme.tools.subagent.execution._run_subagent_subprocess",
+            side_effect=fake_run_subprocess,
+        ),
+        patch("gptme.tools.subagent.execution._monitor_subprocess"),
+    ):
+        subagent(
+            agent_id="subprocess-pydantic-schema-test",
+            prompt="Return JSON",
+            output_schema=MyResult,
+            use_subprocess=True,
+        )
+        _wait_for_new_subagent_threads(initial_count)
+
+    assert captured, "subprocess launcher should have called _run_subagent_subprocess"
+    call = captured[0]
+    # Pydantic schemas must NOT be passed via the CLI --output-schema flag
+    # (that flag only accepts module:ClassName; passing JSON crashes the subprocess)
+    assert call["output_schema"] is None, (
+        "output_schema (CLI flag) must be None for Pydantic model schemas"
+    )
+    # The Pydantic JSON Schema should be routed via output_schema_dict for prompt injection
+    schema_dict = call["output_schema_dict"]
+    assert schema_dict is not None, "output_schema_dict must not be None"
+    assert schema_dict["type"] == "object"
+    assert "score" in schema_dict.get("properties", {})
+    assert "summary" in schema_dict.get("properties", {})

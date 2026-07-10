@@ -654,15 +654,15 @@ def subagent(
             logger.info(f"  with profile: {profile}")
         # Convert output_schema for the subprocess launcher.
         # The CLI --output-schema flag only accepts "module:ClassName" format,
-        # so plain-dict schemas are passed separately via output_schema_dict and
-        # injected into the prompt by _run_subagent_subprocess instead.
+        # so all schemas (Pydantic, plain-dict, annotated) are passed via
+        # output_schema_dict and injected into the prompt instead.
         output_schema_str = None
         output_schema_dict = None
         if output_schema is not None:
-            import json
-
             if hasattr(output_schema, "model_json_schema"):
-                output_schema_str = json.dumps(output_schema.model_json_schema())
+                # Pydantic model: extract JSON Schema and inject via prompt,
+                # not via --output-schema (which expects module:ClassName).
+                output_schema_dict = output_schema.model_json_schema()
             elif isinstance(output_schema, dict):
                 from .hooks import _dict_to_jsonschema
 
