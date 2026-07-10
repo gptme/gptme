@@ -29,6 +29,13 @@
 
 set -euo pipefail
 
+# Portable in-place sed: BSD sed (macOS) requires an explicit empty extension;
+# GNU sed uses -i.bak syntax. Using .bak + rm is the only form that works on both.
+_bump_shim_version() {
+    sed -i.bak "s/^version = \".*\"/version = \"$1\"/" packages/gptme-acp/pyproject.toml
+    rm packages/gptme-acp/pyproject.toml.bak
+}
+
 TYPE=""
 DATE=$(date -u +%Y%m%d)
 
@@ -91,7 +98,7 @@ if [ -z "$TYPE" ]; then
         echo "The latest tag is ${VERSION_TAG} but the version in pyproject.toml is ${VERSION_PYPROJECT}"
         echo "Updating the version in pyproject.toml to match the latest tag"
         poetry version "${VERSION_TAG}"
-        sed -i "s/^version = \".*\"/version = \"${VERSION_TAG}\"/" packages/gptme-acp/pyproject.toml
+        _bump_shim_version "${VERSION_TAG}"
         git add pyproject.toml packages/gptme-acp/pyproject.toml
         git commit -m "chore: bump version to ${VERSION_TAG}" || echo "No version bump needed"
     else
@@ -103,7 +110,7 @@ if [ -z "$TYPE" ]; then
         fi
         echo "Bumping version to ${VERSION_NEW}"
         poetry version "${VERSION_NEW}"
-        sed -i "s/^version = \".*\"/version = \"${VERSION_NEW}\"/" packages/gptme-acp/pyproject.toml
+        _bump_shim_version "${VERSION_NEW}"
         git add pyproject.toml packages/gptme-acp/pyproject.toml
         git commit -m "chore: bump version to ${VERSION_NEW}"
         git tag -s "v${VERSION_NEW}" -m "v${VERSION_NEW}"
@@ -166,7 +173,7 @@ poetry version "$NEW_VERSION"
 echo "Updated pyproject.toml: $(grep '^version' pyproject.toml)"
 
 # Also bump gptme-acp shim to keep it in sync with main package
-sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" packages/gptme-acp/pyproject.toml
+_bump_shim_version "$NEW_VERSION"
 echo "Updated packages/gptme-acp/pyproject.toml: $(grep '^version' packages/gptme-acp/pyproject.toml)"
 
 # Commit and tag
