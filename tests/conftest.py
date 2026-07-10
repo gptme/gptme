@@ -152,6 +152,13 @@ def pytest_collection_modifyitems(config, items):
             if "requires_api" in item.keywords:
                 item.add_marker(skip_api)
 
+    # Wire up no_retry: override pytest-retry's global --retries for these tests.
+    # @pytest.mark.flaky(retries=0) takes precedence over the --retries CLI flag.
+    no_retry_mark = pytest.mark.flaky(retries=0)
+    for item in items:
+        if "no_retry" in item.keywords:
+            item.add_marker(no_retry_mark)
+
 
 def pytest_sessionstart(session):
     global _anthropic_quota_exhausted
