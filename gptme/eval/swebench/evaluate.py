@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from gptme.eval.agents import Agent
+from gptme.eval.cost import get_eval_costs, token_fields_from_cost
 from gptme.eval.types import CaseResult, EvalResult
 
 from .utils import (
@@ -158,6 +159,7 @@ def evaluate_instance(
         agent.act(None, problem_statement)
     except Exception as e:
         logger.error(f"Error during agent execution for instance {instance_id}: {e}")
+        cost = get_eval_costs()
         return (
             EvalResult(
                 name=instance_id,
@@ -170,6 +172,8 @@ def evaluate_instance(
                 run_stderr="",
                 log_dir=agent.log_dir,
                 workspace_dir=agent.workspace_dir,
+                cost=cost,
+                **token_fields_from_cost(cost),
             ),
             patch,
         )
@@ -209,6 +213,7 @@ def evaluate_instance(
         f"(not authoritative — run official harness for real results)"
     )
 
+    cost = get_eval_costs()
     return (
         EvalResult(
             name=instance_id,
@@ -227,6 +232,8 @@ def evaluate_instance(
             run_stderr="",
             log_dir=agent.log_dir,
             workspace_dir=agent.workspace_dir,
+            cost=cost,
+            **token_fields_from_cost(cost),
         ),
         patch,
     )

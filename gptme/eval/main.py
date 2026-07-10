@@ -929,6 +929,31 @@ def read_results_from_csv(filename: str) -> dict[ModelConfig, list[EvalResult]]:
     return dict(model_results)
 
 
+def _model_token_summary(results: list[EvalResult]) -> dict[str, float | int | None]:
+    """Aggregate per-task token metrics for harness efficiency comparison."""
+    total_tasks = len(results)
+    if not total_tasks:
+        return {
+            "tokens_per_task": 0,
+            "tokens_input_per_task": 0,
+            "tokens_output_per_task": 0,
+            "total_tokens": 0,
+            "total_cost_usd": None,
+        }
+
+    total_tokens = sum(r.tokens_total for r in results)
+    total_input = sum(r.tokens_input for r in results)
+    total_output = sum(r.tokens_output for r in results)
+    costs = [r.cost_usd for r in results if r.cost_usd is not None]
+    return {
+        "tokens_per_task": round(total_tokens / total_tasks, 2),
+        "tokens_input_per_task": round(total_input / total_tasks, 2),
+        "tokens_output_per_task": round(total_output / total_tasks, 2),
+        "total_tokens": total_tokens,
+        "total_cost_usd": round(sum(costs), 6) if costs else None,
+    }
+
+
 def results_to_json(
     model_results: dict[ModelConfig, list[EvalResult]],
     commit_hash: str | None = None,
@@ -945,6 +970,7 @@ def results_to_json(
               "model": "anthropic/claude-sonnet-4-20250514",
               "tool_format": "tool",
               "pass_rate": 0.85,
+              "tokens_per_task": 12500.5,
               "total": 20,
               "passed": 17,
               "results": [ { "name": "hello", "status": "success", ... }, ... ]
@@ -961,6 +987,7 @@ def results_to_json(
             {
                 **config.to_dict(),
                 "pass_rate": round(passed / total, 4) if total else 0.0,
+                **_model_token_summary(results),
                 "total": total,
                 "passed": passed,
                 "results": result_dicts,
