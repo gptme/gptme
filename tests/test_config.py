@@ -1823,7 +1823,7 @@ def test_setup_config_from_cli_applies_gear_preset(tmp_path):
     assert config.chat is not None
     assert config.chat.gear == 2
     assert config.chat.no_confirm is False
-    assert config.chat.tools == ["read", "patch", "save", "append", "ipython"]
+    assert config.chat.tools == ["read", "patch", "save", "append"]
 
 
 def test_setup_config_from_cli_explicit_tools_override_gear(tmp_path):
