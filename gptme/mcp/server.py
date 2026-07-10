@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import TYPE_CHECKING, Any
 
 import mcp.server.stdio
@@ -119,6 +120,9 @@ class GptmeMCPServer:
         # on first use; injected into each executor thread via _shell_var so that
         # stateful tools (shell, ipython) retain state between MCP requests.
         self._shell_session: ShellSession | None = None
+        # Serialize tool calls to prevent concurrent access to stateful tools
+        # (shell subprocess, IPython REPL) from racing on shared session state.
+        self._tool_call_lock = asyncio.Lock()
         self._setup_handlers()
 
     def _get_or_create_shell_session(self) -> ShellSession:
@@ -185,10 +189,13 @@ class GptmeMCPServer:
 
                 return output
 
-            # Run in a thread executor to avoid blocking the event loop during
-            # long-running operations (bash commands, Python REPL, etc.)
-            loop = asyncio.get_event_loop()
-            output = await loop.run_in_executor(None, _run_tool)
+            # Serialize tool calls to prevent concurrent access to stateful tools
+            # (shell subprocess, IPython REPL) which share session state.
+            async with self._tool_call_lock:
+                # Run in a thread executor to avoid blocking the event loop during
+                # long-running operations (bash commands, Python REPL, etc.)
+                loop = asyncio.get_event_loop()
+                output = await loop.run_in_executor(None, _run_tool)
 
             return [types.TextContent(type="text", text=output or "(no output)")]
 
@@ -204,6 +211,11 @@ class GptmeMCPServer:
 
     def serve_stdio(self) -> None:
         """Run the MCP server over stdio (for Claude Desktop and similar clients)."""
+        if self._workspace:
+            # Change CWD so that all tools (read, save, append, shell) resolve
+            # relative paths against the configured workspace directory instead of
+            # the process launch directory.
+            os.chdir(self._workspace)
         self._init_tools()
 
         async def _run() -> None:

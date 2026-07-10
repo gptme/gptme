@@ -347,3 +347,140 @@ class TestMCPServerCLI:
         runner = CliRunner()
         result = runner.invoke(main, ["--log-level", "INVALID"])
         assert result.exit_code != 0
+
+
+class TestWorkspaceHandling:
+    """Tests for --workspace CWD behaviour."""
+
+    def test_serve_stdio_changes_cwd_to_workspace(self, tmp_path) -> None:
+        """serve_stdio must os.chdir to the workspace so file tools use the right dir."""
+        from unittest.mock import patch
+
+        server = GptmeMCPServer(workspace=str(tmp_path))
+
+        chdir_calls: list[str] = []
+
+        # Close the coroutine passed to asyncio.run to avoid "was never awaited" warning.
+        def _drain_coro(coro):
+            coro.close()
+
+        with (
+            patch("gptme.mcp.server.os.chdir", side_effect=chdir_calls.append),
+            patch.object(server, "_init_tools"),
+            patch("asyncio.run", side_effect=_drain_coro),
+        ):
+            server.serve_stdio()
+
+        assert chdir_calls == [str(tmp_path)], (
+            f"Expected os.chdir({tmp_path!s}) but got {chdir_calls}"
+        )
+
+    def test_serve_stdio_no_chdir_without_workspace(self) -> None:
+        """serve_stdio must not call os.chdir when workspace is None."""
+        from unittest.mock import patch
+
+        server = GptmeMCPServer(workspace=None)
+
+        def _drain_coro(coro):
+            coro.close()
+
+        with (
+            patch("gptme.mcp.server.os.chdir") as mock_chdir,
+            patch.object(server, "_init_tools"),
+            patch("asyncio.run", side_effect=_drain_coro),
+        ):
+            server.serve_stdio()
+
+        mock_chdir.assert_not_called()
+
+
+class TestToolCallSerialization:
+    """Tests for per-call asyncio.Lock preventing concurrent stateful access."""
+
+    def test_server_has_tool_call_lock(self) -> None:
+        """GptmeMCPServer must expose a _tool_call_lock for serializing calls."""
+        import asyncio
+
+        server = GptmeMCPServer()
+        assert isinstance(server._tool_call_lock, asyncio.Lock)
+
+    @pytest.mark.asyncio
+    async def test_concurrent_calls_are_serialized(self, simple_tool: ToolSpec) -> None:
+        """Two overlapping MCP tool calls must not interleave inside the lock."""
+        import asyncio
+
+        import mcp.types as types
+
+        from gptme.message import Message
+
+        order: list[str] = []
+
+        def sync_execute(code, args, kwargs):
+            order.append("start")
+            # Yield to the event loop once; a non-serializing server would let
+            # a second call start here before this one appends "end".
+            order.append("end")
+            yield Message("system", "done")
+
+        server = GptmeMCPServer(tool_names=["shell"])
+        server._loaded_tools = [
+            ToolSpec(
+                name="shell",
+                desc="Shell.",
+                execute=sync_execute,
+                block_types=["shell"],
+                parameters=[Parameter(name="command", type="string", required=True)],
+            )
+        ]
+
+        req = types.CallToolRequest(
+            method="tools/call",
+            params=types.CallToolRequestParams(
+                name="shell", arguments={"command": "echo test"}
+            ),
+        )
+        handler = server._server.request_handlers[types.CallToolRequest]
+        await asyncio.gather(handler(req), handler(req))
+
+        # Serialized order must be start,end,start,end — never start,start,...
+        assert order == ["start", "end", "start", "end"], (
+            f"Tool calls interleaved: {order}"
+        )
+
+
+class TestLazyServerImport:
+    """Tests for P2: client imports must not trigger server module loading."""
+
+    def test_mcp_client_import_does_not_load_server_module(self) -> None:
+        """from gptme.mcp import MCPClient must not import gptme.mcp.server."""
+        import sys
+
+        # Remove the server module from the cache (if already loaded by this test run).
+        for key in list(sys.modules):
+            if key == "gptme.mcp.server" or key.startswith("gptme.mcp.server."):
+                del sys.modules[key]
+
+        # Importing MCPClient should NOT cause server.py to be loaded.
+        from gptme.mcp import MCPClient  # noqa: F401
+
+        assert "gptme.mcp.server" not in sys.modules, (
+            "Importing MCPClient triggered gptme.mcp.server import — "
+            "this loads the full tools package as a side-effect."
+        )
+
+    def test_lazy_getattr_loads_server_on_demand(self) -> None:
+        """Accessing GptmeMCPServer via gptme.mcp triggers the lazy import."""
+        import sys
+
+        # Ensure server module is not in cache.
+        for key in list(sys.modules):
+            if key == "gptme.mcp.server" or key.startswith("gptme.mcp.server."):
+                del sys.modules[key]
+
+        import gptme.mcp as mcp_pkg
+
+        _ = mcp_pkg.GptmeMCPServer  # trigger __getattr__
+
+        assert "gptme.mcp.server" in sys.modules, (
+            "Accessing GptmeMCPServer should load gptme.mcp.server lazily."
+        )
