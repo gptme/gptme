@@ -190,6 +190,9 @@ class Subagent:
     execution_mode: Literal["thread", "subprocess", "acp"] = "thread"
     # ACP mode fields
     acp_command: str | None = None
+    # Working directory: the resolved path passed via workdir=; None means cwd at spawn time.
+    # Stored so subagent_reply() can re-spawn in the same directory.
+    workdir: Path | None = None
     # Worktree isolation fields
     isolated: bool = False
     worktree_path: Path | None = None

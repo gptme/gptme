@@ -597,9 +597,18 @@ def test_subprocess_mode_creates_process():
     mock_process = MagicMock()
     mock_process.poll.return_value = None  # Process still running
 
-    with patch(
-        "gptme.tools.subagent.execution._run_subagent_subprocess",
-        return_value=mock_process,
+    # Also mock _monitor_subprocess: it spawns a daemon progress-polling thread
+    # that does lazy imports (sys.modules mutation) and can race with
+    # patch.__exit__ iterating sys.modules under xdist, causing
+    # RuntimeError: dictionary changed size during iteration.
+    # sa.process is assigned before _monitor_subprocess is called, so
+    # mocking it out does not affect what this test actually verifies.
+    with (
+        patch(
+            "gptme.tools.subagent.execution._run_subagent_subprocess",
+            return_value=mock_process,
+        ),
+        patch("gptme.tools.subagent.execution._monitor_subprocess"),
     ):
         subagent(
             agent_id="test-subprocess",
