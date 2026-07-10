@@ -356,6 +356,7 @@ class TestMCPServerCLI:
         result = runner.invoke(main, ["--log-level", "INVALID"])
         assert result.exit_code != 0
 
+    @pytest.mark.timeout(60)
     def test_stdio_transport_keeps_tool_stdout_out_of_protocol(self, tmp_path) -> None:
         """Tool prints must not leak as bare lines on the JSON-RPC stdout stream."""
         from gptme.__version__ import __version__
@@ -461,7 +462,10 @@ class TestMCPServerCLI:
             proc.terminate()
             proc.wait(timeout=5)
 
-        assert initialize_response["result"]["serverInfo"]["version"] == __version__
+        # Compare base versions only: the local segment (+hash / +unknown) depends on
+        # install mode and git state, which differ between this process and the child.
+        server_version = initialize_response["result"]["serverInfo"]["version"]
+        assert server_version.split("+")[0] == __version__.split("+")[0]
 
         content = call_response["result"]["content"]
         assert any(marker in item.get("text", "") for item in content)
