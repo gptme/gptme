@@ -230,14 +230,22 @@ def test_eval_result_token_fields_defaults():
     assert result.tokens_output == 0
     assert result.tokens_total == 0
     assert result.cost_usd is None
+    assert result.cache_read_tokens == 0
+    assert result.cache_creation_tokens == 0
+    assert result.cache_hit_rate == 0.0
+    assert result.num_steps == 0
     # cost_usd must always appear in JSON output so consumers can rely on the field
     d = result.to_dict()
     assert "cost_usd" in d
     assert d["cost_usd"] is None
+    assert d["cache_read_tokens"] == 0
+    assert d["cache_creation_tokens"] == 0
+    assert d["cache_hit_rate"] == 0.0
+    assert d["num_steps"] == 0
 
 
 def test_eval_result_token_fields_populated():
-    """EvalResult exposes token counts and tokens_total in to_dict."""
+    """EvalResult exposes token counts, caching, and num_steps in to_dict."""
     result = EvalResult(
         name="hello",
         status="success",
@@ -252,17 +260,29 @@ def test_eval_result_token_fields_populated():
         tokens_input=1500,
         tokens_output=300,
         cost_usd=0.012,
+        cache_read_tokens=800,
+        cache_creation_tokens=200,
+        cache_hit_rate=0.53,
+        num_steps=4,
     )
     assert result.tokens_input == 1500
     assert result.tokens_output == 300
     assert result.tokens_total == 1800
     assert result.cost_usd == 0.012
+    assert result.cache_read_tokens == 800
+    assert result.cache_creation_tokens == 200
+    assert result.cache_hit_rate == 0.53
+    assert result.num_steps == 4
 
     d = result.to_dict()
     assert d["tokens_input"] == 1500
     assert d["tokens_output"] == 300
     assert d["tokens_total"] == 1800
     assert d["cost_usd"] == 0.012
+    assert d["cache_read_tokens"] == 800
+    assert d["cache_creation_tokens"] == 200
+    assert d["cache_hit_rate"] == 0.53
+    assert d["num_steps"] == 4
 
     # Verify JSON-serializable
     assert json.loads(json.dumps(d)) == d
@@ -781,6 +801,10 @@ def test_write_results_includes_token_columns(tmp_path):
             tokens_input=1200,
             tokens_output=400,
             cost_usd=0.008,
+            cache_read_tokens=600,
+            cache_creation_tokens=150,
+            cache_hit_rate=0.50,
+            num_steps=3,
         ),
     ]
 
@@ -809,6 +833,10 @@ def test_write_results_includes_token_columns(tmp_path):
     assert r.tokens_output == 400
     assert r.tokens_total == 1600
     assert r.cost_usd == 0.008
+    assert r.cache_read_tokens == 600
+    assert r.cache_creation_tokens == 150
+    assert r.cache_hit_rate == 0.50
+    assert r.num_steps == 3
 
 
 def test_apply_adversarial_framing_prepends_text():
