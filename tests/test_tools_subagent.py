@@ -3610,15 +3610,44 @@ def test_dict_to_jsonschema_passthrough_ref_schema():
     assert _dict_to_jsonschema(any_of_schema) is any_of_schema
 
 
-def test_subprocess_output_schema_dict_serialized():
-    """subprocess mode serializes a plain-dict output_schema to JSON (not left as None)."""
-    import json
+def test_dict_to_jsonschema_passthrough_extended_keywords():
+    """_dict_to_jsonschema passes through dicts with const, patternProperties, etc."""
+    from gptme.tools.subagent.hooks import _dict_to_jsonschema
+
+    # const — literal value constraint
+    const_schema = {"const": "approved"}
+    assert _dict_to_jsonschema(const_schema) is const_schema
+
+    # patternProperties — regex-keyed property schema
+    pattern_schema = {"patternProperties": {"^S_": {"type": "string"}}}
+    assert _dict_to_jsonschema(pattern_schema) is pattern_schema
+
+    # dependentRequired — conditional required fields
+    dep_schema = {"dependentRequired": {"credit_card": ["billing_address"]}}
+    assert _dict_to_jsonschema(dep_schema) is dep_schema
+
+    # then/else — if/then/else conditional
+    if_then_schema = {"if": {"properties": {"foo": {}}}, "then": {"required": ["bar"]}}
+    assert _dict_to_jsonschema(if_then_schema) is if_then_schema
+
+
+def test_subprocess_output_schema_dict_via_prompt():
+    """subprocess mode routes a plain-dict schema via output_schema_dict (not the CLI flag).
+
+    The CLI --output-schema flag only accepts 'module:ClassName' format, so plain-dict
+    schemas must be injected via the prompt instruction, not as a CLI arg.
+    """
     from unittest.mock import MagicMock, patch
 
-    captured: list[str | None] = []
+    captured: list[dict] = []
 
     def fake_run_subprocess(**kwargs):
-        captured.append(kwargs.get("output_schema"))
+        captured.append(
+            {
+                "output_schema": kwargs.get("output_schema"),
+                "output_schema_dict": kwargs.get("output_schema_dict"),
+            }
+        )
         return MagicMock()
 
     initial_count = len(_subagents)
@@ -3638,11 +3667,15 @@ def test_subprocess_output_schema_dict_serialized():
         _wait_for_new_subagent_threads(initial_count)
 
     assert captured, "subprocess launcher should have called _run_subagent_subprocess"
-    schema_str = captured[0]
-    assert schema_str is not None, (
-        "output_schema_str must not be None for a plain dict schema"
+    call = captured[0]
+    # Plain dict schemas must NOT be passed via the CLI --output-schema flag
+    # (that flag only accepts module:ClassName; passing JSON crashes the subprocess)
+    assert call["output_schema"] is None, (
+        "output_schema (CLI flag) must be None for plain-dict schemas"
     )
-    schema = json.loads(schema_str)
-    assert schema["type"] == "object"
-    assert schema["properties"]["score"] == {"type": "integer"}
-    assert schema["properties"]["summary"] == {"type": "string"}
+    # The parsed schema dict should be routed via output_schema_dict for prompt injection
+    schema_dict = call["output_schema_dict"]
+    assert schema_dict is not None, "output_schema_dict must not be None"
+    assert schema_dict["type"] == "object"
+    assert schema_dict["properties"]["score"] == {"type": "integer"}
+    assert schema_dict["properties"]["summary"] == {"type": "string"}
