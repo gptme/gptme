@@ -99,6 +99,17 @@ class EvalResult:
     runnable tool-uses in assistant messages only (matching ``execute_msg``
     semantics); nested subagent tool-uses are not counted.
     """
+    tokens_input: int = field(default=0)
+    """Total input (prompt) tokens consumed during this eval task."""
+    tokens_output: int = field(default=0)
+    """Total output (completion) tokens generated during this eval task."""
+    cost_usd: float | None = field(default=None)
+    """Total cost in USD for this eval task, if model pricing is available."""
+
+    @property
+    def tokens_total(self) -> int:
+        """Total tokens consumed (input + output) for this eval task."""
+        return self.tokens_input + self.tokens_output
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict."""
@@ -109,7 +120,12 @@ class EvalResult:
             "cases": [c.to_dict() for c in self.results],
             "timings": self.timings,
             "tool_calls": self.tool_calls,
+            "tokens_input": self.tokens_input,
+            "tokens_output": self.tokens_output,
+            "tokens_total": self.tokens_total,
         }
+        if self.cost_usd is not None:
+            d["cost_usd"] = self.cost_usd
         if self.cost is not None:
             d["cost"] = self.cost.to_dict()
         return d

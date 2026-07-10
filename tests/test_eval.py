@@ -212,6 +212,86 @@ def test_results_to_json():
     assert json.loads(json_str) == data
 
 
+def test_eval_result_token_fields_defaults():
+    """EvalResult has zero-default token fields and tokens_total property."""
+    result = EvalResult(
+        name="hello",
+        status="success",
+        results=[],
+        timings={"gen": 1.0, "run": 0.5, "eval": 0.1},
+        gen_stdout="",
+        gen_stderr="",
+        run_stdout="",
+        run_stderr="",
+        log_dir=Path("/tmp/log"),
+        workspace_dir=Path("/tmp/ws"),
+    )
+    assert result.tokens_input == 0
+    assert result.tokens_output == 0
+    assert result.tokens_total == 0
+    assert result.cost_usd is None
+
+
+def test_eval_result_token_fields_populated():
+    """EvalResult exposes token counts and tokens_total in to_dict."""
+    result = EvalResult(
+        name="hello",
+        status="success",
+        results=[CaseResult(name="ok", passed=True, duration=0.1)],
+        timings={"gen": 2.0, "run": 0.5, "eval": 0.1},
+        gen_stdout="",
+        gen_stderr="",
+        run_stdout="",
+        run_stderr="",
+        log_dir=Path("/tmp/log"),
+        workspace_dir=Path("/tmp/ws"),
+        tokens_input=1500,
+        tokens_output=300,
+        cost_usd=0.012,
+    )
+    assert result.tokens_input == 1500
+    assert result.tokens_output == 300
+    assert result.tokens_total == 1800
+    assert result.cost_usd == 0.012
+
+    d = result.to_dict()
+    assert d["tokens_input"] == 1500
+    assert d["tokens_output"] == 300
+    assert d["tokens_total"] == 1800
+    assert d["cost_usd"] == 0.012
+
+    # Verify JSON-serializable
+    assert json.loads(json.dumps(d)) == d
+
+
+def test_eval_result_token_fields_in_json_output():
+    """results_to_json includes top-level token metrics per result."""
+    config = ModelConfig(model="test-model", tool_format="tool")
+    results = [
+        EvalResult(
+            name="task-1",
+            status="success",
+            results=[CaseResult(name="ok", passed=True, duration=0.1)],
+            timings={"gen": 3.0, "run": 0.5, "eval": 0.1},
+            gen_stdout="",
+            gen_stderr="",
+            run_stdout="",
+            run_stderr="",
+            log_dir=Path("/tmp/log"),
+            workspace_dir=Path("/tmp/ws"),
+            tokens_input=2000,
+            tokens_output=500,
+            cost_usd=0.025,
+        ),
+    ]
+    data = results_to_json({config: results})
+    result_data = data["models"][0]["results"][0]
+    assert result_data["tokens_input"] == 2000
+    assert result_data["tokens_output"] == 500
+    assert result_data["tokens_total"] == 2500
+    assert result_data["cost_usd"] == 0.025
+
+
 def test_results_to_json_all_passing():
     """Test pass rate calculation when all cases pass."""
     config = ModelConfig(model="good-model", tool_format="tool")
@@ -675,6 +755,56 @@ def test_run_evals_top_level_timeout_cancels_pending_futures(tmp_path):
     assert [result.name for result in model_results] == ["first", "second"]
     assert [result.status for result in model_results] == ["success", "timeout"]
     assert model_results[1].gen_stderr == "Process-level CancelledError"
+
+
+def test_write_results_includes_token_columns(tmp_path):
+    """write_results stores token metrics in CSV; read_results_from_csv restores them."""
+    from gptme.eval.main import read_results_from_csv, write_results
+
+    config = ModelConfig(model="test-model", tool_format="tool")
+    results = [
+        EvalResult(
+            name="hello",
+            status="success",
+            results=[CaseResult(name="ok", passed=True, duration=0.1)],
+            timings={"gen": 2.0, "run": 0.5, "eval": 0.1},
+            gen_stdout="gen out",
+            gen_stderr="",
+            run_stdout="run out",
+            run_stderr="",
+            log_dir=tmp_path / "log",
+            workspace_dir=tmp_path / "ws",
+            tokens_input=1200,
+            tokens_output=400,
+            cost_usd=0.008,
+        ),
+    ]
+
+    import os
+
+    old_env = os.environ.get("EVAL_RESULTS_DIR")
+    os.environ["EVAL_RESULTS_DIR"] = str(tmp_path)
+    try:
+        write_results({config: results})
+    finally:
+        if old_env is None:
+            os.environ.pop("EVAL_RESULTS_DIR", None)
+        else:
+            os.environ["EVAL_RESULTS_DIR"] = old_env
+
+    # Find the written CSV
+    csv_files = list(tmp_path.rglob("eval_results.csv"))
+    assert len(csv_files) == 1, f"Expected one CSV, got {csv_files}"
+
+    restored = read_results_from_csv(str(csv_files[0]))
+    assert len(restored) == 1
+    (restored_config, restored_results) = next(iter(restored.items()))
+    assert restored_config == config
+    r = restored_results[0]
+    assert r.tokens_input == 1200
+    assert r.tokens_output == 400
+    assert r.tokens_total == 1600
+    assert r.cost_usd == 0.008
 
 
 def test_apply_adversarial_framing_prepends_text():

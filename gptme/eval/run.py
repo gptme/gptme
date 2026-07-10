@@ -325,6 +325,9 @@ def execute(
     time_run = 0.0
     time_eval = 0.0
     tool_calls = 0
+    tokens_input = 0
+    tokens_output = 0
+    cost_usd: float | None = None
 
     prompt = test["prompt"]
     if adversarial:
@@ -394,6 +397,10 @@ def execute(
                 from .cost import CostSummary
 
                 cost = CostSummary.from_dict(cost_dict)
+
+            tokens_input = cost.total_input_tokens if cost else 0
+            tokens_output = cost.total_output_tokens if cost else 0
+            cost_usd = cost.total_cost if cost else None
         else:
             exit_code = p.exitcode
             error_msg = (
@@ -509,6 +516,9 @@ def execute(
             workspace_dir=workspace_dir,
             cost=cost,
             tool_calls=tool_calls,
+            tokens_input=tokens_input,
+            tokens_output=tokens_output,
+            cost_usd=cost_usd,
         )
 
 
