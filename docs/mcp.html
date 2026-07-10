@@ -499,6 +499,7 @@ document.write(`
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-mcp-servers">Running MCP Servers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-mcp-servers">Managing MCP Servers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-as-an-mcp-server">gptme as an MCP Server</a></li>
 </ul>
             </nav>
         </div>
@@ -512,8 +513,7 @@ document.write(`
                   
   <section id="mcp">
 <span id="id1"></span><h1>MCP<a class="headerlink" href="#mcp" title="Link to this heading">#</a></h1>
-<p>gptme acts as a MCP client supporting MCP servers (<a class="reference external" href="https://modelcontextprotocol.io/">Model Context Protocol</a>), allowing integration with external tools and services through a standardized protocol.</p>
-<p>We also intend to expose tools in gptme as MCP servers, allowing you to use gptme tools in other MCP clients.</p>
+<p>gptme works as both an MCP <strong>client</strong> (consuming external MCP servers) and an MCP <strong>server</strong> (exposing gptme tools to Claude Desktop, Cursor, and other MCP clients).</p>
 <section id="configuration">
 <h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
 <p>You can configure MCP in your <a class="reference internal" href="config.html#global-config"><span class="std std-ref">Global config</span></a> (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>) file:</p>
@@ -676,6 +676,39 @@ gptme-util<span class="w"> </span>mcp<span class="w"> </span>info<span class="w"
 </div>
 <p>These commands help you verify that your MCP servers are properly configured and accessible.</p>
 </section>
+<section id="gptme-as-an-mcp-server">
+<h2>gptme as an MCP Server<a class="headerlink" href="#gptme-as-an-mcp-server" title="Link to this heading">#</a></h2>
+<p>gptme can expose its own tools (shell, Python REPL, file read/save, browser, etc.) as an MCP server so that Claude Desktop, Cursor, and other MCP clients can use them directly.</p>
+<p>Quick start for Claude Desktop — add to <code class="docutils literal notranslate"><span class="pre">~/.claude/claude_desktop_config.json</span></code>:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;gptme&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;gptme-mcp-server&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;args&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;--tools&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shell,ipython,save,read&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Then restart Claude Desktop. The <code class="docutils literal notranslate"><span class="pre">shell</span></code>, <code class="docutils literal notranslate"><span class="pre">ipython</span></code>, <code class="docutils literal notranslate"><span class="pre">save</span></code>, and <code class="docutils literal notranslate"><span class="pre">read</span></code> tools will appear in Claude’s tool menu.</p>
+<p>Running the server manually:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Standalone entrypoint (recommended for Claude Desktop)</span>
+gptme-mcp-server<span class="w"> </span>--tools<span class="w"> </span>shell,ipython,save,read
+
+<span class="c1"># Or via gptme-util (equivalent)</span>
+gptme-util<span class="w"> </span>mcp<span class="w"> </span>serve<span class="w"> </span>--tools<span class="w"> </span>shell,ipython,save,read
+</pre></div>
+</div>
+<p>Options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--tools</span></code>: Comma-separated tool names to expose. Default: <code class="docutils literal notranslate"><span class="pre">shell,ipython,save,append,read</span></code>. <code class="docutils literal notranslate"><span class="pre">subagent</span></code> and <code class="docutils literal notranslate"><span class="pre">mcp</span></code> are always excluded.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--workspace</span> <span class="pre">DIR</span></code>: Working directory for all tool operations (default: current directory).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--log-level</span></code>: Log level sent to stderr (<code class="docutils literal notranslate"><span class="pre">DEBUG</span></code>, <code class="docutils literal notranslate"><span class="pre">INFO</span></code>, <code class="docutils literal notranslate"><span class="pre">WARNING</span></code>, <code class="docutils literal notranslate"><span class="pre">ERROR</span></code>).</p></li>
+</ul>
+<p>The server is <strong>session-backed</strong>: one persistent gptme session per MCP connection, so the bash shell
+retains state, the Python REPL keeps variables, and file operations share a consistent working directory
+across multiple tool calls.</p>
+</section>
 </section>
 
 
@@ -736,6 +769,7 @@ gptme-util<span class="w"> </span>mcp<span class="w"> </span>info<span class="w"
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-mcp-servers">Running MCP Servers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-mcp-servers">Managing MCP Servers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-as-an-mcp-server">gptme as an MCP Server</a></li>
 </ul>
   </nav></div>
 
