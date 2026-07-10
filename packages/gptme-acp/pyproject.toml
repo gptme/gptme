@@ -1,0 +1,29 @@
+[project]
+name = "gptme-acp"
+version = "0.31.0"
+description = "ACP (Agent Client Protocol) entry point for gptme — lets editors like Zed and JetBrains launch gptme via uvx"
+authors = [
+    { name = "Erik Bjäreholt", email = "erik@bjareho.lt" },
+]
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = ["gptme[acp]>=0.31.0"]
+
+[project.urls]
+Homepage = "https://gptme.org/"
+Repository = "https://github.com/gptme/gptme"
+Documentation = "https://gptme.org/docs/acp.html"
+Issues = "https://github.com/gptme/gptme/issues"
+
+[project.scripts]
+gptme-acp = "gptme.acp.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# No Python source files — the package is purely an entry-point shim.
+# All logic lives in `gptme[acp]` which is a declared dependency.
+packages = []
