@@ -167,9 +167,6 @@ def synthesize_speech():
     config = get_config()
     api_key = config.get_env("OPENROUTER_API_KEY")
 
-    if not api_key:
-        return _synthesize_kokoro(text)
-
     model, error = _optional_string(data, "model", DEFAULT_MODEL)
     if error is not None:
         return error
@@ -178,6 +175,9 @@ def synthesize_speech():
     if error is not None:
         return error
     assert voice is not None
+
+    if not api_key:
+        return _synthesize_kokoro(text)
 
     payload: dict[str, Any] = {
         "model": model,
