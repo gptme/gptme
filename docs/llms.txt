@@ -18,6 +18,7 @@
 - [How to Automate Tasks](https://gptme.org/docs/_sources/howto/automate-task.md)
 - [How to Refactor Code](https://gptme.org/docs/_sources/howto/refactor.md)
 - [How to Automate GUIs with Computer Use](https://gptme.org/docs/_sources/howto/computer-use.md)
+- [Set Up Text-to-Speech](https://gptme.org/docs/_sources/howto/tts-setup.md)
 - [Tools](https://gptme.org/docs/_sources/tools.rst)
 - [Commands](https://gptme.org/docs/_sources/commands.rst)
 - [CLI Reference](https://gptme.org/docs/_sources/cli.rst)
