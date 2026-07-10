@@ -3528,3 +3528,69 @@ def test_batch_job_wait_any_already_done():
     assert first_id == "x"
     assert result["status"] == "success"
     assert result["result"] == "cached result"
+
+
+# ── output_schema dict support ─────────────────────────────────────────────────
+
+
+def test_dict_to_jsonschema_plain_type_mapping():
+    """_dict_to_jsonschema converts {field: type} to a JSON Schema object."""
+    from gptme.tools.subagent.hooks import _dict_to_jsonschema
+
+    schema = _dict_to_jsonschema({"score": int, "summary": str, "ratio": float})
+    assert schema["type"] == "object"
+    assert schema["properties"]["score"] == {"type": "integer"}
+    assert schema["properties"]["summary"] == {"type": "string"}
+    assert schema["properties"]["ratio"] == {"type": "number"}
+    assert set(schema["required"]) == {"score", "summary", "ratio"}
+
+
+def test_dict_to_jsonschema_passthrough_for_raw_schema():
+    """_dict_to_jsonschema leaves an existing JSON Schema dict unchanged."""
+    from gptme.tools.subagent.hooks import _dict_to_jsonschema
+
+    raw = {"type": "object", "properties": {"x": {"type": "integer"}}}
+    assert _dict_to_jsonschema(raw) is raw
+
+
+def test_get_complete_instruction_dict_schema_hint():
+    """When output_schema is a plain dict, the instruction contains the field names."""
+    from gptme.tools.subagent.hooks import _get_complete_instruction
+
+    instruction = _get_complete_instruction(
+        output_schema={"score": int, "summary": str}
+    )
+    assert '"score"' in instruction
+    assert '"summary"' in instruction
+    assert '"integer"' in instruction
+    assert '"string"' in instruction
+    # Should NOT fall back to the generic/uninformative hint
+    assert '{"type": "object"}' not in instruction
+
+
+def test_get_complete_instruction_no_schema_unchanged():
+    """Without output_schema the instruction uses the default 'Your complete answer here.'."""
+    from gptme.tools.subagent.hooks import _get_complete_instruction
+
+    instruction = _get_complete_instruction()
+    assert "Your complete answer here." in instruction
+    assert "JSON" not in instruction
+
+
+def test_output_schema_dict_stored_on_subagent():
+    """subagent() accepts a plain-dict output_schema and stores it on the Subagent object."""
+    from unittest.mock import patch
+
+    initial_count = len(_subagents)
+    with patch("gptme.tools.subagent.execution._create_subagent_thread") as mock_thread:
+        mock_thread.return_value = MagicMock()
+        subagent(
+            agent_id="schema-test",
+            prompt="Return JSON",
+            output_schema={"score": int, "label": str},
+        )
+
+    new_agents = _subagents[initial_count:]
+    assert new_agents, "Subagent should have been registered"
+    sa = next(a for a in new_agents if a.agent_id == "schema-test")
+    assert sa.output_schema == {"score": int, "label": str}

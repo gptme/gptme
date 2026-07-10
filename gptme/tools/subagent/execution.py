@@ -150,7 +150,7 @@ def _create_subagent_thread(
     context_include: list[str] | None,
     workspace: Path,
     target: str = "parent",
-    output_schema: type | None = None,
+    output_schema: "type | dict | None" = None,
     profile_name: str | None = None,
     agent_id: str | None = None,
     redact_secrets: bool = True,

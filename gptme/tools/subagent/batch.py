@@ -39,7 +39,7 @@ def _strip_log_suffix(text: str) -> str:
     return text
 
 
-def _parse_result(result_dict: dict, output_schema: type | None) -> dict:
+def _parse_result(result_dict: dict, output_schema: "type | dict | None") -> dict:
     """Parse a subagent result dict against an output_schema if provided.
 
     When output_schema is set and the result is a success with a JSON string,
@@ -96,7 +96,7 @@ class BatchJob:
 
     agent_ids: list[str]
     results: dict[str, ReturnType] = field(default_factory=dict)
-    output_schema: type | None = field(default=None)
+    output_schema: "type | dict | None" = field(default=None)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def wait_all(self, timeout: int = 300) -> dict[str, dict]:
@@ -342,7 +342,7 @@ def subagent_batch(
     model: str | None = None,
     profile: str | None = None,
     isolated: bool = False,
-    output_schema: type | None = None,
+    output_schema: "type | dict | None" = None,
     workdir: str | Path | None = None,
     context_turns: int | None = None,
     context_window: int | None = None,
@@ -438,7 +438,7 @@ def subagent_parallel(
     model: str | None = None,
     profile: str | None = None,
     isolated: bool = False,
-    output_schema: type | None = None,
+    output_schema: "type | dict | None" = None,
     workdir: str | Path | None = None,
     context_turns: int | None = None,
     context_window: int | None = None,
@@ -591,7 +591,7 @@ def subagent_pipeline(
     model: str | None = None,
     profile: str | None = None,
     isolated: bool = False,
-    output_schema: type | None = None,
+    output_schema: "type | dict | None" = None,
     workdir: str | Path | None = None,
     context_turns: int | None = None,
     context_window: int | None = None,

@@ -60,7 +60,7 @@ def subagent(
     execution_mode: Literal["parallel", "sequential"] = "parallel",
     context_mode: Literal["full", "selective"] = "full",
     context_include: list[str] | None = None,
-    output_schema: type | None = None,
+    output_schema: "type | dict | None" = None,
     use_subprocess: bool | None = None,
     use_acp: bool = False,
     acp_command: str = "gptme-acp",
