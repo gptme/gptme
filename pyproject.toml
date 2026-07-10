@@ -335,6 +335,14 @@ module = "sounddevice.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "kokoro_onnx"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "soundfile"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "cua_sandbox"
 ignore_missing_imports = true
 
