@@ -26,7 +26,7 @@ def test_resolve_plan_gear_limits_to_file_tools():
 
     assert resolution.name == "Plan"
     assert resolution.profile_name is None
-    assert resolution.tool_allowlist == ("read", "patch", "save", "append", "ipython")
+    assert resolution.tool_allowlist == ("read", "patch", "save", "append")
     assert resolution.no_confirm is False
 
 

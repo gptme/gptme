@@ -29,7 +29,7 @@ GEAR_PROFILE: dict[int, str | None] = {
 GEAR_TOOLS: dict[int, tuple[str, ...] | None] = {
     0: ("read", "chats"),
     1: None,
-    2: ("read", "patch", "save", "append", "ipython"),
+    2: ("read", "patch", "save", "append"),
     3: None,
     4: None,
 }
