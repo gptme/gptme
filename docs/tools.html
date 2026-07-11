@@ -28,7 +28,7 @@
 <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
 <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
 
-    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=a746c00c" />
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="_static/styles/sphinx-book-theme.css?v=eba8b062" />
     <link rel="stylesheet" type="text/css" href="_static/asciinema-player_3.12.1.css" />
     <link rel="stylesheet" type="text/css" href="_static/custom.css?v=3a28e17f" />
@@ -2054,7 +2054,7 @@ result is automatically parsed.</p>
 <span class="n">first_id</span><span class="p">,</span> <span class="n">result</span> <span class="o">=</span> <span class="n">job</span><span class="o">.</span><span class="n">wait_any</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">first_id</span><span class="si">}</span><span class="s2"> finished first: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;status&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 <span class="c1"># Cancel the remaining agent</span>
-<span class="kn">from</span> <span class="nn">gptme.tools.subagent</span> <span class="kn">import</span> <span class="n">subagent_cancel</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.subagent</span><span class="w"> </span><span class="kn">import</span> <span class="n">subagent_cancel</span>
 <span class="k">for</span> <span class="n">aid</span> <span class="ow">in</span> <span class="n">job</span><span class="o">.</span><span class="n">agent_ids</span><span class="p">:</span>
     <span class="k">if</span> <span class="n">aid</span> <span class="o">!=</span> <span class="n">first_id</span><span class="p">:</span>
         <span class="n">subagent_cancel</span><span class="p">(</span><span class="n">aid</span><span class="p">)</span>
@@ -2484,9 +2484,9 @@ summary text from the subagent’s <code class="docutils literal notranslate"><s
 <span class="p">)</span>
 
 <span class="c1"># With structured output (Pydantic model)</span>
-<span class="kn">from</span> <span class="nn">pydantic</span> <span class="kn">import</span> <span class="n">BaseModel</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span>
 
-<span class="k">class</span> <span class="nc">AnalysisResult</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AnalysisResult</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
     <span class="n">summary</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">score</span><span class="p">:</span> <span class="nb">int</span>
     <span class="n">issues</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
@@ -2842,9 +2842,9 @@ agent completes within <code class="docutils literal notranslate"><span class="p
 is instructed to return valid JSON matching the schema inside its <code class="docutils literal notranslate"><span class="pre">complete</span></code>
 block. Results are automatically parsed and validated — the <code class="docutils literal notranslate"><span class="pre">&quot;result&quot;</span></code> value
 in each result dict is the parsed/validated object rather than a raw string:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pydantic</span> <span class="kn">import</span> <span class="n">BaseModel</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span>
 
-<span class="k">class</span> <span class="nc">AnalysisResult</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AnalysisResult</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
     <span class="n">summary</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">score</span><span class="p">:</span> <span class="nb">int</span>
     <span class="n">issues</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
@@ -4945,11 +4945,11 @@ background, but callers immediately see the terminal timeout result.</p>
 <span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;result&quot;</span><span class="p">])</span>
 
 <span class="c1"># Audit what the subagent actually did (computer-use actions only)</span>
-<span class="kn">import</span> <span class="nn">subprocess</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
 <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">([</span><span class="s2">&quot;gptme-util&quot;</span><span class="p">,</span> <span class="s2">&quot;computer&quot;</span><span class="p">,</span> <span class="s2">&quot;audit-log&quot;</span><span class="p">,</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;conversation&quot;</span><span class="p">]])</span>
 
 <span class="c1"># Read the full step-by-step transcript</span>
-<span class="kn">from</span> <span class="nn">gptme.tools.subagent</span> <span class="kn">import</span> <span class="n">subagent_read_log</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.subagent</span><span class="w"> </span><span class="kn">import</span> <span class="n">subagent_read_log</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">subagent_read_log</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;agent_id&quot;</span><span class="p">]))</span>
 </pre></div>
 </div>

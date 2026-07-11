@@ -28,7 +28,7 @@
 <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
 <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
 
-    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=a746c00c" />
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="_static/styles/sphinx-book-theme.css?v=eba8b062" />
     <link rel="stylesheet" type="text/css" href="_static/asciinema-player_3.12.1.css" />
     <link rel="stylesheet" type="text/css" href="_static/custom.css?v=3a28e17f" />
@@ -603,11 +603,11 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <section id="registering-hooks-from-tools">
 <h3>Registering Hooks from Tools<a class="headerlink" href="#registering-hooks-from-tools" title="Link to this heading">#</a></h3>
 <p>Tools can register hooks in their <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> definition:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
-<span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span>
-<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookType</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
-<span class="k">def</span> <span class="nf">on_file_save</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">content</span><span class="p">,</span> <span class="n">created</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">on_file_save</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">content</span><span class="p">,</span> <span class="n">created</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Hook function called after a file is saved.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">suffix</span> <span class="o">==</span> <span class="s2">&quot;.py&quot;</span><span class="p">:</span>
         <span class="c1"># Run linting on Python files</span>
@@ -631,10 +631,10 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <section id="registering-hooks-programmatically">
 <h3>Registering Hooks Programmatically<a class="headerlink" href="#registering-hooks-programmatically" title="Link to this heading">#</a></h3>
 <p>You can also register hooks directly:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">register_hook</span><span class="p">,</span> <span class="n">HookType</span>
-<span class="kn">from</span> <span class="nn">gptme.hooks.confirm</span> <span class="kn">import</span> <span class="n">ConfirmationResult</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_hook</span><span class="p">,</span> <span class="n">HookType</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks.confirm</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfirmationResult</span>
 
-<span class="k">def</span> <span class="nf">my_hook_function</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">my_hook_function</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom hook function.&quot;&quot;&quot;</span>
     <span class="c1"># Do something</span>
     <span class="k">return</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Hook executed!&quot;</span><span class="p">)</span>
@@ -653,23 +653,23 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <h3>Hook Function Signatures<a class="headerlink" href="#hook-function-signatures" title="Link to this heading">#</a></h3>
 <p>Hook functions receive different arguments depending on the hook type:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Turn/step hooks</span>
-<span class="k">def</span> <span class="nf">turn_hook</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">turn_hook</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
     <span class="k">pass</span>
 
 <span class="c1"># Tool hooks</span>
-<span class="k">def</span> <span class="nf">tool_hook</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">tool_hook</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
     <span class="k">pass</span>
 
 <span class="c1"># File hooks</span>
-<span class="k">def</span> <span class="nf">file_hook</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">content</span><span class="p">,</span> <span class="n">created</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">file_hook</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">content</span><span class="p">,</span> <span class="n">created</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
     <span class="k">pass</span>
 
 <span class="c1"># Session hooks</span>
-<span class="k">def</span> <span class="nf">session_hook</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">session_hook</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
     <span class="k">pass</span>
 
 <span class="c1"># Confirmation hooks</span>
-<span class="k">def</span> <span class="nf">confirm_hook</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="n">preview</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workspace</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">confirm_hook</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="n">preview</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workspace</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">confirm</span><span class="p">()</span>
 </pre></div>
 </div>
@@ -686,7 +686,7 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <h2>Managing Hooks<a class="headerlink" href="#managing-hooks" title="Link to this heading">#</a></h2>
 <section id="query-hooks">
 <h3>Query Hooks<a class="headerlink" href="#query-hooks" title="Link to this heading">#</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">get_hooks</span><span class="p">,</span> <span class="n">HookType</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_hooks</span><span class="p">,</span> <span class="n">HookType</span>
 
 <span class="c1"># Get all hooks</span>
 <span class="n">all_hooks</span> <span class="o">=</span> <span class="n">get_hooks</span><span class="p">()</span>
@@ -698,7 +698,7 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 </section>
 <section id="enable-disable-hooks">
 <h3>Enable/Disable Hooks<a class="headerlink" href="#enable-disable-hooks" title="Link to this heading">#</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">enable_hook</span><span class="p">,</span> <span class="n">disable_hook</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">enable_hook</span><span class="p">,</span> <span class="n">disable_hook</span>
 
 <span class="c1"># Disable a hook</span>
 <span class="n">disable_hook</span><span class="p">(</span><span class="s2">&quot;linter.file_save&quot;</span><span class="p">)</span>
@@ -710,7 +710,7 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 </section>
 <section id="unregister-hooks">
 <h3>Unregister Hooks<a class="headerlink" href="#unregister-hooks" title="Link to this heading">#</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">unregister_hook</span><span class="p">,</span> <span class="n">HookType</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">unregister_hook</span><span class="p">,</span> <span class="n">HookType</span>
 
 <span class="c1"># Unregister from specific type</span>
 <span class="n">unregister_hook</span><span class="p">(</span><span class="s2">&quot;my_hook&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_SAVE_POST</span><span class="p">)</span>
@@ -726,13 +726,13 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <section id="pre-commit-hook">
 <h3>Pre-commit Hook<a class="headerlink" href="#pre-commit-hook" title="Link to this heading">#</a></h3>
 <p>Automatically run pre-commit checks after files are saved:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
-<span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span>
-<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
-<span class="kn">import</span> <span class="nn">subprocess</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookType</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
 
-<span class="k">def</span> <span class="nf">run_precommit</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">created</span><span class="p">:</span> <span class="nb">bool</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">run_precommit</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">created</span><span class="p">:</span> <span class="nb">bool</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Run pre-commit on saved file.&quot;&quot;&quot;</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
@@ -765,7 +765,7 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <section id="memory-context-hook">
 <h3>Memory/Context Hook<a class="headerlink" href="#memory-context-hook" title="Link to this heading">#</a></h3>
 <p>Automatically add context at session start:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">add_context</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">add_context</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Add relevant context at session start.&quot;&quot;&quot;</span>
     <span class="n">context</span> <span class="o">=</span> <span class="n">load_relevant_context</span><span class="p">(</span><span class="n">workspace</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">context</span><span class="p">:</span>
@@ -788,12 +788,12 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <section id="linting-hook">
 <h3>Linting Hook<a class="headerlink" href="#linting-hook" title="Link to this heading">#</a></h3>
 <p>Automatically lint files after saving:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">lint_file</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">created</span><span class="p">:</span> <span class="nb">bool</span><span class="p">):</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">lint_file</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">created</span><span class="p">:</span> <span class="nb">bool</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Lint Python files.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">suffix</span> <span class="o">!=</span> <span class="s2">&quot;.py&quot;</span><span class="p">:</span>
         <span class="k">return</span>
 
-    <span class="kn">import</span> <span class="nn">subprocess</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
     <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
         <span class="p">[</span><span class="s2">&quot;ruff&quot;</span><span class="p">,</span> <span class="s2">&quot;check&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)],</span>
         <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
@@ -898,7 +898,7 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 </div>
 <p><strong>After</strong> (as a hook):</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># In a tool</span>
-<span class="k">def</span> <span class="nf">precommit_hook</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">precommit_hook</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">):</span>
     <span class="k">if</span> <span class="n">check_for_modifications</span><span class="p">(</span><span class="n">log</span><span class="p">):</span>
         <span class="n">run_precommit_checks</span><span class="p">()</span>
 

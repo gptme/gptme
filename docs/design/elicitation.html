@@ -28,7 +28,7 @@
 <link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
 <link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
 
-    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=a746c00c" />
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/sphinx-book-theme.css?v=eba8b062" />
     <link rel="stylesheet" type="text/css" href="../_static/asciinema-player_3.12.1.css" />
     <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=3a28e17f" />
@@ -655,7 +655,7 @@ handled in <code class="docutils literal notranslate"><span class="pre">gptme/mc
 <section id="request-types">
 <h3>Request Types<a class="headerlink" href="#request-types" title="Link to this heading">#</a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@dataclass</span>
-<span class="k">class</span> <span class="nc">ElicitationRequest</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ElicitationRequest</span><span class="p">:</span>
     <span class="nb">type</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;choice&quot;</span><span class="p">,</span> <span class="s2">&quot;multi_choice&quot;</span><span class="p">,</span> <span class="s2">&quot;secret&quot;</span><span class="p">,</span> <span class="s2">&quot;confirmation&quot;</span><span class="p">,</span> <span class="s2">&quot;form&quot;</span><span class="p">]</span>
     <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">options</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>    <span class="c1"># for choice/multi_choice</span>
@@ -669,7 +669,7 @@ handled in <code class="docutils literal notranslate"><span class="pre">gptme/mc
 <section id="response">
 <h3>Response<a class="headerlink" href="#response" title="Link to this heading">#</a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@dataclass</span>
-<span class="k">class</span> <span class="nc">ElicitationResponse</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ElicitationResponse</span><span class="p">:</span>
     <span class="n">value</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>       <span class="c1"># for text/secret/confirmation/form(JSON)</span>
     <span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># for multi_choice</span>
     <span class="n">cancelled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
@@ -783,7 +783,7 @@ value. The agent receives the secret via the response and must handle it explici
 </ol>
 <p>This follows the same pattern as <code class="docutils literal notranslate"><span class="pre">server_confirm.py</span></code> for tool confirmations.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Planned server_elicit.py</span>
-<span class="k">def</span> <span class="nf">server_elicit_hook</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">ElicitationRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ElicitationResponse</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">server_elicit_hook</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">ElicitationRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ElicitationResponse</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
     <span class="n">session_id</span> <span class="o">=</span> <span class="n">current_session_id</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">session_id</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># Fall through to CLI or cancel</span>

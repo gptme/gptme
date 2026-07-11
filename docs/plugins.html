@@ -28,7 +28,7 @@
 <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
 <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
 
-    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=a746c00c" />
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="_static/styles/sphinx-book-theme.css?v=eba8b062" />
     <link rel="stylesheet" type="text/css" href="_static/asciinema-player_3.12.1.css" />
     <link rel="stylesheet" type="text/css" href="_static/custom.css?v=3a28e17f" />
@@ -648,9 +648,9 @@ touch<span class="w"> </span>~/.config/gptme/plugins/my_plugin/tools/__init__.py
 <section id="create-a-tool-module">
 <h3>2. Create a Tool Module<a class="headerlink" href="#create-a-tool-module" title="Link to this heading">#</a></h3>
 <p><strong>my_plugin/tools/hello.py:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span>
 
-<span class="k">def</span> <span class="nf">hello_world</span><span class="p">():</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">hello_world</span><span class="p">():</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Say hello to the world.&quot;&quot;&quot;</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Hello from my plugin!&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="s2">&quot;Hello, World!&quot;</span>
@@ -709,7 +709,7 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <h3>Option 1: tools/ as a Package<a class="headerlink" href="#option-1-tools-as-a-package" title="Link to this heading">#</a></h3>
 <p>Create <code class="docutils literal notranslate"><span class="pre">tools/__init__.py</span></code> and gptme will import <code class="docutils literal notranslate"><span class="pre">my_plugin.tools</span></code> as a package:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_plugin/tools/__init__.py</span>
-<span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span>
 
 <span class="n">tool1</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
 <span class="n">tool2</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
@@ -734,14 +734,14 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <h3>Option 1: hooks/ as a Package<a class="headerlink" href="#option-1-hooks-as-a-package" title="Link to this heading">#</a></h3>
 <p>Create <code class="docutils literal notranslate"><span class="pre">hooks/__init__.py</span></code> and define a <code class="docutils literal notranslate"><span class="pre">register()</span></code> function:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_plugin/hooks/__init__.py</span>
-<span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
-<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
-<span class="k">def</span> <span class="nf">my_session_hook</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">my_session_hook</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Hook called at session start.&quot;&quot;&quot;</span>
     <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Plugin initialized in workspace: </span><span class="si">{</span><span class="n">workspace</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
-<span class="k">def</span> <span class="nf">register</span><span class="p">():</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Register all hooks from this module.&quot;&quot;&quot;</span>
     <span class="n">register_hook</span><span class="p">(</span>
         <span class="s2">&quot;my_plugin.session_start&quot;</span><span class="p">,</span>
@@ -756,15 +756,15 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <h3>Option 2: Individual Hook Files<a class="headerlink" href="#option-2-individual-hook-files" title="Link to this heading">#</a></h3>
 <p>Create individual hook modules without <code class="docutils literal notranslate"><span class="pre">hooks/__init__.py</span></code>:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_plugin/hooks/logging_hook.py</span>
-<span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
-<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
-<span class="k">def</span> <span class="nf">log_tool_execution</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">log_tool_execution</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Log tool executions.&quot;&quot;&quot;</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Executing tool: </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="k">yield</span>  <span class="c1"># Hooks must be generators</span>
 
-<span class="k">def</span> <span class="nf">register</span><span class="p">():</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Register hooks from this module.&quot;&quot;&quot;</span>
     <span class="n">register_hook</span><span class="p">(</span>
         <span class="s2">&quot;my_plugin.log_tool&quot;</span><span class="p">,</span>
@@ -802,16 +802,16 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <h3>Option 1: commands/ as a Package<a class="headerlink" href="#option-1-commands-as-a-package" title="Link to this heading">#</a></h3>
 <p>Create <code class="docutils literal notranslate"><span class="pre">commands/__init__.py</span></code> and define a <code class="docutils literal notranslate"><span class="pre">register()</span></code> function:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_plugin/commands/__init__.py</span>
-<span class="kn">from</span> <span class="nn">gptme.commands</span> <span class="kn">import</span> <span class="n">register_command</span><span class="p">,</span> <span class="n">CommandContext</span>
-<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.commands</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_command</span><span class="p">,</span> <span class="n">CommandContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
-<span class="k">def</span> <span class="nf">weather_handler</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">weather_handler</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle the /weather command.&quot;&quot;&quot;</span>
     <span class="n">location</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">full_args</span> <span class="ow">or</span> <span class="s2">&quot;Stockholm&quot;</span>
     <span class="c1"># Your weather logic here</span>
     <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Weather in </span><span class="si">{</span><span class="n">location</span><span class="si">}</span><span class="s2">: Sunny, 20°C&quot;</span><span class="p">)</span>
 
-<span class="k">def</span> <span class="nf">register</span><span class="p">():</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Register all commands from this module.&quot;&quot;&quot;</span>
     <span class="n">register_command</span><span class="p">(</span><span class="s2">&quot;weather&quot;</span><span class="p">,</span> <span class="n">weather_handler</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;w&quot;</span><span class="p">])</span>
 </pre></div>
@@ -821,19 +821,19 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <h3>Option 2: Individual Command Files<a class="headerlink" href="#option-2-individual-command-files" title="Link to this heading">#</a></h3>
 <p>Create individual command modules without <code class="docutils literal notranslate"><span class="pre">commands/__init__.py</span></code>:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_plugin/commands/joke.py</span>
-<span class="kn">from</span> <span class="nn">gptme.commands</span> <span class="kn">import</span> <span class="n">register_command</span><span class="p">,</span> <span class="n">CommandContext</span>
-<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.commands</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_command</span><span class="p">,</span> <span class="n">CommandContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
-<span class="k">def</span> <span class="nf">joke_handler</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">joke_handler</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Tell a random joke.&quot;&quot;&quot;</span>
     <span class="n">jokes</span> <span class="o">=</span> <span class="p">[</span>
         <span class="s2">&quot;Why did the AI cross the road? To optimize the other side!&quot;</span><span class="p">,</span>
         <span class="s2">&quot;What&#39;s an AI&#39;s favorite snack? Microchips!&quot;</span><span class="p">,</span>
     <span class="p">]</span>
-    <span class="kn">import</span> <span class="nn">random</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
     <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">jokes</span><span class="p">))</span>
 
-<span class="k">def</span> <span class="nf">register</span><span class="p">():</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Register command.&quot;&quot;&quot;</span>
     <span class="n">register_command</span><span class="p">(</span><span class="s2">&quot;joke&quot;</span><span class="p">,</span> <span class="n">joke_handler</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;j&quot;</span><span class="p">])</span>
 </pre></div>
@@ -872,22 +872,22 @@ Why<span class="w"> </span>did<span class="w"> </span>the<span class="w"> </span
 <h2>Example: Logging Plugin<a class="headerlink" href="#example-logging-plugin" title="Link to this heading">#</a></h2>
 <p>A complete example of a plugin that logs tool executions:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_logging_plugin/hooks/tool_logger.py</span>
-<span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
-<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 
-<span class="k">def</span> <span class="nf">log_tool_pre</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">log_tool_pre</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Log before tool execution.&quot;&quot;&quot;</span>
     <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Executing tool: </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2"> with args: </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">args</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="k">yield</span>  <span class="c1"># Hooks must be generators</span>
 
-<span class="k">def</span> <span class="nf">log_tool_post</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">,</span> <span class="n">result</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">log_tool_post</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">,</span> <span class="n">result</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Log after tool execution.&quot;&quot;&quot;</span>
     <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Tool </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2"> completed&quot;</span><span class="p">)</span>
     <span class="k">yield</span>
 
-<span class="k">def</span> <span class="nf">register</span><span class="p">():</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
     <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;tool_logger.pre&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_PRE_EXECUTE</span><span class="p">,</span> <span class="n">log_tool_pre</span><span class="p">)</span>
     <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;tool_logger.post&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_POST_EXECUTE</span><span class="p">,</span> <span class="n">log_tool_post</span><span class="p">)</span>
 </pre></div>
@@ -897,10 +897,10 @@ Why<span class="w"> </span>did<span class="w"> </span>the<span class="w"> </span
 <h2>Example: Weather Plugin<a class="headerlink" href="#example-weather-plugin" title="Link to this heading">#</a></h2>
 <p>A complete example of a weather information plugin:</p>
 <p><strong>my_weather/tools/weather.py:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span><span class="p">,</span> <span class="n">ToolUse</span>
-<span class="kn">import</span> <span class="nn">requests</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span><span class="p">,</span> <span class="n">ToolUse</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">requests</span>
 
-<span class="k">def</span> <span class="nf">get_weather</span><span class="p">(</span><span class="n">location</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_weather</span><span class="p">(</span><span class="n">location</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get weather for a location.&quot;&quot;&quot;</span>
     <span class="c1"># Implementation</span>
     <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Weather in </span><span class="si">{</span><span class="n">location</span><span class="si">}</span><span class="s2">: Sunny, 72°F&quot;</span>
@@ -952,7 +952,7 @@ Weather<span class="w"> </span><span class="k">in</span><span class="w"> </span>
 <p>For <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code>-able packages, gptme supports a unified plugin interface via Python entry points. A single <code class="docutils literal notranslate"><span class="pre">GptmePlugin</span></code> dataclass lets a package expose <strong>any combination</strong> of tools, hooks, commands, and LLM providers — no folder structure required.</p>
 <p>This is the recommended approach for published packages. It uses the same mechanism as pytest plugins, setuptools console_scripts, etc.</p>
 <p class="rubric">GptmePlugin Dataclass</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.plugins.plugin</span> <span class="kn">import</span> <span class="n">GptmePlugin</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.plugins.plugin</span><span class="w"> </span><span class="kn">import</span> <span class="n">GptmePlugin</span>
 
 <span class="n">GptmePlugin</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_plugin&quot;</span><span class="p">,</span>           <span class="c1"># Unique plugin name</span>
@@ -971,10 +971,10 @@ Weather<span class="w"> </span><span class="k">in</span><span class="w"> </span>
 <li><p>Create a Python package with a <code class="docutils literal notranslate"><span class="pre">GptmePlugin</span></code> instance:</p></li>
 </ol>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># src/my_gptme_plugin/__init__.py</span>
-<span class="kn">from</span> <span class="nn">gptme.plugins.plugin</span> <span class="kn">import</span> <span class="n">GptmePlugin</span>
-<span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.plugins.plugin</span><span class="w"> </span><span class="kn">import</span> <span class="n">GptmePlugin</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span>
 
-<span class="k">def</span> <span class="nf">greet</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;World&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">greet</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;World&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Greet someone.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Hello, </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">!&quot;</span>
 
@@ -1013,12 +1013,12 @@ gptme<span class="w"> </span><span class="s2">&quot;use the greet tool to say he
 <p class="rubric">Full-Featured Plugin Example</p>
 <p>A plugin that provides a tool, a hook, a command, and an LLM provider:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># src/my_full_plugin/__init__.py</span>
-<span class="kn">from</span> <span class="nn">gptme.plugins.plugin</span> <span class="kn">import</span> <span class="n">GptmePlugin</span>
-<span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
-<span class="kn">from</span> <span class="nn">gptme.llm.models</span> <span class="kn">import</span> <span class="n">ModelMeta</span><span class="p">,</span> <span class="n">ProviderPlugin</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.plugins.plugin</span><span class="w"> </span><span class="kn">import</span> <span class="n">GptmePlugin</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelMeta</span><span class="p">,</span> <span class="n">ProviderPlugin</span>
 
 <span class="c1"># Tool</span>
-<span class="k">def</span> <span class="nf">lookup</span><span class="p">(</span><span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">lookup</span><span class="p">(</span><span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Look up information.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Result for: </span><span class="si">{</span><span class="n">query</span><span class="si">}</span><span class="s2">&quot;</span>
 
@@ -1030,21 +1030,21 @@ gptme<span class="w"> </span><span class="s2">&quot;use the greet tool to say he
 <span class="p">)</span>
 
 <span class="c1"># Hook registration</span>
-<span class="k">def</span> <span class="nf">_register_hooks</span><span class="p">():</span>
-    <span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
-    <span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_register_hooks</span><span class="p">():</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
-    <span class="k">def</span> <span class="nf">on_session_start</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">on_session_start</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
         <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;My plugin initialized!&quot;</span><span class="p">)</span>
 
     <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;my_plugin.start&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">SESSION_START</span><span class="p">,</span> <span class="n">on_session_start</span><span class="p">)</span>
 
 <span class="c1"># Command registration</span>
-<span class="k">def</span> <span class="nf">_register_commands</span><span class="p">():</span>
-    <span class="kn">from</span> <span class="nn">gptme.commands</span> <span class="kn">import</span> <span class="n">register_command</span><span class="p">,</span> <span class="n">CommandContext</span>
-    <span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_register_commands</span><span class="p">():</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.commands</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_command</span><span class="p">,</span> <span class="n">CommandContext</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
-    <span class="k">def</span> <span class="nf">status_handler</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">status_handler</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
         <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;My plugin is running!&quot;</span><span class="p">)</span>
 
     <span class="n">register_command</span><span class="p">(</span><span class="s2">&quot;my-status&quot;</span><span class="p">,</span> <span class="n">status_handler</span><span class="p">)</span>
@@ -1058,7 +1058,7 @@ gptme<span class="w"> </span><span class="s2">&quot;use the greet tool to say he
 <span class="p">)</span>
 
 <span class="c1"># Plugin initialization (optional)</span>
-<span class="k">def</span> <span class="nf">_init</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_init</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Called once at startup with the full gptme Config.&quot;&quot;&quot;</span>
     <span class="c1"># Access plugin-specific config via:</span>
     <span class="c1">#   config.user.plugin.get(&quot;my_full_plugin&quot;, {})</span>
