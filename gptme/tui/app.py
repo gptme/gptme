@@ -69,7 +69,7 @@ class UserMessage(Vertical):
     def compose(self) -> ComposeResult:
         label = "User (queued)" if "queued" in self.classes else "User"
         yield Static(Text(label), classes="role")
-        yield Static(Text(self.content))
+        yield Markdown(self.content)
 
 
 class AssistantMessage(Vertical):
@@ -283,6 +283,18 @@ class GptmeApp(App):
         padding: 0;
         background: transparent;
     }
+    /* compact markdown: the widget defaults add blank lines around
+       codeblocks (MarkdownFence margin 1 0) and after the last block */
+    .message Markdown {
+        padding: 0;
+        background: transparent;
+    }
+    .message MarkdownFence {
+        margin: 0;
+    }
+    .message MarkdownBlock:last-child {
+        margin-bottom: 0;
+    }
     .info {
         color: $text-muted;
         margin: 1 0 0 1;
@@ -295,7 +307,7 @@ class GptmeApp(App):
         height: auto;
     }
     #input {
-        margin: 0 1;
+        margin: 1 1 0 1;
     }
     #status {
         height: 1;
