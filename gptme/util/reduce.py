@@ -387,9 +387,28 @@ def proactive_summarize_log(
         return log
 
     # Separate pinned messages from the middle block — they must never be compressed.
-    # They are placed between the summary and the recent tail so their content survives.
-    pinned_middle = [m for m in middle if m.pinned]
-    summarize_middle = [m for m in middle if not m.pinned]
+    # When a pinned assistant message contains a tool use, its immediately following
+    # system message is the tool result and must be preserved with it — otherwise the
+    # result log contains a tool-use without its matching result, which provider APIs
+    # reject.  We therefore walk the middle list and pull the paired result alongside
+    # any pinned tool-use message.
+    pinned_middle: list[Message] = []
+    summarize_middle: list[Message] = []
+    i = 0
+    while i < len(middle):
+        m = middle[i]
+        if m.pinned:
+            pinned_middle.append(m)
+            if (
+                message_contains_tool_use(m)
+                and i + 1 < len(middle)
+                and middle[i + 1].role == "system"
+            ):
+                i += 1
+                pinned_middle.append(middle[i])
+        else:
+            summarize_middle.append(m)
+        i += 1
     if not summarize_middle:
         return log
 
