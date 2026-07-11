@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import importlib
 import json
 import logging
@@ -9,13 +11,11 @@ from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, cast
 
 import requests
-from openai import NOT_GIVEN, NotGiven
 
 from ..config import Config, get_config
 from ..constants import OPENAI_VERBOSITY, TEMPERATURE, TOP_P
 from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import _calculate_llm_cost, record_llm_request
-from ..tools import ToolSpec
 from .constants import _MIN_RESPONSE_TOKENS, OPENROUTER_APP_HEADERS
 from .models import (
     CustomProvider,
@@ -45,12 +45,61 @@ from .utils import (
 
 if TYPE_CHECKING:
     # noreorder
-    from openai import OpenAI  # fmt: skip
+    from openai import NotGiven, OpenAI  # fmt: skip
     from openai.types.chat import ChatCompletionToolParam  # fmt: skip
+
+    from ..tools import ToolSpec  # fmt: skip
+
+
+class _UnsetTimeout:
+    """Sentinel for "no explicit timeout", without importing the openai SDK.
+
+    Translated to ``openai.NOT_GIVEN`` when the real client is constructed.
+    """
+
+
+_UNSET_TIMEOUT = _UnsetTimeout()
+
+
+class _LazyClient:
+    """Records client parameters; constructs the real SDK client on first use.
+
+    Importing the openai SDK takes ~1s. ``init()`` runs at startup for every
+    session to fail fast on missing keys, but command-only invocations (e.g.
+    ``gptme '/exit'``) never make an LLM call — deferring construction to the
+    first attribute access keeps the SDK import off the startup path.
+    """
+
+    def __init__(self, cls_name: str, kwargs: dict[str, Any]):
+        self._cls_name = cls_name
+        self._kwargs = kwargs
+        self._client: Any = None
+
+    def _materialize(self) -> Any:
+        if self._client is None:
+            import openai
+
+            kwargs = dict(self._kwargs)
+            if isinstance(kwargs.get("timeout"), _UnsetTimeout):
+                kwargs["timeout"] = openai.NOT_GIVEN
+            self._client = getattr(openai, self._cls_name)(**kwargs)
+        return self._client
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._materialize(), name)
+
+
+def _lazy_client_factory(cls_name: str):
+    """Return an ``OpenAI``/``AzureOpenAI``-like constructor that defers SDK import."""
+
+    def factory(**kwargs: Any) -> OpenAI:
+        return cast("OpenAI", _LazyClient(cls_name, kwargs))
+
+    return factory
 
 
 # Dictionary to store clients for each provider (includes custom providers)
-clients: dict[Provider, "OpenAI"] = {}
+clients: dict[Provider, OpenAI] = {}
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -78,7 +127,7 @@ def _get_provider_api_key(config: Config, provider: Provider, env_var: str) -> s
 
 def _get_temperature(
     provider: Provider,
-    model_meta: "ModelMeta | None" = None,
+    model_meta: ModelMeta | None = None,
     temperature: float | None = None,
 ) -> float:
     """Return the temperature for a given provider/model.
@@ -96,7 +145,7 @@ def _get_temperature(
 
 def _get_top_p(
     provider: Provider,
-    model_meta: "ModelMeta | None" = None,
+    model_meta: ModelMeta | None = None,
     top_p: float | None = None,
 ) -> float | None:
     """Return the top_p for a given provider.
@@ -223,7 +272,7 @@ def _responses_api_enabled() -> bool:
 
 
 def _should_use_responses_api(
-    provider: Provider, model_meta: ModelMeta, client: "OpenAI"
+    provider: Provider, model_meta: ModelMeta, client: OpenAI
 ) -> bool:
     return (
         provider == "openai"
@@ -318,22 +367,25 @@ def _init_openai_client(
     provider: Provider,
     api_key: str,
     base_url: str | None = None,
-    timeout: float | NotGiven | None = None,
+    timeout: float | _UnsetTimeout | NotGiven | None = None,
 ) -> None:
     """Internal helper to create and register an OpenAI client for a provider.
 
     Handles Azure vs regular OpenAI client selection automatically.
     """
-    from openai import AzureOpenAI, OpenAI  # fmt: skip
-
     from ..config import get_config  # fmt: skip
+
+    # Shadow the SDK classes with lazy factories: constructing the real client
+    # imports the openai SDK (~1s); defer that to first use (see _LazyClient).
+    OpenAI = _lazy_client_factory("OpenAI")
+    AzureOpenAI = _lazy_client_factory("AzureOpenAI")
 
     config = get_config()
 
     if timeout is None:
         timeout_str = config.get_env("LLM_API_TIMEOUT")
         try:
-            timeout = float(timeout_str) if timeout_str else NOT_GIVEN
+            timeout = float(timeout_str) if timeout_str else _UNSET_TIMEOUT
         except ValueError as parse_err:
             raise ValueError(
                 f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}. Must be a valid number."
@@ -370,13 +422,24 @@ def reinit(provider: Provider, api_key: str) -> None:
     if provider == "azure":
         raise ValueError("Runtime credential switch not supported for Azure")
     existing = clients[provider]
-    base_url = str(existing.base_url) if getattr(existing, "base_url", None) else None
+    if isinstance(existing, _LazyClient) and existing._client is None:
+        # Not yet materialized: read the recorded param instead of triggering
+        # the SDK import just to reinit.
+        raw_base_url = existing._kwargs.get("base_url")
+    else:
+        raw_base_url = getattr(existing, "base_url", None)
+    base_url = str(raw_base_url) if raw_base_url else None
     _init_openai_client(provider, api_key=api_key, base_url=base_url)
 
 
 def init(provider: Provider, config: Config):
-    """Initialize OpenAI client for a given provider."""
-    from openai import AzureOpenAI, OpenAI  # fmt: skip
+    """Initialize OpenAI client for a given provider.
+
+    Missing API keys raise here (fail fast at startup); the SDK client itself
+    is constructed lazily on first use (see _LazyClient).
+    """
+    OpenAI = _lazy_client_factory("OpenAI")
+    AzureOpenAI = _lazy_client_factory("AzureOpenAI")
 
     proxy_key = config.get_env("LLM_PROXY_API_KEY")
     proxy_url = config.get_env("LLM_PROXY_URL")
@@ -390,8 +453,9 @@ def init(provider: Provider, config: Config):
     # client use its own default behavior, which may evolve with future versions.
 
     timeout_str = config.get_env("LLM_API_TIMEOUT")
+    timeout: float | _UnsetTimeout
     try:
-        timeout = float(timeout_str) if timeout_str else NOT_GIVEN
+        timeout = float(timeout_str) if timeout_str else _UNSET_TIMEOUT
     except ValueError as parse_err:
         raise ValueError(
             f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}. Must be a valid number."
@@ -518,7 +582,7 @@ def init(provider: Provider, config: Config):
     assert clients[provider], f"Provider {provider} not initialized"
 
 
-def get_client(provider: Provider) -> "OpenAI":
+def get_client(provider: Provider) -> OpenAI:
     """Get client for specific provider, initializing if needed."""
     if provider not in clients:
         init(provider, get_config())
@@ -568,7 +632,7 @@ def _prep_deepseek_reasoner(msgs: list[Message]) -> Generator[Message, None, Non
 
 
 @lru_cache(maxsize=2)
-def _is_proxy(client: "OpenAI") -> bool:
+def _is_proxy(client: OpenAI) -> bool:
     proxy_url = get_config().get_env("LLM_PROXY_URL")
     # If client has the proxy URL set, it is using the proxy
     if not proxy_url:
@@ -1626,7 +1690,7 @@ def _transform_msgs_for_special_provider(
     return cast(Iterable[MessageDict], messages_dicts)
 
 
-def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
+def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
     name = spec.name
     if spec.block_types:
         name = spec.block_types[0]
@@ -1856,7 +1920,7 @@ def _prepare_messages_for_api(
     messages: list[Message],
     model: str,
     tools: list[ToolSpec] | None,
-) -> tuple[list[MessageDict], list["ChatCompletionToolParam"] | None]:
+) -> tuple[list[MessageDict], list[ChatCompletionToolParam] | None]:
     """Prepare messages for API call, handling model-specific transformations.
 
     Returns:

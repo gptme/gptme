@@ -1,5 +1,6 @@
 """Tests for `gptme search` alias and gptme-* plugin dispatch."""
 
+import importlib
 from unittest.mock import patch
 
 import pytest
@@ -45,7 +46,7 @@ class TestSearchAlias:
         """
         with (
             patch("gptme.tools.chats.search_chats") as mock_search,
-            patch("gptme.cli.main.chat"),
+            patch.object(importlib.import_module("gptme.chat"), "chat"),
         ):
             runner.invoke(
                 main,
@@ -96,7 +97,7 @@ class TestPluginDispatch:
         """gptme unknowncmd with no gptme-unknowncmd in PATH falls through to normal CLI."""
         with (
             patch("gptme.cli.main.shutil.which", return_value=None),
-            patch("gptme.cli.main.chat"),
+            patch.object(importlib.import_module("gptme.chat"), "chat"),
         ):
             # Normal CLI starts a chat session; shutil.which returning None means no dispatch
             runner.invoke(main, ["unknowncmd"])

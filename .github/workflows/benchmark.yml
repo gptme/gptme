@@ -64,24 +64,72 @@ jobs:
         echo "warm_time=$WARM_TIME" >> $GITHUB_OUTPUT
         echo "Warm startup median: ${WARM_TIME}s"
 
+    - name: Benchmark --help
+      id: help
+      run: |
+        # --help renders the dynamic help (tool/command discovery) but skips
+        # config/LLM/prompt init — an in-between of import-only and full cycle.
+        VENV_PATH=$(poetry env info --path)
+        hyperfine \
+          --runs 10 \
+          --warmup 3 \
+          --export-json help.json \
+          "$VENV_PATH/bin/gptme --help"
+
+        HELP_TIME=$(python3 -c "import json; print(f'{json.load(open(\"help.json\"))[\"results\"][0][\"median\"]:.3f}')")
+        echo "help_time=$HELP_TIME" >> $GITHUB_OUTPUT
+        echo "--help median: ${HELP_TIME}s"
+
+    - name: Benchmark full start/exit cycle
+      id: cycle
+      env:
+        # Dummy key so init_model resolves a provider without prompting;
+        # '/exit' quits before any API call is made.
+        OPENAI_API_KEY: sk-dummy-benchmark
+      run: |
+        # Full cycle: config load, plugin/tool init, prompt build, /exit.
+        # Invokes the venv binary directly — `poetry run` adds substantial
+        # wrapper overhead that would drown out what we're measuring.
+        # stdin from /dev/null so the piped-stdin grace period isn't hit.
+        VENV_PATH=$(poetry env info --path)
+        hyperfine \
+          --runs 10 \
+          --warmup 3 \
+          --export-json cycle.json \
+          "$VENV_PATH/bin/gptme '/exit' < /dev/null"
+
+        CYCLE_TIME=$(python3 -c "import json; print(f'{json.load(open(\"cycle.json\"))[\"results\"][0][\"median\"]:.3f}')")
+        echo "cycle_time=$CYCLE_TIME" >> $GITHUB_OUTPUT
+        echo "Full start/exit cycle median: ${CYCLE_TIME}s"
+
     - name: Check thresholds
       env:
         COLD_TIME: ${{ steps.cold.outputs.cold_time }}
         WARM_TIME: ${{ steps.warm.outputs.warm_time }}
-        # Thresholds in seconds (with margin for CI variability)
-        COLD_THRESHOLD: "10.0"
-        WARM_THRESHOLD: "2.5"
+        HELP_TIME: ${{ steps.help.outputs.help_time }}
+        CYCLE_TIME: ${{ steps.cycle.outputs.cycle_time }}
+        # Thresholds in seconds (with margin for CI variability).
+        # History: warm import was ~1.5-2s (threshold 2.5) before gptme.cli.main
+        # was made lazy; it should now stay well under 0.5s.
+        COLD_THRESHOLD: "6.0"
+        WARM_THRESHOLD: "1.0"
+        HELP_THRESHOLD: "2.0"
+        CYCLE_THRESHOLD: "3.0"
       run: |
         echo "=== Startup Benchmark Results (hyperfine medians) ==="
         echo "Cold startup: ${COLD_TIME}s (threshold: ${COLD_THRESHOLD}s)"
         echo "Warm startup: ${WARM_TIME}s (threshold: ${WARM_THRESHOLD}s)"
+        echo "--help:       ${HELP_TIME}s (threshold: ${HELP_THRESHOLD}s)"
+        echo "Full cycle:   ${CYCLE_TIME}s (threshold: ${CYCLE_THRESHOLD}s)"
         echo ""
 
         # Parse stddev for reporting
         COLD_STDDEV=$(python3 -c "import json; print(f'{json.load(open(\"cold.json\"))[\"results\"][0][\"stddev\"]:.3f}')")
         WARM_STDDEV=$(python3 -c "import json; print(f'{json.load(open(\"warm.json\"))[\"results\"][0][\"stddev\"]:.3f}')")
+        CYCLE_STDDEV=$(python3 -c "import json; print(f'{json.load(open(\"cycle.json\"))[\"results\"][0][\"stddev\"]:.3f}')")
         echo "Cold stddev: ${COLD_STDDEV}s"
         echo "Warm stddev: ${WARM_STDDEV}s"
+        echo "Cycle stddev: ${CYCLE_STDDEV}s"
         echo ""
 
         FAILED=0
@@ -98,6 +146,20 @@ jobs:
           FAILED=1
         else
           echo "✅ PASS: Warm startup within threshold"
+        fi
+
+        if (( $(echo "$HELP_TIME > $HELP_THRESHOLD" | bc -l) )); then
+          echo "::error::--help (${HELP_TIME}s) exceeds threshold (${HELP_THRESHOLD}s)"
+          FAILED=1
+        else
+          echo "✅ PASS: --help within threshold"
+        fi
+
+        if (( $(echo "$CYCLE_TIME > $CYCLE_THRESHOLD" | bc -l) )); then
+          echo "::error::Full cycle (${CYCLE_TIME}s +/- ${CYCLE_STDDEV}s) exceeds threshold (${CYCLE_THRESHOLD}s)"
+          FAILED=1
+        else
+          echo "✅ PASS: Full cycle within threshold"
         fi
 
         if [ $FAILED -eq 1 ]; then

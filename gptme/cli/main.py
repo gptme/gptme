@@ -1,10 +1,10 @@
+from __future__ import annotations
+
 import atexit
-import cProfile
 import importlib
 import importlib.metadata as _ilm
 import logging
 import os
-import pstats
 import select
 import shlex
 import shutil
@@ -17,50 +17,30 @@ import traceback
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import click
 from click.core import ParameterSource
 
-try:
-    pick = importlib.import_module("pick").pick
-except (ImportError, AttributeError):
-    pick = None
-
 import gptme
 
-from ..chat import chat
-from ..commands import _gen_help
-from ..config import ensure_workspace_dir, get_config, setup_config_from_cli
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
 from ..gears import parse_gear, resolve_gear
-from ..init import init_logging
-from ..llm import get_provider_from_model
-from ..llm import reply as llm_reply
-from ..llm.models import get_recommended_model
-from ..logmanager import (
-    ConversationMeta,
-    conversation_name_error,
-    get_user_conversations,
-)
-from ..message import Message
-from ..profiles import get_profile
-from ..prompts import (
-    ContextMode,
-    PromptSectionStat,
-    format_prompt_stats,
-    get_prompt,
-    get_prompt_stats,
-)
-from ..telemetry import init_telemetry, shutdown_telemetry
-from ..tools import ToolFormat, get_available_tools, init_tools
-from ..util import epoch_to_age
-from ..util.auto_naming import generate_conversation_id
-from ..util.context import md_codeblock
-from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
-from ..util.prompt import add_history
-from ..util.tokens import len_tokens
+
+# NOTE: keep module-level imports of the wider gptme package out of this file.
+# Importing gptme.cli.main should stay cheap: `gptme --help`, `--version`, and
+# external-subcommand dispatch (`gptme foo` -> `gptme-foo`) all pay for it, and
+# CI benchmarks it (.github/workflows/benchmark.yml). Heavy modules (chat, llm,
+# tools, prompts, logmanager, ...) are imported inside the functions that need
+# them instead.
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from ..logmanager import ConversationMeta
+    from ..prompts import ContextMode
+    from ..tools import ToolFormat
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +86,46 @@ def _discover_gptme_plugins() -> list[str]:
 
 
 class _DynamicHelpCommand(click.Command):
-    """click.Command subclass that appends discovered gptme-* plugins to --help."""
+    """click.Command subclass that renders the dynamic parts of --help lazily.
+
+    Computing the command list, tool availability, and recommended models
+    imports most of gptme, so it happens here — at --help render time — rather
+    than at module import time. Placeholders like ``{commands_help}`` in the
+    command/option help strings are substituted on first render. Also appends
+    discovered gptme-* plugin subcommands.
+    """
+
+    _help_expanded = False
+
+    def _expand_dynamic_help(self) -> None:
+        if self._help_expanded:
+            return
+        self._help_expanded = True
+
+        from ..commands import _gen_help
+        from ..llm.models import get_recommended_model
+        from ..tools import get_available_tools
+
+        commands_help = "\n".join(_gen_help(incl_langtags=False))
+        tools = get_available_tools(include_mcp=False)
+        available_tools = ", ".join(
+            sorted(tool.name for tool in tools if tool.is_available)
+        )
+        model_examples = (
+            f"openai/{get_recommended_model('openai')}, "
+            f"anthropic/{get_recommended_model('anthropic')}"
+        )
+
+        if self.help:
+            self.help = self.help.replace("{commands_help}", commands_help)
+        for param in self.params:
+            if isinstance(param, click.Option) and param.help:
+                param.help = param.help.replace(
+                    "{available_tools}", available_tools
+                ).replace("{model_examples}", model_examples)
 
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        self._expand_dynamic_help()
         super().format_help(ctx, formatter)
         plugins = _discover_gptme_plugins()
         if plugins:
@@ -159,15 +176,17 @@ class CommaSeparatedChoice(click.ParamType):
 
     def __init__(
         self,
-        choices: list[str],
+        choices: list[str] | Callable[[], list[str]],
         allow_prefix: str | None = None,
         allow_prefixes: list[str] | None = None,
-        extra_choices_for_prefix: dict[str, list[str]] | None = None,
+        extra_choices_for_prefix: dict[str, list[str] | Callable[[], list[str]]]
+        | None = None,
         lenient_prefixes: list[str] | None = None,
         metavar: str | None = None,
     ):
-        self.choices = choices
-        self._choice_set = set(choices)
+        # Choices may be a zero-arg callable, resolved on first use, so that
+        # expensive sources (tool discovery) don't run at CLI definition time.
+        self._choices_src = choices
         # Support both single prefix and multiple prefixes
         if allow_prefixes:
             self.allow_prefixes = allow_prefixes
@@ -175,16 +194,32 @@ class CommaSeparatedChoice(click.ParamType):
             self.allow_prefixes = [allow_prefix]
         else:
             self.allow_prefixes = []
-        self.extra_choices_for_prefix = {
-            prefix: set(prefix_choices)
-            for prefix, prefix_choices in (extra_choices_for_prefix or {}).items()
-        }
+        self._extra_choices_src = extra_choices_for_prefix or {}
         # Prefixes for which unknown names are accepted at parse time. Plugin
         # tools aren't known when the CLI is built (plugins load later), so a
         # prefixed name like "+tts" must pass; it's resolved against the loaded
         # toolset later, which warns if it's genuinely missing.
         self.lenient_prefixes = set(lenient_prefixes or [])
         self._metavar = metavar
+
+    @property
+    def choices(self) -> list[str]:
+        if callable(self._choices_src):
+            self._choices_src = list(self._choices_src())
+        return self._choices_src
+
+    @property
+    def _choice_set(self) -> set[str]:
+        return set(self.choices)
+
+    def _extra_choices(self, prefix: str) -> set[str]:
+        src = self._extra_choices_src.get(prefix)
+        if src is None:
+            return set()
+        if callable(src):
+            src = list(src())
+            self._extra_choices_src[prefix] = src
+        return set(src)
 
     def convert(self, value, param, ctx):
         # Click keeps the leading "=" for short options passed as `-x=value`.
@@ -208,7 +243,7 @@ class CommaSeparatedChoice(click.ParamType):
             if matched_prefix in self.lenient_prefixes:
                 continue
             extra_choices = (
-                self.extra_choices_for_prefix.get(matched_prefix, set())
+                self._extra_choices(matched_prefix)
                 if matched_prefix is not None
                 else set()
             )
@@ -259,6 +294,8 @@ class ConversationName(click.ParamType):
         # Non-empty values still go through conversation_name_error() below.
         if not value or not value.strip():
             return "random"
+        from ..logmanager import conversation_name_error
+
         if error := conversation_name_error(value):
             self.fail(error, param, ctx)
         return value
@@ -336,11 +373,15 @@ def _find_missing_explicit_local_path(prompts: list[str]) -> str | None:
     return None
 
 
-commands_help = "\n".join(_gen_help(incl_langtags=False))
-_builtin_tools = get_available_tools(include_mcp=False)
-_known_tool_names = sorted(tool.name for tool in _builtin_tools)
-_available_tools = sorted(tool.name for tool in _builtin_tools if tool.is_available)
-available_tool_names = ", ".join(_available_tools)
+def _known_tool_names() -> list[str]:
+    """Names of all known built-in tools (available or not).
+
+    Imports the tool subsystem, so only call this lazily (option validation,
+    --help rendering) — never at module import time.
+    """
+    from ..tools import get_available_tools
+
+    return sorted(tool.name for tool in get_available_tools(include_mcp=False))
 
 
 docstring = f"""
@@ -362,7 +403,7 @@ Examples:
 
 \b
 The interface provides /commands during a conversation:
-{commands_help}
+{{commands_help}}
 
 \b
 Subcommand shortcuts:
@@ -412,7 +453,7 @@ Run 'gptme-util --help' for all utility commands."""
     "--model",
     default=None,
     callback=_validate_model_param,
-    help=f"Model to use, e.g. openai/{get_recommended_model('openai')}, anthropic/{get_recommended_model('anthropic')}. If only provider given then a default is used.",
+    help="Model to use, e.g. {model_examples}. If only provider given then a default is used.",
 )
 @click.option(
     "-w",
@@ -477,8 +518,9 @@ Run 'gptme-util --help' for all utility commands."""
         # Accept all *known* tools, not just currently-available ones, so a tool
         # that exists but is temporarily unavailable (e.g. 'tts' when its server
         # isn't running) is reported as unavailable at load time rather than as a
-        # misleading "invalid choice" here.
-        _known_tool_names + ["none"],
+        # misleading "invalid choice" here. Resolved lazily: tool discovery
+        # imports most of gptme and must not run at module import time.
+        lambda: _known_tool_names() + ["none"],
         allow_prefixes=["+", "-"],
         extra_choices_for_prefix={"-": _known_tool_names},
         # Only '+' is lenient: plugin tools (added via '+tool') aren't known at
@@ -487,7 +529,7 @@ Run 'gptme-util --help' for all utility commands."""
         lenient_prefixes=["+"],
         metavar="TOOL",
     ),
-    help=f"Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use '-tool' to exclude from defaults (e.g., '-t=-browser'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). Available: {available_tool_names}.",
+    help="Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use '-tool' to exclude from defaults (e.g., '-t=-browser'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). Available: {available_tools}.",
 )
 @click.option(
     "--agent-profile",
@@ -715,6 +757,8 @@ def main(
     # Apply agent profile if specified
     selected_profile = None
     if agent_profile:
+        from ..profiles import get_profile
+
         selected_profile = get_profile(agent_profile)
         if not selected_profile:
             raise click.BadParameter(
@@ -820,6 +864,9 @@ def main(
     _validate_custom_tool_paths(tool_allowlist_str)
 
     if profile:
+        import cProfile
+        import pstats
+
         print("Profiling enabled...")
         pr = cProfile.Profile()
         pr.enable()
@@ -860,6 +907,28 @@ def main(
 
     if "PYTEST_CURRENT_TEST" in os.environ:
         interactive = False
+
+    # Everything below is an actual chat session: import the heavy parts of
+    # gptme now, after the cheap early-exit paths (--help/--version/dispatch).
+    from ..chat import chat
+    from ..config import ensure_workspace_dir, get_config, setup_config_from_cli
+    from ..init import init_logging
+    from ..llm import get_provider_from_model
+    from ..llm import reply as llm_reply
+    from ..message import Message
+    from ..profiles import get_profile
+    from ..prompts import (
+        PromptSectionStat,
+        format_prompt_stats,
+        get_prompt,
+        get_prompt_stats,
+    )
+    from ..telemetry import init_telemetry, shutdown_telemetry
+    from ..tools import init_tools
+    from ..util.context import md_codeblock
+    from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
+    from ..util.prompt import add_history
+    from ..util.tokens import len_tokens
 
     # init logging
     # Route log output through stdout (via shared Rich Console) when interactive
@@ -1396,6 +1465,14 @@ def main(
 def pick_log(limit=20) -> Path:  # pragma: no cover
     # let user select between starting a new conversation and loading a previous one
     # using the library
+    from ..logmanager import get_user_conversations
+    from ..util import epoch_to_age
+
+    try:
+        pick = importlib.import_module("pick").pick
+    except (ImportError, AttributeError):
+        pick = None
+
     title = "New conversation or load previous? "
     NEW_CONV = "New conversation"
     LOAD_MORE = "Load more"
@@ -1444,6 +1521,9 @@ def pick_log(limit=20) -> Path:  # pragma: no cover
 
 
 def get_logdir(logdir: Path | str | Literal["random"]) -> Path:
+    from ..logmanager import conversation_name_error
+    from ..util.auto_naming import generate_conversation_id
+
     logs_dir = get_logs_dir()
     if logdir == "random":
         logdir = logs_dir / generate_conversation_id(name="random", logs_dir=logs_dir)
@@ -1458,6 +1538,8 @@ def get_logdir(logdir: Path | str | Literal["random"]) -> Path:
 
 
 def get_logdir_resume(name: str = "random", workspace: Path | None = None) -> Path:
+    from ..logmanager import get_user_conversations
+
     if name != "random":
         logdir = get_logs_dir() / name
         if (logdir / "conversation.jsonl").exists():

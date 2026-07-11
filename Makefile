@@ -329,9 +329,17 @@ bench-import:  ## Benchmark import time
 	@#time poetry run python -X importtime -m gptme --model openrouter --non-interactive 2>&1 | grep "import time" | cut -d'|' -f 2- | sort -n
 	@#time poetry run python -X importtime -m gptme --model anthropic --non-interactive 2>&1 | grep "import time" | cut -d'|' -f 2- | sort -n
 
-bench-startup:  ## Benchmark startup time
+bench-startup:  ## Benchmark startup time (import + full start/exit cycle)
+	@# Invoke the venv binaries directly: `poetry run` adds 1-3s of wrapper
+	@# overhead per invocation, which would drown out what we're measuring.
+	@# `< /dev/null` closes stdin so the piped-stdin grace period isn't hit.
 	@echo "Benchmarking startup time for gptme"
-	hyperfine "poetry run gptme '/exit'" -M 5 || poetry run gptme '/exit' || exit 1
+	@VENV=$$(poetry env info --path) && \
+	hyperfine --warmup 2 -M 10 \
+		-n "import gptme.cli.main" "$$VENV/bin/python -c 'from gptme.cli.main import main'" \
+		-n "gptme --help" "$$VENV/bin/gptme --help" \
+		-n "full start/exit cycle" "$$VENV/bin/gptme '/exit' < /dev/null" \
+	|| "$$VENV/bin/gptme" '/exit' < /dev/null || exit 1
 
 help:  ## Show this help message
 	@echo $(MAKEFILE_LIST)

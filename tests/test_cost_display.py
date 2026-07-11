@@ -277,7 +277,7 @@ def test_display_costs_uses_explicit_cache_columns():
         )
     ]
 
-    with patch("gptme.util.cost_display.console.log") as log:
+    with patch("gptme.util.console.log") as log:
         display_costs(conversation=conversation, per_step=per_step)
 
     output = "\n".join(str(call.args[0]) for call in log.call_args_list)
@@ -693,7 +693,7 @@ def test_display_costs_single_total_when_no_prior_history():
         last_request=None, total=_make_total(3), source="conversation"
     )
 
-    with patch("gptme.util.cost_display.console.log") as log:
+    with patch("gptme.util.console.log") as log:
         display_costs(session=session, conversation=conversation)
 
     output = "\n".join(str(call.args[0]) for call in log.call_args_list)
@@ -710,7 +710,7 @@ def test_display_costs_shows_split_when_prior_history_exists():
         last_request=None, total=_make_total(5), source="conversation"
     )
 
-    with patch("gptme.util.cost_display.console.log") as log:
+    with patch("gptme.util.console.log") as log:
         display_costs(session=session, conversation=conversation)
 
     output = "\n".join(str(call.args[0]) for call in log.call_args_list)
@@ -724,7 +724,7 @@ def test_display_costs_only_conversation_when_no_session():
         last_request=None, total=_make_total(3), source="conversation"
     )
 
-    with patch("gptme.util.cost_display.console.log") as log:
+    with patch("gptme.util.console.log") as log:
         display_costs(session=None, conversation=conversation)
 
     output = "\n".join(str(call.args[0]) for call in log.call_args_list)

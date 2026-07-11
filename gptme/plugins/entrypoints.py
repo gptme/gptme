@@ -12,7 +12,8 @@ Where ``plugin`` is a :class:`~gptme.plugins.plugin.GptmePlugin` instance.
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
+import time
+from functools import cache
 from importlib.metadata import entry_points
 
 from .plugin import GptmePlugin
@@ -21,18 +22,57 @@ logger = logging.getLogger(__name__)
 
 ENTRYPOINT_GROUP = "gptme.plugins"
 
+# Loading an entry point imports its whole package; warn when that stalls
+# startup so the culprit plugin is visible to the user.
+_SLOW_LOAD_THRESHOLD = 1.0
 
-@lru_cache(maxsize=1)
-def discover_entrypoint_plugins() -> tuple[GptmePlugin, ...]:
+
+def _normalize(name: str) -> str:
+    return name.replace("-", "_").lower()
+
+
+@cache
+def discover_entrypoint_plugins(
+    enabled: frozenset[str] | None = None,
+) -> tuple[GptmePlugin, ...]:
     """Discover plugins registered via the ``gptme.plugins`` entry-point group.
+
+    Args:
+        enabled: Optional allowlist of plugin names. Entry points that match
+            neither by entry-point name nor by top-level package name
+            (dash/underscore-insensitive) are skipped *without being
+            imported* — ``ep.load()`` imports the plugin's whole package,
+            which can take seconds for plugins with heavy dependencies.
+            Plugins whose manifest name differs from both must be enabled
+            under their entry-point or package name.
 
     Results are cached after the first call.  Use :func:`clear_entrypoint_cache`
     in tests or when reloading plugins at runtime.
     """
+    enabled_normalized = (
+        {_normalize(name) for name in enabled} if enabled is not None else None
+    )
     plugins: list[GptmePlugin] = []
     for ep in entry_points(group=ENTRYPOINT_GROUP):
+        # Match on entry-point name or top-level package name, so a plugin
+        # enabled under either (e.g. "gptme-tts" for entry point "tts" in
+        # package "gptme_tts") is still loaded. The manifest name is only
+        # known after ep.load(), which is exactly what we're avoiding here.
+        ep_names = {_normalize(ep.name), _normalize(ep.module.split(".")[0])}
+        if enabled_normalized is not None and not (ep_names & enabled_normalized):
+            logger.debug("Skipping entry-point plugin %r: not enabled", ep.name)
+            continue
         try:
+            start = time.monotonic()
             obj = ep.load()
+            duration = time.monotonic() - start
+            if duration > _SLOW_LOAD_THRESHOLD:
+                logger.warning(
+                    "Plugin %r took %.1fs to load — its package imports heavy "
+                    "dependencies at import time; consider deferring them",
+                    ep.name,
+                    duration,
+                )
         except Exception as exc:
             logger.warning("Failed to load plugin %r: %s", ep.name, exc)
             continue

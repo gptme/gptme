@@ -450,6 +450,9 @@ def test_timeout_default(monkeypatch):
         # Initialize OpenAI provider
         llm_openai.init("openai", config)
 
+        # Client construction is lazy; force materialization
+        _ = llm_openai.get_client("openai").base_url
+
         # Verify OpenAI was called with NOT_GIVEN (uses client default)
         mock_openai.assert_called_once()
         call_kwargs = mock_openai.call_args[1]
@@ -480,6 +483,9 @@ def test_timeout_custom(monkeypatch):
 
         # Initialize OpenAI provider
         llm_openai.init("openai", config)
+
+        # Client construction is lazy; force materialization
+        _ = llm_openai.get_client("openai").base_url
 
         # Verify OpenAI was called with custom timeout
         mock_openai.assert_called_once()
@@ -521,6 +527,9 @@ def test_timeout_all_providers(monkeypatch):
             except Exception:
                 # Skip providers that require additional config
                 continue
+
+            # Client construction is lazy; force materialization
+            _ = llm_openai.get_client(provider).base_url
 
             # Verify timeout was passed
             if mock_openai.called:

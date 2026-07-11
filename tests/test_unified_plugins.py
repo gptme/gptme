@@ -252,6 +252,53 @@ class TestEntrypointDiscovery:
         assert len(result) == 0
         clear_entrypoint_cache()
 
+    def test_enabled_filter_skips_without_loading(self):
+        """Disabled plugins are skipped before ep.load() runs (perf: loading
+        imports the plugin's whole package)."""
+        from gptme.plugins.entrypoints import (
+            clear_entrypoint_cache,
+            discover_entrypoint_plugins,
+        )
+
+        clear_entrypoint_cache()
+        enabled_ep = MagicMock()
+        enabled_ep.name = "wanted"
+        enabled_ep.module = "wanted_pkg.plugin"
+        enabled_ep.load.return_value = GptmePlugin(name="wanted")
+        disabled_ep = MagicMock()
+        disabled_ep.name = "heavy"
+        disabled_ep.module = "heavy_pkg"
+
+        with patch(
+            "gptme.plugins.entrypoints.entry_points",
+            return_value=[enabled_ep, disabled_ep],
+        ):
+            result = discover_entrypoint_plugins(frozenset({"wanted"}))
+
+        assert [p.name for p in result] == ["wanted"]
+        disabled_ep.load.assert_not_called()
+        clear_entrypoint_cache()
+
+    def test_enabled_filter_matches_package_name(self):
+        """A plugin enabled under its package name (e.g. "gptme-tts" for entry
+        point "tts" in package "gptme_tts") is still loaded."""
+        from gptme.plugins.entrypoints import (
+            clear_entrypoint_cache,
+            discover_entrypoint_plugins,
+        )
+
+        clear_entrypoint_cache()
+        mock_ep = MagicMock()
+        mock_ep.name = "tts"
+        mock_ep.module = "gptme_tts.plugin"
+        mock_ep.load.return_value = GptmePlugin(name="gptme-tts")
+
+        with patch("gptme.plugins.entrypoints.entry_points", return_value=[mock_ep]):
+            result = discover_entrypoint_plugins(frozenset({"gptme-tts"}))
+
+        assert [p.name for p in result] == ["gptme-tts"]
+        clear_entrypoint_cache()
+
 
 # --- Unified registry ---
 
