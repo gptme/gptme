@@ -97,7 +97,9 @@ class BatchJob:
     agent_ids: list[str]
     results: dict[str, ReturnType] = field(default_factory=dict)
     output_schema: "type | dict | None" = field(default=None)
+    budget: SubagentBudget | None = field(default=None)
     _lock: threading.Lock = field(default_factory=threading.Lock)
+    _budget_recorded: bool = field(default=False, init=False, repr=False)
 
     def wait_all(
         self, timeout: int = 300, cancel_on_failure: bool = False
@@ -249,6 +251,15 @@ class BatchJob:
             pool.shutdown(wait=False, cancel_futures=True)
 
         raw = {aid: asdict(r) for aid, r in self.results.items()}
+
+        # Record output tokens from completed agents into the shared budget.
+        # Guard with _budget_recorded so multiple wait_all() calls don't double-count.
+        if self.budget is not None and not self._budget_recorded:
+            self._budget_recorded = True
+            for r in self.results.values():
+                if r.output_tokens is not None:
+                    self.budget.record(r.output_tokens)
+
         if self.output_schema is not None:
             return {aid: _parse_result(r, self.output_schema) for aid, r in raw.items()}
         return raw
@@ -479,7 +490,9 @@ def subagent_batch(
         # Or explicitly wait for all if needed:
         results = job.wait_all(timeout=300)
     """
-    job = BatchJob(agent_ids=[t[0] for t in tasks], output_schema=output_schema)
+    job = BatchJob(
+        agent_ids=[t[0] for t in tasks], output_schema=output_schema, budget=budget
+    )
 
     # Start subagents, skipping any after the budget is exhausted
     started: list[str] = []
@@ -832,7 +845,12 @@ def subagent_pipeline(
             # Only pass output_schema to the final stage
             is_final = stage_idx == len(stages) - 1
 
-            # Budget check: skip remaining stages if budget is exhausted
+            # Budget check: skip remaining stages if budget is exhausted.
+            # Note: enforcement near exhaustion is best-effort in concurrent pipelines.
+            # Another thread may record tokens and exhaust the budget between this check
+            # and the subagent() call below. The violation is bounded (at most one extra
+            # agent per concurrent item thread). A hard atomic reserve is not possible
+            # without knowing the token cost upfront.
             if budget is not None and budget.exhausted():
                 logger.debug(
                     "subagent_pipeline: budget exhausted, skipping '%s'", agent_id
