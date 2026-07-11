@@ -119,7 +119,7 @@ templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "lessons/**"]
 
 extlinks = {
-    "issue": ("https://github.com/gptme/gptme/issues/%s", "issue #"),
+    "issue": ("https://github.com/gptme/gptme/issues/%s", "issue #%s"),
 }
 
 # Prefix each section label with the name of the document it is in, followed by a colon.

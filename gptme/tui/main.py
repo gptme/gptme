@@ -114,6 +114,13 @@ def main(
     )
     assert config.chat and config.chat.tool_format
 
+    # The TUI is always interactive: never load the `complete` tool, which is
+    # meant for autonomous sessions (matches CLI behavior, where it is only
+    # added in --non-interactive mode). Saved conversation configs from
+    # autonomous runs may still list it, so filter defensively.
+    if config.chat.tools and "complete" in config.chat.tools:
+        config.chat.tools = [t for t in config.chat.tools if t != "complete"]
+
     try:
         init(
             config.chat.model,

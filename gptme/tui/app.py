@@ -36,6 +36,7 @@ from ..logmanager import LogManager
 from ..message import Message
 from ..tools import ToolFormat, ToolUse
 from ..tools.base import ToolUse as ToolUseType
+from ..tools.complete import SessionCompleteException
 from ..util.context import include_paths
 from ..util.tokens import len_tokens
 
@@ -63,7 +64,7 @@ class UserMessage(Vertical):
 
     def __init__(self, content: str, queued: bool = False):
         super().__init__(classes="message user" + (" queued" if queued else ""))
-        self.content = content
+        self.content = content.strip()
 
     def compose(self) -> ComposeResult:
         label = "User (queued)" if "queued" in self.classes else "User"
@@ -76,7 +77,7 @@ class AssistantMessage(Vertical):
 
     def __init__(self, content: str):
         super().__init__(classes="message assistant")
-        self.content = content
+        self.content = content.strip()
 
     def compose(self) -> ComposeResult:
         yield Static(Text("Assistant"), classes="role")
@@ -88,7 +89,7 @@ class SystemMessage(Vertical):
 
     def __init__(self, content: str):
         super().__init__(classes="message system")
-        self.content = content
+        self.content = content.strip()
 
     def compose(self) -> ComposeResult:
         yield Collapsible(
@@ -622,6 +623,12 @@ class GptmeApp(App):
                     t.is_runnable for t in ToolUse.iter_from_content(last_content)
                 ):
                     break
+        except SessionCompleteException:
+            # complete tool is filtered out in interactive TUI mode, but a
+            # resumed autonomous conversation may still have it loaded
+            self.call_from_thread(
+                self._mount_in_chat, InfoMessage("Session marked complete.")
+            )
         except Exception as e:
             logger.exception("Error in generation worker")
             self.call_from_thread(
