@@ -38,12 +38,13 @@ def discover_entrypoint_plugins(
     """Discover plugins registered via the ``gptme.plugins`` entry-point group.
 
     Args:
-        enabled: Optional allowlist of plugin names. Entry points whose name
-            (dash/underscore-insensitive) is not in the set are skipped
-            *without being imported* — ``ep.load()`` imports the plugin's whole
-            package, which can take seconds for plugins with heavy dependencies.
-            The entry-point name must match the configured plugin name for the
-            skip to apply.
+        enabled: Optional allowlist of plugin names. Entry points that match
+            neither by entry-point name nor by top-level package name
+            (dash/underscore-insensitive) are skipped *without being
+            imported* — ``ep.load()`` imports the plugin's whole package,
+            which can take seconds for plugins with heavy dependencies.
+            Plugins whose manifest name differs from both must be enabled
+            under their entry-point or package name.
 
     Results are cached after the first call.  Use :func:`clear_entrypoint_cache`
     in tests or when reloading plugins at runtime.
@@ -53,10 +54,12 @@ def discover_entrypoint_plugins(
     )
     plugins: list[GptmePlugin] = []
     for ep in entry_points(group=ENTRYPOINT_GROUP):
-        if (
-            enabled_normalized is not None
-            and _normalize(ep.name) not in enabled_normalized
-        ):
+        # Match on entry-point name or top-level package name, so a plugin
+        # enabled under either (e.g. "gptme-tts" for entry point "tts" in
+        # package "gptme_tts") is still loaded. The manifest name is only
+        # known after ep.load(), which is exactly what we're avoiding here.
+        ep_names = {_normalize(ep.name), _normalize(ep.module.split(".")[0])}
+        if enabled_normalized is not None and not (ep_names & enabled_normalized):
             logger.debug("Skipping entry-point plugin %r: not enabled", ep.name)
             continue
         try:
