@@ -59,17 +59,17 @@ expanded), and mouse interaction is left entirely to the terminal.
 Keys
 ----
 
-===============  ============================================================
-Key              Action
-===============  ============================================================
-:kbd:`Enter`     Send prompt (queues it if the agent is busy)
-:kbd:`Alt+Enter` Insert newline (multi-line prompts; :kbd:`Ctrl+J` also works)
-:kbd:`Tab`       Complete slash-commands and their arguments
-:kbd:`Escape`    Interrupt generation
-:kbd:`Ctrl+C`    Interrupt generation, or quit when idle
-:kbd:`Ctrl+D`    Quit
-:kbd:`Ctrl+O`    Expand/collapse all tool outputs
-===============  ============================================================
+=================  ==========================================================
+Key                Action
+=================  ==========================================================
+:kbd:`Enter`       Send prompt (queues it if the agent is busy)
+:kbd:`Alt+Enter`   Insert newline (:kbd:`Ctrl+J` also works)
+:kbd:`Tab`         Complete slash-commands and their arguments
+:kbd:`Escape`      Interrupt generation
+:kbd:`Ctrl+C`      Interrupt generation, or quit when idle
+:kbd:`Ctrl+D`      Quit
+:kbd:`Ctrl+O`      Expand/collapse all tool outputs
+=================  ==========================================================
 
 When a tool is about to execute, a confirmation dialog shows a preview;
 press :kbd:`y` to execute, :kbd:`n` to skip, or :kbd:`a` to auto-confirm for
