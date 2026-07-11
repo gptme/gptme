@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Finetuning &#8212; gptme</title>
+    <title>Custom and Local Providers &#8212; gptme</title>
   
   
   
@@ -43,13 +43,13 @@
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/asciinema-player_3.12.1.js"></script>
     <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'finetuning';</script>
-    <link rel="canonical" href="https://gptme.org/docs/finetuning.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'providers-custom';</script>
+    <link rel="canonical" href="https://gptme.org/docs/providers-custom.html" />
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Design: Hook-Based Tool Confirmations" href="design/hook-based-confirmations.html" />
-    <link rel="prev" title="GitHub Bot" href="bot.html" />
+    <link rel="next" title="Choosing your model" href="model-routing.html" />
+    <link rel="prev" title="Providers" href="providers.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   </head>
@@ -160,7 +160,7 @@
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
@@ -186,8 +186,8 @@
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="providers.html">Providers</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Custom and Local Providers</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
@@ -209,7 +209,7 @@
 <li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
-<ul class="current nav bd-sidenav">
+<ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
@@ -219,7 +219,7 @@
 <li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
 <li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Finetuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
 <ul class="nav bd-sidenav">
@@ -365,7 +365,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/finetuning.md" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/providers-custom.rst" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -395,7 +395,7 @@
       
       
       
-      <li><a href="_sources/finetuning.md" target="_blank"
+      <li><a href="_sources/providers-custom.rst" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -405,7 +405,7 @@
 <span class="btn__icon-container">
   <i class="fas fa-file"></i>
   </span>
-<span class="btn__text-container">.md</span>
+<span class="btn__text-container">.rst</span>
 </a>
 </li>
       
@@ -479,7 +479,7 @@ document.write(`
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>Finetuning</h1>
+    <h1>Custom and Local Providers</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -489,11 +489,12 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-scope">Current scope</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#collect-local-conversations">Collect local conversations</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-not-maintained-here">What is not maintained here</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training-stack-pointers">Training stack pointers</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-suggestions">Model suggestions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ollama-local">Ollama (local)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vllm-and-openai-compatible-servers">vLLM and OpenAI-compatible servers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#setting-a-default-model">Setting a default model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backward-compatibility">Backward compatibility</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related-discussions">Related discussions</a></li>
 </ul>
             </nav>
         </div>
@@ -505,72 +506,207 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="finetuning">
-<h1>Finetuning<a class="headerlink" href="#finetuning" title="Link to this heading">#</a></h1>
-<p>This page documents the experimental fine-tuning support that still exists in
-the repository. It is not a maintained end-to-end training guide.</p>
-<section id="current-scope">
-<h2>Current scope<a class="headerlink" href="#current-scope" title="Link to this heading">#</a></h2>
-<p>Today <code class="docutils literal notranslate"><span class="pre">gptme</span></code> ships one helper for this workflow:
-<code class="docutils literal notranslate"><span class="pre">scripts/train/collect.py</span></code>.</p>
-<p>That script:</p>
-<ul class="simple">
-<li><p>reads local conversation logs from <code class="docutils literal notranslate"><span class="pre">~/.local/share/gptme/logs/</span></code></p></li>
-<li><p>filters out generated-name/test conversations and low-quality chats</p></li>
-<li><p>strips leading system prompts</p></li>
-<li><p>renders each conversation with the selected Hugging Face chat template</p></li>
-<li><p>writes <code class="docutils literal notranslate"><span class="pre">train.csv</span></code> and <code class="docutils literal notranslate"><span class="pre">train.jsonl</span></code></p></li>
-</ul>
-<p>The files are written to your current working directory, not to a <code class="docutils literal notranslate"><span class="pre">train/</span></code>
-subdirectory in the repo.</p>
-</section>
-<section id="collect-local-conversations">
-<h2>Collect local conversations<a class="headerlink" href="#collect-local-conversations" title="Link to this heading">#</a></h2>
-<p>From the repository root, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/train/collect.py<span class="w"> </span>--model<span class="w"> </span><span class="s2">&quot;HuggingFaceH4/zephyr-7b-beta&quot;</span>
+  <section id="custom-and-local-providers">
+<h1>Custom and Local Providers<a class="headerlink" href="#custom-and-local-providers" title="Link to this heading">#</a></h1>
+<p>This page covers <strong>Ollama</strong>, <strong>vLLM</strong>, and any other
+OpenAI-compatible server — plus how to declare a reusable
+<code class="docutils literal notranslate"><span class="pre">[[providers]]</span></code> block in your config so gptme can find them by name.</p>
+<p>For the full list of built-in providers and API keys, see <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a>.</p>
+<section id="ollama-local">
+<h2>Ollama (local)<a class="headerlink" href="#ollama-local" title="Link to this heading">#</a></h2>
+<p><a class="reference external" href="https://ollama.com/">Ollama</a> runs LLMs on your machine. gptme connects through
+Ollama’s OpenAI-compatible API.</p>
+<p><strong>Quick start:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install Ollama (https://ollama.com/download)</span>
+ollama<span class="w"> </span>pull<span class="w"> </span>llama3.2:3b
+ollama<span class="w"> </span>serve
+
+<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://127.0.0.1:11434/v1&quot;</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:3b
 </pre></div>
 </div>
-<p>Pick a model whose chat template matches the format you want in the resulting
-training data. The script uses <code class="docutils literal notranslate"><span class="pre">transformers.pipeline(...)</span></code> and
-<code class="docutils literal notranslate"><span class="pre">tokenizer.apply_chat_template(...)</span></code> to turn stored chats into prompt text.
-Run it in an environment where <code class="docutils literal notranslate"><span class="pre">torch</span></code> and <code class="docutils literal notranslate"><span class="pre">transformers</span></code> are already
-installed.</p>
+<p><strong>Persistent config</strong> (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>):</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
+<span class="n">OPENAI_BASE_URL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://127.0.0.1:11434/v1&quot;</span>
+<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local/llama3.2:3b&quot;</span>
+</pre></div>
+</div>
+<p>Or use a named provider entry (see <a class="reference internal" href="#configuration">Configuration</a> below):</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;ollama&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://127.0.0.1:11434/v1&quot;</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;llama3.2:3b&quot;</span>
+</pre></div>
+</div>
+<p>Then: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'hello'</span> <span class="pre">-m</span> <span class="pre">ollama/llama3.2:3b</span></code></p>
+<p><strong>Model name format:</strong> The name after <code class="docutils literal notranslate"><span class="pre">local/</span></code> (or <code class="docutils literal notranslate"><span class="pre">ollama/</span></code>) must match
+<code class="docutils literal notranslate"><span class="pre">ollama</span> <span class="pre">list</span></code> exactly, including the <code class="docutils literal notranslate"><span class="pre">:tag</span></code> suffix.</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>ollama<span class="w"> </span>list
+gptme<span class="w"> </span><span class="s1">&#39;hi&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:3b<span class="w">       </span><span class="c1"># correct</span>
+gptme<span class="w"> </span><span class="s1">&#39;hi&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2<span class="w">          </span><span class="c1"># wrong if the tag is 3b, not latest</span>
+</pre></div>
+</div>
+<p><strong>Common errors:</strong></p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Error</p></th>
+<th class="head"><p>Cause</p></th>
+<th class="head"><p>Fix</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Connection refused :11434</p></td>
+<td><p>Ollama not running</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ollama</span> <span class="pre">serve</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Unknown model X (warning)</p></td>
+<td><p>Model not in gptme’s known list</p></td>
+<td><p>Harmless; the model still works</p></td>
+</tr>
+<tr class="row-even"><td><p>Tool use fails or loops</p></td>
+<td><p>Model too small for tool format</p></td>
+<td><p>Use 7B+ (e.g. <code class="docutils literal notranslate"><span class="pre">llama3.1:8b</span></code>, Mistral)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Models under ~7B parameters rarely follow gptme’s tool protocol reliably.
+For agent-style work, prefer at least <code class="docutils literal notranslate"><span class="pre">llama3.1:8b</span></code> or <code class="docutils literal notranslate"><span class="pre">mistral:7b-instruct</span></code>.</p>
+</div>
 </section>
-<section id="what-is-not-maintained-here">
-<h2>What is not maintained here<a class="headerlink" href="#what-is-not-maintained-here" title="Link to this heading">#</a></h2>
-<p>This page intentionally does <strong>not</strong> claim a supported workflow for:</p>
-<ul class="simple">
-<li><p>mixing in OpenAssistant or other public datasets</p></li>
-<li><p>importing exported ChatGPT conversations</p></li>
-<li><p>splitting train and validation sets</p></li>
-<li><p>training with a specific stack such as Axolotl, Transformers, or OpenPipe</p></li>
-</ul>
-<p>Older revisions of this page sketched those steps, but they were incomplete and
-had drifted out of sync with the repo. Until <code class="docutils literal notranslate"><span class="pre">gptme</span></code> grows a maintained
-fine-tuning pipeline again, treat this document as a narrow note about the
-collector script rather than a full recipe.</p>
+<section id="vllm-and-openai-compatible-servers">
+<h2>vLLM and OpenAI-compatible servers<a class="headerlink" href="#vllm-and-openai-compatible-servers" title="Link to this heading">#</a></h2>
+<p>Any server exposing <code class="docutils literal notranslate"><span class="pre">/v1/chat/completions</span></code> works with the <code class="docutils literal notranslate"><span class="pre">local/</span></code> prefix or a
+named <code class="docutils literal notranslate"><span class="pre">[[providers]]</span></code> entry.</p>
+<p><strong>Example (vLLM):</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>vllm.entrypoints.openai.api_server<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--model<span class="w"> </span>meta-llama/Llama-3.1-8B-Instruct<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--port<span class="w"> </span><span class="m">8000</span>
+
+<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://localhost:8000/v1&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/meta-llama/Llama-3.1-8B-Instruct
+</pre></div>
+</div>
+<p><strong>Or as a named provider entry:</strong></p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vllm&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8000/v1&quot;</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;meta-llama/Llama-3.1-8B-Instruct&quot;</span>
+</pre></div>
+</div>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">VLLM_API_KEY</span><span class="o">=</span><span class="s2">&quot;none&quot;</span><span class="w">   </span><span class="c1"># vLLM often needs no auth</span>
+gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class="w"> </span>-m<span class="w"> </span>vllm/meta-llama/Llama-3.1-8B-Instruct
+</pre></div>
+</div>
+<p><strong>Tokenizer in airgapped environments</strong></p>
+<p>gptme may fetch the OpenAI <code class="docutils literal notranslate"><span class="pre">cl100k_base</span></code> tokenizer to count tokens. Offline, that
+can time out with errors mentioning <code class="docutils literal notranslate"><span class="pre">openaipublic.blob.core.windows.net</span></code>.</p>
+<p>Pre-cache tiktoken once while online to avoid this:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>tiktoken
+python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import tiktoken; tiktoken.get_encoding(&#39;cl100k_base&#39;)&quot;</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Source installs newer than v0.31.0 gracefully fall back to a character-based
+estimate (~4 chars/token) when the download fails. PyPI releases do not yet
+include this fallback, so the pre-cache step is recommended regardless.</p>
+</div>
 </section>
-<section id="training-stack-pointers">
-<h2>Training stack pointers<a class="headerlink" href="#training-stack-pointers" title="Link to this heading">#</a></h2>
-<p>If you want to take the exported data further, start with upstream docs for the
-training stack you actually plan to use:</p>
-<ul class="simple">
-<li><p><a class="reference external" href="https://github.com/OpenAccess-AI-Collective/axolotl">Axolotl</a></p></li>
-<li><p><a class="reference external" href="https://huggingface.co/docs/transformers/training">Hugging Face Transformers</a></p></li>
-<li><p><a class="reference external" href="https://ai.meta.com/llama/get-started/#fine-tuning">Examples for Llama fine-tuning</a></p></li>
-<li><p><a class="reference external" href="https://openpipe.ai/">OpenPipe</a></p></li>
-</ul>
+<section id="configuration">
+<h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
+<p>Add custom providers to <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vllm-local&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8000/v1&quot;</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;meta-llama/Llama-3.1-8B&quot;</span>
+
+<span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;azure-gpt4&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://my-azure-endpoint.openai.azure.com/openai/deployments&quot;</span>
+<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;AZURE_API_KEY&quot;</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gpt-4&quot;</span>
+</pre></div>
+</div>
+<p><strong>Configuration fields:</strong></p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Required</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p>Yes</p></td>
+<td><p>Provider identifier used in model selection</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">base_url</span></code></p></td>
+<td><p>Yes</p></td>
+<td><p>Base URL for the OpenAI-compatible API</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">api_key</span></code></p></td>
+<td><p>No</p></td>
+<td><p>API key directly in config (not recommended)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">api_key_env</span></code></p></td>
+<td><p>No</p></td>
+<td><p>Environment variable name containing the API key</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">default_model</span></code></p></td>
+<td><p>No</p></td>
+<td><p>Default model when only provider name is specified</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>API key resolution order:</strong></p>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">api_key</span> <span class="pre">=</span> <span class="pre">&quot;key-here&quot;</span></code> (not recommended for security)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">api_key_env</span> <span class="pre">=</span> <span class="pre">&quot;MY_API_KEY&quot;</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">${PROVIDER_NAME}_API_KEY</span></code> (e.g. <code class="docutils literal notranslate"><span class="pre">VLLM_API_KEY</span></code> for a provider named <code class="docutils literal notranslate"><span class="pre">vllm</span></code>)</p></li>
+</ol>
+<p><strong>Listing configured providers:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>providers<span class="w"> </span>list
+</pre></div>
+</div>
 </section>
-<section id="model-suggestions">
-<h2>Model suggestions<a class="headerlink" href="#model-suggestions" title="Link to this heading">#</a></h2>
+<section id="setting-a-default-model">
+<h2>Setting a default model<a class="headerlink" href="#setting-a-default-model" title="Link to this heading">#</a></h2>
+<p><strong>Environment variable:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">MODEL</span><span class="o">=</span><span class="s2">&quot;local/llama3.2:3b&quot;</span>
+gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span>
+</pre></div>
+</div>
+<p><strong>Global config</strong> (recommended — see <a class="reference internal" href="config.html"><span class="doc">Configuration</span></a>):</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[models]</span>
+<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;ollama/llama3.2:3b&quot;</span>
+</pre></div>
+</div>
+<p><strong>Project config</strong> (<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> in the repo root):</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
+<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local/llama3.2:3b&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="backward-compatibility">
+<h2>Backward compatibility<a class="headerlink" href="#backward-compatibility" title="Link to this heading">#</a></h2>
+<p>The existing <code class="docutils literal notranslate"><span class="pre">local</span></code> provider continues to work using the <code class="docutils literal notranslate"><span class="pre">OPENAI_BASE_URL</span></code>
+and <code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code> environment variables. No changes are required for
+existing configurations.</p>
+</section>
+<section id="related-discussions">
+<h2>Related discussions<a class="headerlink" href="#related-discussions" title="Link to this heading">#</a></h2>
+<p>Community threads and issues that motivated this page:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">HuggingFaceH4/zephyr-7b-beta</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">teknium/Replit-v2-CodeInstruct-3B</span></code></p>
-<ul>
-<li><p>This was previously used for testing/debugging, but availability and local
-hardware support may vary.</p></li>
-</ul>
-</li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/discussions/177">Ollama setup</a></p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/discussions/178">Llama 3.1 70B</a></p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/discussions/559">vLLM tokenizer timeouts</a></p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/673">Custom providers feature request</a></p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/514">Requesty provider support</a></p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/548">AI/ML provider support</a></p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/555">Chutes provider support</a></p></li>
 </ul>
 </section>
 </section>
@@ -587,20 +723,20 @@ hardware support may vary.</p></li>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="bot.html"
+       href="providers.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">GitHub Bot</p>
+        <p class="prev-next-title">Providers</p>
       </div>
     </a>
     <a class="right-next"
-       href="design/hook-based-confirmations.html"
+       href="model-routing.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Design: Hook-Based Tool Confirmations</p>
+        <p class="prev-next-title">Choosing your model</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -620,11 +756,12 @@ hardware support may vary.</p></li>
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-scope">Current scope</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#collect-local-conversations">Collect local conversations</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-not-maintained-here">What is not maintained here</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training-stack-pointers">Training stack pointers</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-suggestions">Model suggestions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ollama-local">Ollama (local)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vllm-and-openai-compatible-servers">vLLM and OpenAI-compatible servers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#setting-a-default-model">Setting a default model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backward-compatibility">Backward compatibility</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related-discussions">Related discussions</a></li>
 </ul>
   </nav></div>
 

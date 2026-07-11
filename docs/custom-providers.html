@@ -7,8 +7,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta content="refresh" name="http-equiv" />
+<meta content="0; url=providers-custom.html" name="content" />
 
-    <title>Custom Providers &#8212; gptme</title>
+    <title>Custom Providers (moved) &#8212; gptme</title>
   
   
   
@@ -48,8 +50,6 @@
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Choosing your model" href="model-routing.html" />
-    <link rel="prev" title="Providers" href="providers.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   </head>
@@ -112,6 +112,8 @@
       
       
       
+        
+      
       <div class="bd-sidebar-primary bd-sidebar">
         
 
@@ -160,7 +162,7 @@
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="current nav bd-sidenav">
+<ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
@@ -186,8 +188,8 @@
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="providers.html">Providers</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Custom Providers</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
@@ -365,7 +367,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/custom-providers.md" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/custom-providers.rst" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -395,7 +397,7 @@
       
       
       
-      <li><a href="_sources/custom-providers.md" target="_blank"
+      <li><a href="_sources/custom-providers.rst" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -405,7 +407,7 @@
 <span class="btn__icon-container">
   <i class="fas fa-file"></i>
   </span>
-<span class="btn__text-container">.md</span>
+<span class="btn__text-container">.rst</span>
 </a>
 </li>
       
@@ -466,9 +468,7 @@ document.write(`
   </button>
 `);
 </script>
-<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
-    <span class="fa-solid fa-list"></span>
-</button>
+
 </div></div>
       
     </div>
@@ -479,42 +479,11 @@ document.write(`
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>Custom Providers</h1>
+    <h1>Custom Providers (moved)</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
             
-            <div>
-                <h2> Contents </h2>
-            </div>
-            <nav aria-label="Page">
-                <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-fields">Configuration Fields</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#api-key-resolution">API Key Resolution</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#with-cli">With CLI</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-listing">Provider Listing</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backward-compatibility">Backward Compatibility</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-details">Implementation Details</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-1-completed">Phase 1 (Completed)</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-planned">Phase 2 (Planned)</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-3-planned">Phase 3 (Planned)</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-vllm-server">Local vLLM Server</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#groq-cloud">Groq Cloud</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#azure-openai">Azure OpenAI</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related">Related</a></li>
-</ul>
-            </nav>
         </div>
     </div>
 </div>
@@ -524,176 +493,9 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="custom-providers">
-<h1>Custom Providers<a class="headerlink" href="#custom-providers" title="Link to this heading">#</a></h1>
-<p>gptme supports configuring multiple custom OpenAI-compatible providers (completions API) in addition to the built-in providers (openai, openrouter, etc.).</p>
-<section id="configuration">
-<h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
-<p>Add custom providers to your <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vllm-local&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8000/v1&quot;</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;meta-llama/Llama-3.1-8B&quot;</span>
-
-<span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;azure-gpt4&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://my-azure-endpoint.openai.azure.com/openai/deployments&quot;</span>
-<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;AZURE_API_KEY&quot;</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gpt-4&quot;</span>
-
-<span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;groq&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://api.groq.com/openai/v1&quot;</span>
-<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;GROQ_API_KEY&quot;</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;llama-3.1-70b-versatile&quot;</span>
-</pre></div>
-</div>
-<section id="configuration-fields">
-<h3>Configuration Fields<a class="headerlink" href="#configuration-fields" title="Link to this heading">#</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">name</span></code> (required): Provider identifier used in model selection</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">base_url</span></code> (required): Base URL for the OpenAI-compatible API</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">api_key</span></code> (optional): API key directly in config (not recommended)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">api_key_env</span></code> (optional): Environment variable name containing the API key</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">default_model</span></code> (optional): Default model when only provider name is specified</p></li>
-</ul>
-</section>
-<section id="api-key-resolution">
-<h3>API Key Resolution<a class="headerlink" href="#api-key-resolution" title="Link to this heading">#</a></h3>
-<p>The API key is resolved in this priority order:</p>
-<ol class="arabic simple">
-<li><p><strong>Direct value</strong>: <code class="docutils literal notranslate"><span class="pre">api_key</span> <span class="pre">=</span> <span class="pre">&quot;key-here&quot;</span></code> (not recommended for security)</p></li>
-<li><p><strong>Environment variable</strong>: <code class="docutils literal notranslate"><span class="pre">api_key_env</span> <span class="pre">=</span> <span class="pre">&quot;MY_API_KEY&quot;</span></code></p></li>
-<li><p><strong>Default convention</strong>: <code class="docutils literal notranslate"><span class="pre">${PROVIDER_NAME}_API_KEY</span></code> (e.g., <code class="docutils literal notranslate"><span class="pre">GROQ_API_KEY</span></code> for provider named “groq”)</p></li>
-</ol>
-</section>
-</section>
-<section id="usage">
-<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
-<section id="with-cli">
-<h3>With CLI<a class="headerlink" href="#with-cli" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use specific custom provider with model</span>
-gptme<span class="w"> </span>--model<span class="w"> </span>vllm-local/my-model<span class="w"> </span><span class="s2">&quot;query&quot;</span>
-
-<span class="c1"># Use custom provider with default model</span>
-gptme<span class="w"> </span>--model<span class="w"> </span>azure-gpt4<span class="w"> </span><span class="s2">&quot;query&quot;</span>
-
-<span class="c1"># List configured providers</span>
-gptme-util<span class="w"> </span>providers<span class="w"> </span>list
-</pre></div>
-</div>
-</section>
-<section id="provider-listing">
-<h3>Provider Listing<a class="headerlink" href="#provider-listing" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>gptme-util<span class="w"> </span>providers<span class="w"> </span>list
-
-🔌<span class="w"> </span>Found<span class="w"> </span><span class="m">3</span><span class="w"> </span>custom<span class="w"> </span>provider<span class="o">(</span>s<span class="o">)</span>:
-
-📡<span class="w"> </span>vllm-local
-<span class="w">   </span>Base<span class="w"> </span>URL:<span class="w"> </span>http://localhost:8000/v1
-<span class="w">   </span>API<span class="w"> </span>Key:<span class="w"> </span><span class="nv">$VLLM_LOCAL_API_KEY</span><span class="w"> </span><span class="o">(</span>default<span class="o">)</span>
-<span class="w">   </span>Default<span class="w"> </span>Model:<span class="w"> </span>meta-llama/Llama-3.1-8B
-
-📡<span class="w"> </span>azure-gpt4
-<span class="w">   </span>Base<span class="w"> </span>URL:<span class="w"> </span>https://my-azure-endpoint.openai.azure.com/openai/deployments
-<span class="w">   </span>API<span class="w"> </span>Key:<span class="w"> </span><span class="nv">$AZURE_API_KEY</span>
-<span class="w">   </span>Default<span class="w"> </span>Model:<span class="w"> </span>gpt-4
-
-📡<span class="w"> </span>groq
-<span class="w">   </span>Base<span class="w"> </span>URL:<span class="w"> </span>https://api.groq.com/openai/v1
-<span class="w">   </span>API<span class="w"> </span>Key:<span class="w"> </span><span class="nv">$GROQ_API_KEY</span>
-<span class="w">   </span>Default<span class="w"> </span>Model:<span class="w"> </span>llama-3.1-70b-versatile
-</pre></div>
-</div>
-</section>
-</section>
-<section id="backward-compatibility">
-<h2>Backward Compatibility<a class="headerlink" href="#backward-compatibility" title="Link to this heading">#</a></h2>
-<p>The existing <code class="docutils literal notranslate"><span class="pre">local</span></code> provider continues to work using the <code class="docutils literal notranslate"><span class="pre">OPENAI_BASE_URL</span></code> and <code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code> environment variables. No changes are required for existing configurations.</p>
-</section>
-<section id="implementation-details">
-<h2>Implementation Details<a class="headerlink" href="#implementation-details" title="Link to this heading">#</a></h2>
-<section id="phase-1-completed">
-<h3>Phase 1 (Completed)<a class="headerlink" href="#phase-1-completed" title="Link to this heading">#</a></h3>
-<ul class="simple">
-<li><p>✅ Configuration schema (<code class="docutils literal notranslate"><span class="pre">ProviderConfig</span></code> dataclass)</p></li>
-<li><p>✅ TOML parsing in <code class="docutils literal notranslate"><span class="pre">load_user_config()</span></code></p></li>
-<li><p>✅ Provider initialization in <code class="docutils literal notranslate"><span class="pre">llm_openai.py</span></code></p></li>
-<li><p>✅ <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">providers</span> <span class="pre">list</span></code> command</p></li>
-<li><p>✅ Backward compatibility with <code class="docutils literal notranslate"><span class="pre">local</span></code> provider</p></li>
-<li><p>✅ API key resolution with priority order</p></li>
-</ul>
-</section>
-<section id="phase-2-planned">
-<h3>Phase 2 (Planned)<a class="headerlink" href="#phase-2-planned" title="Link to this heading">#</a></h3>
-<ul class="simple">
-<li><p>[ ] Model selection updates for <code class="docutils literal notranslate"><span class="pre">provider/model</span></code> syntax</p></li>
-<li><p>[ ] Provider registry for managing custom providers</p></li>
-<li><p>[ ] Integration tests with mock providers</p></li>
-</ul>
-</section>
-<section id="phase-3-planned">
-<h3>Phase 3 (Planned)<a class="headerlink" href="#phase-3-planned" title="Link to this heading">#</a></h3>
-<ul class="simple">
-<li><p>[ ] Complete documentation with examples</p></li>
-<li><p>[ ] User guide for common provider configurations</p></li>
-<li><p>[ ] Migration guide from <code class="docutils literal notranslate"><span class="pre">local</span></code> provider</p></li>
-</ul>
-</section>
-</section>
-<section id="examples">
-<h2>Examples<a class="headerlink" href="#examples" title="Link to this heading">#</a></h2>
-<section id="local-vllm-server">
-<h3>Local vLLM Server<a class="headerlink" href="#local-vllm-server" title="Link to this heading">#</a></h3>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vllm-local&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8000/v1&quot;</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;meta-llama/Llama-3.1-8B&quot;</span>
-</pre></div>
-</div>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">VLLM_LOCAL_API_KEY</span><span class="o">=</span><span class="s2">&quot;none&quot;</span><span class="w">  </span><span class="c1"># vLLM doesn&#39;t require auth</span>
-gptme<span class="w"> </span>--model<span class="w"> </span>vllm-local<span class="w"> </span><span class="s2">&quot;What is the capital of France?&quot;</span>
-</pre></div>
-</div>
-</section>
-<section id="groq-cloud">
-<h3>Groq Cloud<a class="headerlink" href="#groq-cloud" title="Link to this heading">#</a></h3>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;groq&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://api.groq.com/openai/v1&quot;</span>
-<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;GROQ_API_KEY&quot;</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;llama-3.1-70b-versatile&quot;</span>
-</pre></div>
-</div>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GROQ_API_KEY</span><span class="o">=</span><span class="s2">&quot;gsk_...&quot;</span>
-gptme<span class="w"> </span>--model<span class="w"> </span>groq<span class="w"> </span><span class="s2">&quot;Explain quantum computing&quot;</span>
-</pre></div>
-</div>
-</section>
-<section id="azure-openai">
-<h3>Azure OpenAI<a class="headerlink" href="#azure-openai" title="Link to this heading">#</a></h3>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;azure-gpt4&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://my-endpoint.openai.azure.com/openai/deployments&quot;</span>
-<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;AZURE_API_KEY&quot;</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gpt-4&quot;</span>
-</pre></div>
-</div>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">AZURE_API_KEY</span><span class="o">=</span><span class="s2">&quot;...&quot;</span>
-gptme<span class="w"> </span>--model<span class="w"> </span>azure-gpt4<span class="w"> </span><span class="s2">&quot;Write a Python function to sort a list&quot;</span>
-</pre></div>
-</div>
-</section>
-</section>
-<section id="related">
-<h2>Related<a class="headerlink" href="#related" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/673">Issue #673</a> - Original feature request</p></li>
-<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/514">Issue #514</a> - Requesty provider support</p></li>
-<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/548">Issue #548</a> - AI/ML provider support</p></li>
-<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/555">Issue #555</a> - Chutes provider support</p></li>
-</ul>
-</section>
+  <section id="custom-providers-moved">
+<h1>Custom Providers (moved)<a class="headerlink" href="#custom-providers-moved" title="Link to this heading">#</a></h1>
+<p>This page has moved to <a class="reference internal" href="providers-custom.html"><span class="doc">Custom and Local Providers</span></a>.</p>
 </section>
 
 
@@ -707,68 +509,12 @@ gptme<span class="w"> </span>--model<span class="w"> </span>azure-gpt4<span clas
                 <footer class="prev-next-footer d-print-none">
                   
 <div class="prev-next-area">
-    <a class="left-prev"
-       href="providers.html"
-       title="previous page">
-      <i class="fa-solid fa-angle-left"></i>
-      <div class="prev-next-info">
-        <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Providers</p>
-      </div>
-    </a>
-    <a class="right-next"
-       href="model-routing.html"
-       title="next page">
-      <div class="prev-next-info">
-        <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Choosing your model</p>
-      </div>
-      <i class="fa-solid fa-angle-right"></i>
-    </a>
 </div>
                 </footer>
               
             </div>
             
             
-              
-                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
-
-
-  <div class="sidebar-secondary-item">
-  <div class="page-toc tocsection onthispage">
-    <i class="fa-solid fa-list"></i> Contents
-  </div>
-  <nav class="bd-toc-nav page-toc">
-    <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-fields">Configuration Fields</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#api-key-resolution">API Key Resolution</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#with-cli">With CLI</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-listing">Provider Listing</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backward-compatibility">Backward Compatibility</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-details">Implementation Details</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-1-completed">Phase 1 (Completed)</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-planned">Phase 2 (Planned)</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-3-planned">Phase 3 (Planned)</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-vllm-server">Local vLLM Server</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#groq-cloud">Groq Cloud</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#azure-openai">Azure OpenAI</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related">Related</a></li>
-</ul>
-  </nav></div>
-
-</div></div>
               
             
           </div>

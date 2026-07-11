@@ -187,7 +187,7 @@
 <li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
@@ -537,20 +537,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     101453 |       playwright._impl._assertions
-     111316 |           gptme.tools
-     126703 |         gptme.config.cli_setup
-     194146 |       gptme.config
-     199270 |     gptme.llm
-     199837 |     playwright.sync_api._generated
-     209089 |   playwright.sync_api
-     221379 | gptme.tools._browser_playwright
-     254885 |   gptme.commands
-     305207 | gptme.chat
+      97812 |       playwright._impl._assertions
+     111007 |           gptme.tools
+     125943 |         gptme.config.cli_setup
+     194098 |     playwright.sync_api._generated
+     194557 |       gptme.config
+     199501 |     gptme.llm
+     203036 |   playwright.sync_api
+     214936 | gptme.tools._browser_playwright
+     254092 |   gptme.commands
+     301442 | gptme.chat
 
-real	0m1.585s
-user	0m1.359s
-sys	0m0.193s
+real	0m1.557s
+user	0m1.372s
+sys	0m0.169s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -558,21 +558,23 @@ make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     116.8 ms ±   1.7 ms    [User: 99.8 ms, System: 16.9 ms]
-  Range (min … max):   114.6 ms … 119.2 ms    10 runs
+  Time (mean ± σ):     112.9 ms ±   1.1 ms    [User: 94.6 ms, System: 18.3 ms]
+  Range (min … max):   111.8 ms … 115.1 ms    10 runs
  
 Benchmark 2: gptme --help
-  Time (mean ± σ):     551.2 ms ±   5.7 ms    [User: 485.1 ms, System: 65.8 ms]
-  Range (min … max):   545.5 ms … 564.8 ms    10 runs
+  Time (mean ± σ):     575.0 ms ±  32.0 ms    [User: 506.0 ms, System: 68.7 ms]
+  Range (min … max):   545.2 ms … 662.6 ms    10 runs
+ 
+  Warning: The first benchmarking run for this command was significantly slower than the rest (662.6 ms). This could be caused by (filesystem) caches that were not filled until after the first run. You are already using the &#39;--warmup&#39; option which helps to fill these caches before the actual benchmark. You can either try to increase the warmup count further or re-run this benchmark on a quiet system in case it was a random outlier. Alternatively, consider using the &#39;--prepare&#39; option to clear the caches before each timing run.
  
 Benchmark 3: full start/exit cycle
-  Time (mean ± σ):     982.9 ms ±  15.7 ms    [User: 747.8 ms, System: 560.7 ms]
-  Range (min … max):   963.5 ms … 1021.5 ms    10 runs
+  Time (mean ± σ):     964.9 ms ±  13.1 ms    [User: 767.3 ms, System: 500.2 ms]
+  Range (min … max):   948.6 ms … 992.3 ms    10 runs
  
 Summary
   import gptme.cli.main ran
-    4.72 ± 0.08 times faster than gptme --help
-    8.42 ± 0.18 times faster than full start/exit cycle
+    5.09 ± 0.29 times faster than gptme --help
+    8.55 ± 0.14 times faster than full start/exit cycle
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -2815,13 +2817,13 @@ Clone found (python)
 ┌────────────┬────────────────┬─────────────┬──────────────┬──────────────┬──────────────────┬───────────────────┐
 │ Format     │ Files analyzed │ Total lines │ Total tokens │ Clones found │ Duplicated lines │ Duplicated tokens │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ bash       │ 13             │ 1604        │ 3264         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
+│ bash       │ 12             │ 1452        │ 3078         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ css        │ 1              │ 174         │ 1100         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ javascript │ 1              │ 618         │ 3358         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ markdown   │ 6              │ 1151        │ 1678         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
+│ markdown   │ 5              │ 999         │ 1396         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ markup     │ 2              │ 482         │ 3220         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -2829,16 +2831,14 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ text       │ 2              │ 527         │ 267          │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ toml       │ 1              │ 147         │ 96           │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
-├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ txt        │ 1              │ 146         │ 245          │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ yaml       │ 1              │ 82          │ 151          │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 450            │ 156689      │ 721110       │ 142          │ 1699 (1.08%)     │ 9918 (1.38%)      │
+│ Total:     │ 447            │ 156238      │ 720546       │ 142          │ 1699 (1.09%)     │ 9918 (1.38%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 142 clones.
-time: 333.518ms
+time: 342.843ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>

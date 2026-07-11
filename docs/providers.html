@@ -48,7 +48,7 @@
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Custom Providers" href="custom-providers.html" />
+    <link rel="next" title="Custom and Local Providers" href="providers-custom.html" />
     <link rel="prev" title="Configuration" href="config.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -187,7 +187,7 @@
 <li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Providers</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
@@ -496,7 +496,7 @@ document.write(`
 <p>We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Requesty, Deepseek, Azure, and any OpenAI-compatible server (e.g. <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">llama-cpp-python</span></code>).</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>We are in the process of adding support for configurable <a class="reference external" href="custom-providers">custom providers</a>.</p>
+<p>We are in the process of adding support for configurable <a class="reference external" href="providers-custom">custom providers</a>.</p>
 </div>
 <p class="rubric">Provider Plugins (Entry Points)</p>
 <p>Third-party packages can register LLM providers via Python entry points, making them available immediately after <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code> without any configuration changes.</p>
@@ -565,13 +565,13 @@ document.write(`
 <p>You can find our model recommendations on the <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a> page.</p>
 <div class="toctree-wrapper compound">
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="custom-providers.html">Custom Providers</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="custom-providers.html#configuration">Configuration</a></li>
-<li class="toctree-l2"><a class="reference internal" href="custom-providers.html#usage">Usage</a></li>
-<li class="toctree-l2"><a class="reference internal" href="custom-providers.html#backward-compatibility">Backward Compatibility</a></li>
-<li class="toctree-l2"><a class="reference internal" href="custom-providers.html#implementation-details">Implementation Details</a></li>
-<li class="toctree-l2"><a class="reference internal" href="custom-providers.html#examples">Examples</a></li>
-<li class="toctree-l2"><a class="reference internal" href="custom-providers.html#related">Related</a></li>
+<li class="toctree-l1"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#ollama-local">Ollama (local)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#vllm-and-openai-compatible-servers">vLLM and OpenAI-compatible servers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#configuration">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#setting-a-default-model">Setting a default model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#backward-compatibility">Backward compatibility</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#related-discussions">Related discussions</a></li>
 </ul>
 </li>
 </ul>
@@ -794,11 +794,11 @@ ollama<span class="w"> </span>serve
       </div>
     </a>
     <a class="right-next"
-       href="custom-providers.html"
+       href="providers-custom.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Custom Providers</p>
+        <p class="prev-next-title">Custom and Local Providers</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

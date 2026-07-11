@@ -25,7 +25,7 @@
 - [TUI](https://gptme.org/docs/_sources/tui.rst)
 - [Configuration](https://gptme.org/docs/_sources/config.rst)
 - [Providers](https://gptme.org/docs/_sources/providers.rst)
-- [Custom Providers](https://gptme.org/docs/_sources/custom-providers.md)
+- [Custom and Local Providers](https://gptme.org/docs/_sources/providers-custom.rst)
 - [Choosing your model](https://gptme.org/docs/_sources/model-routing.md)
 - [Security Considerations](https://gptme.org/docs/_sources/security.rst)
 - [Features](https://gptme.org/docs/_sources/features.rst)
@@ -111,3 +111,4 @@
 - [<no title>](https://gptme.org/docs/_sources/automation/example_activity_summary.rst)
 - [<no title>](https://gptme.org/docs/_sources/automation/example_code_review.rst)
 - [<no title>](https://gptme.org/docs/_sources/computer-use-warning.rst)
+- [Custom Providers (moved)](https://gptme.org/docs/_sources/custom-providers.rst)
