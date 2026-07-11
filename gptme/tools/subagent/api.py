@@ -834,16 +834,27 @@ def subagent(
                     # Use _read_log() instead of status(): the thread is still alive here,
                     # so status() would return "running" and poison the result cache.
                     result = sa._read_log()
+                    # Clean up isolation first so preserved branch name can be
+                    # included in the result returned to callers.
+                    preserved_branch = _exec._cleanup_isolation(sa)
+                    if preserved_branch and isinstance(result.result, str):
+                        from .types import ReturnType as _ReturnType
+
+                        result = _ReturnType(
+                            result.status,
+                            f"{result.result}\n\nChanges preserved on branch "
+                            f"{preserved_branch!r}"
+                            f" — merge with: git merge {preserved_branch}",
+                            input_tokens=result.input_tokens,
+                            output_tokens=result.output_tokens,
+                        )
                     if not set_subagent_result_if_absent(agent_id, result):
-                        _exec._cleanup_isolation(sa)
                         return
                     try:
                         summary = _exec._summarize_result(result, max_chars=200)
                         notify_completion(agent_id, result.status, summary)
                     except Exception as e:
                         logger.warning(f"Failed to notify subagent completion: {e}")
-                    # Clean up worktree isolation
-                    _exec._cleanup_isolation(sa)
             finally:
                 _sem.release()
 
