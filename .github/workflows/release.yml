@@ -230,6 +230,12 @@ jobs:
               {print}' docs/changelog.rst > docs/changelog.rst.tmp
               mv docs/changelog.rst.tmp docs/changelog.rst
             }
+            # Verify the insertion actually happened (awk inserts nothing if no
+            # 'releases/' entry exists to anchor on)
+            grep -q "releases/${TAG}.md" docs/changelog.rst || {
+              echo "::error::Failed to insert releases/${TAG}.md into docs/changelog.rst toctree"
+              exit 1
+            }
 
             git add docs/changelog.rst "docs/releases/${TAG}.md"
             git commit --amend --no-edit

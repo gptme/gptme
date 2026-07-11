@@ -114,9 +114,13 @@ if [ "$DRY_RUN" = "false" ]; then
             # shellcheck disable=SC2064
             trap "rm -f '$TRUNCATED_FILE'" EXIT
             head -c "$GH_BODY_LIMIT" "$NOTES_FILE" > "$TRUNCATED_FILE"
-            REPO_SLUG=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-            printf '\n\n*(Changelog truncated — see the [full release notes in the docs](https://gptme.org/docs/changelog.html) or the [full diff](https://github.com/%s/compare/%s...%s))*\n' \
-                "$REPO_SLUG" "$NOTES_START" "$TAG" >> "$TRUNCATED_FILE"
+            if [ -n "$NOTES_START" ]; then
+                REPO_SLUG=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+                printf '\n\n*(Changelog truncated — see the [full release notes in the docs](https://gptme.org/docs/changelog.html) or the [full diff](https://github.com/%s/compare/%s...%s))*\n' \
+                    "$REPO_SLUG" "$NOTES_START" "$TAG" >> "$TRUNCATED_FILE"
+            else
+                printf '\n\n*(Changelog truncated — see the [full release notes in the docs](https://gptme.org/docs/changelog.html))*\n' >> "$TRUNCATED_FILE"
+            fi
             NOTES_FILE="$TRUNCATED_FILE"
         fi
 
