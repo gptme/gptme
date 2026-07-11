@@ -429,6 +429,20 @@ fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
 
 #[cfg(desktop)]
 async fn check_for_updates(app: tauri::AppHandle) {
+    // Skip if pubkey is absent or still a placeholder (key not yet configured)
+    let pubkey = app
+        .config()
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|v| v.get("pubkey"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if pubkey.is_empty() || pubkey.starts_with("PLACEHOLDER") {
+        log::debug!("Update check skipped: updater public key is not configured");
+        return;
+    }
+
     let updater = match app.updater() {
         Ok(u) => u,
         Err(e) => {
@@ -472,6 +486,14 @@ async fn check_for_updates(app: tauri::AppHandle) {
         );
         if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
             log::error!("Update install failed: {}", e);
+            MessageDialogBuilder::new(
+                app.dialog().clone(),
+                "Update Failed",
+                format!("Failed to install update v{}: {}", version, e),
+            )
+            .kind(MessageDialogKind::Error)
+            .buttons(MessageDialogButtons::Ok)
+            .show(|_| {});
         } else {
             log::info!("Update installed, restarting...");
             app.restart();
