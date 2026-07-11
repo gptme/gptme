@@ -913,8 +913,17 @@ def subagent_pipeline(
                         from .types import _subagents, _subagents_lock
 
                         with _subagents_lock:
+                            # Use the last match — _subagents is append-only so the
+                            # most recently spawned entry for this agent_id is last.
+                            # next() with a forward iterator would return the oldest
+                            # (stale) entry when the same id is reused across runs.
                             sa = next(
-                                (s for s in _subagents if s.agent_id == agent_id), None
+                                (
+                                    s
+                                    for s in reversed(_subagents)
+                                    if s.agent_id == agent_id
+                                ),
+                                None,
                             )
                         if sa:
                             _, fb_out = sa._read_token_stats()
