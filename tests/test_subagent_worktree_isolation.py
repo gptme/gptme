@@ -27,7 +27,6 @@ from gptme.tools.subagent.types import (
     _subagents_lock,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
@@ -89,7 +88,9 @@ def _patch_subagent_env(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
     monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
-    monkeypatch.setattr(subagent_execution, "_create_subagent_thread", lambda **kw: None)
+    monkeypatch.setattr(
+        subagent_execution, "_create_subagent_thread", lambda **kw: None
+    )
     monkeypatch.setattr(subagent_api, "notify_completion", lambda *a, **kw: None)
 
 
@@ -111,13 +112,12 @@ def test_isolation_worktree_enables_isolated_flag(monkeypatch, tmp_path, git_rep
     created: list[Path] = []
 
     monkeypatch.setattr(git_worktree, "get_git_root", lambda _: git_repo)
-    monkeypatch.setattr(
-        git_worktree,
-        "create_worktree",
-        lambda repo_path, branch_name=None, worktree_base=None: (
-            created.append(branch_name) or (tmp_path / "wts" / (branch_name or "wt"))
-        ),
-    )
+
+    def _mock_create_worktree(repo_path, branch_name=None, worktree_base=None):
+        created.append(branch_name)
+        return tmp_path / "wts" / (branch_name or "wt")
+
+    monkeypatch.setattr(git_worktree, "create_worktree", _mock_create_worktree)
     monkeypatch.setattr(subagent_execution, "_cleanup_isolation", lambda sa: None)
     _patch_subagent_env(monkeypatch, tmp_path)
 
@@ -144,11 +144,11 @@ def test_isolation_none_does_not_create_worktree(monkeypatch, tmp_path):
     git_worktree = importlib.import_module("gptme.util.git_worktree")
     create_calls: list = []
 
-    monkeypatch.setattr(
-        git_worktree,
-        "create_worktree",
-        lambda *a, **kw: create_calls.append(1) or tmp_path,
-    )
+    def _noop_create_worktree(*a, **kw):
+        create_calls.append(1)
+        return tmp_path
+
+    monkeypatch.setattr(git_worktree, "create_worktree", _noop_create_worktree)
     monkeypatch.setattr(subagent_execution, "_cleanup_isolation", lambda sa: None)
     _patch_subagent_env(monkeypatch, tmp_path)
 
@@ -194,7 +194,9 @@ def test_subagent_parallel_isolation_worktree_creates_per_agent_worktree(
         f"Expected {len(tasks)} worktrees created, got {len(created)}"
     )
     # Branch names should be distinct
-    assert len(set(created)) == len(tasks), "Each agent should get a distinct worktree branch"
+    assert len(set(created)) == len(tasks), (
+        "Each agent should get a distinct worktree branch"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -215,8 +217,6 @@ def test_cleanup_called_after_thread_completes(monkeypatch, tmp_path, git_repo):
             tmp_path / "wts" / (branch_name or "wt")
         ),
     )
-
-    orig_cleanup = subagent_execution._cleanup_isolation
 
     def recording_cleanup(sa):
         cleanup_calls.append(sa.agent_id)
@@ -303,7 +303,9 @@ def test_smart_cleanup_preserves_branch_when_worktree_has_changes(tmp_path):
     from gptme.util.git_worktree import create_worktree
 
     repo = _make_repo(tmp_path, "repo-dirty")
-    wt = create_worktree(repo, branch_name="dirty-agent-wt", worktree_base=tmp_path / "wts")
+    wt = create_worktree(
+        repo, branch_name="dirty-agent-wt", worktree_base=tmp_path / "wts"
+    )
 
     # Dirty the worktree (uncommitted change)
     (wt / "output.txt").write_text("agent result\n")
@@ -323,7 +325,9 @@ def test_smart_cleanup_preserves_branch_when_worktree_has_changes(tmp_path):
     preserved = subagent_execution._cleanup_isolation(sa)
 
     assert not wt.exists(), "Working tree directory should be removed"
-    assert preserved == "dirty-agent-wt", "Branch name should be returned when changes exist"
+    assert preserved == "dirty-agent-wt", (
+        "Branch name should be returned when changes exist"
+    )
 
     result = subprocess.run(
         ["git", "branch", "--list", "dirty-agent-wt"],
@@ -349,7 +353,9 @@ def test_smart_cleanup_removes_branch_when_worktree_is_clean(tmp_path):
     from gptme.util.git_worktree import create_worktree
 
     repo = _make_repo(tmp_path, "repo-clean")
-    wt = create_worktree(repo, branch_name="clean-agent-wt", worktree_base=tmp_path / "wts")
+    wt = create_worktree(
+        repo, branch_name="clean-agent-wt", worktree_base=tmp_path / "wts"
+    )
 
     sa = Subagent(
         agent_id="clean-agent",
@@ -375,7 +381,9 @@ def test_smart_cleanup_removes_branch_when_worktree_is_clean(tmp_path):
         text=True,
         check=False,
     )
-    assert "clean-agent-wt" not in result.stdout, "Branch should be deleted (no changes)"
+    assert "clean-agent-wt" not in result.stdout, (
+        "Branch should be deleted (no changes)"
+    )
 
 
 def test_legacy_isolated_bool_always_does_full_cleanup(tmp_path):

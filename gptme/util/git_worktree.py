@@ -73,7 +73,9 @@ def has_changes(worktree_path: Path) -> bool:
             timeout=10,
         )
         if reflog_r.returncode == 0:
-            shas = [l.strip() for l in reflog_r.stdout.splitlines() if l.strip()]
+            shas = [
+                line.strip() for line in reflog_r.stdout.splitlines() if line.strip()
+            ]
             if shas:
                 creation_sha = shas[-1]  # oldest reflog entry = creation point
                 ahead_r = subprocess.run(

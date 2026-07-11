@@ -791,6 +791,15 @@ def _monitor_subprocess(
         status = "failure"
         result = f"Process exited with code {subagent.process.returncode}"
 
+    # Clean up worktree isolation; capture preserved branch so it can be
+    # included in the result that callers receive via subagent_wait() / subagent_parallel().
+    preserved_branch = _cleanup_isolation(subagent)
+    if preserved_branch and isinstance(result, str):
+        result = (
+            f"{result}\n\nChanges preserved on branch {preserved_branch!r}"
+            f" — merge with: git merge {preserved_branch}"
+        )
+
     # Cache the result in module-level dict (Subagent is frozen)
     final_result = ReturnType(
         status,
@@ -799,7 +808,6 @@ def _monitor_subprocess(
         output_tokens=output_tokens,
     )
     if not set_subagent_result_if_absent(subagent.agent_id, final_result):
-        _cleanup_isolation(subagent)
         return
 
     # Notify via hook system (fire-and-forget-then-get-alerted pattern)
@@ -808,9 +816,6 @@ def _monitor_subprocess(
         notify_completion(subagent.agent_id, status, summary)
     except Exception as e:
         logger.warning(f"Failed to notify subagent completion: {e}")
-
-    # Clean up worktree isolation
-    _cleanup_isolation(subagent)
 
 
 def _run_planner(
