@@ -35,13 +35,20 @@
     "externalBin": ["../bins/gptme-server"],
     "macOS": {
       "infoPlist": "./Info.plist"
-    }
+    },
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "deep-link": {
       "desktop": {
         "schemes": ["gptme"]
       }
+    },
+    "updater": {
+      "pubkey": "",
+      "endpoints": [
+        "https://github.com/gptme/gptme/releases/latest/download/latest.json"
+      ]
     }
   }
 }
