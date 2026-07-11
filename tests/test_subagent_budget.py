@@ -388,3 +388,79 @@ class TestSubagentBatchBudget:
         # All results pre-populated as budget_exceeded
         assert job.results["a"].status == "budget_exceeded"
         assert job.results["b"].status == "budget_exceeded"
+
+
+# ---------------------------------------------------------------------------
+# BatchJob.wait_all timeout-retry budget tests
+# ---------------------------------------------------------------------------
+
+
+class TestBatchJobTimeoutRetry:
+    """Tests that wait_all() re-waits timed-out agents on a subsequent call.
+
+    Regression guard for the bug where timeout placeholders in self.results
+    caused a second wait_all() call to skip those agents entirely — meaning
+    their real output_tokens were never recorded in the shared budget.
+    """
+
+    def test_timeout_then_retry_records_tokens(self):
+        """Second wait_all() fetches the real result and records tokens."""
+        budget = SubagentBudget(total=1_000)
+        job = BatchJob(agent_ids=["a"], budget=budget)
+
+        # Simulate first wait_all() timing out: placeholder stored with no tokens.
+        job.results["a"] = ReturnType("timeout", "Timed out after 1s")
+        assert budget.spent() == 0
+
+        # Simulate second wait_all() where agent "a" has now completed.
+        real_result = ReturnType("success", "done", input_tokens=50, output_tokens=400)
+
+        def fake_wait_one(_aid, _deadline):
+            return _aid, real_result
+
+        # Patch the inner _wait_one by controlling subagent_wait directly.
+        # We call wait_all() and intercept at the subagent_wait level.
+        with patch(
+            "gptme.tools.subagent.batch.subagent_wait",
+            return_value={
+                "status": "success",
+                "result": "done",
+                "input_tokens": 50,
+                "output_tokens": 400,
+            },
+        ):
+            job.wait_all(timeout=5)
+
+        # The real result should have replaced the timeout placeholder.
+        assert job.results["a"].status == "success"
+        assert job.results["a"].output_tokens == 400
+        # Budget should now reflect the real spend.
+        assert budget.spent() == 400
+
+    def test_timeout_placeholder_not_double_counted(self):
+        """A successful result recorded in first wait_all() is not re-recorded."""
+        budget = SubagentBudget(total=1_000)
+        job = BatchJob(agent_ids=["a", "b"], budget=budget)
+
+        # Agent "a" completed in the first call; "b" timed out.
+        job.results["a"] = ReturnType(
+            "success", "ok", input_tokens=10, output_tokens=200
+        )
+        job.results["b"] = ReturnType("timeout", "Timed out after 1s")
+        job._budget_recorded_ids.add("a")
+        budget.record(200)
+
+        # Second call: "b" now completes.
+        with patch(
+            "gptme.tools.subagent.batch.subagent_wait",
+            return_value={
+                "status": "success",
+                "result": "ok",
+                "input_tokens": 10,
+                "output_tokens": 300,
+            },
+        ):
+            job.wait_all(timeout=5)
+
+        # "a" must not be double-counted; "b" must now be counted.
+        assert budget.spent() == 500  # 200 (a) + 300 (b)

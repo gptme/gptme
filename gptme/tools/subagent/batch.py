@@ -196,13 +196,20 @@ class BatchJob:
             futures = {
                 pool.submit(_wait_one, aid, deadline): aid
                 for aid in self.agent_ids
-                if aid not in self.results
+                # Re-wait agents whose previous wait_all() call timed out —
+                # their placeholder result has output_tokens=None, so a naive
+                # "skip if already in results" would leave the budget undercounted
+                # when the agent eventually finishes in a later call.
+                if aid not in self.results or self.results[aid].status == "timeout"
             }
             try:
                 for future in as_completed(futures, timeout=timeout):
                     agent_id, result = future.result()
                     with self._lock:
-                        if agent_id not in self.results:
+                        prev = self.results.get(agent_id)
+                        # Overwrite a prior timeout placeholder with the real result;
+                        # never overwrite a non-timeout (already-final) result.
+                        if prev is None or prev.status == "timeout":
                             self.results[agent_id] = result
 
                     # Cancel remaining agents on first failure/timeout
@@ -233,7 +240,10 @@ class BatchJob:
                 timed_out_ids: list[str] = []
                 for aid in futures.values():
                     with self._lock:
-                        if aid not in self.results:
+                        prev = self.results.get(aid)
+                        # Only set/keep the timeout placeholder if no final result
+                        # is stored yet (don't overwrite a real result that snuck in).
+                        if prev is None or prev.status == "timeout":
                             self.results[aid] = ReturnType(
                                 "timeout", f"Timed out after {timeout}s"
                             )
