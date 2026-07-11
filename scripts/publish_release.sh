@@ -76,7 +76,9 @@ echo "Pushing ${TAG} to origin..."
 if [ "$DRY_RUN" = "false" ]; then
     if [ "$PRERELEASE" = "false" ]; then
         # Stable releases: push version bump commit to master.
-        # Requires the user/bot to have branch protection bypass rights.
+        # Requires branch ruleset bypass rights: in CI this is the deploy
+        # key from the `release` environment (set up via actions/checkout
+        # ssh-key); locally it's the maintainer's own credentials.
         git push origin HEAD:master
     else
         # Pre-releases: skip the branch push entirely.
