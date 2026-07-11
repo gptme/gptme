@@ -1,11 +1,11 @@
-Local and Alternative Models
-============================
+Custom and Local Providers
+==========================
 
-This guide covers **Ollama**, **Groq**, and **vLLM** (or any OpenAI-compatible server) —
-providers that are not OpenAI, Anthropic, or OpenRouter.
+This page covers **Ollama**, **Groq**, **vLLM**, and any other
+OpenAI-compatible server — plus how to declare a reusable
+``[[providers]]`` block in your config so gptme can find them by name.
 
-For the full provider list and API keys, see :doc:`providers`. For the ``[[providers]]``
-config syntax, see :doc:`custom-providers`.
+For the full list of built-in providers and API keys, see :doc:`providers`.
 
 Ollama (local)
 --------------
@@ -31,7 +31,7 @@ Ollama's OpenAI-compatible API.
     OPENAI_BASE_URL = "http://127.0.0.1:11434/v1"
     MODEL = "local/llama3.2:3b"
 
-Or use a named custom provider (see :doc:`custom-providers`):
+Or use a named provider entry (see `Configuration`_ below):
 
 .. code-block:: toml
 
@@ -94,6 +94,16 @@ Or in ``~/.config/gptme/config.toml``:
     GROQ_API_KEY = "gsk_..."
     MODEL = "groq/llama-3.3-70b-versatile"
 
+Or as a named provider entry:
+
+.. code-block:: toml
+
+    [[providers]]
+    name = "groq"
+    base_url = "https://api.groq.com/openai/v1"
+    api_key_env = "GROQ_API_KEY"
+    default_model = "llama-3.1-70b-versatile"
+
 **Popular models:**
 
 - ``groq/llama-3.3-70b-versatile`` — fast 70B, good tool use
@@ -119,10 +129,10 @@ Model list: https://console.groq.com/docs/models
    ``groq/<model>`` prefix (see also :doc:`providers`).
 
 vLLM and OpenAI-compatible servers
-----------------------------------
+-----------------------------------
 
 Any server exposing ``/v1/chat/completions`` works with the ``local/`` prefix or a
-custom ``[[providers]]`` entry.
+named ``[[providers]]`` entry.
 
 **Example (vLLM):**
 
@@ -135,7 +145,7 @@ custom ``[[providers]]`` entry.
     OPENAI_BASE_URL="http://localhost:8000/v1" \
       gptme 'hello' -m local/meta-llama/Llama-3.1-8B-Instruct
 
-**Custom provider:**
+**Or as a named provider entry:**
 
 .. code-block:: toml
 
@@ -167,6 +177,54 @@ Pre-cache tiktoken once while online to avoid this:
    estimate (~4 chars/token) when the download fails. PyPI releases do not yet
    include this fallback, so the pre-cache step is recommended regardless.
 
+Configuration
+-------------
+
+Add custom providers to ``~/.config/gptme/config.toml``:
+
+.. code-block:: toml
+
+    [[providers]]
+    name = "vllm-local"
+    base_url = "http://localhost:8000/v1"
+    default_model = "meta-llama/Llama-3.1-8B"
+
+    [[providers]]
+    name = "azure-gpt4"
+    base_url = "https://my-azure-endpoint.openai.azure.com/openai/deployments"
+    api_key_env = "AZURE_API_KEY"
+    default_model = "gpt-4"
+
+    [[providers]]
+    name = "groq"
+    base_url = "https://api.groq.com/openai/v1"
+    api_key_env = "GROQ_API_KEY"
+    default_model = "llama-3.1-70b-versatile"
+
+**Configuration fields:**
+
+================== ======== ====================================================
+Field              Required Description
+================== ======== ====================================================
+``name``            Yes      Provider identifier used in model selection
+``base_url``        Yes      Base URL for the OpenAI-compatible API
+``api_key``         No       API key directly in config (not recommended)
+``api_key_env``     No       Environment variable name containing the API key
+``default_model``   No       Default model when only provider name is specified
+================== ======== ====================================================
+
+**API key resolution order:**
+
+1. ``api_key = "key-here"`` (not recommended for security)
+2. ``api_key_env = "MY_API_KEY"``
+3. ``${PROVIDER_NAME}_API_KEY`` (e.g. ``GROQ_API_KEY`` for a provider named ``groq``)
+
+**Listing configured providers:**
+
+.. code-block:: sh
+
+    gptme-util providers list
+
 Setting a default model
 -----------------------
 
@@ -190,6 +248,13 @@ Setting a default model
 
     [env]
     MODEL = "local/llama3.2:3b"
+
+Backward compatibility
+----------------------
+
+The existing ``local`` provider continues to work using the ``OPENAI_BASE_URL``
+and ``OPENAI_API_KEY`` environment variables. No changes are required for
+existing configurations.
 
 Related discussions
 -------------------

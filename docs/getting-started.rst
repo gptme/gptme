@@ -116,7 +116,7 @@ For better results on coding tasks, use a larger model:
    :doc:`config` to point to a local model, or pass ``-m local/MODEL_NAME`` to use the
    same model for both chat and summaries.
 
-See :doc:`local-models` for Ollama, Groq, vLLM, and common setup errors, or :doc:`providers`
+See :doc:`custom-providers` for Ollama, Groq, vLLM, and common setup errors, or :doc:`providers`
 for the full provider list.
 
 
