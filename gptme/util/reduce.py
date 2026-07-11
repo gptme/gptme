@@ -371,24 +371,54 @@ def proactive_summarize_log(
     if not middle:
         return log
 
+    # Guard: push the cut backward until no tool-call/result pair straddles the boundary.
+    # An assistant message with a tool call must stay together with its tool result
+    # (the immediately-following system message).  A system message at the head of
+    # `recent` whose anchor (nearest preceding non-system message) is still in `middle`
+    # would become orphaned — so we absorb it into `recent` until the boundary is safe.
+    while middle and (
+        message_contains_tool_use(middle[-1]) or (recent and recent[0].role == "system")
+    ):
+        recent.insert(0, middle.pop())
+        if not middle:
+            break
+
+    if not middle:
+        return log
+
+    # Separate pinned messages from the middle block — they must never be compressed.
+    # They are placed between the summary and the recent tail so their content survives.
+    pinned_middle = [m for m in middle if m.pinned]
+    summarize_middle = [m for m in middle if not m.pinned]
+    if not summarize_middle:
+        return log
+
     # Lazy import avoids circular dependency at module load time.
     from ..llm import summarize as _llm_summarize  # fmt: skip
 
     logger.info(
         "Proactive summarize triggered: %dk tokens (threshold %d%% of %dk context)"
-        " — summarizing %d middle messages",
+        " — summarizing %d middle messages (%d pinned preserved)",
         tokens // 1000,
         int(threshold * 100),
         model.context // 1000,
-        len(middle),
+        len(summarize_middle),
+        len(pinned_middle),
     )
     console.log(
         f"[context] Approaching context limit ({tokens // 1000}k / {int(limit) // 1000}k),"
-        f" summarizing {len(middle)} older messages..."
+        f" summarizing {len(summarize_middle)} older messages..."
     )
 
-    summary_msg = _llm_summarize(middle)
-    result = initial_system + [summary_msg] + recent
+    try:
+        summary_msg = _llm_summarize(summarize_middle)
+    except Exception:
+        logger.warning(
+            "Proactive summarize failed; falling back to unreduced log", exc_info=True
+        )
+        return log
+
+    result = initial_system + [summary_msg] + pinned_middle + recent
     new_tokens = len_tokens(result, model=model.model)
     saved = tokens - new_tokens
     console.log(

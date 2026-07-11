@@ -520,3 +520,130 @@ def test_proactive_summarize_env_var(monkeypatch):
         set_default_model(original_model) if original_model else _default_model_var.set(
             None
         )
+
+
+def test_proactive_summarize_pinned_preserved(monkeypatch):
+    """Pinned messages in the middle block are kept verbatim, not summarized."""
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        fake_summary = Message("system", "Summary of old stuff")
+        monkeypatch.setattr("gptme.llm.summarize", lambda _msgs: fake_summary)
+
+        pinned_msg = Message("system", "IMPORTANT PINNED INSTRUCTION", pinned=True)
+        msgs = [
+            Message("system", "You are helpful."),  # initial system — kept
+            Message("user", "word " * 4),  # old — summarized
+            pinned_msg,  # pinned — must survive verbatim
+            Message("assistant", "word " * 4),  # old — summarized
+            Message("user", "recent q"),  # recent — kept
+            Message("assistant", "recent a"),  # recent — kept
+        ]
+
+        result = proactive_summarize_log(msgs, threshold=0.5, recent_keep=2)
+
+        # Pinned message must appear verbatim in the result.
+        assert any(m is pinned_msg for m in result), (
+            "Pinned message must be preserved verbatim, not compressed into the summary"
+        )
+        # And not be the only survivor — summary + recent must also be present.
+        assert any("Summary" in m.content for m in result)
+        assert any("recent q" in m.content for m in result)
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+
+
+def test_proactive_summarize_tool_call_boundary(monkeypatch):
+    """Tool-call / tool-result pairs must not be split at the middle/recent boundary."""
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        summarized: list[list] = []
+
+        def fake_summarize(msgs):
+            summarized.append(msgs)
+            return Message("system", "Summary")
+
+        monkeypatch.setattr("gptme.llm.summarize", fake_summarize)
+
+        tool_use_msg = Message(
+            "assistant",
+            content="I'll run this.\n```shell\necho hi\n```",
+        )
+        tool_result_msg = Message("system", "hi")  # tool result for tool_use_msg
+
+        msgs = [
+            Message("system", "System."),  # initial system
+            Message("user", "word " * 4),  # old — candidate for middle
+            Message("assistant", "word " * 4),  # old — candidate for middle
+            tool_use_msg,  # MUST NOT be in middle alone
+            tool_result_msg,  # MUST stay with tool_use_msg
+            Message("user", "done?"),  # recent
+            Message("assistant", "yes"),  # recent
+        ]
+
+        result = proactive_summarize_log(msgs, threshold=0.5, recent_keep=2)
+
+        # If summarization fired, check that tool_use_msg and tool_result_msg
+        # ended up on the SAME side of the split (both in middle OR both in recent).
+        if summarized:
+            middle_summarized = summarized[0]
+            # tool_use_msg in middle ↔ tool_result_msg also in middle
+            tool_use_in_middle = any(m is tool_use_msg for m in middle_summarized)
+            tool_result_in_middle = any(m is tool_result_msg for m in middle_summarized)
+            assert tool_use_in_middle == tool_result_in_middle, (
+                "tool-call and tool-result must not be split across middle/recent"
+            )
+
+        # Whatever happened, the result must contain the recent messages.
+        assert any("done?" in m.content for m in result)
+        assert any("yes" in m.content for m in result)
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+
+
+def test_proactive_summarize_error_falls_back(monkeypatch):
+    """If _llm_summarize raises, proactive_summarize_log returns the original log."""
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        def failing_summarize(_msgs):
+            raise RuntimeError("LLM unavailable")
+
+        monkeypatch.setattr("gptme.llm.summarize", failing_summarize)
+
+        msgs = [
+            Message("system", "System."),
+            Message("user", "word " * 5),
+            Message("assistant", "word " * 5),
+            Message("user", "recent q"),
+            Message("assistant", "recent a"),
+        ]
+
+        result = proactive_summarize_log(msgs, threshold=0.5, recent_keep=2)
+
+        # Must return the original list unchanged (safe fallback).
+        assert result is msgs, "On summarize error, original log must be returned as-is"
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
