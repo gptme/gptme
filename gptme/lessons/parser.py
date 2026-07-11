@@ -7,6 +7,13 @@ from pathlib import Path
 try:
     import yaml
 
+    try:
+        # libyaml-backed loader is ~10x faster; matters when indexing hundreds
+        # of lesson files at startup.
+        from yaml import CSafeLoader as _YamlSafeLoader
+    except ImportError:
+        from yaml import SafeLoader as _YamlSafeLoader
+
     HAS_YAML = True
 except ImportError:
     HAS_YAML = False
@@ -328,7 +335,7 @@ def parse_lesson(path: Path) -> Lesson:
                 # Pre-process frontmatter to handle unquoted glob patterns
                 # that look like YAML aliases (e.g., "globs: *,**/*")
                 frontmatter_str = _fix_unquoted_globs(frontmatter_str)
-                frontmatter = yaml.safe_load(frontmatter_str)
+                frontmatter = yaml.load(frontmatter_str, Loader=_YamlSafeLoader)
                 if frontmatter:
                     # Detect format based on file extension and frontmatter structure
                     has_globs = "globs" in frontmatter

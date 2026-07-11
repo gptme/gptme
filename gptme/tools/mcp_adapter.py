@@ -175,13 +175,15 @@ def _call_mcp_tool_with_retry(
 # Function to create MCP tools
 def create_mcp_tools(config: Config) -> list[ToolSpec]:
     """Create tool specs for all MCP tools from the config"""
-    from ..mcp.client import MCPClient
-
     tool_specs: list[ToolSpec] = []
 
-    # Skip if MCP is not enabled
-    if not config.mcp.enabled:
+    # Skip if MCP is not enabled or no servers are configured.
+    # Checked before the MCPClient import: pulling in the mcp SDK costs
+    # ~0.5s+ at startup, so don't pay it when there is nothing to connect to.
+    if not config.mcp.enabled or not config.mcp.servers:
         return tool_specs
+
+    from ..mcp.client import MCPClient
 
     # Initialize connections to all servers
     for server_config in config.mcp.servers:

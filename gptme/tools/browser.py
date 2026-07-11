@@ -95,12 +95,9 @@ from ..util.gh import (
 )
 from .base import ToolFunction, ToolSpec, ToolUse
 
-try:
-    import pypdf
-
-    has_pypdf = True
-except ImportError:
-    has_pypdf = False
+# Availability check only — pypdf itself is imported lazily in _read_pdf_url,
+# so PDF support doesn't add ~250ms to every startup.
+has_pypdf = importlib.util.find_spec("pypdf") is not None
 
 
 def has_playwright() -> bool:
@@ -636,6 +633,8 @@ def _read_pdf_url(url: str, max_pages: int | None = None) -> str:
     """
     if not has_pypdf:
         return "Error: PDF support requires pypdf. Install with: pip install pypdf"
+
+    import pypdf
 
     # Use default if not specified
     if max_pages is None:

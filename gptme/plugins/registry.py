@@ -58,10 +58,14 @@ def discover_all_plugins(
         )
 
     # 2. Entry-point plugins (new gptme.plugins group)
+    # Pass the allowlist down so disabled plugins are never imported — loading
+    # an entry point imports its whole package, which can take seconds for
+    # plugins with heavy dependencies.
     # Dedup against folder plugins — an editable-install (pip install -e .) will
     # register the same plugin both as a folder plugin and an entry-point plugin.
     folder_names = {p.name for p in plugins}
-    for ep_plugin in discover_entrypoint_plugins():
+    enabled_set = frozenset(enabled_plugins) if enabled_plugins is not None else None
+    for ep_plugin in discover_entrypoint_plugins(enabled_set):
         if ep_plugin.name in folder_names:
             # Warn if the entry-point version has capabilities the folder adapter doesn't carry
             if ep_plugin.provider or ep_plugin.tools:

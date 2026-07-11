@@ -1,5 +1,6 @@
 """Tests for the headless JSON output mode (--output-format json)."""
 
+import importlib
 import io
 import json
 import sys
@@ -54,11 +55,11 @@ def _invoke_cli_with_captured_goodbye(monkeypatch, tmp_path: Path, args: list[st
         ),
         project=None,
     )
-    monkeypatch.setattr(cli, "setup_config_from_cli", lambda **_: fake_config)
-    monkeypatch.setattr(cli, "init_tools", lambda _: [])
-    monkeypatch.setattr(cli, "get_prompt", lambda **_: [])
-    monkeypatch.setattr(cli, "init_telemetry", lambda **_: None)
-    monkeypatch.setattr(cli, "set_interruptible", lambda: None)
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.util.interrupt.set_interruptible", lambda: None)
     monkeypatch.setattr(cli.signal, "signal", lambda *args, **kwargs: None)
 
     runner = CliRunner()
@@ -154,15 +155,17 @@ class TestOutputFormatValidation:
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
         monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-        monkeypatch.setattr(cli, "setup_config_from_cli", lambda **_: fake_config)
-        monkeypatch.setattr(cli, "init_tools", lambda _: [])
-        monkeypatch.setattr(cli, "get_prompt", lambda **_: [])
-        monkeypatch.setattr(cli, "init_telemetry", lambda **_: None)
-        monkeypatch.setattr(cli, "set_interruptible", lambda: None)
+        monkeypatch.setattr(
+            "gptme.config.setup_config_from_cli", lambda **_: fake_config
+        )
+        monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+        monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+        monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+        monkeypatch.setattr("gptme.util.interrupt.set_interruptible", lambda: None)
         monkeypatch.setattr(cli.signal, "signal", lambda *args, **kwargs: None)
 
         runner = CliRunner()
-        with patch("gptme.cli.main.chat", new=fake_chat):
+        with patch.object(importlib.import_module("gptme.chat"), "chat", new=fake_chat):
             result = runner.invoke(
                 cli.main,
                 ["--output-format", "json", "hello"],
@@ -283,7 +286,7 @@ class TestOutputFormatValidation:
                 '{"role":"user","content":"hello"}\n'
             )
 
-        monkeypatch.setattr(cli, "chat", fake_chat)
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", fake_chat)
         result, goodbye_handler = _invoke_cli_with_captured_goodbye(
             monkeypatch,
             tmp_path,
@@ -308,7 +311,7 @@ class TestOutputFormatValidation:
             )
             raise RuntimeError(f"Another gptme instance is using {logdir}")
 
-        monkeypatch.setattr(cli, "chat", fake_chat)
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", fake_chat)
         result, goodbye_handler = _invoke_cli_with_captured_goodbye(
             monkeypatch,
             tmp_path,
@@ -652,7 +655,7 @@ class TestJSONOutputIntegration:
                 set_output_format(prev_fmt)
 
         runner = CliRunner()
-        with patch("gptme.cli.main.chat", new=fake_chat):
+        with patch.object(importlib.import_module("gptme.chat"), "chat", new=fake_chat):
             runner.invoke(
                 cli.main,
                 ["--output-format", "json", "--non-interactive", "hello"],
@@ -755,7 +758,7 @@ class TestJSONOutputIntegration:
             received_format.append(output_format)
 
         runner = CliRunner()
-        with patch("gptme.cli.main.chat", new=fake_chat):
+        with patch.object(importlib.import_module("gptme.chat"), "chat", new=fake_chat):
             runner.invoke(
                 cli.main,
                 ["--output-format", "json", "--non-interactive", "hello"],

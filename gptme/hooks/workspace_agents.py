@@ -477,6 +477,44 @@ def _get_process_cwd(pid: int) -> str | None:
     return None
 
 
+def _get_process_cwds(pids: list[int]) -> dict[int, str]:
+    """Get CWDs for multiple processes, batched where supported.
+
+    On macOS this issues a single ``lsof`` call for all PIDs instead of one
+    per PID (~50ms each), which dominated session-start agent scans on
+    machines with several agent processes running.
+    """
+    if not pids:
+        return {}
+    if platform.system() == "Darwin":
+        try:
+            # No check=True: lsof exits non-zero when any PID is gone but
+            # still prints results for the live ones.
+            proc = subprocess.run(
+                ["lsof", "-a", "-p", ",".join(map(str, pids)), "-d", "cwd", "-Fpn"],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=10,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return {}
+        cwds: dict[int, str] = {}
+        current: int | None = None
+        for line in proc.stdout.splitlines():
+            if line.startswith("p"):
+                try:
+                    current = int(line[1:])
+                except ValueError:
+                    current = None
+            elif line.startswith("n") and current is not None:
+                cwds[current] = line[1:]
+        return cwds
+    # Linux/Windows: per-PID paths are cheap (procfs) or already per-PID APIs.
+    return {pid: cwd for pid in pids if (cwd := _get_process_cwd(pid))}
+
+
 def _get_process_cmdline(pid: int) -> list[str]:
     """Get process command-line args, cross-platform."""
     system = platform.system()
@@ -1327,6 +1365,8 @@ def scan_agents(workspace: str | None = None) -> list[AgentInfo]:
     cmdlines = _get_all_cmdlines()
     pids = sorted(cmdlines) if cmdlines is not None else _get_all_pids()
 
+    # First pass: find candidate agent processes by cmdline (no subprocesses).
+    candidates: list[tuple[int, list[str], str]] = []
     for pid in pids:
         if pid == my_pid:
             continue
@@ -1341,7 +1381,13 @@ def scan_agents(workspace: str | None = None) -> list[AgentInfo]:
         if not runtime:
             continue
 
-        cwd = _get_process_cwd(pid)
+        candidates.append((pid, cmdline, runtime))
+
+    # Second pass: fetch all candidate CWDs in one batched call.
+    cwds = _get_process_cwds([pid for pid, _, _ in candidates])
+
+    for pid, cmdline, runtime in candidates:
+        cwd = cwds.get(pid)
         if not cwd:
             continue
 
