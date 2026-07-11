@@ -82,8 +82,11 @@ def _write_conversation(
 def test_help(runner: CliRunner):
     result = runner.invoke(cli.main, ["--help"])
     assert result.exit_code == 0
-    assert "gptme-util skills list" in result.output
-    assert "gptme-util skills show NAME" in result.output
+    assert "gptme skills list" in result.output
+    assert "gptme skills show NAME" in result.output
+    assert "Available tools:" in result.output
+    # plugin loading during help rendering should not leak status lines
+    assert "Using plugins" not in result.output
 
 
 def test_discover_gptme_plugins_finds_external_binaries(

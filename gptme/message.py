@@ -627,7 +627,7 @@ def print_msg(
         shown += 1
     if skipped_hidden:
         console.print(
-            f"[dim]{skipped_hidden} hidden system messages skipped (/log --hidden to show)[/]"
+            f"[dim]Skipped {skipped_hidden} hidden system messages (/log --hidden to show)[/]"
         )
     return shown
 

@@ -311,9 +311,13 @@ def init_logging(verbose, *, stderr: bool = True, compact: bool = True):
     )
     if compact:
         # Give console.log() status lines (Using model/logdir/...) the same
-        # "·" marker instead of a timestamp, matching the log lines above.
+        # treatment as INFO log lines: a dim "·" marker instead of a
+        # timestamp, and dimmed message text.
+        from rich.theme import Theme
+
         console._log_render.time_format = "·"
         console._log_render.omit_repeated_times = False
+        console.push_theme(Theme({"log.message": "dim"}))
 
     # anthropic spams debug logs for every request
     logging.getLogger("anthropic").setLevel(logging.INFO)
