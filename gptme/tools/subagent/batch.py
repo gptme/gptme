@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import cast
 
 from .api import subagent, subagent_cancel, subagent_wait
-from .types import ReturnType
+from .types import ReturnType, SubagentBudget
 
 logger = logging.getLogger(__name__)
 
@@ -420,6 +420,7 @@ def subagent_batch(
     context_turns: int | None = None,
     context_window: int | None = None,
     redact_secrets: bool = True,
+    budget: SubagentBudget | None = None,
 ) -> BatchJob:
     """Start multiple subagents in parallel and return a BatchJob to manage them.
 
@@ -480,8 +481,18 @@ def subagent_batch(
     """
     job = BatchJob(agent_ids=[t[0] for t in tasks], output_schema=output_schema)
 
-    # Start all subagents (completions delivered via hooks)
+    # Start subagents, skipping any after the budget is exhausted
+    started: list[str] = []
     for agent_id, prompt in tasks:
+        if budget is not None and budget.exhausted():
+            logger.debug(
+                "subagent_batch: budget exhausted, skipping agent '%s'", agent_id
+            )
+            with job._lock:
+                job.results[agent_id] = ReturnType(
+                    "budget_exceeded", "Budget exhausted before this agent could start"
+                )
+            continue
         subagent(
             agent_id=agent_id,
             prompt=prompt,
@@ -497,8 +508,9 @@ def subagent_batch(
             context_window=context_window,
             redact_secrets=redact_secrets,
         )
+        started.append(agent_id)
 
-    logger.info(f"Started batch of {len(tasks)} subagents: {job.agent_ids}")
+    logger.info(f"Started batch of {len(started)} subagents: {started}")
     return job
 
 
@@ -517,6 +529,7 @@ def subagent_parallel(
     context_window: int | None = None,
     redact_secrets: bool = True,
     cancel_on_failure: bool = False,
+    budget: SubagentBudget | None = None,
 ) -> list[dict]:
     """Fan out N subagents in parallel, wait for all, return results as an ordered list.
 
@@ -574,12 +587,20 @@ def subagent_parallel(
             waste resources. Equivalent to calling ``subagent_cancel()``
             manually after ``subagent_wait_any()`` detects a failure, but
             handled automatically inside the parallel wait.
+        budget: Optional shared token budget. When set, each agent's output
+            tokens are recorded after it completes, and any agent whose spawn
+            is attempted after the budget is exhausted is returned immediately
+            with ``status="budget_exceeded"`` without being started. Agents
+            already running when the budget hits zero are allowed to finish
+            normally. Pass a ``SubagentBudget`` to share a budget across
+            multiple ``subagent_parallel()`` calls (dynamic fan-out loop).
 
     Returns:
         List of result dicts in the same order as ``tasks``. Each dict has
-        ``"status"`` (``"success"`` / ``"failure"`` / ``"timeout"``) and
-        ``"result"`` (parsed object when ``output_schema`` is set, else the
-        summary text from the subagent's ``complete`` block).
+        ``"status"`` (``"success"`` / ``"failure"`` / ``"timeout"`` /
+        ``"budget_exceeded"``) and ``"result"`` (parsed object when
+        ``output_schema`` is set, else the summary text from the subagent's
+        ``complete`` block).
 
     Example::
 
@@ -622,14 +643,29 @@ def subagent_parallel(
             if r["status"] == "success":
                 analysis = r["result"]  # already a validated dict
                 print(f"Score: {analysis['score']}, Issues: {analysis['issues']}")
+
+        # Budget-aware dynamic loop (spawn until budget runs out)
+        from gptme.tools.subagent import SubagentBudget
+        budget = SubagentBudget(total=200_000)
+        while not budget.exhausted():
+            results = subagent_parallel(next_batch, budget=budget)
+            # items skipped after budget exhaustion have status="budget_exceeded"
     """
     if not tasks:
         return []
 
-    # Start all subagents; on failure, cancel any already-started ones to avoid orphans
+    # Track which agent_ids were skipped due to budget exhaustion vs actually started.
     started_ids: list[str] = []
+    budget_exceeded_ids: set[str] = set()
+
     try:
         for agent_id, prompt in tasks:
+            if budget is not None and budget.exhausted():
+                budget_exceeded_ids.add(agent_id)
+                logger.debug(
+                    "subagent_parallel: budget exhausted, skipping agent '%s'", agent_id
+                )
+                continue
             subagent(
                 agent_id=agent_id,
                 prompt=prompt,
@@ -654,17 +690,34 @@ def subagent_parallel(
                 pass
         raise
 
-    logger.info(f"subagent_parallel: started {len(tasks)} subagents")
+    logger.info(
+        "subagent_parallel: started %d subagents%s",
+        len(started_ids),
+        f", skipped {len(budget_exceeded_ids)} (budget exhausted)"
+        if budget_exceeded_ids
+        else "",
+    )
 
-    # Collect results in parallel using BatchJob
-    job = BatchJob(agent_ids=[t[0] for t in tasks])
-    job.wait_all(timeout=timeout, cancel_on_failure=cancel_on_failure)
+    # Collect results from started agents in parallel
+    job = BatchJob(agent_ids=started_ids)
+    if started_ids:
+        job.wait_all(timeout=timeout, cancel_on_failure=cancel_on_failure)
 
-    # Return results in input order; fall back to failure for missing results.
-    # When output_schema is set, parse the JSON result against the schema.
+    # Record output tokens from completed agents into the shared budget
+    if budget is not None:
+        for result in job.results.values():
+            if result.output_tokens is not None:
+                budget.record(result.output_tokens)
+
+    # Build ordered results, substituting budget_exceeded for skipped agents
+    _budget_exceeded_result = ReturnType(
+        "budget_exceeded", "Budget exhausted before this agent could start"
+    )
     raw_results = [
         asdict(
-            job.results.get(
+            _budget_exceeded_result
+            if agent_id in budget_exceeded_ids
+            else job.results.get(
                 agent_id, ReturnType("failure", "No result (timeout or missing)")
             )
         )
@@ -690,6 +743,7 @@ def subagent_pipeline(
     context_turns: int | None = None,
     context_window: int | None = None,
     redact_secrets: bool = True,
+    budget: SubagentBudget | None = None,
 ) -> list[list[dict]]:
     """Process items through multiple stages with no barrier between stages.
 
@@ -777,6 +831,20 @@ def subagent_pipeline(
             agent_id = f"{item_id_prefix}-s{stage_idx}"
             # Only pass output_schema to the final stage
             is_final = stage_idx == len(stages) - 1
+
+            # Budget check: skip remaining stages if budget is exhausted
+            if budget is not None and budget.exhausted():
+                logger.debug(
+                    "subagent_pipeline: budget exhausted, skipping '%s'", agent_id
+                )
+                with results_lock:
+                    for remaining in range(stage_idx, len(stages)):
+                        all_results[item_idx][remaining] = {
+                            "status": "budget_exceeded",
+                            "result": "Budget exhausted before this stage could start",
+                        }
+                return
+
             try:
                 stage_prompt = stage_fn(item_prompt, prev_result_text)
                 subagent(
@@ -801,10 +869,17 @@ def subagent_pipeline(
                 )
             except Exception as exc:
                 result = {"status": "failure", "result": str(exc)}
+
+            # Record output tokens in the shared budget
+            if budget is not None:
+                out_tok = result.get("output_tokens")
+                if out_tok is not None:
+                    budget.record(out_tok)
+
             with results_lock:
                 all_results[item_idx][stage_idx] = result
             if result.get("status") != "success":
-                # On failure, mark remaining stages as skipped and abort item
+                # On failure/budget_exceeded, mark remaining stages as skipped
                 with results_lock:
                     for remaining in range(stage_idx + 1, len(stages)):
                         all_results[item_idx][remaining] = {
