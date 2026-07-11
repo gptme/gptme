@@ -62,6 +62,12 @@ def main():
         action="store_true",
         help="Add version header and adjust heading levels for docs",
     )
+    parser.add_argument(
+        "--demote-headings",
+        action="store_true",
+        help="Adjust heading levels without the version header, "
+        "for GitHub release bodies where the title already shows the version",
+    )
 
     # parse args
     args = parser.parse_args()
@@ -88,6 +94,7 @@ def main():
         output_path=args.output,
         repo_order=repo_order,
         add_version_header=args.add_version_header,
+        demote_headings=args.demote_headings,
     )
 
 
@@ -360,6 +367,7 @@ def build(
     repo_order: list[str],
     filter_types: list[str] | None = None,
     add_version_header: bool = False,
+    demote_headings: bool = False,
 ):
     # provides a commit summary for the repo and subrepos, recursively looking up subrepos
     # NOTE: this must be done *before* `get_all_contributors` is called,
@@ -432,10 +440,11 @@ See the [getting started guide in the documentation](https://docs.activitywatch.
     if repo == "activitywatch":
         output = output.replace("# activitywatch", "# activitywatch (bundle repo)")
 
-    if add_version_header:
-        output = f"# {tag}\n\n" + output
+    if add_version_header or demote_headings:
         output = output.replace("\n# Contributors\n", "\n## Contributors\n")
         output = output.replace("\n# Changelog\n", "\n## Changelog\n")
+    if add_version_header:
+        output = f"# {tag}\n\n" + output
 
     with open(output_path, "w") as f:
         f.write(output)
