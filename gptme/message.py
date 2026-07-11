@@ -567,12 +567,12 @@ def print_msg(
     oneline: bool = False,
     highlight: bool = True,
     show_hidden: bool = False,
-) -> None:
-    """Prints the log to the console."""
+) -> int:
+    """Prints the log to the console. Returns the number of messages shown."""
     # Quiet mode: suppress terminal output (not JSON — JSON is the structured interface).
     # Only skip if we're not in JSON mode.
     if is_output_quiet() and not is_output_json():
-        return
+        return 0
 
     # if not tty, force highlight=False (for tests and such)
     if not sys.stdout.isatty():
@@ -582,9 +582,11 @@ def print_msg(
 
     # JSON output mode: emit line-delimited dicts to stdout
     if is_output_json():
+        shown = 0
         for m in msgs:
             if m.hide and not show_hidden:
                 continue
+            shown += 1
             event: dict = {
                 "type": "message",
                 "role": m.role,
@@ -607,10 +609,11 @@ def print_msg(
                 event["metadata"] = meta_dict
             sys.stdout.write(json.dumps(event, default=str) + "\n")
         sys.stdout.flush()
-        return
+        return shown
 
     msgstrs = format_msgs(msgs, highlight=highlight, oneline=oneline)
     skipped_hidden = 0
+    shown = 0
     for m, s in zip(msgs, msgstrs):
         if m.hide and not show_hidden:
             skipped_hidden += 1
@@ -621,10 +624,12 @@ def print_msg(
             # rich can throw errors, if so then print the raw message
             logger.exception("Error printing message")
             print(s)
+        shown += 1
     if skipped_hidden:
         console.print(
-            f"[grey30]Skipped {skipped_hidden} hidden system messages, use /log --hidden to show[/]"
+            f"[dim]{skipped_hidden} hidden system messages skipped (/log --hidden to show)[/]"
         )
+    return shown
 
 
 def msgs_to_toml(msgs: Iterable[Message]) -> str:

@@ -256,25 +256,64 @@ def _maybe_authenticate_gptme_interactively(
     return True
 
 
-def init_logging(verbose, *, stderr: bool = True):
+class CompactRichHandler(RichHandler):
+    """RichHandler variant for user-facing CLIs.
+
+    Hides the level label for INFO and below (WARNING/ERROR still shown)
+    and dims informational messages, keeping only warnings+ prominent.
+    """
+
+    def render(self, *, record, traceback, message_renderable):
+        from rich.text import Text
+
+        # Per-record toggle is safe: logging serializes emit() per handler.
+        self._log_render.show_level = record.levelno >= logging.WARNING
+        if record.levelno < logging.WARNING and isinstance(message_renderable, Text):
+            message_renderable.style = "dim"
+        return super().render(
+            record=record, traceback=traceback, message_renderable=message_renderable
+        )
+
+
+def init_logging(verbose, *, stderr: bool = True, compact: bool = True):
+    """Set up Rich logging.
+
+    compact tunes output for user-facing CLIs: it hides the INFO level label
+    and the file:line trailer, dims informational messages, and replaces
+    timestamps with a dim "·" marker that distinguishes log/status lines from
+    conversation output (verbose mode disables it to keep full detail).
+    The server passes compact=False to keep conventional log output.
+    """
+    compact = compact and not verbose
+    handler_cls = CompactRichHandler if compact else RichHandler
     if not stderr:
         # Use the shared Rich Console (same instance rprint uses) so log
         # output is serialized with streaming assistant output through a
         # single Console, preventing stderr/stdout interleave mid-stream.
         from rich import get_console as _get_console
 
-        handler = RichHandler(console=_get_console())
+        log_console = _get_console()
     else:
-        handler = RichHandler(
-            console=Console(stderr=True, log_path=False)
-        )  # show_time=False
+        log_console = Console(stderr=True, log_path=False)
+    handler = handler_cls(
+        console=log_console,
+        show_path=not compact,
+        # in compact mode the "time" column is a constant marker, so repeat it
+        omit_repeated_times=not compact,
+    )
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(message)s",
-        datefmt="[%X]",
+        # strftime format; "·" has no format codes so renders as a literal marker
+        datefmt="·" if compact else "[%X]",
         handlers=[handler],
         force=True,  # Override any previous logging configuration
     )
+    if compact:
+        # Give console.log() status lines (Using model/logdir/...) the same
+        # "·" marker instead of a timestamp, matching the log lines above.
+        console._log_render.time_format = "·"
+        console._log_render.omit_repeated_times = False
 
     # anthropic spams debug logs for every request
     logging.getLogger("anthropic").setLevel(logging.INFO)

@@ -141,8 +141,9 @@ def chat(
 
         # print log (suppressed in JSON output mode and in quiet mode)
         if not is_output_json() and not is_output_quiet():
-            manager.log.print(show_hidden=show_hidden)
-            console.print("--- ^^^ past messages ^^^ ---")
+            # only draw a separator if any past messages were actually shown
+            if manager.log.print(show_hidden=show_hidden):
+                console.rule("[dim]past messages[/]", style="dim")
 
         # Note: todo replay is now handled via SESSION_START hook
         # Note: Confirmation is now handled within ToolUse.execute() using the hook system,

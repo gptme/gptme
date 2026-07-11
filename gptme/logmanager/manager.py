@@ -104,8 +104,9 @@ class Log:
         with open(path, "w") as file:
             file.writelines(json.dumps(msg.to_dict()) + "\n" for msg in self.messages)
 
-    def print(self, show_hidden: bool = False):
-        print_msg(self.messages, oneline=False, show_hidden=show_hidden)
+    def print(self, show_hidden: bool = False) -> int:
+        """Prints the log to the console. Returns the number of messages shown."""
+        return print_msg(self.messages, oneline=False, show_hidden=show_hidden)
 
 
 # Context-local storage for current LogManager instance
