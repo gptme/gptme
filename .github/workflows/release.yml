@@ -198,13 +198,45 @@ jobs:
           fi
 
           echo "Generating changelog: ${SINCE}...${TAG}"
-          python3 scripts/build_changelog.py \
-            --range "${SINCE}...${TAG}" \
-            --project-title gptme \
-            --org gptme \
-            --repo gptme \
-            --output /tmp/changelog.md \
-            --add-version-header
+          if [ "$PRERELEASE" = "true" ]; then
+            # Dev releases only get a GitHub release body. No version header —
+            # the release title already shows the version.
+            python3 scripts/build_changelog.py \
+              --range "${SINCE}...${TAG}" \
+              --project-title gptme \
+              --org gptme \
+              --repo gptme \
+              --output /tmp/changelog.md \
+              --demote-headings
+          else
+            # Stable releases: generate the docs page (version header as page
+            # title), commit it into the version-bump commit (mirrors what
+            # `make release` does), and derive the GitHub release body from it
+            # by stripping the header.
+            python3 scripts/build_changelog.py \
+              --range "${SINCE}...${TAG}" \
+              --project-title gptme \
+              --org gptme \
+              --repo gptme \
+              --output "docs/releases/${TAG}.md" \
+              --add-version-header
+
+            # Insert new version at top of changelog toctree (same as `make release`)
+            grep -q "releases/${TAG}.md" docs/changelog.rst || {
+              awk '/^   releases\// && !done { \
+                print "   releases/'"${TAG}"'.md"; \
+                done=1; \
+              } \
+              {print}' docs/changelog.rst > docs/changelog.rst.tmp
+              mv docs/changelog.rst.tmp docs/changelog.rst
+            }
+
+            git add docs/changelog.rst "docs/releases/${TAG}.md"
+            git commit --amend --no-edit
+            git tag -f "${TAG}"
+
+            tail -n +3 "docs/releases/${TAG}.md" > /tmp/changelog.md
+          fi
 
           echo "--- Generated changelog preview ---"
           head -50 /tmp/changelog.md

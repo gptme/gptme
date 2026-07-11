@@ -185,7 +185,7 @@ dist/CHANGELOG.md: ./scripts/build_changelog.py
 		VERSION=$$GIT_VERSION; \
 	fi && \
 	make docs/releases/$${VERSION}.md && \
-	cp docs/releases/$${VERSION}.md $@
+	tail -n +3 docs/releases/$${VERSION}.md > $@  # strip "# vX.Y.Z" page title — the GH release title already shows the version
 
 docs/releases/%.md: ./scripts/build_changelog.py
 	@mkdir -p docs/changelog
