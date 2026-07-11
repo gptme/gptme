@@ -532,6 +532,7 @@ document.write(`
 </li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log"><code class="docutils literal notranslate"><span class="pre">Log</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log.__init__"><code class="docutils literal notranslate"><span class="pre">Log.__init__()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log.print"><code class="docutils literal notranslate"><span class="pre">Log.print()</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager"><code class="docutils literal notranslate"><span class="pre">LogManager</span></code></a><ul class="nav section-nav flex-column">
@@ -952,6 +953,12 @@ per conversation, creating ~97% of all trace spans (see Issue #199).</p>
 <dt class="sig sig-object py" id="gptme.logmanager.Log.__init__">
 <span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">messages:</span> <span class="pre">list[~gptme.message.Message]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.logmanager.Log.__init__" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.logmanager.Log.print">
+<span class="sig-name descname"><span class="pre">print</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">show_hidden</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></span><a class="headerlink" href="#gptme.logmanager.Log.print" title="Link to this definition">#</a></dt>
+<dd><p>Prints the log to the console. Returns the number of messages shown.</p>
+</dd></dl>
 
 </dd></dl>
 
@@ -2022,6 +2029,7 @@ backend-selection policy without requiring the client to set it.</p></li>
 </li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log"><code class="docutils literal notranslate"><span class="pre">Log</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log.__init__"><code class="docutils literal notranslate"><span class="pre">Log.__init__()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log.print"><code class="docutils literal notranslate"><span class="pre">Log.print()</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager"><code class="docutils literal notranslate"><span class="pre">LogManager</span></code></a><ul class="nav section-nav flex-column">
