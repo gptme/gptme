@@ -1,7 +1,7 @@
 Custom and Local Providers
 ==========================
 
-This page covers **Ollama**, **Groq**, **vLLM**, and any other
+This page covers **Ollama**, **vLLM**, and any other
 OpenAI-compatible server — plus how to declare a reusable
 ``[[providers]]`` block in your config so gptme can find them by name.
 
@@ -67,66 +67,6 @@ Then: ``gptme 'hello' -m ollama/llama3.2:3b``
 
    Models under ~7B parameters rarely follow gptme's tool protocol reliably.
    For agent-style work, prefer at least ``llama3.1:8b`` or ``mistral:7b-instruct``.
-
-Groq
-----
-
-`Groq <https://groq.com/>`_ serves open-weight models with a dedicated API (not OpenAI).
-
-**Setup:**
-
-.. code-block:: sh
-
-    export GROQ_API_KEY="gsk_..."
-    gptme 'hello' -m groq/llama-3.3-70b-versatile
-
-Interactive setup:
-
-.. code-block:: sh
-
-    gptme '/account setup groq'
-
-Or in ``~/.config/gptme/config.toml``:
-
-.. code-block:: toml
-
-    [env]
-    GROQ_API_KEY = "gsk_..."
-    MODEL = "groq/llama-3.3-70b-versatile"
-
-Or as a named provider entry:
-
-.. code-block:: toml
-
-    [[providers]]
-    name = "groq"
-    base_url = "https://api.groq.com/openai/v1"
-    api_key_env = "GROQ_API_KEY"
-    default_model = "llama-3.1-70b-versatile"
-
-**Popular models:**
-
-- ``groq/llama-3.3-70b-versatile`` — fast 70B, good tool use
-- ``groq/llama-3.1-8b-instant`` — fastest, lowest cost
-- ``groq/deepseek-r1-distill-llama-70b`` — reasoning-oriented
-
-Model list: https://console.groq.com/docs/models
-
-**Common errors:**
-
-+-------------------------------+----------------------------------+--------------------------------------------------+
-| Error                         | Cause                            | Fix                                              |
-+===============================+==================================+==================================================+
-| 401 with ``OPENAI_API_KEY``   | Groq needs its own key           | Set ``GROQ_API_KEY``; use ``groq/<model>``       |
-+-------------------------------+----------------------------------+--------------------------------------------------+
-| ``OPENAI_API_KEY`` not set    | Default model is OpenAI          | Set ``MODEL`` or ``[models].default`` to Groq    |
-+-------------------------------+----------------------------------+--------------------------------------------------+
-
-.. warning::
-
-   Do **not** set ``OPENAI_BASE_URL=https://api.groq.com/openai/v1`` with
-   ``OPENAI_API_KEY`` — that returns 401. Use ``GROQ_API_KEY`` and the
-   ``groq/<model>`` prefix (see also :doc:`providers`).
 
 vLLM and OpenAI-compatible servers
 -----------------------------------
@@ -195,12 +135,6 @@ Add custom providers to ``~/.config/gptme/config.toml``:
     api_key_env = "AZURE_API_KEY"
     default_model = "gpt-4"
 
-    [[providers]]
-    name = "groq"
-    base_url = "https://api.groq.com/openai/v1"
-    api_key_env = "GROQ_API_KEY"
-    default_model = "llama-3.1-70b-versatile"
-
 **Configuration fields:**
 
 ================== ======== ====================================================
@@ -217,7 +151,7 @@ Field              Required Description
 
 1. ``api_key = "key-here"`` (not recommended for security)
 2. ``api_key_env = "MY_API_KEY"``
-3. ``${PROVIDER_NAME}_API_KEY`` (e.g. ``GROQ_API_KEY`` for a provider named ``groq``)
+3. ``${PROVIDER_NAME}_API_KEY`` (e.g. ``VLLM_API_KEY`` for a provider named ``vllm``)
 
 **Listing configured providers:**
 
@@ -232,7 +166,7 @@ Setting a default model
 
 .. code-block:: sh
 
-    export MODEL="groq/llama-3.3-70b-versatile"
+    export MODEL="local/llama3.2:3b"
     gptme 'hello'
 
 **Global config** (recommended — see :doc:`config`):
@@ -240,7 +174,7 @@ Setting a default model
 .. code-block:: toml
 
     [models]
-    default = "groq/llama-3.3-70b-versatile"
+    default = "ollama/llama3.2:3b"
 
 **Project config** (``gptme.toml`` in the repo root):
 
@@ -263,6 +197,4 @@ Community threads that motivated this page:
 
 - `Ollama setup <https://github.com/gptme/gptme/discussions/177>`_
 - `Llama 3.1 70B <https://github.com/gptme/gptme/discussions/178>`_
-- `Groq as default <https://github.com/gptme/gptme/discussions/224>`_
-- `Groq configuration <https://github.com/gptme/gptme/discussions/230>`_
 - `vLLM tokenizer timeouts <https://github.com/gptme/gptme/discussions/559>`_
