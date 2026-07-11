@@ -770,7 +770,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f4f0fa8e340&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f72b9286700&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2252,7 +2252,7 @@ The following Python functions are available:
 <span class="s">subagent_wait_any(agent_ids: list[str], timeout: int) -&gt; tuple[str, dict]: Wait for the first of the given subagents to complete.</span>
 <span class="s">subagent_read_log(agent_id: str, max_messages: int, include_system: bool, message_filter: Union[str, None]) -&gt; str: Read the conversation log of a subagent.</span>
 <span class="s">subagent_batch(tasks: list[tuple[str, str]], use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: type | dict | None, workdir: Union[str, Path, None], context_turns: Union[int, None], context_window: Union[int, None], redact_secrets: bool) -&gt; BatchJob: Start multiple subagents in parallel and return a BatchJob to manage them.</span>
-<span class="s">subagent_parallel(tasks: list[tuple[str, str]], timeout: int, use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: type | dict | None, workdir: Union[str, Path, None], context_turns: Union[int, None], context_window: Union[int, None], redact_secrets: bool) -&gt; list[dict]: Fan out N subagents in parallel, wait for all, return results as an ordered list.</span>
+<span class="s">subagent_parallel(tasks: list[tuple[str, str]], timeout: int, use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: type | dict | None, workdir: Union[str, Path, None], context_turns: Union[int, None], context_window: Union[int, None], redact_secrets: bool, cancel_on_failure: bool) -&gt; list[dict]: Fan out N subagents in parallel, wait for all, return results as an ordered list.</span>
 <span class="s">subagent_pipeline(items: list[tuple[str, str]], stages: Callable[[str, str], str], timeout: float, use_subprocess: bool, use_acp: bool, acp_command: str, model: Union[str, None], profile: Union[str, None], isolated: bool, output_schema: type | dict | None, workdir: Union[str, Path, None], context_turns: Union[int, None], context_window: Union[int, None], redact_secrets: bool) -&gt; list[list[dict]]: Process items through multiple stages with no barrier between stages.</span>
 <span class="sb">```</span>
 
@@ -2681,7 +2681,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 17067</p>
+<p>Tokens: 17073</p>
 </dd></dl>
 
 <dl class="py function">
