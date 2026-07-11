@@ -807,7 +807,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
+          # Rename gradle's generic output names (app-universal-release-unsigned.apk)
+          # to match the desktop bundle naming (gptme-tauri_X.Y.Z_<arch>.<ext>),
+          # e.g. gptme-tauri_0.32.0_universal-unsigned.apk. The "-release" build-type
+          # marker is dropped; "-unsigned" is kept since the APK isn't signed yet.
+          VERSION="${TAG#v}"
           find android-dist -name "*.apk" -o -name "*.aab" | while read -r f; do
-            echo "Uploading $f"
-            gh release upload "$TAG" "$f" --clobber
+            new="$(basename "$f" | sed -E "s/^app-/gptme-tauri_${VERSION}_/; s/-release//")"
+            mv "$f" "$(dirname "$f")/$new"
+            echo "Uploading $new"
+            gh release upload "$TAG" "$(dirname "$f")/$new" --clobber
           done
