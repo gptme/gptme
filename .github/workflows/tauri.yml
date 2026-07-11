@@ -691,7 +691,7 @@ jobs:
         with:
           projectPath: tauri
           releaseId: ${{ steps.release.outputs.id }}
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
 
       - name: Build and publish release (unsigned/fallback)
         if: matrix.platform != 'macos-latest' || env.HAS_APPLE_SIGNING != 'true'
@@ -703,7 +703,7 @@ jobs:
         with:
           projectPath: tauri
           releaseId: ${{ steps.release.outputs.id }}
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
 
   build-android:
     name: Build Android (APK/AAB)

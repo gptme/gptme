@@ -36,7 +36,7 @@
     "macOS": {
       "infoPlist": "./Info.plist"
     },
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": false
   },
   "plugins": {
     "deep-link": {
@@ -45,6 +45,7 @@
       }
     },
     "updater": {
+      "pubkey": "PLACEHOLDER_REPLACE_WITH_KEY_FROM_npx_tauri_signer_generate",
       "endpoints": [
         "https://github.com/gptme/gptme/releases/latest/download/latest.json"
       ]
