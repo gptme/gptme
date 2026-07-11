@@ -1111,12 +1111,10 @@ def subagent_wait(
     Returns:
         Status dict with 'status' and 'result' keys
     """
-    sa = None
+    # Use the most recently spawned entry — _subagents is append-only, so
+    # reversed() finds the newest match when the same agent_id is reused.
     with _subagents_lock:
-        for s in _subagents:
-            if s.agent_id == agent_id:
-                sa = s
-                break
+        sa = next((s for s in reversed(_subagents) if s.agent_id == agent_id), None)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")
@@ -1236,12 +1234,10 @@ def subagent_read_log(
     Returns:
         Formatted log output showing the conversation
     """
-    sa = None
+    # Use the most recently spawned entry — _subagents is append-only, so
+    # reversed() finds the newest match when the same agent_id is reused.
     with _subagents_lock:
-        for s in _subagents:
-            if s.agent_id == agent_id:
-                sa = s
-                break
+        sa = next((s for s in reversed(_subagents) if s.agent_id == agent_id), None)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")

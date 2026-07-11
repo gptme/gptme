@@ -113,7 +113,7 @@ class TestSubagentParallelBudget:
     def _run_parallel(self, tasks, budget, results_by_id):
         """Helper: run subagent_parallel() with mocked subagent() and BatchJob."""
 
-        def fake_wait_all(self_job, timeout=300):
+        def fake_wait_all(self_job, timeout=300, cancel_on_failure=False):
             # Populate results as if agents completed
             for aid in self_job.agent_ids:
                 if aid not in self_job.results:
@@ -192,7 +192,7 @@ class TestSubagentParallelBudget:
             # (in real usage this happens via wait_all, but we simulate inline
             # to test that the check before "b" and "c" sees the exhausted budget)
 
-        def fake_wait_all(self_job, timeout=300):
+        def fake_wait_all(self_job, timeout=300, cancel_on_failure=False):
             for aid in self_job.agent_ids:
                 if aid not in self_job.results:
                     self_job.results[aid] = results_by_id.get(
@@ -221,7 +221,7 @@ class TestSubagentParallelBudget:
             "x": ReturnType("success", "ok", input_tokens=500, output_tokens=300),
         }
 
-        def fake_wait_all(self_job, timeout=300):
+        def fake_wait_all(self_job, timeout=300, cancel_on_failure=False):
             for aid in self_job.agent_ids:
                 self_job.results[aid] = results_by_id[aid]
             return {}
@@ -248,12 +248,12 @@ class TestSubagentParallelBudget:
             "b1": ReturnType("success", "ok", input_tokens=100, output_tokens=250),
         }
 
-        def fake_wait_all_a(self_job, timeout=300):
+        def fake_wait_all_a(self_job, timeout=300, cancel_on_failure=False):
             for aid in self_job.agent_ids:
                 self_job.results[aid] = results_by_id_a[aid]
             return {}
 
-        def fake_wait_all_b(self_job, timeout=300):
+        def fake_wait_all_b(self_job, timeout=300, cancel_on_failure=False):
             for aid in self_job.agent_ids:
                 self_job.results[aid] = results_by_id_b[aid]
             return {}
