@@ -421,6 +421,8 @@ class GptmeApp(App):
         self._render_history()
         self.query_one("#input", Input).focus()
         self._update_status()
+        # watchdog: tools can reset the tty at any point during execution
+        self.set_interval(0.5, self._restore_terminal)
 
     def on_unmount(self) -> None:
         if self._real_stdout is not None:
@@ -464,17 +466,21 @@ class GptmeApp(App):
             self.call_after_refresh(chat.scroll_end, animate=False)
 
     def _restore_terminal(self) -> None:
-        """Reassert raw mode after tool execution may have reset the tty."""
+        """Reassert raw mode if tool execution reset the tty (e.g. ipython).
+
+        Cooked mode line-buffers input (keys appear dead) and echoes typed
+        chars and mouse reports as garbage. Only writes when attrs drifted,
+        so it is cheap enough to call often (also runs on an interval while
+        the app is alive, since tools can reset the tty mid-execution).
+        """
         if self._term_attrs is None:
             return
         with contextlib.suppress(Exception):
             import termios
 
-            termios.tcsetattr(
-                sys.__stdin__.fileno(),  # type: ignore[union-attr]
-                termios.TCSANOW,
-                self._term_attrs,
-            )
+            fd = sys.__stdin__.fileno()  # type: ignore[union-attr]
+            if termios.tcgetattr(fd) != self._term_attrs:
+                termios.tcsetattr(fd, termios.TCSANOW, self._term_attrs)
 
     def _update_status(self) -> None:
         parts = []
@@ -611,6 +617,11 @@ class GptmeApp(App):
                         logdir=manager.logdir,
                         on_token=self._on_token,
                     ):
+                        # each yield may follow a tool execution that reset
+                        # the tty (e.g. ipython init) — reassert raw mode
+                        # immediately, not just at end of step, so later
+                        # confirmations in the same step get a sane terminal
+                        self._restore_terminal()
                         manager.append(msg)
                         if msg.content == DECLINED_CONTENT:
                             declined = True
@@ -714,6 +725,11 @@ class GptmeApp(App):
         """TOOL_CONFIRM hook; called from the worker thread, blocks on dialog."""
         if self.auto_confirm:
             return ConfirmationResult.confirm()
+
+        # a previously-executed tool in this step may have left the tty in
+        # cooked/echo mode (ICANON line-buffers input, so dialog keys would
+        # not respond and typed chars/mouse reports would echo as garbage)
+        self._restore_terminal()
 
         result: dict[str, ConfirmationResult] = {}
         done = threading.Event()
