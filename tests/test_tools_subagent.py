@@ -644,9 +644,17 @@ def test_subprocess_mode_command_construction():
 
     _subagents.clear()
 
-    with patch(
-        "gptme.tools.subagent.execution._run_subagent_subprocess",
-        return_value=MagicMock(),
+    with (
+        patch(
+            "gptme.tools.subagent.execution._run_subagent_subprocess",
+            return_value=MagicMock(),
+        ),
+        # _monitor_subprocess spawns a progress-polling thread that sleeps 0.5s
+        # per iteration; without this mock the launcher thread can outlive the
+        # 1.0s join timeout in _wait_for_new_subagent_threads, causing a
+        # flaky is_alive() assertion.  This test only verifies command
+        # construction / execution_mode, not monitoring behaviour.
+        patch("gptme.tools.subagent.execution._monitor_subprocess"),
     ):
         subagent(
             agent_id="test-cmd",
@@ -1280,14 +1288,18 @@ def test_subprocess_timeout_passed_to_subagent():
     _subagents.clear()
 
     # Mock the subprocess so we don't start a real gptme process.
-    # _monitor_subprocess calls process.wait() which would block for `timeout`
-    # seconds on a real process, causing the test to time out in teardown.
+    # Also mock _monitor_subprocess: it spawns a progress-polling thread that
+    # sleeps 0.5s per iteration and can outlive the 1.0s join timeout in
+    # _wait_for_new_subagent_threads on a loaded CI runner.
     mock_process = MagicMock()
     mock_process.returncode = 0
 
-    with patch(
-        "gptme.tools.subagent.execution._run_subagent_subprocess",
-        return_value=mock_process,
+    with (
+        patch(
+            "gptme.tools.subagent.execution._run_subagent_subprocess",
+            return_value=mock_process,
+        ),
+        patch("gptme.tools.subagent.execution._monitor_subprocess"),
     ):
         subagent(
             agent_id="timeout-param-test",
@@ -1756,10 +1768,13 @@ def test_subprocess_mode_with_profile():
 
     _subagents.clear()
 
-    with patch(
-        "gptme.tools.subagent.execution._run_subagent_subprocess",
-        return_value=MagicMock(),
-    ) as mock_run:
+    with (
+        patch(
+            "gptme.tools.subagent.execution._run_subagent_subprocess",
+            return_value=MagicMock(),
+        ) as mock_run,
+        patch("gptme.tools.subagent.execution._monitor_subprocess"),
+    ):
         subagent(
             agent_id="test-subprocess-profile",
             prompt="Explore task",
