@@ -22,6 +22,7 @@
 - [Tools](https://gptme.org/docs/_sources/tools.rst)
 - [Commands](https://gptme.org/docs/_sources/commands.rst)
 - [CLI Reference](https://gptme.org/docs/_sources/cli.rst)
+- [TUI](https://gptme.org/docs/_sources/tui.rst)
 - [Configuration](https://gptme.org/docs/_sources/config.rst)
 - [Providers](https://gptme.org/docs/_sources/providers.rst)
 - [Custom Providers](https://gptme.org/docs/_sources/custom-providers.md)

@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Contributing &#8212; gptme</title>
+    <title>TUI &#8212; gptme</title>
   
   
   
@@ -43,13 +43,13 @@
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/asciinema-player_3.12.1.js"></script>
     <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'contributing';</script>
-    <link rel="canonical" href="https://gptme.org/docs/contributing.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'tui';</script>
+    <link rel="canonical" href="https://gptme.org/docs/tui.html" />
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Building Executables" href="building.html" />
-    <link rel="prev" title="Skills" href="skills.html" />
+    <link rel="next" title="Configuration" href="config.html" />
+    <link rel="prev" title="CLI Reference" href="cli.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   </head>
@@ -160,7 +160,7 @@
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
@@ -184,7 +184,7 @@
 <li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">TUI</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
@@ -209,8 +209,8 @@
 <li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
-<ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Contributing</a></li>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
@@ -365,7 +365,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/contributing.rst" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/tui.rst" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -395,7 +395,7 @@
       
       
       
-      <li><a href="_sources/contributing.rst" target="_blank"
+      <li><a href="_sources/tui.rst" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -479,7 +479,7 @@ document.write(`
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>Contributing</h1>
+    <h1>TUI</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -489,25 +489,12 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install">Install</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tests">Tests</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#telemetry">Telemetry</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#setup">Setup</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#available-metrics">Available Metrics</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-prometheus-queries">Example Prometheus Queries</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multiple-instances">Multiple Instances</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#issue-labels">Issue Labels</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#difficulty">Difficulty</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#status">Status</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#priority">Priority</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#work-type">Work Type</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#finding-issues-to-work-on">Finding Issues to Work On</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inline-mode-experimental">Inline mode (experimental)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keys">Keys</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations">Limitations</a></li>
 </ul>
             </nav>
         </div>
@@ -519,239 +506,109 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="contributing">
-<h1>Contributing<a class="headerlink" href="#contributing" title="Link to this heading">#</a></h1>
-<p>We welcome contributions to the project. Here is some information to get you started.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>This document is a work in progress. PRs are welcome.</p>
-</div>
-<section id="install">
-<h2>Install<a class="headerlink" href="#install" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># checkout the code and navigate to the root of the project</span>
-git<span class="w"> </span>clone<span class="w"> </span>https://github.com/gptme/gptme.git
-<span class="nb">cd</span><span class="w"> </span>gptme
-
-<span class="c1"># install poetry (if not installed)</span>
-pipx<span class="w"> </span>install<span class="w"> </span>poetry
-
-<span class="c1"># activate the virtualenv</span>
-poetry<span class="w"> </span>shell
-
-<span class="c1"># build the project</span>
-make<span class="w"> </span>build
-</pre></div>
-</div>
-<p>You can now start <code class="docutils literal notranslate"><span class="pre">gptme</span></code> from your development environment using the regular commands.</p>
-<p>You can also install it in editable mode with <code class="docutils literal notranslate"><span class="pre">pipx</span></code> using <code class="docutils literal notranslate"><span class="pre">pipx</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">.</span></code> which will let you use your development version of gptme regardless of venv.</p>
-</section>
-<section id="tests">
-<h2>Tests<a class="headerlink" href="#tests" title="Link to this heading">#</a></h2>
-<p>Run tests with <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">test</span></code>.</p>
-<p>Some tests make LLM calls, which might take a while and so are not run by default. You can run them with <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">test</span> <span class="pre">SLOW=true</span></code>.</p>
-<p>There are also some integration tests in <code class="docutils literal notranslate"><span class="pre">./tests/test-integration.sh</span></code> which are used to manually test more complex tasks.</p>
-<p>There is also the <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a>.</p>
-</section>
-<section id="telemetry">
-<h2>Telemetry<a class="headerlink" href="#telemetry" title="Link to this heading">#</a></h2>
-<p>gptme includes optional OpenTelemetry integration for performance monitoring and debugging. This is useful for development to understand performance characteristics and identify bottlenecks.</p>
-<section id="setup">
-<h3>Setup<a class="headerlink" href="#setup" title="Link to this heading">#</a></h3>
-<p>To enable telemetry during development:</p>
-<ol class="arabic">
-<li><p>Install telemetry dependencies:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>install<span class="w"> </span>-E<span class="w"> </span>telemetry
-</pre></div>
-</div>
-</li>
-<li><p>Run Jaeger for trace visualization:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--name<span class="w"> </span>jaeger<span class="w"> </span><span class="se">\</span>
-<span class="w">          </span>-p<span class="w"> </span><span class="m">16686</span>:16686<span class="w"> </span><span class="se">\</span>
-<span class="w">          </span>-p<span class="w"> </span><span class="m">4317</span>:4317<span class="w"> </span><span class="se">\</span>
-<span class="w">          </span>-p<span class="w"> </span><span class="m">4318</span>:4318<span class="w"> </span><span class="se">\</span>
-<span class="w">          </span>-p<span class="w"> </span><span class="m">5778</span>:5778<span class="w"> </span><span class="se">\</span>
-<span class="w">          </span>-p<span class="w"> </span><span class="m">9411</span>:9411<span class="w"> </span><span class="se">\</span>
-<span class="w">          </span>cr.jaegertracing.io/jaegertracing/jaeger:latest
-</pre></div>
-</div>
-</li>
-<li><p>Run Prometheus for metrics collection:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--name<span class="w"> </span>prometheus<span class="w"> </span><span class="se">\</span>
-<span class="w">          </span>-p<span class="w"> </span><span class="m">9090</span>:9090<span class="w"> </span><span class="se">\</span>
-<span class="w">          </span>-v<span class="w"> </span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/scripts/prometheus.yml:/prometheus/prometheus.yml<span class="w"> </span><span class="se">\</span>
-<span class="w">          </span>prom/prometheus<span class="w"> </span>--web.enable-otlp-receiver
-</pre></div>
-</div>
-</li>
-<li><p>Set the telemetry environment variables:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_TELEMETRY_ENABLED</span><span class="o">=</span><span class="nb">true</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">OTLP_ENDPOINT</span><span class="o">=</span>http://localhost:4318<span class="w">  </span><span class="c1"># HTTP OTLP (port 4318)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_OTLP_METRICS</span><span class="o">=</span><span class="nb">true</span><span class="w">  </span><span class="c1"># Send metrics via OTLP</span>
-</pre></div>
-</div>
-</li>
-<li><p>Run gptme:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>run<span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span>
-<span class="c1"># or gptme-server</span>
-poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
-</pre></div>
-</div>
-</li>
-<li><p>View data:</p>
+  <section id="tui">
+<h1>TUI<a class="headerlink" href="#tui" title="Link to this heading">#</a></h1>
+<p>gptme ships an optional Textual-based terminal UI, <code class="docutils literal notranslate"><span class="pre">gptme-tui</span></code>, complementary
+to the plain <a class="reference internal" href="cli.html"><span class="doc">CLI</span></a> (which remains better suited for non-interactive
+and scripted use).</p>
+<p>It addresses two long-standing UX limitations of the plain CLI
+(see <a class="extlink-issue reference external" href="https://github.com/gptme/gptme/issues/569">issue #569</a>):</p>
 <ul class="simple">
-<li><p><strong>Traces</strong>: Jaeger UI at <a class="reference external" href="http://localhost:16686">http://localhost:16686</a></p></li>
-<li><p><strong>Metrics</strong>: Prometheus UI at <a class="reference external" href="http://localhost:9090">http://localhost:9090</a></p></li>
+<li><p><strong>Prompt queueing</strong>: type and submit new prompts while the agent is working.
+They are shown dimmed in the conversation and dispatched automatically when
+the current turn finishes.</p></li>
+<li><p><strong>Compact, expandable output</strong>: tool output is collapsed to a one-line
+summary by default (like HTML <code class="docutils literal notranslate"><span class="pre">&lt;details&gt;</span></code>); click it or press
+<kbd class="kbd compound docutils literal notranslate"><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">O</kbd></kbd> to expand.</p></li>
 </ul>
-</li>
-</ol>
-<p>Once enabled, gptme will automatically:</p>
-<ul class="simple">
-<li><p>Trace function execution times</p></li>
-<li><p>Record token processing metrics</p></li>
-<li><p>Monitor request durations</p></li>
-<li><p>Instrument Flask and HTTP requests</p></li>
-<li><p>Expose Prometheus metrics at <cite>/metrics</cite> endpoint</p></li>
-</ul>
-<p>The telemetry data helps identify:</p>
-<ul class="simple">
-<li><p>Slow operations and bottlenecks</p></li>
-<li><p>Token processing rates</p></li>
-<li><p>Tool execution performance</p></li>
-<li><p>Resource usage patterns</p></li>
-</ul>
-</section>
-<section id="available-metrics">
-<h3>Available Metrics<a class="headerlink" href="#available-metrics" title="Link to this heading">#</a></h3>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>These metrics are still merely planned and may not be available yet, or be available in a different form.</p>
-</div>
-<p>The following metrics are automatically collected:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">gptme_tokens_processed_total</span></code>: Counter of tokens processed by type</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">gptme_request_duration_seconds</span></code>: Histogram of request durations by endpoint</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">gptme_tool_calls_total</span></code>: Counter of tool calls made by tool name</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">gptme_tool_duration_seconds</span></code>: Histogram of tool execution durations by tool name</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">gptme_active_conversations</span></code>: Gauge of currently active conversations</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">gptme_llm_requests_total</span></code>: Counter of LLM API requests by provider, model, and success status</p></li>
-<li><p>HTTP request metrics (from Flask instrumentation)</p></li>
-<li><p>OpenAI/Anthropic API call metrics (from LLM instrumentations)</p></li>
-</ul>
-</section>
-<section id="example-prometheus-queries">
-<h3>Example Prometheus Queries<a class="headerlink" href="#example-prometheus-queries" title="Link to this heading">#</a></h3>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>These queries are aspirational and won’t actually work yet.</p>
-</div>
-<p>Here are some useful Prometheus queries for monitoring gptme:</p>
-<div class="highlight-promql notranslate"><div class="highlight"><pre><span></span><span class="c1"># Average tool execution time by tool</span>
-<span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_tool_duration_seconds_sum</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_tool_duration_seconds_count</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>
-
-<span class="c1"># Most used tools</span>
-<span class="k">topk</span><span class="o">(</span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_tool_calls_total</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">))</span>
-
-<span class="c1"># LLM request success rate</span>
-<span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_llm_requests_total</span><span class="p">{</span><span class="nl">success</span><span class="o">=</span><span class="p">&quot;</span><span class="s">true</span><span class="p">&quot;}[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_llm_requests_total</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>
-
-<span class="c1"># Tokens processed per second</span>
-<span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_tokens_processed_total</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>
-
-<span class="c1"># Active conversations</span>
-<span class="nv">gptme_active_conversations</span>
-
-<span class="c1"># Request latency percentiles</span>
-<span class="kr">histogram_quantile</span><span class="o">(</span><span class="mf">0.95</span><span class="p">,</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_request_duration_seconds_bucket</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">))</span>
+<p>It also provides a persistent status bar showing the current model, token
+usage relative to the context window, and agent state.</p>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
+<p>The TUI requires the <code class="docutils literal notranslate"><span class="pre">tui</span></code> extra:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pipx</span> <span class="n">install</span> <span class="s1">&#39;gptme[tui]&#39;</span>
 </pre></div>
 </div>
 </section>
-<section id="environment-variables">
-<h3>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TELEMETRY_ENABLED</span></code>: Enable/disable telemetry (default: false)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">OTLP_ENDPOINT</span></code>: OTLP endpoint for traces and metrics (default: <a class="reference external" href="http://localhost:4318">http://localhost:4318</a>)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_OTLP_METRICS</span></code>: Send metrics via OTLP instead of Prometheus HTTP (default: true)</p></li>
-</ul>
-</section>
-<section id="multiple-instances">
-<h3>Multiple Instances<a class="headerlink" href="#multiple-instances" title="Link to this heading">#</a></h3>
-<p>When running multiple gptme instances with telemetry enabled, they can all send data to the same OTLP endpoint without port conflicts:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># All instances use the same configuration</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_TELEMETRY_ENABLED</span><span class="o">=</span><span class="nb">true</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">OTLP_ENDPOINT</span><span class="o">=</span>http://your-collector:4318
-<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_OTLP_METRICS</span><span class="o">=</span><span class="nb">true</span>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
+<p>Start a new conversation in the current directory:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span><span class="o">-</span><span class="n">tui</span>
 </pre></div>
 </div>
-<p>The OpenTelemetry Collector aggregates metrics from all instances and exports them to Prometheus on a single port that Prometheus can scrape.</p>
-<p><strong>Benefits:</strong></p>
-<ul class="simple">
-<li><p>No port conflicts between instances</p></li>
-<li><p>Centralized telemetry collection and processing</p></li>
-<li><p>Single Prometheus scrape target (the collector)</p></li>
-<li><p>Works across network boundaries</p></li>
-<li><p>Supports traces and metrics through the same endpoint</p></li>
-</ul>
+<p>Resume the most recent conversation:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span><span class="o">-</span><span class="n">tui</span> <span class="o">--</span><span class="n">resume</span>
+</pre></div>
+</div>
+<p>Conversations are stored in the same format and location as CLI conversations,
+so they can be opened interchangeably: start in the TUI, resume in the CLI
+(<code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--resume</span></code>), or vice versa (<code class="docutils literal notranslate"><span class="pre">gptme-tui</span> <span class="pre">-n</span> <span class="pre">&lt;name&gt;</span></code>).</p>
 </section>
+<section id="inline-mode-experimental">
+<h2>Inline mode (experimental)<a class="headerlink" href="#inline-mode-experimental" title="Link to this heading">#</a></h2>
+<p>By default the TUI runs in the alternate screen with its own scrollable chat
+view. With <code class="docutils literal notranslate"><span class="pre">--inline</span></code> it instead renders like Claude Code: messages are
+printed into the terminal’s <strong>native scrollback</strong> while only a small live
+region (streaming preview, input, status bar) stays at the bottom:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span><span class="o">-</span><span class="n">tui</span> <span class="o">--</span><span class="n">inline</span>
+</pre></div>
+</div>
+<p>Terminal/tmux scrolling then works normally, and the transcript stays in your
+scrollback after exit. Trade-offs: past tool output can’t be expanded in
+place (<kbd class="kbd compound docutils literal notranslate"><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">O</kbd></kbd> instead toggles whether <em>future</em> tool output prints
+expanded), and mouse interaction is left entirely to the terminal.</p>
 </section>
-<section id="release">
-<h2>Release<a class="headerlink" href="#release" title="Link to this heading">#</a></h2>
-<p>To make a release, simply run <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">release</span></code> and follow the instructions.</p>
+<section id="keys">
+<h2>Keys<a class="headerlink" href="#keys" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Action</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><kbd class="kbd docutils literal notranslate">Enter</kbd></p></td>
+<td><p>Send prompt (queues it if the agent is busy)</p></td>
+</tr>
+<tr class="row-odd"><td><p><kbd class="kbd compound docutils literal notranslate"><kbd class="kbd docutils literal notranslate">Alt</kbd>+<kbd class="kbd docutils literal notranslate">Enter</kbd></kbd></p></td>
+<td><p>Insert newline (<kbd class="kbd compound docutils literal notranslate"><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">J</kbd></kbd> also works)</p></td>
+</tr>
+<tr class="row-even"><td><p><kbd class="kbd docutils literal notranslate">Tab</kbd></p></td>
+<td><p>Complete slash-commands and their arguments</p></td>
+</tr>
+<tr class="row-odd"><td><p><kbd class="kbd docutils literal notranslate">Escape</kbd></p></td>
+<td><p>Interrupt generation</p></td>
+</tr>
+<tr class="row-even"><td><p><kbd class="kbd compound docutils literal notranslate"><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">C</kbd></kbd></p></td>
+<td><p>Interrupt generation, or quit when idle</p></td>
+</tr>
+<tr class="row-odd"><td><p><kbd class="kbd compound docutils literal notranslate"><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">D</kbd></kbd></p></td>
+<td><p>Quit</p></td>
+</tr>
+<tr class="row-even"><td><p><kbd class="kbd compound docutils literal notranslate"><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">O</kbd></kbd></p></td>
+<td><p>Expand/collapse all tool outputs</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>When a tool is about to execute, a confirmation dialog shows a preview;
+press <kbd class="kbd docutils literal notranslate">y</kbd> to execute, <kbd class="kbd docutils literal notranslate">n</kbd> to skip, or <kbd class="kbd docutils literal notranslate">a</kbd> to auto-confirm for
+the rest of the session.</p>
 </section>
-<section id="issue-labels">
-<h2>Issue Labels<a class="headerlink" href="#issue-labels" title="Link to this heading">#</a></h2>
-<p>We use a multi-dimensional labeling system to help contributors (both human and autonomous) find appropriate issues to work on.</p>
-<section id="difficulty">
-<h3>Difficulty<a class="headerlink" href="#difficulty" title="Link to this heading">#</a></h3>
-<p>Indicates estimated effort required:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">difficulty:</span> <span class="pre">easy</span></code> - Simple, well-scoped tasks (&lt;4 hours)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">difficulty:</span> <span class="pre">medium</span></code> - Moderate complexity (4-8 hours)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">difficulty:</span> <span class="pre">hard</span></code> - Complex or architectural changes (&gt;8 hours)</p></li>
-</ul>
+<section id="commands">
+<h2>Commands<a class="headerlink" href="#commands" title="Link to this heading">#</a></h2>
+<p>The TUI supports the same <a class="reference internal" href="commands.html"><span class="doc">slash-commands</span></a> as the CLI
+(<code class="docutils literal notranslate"><span class="pre">/model</span></code>, <code class="docutils literal notranslate"><span class="pre">/undo</span></code>, <code class="docutils literal notranslate"><span class="pre">/tokens</span></code>, …), with the same Tab completion,
+by routing them through the shared command registry. Command output is
+shown inline in the conversation. <code class="docutils literal notranslate"><span class="pre">/quit</span></code> is a TUI-local alias for
+<code class="docutils literal notranslate"><span class="pre">/exit</span></code>.</p>
 </section>
-<section id="status">
-<h3>Status<a class="headerlink" href="#status" title="Link to this heading">#</a></h3>
-<p>Shows the current state of an issue:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">ready</span></code> - Fully specified, ready to start</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">needs-design</span></code> - Requires design decisions first</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">blocked</span></code> - Has dependencies or blockers</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">in-progress</span></code> - Someone is actively working</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">has-pr</span></code> - A pull request exists</p></li>
-</ul>
-</section>
-<section id="priority">
-<h3>Priority<a class="headerlink" href="#priority" title="Link to this heading">#</a></h3>
-<p>Indicates urgency and impact:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">priority:</span> <span class="pre">critical</span></code> - Blocks users or development</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">priority:</span> <span class="pre">high</span></code> - Important for upcoming release</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">priority:</span> <span class="pre">medium</span></code> - Valuable but not urgent</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">priority:</span> <span class="pre">low</span></code> - Nice to have</p></li>
-</ul>
-</section>
-<section id="work-type">
-<h3>Work Type<a class="headerlink" href="#work-type" title="Link to this heading">#</a></h3>
-<p>Special markers for contributor matching:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">autonomous-friendly</span></code> - Suitable for AI agent work</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">needs-human-judgment</span></code> - Requires human decision-making</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">good</span> <span class="pre">first</span> <span class="pre">issue</span></code> - Good for new contributors</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">help</span> <span class="pre">wanted</span></code> - Community contributions welcome</p></li>
-</ul>
-</section>
-<section id="finding-issues-to-work-on">
-<h3>Finding Issues to Work On<a class="headerlink" href="#finding-issues-to-work-on" title="Link to this heading">#</a></h3>
-<dl class="simple">
-<dt>For quick wins:</dt><dd><p>Filter: <code class="docutils literal notranslate"><span class="pre">difficulty:</span> <span class="pre">easy</span></code> + <code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">ready</span></code></p>
-</dd>
-<dt>For substantial contributions:</dt><dd><p>Filter: <code class="docutils literal notranslate"><span class="pre">difficulty:</span> <span class="pre">medium</span></code> + <code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">ready</span></code> + <code class="docutils literal notranslate"><span class="pre">autonomous-friendly</span></code></p>
-</dd>
-<dt>For new contributors:</dt><dd><p>Filter: <code class="docutils literal notranslate"><span class="pre">good</span> <span class="pre">first</span> <span class="pre">issue</span></code> + <code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">ready</span></code></p>
-</dd>
-</dl>
-<p>Before starting work on an issue, please comment to indicate you’re working on it to avoid duplicate effort.</p>
-</section>
+<section id="limitations">
+<h2>Limitations<a class="headerlink" href="#limitations" title="Link to this heading">#</a></h2>
+<p>The TUI is young and intentionally minimal. Commands that need an external
+terminal program (e.g. <code class="docutils literal notranslate"><span class="pre">/edit</span></code> spawning <code class="docutils literal notranslate"><span class="pre">$EDITOR</span></code>) don’t work yet; resume
+the conversation in the CLI for those. Non-interactive/scripted use should
+keep using <code class="docutils literal notranslate"><span class="pre">gptme</span></code> directly.</p>
 </section>
 </section>
 
@@ -767,20 +624,20 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="skills.html"
+       href="cli.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Skills</p>
+        <p class="prev-next-title">CLI Reference</p>
       </div>
     </a>
     <a class="right-next"
-       href="building.html"
+       href="config.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Building Executables</p>
+        <p class="prev-next-title">Configuration</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -800,25 +657,12 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install">Install</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tests">Tests</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#telemetry">Telemetry</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#setup">Setup</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#available-metrics">Available Metrics</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-prometheus-queries">Example Prometheus Queries</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multiple-instances">Multiple Instances</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#issue-labels">Issue Labels</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#difficulty">Difficulty</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#status">Status</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#priority">Priority</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#work-type">Work Type</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#finding-issues-to-work-on">Finding Issues to Work On</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inline-mode-experimental">Inline mode (experimental)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keys">Keys</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations">Limitations</a></li>
 </ul>
   </nav></div>
 
