@@ -72,6 +72,10 @@ eval: ## Run evaluation suite
 typecheck: ## Run mypy type checking
 	poetry run mypy ${SRCDIRS} $(if $(EXCLUDES),$(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE)))
 
+typecheck-coverage: ## Run mypy type checking with Cobertura XML coverage report
+	mkdir -p .mypy_coverage_report
+	poetry run mypy ${SRCDIRS} $(if $(EXCLUDES),$(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE))) --cobertura-xml-report .mypy_coverage_report
+
 RUFF_ARGS=${SRCDIRS} $(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE))
 
 pre-commit:  ## Run pre-commit hooks

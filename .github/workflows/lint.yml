@@ -44,7 +44,15 @@ jobs:
         poetry run pip install tomli tomli_w
     - name: Typecheck
       run: |
-        make typecheck
+        make typecheck-coverage
+
+    - name: Upload type coverage to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/codecov-action@v7
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        flags: type-coverage
+        files: .mypy_coverage_report/cobertura.xml
 
   openapi:
     runs-on: ubuntu-latest
