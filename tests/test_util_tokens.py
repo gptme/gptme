@@ -195,29 +195,74 @@ def test_len_tokens_invalid_type():
 
 
 def test_get_tokenizer_returns_none_on_network_failure(monkeypatch):
-    """get_tokenizer returns None when tiktoken fails to load encodings."""
+    """get_tokenizer returns None when tiktoken raises a network-like error."""
     import gptme.util.tokens as tokens_mod
 
-    # Clear lru_cache so our patched version is called
     tokens_mod.get_tokenizer.cache_clear()
-
     try:
-        import tiktoken
-
-        # Patch tiktoken to raise network-like errors
+        # Patch _load_encoding (the function that actually downloads) to raise
         monkeypatch.setattr(
-            tiktoken,
-            "get_encoding",
+            tokens_mod,
+            "_load_encoding",
             lambda name: (_ for _ in ()).throw(Exception("Connection timed out")),
         )
-        monkeypatch.setattr(
-            tiktoken,
-            "encoding_for_model",
-            lambda name: (_ for _ in ()).throw(Exception("Connection timed out")),
-        )
-
         result = tokens_mod.get_tokenizer("some-offline-model")
         assert result is None
+    finally:
+        tokens_mod.get_tokenizer.cache_clear()
+
+
+def test_get_tokenizer_timeout_fallback(monkeypatch):
+    """get_tokenizer returns None and falls back to char-based when tiktoken hangs.
+
+    Regression test for the local-model / airgapped scenario described in
+    gptme Discussion #559: vLLM / Ollama users with a custom base_url would
+    block indefinitely on the cl100k_base BPE data download.
+    """
+    import threading
+
+    import gptme.util.tokens as tokens_mod
+
+    tokens_mod.get_tokenizer.cache_clear()
+    try:
+        # Simulate a hanging network fetch — block until the test gives up
+        hang_event = threading.Event()
+
+        def _hang(name: str):
+            hang_event.wait()  # blocks indefinitely during this test
+            raise RuntimeError("should not reach here")
+
+        monkeypatch.setattr(tokens_mod, "_load_encoding", _hang)
+        # Use a very short timeout so the test doesn't actually wait 5 s
+        monkeypatch.setattr(tokens_mod, "_TIKTOKEN_TIMEOUT", 0.05)
+
+        result = tokens_mod.get_tokenizer("ollama/llama3.2")
+        assert result is None
+
+        # Unblock the background thread so the executor can shut down cleanly
+        hang_event.set()
+    finally:
+        tokens_mod.get_tokenizer.cache_clear()
+
+
+def test_get_tokenizer_disabled_by_timeout_zero(monkeypatch):
+    """GPTME_TIKTOKEN_TIMEOUT=0 skips tiktoken entirely — no network attempt."""
+    import gptme.util.tokens as tokens_mod
+
+    tokens_mod.get_tokenizer.cache_clear()
+    try:
+        called = []
+
+        def _should_not_be_called(name: str):
+            called.append(name)
+            raise RuntimeError("tiktoken should not be called when timeout=0")
+
+        monkeypatch.setattr(tokens_mod, "_load_encoding", _should_not_be_called)
+        monkeypatch.setattr(tokens_mod, "_TIKTOKEN_TIMEOUT", 0.0)
+
+        result = tokens_mod.get_tokenizer("any-local-model")
+        assert result is None
+        assert not called, f"_load_encoding was called unexpectedly: {called}"
     finally:
         tokens_mod.get_tokenizer.cache_clear()
 
