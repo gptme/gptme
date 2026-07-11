@@ -5301,6 +5301,72 @@ class TestBatchJobCancelOnFailure:
         assert "remaining" in results
         assert "remaining" in cancel_calls
 
+    def test_cancel_on_failure_cancels_on_overall_timeout(self, monkeypatch):
+        """When the overall as_completed timeout fires, cancel_on_failure cancels agents."""
+        import threading
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+        from gptme.tools.subagent import batch as batch_mod
+        from gptme.tools.subagent.batch import BatchJob
+
+        cancel_calls: list[str] = []
+        # Block all agents so the overall timeout fires
+        unblocked = threading.Event()
+
+        def mock_subagent_wait(agent_id, timeout=None, max_result_chars=None, **kwargs):
+            unblocked.wait(timeout=2)
+            return {"status": "success", "result": "done"}
+
+        def mock_as_completed(fs, timeout=None):
+            raise FuturesTimeoutError
+
+        def mock_subagent_cancel(agent_id):
+            cancel_calls.append(agent_id)
+
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_subagent_wait)
+        monkeypatch.setattr(batch_mod, "as_completed", mock_as_completed)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", mock_subagent_cancel)
+
+        job = BatchJob(agent_ids=["agent-a", "agent-b"])
+        results = job.wait_all(timeout=1, cancel_on_failure=True)
+
+        # Both agents should be marked as timed out
+        assert results["agent-a"]["status"] == "timeout"
+        assert results["agent-b"]["status"] == "timeout"
+        # And both should have been cancelled
+        assert sorted(cancel_calls) == ["agent-a", "agent-b"]
+        unblocked.set()  # unblock background threads
+
+    def test_cancel_on_failure_false_no_cancel_on_overall_timeout(self, monkeypatch):
+        """Without cancel_on_failure, overall timeout does NOT call subagent_cancel."""
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+        from gptme.tools.subagent import batch as batch_mod
+        from gptme.tools.subagent.batch import BatchJob
+
+        cancel_calls: list[str] = []
+
+        def mock_subagent_wait(agent_id, timeout=None, max_result_chars=None, **kwargs):
+            return {"status": "success", "result": "done"}
+
+        def mock_as_completed(fs, timeout=None):
+            raise FuturesTimeoutError
+
+        def mock_subagent_cancel(agent_id):
+            cancel_calls.append(agent_id)
+
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_subagent_wait)
+        monkeypatch.setattr(batch_mod, "as_completed", mock_as_completed)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", mock_subagent_cancel)
+
+        job = BatchJob(agent_ids=["agent-a", "agent-b"])
+        results = job.wait_all(timeout=1, cancel_on_failure=False)
+
+        assert results["agent-a"]["status"] == "timeout"
+        assert results["agent-b"]["status"] == "timeout"
+        # No cancel calls without cancel_on_failure
+        assert cancel_calls == []
+
 
 class TestSubagentParallelCancelOnFailure:
     """Tests for subagent_parallel(cancel_on_failure=True)."""

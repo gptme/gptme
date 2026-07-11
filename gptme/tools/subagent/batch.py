@@ -163,7 +163,11 @@ class BatchJob:
         import time
 
         deadline = time.monotonic() + timeout
-        with ThreadPoolExecutor(max_workers=len(self.agent_ids) or 1) as pool:
+        # Use explicit lifecycle instead of context manager so we can return
+        # immediately after cancellation without blocking on still-running
+        # _wait_one threads (ThreadPoolExecutor.__exit__ calls shutdown(wait=True)).
+        pool = ThreadPoolExecutor(max_workers=len(self.agent_ids) or 1)
+        try:
             futures = {
                 pool.submit(_wait_one, aid, deadline): aid
                 for aid in self.agent_ids
@@ -197,13 +201,27 @@ class BatchJob:
                             if len(self.results) >= len(self.agent_ids):
                                 break
             except FuturesTimeoutError:
-                # as_completed timed out — mark any unfinished agents
+                # as_completed timed out — mark any unfinished agents as timeout
+                # and cancel subprocess/ACP agents so they don't keep running.
+                timed_out_ids: list[str] = []
                 for aid in futures.values():
                     with self._lock:
                         if aid not in self.results:
                             self.results[aid] = ReturnType(
                                 "timeout", f"Timed out after {timeout}s"
                             )
+                            timed_out_ids.append(aid)
+                if cancel_on_failure:
+                    for aid in timed_out_ids:
+                        try:
+                            subagent_cancel(aid)
+                        except Exception:
+                            pass
+        finally:
+            # Don't block on remaining _wait_one threads — all results are already
+            # collected in self.results. Threads may still be running subagent_wait()
+            # for cancelled agents but their outcomes are no longer relevant.
+            pool.shutdown(wait=False, cancel_futures=True)
 
         raw = {aid: asdict(r) for aid, r in self.results.items()}
         if self.output_schema is not None:
