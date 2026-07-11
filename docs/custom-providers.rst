@@ -193,8 +193,12 @@ existing configurations.
 Related discussions
 -------------------
 
-Community threads that motivated this page:
+Community threads and issues that motivated this page:
 
 - `Ollama setup <https://github.com/gptme/gptme/discussions/177>`_
 - `Llama 3.1 70B <https://github.com/gptme/gptme/discussions/178>`_
 - `vLLM tokenizer timeouts <https://github.com/gptme/gptme/discussions/559>`_
+- `Custom providers feature request <https://github.com/gptme/gptme/issues/673>`_
+- `Requesty provider support <https://github.com/gptme/gptme/issues/514>`_
+- `AI/ML provider support <https://github.com/gptme/gptme/issues/548>`_
+- `Chutes provider support <https://github.com/gptme/gptme/issues/555>`_
