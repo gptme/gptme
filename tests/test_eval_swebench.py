@@ -119,7 +119,17 @@ def test_evaluate_instance_populates_token_fields(monkeypatch, tmp_path):
         "gptme.eval.swebench.evaluate.shutil.copytree",
         lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(agent, "act", lambda *_args, **_kwargs: {})
+    retrieved_prompt = "retrieved prompt"
+    monkeypatch.setattr(
+        "gptme.eval.swebench.evaluate.retrieve_files_for_prompt",
+        lambda *_args, **_kwargs: retrieved_prompt,
+    )
+    received_prompts = []
+    monkeypatch.setattr(
+        agent,
+        "act",
+        lambda _messages, prompt: received_prompts.append(prompt),
+    )
     monkeypatch.setattr(
         "gptme.eval.swebench.evaluate.subprocess.run",
         lambda *_args, **_kwargs: type(
@@ -140,9 +150,15 @@ def test_evaluate_instance_populates_token_fields(monkeypatch, tmp_path):
         ),
     )
 
-    result, patch = evaluate_instance(agent, instance, repo_base_dir=str(tmp_path))
+    result, patch = evaluate_instance(
+        agent,
+        instance,
+        repo_base_dir=str(tmp_path),
+        retrieval_strategy="grep-embed",
+    )
 
     assert patch.startswith("diff")
+    assert received_prompts == [retrieved_prompt]
     assert result.tokens_input == 1200
     assert result.tokens_output == 300
     assert result.tokens_total == 1500

@@ -97,6 +97,19 @@ logger = logging.getLogger(__name__)
         "in the predictions.jsonl file and appends new results."
     ),
 )
+@click.option(
+    "--retrieval-strategy",
+    default="none",
+    show_default=True,
+    type=click.Choice(["none", "grep-embed"], case_sensitive=False),
+    help=(
+        "File retrieval strategy to use before passing the problem to the agent. "
+        "'none': plain problem statement (baseline). "
+        "'grep-embed': two-stage retrieval — keyword-grep to find relevant files, "
+        "then embed their contents directly in the prompt so the agent can fix the "
+        "bug without any exploration phase."
+    ),
+)
 def main(
     model: list[str],
     dataset: str,
@@ -109,6 +122,7 @@ def main(
     verbose: bool,
     info: bool,
     resume: bool,
+    retrieval_strategy: str,
 ):
     """Run SWE-bench evaluation for gptme.
 
@@ -160,6 +174,7 @@ def main(
             repo_base_dir=repo_base_dir,
             output_dir=Path(output_dir) / m.replace("/", "__"),
             resume=resume,
+            retrieval_strategy=retrieval_strategy,
         )
         swebench_results[ModelConfig.from_spec(m, default_format="markdown")] = results
         all_predictions_paths.append(predictions_path)

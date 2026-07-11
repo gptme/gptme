@@ -9,6 +9,7 @@ from gptme.eval.cost import get_eval_costs, token_fields_from_cost
 from gptme.eval.types import CaseResult, EvalResult
 from gptme.util.cost_tracker import CostTracker
 
+from .retrieval import retrieve_files_for_prompt
 from .utils import (
     KEY_INSTANCE_ID,
     KEY_MODEL,
@@ -31,6 +32,7 @@ def run_swebench_evaluation(
     repo_base_dir: str | None = None,
     output_dir: str | Path | None = None,
     resume: bool = False,
+    retrieval_strategy: str = "none",
 ) -> tuple[list[EvalResult], Path]:
     """Run SWE-bench evaluation, returning results and path to predictions JSONL.
 
@@ -49,6 +51,11 @@ def run_swebench_evaluation(
         repo_base_dir: Base directory to clone repos into.
         output_dir: Directory to write predictions.jsonl; defaults to ./runs/swebench.
         resume: If True, skip instances already present in predictions.jsonl.
+        retrieval_strategy: File retrieval strategy passed to each evaluate_instance call.
+            - "none" (default): plain problem statement, no retrieval.
+            - "grep-embed": two-stage retrieval — keyword-grep to localize files,
+              then embed their contents directly in the prompt. This eliminates the
+              agent's exploration phase by giving it the relevant code upfront.
 
     Returns:
         (results, predictions_path) tuple.
@@ -103,7 +110,9 @@ def run_swebench_evaluation(
         else:
             logger.info(f"[{idx}/{total}] Evaluating {instance_id}")
 
-        result, patch = evaluate_instance(agent, instance, repo_base_dir)
+        result, patch = evaluate_instance(
+            agent, instance, repo_base_dir, retrieval_strategy=retrieval_strategy
+        )
         results.append(result)
 
         # Write incrementally so progress survives interruption
@@ -132,9 +141,23 @@ def run_swebench_evaluation(
 
 
 def evaluate_instance(
-    agent: Agent, instance: dict, repo_base_dir: str | None
+    agent: Agent,
+    instance: dict,
+    repo_base_dir: str | None,
+    retrieval_strategy: str = "none",
 ) -> tuple[EvalResult, str]:
     """Run agent on a single SWE-bench instance and capture the generated patch.
+
+    Args:
+        agent: The agent to evaluate.
+        instance: SWE-bench instance dict (from load_instances).
+        repo_base_dir: Base directory for cloned repos.
+        retrieval_strategy: Controls how the problem statement is augmented:
+            - "none" (default): plain problem statement, no retrieval.
+            - "grep-embed": keyword-grep to localize relevant files, then embed
+              their contents directly in the prompt (two-stage approach). This
+              eliminates the agent's exploration phase — the relevant code is
+              provided upfront so the agent can make a targeted edit immediately.
 
     Returns:
         (EvalResult, patch) where patch is the unified diff produced by the agent.
@@ -145,7 +168,7 @@ def evaluate_instance(
     instance_id = instance["instance_id"]
     problem_statement = instance["problem_statement"]
 
-    logger.info(f"Evaluating instance: {instance_id}")
+    logger.info(f"Evaluating instance: {instance_id} (retrieval: {retrieval_strategy})")
     logger.debug(f"Problem statement: {problem_statement}")
 
     # Reset cost tracker so each task captures only its own tokens, not
@@ -161,7 +184,20 @@ def evaluate_instance(
         # workspace_dir is the agent's working directory; without this copy the agent
         # would only have access to an empty workspace, not the actual repository.
         shutil.copytree(repo_dir, agent.workspace_dir, dirs_exist_ok=True)
-        agent.act(None, problem_statement)
+
+        # Build the prompt based on retrieval strategy.
+        # With "grep-embed": localize relevant files via keyword-grep, then embed
+        # their contents directly so the agent can fix the bug without exploring.
+        if retrieval_strategy == "grep-embed":
+            prompt = retrieve_files_for_prompt(
+                Path(agent.workspace_dir),
+                problem_statement,
+                top_n=3,
+            )
+        else:
+            prompt = problem_statement
+
+        agent.act(None, prompt)
     except Exception as e:
         logger.error(f"Error during agent execution for instance {instance_id}: {e}")
         cost = get_eval_costs()
