@@ -144,11 +144,19 @@ jobs:
   # ── Prepare ───────────────────────────────────────────────────────────
   # Only for schedule/dispatch. Bumps version, generates changelog, creates
   # the GitHub release via publish_release.sh.
+  #
+  # Uses the `release` environment's SSH_PRIVATE_KEY (a read-write deploy
+  # key) for git pushes, so the version-bump commit and tag can bypass the
+  # branch ruleset that blocks direct pushes to master (deploy keys are a
+  # bypass actor on the ruleset; GITHUB_TOKEN is not). Note: unlike
+  # GITHUB_TOKEN pushes, deploy-key pushes trigger `push` workflows, so CI
+  # runs on the version-bump commit.
   prepare:
     name: Create release
     needs: check
     if: needs.check.outputs.should_release == 'true'
     runs-on: ubuntu-latest
+    environment: release
     outputs:
       tag: ${{ steps.version.outputs.tag }}
     steps:
@@ -156,7 +164,9 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # Clone over SSH and persist the deploy key so the pushes in
+          # publish_release.sh (branch + tag) authenticate with it.
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Configure git
         run: |
