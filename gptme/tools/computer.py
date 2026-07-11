@@ -2264,12 +2264,23 @@ def fill_native(coordinate: tuple[int, int], text: str) -> list[Message]:
     The sequence is: triple-click to select all existing text, then type the
     replacement text.  No separate ctrl+a step is needed.
 
+    .. note::
+        Triple-click selects all text in *most* single-line native inputs, but
+        may select only a word or line in terminals and multi-line text widgets.
+        Verify the field type before using this helper in those contexts.
+
+    .. note::
+        Native transport actions do not return a screenshot, so this function
+        typically returns an empty list.  Call ``observe_desktop()`` afterwards
+        to confirm the fill succeeded.
+
     Args:
         coordinate: X,Y coordinates of the text field (in API space).
         text: Replacement text to type into the field.
 
     Returns:
-        List of :class:`~gptme.message.Message` objects from the operations.
+        List of :class:`~gptme.message.Message` objects from the operations
+        (usually empty for native targets; call ``observe_desktop()`` to verify).
 
     Example (from IPython in a computer-use session)::
 

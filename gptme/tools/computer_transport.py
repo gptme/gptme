@@ -83,6 +83,13 @@ class ComputerTransport(abc.ABC):
         Selects all text in most native text inputs.
         Not all transports support triple-click natively; the default falls
         back to three rapid left_click calls.
+
+        .. note::
+            Transports that require an explicit cursor position (e.g. CUA) must
+            have had a prior ``mouse_move`` call; otherwise the fallback
+            ``left_click`` calls will fail.  Pass a ``coordinate`` to the
+            top-level ``computer('triple_click', coordinate=...)`` call to
+            ensure ``mouse_move`` is issued automatically.
         """
         self.left_click()
         self.left_click()

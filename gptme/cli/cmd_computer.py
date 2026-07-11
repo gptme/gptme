@@ -270,6 +270,7 @@ def _extract_computer_calls(messages) -> list[dict]:
             # The coordinate arg may contain a comma (e.g. (300, 200)), so the
             # pattern uses (?:\([^)]*\)|[^,])+ to consume a parenthesised tuple
             # or non-comma chars before matching the text argument.
+            # Also handle keyword-arg form (text=...) and variable args (value_len=None).
             all_positioned.extend(
                 (
                     m.start(),
@@ -278,13 +279,15 @@ def _extract_computer_calls(messages) -> list[dict]:
                         "action": "fill_native",
                         "source": "computer",
                         "value_len": len(
-                            m.group(1) if m.group(1) is not None else (m.group(2) or "")
-                        ),
+                            m.group(1) if m.group(1) is not None else m.group(2)
+                        )
+                        if (m.group(1) is not None or m.group(2) is not None)
+                        else None,
                         "risk_level": action_risk_level("fill_native"),
                     },
                 )
                 for m in re.finditer(
-                    r"""\bfill_native\s*\((?:\([^)]*\)|[^,])+,\s*(?:'([^']*)'|"([^"]*)")""",
+                    r"""\bfill_native\s*\((?:\([^)]*\)|[^,])+,\s*(?:text\s*=\s*)?(?:'([^']*)'|"([^"]*)"|\w+)""",
                     code,
                 )
             )
