@@ -7,7 +7,6 @@ and display them in a consistent format.
 from dataclasses import dataclass
 
 from ..message import Message
-from . import console
 from .cost_tracker import CostTracker
 
 
@@ -302,6 +301,12 @@ def display_costs(
         session: Costs from current session (CostTracker)
         conversation: Costs from conversation history (metadata)
     """
+    # Resolve the shared console at call time (not module import time): this
+    # module is imported lazily, and an import-time binding would permanently
+    # capture a mock if the first import happens under a patched
+    # gptme.util.console (as some tests do).
+    from . import console
+
     if not session and not conversation:
         console.log(
             "[yellow]No cost data available. Use /tokens for approximation.[/yellow]"
@@ -441,6 +446,8 @@ def display_costs(
 
 def _display_total(total: TotalCosts) -> None:
     """Helper to display total costs."""
+    from . import console
+
     total_in = (
         total.input_tokens + total.cache_read_tokens + total.cache_creation_tokens
     )

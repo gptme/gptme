@@ -337,6 +337,7 @@ bench-startup:  ## Benchmark startup time (import + full start/exit cycle)
 	@VENV=$$(poetry env info --path) && \
 	hyperfine --warmup 2 -M 10 \
 		-n "import gptme.cli.main" "$$VENV/bin/python -c 'from gptme.cli.main import main'" \
+		-n "gptme --help" "$$VENV/bin/gptme --help" \
 		-n "full start/exit cycle" "$$VENV/bin/gptme '/exit' < /dev/null" \
 	|| "$$VENV/bin/gptme" '/exit' < /dev/null || exit 1
 
