@@ -5138,3 +5138,278 @@ class TestSubagentPipeline:
         assert len(results[0]) == 1  # 1 stage each
         assert results[0][0]["result"] == "a-stage0"
         assert results[1][0]["result"] == "b-stage0"
+
+
+# ---------------------------------------------------------------------------
+# cancel_on_failure tests
+# ---------------------------------------------------------------------------
+
+
+class TestBatchJobCancelOnFailure:
+    """Tests for BatchJob.wait_all(cancel_on_failure=True)."""
+
+    def test_cancel_on_failure_cancels_remaining_when_one_fails(self, monkeypatch):
+        """When cancel_on_failure=True, a failing agent causes remaining to be cancelled."""
+        import threading
+
+        from gptme.tools.subagent import batch as batch_mod
+        from gptme.tools.subagent.batch import BatchJob
+
+        slow_agent_unblocked = threading.Event()
+        cancel_calls: list[str] = []
+
+        def mock_subagent_wait(agent_id, timeout=None, max_result_chars=None, **kwargs):
+            if agent_id == "failing":
+                return {"status": "failure", "result": "task failed"}
+            # slow agent blocks until cancelled
+            slow_agent_unblocked.wait(timeout=5)
+            return {"status": "failure", "result": "Cancelled due to sibling failure"}
+
+        def mock_subagent_cancel(agent_id):
+            cancel_calls.append(agent_id)
+            slow_agent_unblocked.set()
+            return f"Subagent '{agent_id}' cancelled."
+
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_subagent_wait)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", mock_subagent_cancel)
+
+        job = BatchJob(agent_ids=["failing", "slow"])
+        results = job.wait_all(timeout=5, cancel_on_failure=True)
+
+        assert results["failing"]["status"] == "failure"
+        assert "slow" in results
+        assert results["slow"]["status"] == "failure"
+        assert "slow" in cancel_calls
+
+    def test_cancel_on_failure_false_does_not_cancel_remaining(self, monkeypatch):
+        """Without cancel_on_failure=True, a failure does not cancel other agents."""
+
+        from gptme.tools.subagent import batch as batch_mod
+        from gptme.tools.subagent.batch import BatchJob
+
+        cancel_calls: list[str] = []
+
+        def mock_subagent_wait(agent_id, timeout=None, max_result_chars=None, **kwargs):
+            if agent_id == "failing":
+                return {"status": "failure", "result": "task failed"}
+            return {"status": "success", "result": "slow done"}
+
+        def mock_subagent_cancel(agent_id):
+            cancel_calls.append(agent_id)
+            return f"Subagent '{agent_id}' cancelled."
+
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_subagent_wait)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", mock_subagent_cancel)
+
+        job = BatchJob(agent_ids=["failing", "slow"])
+        results = job.wait_all(timeout=5, cancel_on_failure=False)
+
+        assert results["failing"]["status"] == "failure"
+        assert results["slow"]["status"] == "success"
+        assert cancel_calls == []
+
+    def test_cancel_on_failure_no_cancel_when_all_succeed(self, monkeypatch):
+        """When all agents succeed, no cancellation happens."""
+        from gptme.tools.subagent import batch as batch_mod
+        from gptme.tools.subagent.batch import BatchJob
+
+        cancel_calls: list[str] = []
+
+        def mock_subagent_wait(agent_id, timeout=None, max_result_chars=None, **kwargs):
+            return {"status": "success", "result": f"{agent_id} done"}
+
+        def mock_subagent_cancel(agent_id):
+            cancel_calls.append(agent_id)
+            return f"cancelled {agent_id}"
+
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_subagent_wait)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", mock_subagent_cancel)
+
+        job = BatchJob(agent_ids=["a", "b", "c"])
+        results = job.wait_all(timeout=5, cancel_on_failure=True)
+
+        assert all(r["status"] == "success" for r in results.values())
+        assert cancel_calls == []
+
+    def test_cancel_on_failure_multiple_remaining_agents_all_cancelled(
+        self, monkeypatch
+    ):
+        """When one agent fails, ALL remaining agents are cancelled."""
+        import threading
+
+        from gptme.tools.subagent import batch as batch_mod
+        from gptme.tools.subagent.batch import BatchJob
+
+        slow_unblocked = threading.Event()
+        cancel_calls: list[str] = []
+
+        def mock_subagent_wait(agent_id, timeout=None, max_result_chars=None, **kwargs):
+            if agent_id == "fail":
+                return {"status": "failure", "result": "fail"}
+            slow_unblocked.wait(timeout=5)
+            return {"status": "failure", "result": "Cancelled due to sibling failure"}
+
+        def mock_subagent_cancel(agent_id):
+            cancel_calls.append(agent_id)
+            slow_unblocked.set()
+            return f"cancelled {agent_id}"
+
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_subagent_wait)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", mock_subagent_cancel)
+
+        job = BatchJob(agent_ids=["fail", "slow-1", "slow-2"])
+        results = job.wait_all(timeout=5, cancel_on_failure=True)
+
+        assert results["fail"]["status"] == "failure"
+        # Both remaining agents should be cancelled
+        assert len(results) == 3
+        assert all(results[aid]["status"] == "failure" for aid in ["slow-1", "slow-2"])
+        # Both should have been cancelled (cancel_calls may include one or both,
+        # depending on which one was still pending when cancel fired)
+        assert any(aid in cancel_calls for aid in ["slow-1", "slow-2"])
+
+    def test_cancel_on_failure_with_timeout_result_also_triggers_cancel(
+        self, monkeypatch
+    ):
+        """A timeout result (not just failure) also triggers cancel_on_failure."""
+        import threading
+
+        from gptme.tools.subagent import batch as batch_mod
+        from gptme.tools.subagent.batch import BatchJob
+
+        slow_unblocked = threading.Event()
+        cancel_calls: list[str] = []
+
+        def mock_subagent_wait(agent_id, timeout=None, max_result_chars=None, **kwargs):
+            if agent_id == "timed-out":
+                return {"status": "timeout", "result": "timed out"}
+            slow_unblocked.wait(timeout=5)
+            return {"status": "failure", "result": "Cancelled due to sibling failure"}
+
+        def mock_subagent_cancel(agent_id):
+            cancel_calls.append(agent_id)
+            slow_unblocked.set()
+            return f"cancelled {agent_id}"
+
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_subagent_wait)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", mock_subagent_cancel)
+
+        job = BatchJob(agent_ids=["timed-out", "remaining"])
+        results = job.wait_all(timeout=5, cancel_on_failure=True)
+
+        assert results["timed-out"]["status"] == "timeout"
+        assert "remaining" in results
+        assert "remaining" in cancel_calls
+
+
+class TestSubagentParallelCancelOnFailure:
+    """Tests for subagent_parallel(cancel_on_failure=True)."""
+
+    def test_parallel_cancel_on_failure_cancels_remaining_on_failure(self, monkeypatch):
+        """subagent_parallel with cancel_on_failure=True cancels fleet on first failure."""
+        import threading
+
+        from gptme.tools.subagent import batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_parallel
+
+        slow_unblocked = threading.Event()
+        cancel_calls: list[str] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            pass  # fire-and-forget
+
+        def mock_subagent_wait(agent_id, timeout=None, max_result_chars=None, **kwargs):
+            if agent_id == "fail-agent":
+                return {"status": "failure", "result": "something went wrong"}
+            slow_unblocked.wait(timeout=5)
+            return {"status": "failure", "result": "Cancelled due to sibling failure"}
+
+        def mock_subagent_cancel(agent_id):
+            cancel_calls.append(agent_id)
+            slow_unblocked.set()
+            return f"cancelled {agent_id}"
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_subagent_wait)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", mock_subagent_cancel)
+
+        results = subagent_parallel(
+            [("fail-agent", "do something"), ("slow-agent", "do something slow")],
+            timeout=5,
+            cancel_on_failure=True,
+        )
+
+        assert len(results) == 2
+        assert results[0]["status"] == "failure"  # fail-agent
+        assert results[1]["status"] == "failure"  # slow-agent (cancelled)
+        assert "slow-agent" in cancel_calls
+
+    def test_parallel_cancel_on_failure_false_collects_all_results(self, monkeypatch):
+        """Without cancel_on_failure, subagent_parallel waits for all agents."""
+        from gptme.tools.subagent import batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_parallel
+
+        cancel_calls: list[str] = []
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            pass
+
+        def mock_subagent_wait(agent_id, timeout=None, max_result_chars=None, **kwargs):
+            if agent_id == "fail-agent":
+                return {"status": "failure", "result": "task failed"}
+            return {"status": "success", "result": f"{agent_id} done"}
+
+        def mock_subagent_cancel(agent_id):
+            cancel_calls.append(agent_id)
+            return f"cancelled {agent_id}"
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_subagent_wait)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", mock_subagent_cancel)
+
+        results = subagent_parallel(
+            [("fail-agent", "do x"), ("success-agent", "do y")],
+            timeout=5,
+            cancel_on_failure=False,
+        )
+
+        assert len(results) == 2
+        assert results[0]["status"] == "failure"
+        assert results[1]["status"] == "success"
+        assert cancel_calls == []
+
+    def test_parallel_cancel_on_failure_results_in_input_order(self, monkeypatch):
+        """Results are returned in input task order even when cancel_on_failure fires."""
+        import threading
+
+        from gptme.tools.subagent import batch as batch_mod
+        from gptme.tools.subagent.batch import subagent_parallel
+
+        slow_unblocked = threading.Event()
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            pass
+
+        def mock_subagent_wait(agent_id, timeout=None, max_result_chars=None, **kwargs):
+            if agent_id == "third":
+                return {"status": "failure", "result": "third failed"}
+            slow_unblocked.wait(timeout=5)
+            return {"status": "failure", "result": "cancelled"}
+
+        def mock_subagent_cancel(agent_id):
+            slow_unblocked.set()
+            return f"cancelled {agent_id}"
+
+        monkeypatch.setattr(batch_mod, "subagent", mock_subagent)
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_subagent_wait)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", mock_subagent_cancel)
+
+        tasks = [("first", "p1"), ("second", "p2"), ("third", "p3")]
+        results = subagent_parallel(tasks, timeout=5, cancel_on_failure=True)
+
+        # 3 results, in order of input tasks
+        assert len(results) == 3
+        # "third" failed — it should be the failure that triggered cancellation
+        third_idx = 2
+        assert results[third_idx]["status"] == "failure"
+        assert results[third_idx]["result"] == "third failed"

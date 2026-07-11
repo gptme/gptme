@@ -99,7 +99,9 @@ class BatchJob:
     output_schema: "type | dict | None" = field(default=None)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def wait_all(self, timeout: int = 300) -> dict[str, dict]:
+    def wait_all(
+        self, timeout: int = 300, cancel_on_failure: bool = False
+    ) -> dict[str, dict]:
         """Wait for all subagents to complete concurrently.
 
         Uses a thread pool to wait for all subagents simultaneously, so the
@@ -113,6 +115,13 @@ class BatchJob:
 
         Args:
             timeout: Maximum seconds to wait for all subagents
+            cancel_on_failure: When True, cancel all remaining running subagents
+                as soon as the first failure or timeout is detected. Cancelled
+                agents are marked with ``status="failure"`` and
+                ``result="Cancelled due to sibling failure"`` in the returned
+                dict. For subprocess-mode agents this sends SIGTERM (fast); for
+                thread-mode agents it marks the result immediately while the
+                background thread continues until its next natural checkpoint.
 
         Returns:
             Dict mapping agent_id to status dict. When ``output_schema`` is set,
@@ -166,6 +175,27 @@ class BatchJob:
                     with self._lock:
                         if agent_id not in self.results:
                             self.results[agent_id] = result
+
+                    # Cancel remaining agents on first failure/timeout
+                    if cancel_on_failure and result.status in ("failure", "timeout"):
+                        with self._lock:
+                            remaining_ids = [
+                                aid for aid in self.agent_ids if aid not in self.results
+                            ]
+                        for aid_to_cancel in remaining_ids:
+                            try:
+                                subagent_cancel(aid_to_cancel)
+                            except ValueError:
+                                pass  # Agent already finished
+                            with self._lock:
+                                if aid_to_cancel not in self.results:
+                                    self.results[aid_to_cancel] = ReturnType(
+                                        "failure", "Cancelled due to sibling failure"
+                                    )
+                        # All remaining results are now pre-populated; exit early
+                        with self._lock:
+                            if len(self.results) >= len(self.agent_ids):
+                                break
             except FuturesTimeoutError:
                 # as_completed timed out — mark any unfinished agents
                 for aid in futures.values():
@@ -443,6 +473,7 @@ def subagent_parallel(
     context_turns: int | None = None,
     context_window: int | None = None,
     redact_secrets: bool = True,
+    cancel_on_failure: bool = False,
 ) -> list[dict]:
     """Fan out N subagents in parallel, wait for all, return results as an ordered list.
 
@@ -488,6 +519,18 @@ def subagent_parallel(
             inherited workspace context. Only applies to thread-mode subagents.
         redact_secrets: If True (default), scrub common secret patterns from
             workspace context before passing it to subagents.
+        cancel_on_failure: When True, cancel all remaining running subagents
+            as soon as the first failure or timeout is detected. Cancelled
+            agents are reported with ``status="failure"`` and
+            ``result="Cancelled due to sibling failure"``. For subprocess-mode
+            agents this sends SIGTERM (fast); for thread-mode agents the result
+            is marked immediately while the background thread finishes naturally.
+
+            Use this for defensive fan-out orchestration where one failing
+            subagent means the overall task has failed and continuing would
+            waste resources. Equivalent to calling ``subagent_cancel()``
+            manually after ``subagent_wait_any()`` detects a failure, but
+            handled automatically inside the parallel wait.
 
     Returns:
         List of result dicts in the same order as ``tasks``. Each dict has
@@ -511,6 +554,14 @@ def subagent_parallel(
             [("fix-a", "Fix bug in module A"), ("fix-b", "Fix bug in module B")],
             isolated=True,
         )
+
+        # Fail-fast: cancel the fleet when the first subagent fails
+        results = subagent_parallel(
+            [("verifier-a", "Verify output A"), ("verifier-b", "Verify output B")],
+            cancel_on_failure=True,
+        )
+        if any(r["status"] == "failure" for r in results):
+            print("Verification failed — remaining agents were cancelled")
 
         # With structured output (Pydantic model)
         from pydantic import BaseModel
@@ -564,7 +615,7 @@ def subagent_parallel(
 
     # Collect results in parallel using BatchJob
     job = BatchJob(agent_ids=[t[0] for t in tasks])
-    job.wait_all(timeout=timeout)
+    job.wait_all(timeout=timeout, cancel_on_failure=cancel_on_failure)
 
     # Return results in input order; fall back to failure for missing results.
     # When output_schema is set, parse the JSON result against the schema.
