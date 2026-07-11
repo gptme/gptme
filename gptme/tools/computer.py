@@ -54,6 +54,7 @@ Mouse:
     - right_click: Click right mouse button
     - middle_click: Click middle mouse button
     - double_click: Double click left mouse button
+    - triple_click: Triple click at position (selects all text in most native inputs; use with coordinate to click a field)
     - left_click_drag: Click and drag to coordinates
 
 Screen:
@@ -244,6 +245,7 @@ Action = Literal[
     "right_click",
     "middle_click",
     "double_click",
+    "triple_click",
     "scroll",
     "screenshot",
     "cursor_position",
@@ -1410,7 +1412,13 @@ def _dispatch_transport(
             print(f"Dragged to {x},{y}")
         return None
 
-    click_actions = {"left_click", "right_click", "middle_click", "double_click"}
+    click_actions = {
+        "left_click",
+        "right_click",
+        "middle_click",
+        "double_click",
+        "triple_click",
+    }
     if action in click_actions:
         if coordinate:
             x, y = coordinate
@@ -1420,6 +1428,7 @@ def _dispatch_transport(
             "right_click": transport.right_click,
             "middle_click": transport.middle_click,
             "double_click": transport.double_click,
+            "triple_click": transport.triple_click,
         }[action]
         click_fn()
         print(f"Performed {action}")
@@ -1637,6 +1646,55 @@ def computer(
         else:
             _run_xdotool("click --repeat 2 --delay 100 1", display)
         print("Performed double_click")
+        return None
+    if action == "triple_click":
+        if coordinate:
+            sx, sy = _scale_coordinates(
+                _ScalingSource.API, coordinate[0], coordinate[1], width, height
+            )
+            if IS_MACOS:
+                try:
+                    subprocess.run(
+                        ["cliclick", f"tc:{sx},{sy}"],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                except subprocess.TimeoutExpired as e:
+                    raise RuntimeError("cliclick triple-click timed out") from e
+                except subprocess.CalledProcessError as e:
+                    raise RuntimeError(f"Failed to triple-click: {e.stderr}") from e
+            else:
+                _run_xdotool(
+                    f"mousemove --sync {sx} {sy} click --repeat 3 --delay 100 1",
+                    display,
+                )
+        else:
+            if IS_MACOS:
+                try:
+                    result = subprocess.run(
+                        ["cliclick", "p"],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    pos = result.stdout.strip()
+                    subprocess.run(
+                        ["cliclick", f"tc:{pos}"],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                except subprocess.TimeoutExpired as e:
+                    raise RuntimeError("cliclick triple-click timed out") from e
+                except subprocess.CalledProcessError as e:
+                    raise RuntimeError(f"Failed to triple-click: {e.stderr}") from e
+            else:
+                _run_xdotool("click --repeat 3 --delay 100 1", display)
+        print("Performed triple_click")
         return None
     if action in ("left_click", "right_click", "middle_click"):
         click_map = {
@@ -2040,7 +2098,7 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 
 ### Observation helpers (structured-first policy)
 
-Three higher-level helpers are available that implement the structured-first observation policy:
+Higher-level helpers are available that implement the structured-first observation policy:
 
 - ``observe_web(url, screenshot_too=False)`` — observe a web page using ARIA snapshots first
   (no vision tokens), with automatic fallback to a browser screenshot, then desktop screenshot.
@@ -2052,6 +2110,10 @@ Three higher-level helpers are available that implement the structured-first obs
   ``wait_for_change`` in one call — the complete "act then look" loop without separate
   screenshot calls. Use this for tight interaction loops where you want to see the screen
   after every click, keypress, or scroll.
+- ``fill_native(coordinate, text)`` — replace text in a native (non-browser) text field in one
+  call. Triple-clicks to select all existing text, then types the replacement. The native
+  equivalent of ``fill_element(selector, value)`` for DOM targets. Use when the target is a
+  native app input (terminal, dialog, form) rather than a web page.
 - ``computer_task(task, timeout=300, model=None)`` — run a multi-step computer-use task
   in a **context-isolated subagent** and block until done. All screenshots and intermediate
   steps are kept inside the subagent's own context — the caller's context stays lean. Use
@@ -2190,6 +2252,43 @@ def observe_desktop() -> Message | None:
         # Equivalent to computer("screenshot"), but signals intent clearly.
     """
     return computer("screenshot")
+
+
+def fill_native(coordinate: tuple[int, int], text: str) -> list[Message]:
+    """Fill a native (non-browser) text field by clicking, selecting all, and typing.
+
+    Use this to replace the content of a native text input with new text —
+    equivalent to ``fill_element(selector, value)`` for web targets, but for
+    native desktop/X11/macOS apps.
+
+    The sequence is: triple-click to select all existing text, then type the
+    replacement text.  No separate ctrl+a step is needed.
+
+    Args:
+        coordinate: X,Y coordinates of the text field (in API space).
+        text: Replacement text to type into the field.
+
+    Returns:
+        List of :class:`~gptme.message.Message` objects from the operations.
+
+    Example (from IPython in a computer-use session)::
+
+        # Replace the URL bar text in a browser window
+        msgs = fill_native((400, 50), "https://example.com")
+
+        # Fill a login field in a native app
+        msgs = fill_native((300, 200), "username@example.com")
+    """
+    messages: list[Message] = []
+    # Triple-click selects all text in the field (works in most native text inputs)
+    result = computer("triple_click", coordinate=coordinate)
+    if result is not None:
+        messages.append(result)
+    # Type the replacement text (overwrites the selected content)
+    result = computer("type", text=text)
+    if result is not None:
+        messages.append(result)
+    return messages
 
 
 class ScreenRecording:
@@ -2699,6 +2798,18 @@ User: Open Firefox, go to https://x.com/compose/tweet, type "Hello from gptme!" 
 Assistant: I'll delegate this to computer_task() so all the intermediate screenshots stay in a subagent context rather than here.
 {ToolUse("ipython", [], _COMPUTER_TASK_TWEET_EXAMPLE).to_output(tool_format)}
 System: {{"status": "success", "result": "Tweet submitted successfully. Firefox opened, x.com/compose/tweet loaded, typed the message, clicked Tweet. Confirmed tweet posted.", "agent_id": "computer-task-a1b2c3d4"}}
+
+User: Replace the text in the URL bar of the browser window with "https://example.com"
+Assistant: I'll use fill_native to triple-click the URL bar to select all text, then type the new URL.
+{ToolUse("ipython", [], 'fill_native((760, 45), "https://example.com")').to_output(tool_format)}
+System: Performed triple_click
+Typed text: https://example.com
+
+User: Fill the "Username" field at (300, 200) in this native login dialog
+Assistant: I'll use fill_native to replace whatever is in the field with the username.
+{ToolUse("ipython", [], 'fill_native((300, 200), "alice@example.com")').to_output(tool_format)}
+System: Performed triple_click
+Typed text: alice@example.com
 """
 
     # Platform-specific keyboard shortcut examples
@@ -2736,6 +2847,7 @@ tool = ToolSpec(
         ToolFunction.from_callable(observe_web),
         ToolFunction.from_callable(observe_desktop),
         ToolFunction.from_callable(act_and_observe),
+        ToolFunction.from_callable(fill_native),
         ToolFunction.from_callable(computer_task),
         ToolFunction.from_callable(record_screen),
         ToolFunction.from_callable(start_recording),

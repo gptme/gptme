@@ -68,6 +68,7 @@ ACTION_RISK_WRITE: frozenset[str] = frozenset(
         "right_click",
         "middle_click",
         "double_click",
+        "triple_click",
         "mouse_move",
         "scroll",
         "window_focus",
@@ -90,6 +91,8 @@ ACTION_RISK_SENSITIVE: frozenset[str] = frozenset(
         "left_click_drag",
         # browser
         "fill_element",
+        # high-level wrappers that handle text input
+        "fill_native",
     }
 )
 

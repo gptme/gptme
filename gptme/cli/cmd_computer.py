@@ -104,6 +104,7 @@ def _extract_computer_calls(messages) -> list[dict]:
     - ``click_element(selector)`` — DOM element click
     - ``hover_element(selector)`` — hover over a DOM element
     - ``fill_element(selector, value)`` — form fill (value length logged, not raw text)
+    - ``fill_native(coordinate, text)`` — native field fill (triple-click + type; text length logged)
     - ``press_key(key)`` — navigation key press (Enter, Tab, Escape, …)
     - ``select_option(selector, value)`` — dropdown/select element change
     - ``wait_for_element(selector)`` — wait for a DOM element to appear
@@ -261,6 +262,29 @@ def _extract_computer_calls(messages) -> list[dict]:
                 )
                 for m in re.finditer(
                     r"""\bfill_element\s*\(\s*(?:'([^']*)'|"([^"]*)")\s*,\s*(?:'([^']*)'|"([^"]*)")""",
+                    code,
+                )
+            )
+
+            # fill_native(coordinate, text) — native field fill; text is sensitive.
+            # The coordinate arg may contain a comma (e.g. (300, 200)), so the
+            # pattern uses (?:\([^)]*\)|[^,])+ to consume a parenthesised tuple
+            # or non-comma chars before matching the text argument.
+            all_positioned.extend(
+                (
+                    m.start(),
+                    {
+                        "timestamp": ts,
+                        "action": "fill_native",
+                        "source": "computer",
+                        "value_len": len(
+                            m.group(1) if m.group(1) is not None else (m.group(2) or "")
+                        ),
+                        "risk_level": action_risk_level("fill_native"),
+                    },
+                )
+                for m in re.finditer(
+                    r"""\bfill_native\s*\((?:\([^)]*\)|[^,])+,\s*(?:'([^']*)'|"([^"]*)")""",
                     code,
                 )
             )

@@ -24,6 +24,7 @@ from gptme.tools.computer import (
     _dispatch_transport,
     _poll_for_change,
     act_and_observe,
+    fill_native,
     observe_desktop,
     observe_web,
 )
@@ -616,3 +617,96 @@ class TestActAndObservePreBaseline:
             "fallback path must call computer('wait_for_change') when no transport"
         )
         assert settled_msg in msgs
+
+
+# ---------------------------------------------------------------------------
+# TestTripleClick
+# ---------------------------------------------------------------------------
+
+
+class TestTripleClick:
+    """Tests for the triple_click action via the mock transport."""
+
+    def test_triple_click_dispatches_to_transport(self):
+        """triple_click must call transport.triple_click()."""
+        transport = MagicMock(spec=ComputerTransport)
+        _dispatch_transport(transport, "triple_click", None, None)
+        transport.triple_click.assert_called_once()
+
+    def test_triple_click_with_coordinate_moves_then_clicks(self):
+        """triple_click with coordinate must move mouse first, then triple_click."""
+        transport = MagicMock(spec=ComputerTransport)
+        _dispatch_transport(transport, "triple_click", None, (100, 200))
+        transport.mouse_move.assert_called_once_with(100, 200)
+        transport.triple_click.assert_called_once()
+
+    def test_triple_click_no_coordinate_skips_mouse_move(self):
+        """triple_click without coordinate must NOT move the mouse first."""
+        transport = MagicMock(spec=ComputerTransport)
+        _dispatch_transport(transport, "triple_click", None, None)
+        transport.mouse_move.assert_not_called()
+        transport.triple_click.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# TestFillNative
+# ---------------------------------------------------------------------------
+
+
+class TestFillNative:
+    """Tests for fill_native() — click, select-all, type sequence."""
+
+    def test_fill_native_calls_triple_click_then_type(self):
+        """fill_native must call triple_click then type in sequence."""
+        calls: list[tuple] = []
+
+        def mock_computer(action, text=None, coordinate=None):
+            calls.append((action, coordinate, text))
+            return
+
+        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+            fill_native((300, 200), "new text")
+
+        assert len(calls) == 2, f"Expected 2 calls, got {len(calls)}: {calls}"
+        assert calls[0] == ("triple_click", (300, 200), None), (
+            f"First call should be triple_click with coordinate, got {calls[0]}"
+        )
+        assert calls[1][0] == "type", f"Second call should be type, got {calls[1][0]}"
+        assert calls[1][2] == "new text", (
+            f"type call should carry the replacement text, got {calls[1][2]}"
+        )
+
+    def test_fill_native_returns_list(self):
+        """fill_native always returns a list (empty when computer returns None)."""
+        with patch("gptme.tools.computer.computer", return_value=None):
+            result = fill_native((100, 100), "hello")
+        assert isinstance(result, list)
+
+    def test_fill_native_includes_messages_from_computer(self):
+        """fill_native collects non-None messages returned by computer()."""
+        msg = MagicMock()
+
+        def mock_computer(action, text=None, coordinate=None):
+            if action == "type":
+                return msg
+            return None
+
+        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+            result = fill_native((100, 100), "hello")
+
+        assert msg in result, "type result message must be in fill_native return value"
+
+    def test_fill_native_coordinate_is_passed_to_triple_click(self):
+        """The coordinate argument must be forwarded to triple_click unchanged."""
+        seen: list[tuple] = []
+
+        def mock_computer(action, text=None, coordinate=None):
+            seen.append((action, coordinate))
+            return
+
+        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+            fill_native((760, 45), "https://example.com")
+
+        assert seen[0] == ("triple_click", (760, 45)), (
+            f"triple_click must receive the exact coordinate, got {seen[0]}"
+        )

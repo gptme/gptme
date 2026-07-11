@@ -190,6 +190,8 @@ BUILTIN_PROFILES: dict[str, Profile] = {
             "- Fall back to `computer('left_click', coordinate=(x, y))` only when the app lacks accessibility support (games, canvas UIs, electron apps)\n"
             "- Use `act_and_observe('window_focus', text='pattern')` (not bare `computer('window_focus', ...)`) before acting on newly-opened windows — the automatic `wait_for_change` ensures the app has rendered its UI before you type\n"
             "- Use `computer('scroll', coordinate=(x,y), text='down')` when the interface is only exposed through a native viewport\n"
+            "- Use `computer('triple_click', coordinate=(x, y))` to select all text in a native field before replacing it\n"
+            "- Use `fill_native((x, y), text)` as a single-call shortcut to replace text in a native field — equivalent to `fill_element(selector, value)` for DOM targets\n"
             "\n"
             "## Efficiency rules\n"
             "- Use `observe_web(url)` for web — structured ARIA snapshot with no vision tokens\n"

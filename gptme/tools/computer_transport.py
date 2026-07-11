@@ -77,6 +77,17 @@ class ComputerTransport(abc.ABC):
         """Double-click left mouse button at current position."""
         ...
 
+    def triple_click(self) -> None:
+        """Triple-click left mouse button at current position.
+
+        Selects all text in most native text inputs.
+        Not all transports support triple-click natively; the default falls
+        back to three rapid left_click calls.
+        """
+        self.left_click()
+        self.left_click()
+        self.left_click()
+
     @abc.abstractmethod
     def left_click_drag(self, x: int, y: int) -> None:
         """Click and drag from current position to (x, y)."""
