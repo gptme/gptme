@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import queue
+import subprocess
+import sys
+import threading
+import time
 from typing import TYPE_CHECKING
 
 import pytest
@@ -191,8 +197,9 @@ class TestMCPServerHandlers:
         result = await server_with_mock_tools._server.request_handlers[
             types.ListToolsRequest
         ](req)
-        assert result.root.tools  # type: ignore[union-attr]
-        tool_names = [t.name for t in result.root.tools]  # type: ignore[union-attr]
+        assert isinstance(result.root, types.ListToolsResult)
+        assert result.root.tools
+        tool_names = [t.name for t in result.root.tools]
         assert "shell" in tool_names
 
     @pytest.mark.asyncio
@@ -210,7 +217,8 @@ class TestMCPServerHandlers:
 
         req = types.ListToolsRequest(method="tools/list", params=None)
         result = await server._server.request_handlers[types.ListToolsRequest](req)
-        tool_names = [t.name for t in result.root.tools]  # type: ignore[union-attr]
+        assert isinstance(result.root, types.ListToolsResult)
+        tool_names = [t.name for t in result.root.tools]
         assert "noexec" not in tool_names
 
     @pytest.mark.asyncio
@@ -227,12 +235,11 @@ class TestMCPServerHandlers:
         result = await server_with_mock_tools._server.request_handlers[
             types.CallToolRequest
         ](req)
+        assert isinstance(result.root, types.CallToolResult)
         # MCP wraps handler exceptions into an isError=True CallToolResult
-        assert result.root.isError is True  # type: ignore[union-attr]
+        assert result.root.isError is True
         assert any(
-            "nonexistent" in c.text
-            for c in result.root.content  # type: ignore[union-attr]
-            if hasattr(c, "text")
+            "nonexistent" in c.text for c in result.root.content if hasattr(c, "text")
         )
 
     @pytest.mark.asyncio
@@ -267,8 +274,9 @@ class TestMCPServerHandlers:
         result = await server_with_mock_tools._server.request_handlers[
             types.CallToolRequest
         ](req)
+        assert isinstance(result.root, types.CallToolResult)
 
-        content = result.root.content  # type: ignore[union-attr]
+        content = result.root.content
         assert any("hello from tool" in c.text for c in content if hasattr(c, "text"))
 
     @pytest.mark.asyncio
@@ -347,6 +355,120 @@ class TestMCPServerCLI:
         runner = CliRunner()
         result = runner.invoke(main, ["--log-level", "INVALID"])
         assert result.exit_code != 0
+
+    @pytest.mark.timeout(60)
+    def test_stdio_transport_keeps_tool_stdout_out_of_protocol(self, tmp_path) -> None:
+        """Tool prints must not leak as bare lines on the JSON-RPC stdout stream."""
+        from gptme.__version__ import __version__
+
+        marker = "MCP_STDOUT_MARKER"
+        stdout_lines: list[str] = []
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "from gptme.cli.cmd_mcp_serve import main; main()",
+                "--tools",
+                "ipython",
+            ],
+            text=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=tmp_path,
+        )
+
+        stdin = proc.stdin
+        stdout = proc.stdout
+        assert stdin is not None
+        assert stdout is not None
+        stdout_queue: queue.Queue[str] = queue.Queue()
+
+        def collect_stdout() -> None:
+            for line in stdout:
+                stdout_queue.put(line.rstrip("\n"))
+
+        stdout_thread = threading.Thread(target=collect_stdout, daemon=True)
+        stdout_thread.start()
+
+        def send(message: dict) -> None:
+            stdin.write(json.dumps(message) + "\n")
+            stdin.flush()
+
+        def read_response(message_id: int, timeout: float = 20) -> dict:
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                try:
+                    line = stdout_queue.get(timeout=0.1)
+                except queue.Empty:
+                    if proc.poll() is not None:
+                        break
+                    continue
+                if not line:
+                    continue
+                line = line.rstrip("\n")
+                stdout_lines.append(line)
+                assert line != marker
+                message = json.loads(line)
+                if message.get("id") == message_id:
+                    return message
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=5)
+            stderr = proc.stderr.read() if proc.stderr else ""
+            raise AssertionError(
+                f"Timed out waiting for response {message_id}; stdout={stdout_lines!r};"
+                f" stderr={stderr}"
+            )
+
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "pytest", "version": "0"},
+                },
+            }
+        )
+        initialize_response = read_response(1)
+
+        send(
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+                "params": {},
+            }
+        )
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "ipython",
+                    "arguments": {"code": f"print({marker!r})"},
+                },
+            }
+        )
+        call_response = read_response(2)
+
+        stdin.close()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            proc.wait(timeout=5)
+
+        # Compare base versions only: the local segment (+hash / +unknown) depends on
+        # install mode and git state, which differ between this process and the child.
+        server_version = initialize_response["result"]["serverInfo"]["version"]
+        assert server_version.split("+")[0] == __version__.split("+")[0]
+
+        content = call_response["result"]["content"]
+        assert any(marker in item.get("text", "") for item in content)
 
 
 class TestWorkspaceHandling:

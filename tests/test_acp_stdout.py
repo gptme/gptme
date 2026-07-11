@@ -15,15 +15,15 @@ import pytest
 
 
 def test_capture_stdio_transport():
-    """_capture_stdio_transport redirects fd 1 to stderr at OS level."""
-    from gptme.acp.__main__ import _capture_stdio_transport
+    """capture_stdio_transport redirects fd 1 to stderr at OS level."""
+    from gptme.util.stdio import capture_stdio_transport
 
     # Save original state
     original_stdout_fd = os.dup(1)
     original_sys_stdout = sys.stdout
 
     try:
-        real_stdin, real_stdout = _capture_stdio_transport()
+        real_stdin, real_stdout = capture_stdio_transport()
 
         # real_stdout should be a writable binary file object
         assert hasattr(real_stdout, "write")

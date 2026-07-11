@@ -23,12 +23,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from io import TextIOWrapper
+from typing import IO, TYPE_CHECKING, Any
 
+import anyio
 import mcp.server.stdio
 import mcp.types as types
 from mcp.server.lowlevel import Server
 
+from ..__version__ import __version__
 from ..tools import init_tools
 
 if TYPE_CHECKING:
@@ -114,7 +117,7 @@ class GptmeMCPServer:
             t for t in (tool_names or DEFAULT_TOOLS) if t not in _EXCLUDED_TOOLS
         ]
         self._workspace = workspace
-        self._server = Server("gptme")
+        self._server = Server("gptme", version=__version__)
         self._loaded_tools: list[ToolSpec] = []
         # Persistent shell session shared across all tool calls. Lazily created
         # on first use; injected into each executor thread via _shell_var so that
@@ -209,8 +212,16 @@ class GptmeMCPServer:
             "Loaded tools: %s", [t.name for t in self._loaded_tools if t.execute]
         )
 
-    def serve_stdio(self) -> None:
+    def serve_stdio(
+        self,
+        stdin: IO[bytes] | None = None,
+        stdout: IO[bytes] | None = None,
+    ) -> None:
         """Run the MCP server over stdio (for Claude Desktop and similar clients)."""
+        if stdin is None and stdout is None:
+            from ..util.stdio import capture_stdio_transport
+
+            stdin, stdout = capture_stdio_transport()
         if self._workspace:
             # Change CWD so that all tools (read, save, append, shell) resolve
             # relative paths against the configured workspace directory instead of
@@ -219,7 +230,22 @@ class GptmeMCPServer:
         self._init_tools()
 
         async def _run() -> None:
-            async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+            stdin_stream = (
+                anyio.wrap_file(
+                    TextIOWrapper(stdin, encoding="utf-8", errors="replace")
+                )
+                if stdin is not None
+                else None
+            )
+            stdout_stream = (
+                anyio.wrap_file(TextIOWrapper(stdout, encoding="utf-8"))
+                if stdout is not None
+                else None
+            )
+            async with mcp.server.stdio.stdio_server(
+                stdin=stdin_stream,
+                stdout=stdout_stream,
+            ) as (read_stream, write_stream):
                 await self._server.run(
                     read_stream,
                     write_stream,

@@ -53,6 +53,10 @@ def main(
     """
     logging.basicConfig(level=getattr(logging, log_level.upper()), format="%(message)s")
 
+    from ..util.stdio import capture_stdio_transport
+
+    real_stdin, real_stdout = capture_stdio_transport()
+
     from ..mcp.server import DEFAULT_TOOLS, GptmeMCPServer
 
     tool_names: list[str] | None = None
@@ -65,4 +69,4 @@ def main(
     )
 
     server = GptmeMCPServer(tool_names=tool_names, workspace=workspace)
-    server.serve_stdio()
+    server.serve_stdio(stdin=real_stdin, stdout=real_stdout)
