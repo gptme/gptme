@@ -30,6 +30,7 @@ from .types import (
     clarification_result_from_content,
     resolve_role_defaults,
     set_subagent_result_if_absent,
+    update_subagent_result_with_branch,
 )
 
 logger = logging.getLogger(__name__)
@@ -849,6 +850,12 @@ def subagent(
                             output_tokens=result.output_tokens,
                         )
                     if not set_subagent_result_if_absent(agent_id, result):
+                        # Timeout/cancel won the cache race. Cleanup already ran above.
+                        # Patch the stored result with branch info so callers can find it.
+                        if preserved_branch:
+                            update_subagent_result_with_branch(
+                                agent_id, preserved_branch
+                            )
                         return
                     try:
                         summary = _exec._summarize_result(result, max_chars=200)
