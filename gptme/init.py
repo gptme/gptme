@@ -275,6 +275,28 @@ class CompactRichHandler(RichHandler):
         )
 
 
+# Whether the shared status console is currently in compact mode (dim "·"
+# marker + dimmed messages), so repeated init_logging() calls can toggle it.
+_console_compact = False
+
+
+def _set_console_compact(enabled: bool) -> None:
+    global _console_compact
+    if enabled == _console_compact:
+        return
+    _console_compact = enabled
+    if enabled:
+        from rich.theme import Theme
+
+        console._log_render.time_format = "·"
+        console._log_render.omit_repeated_times = False
+        console.push_theme(Theme({"log.message": "dim"}))
+    else:
+        console._log_render.time_format = "[%X]"
+        console._log_render.omit_repeated_times = True
+        console.pop_theme()
+
+
 def init_logging(verbose, *, stderr: bool = True, compact: bool = True):
     """Set up Rich logging.
 
@@ -309,15 +331,10 @@ def init_logging(verbose, *, stderr: bool = True, compact: bool = True):
         handlers=[handler],
         force=True,  # Override any previous logging configuration
     )
-    if compact:
-        # Give console.log() status lines (Using model/logdir/...) the same
-        # treatment as INFO log lines: a dim "·" marker instead of a
-        # timestamp, and dimmed message text.
-        from rich.theme import Theme
-
-        console._log_render.time_format = "·"
-        console._log_render.omit_repeated_times = False
-        console.push_theme(Theme({"log.message": "dim"}))
+    # Give console.log() status lines (Using model/logdir/...) the same
+    # treatment as INFO log lines in compact mode: a dim "·" marker instead
+    # of a timestamp, and dimmed message text. Restored on non-compact calls.
+    _set_console_compact(compact)
 
     # anthropic spams debug logs for every request
     logging.getLogger("anthropic").setLevel(logging.INFO)
