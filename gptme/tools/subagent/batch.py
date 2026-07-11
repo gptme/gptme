@@ -123,42 +123,65 @@ class BatchJob:
                 thread-mode agents it marks the result immediately while the
                 background thread continues until its next natural checkpoint.
 
+                Note: regardless of this flag, any agents still running when the
+                overall ``timeout`` expires are always cancelled so subprocess/ACP
+                agents do not keep running after the caller has received timed-out
+                results.
+
         Returns:
             Dict mapping agent_id to status dict. When ``output_schema`` is set,
             the ``"result"`` value is the parsed/validated object rather than a
             raw JSON string.
         """
+        # cancel_event is set when we decide to bail early so that _wait_one
+        # worker threads exit their poll loops promptly instead of blocking for
+        # the full remaining timeout.
+        cancel_event = threading.Event()
+        # Poll subagent_wait() in short chunks so cancellation is responsive.
+        _POLL_SECS = 5
 
         def _wait_one(agent_id: str, deadline: float) -> tuple[str, ReturnType]:
             import time
 
-            remaining = max(1, int(deadline - time.monotonic()))
-            try:
-                # Pass max_result_chars=0 so _parse_result() receives the full
-                # raw result without truncation. The default of 2000 would clip
-                # JSON from larger schemas and make structured output silently
-                # fail in _parse_result().
-                result = subagent_wait(agent_id, timeout=remaining, max_result_chars=0)
-                status = result.get("status", "failure")
-                # subagent_wait() returns a non-terminal "running" status (with
-                # result=None) when a thread/ACP agent is still alive after the
-                # wait — these can't be force-killed. Report that as "timeout"
-                # per the documented contract, rather than leaking
-                # status="running"/result=None, which breaks callers that index
-                # into result (e.g. this function's own docstring example).
-                if status == "running":
+            while True:
+                # Exit quickly when a sibling failure or overall timeout fired.
+                if cancel_event.is_set():
+                    with self._lock:
+                        if agent_id in self.results:
+                            return agent_id, self.results[agent_id]
+                    return agent_id, ReturnType(
+                        "failure", "Cancelled due to sibling failure"
+                    )
+
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     return agent_id, ReturnType(
                         "timeout", f"Timed out after {timeout}s"
                     )
+
+                poll_secs = max(1, min(int(remaining), _POLL_SECS))
+                try:
+                    # Pass max_result_chars=0 so _parse_result() receives the full
+                    # raw result without truncation. The default of 2000 would clip
+                    # JSON from larger schemas and make structured output silently
+                    # fail in _parse_result().
+                    result = subagent_wait(
+                        agent_id, timeout=poll_secs, max_result_chars=0
+                    )
+                except Exception as e:
+                    logger.warning(f"Error waiting for {agent_id}: {e}")
+                    return agent_id, ReturnType("failure", str(e))
+
+                status = result.get("status", "failure")
+                if status == "running":
+                    # Agent still alive after this poll — loop and check again.
+                    continue
                 return agent_id, ReturnType(
                     status,
                     result.get("result"),
                     input_tokens=result.get("input_tokens"),
                     output_tokens=result.get("output_tokens"),
                 )
-            except Exception as e:
-                logger.warning(f"Error waiting for {agent_id}: {e}")
-                return agent_id, ReturnType("failure", str(e))
 
         import time
 
@@ -196,13 +219,15 @@ class BatchJob:
                                     self.results[aid_to_cancel] = ReturnType(
                                         "failure", "Cancelled due to sibling failure"
                                     )
-                        # All remaining results are now pre-populated; exit early
+                        # Signal workers to exit poll loops, then exit the loop.
+                        cancel_event.set()
                         with self._lock:
                             if len(self.results) >= len(self.agent_ids):
                                 break
             except FuturesTimeoutError:
                 # as_completed timed out — mark any unfinished agents as timeout
-                # and cancel subprocess/ACP agents so they don't keep running.
+                # and cancel them so subprocess/ACP agents don't keep running
+                # after the caller has already received "timeout" results.
                 timed_out_ids: list[str] = []
                 for aid in futures.values():
                     with self._lock:
@@ -211,16 +236,16 @@ class BatchJob:
                                 "timeout", f"Timed out after {timeout}s"
                             )
                             timed_out_ids.append(aid)
-                if cancel_on_failure:
-                    for aid in timed_out_ids:
-                        try:
-                            subagent_cancel(aid)
-                        except Exception:
-                            pass
+                for aid in timed_out_ids:
+                    try:
+                        subagent_cancel(aid)
+                    except Exception:
+                        pass
+                cancel_event.set()
         finally:
             # Don't block on remaining _wait_one threads — all results are already
-            # collected in self.results. Threads may still be running subagent_wait()
-            # for cancelled agents but their outcomes are no longer relevant.
+            # collected in self.results. Workers will exit their poll loops within
+            # _POLL_SECS seconds once cancel_event is set.
             pool.shutdown(wait=False, cancel_futures=True)
 
         raw = {aid: asdict(r) for aid, r in self.results.items()}

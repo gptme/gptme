@@ -5337,8 +5337,13 @@ class TestBatchJobCancelOnFailure:
         assert sorted(cancel_calls) == ["agent-a", "agent-b"]
         unblocked.set()  # unblock background threads
 
-    def test_cancel_on_failure_false_no_cancel_on_overall_timeout(self, monkeypatch):
-        """Without cancel_on_failure, overall timeout does NOT call subagent_cancel."""
+    def test_overall_timeout_always_cancels_agents(self, monkeypatch):
+        """Overall timeout always cancels agents regardless of cancel_on_failure.
+
+        Subprocess/ACP agents must not keep running after the caller has already
+        received timed-out results — cancel_on_failure only controls early
+        cancellation on sibling failure, not cleanup at the overall deadline.
+        """
         from concurrent.futures import TimeoutError as FuturesTimeoutError
 
         from gptme.tools.subagent import batch as batch_mod
@@ -5364,8 +5369,8 @@ class TestBatchJobCancelOnFailure:
 
         assert results["agent-a"]["status"] == "timeout"
         assert results["agent-b"]["status"] == "timeout"
-        # No cancel calls without cancel_on_failure
-        assert cancel_calls == []
+        # Overall timeout always cancels — regardless of cancel_on_failure flag
+        assert sorted(cancel_calls) == ["agent-a", "agent-b"]
 
 
 class TestSubagentParallelCancelOnFailure:
