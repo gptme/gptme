@@ -99,7 +99,7 @@ class BatchJob:
     output_schema: "type | dict | None" = field(default=None)
     budget: SubagentBudget | None = field(default=None)
     _lock: threading.Lock = field(default_factory=threading.Lock)
-    _budget_recorded: bool = field(default=False, init=False, repr=False)
+    _budget_recorded_ids: set = field(default_factory=set, init=False, repr=False)
 
     def wait_all(
         self, timeout: int = 300, cancel_on_failure: bool = False
@@ -253,12 +253,14 @@ class BatchJob:
         raw = {aid: asdict(r) for aid, r in self.results.items()}
 
         # Record output tokens from completed agents into the shared budget.
-        # Guard with _budget_recorded so multiple wait_all() calls don't double-count.
-        if self.budget is not None and not self._budget_recorded:
-            self._budget_recorded = True
-            for r in self.results.values():
-                if r.output_tokens is not None:
+        # Track per-agent IDs so repeated wait_all() calls (e.g. after a timeout
+        # followed by a second wait) record newly-completed agents without
+        # double-counting those already recorded in a prior call.
+        if self.budget is not None:
+            for aid, r in self.results.items():
+                if aid not in self._budget_recorded_ids and r.output_tokens is not None:
                     self.budget.record(r.output_tokens)
+                    self._budget_recorded_ids.add(aid)
 
         if self.output_schema is not None:
             return {aid: _parse_result(r, self.output_schema) for aid, r in raw.items()}
@@ -888,11 +890,28 @@ def subagent_pipeline(
             except Exception as exc:
                 result = {"status": "failure", "result": str(exc)}
 
-            # Record output tokens in the shared budget
+            # Record output tokens in the shared budget.
+            # When output_tokens is absent (exception path or "running" result),
+            # fall back to reading the agent's log directly so that tokens spent
+            # by an already-started agent are not silently lost.
             if budget is not None:
                 out_tok = result.get("output_tokens")
                 if out_tok is not None:
                     budget.record(out_tok)
+                else:
+                    try:
+                        from .types import _subagents, _subagents_lock
+
+                        with _subagents_lock:
+                            sa = next(
+                                (s for s in _subagents if s.agent_id == agent_id), None
+                            )
+                        if sa:
+                            _, fb_out = sa._read_token_stats()
+                            if fb_out is not None:
+                                budget.record(fb_out)
+                    except Exception:
+                        pass
 
             with results_lock:
                 all_results[item_idx][stage_idx] = result
