@@ -6,8 +6,11 @@ prompts submitted while the agent is working are queued (#569), and tool
 output is rendered in collapsible sections for a compact view.
 """
 
+import contextlib
 import contextvars
+import io
 import logging
+import os.path
 import sys
 import threading
 from pathlib import Path
@@ -15,6 +18,7 @@ from typing import IO, cast
 
 from rich.syntax import Syntax
 from rich.text import Text
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
@@ -27,7 +31,7 @@ from ..constants import DECLINED_CONTENT, INTERRUPT_CONTENT
 from ..hooks import HookType, register_hook
 from ..hooks.cli_confirm import _get_lang_for_tool
 from ..hooks.confirm import ConfirmationResult
-from ..llm.models import get_default_model
+from ..llm.models import ModelMeta, get_default_model
 from ..logmanager import LogManager
 from ..message import Message
 from ..tools import ToolFormat, ToolUse
@@ -116,6 +120,77 @@ class InfoMessage(Static):
 
     def __init__(self, content: str, error: bool = False):
         super().__init__(Text(content), classes="info" + (" error" if error else ""))
+
+
+def complete_input(text: str) -> list[str]:
+    """Full-line completion candidates, reusing the CLI command completers."""
+    from ..commands import get_command_completer, get_user_commands
+
+    if not text.startswith("/"):
+        return []
+    parts = text.split(None, 1)
+    if len(parts) == 1 and not text.endswith(" "):
+        # completing the command name itself
+        return sorted(c for c in get_user_commands() if c.startswith(text))
+    # completing command arguments
+    completer = get_command_completer(parts[0][1:])
+    if completer is None:
+        return []
+    arg_text = parts[1] if len(parts) > 1 else ""
+    args = arg_text.split()
+    partial = args[-1] if args and not arg_text.endswith(" ") else ""
+    prev_args = args[:-1] if args and not arg_text.endswith(" ") else args
+    base = text[: len(text) - len(partial)]
+    try:
+        return sorted(
+            base + candidate
+            for candidate, _desc in completer(partial, prev_args)
+            if candidate.startswith(partial)
+        )
+    except Exception as e:
+        logger.debug(f"Command completer error: {e}")
+        return []
+
+
+class ChatInput(Input):
+    """Input with readline-style Tab completion for slash-commands."""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._tab_candidates: list[str] = []
+        self._tab_index = -1
+        self._tab_last = ""
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key != "tab":
+            return
+        # consume Tab so it completes instead of switching focus
+        event.stop()
+        event.prevent_default()
+        self._cycle_completion()
+
+    def _cycle_completion(self) -> None:
+        if self._tab_candidates and self.value == self._tab_last:
+            # repeated Tab: cycle through candidates
+            self._tab_index = (self._tab_index + 1) % len(self._tab_candidates)
+            self.value = self._tab_candidates[self._tab_index]
+        else:
+            candidates = complete_input(self.value)
+            if not candidates:
+                return
+            self._tab_candidates = candidates
+            self._tab_index = -1
+            prefix = os.path.commonprefix(candidates)
+            if len(candidates) == 1:
+                self.value = candidates[0]
+                self._tab_candidates = []
+            elif prefix and prefix != self.value:
+                self.value = prefix
+            else:
+                self._tab_index = 0
+                self.value = candidates[0]
+        self.cursor_position = len(self.value)
+        self._tab_last = self.value
 
 
 class ConfirmScreen(ModalScreen[ConfirmationResult]):
@@ -214,13 +289,16 @@ class GptmeApp(App):
     .info.error {
         color: $error;
     }
-    #input {
+    #bottom {
         dock: bottom;
+        height: auto;
+    }
+    #input {
         margin: 0 1;
     }
     #status {
-        dock: bottom;
         height: 1;
+        margin-top: 1;
         padding: 0 1;
         background: $surface;
         color: $text-muted;
@@ -282,13 +360,19 @@ class GptmeApp(App):
         self._stdio_sink: IO[str] | None = None
         self._real_stdout: IO[str] | None = None
         self._real_stderr: IO[str] | None = None
+        self._term_attrs: list | None = None
+        # tracked separately for the status bar: the authoritative value
+        # lives in a ContextVar inside _chat_ctx, which the UI thread
+        # cannot enter while a worker is running
+        self._model: ModelMeta | None = None
 
     # ------------------------------------------------------------------ UI
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="chat")
-        yield Input(placeholder="Type a message… (Enter to send)", id="input")
-        yield Static(id="status")
+        with Vertical(id="bottom"):
+            yield ChatInput(placeholder="Type a message… (Enter to send)", id="input")
+            yield Static(id="status")
 
     def on_mount(self) -> None:
         # Redirect stdout/stderr to a log file: core machinery (tool output
@@ -300,6 +384,18 @@ class GptmeApp(App):
         sys.stdout = self._stdio_sink
         sys.stderr = self._stdio_sink
 
+        # Snapshot raw-mode terminal attributes as set up by the Textual
+        # driver, so we can restore them after tools (e.g. ipython) reset
+        # the terminal to cooked/echo mode — which would otherwise echo
+        # mouse-tracking reports as garbage input.
+        try:
+            import termios
+
+            self._term_attrs = termios.tcgetattr(sys.__stdin__.fileno())  # type: ignore[union-attr]
+        except Exception:
+            self._term_attrs = None
+
+        self._model = get_default_model()
         self.sub_title = self.manager.logdir.name
         # confirmation dialog for tool execution; takes precedence over the
         # CLI hook (priority 0) registered by init()
@@ -354,9 +450,22 @@ class GptmeApp(App):
         if stick:
             self.call_after_refresh(chat.scroll_end, animate=False)
 
+    def _restore_terminal(self) -> None:
+        """Reassert raw mode after tool execution may have reset the tty."""
+        if self._term_attrs is None:
+            return
+        with contextlib.suppress(Exception):
+            import termios
+
+            termios.tcsetattr(
+                sys.__stdin__.fileno(),  # type: ignore[union-attr]
+                termios.TCSANOW,
+                self._term_attrs,
+            )
+
     def _update_status(self) -> None:
         parts = []
-        model = get_default_model()
+        model = self._model
         if model:
             parts.append(model.full)
             try:
@@ -401,25 +510,55 @@ class GptmeApp(App):
         return last is not None and last.role != "assistant"
 
     def _handle_command(self, text: str) -> None:
-        cmd = text.split()[0].lstrip("/")
-        if cmd in ("quit", "exit", "q"):
+        """Run a slash-command through the CLI command registry."""
+        from ..commands import execute_cmd
+
+        if text.split()[0] in ("/quit", "/q"):  # TUI-local alias for /exit
             self.exit()
-        elif cmd == "help":
+            return
+        if self.generating:
             self._mount_in_chat(
                 InfoMessage(
-                    "Commands: /help /quit — Keys: Enter send (queues while busy), "
-                    "Esc interrupt, Ctrl+O expand/collapse outputs, Ctrl+D quit. "
-                    "Other slash-commands are not supported in the TUI yet; "
-                    "use the gptme CLI for those."
+                    "Commands can't run while the agent is working; retry when idle."
                 )
             )
-        else:
-            self._mount_in_chat(
-                InfoMessage(
-                    f"Command /{cmd} is not supported in the TUI yet "
-                    "(resume this conversation in the CLI to use it)."
-                )
-            )
+            return
+
+        msg = Message("user", text, quiet=True)
+        before = self.manager.log.messages
+        self.manager.append(msg)
+        # capture command output (print/rich console both write to sys.stdout)
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                # run inside the chat context so state changes (e.g. /model
+                # switching the default-model ContextVar) are seen by workers
+                handled = self._chat_ctx.run(execute_cmd, msg, self.manager)
+        except SystemExit:  # /exit
+            self.exit()
+            return
+        except Exception as e:
+            logger.exception("Command failed")
+            self._mount_in_chat(InfoMessage(f"Command failed: {e}", error=True))
+            return
+
+        self._model = self._chat_ctx.run(get_default_model)
+        if self.manager.log.messages != before:
+            # command changed the log (undo, appended messages, …): re-render
+            self._rebuild_chat()
+        if output := buf.getvalue().strip():
+            self._mount_in_chat(InfoMessage(output))
+        if not handled:
+            # looked like a path, not a command: treat as a regular prompt
+            self._mount_in_chat(UserMessage(msg.content))
+            self._start_generation()
+            return
+        self._update_status()
+
+    def _rebuild_chat(self) -> None:
+        chat = self.query_one("#chat", VerticalScroll)
+        chat.remove_children()
+        self._render_history()
 
     def _submit(self, text: str) -> None:
         msg = Message("user", text, quiet=True)
@@ -468,6 +607,9 @@ class GptmeApp(App):
                     msg = Message("system", INTERRUPT_CONTENT)
                     manager.append(msg)
                     self.call_from_thread(self._on_step_message, msg)
+                finally:
+                    # tools (e.g. ipython) may have reset the tty out of raw mode
+                    self._restore_terminal()
 
                 if interrupted or declined or self._interrupt_event.is_set():
                     break
@@ -570,6 +712,7 @@ class GptmeApp(App):
         while not done.wait(timeout=0.5):
             if self._quitting:
                 return ConfirmationResult.skip("App exiting")
+        self._restore_terminal()
         self.call_from_thread(self._set_state, "executing tools")
         return result["r"]
 

@@ -48,6 +48,7 @@ Keys
 Key              Action
 ===============  ============================================================
 :kbd:`Enter`     Send prompt (queues it if the agent is busy)
+:kbd:`Tab`       Complete slash-commands and their arguments
 :kbd:`Escape`    Interrupt generation
 :kbd:`Ctrl+C`    Interrupt generation, or quit when idle
 :kbd:`Ctrl+D`    Quit
@@ -58,9 +59,19 @@ When a tool is about to execute, a confirmation dialog shows a preview;
 press :kbd:`y` to execute, :kbd:`n` to skip, or :kbd:`a` to auto-confirm for
 the rest of the session.
 
+Commands
+--------
+
+The TUI supports the same :doc:`slash-commands <commands>` as the CLI
+(``/model``, ``/undo``, ``/tokens``, …), with the same Tab completion,
+by routing them through the shared command registry. Command output is
+shown inline in the conversation. ``/quit`` is a TUI-local alias for
+``/exit``.
+
 Limitations
 -----------
 
-The TUI is young and intentionally minimal; for anything it doesn't support
-(slash-commands, branching, model switching), resume the conversation in the
-CLI. Non-interactive/scripted use should keep using ``gptme`` directly.
+The TUI is young and intentionally minimal. Commands that need an external
+terminal program (e.g. ``/edit`` spawning ``$EDITOR``) don't work yet; resume
+the conversation in the CLI for those. Non-interactive/scripted use should
+keep using ``gptme`` directly.

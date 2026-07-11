@@ -91,6 +91,7 @@ async def test_toggle_outputs(tmp_path):
 
 @pytest.mark.asyncio
 async def test_slash_command_help(tmp_path):
+    """Slash-commands route through the CLI command registry."""
     manager = make_manager(tmp_path)
     app = GptmeApp(manager, workspace=tmp_path)
     async with app.run_test() as pilot:
@@ -99,4 +100,34 @@ async def test_slash_command_help(tmp_path):
         inp.value = "/help"
         await pilot.press("enter")
         await pilot.pause()
-        assert len(app.query(InfoMessage)) == 1
+        infos = list(app.query(InfoMessage))
+        assert infos, "expected /help output to be shown"
+
+
+def test_complete_input_commands():
+    """Completion reuses the CLI command registry and completers."""
+    from gptme.tui.app import complete_input
+
+    candidates = complete_input("/mod")
+    assert "/model" in candidates
+    assert all(c.startswith("/mod") for c in candidates)
+    # no completions for regular text
+    assert complete_input("hello") == []
+
+
+@pytest.mark.asyncio
+async def test_tab_completes_command(tmp_path):
+    manager = make_manager(tmp_path)
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", Input)
+        inp.focus()
+        inp.value = "/mode"
+        inp.cursor_position = len(inp.value)
+        await pilot.press("tab")
+        await pilot.pause()
+        # completes towards /model (single candidate or common prefix)
+        assert inp.value.startswith("/model")
+        # tab must not switch focus away from the input
+        assert app.focused is inp
