@@ -288,6 +288,116 @@ def _truncate_details_blocks(
     return content
 
 
+def proactive_summarize_log(
+    log: list[Message],
+    threshold: float | None = None,
+    recent_keep: int = 6,
+) -> list[Message]:
+    """
+    Proactively summarize older conversation turns when approaching the context limit.
+
+    Triggered when token usage exceeds ``threshold`` fraction of the active model's
+    context (e.g. 0.8 = 80 %).  Enable via the ``GPTME_AUTO_SUMMARIZE_THRESHOLD``
+    env var, e.g.::
+
+        export GPTME_AUTO_SUMMARIZE_THRESHOLD=0.8
+
+    Or pass ``threshold`` directly for programmatic use.  When ``threshold`` is 0
+    or ``GPTME_AUTO_SUMMARIZE_THRESHOLD`` is unset, this function is a no-op.
+
+    What is preserved (never summarized):
+    - Initial system messages (the prompt header block at the start of the log).
+    - The most recent ``recent_keep`` non-system turns and any system messages
+      interleaved with them.
+    - Pinned messages in the preserved sections.
+
+    What gets summarized:
+    - The "middle" section between the initial system block and the recent tail.
+      A single summary ``system`` message replaces it.
+
+    Returns:
+        A (possibly shorter) list of messages.  Returns the original log unchanged
+        when the threshold is not exceeded or when there is nothing to summarize.
+    """
+    import os
+
+    if threshold is None:
+        env_val = os.environ.get("GPTME_AUTO_SUMMARIZE_THRESHOLD")
+        if not env_val:
+            return log
+        try:
+            threshold = float(env_val)
+        except ValueError:
+            logger.warning(
+                "Invalid GPTME_AUTO_SUMMARIZE_THRESHOLD value: %s (expected float 0–1)",
+                env_val,
+            )
+            return log
+
+    if threshold <= 0:
+        return log
+
+    model = get_default_model() or get_model("gpt-4")
+    limit = threshold * model.context
+    tokens = len_tokens(log, model=model.model)
+
+    if tokens <= limit:
+        return log
+
+    # Collect initial system messages — the always-kept prompt header.
+    initial_system: list[Message] = []
+    for msg in log:
+        if msg.role != "system":
+            break
+        initial_system.append(msg)
+
+    rest = log[len(initial_system) :]
+    if not rest:
+        return log
+
+    # Walk backwards to collect the recent tail: the last `recent_keep`
+    # non-system turns plus any system messages adjacent to them.
+    recent: list[Message] = []
+    non_system_count = 0
+    for msg in reversed(rest):
+        recent.insert(0, msg)
+        if msg.role != "system":
+            non_system_count += 1
+        if non_system_count >= recent_keep:
+            break
+
+    # Middle = everything between the initial system block and the recent tail.
+    middle = rest[: len(rest) - len(recent)]
+    if not middle:
+        return log
+
+    # Lazy import avoids circular dependency at module load time.
+    from ..llm import summarize as _llm_summarize  # fmt: skip
+
+    logger.info(
+        "Proactive summarize triggered: %dk tokens (threshold %d%% of %dk context)"
+        " — summarizing %d middle messages",
+        tokens // 1000,
+        int(threshold * 100),
+        model.context // 1000,
+        len(middle),
+    )
+    console.log(
+        f"[context] Approaching context limit ({tokens // 1000}k / {int(limit) // 1000}k),"
+        f" summarizing {len(middle)} older messages..."
+    )
+
+    summary_msg = _llm_summarize(middle)
+    result = initial_system + [summary_msg] + recent
+    new_tokens = len_tokens(result, model=model.model)
+    saved = tokens - new_tokens
+    console.log(
+        f"[context] Proactive summarize complete:"
+        f" {tokens // 1000}k → {new_tokens // 1000}k tokens (saved ~{saved // 1000}k)"
+    )
+    return result
+
+
 def limit_log(log: list[Message]) -> list[Message]:
     """
     Picks messages until the total number of tokens exceeds limit,

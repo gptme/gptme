@@ -383,3 +383,140 @@ def test_limit_log_cascading_orphans():
         set_default_model(original_model) if original_model else _default_model_var.set(
             None
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests for proactive_summarize_log
+# ---------------------------------------------------------------------------
+
+
+def test_proactive_summarize_noop_below_threshold():
+    """proactive_summarize_log returns the log unchanged when below threshold."""
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=200_000)
+        set_default_model(tiny_model)
+
+        msgs = [
+            Message("system", "You are helpful."),
+            Message("user", "Hello"),
+            Message("assistant", "Hi"),
+        ]
+        result = proactive_summarize_log(msgs, threshold=0.8)
+        assert result is msgs  # identical object — no copy made
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+
+
+def test_proactive_summarize_triggered(monkeypatch):
+    """proactive_summarize_log summarizes older turns when threshold is exceeded."""
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        # Tiny context so a modest log exceeds the 50 % threshold.
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        fake_summary = Message(
+            "system",
+            content="Here's a summary of the conversation:\n- User asked about X\n- Assistant explained X",
+        )
+        monkeypatch.setattr("gptme.llm.summarize", lambda _msgs: fake_summary)
+
+        msgs = [
+            Message("system", "You are helpful."),  # initial system — kept
+            Message("user", "word " * 5),  # old — summarized
+            Message("assistant", "word " * 5),  # old — summarized
+            Message("user", "recent question one"),  # recent — kept
+            Message("assistant", "recent answer one"),  # recent — kept
+            Message("user", "recent question two"),  # recent — kept
+            Message("assistant", "recent answer two"),  # recent — kept
+        ]
+
+        result = proactive_summarize_log(msgs, threshold=0.5, recent_keep=4)
+
+        # Initial system message preserved as-is.
+        assert result[0].content == "You are helpful."
+
+        # Summary message present somewhere after the system block.
+        assert any("summary" in m.content.lower() for m in result)
+
+        # Recent messages intact.
+        contents = [m.content for m in result]
+        assert "recent question one" in contents
+        assert "recent answer one" in contents
+        assert "recent question two" in contents
+        assert "recent answer two" in contents
+
+        # Old filler messages NOT present verbatim.
+        assert not any(m.content == "word " * 5 for m in result)
+
+        # Result is strictly shorter than original (summary replaced middle).
+        assert len(result) < len(msgs)
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+
+
+def test_proactive_summarize_env_disabled_by_default(monkeypatch):
+    """proactive_summarize_log is a no-op when env var is not set."""
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        monkeypatch.delenv("GPTME_AUTO_SUMMARIZE_THRESHOLD", raising=False)
+
+        msgs = [Message("user", "word " * 20)]
+        result = proactive_summarize_log(msgs)  # no threshold arg, env var absent
+        # Must return original list unchanged.
+        assert result is msgs
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+
+
+def test_proactive_summarize_env_var(monkeypatch):
+    """GPTME_AUTO_SUMMARIZE_THRESHOLD env var triggers summarization."""
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        monkeypatch.setenv("GPTME_AUTO_SUMMARIZE_THRESHOLD", "0.5")
+        fake_summary = Message("system", "Summary: all the things")
+        monkeypatch.setattr("gptme.llm.summarize", lambda _msgs: fake_summary)
+
+        msgs = [
+            Message("system", "System prompt."),
+            Message("user", "word " * 5),
+            Message("assistant", "word " * 5),
+            Message("user", "final question"),
+            Message("assistant", "final answer"),
+        ]
+
+        result = proactive_summarize_log(msgs, recent_keep=2)
+
+        assert result[0].content == "System prompt."
+        assert any("Summary" in m.content for m in result)
+        assert any("final question" in m.content for m in result)
+        assert any("final answer" in m.content for m in result)
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )

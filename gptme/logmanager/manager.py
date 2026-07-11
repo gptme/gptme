@@ -45,7 +45,7 @@ from ..message import Message, _migrate_metadata, len_tokens, print_msg
 from ..tools import ToolUse
 from ..util.context import enrich_messages_with_context
 from ..util.conversation_ids import conversation_id_error, validate_conversation_id
-from ..util.reduce import limit_log, reduce_log
+from ..util.reduce import limit_log, proactive_summarize_log, reduce_log
 from ..util.uri import URI
 from . import eventlog
 
@@ -783,6 +783,10 @@ def prepare_messages(
 
     # Enrich with enabled context enhancements (RAG, fresh context)
     msgs = enrich_messages_with_context(msgs, workspace)
+
+    # Proactively summarize older turns when approaching the context limit.
+    # No-op unless GPTME_AUTO_SUMMARIZE_THRESHOLD is set (e.g. export GPTME_AUTO_SUMMARIZE_THRESHOLD=0.8).
+    msgs = proactive_summarize_log(msgs)
 
     # Use regular reduction
     msgs_reduced = list(reduce_log(msgs))
