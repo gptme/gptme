@@ -48,6 +48,7 @@ Keys
 Key              Action
 ===============  ============================================================
 :kbd:`Enter`     Send prompt (queues it if the agent is busy)
+:kbd:`Alt+Enter` Insert newline (multi-line prompts; :kbd:`Ctrl+J` also works)
 :kbd:`Tab`       Complete slash-commands and their arguments
 :kbd:`Escape`    Interrupt generation
 :kbd:`Ctrl+C`    Interrupt generation, or quit when idle

@@ -22,9 +22,11 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
+from textual.message import Message as TextualMessage
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Collapsible, Input, Markdown, Static
+from textual.widgets import Collapsible, Markdown, Static, TextArea
+from textual.worker import Worker, WorkerState
 
 from ..chat import step
 from ..constants import DECLINED_CONTENT, INTERRUPT_CONTENT
@@ -153,8 +155,14 @@ def complete_input(text: str) -> list[str]:
         return []
 
 
-class ChatInput(Input):
-    """Input with readline-style Tab completion for slash-commands."""
+class ChatInput(TextArea):
+    """Multi-line input: Enter submits, Alt+Enter/Ctrl+J inserts a newline,
+    Tab completes slash-commands."""
+
+    class Submitted(TextualMessage):
+        def __init__(self, value: str) -> None:
+            super().__init__()
+            self.value = value
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -162,36 +170,52 @@ class ChatInput(Input):
         self._tab_index = -1
         self._tab_last = ""
 
-    def on_key(self, event: events.Key) -> None:
-        if event.key != "tab":
+    async def _on_key(self, event: events.Key) -> None:
+        if event.key == "enter":
+            event.stop()
+            event.prevent_default()
+            self.post_message(self.Submitted(self.text))
             return
-        # consume Tab so it completes instead of switching focus
-        event.stop()
-        event.prevent_default()
-        self._cycle_completion()
+        if event.key in ("alt+enter", "shift+enter", "ctrl+j"):
+            event.stop()
+            event.prevent_default()
+            self.insert("\n")
+            return
+        if event.key == "tab":
+            # consume Tab so it completes instead of switching focus
+            event.stop()
+            event.prevent_default()
+            self._cycle_completion()
+            return
+        await super()._on_key(event)
+
+    def _set_text(self, text: str) -> None:
+        self.text = text
+        self.move_cursor(self.document.end)
 
     def _cycle_completion(self) -> None:
-        if self._tab_candidates and self.value == self._tab_last:
+        if "\n" in self.text:
+            return  # commands are single-line
+        if self._tab_candidates and self.text == self._tab_last:
             # repeated Tab: cycle through candidates
             self._tab_index = (self._tab_index + 1) % len(self._tab_candidates)
-            self.value = self._tab_candidates[self._tab_index]
+            self._set_text(self._tab_candidates[self._tab_index])
         else:
-            candidates = complete_input(self.value)
+            candidates = complete_input(self.text)
             if not candidates:
                 return
             self._tab_candidates = candidates
             self._tab_index = -1
             prefix = os.path.commonprefix(candidates)
             if len(candidates) == 1:
-                self.value = candidates[0]
+                self._set_text(candidates[0])
                 self._tab_candidates = []
-            elif prefix and prefix != self.value:
-                self.value = prefix
+            elif prefix and prefix != self.text:
+                self._set_text(prefix)
             else:
                 self._tab_index = 0
-                self.value = candidates[0]
-        self.cursor_position = len(self.value)
-        self._tab_last = self.value
+                self._set_text(candidates[0])
+        self._tab_last = self.text
 
 
 class ConfirmScreen(ModalScreen[ConfirmationResult]):
@@ -308,6 +332,13 @@ class GptmeApp(App):
     }
     #input {
         margin: 1 1 0 1;
+        height: auto;
+        max-height: 10;
+    }
+    #input-hint {
+        height: 1;
+        margin: 0 1;
+        color: $text-muted;
     }
     #status {
         height: 1;
@@ -384,7 +415,11 @@ class GptmeApp(App):
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="chat")
         with Vertical(id="bottom"):
-            yield ChatInput(placeholder="Type a message… (Enter to send)", id="input")
+            yield ChatInput(id="input")
+            yield Static(
+                Text("Type a message… (Enter to send, Alt+Enter for newline)"),
+                id="input-hint",
+            )
             yield Static(id="status")
 
     def on_mount(self) -> None:
@@ -419,7 +454,7 @@ class GptmeApp(App):
             priority=100,
         )
         self._render_history()
-        self.query_one("#input", Input).focus()
+        self.query_one("#input", ChatInput).focus()
         self._update_status()
         # watchdog: tools can reset the tty at any point during execution
         self.set_interval(0.5, self._restore_terminal)
@@ -457,6 +492,9 @@ class GptmeApp(App):
         if msg.role == "system":
             return SystemMessage(msg.content)
         return None
+
+    def _show_info(self, text: str, error: bool = False) -> None:
+        self._mount_in_chat(InfoMessage(text, error=error))
 
     def _mount_in_chat(self, widget: Widget) -> None:
         chat = self.query_one("#chat", VerticalScroll)
@@ -504,9 +542,9 @@ class GptmeApp(App):
 
     # -------------------------------------------------------------- input
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
+    def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         text = event.value.strip()
-        self.query_one("#input", Input).value = ""
+        self.query_one("#input", ChatInput).text = ""
         if not text:
             # empty submit resumes generation (e.g. after interrupt/decline)
             if not self.generating and self._can_resume():
@@ -603,6 +641,11 @@ class GptmeApp(App):
     def _generation_body(self) -> None:
         """Runs the step loop until no more runnable tools."""
         manager = self.manager
+        max_steps: int | None = None
+        if max_steps_str := os.environ.get("GPTME_MAX_STEPS"):
+            with contextlib.suppress(ValueError):
+                max_steps = int(max_steps_str)
+        step_count = 0
         try:
             while True:
                 self.call_from_thread(self._begin_stream)
@@ -637,6 +680,13 @@ class GptmeApp(App):
 
                 if interrupted or declined or self._interrupt_event.is_set():
                     break
+                step_count += 1
+                if max_steps is not None and step_count >= max_steps:
+                    self.call_from_thread(
+                        self._show_info,
+                        f"Reached max steps limit ({max_steps}), stopping.",
+                    )
+                    break
                 # continue stepping while the last assistant msg has runnable tools
                 last_content = next(
                     (m.content for m in reversed(manager.log) if m.role == "assistant"),
@@ -657,8 +707,10 @@ class GptmeApp(App):
             self.call_from_thread(
                 self._mount_in_chat, InfoMessage(f"Error: {e}", error=True)
             )
-        finally:
-            self.call_from_thread(self._generation_done)
+        # NOTE: completion handling (queue dispatch etc.) happens in
+        # on_worker_state_changed, which fires only after this thread has
+        # fully exited self._chat_ctx — dispatching from here would make the
+        # next worker re-enter a still-entered Context and crash.
 
     def _on_token(self, token: str) -> None:
         # called from the worker thread, per streamed line/chunk
@@ -691,6 +743,16 @@ class GptmeApp(App):
             self._set_state("executing tools")
         self._update_status()
 
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        if event.worker.group != "generation":
+            return
+        if event.state in (
+            WorkerState.SUCCESS,
+            WorkerState.ERROR,
+            WorkerState.CANCELLED,
+        ):
+            self._generation_done()
+
     def _generation_done(self) -> None:
         self.generating = False
         if self._stream_widget is not None:
@@ -704,7 +766,7 @@ class GptmeApp(App):
             for w in self._queued_widgets:
                 w.remove()
             self._queued_widgets.clear()
-            self.query_one("#input", Input).value = text
+            self.query_one("#input", ChatInput)._set_text(text)
         elif self.prompt_queue:
             text = self.prompt_queue.pop(0)
             if self._queued_widgets:

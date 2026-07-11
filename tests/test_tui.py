@@ -4,12 +4,13 @@ import pytest
 
 pytest.importorskip("textual")
 
-from textual.widgets import Collapsible, Input
+from textual.widgets import Collapsible
 
 from gptme.logmanager import LogManager
 from gptme.message import Message
 from gptme.tui.app import (
     AssistantMessage,
+    ChatInput,
     GptmeApp,
     InfoMessage,
     SystemMessage,
@@ -59,8 +60,8 @@ async def test_queue_while_generating(tmp_path):
         await pilot.pause()
         # simulate a running generation
         app.generating = True
-        inp = app.query_one("#input", Input)
-        inp.value = "queued prompt"
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "queued prompt"
         await pilot.press("enter")
         await pilot.pause()
         assert app.prompt_queue == ["queued prompt"]
@@ -96,8 +97,8 @@ async def test_slash_command_help(tmp_path):
     app = GptmeApp(manager, workspace=tmp_path)
     async with app.run_test() as pilot:
         await pilot.pause()
-        inp = app.query_one("#input", Input)
-        inp.value = "/help"
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "/help"
         await pilot.press("enter")
         await pilot.pause()
         infos = list(app.query(InfoMessage))
@@ -121,13 +122,12 @@ async def test_tab_completes_command(tmp_path):
     app = GptmeApp(manager, workspace=tmp_path)
     async with app.run_test() as pilot:
         await pilot.pause()
-        inp = app.query_one("#input", Input)
+        inp = app.query_one("#input", ChatInput)
         inp.focus()
-        inp.value = "/mode"
-        inp.cursor_position = len(inp.value)
+        inp.text = "/mode"
         await pilot.press("tab")
         await pilot.pause()
         # completes towards /model (single candidate or common prefix)
-        assert inp.value.startswith("/model")
+        assert inp.text.startswith("/model")
         # tab must not switch focus away from the input
         assert app.focused is inp
