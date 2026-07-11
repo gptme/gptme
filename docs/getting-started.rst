@@ -116,7 +116,7 @@ For better results on coding tasks, use a larger model:
    :doc:`config` to point to a local model, or pass ``-m local/MODEL_NAME`` to use the
    same model for both chat and summaries.
 
-See :doc:`providers` for Groq and all other built-in provider options, or :doc:`custom-providers`
+See :doc:`providers` for Groq and all other built-in provider options, or :doc:`providers-custom`
 for Ollama, vLLM, and custom server setup.
 
 

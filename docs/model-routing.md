@@ -92,6 +92,6 @@ model. No vendor lock-in, no format changes.
 
 - {doc}`providers` — full provider reference: credentials, OAuth,
   OpenAI-compatible servers, local models
-- {doc}`custom-providers` — add your own OpenAI-compatible provider
+- {doc}`providers-custom` — add your own OpenAI-compatible provider
 - {doc}`config` — `gptme.toml` and global config reference
 - {doc}`evals` — how different models perform on gptme's benchmark suite

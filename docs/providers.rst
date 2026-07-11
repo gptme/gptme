@@ -5,7 +5,7 @@ We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter,
 
 .. note::
 
-    We are in the process of adding support for configurable `custom providers <custom-providers>`_.
+    We are in the process of adding support for configurable `custom providers <providers-custom>`_.
 
 .. rubric:: Provider Plugins (Entry Points)
 
@@ -63,7 +63,7 @@ You can find our model recommendations on the :doc:`evals` page.
 .. toctree::
    :maxdepth: 2
 
-   custom-providers
+   providers-custom
 
 To select a provider and model, run ``gptme`` with the ``-m``/``--model`` flag set to ``<provider>/<model>``, for example:
 
