@@ -8,6 +8,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from ..gears import parse_gear, resolve_gear
+from ..profiles import get_profile
 from ..tools import get_toolchain
 from .chat import ChatConfig
 from .core import Config, get_config, set_config, set_config_from_workspace
@@ -86,6 +88,8 @@ def setup_config_from_cli(
     tool_allowlist: str | None = None,
     tool_format: "ToolFormat | None" = None,
     prune_tool_output: bool | None = None,
+    gear: int | None = None,
+    no_confirm: bool | None = None,
     stream: bool = True,
     interactive: bool = True,
     agent_path: Path | None = None,
@@ -118,6 +122,30 @@ def setup_config_from_cli(
     else:
         # Fall back to env/config for new conversations or when no saved model
         resolved_model = config.get_env("MODEL")
+
+    resolved_gear = parse_gear(gear)
+    if (
+        resolved_gear is None
+        and existing_chat_config
+        and existing_chat_config.gear is not None
+    ):
+        resolved_gear = parse_gear(existing_chat_config.gear)
+    if resolved_gear is None:
+        settings_gear = (
+            config.project.settings.gear
+            if config.project and config.project.settings.gear is not None
+            else config.user.settings.gear
+        )
+        resolved_gear = parse_gear(settings_gear)
+
+    gear_profile_name: str | None = None
+    gear_tool_allowlist: tuple[str, ...] | None = None
+    gear_no_confirm: bool | None = None
+    if resolved_gear is not None:
+        gear_resolution = resolve_gear(resolved_gear)
+        gear_profile_name = gear_resolution.profile_name
+        gear_tool_allowlist = gear_resolution.tool_allowlist
+        gear_no_confirm = gear_resolution.no_confirm
 
     # Handle tool allowlist with similar precedence
     resolved_tool_allowlist: list[str] | None = None
@@ -159,6 +187,15 @@ def setup_config_from_cli(
             resolved_tool_allowlist = [
                 tool.strip() for tool in tool_allowlist.split(",")
             ]
+    elif gear_tool_allowlist is not None:
+        if gear_tool_allowlist and gear_tool_allowlist[0].startswith("+"):
+            default_tools = [tool.name for tool in get_toolchain(None)]
+            resolved_tool_allowlist = default_tools.copy()
+            for tool in (item.removeprefix("+") for item in gear_tool_allowlist):
+                if tool not in resolved_tool_allowlist:
+                    resolved_tool_allowlist.append(tool)
+        else:
+            resolved_tool_allowlist = list(gear_tool_allowlist)
     elif existing_chat_config and existing_chat_config.tools:
         # When resuming, use saved conversation tools unless CLI override provided
         resolved_tool_allowlist = existing_chat_config.tools
@@ -201,7 +238,14 @@ def setup_config_from_cli(
         else:
             resolved_tool_format = "markdown"
 
+    resolved_no_confirm = gear_no_confirm if no_confirm is None else no_confirm
+
     # Handle agent_path with similar precedence
+    if gear_profile_name and not agent_path:
+        gear_profile = get_profile(gear_profile_name)
+        if gear_profile and gear_profile.tools is not None and tool_allowlist is None:
+            resolved_tool_allowlist = list(gear_profile.tools)
+
     resolved_agent_path: Path | None = agent_path
     if agent_path is None and existing_chat_config and existing_chat_config.agent:
         # When resuming, use saved conversation agent unless CLI override provided
@@ -214,8 +258,10 @@ def setup_config_from_cli(
         cli_config=ChatConfig(
             model=resolved_model,
             tool_format=resolved_tool_format,
+            gear=resolved_gear,
             stream=stream,
             interactive=interactive,
+            no_confirm=resolved_no_confirm,
             workspace=workspace,
             agent=resolved_agent_path,
         ),
@@ -227,8 +273,12 @@ def setup_config_from_cli(
             "PRUNE_TOOL_OUTPUT": "1" if prune_tool_output else "0",
         }
 
-    # Set tools if not already set or if CLI override provided
-    if config.chat.tools is None or tool_allowlist is not None:
+    # Set tools if not already set or if CLI/gear override provided
+    if (
+        config.chat.tools is None
+        or tool_allowlist is not None
+        or gear_tool_allowlist is not None
+    ):
         config.chat.tools = _normalize_tool_allowlist(resolved_tool_allowlist)
 
     # Save and set the final config

@@ -34,6 +34,7 @@ from ..commands import _gen_help
 from ..config import ensure_workspace_dir, get_config, setup_config_from_cli
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
+from ..gears import parse_gear, resolve_gear
 from ..init import init_logging
 from ..llm import get_provider_from_model
 from ..llm import reply as llm_reply
@@ -441,6 +442,12 @@ Run 'gptme-util --help' for all utility commands."""
     help="Skip all confirmation prompts.",
 )
 @click.option(
+    "--gear",
+    type=click.IntRange(0, 4),
+    default=None,
+    help="Autonomy preset: 0=observe, 1=review, 2=plan, 3=execute, 4=integrate. Explicit --tools/--agent-profile/--no-confirm override preset parts.",
+)
+@click.option(
     "-n",
     "--non-interactive",
     "non_interactive",
@@ -606,6 +613,7 @@ def main(
     name: str,
     model: str | None,
     tool_allowlist: tuple[str, ...],
+    gear: int | None,
     agent_profile: str | None,
     tool_format: ToolFormat | None,
     prune_tool_output: bool | None,
@@ -679,6 +687,29 @@ def main(
         raise click.UsageError(
             "--no-workspace and --context are mutually exclusive: "
             "--no-workspace strips all workspace context, so --context values would be silently ignored."
+        )
+
+    # Apply gear defaults before explicit profile/tools/no-confirm flags.
+    selected_gear = parse_gear(gear)
+    if selected_gear is not None:
+        gear_resolution = resolve_gear(selected_gear)
+        if agent_profile is None and gear_resolution.profile_name:
+            agent_profile = gear_resolution.profile_name
+        if (
+            ctx.get_parameter_source("tool_allowlist") == ParameterSource.DEFAULT
+            and gear_resolution.tool_allowlist is not None
+        ):
+            tool_allowlist = gear_resolution.tool_allowlist
+        if (
+            ctx.get_parameter_source("no_confirm") == ParameterSource.DEFAULT
+            and gear_resolution.no_confirm
+        ):
+            no_confirm = True
+        logger.info(
+            "Using gear %s (%s): %s",
+            gear_resolution.gear,
+            gear_resolution.name,
+            gear_resolution.description,
         )
 
     # Apply agent profile if specified
@@ -942,6 +973,8 @@ def main(
                     tool_allowlist=tool_allowlist_str,
                     tool_format=tool_format,
                     prune_tool_output=prune_tool_output,
+                    gear=selected_gear,
+                    no_confirm=no_confirm or None,
                     stream=stream,
                     interactive=interactive,
                     agent_path=Path(agent_path) if agent_path else None,
@@ -949,6 +982,11 @@ def main(
             except ValueError as e:
                 raise click.UsageError(str(e)) from e
             assert config.chat and config.chat.tool_format
+            if selected_profile is None and config.chat.gear is not None:
+                gear_profile_name = resolve_gear(config.chat.gear).profile_name
+                selected_profile = (
+                    get_profile(gear_profile_name) if gear_profile_name else None
+                )
 
             # Resolve prompt type using project config if --system was not set
             effective_prompt_system = prompt_system
@@ -1076,6 +1114,8 @@ def main(
             tool_allowlist=tool_allowlist_str,
             tool_format=tool_format,
             prune_tool_output=prune_tool_output,
+            gear=selected_gear,
+            no_confirm=no_confirm or None,
             stream=stream,
             interactive=interactive,
             agent_path=Path(agent_path) if agent_path else None,
@@ -1083,6 +1123,9 @@ def main(
     except ValueError as e:
         raise click.UsageError(str(e)) from e
     assert config.chat and config.chat.tool_format
+    if selected_profile is None and config.chat.gear is not None:
+        gear_profile_name = resolve_gear(config.chat.gear).profile_name
+        selected_profile = get_profile(gear_profile_name) if gear_profile_name else None
 
     # Resolve effective system prompt type: CLI flag > gptme.toml [prompt] system > "full"
     if prompt_system is None:
@@ -1302,7 +1345,9 @@ def main(
             config.chat.workspace,
             config.chat.model,
             config.chat.stream,
-            no_confirm,
+            config.chat.no_confirm
+            if config.chat.no_confirm is not None
+            else no_confirm,
             config.chat.interactive,
             show_hidden,
             config.chat.tools,

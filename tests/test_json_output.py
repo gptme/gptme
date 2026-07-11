@@ -49,6 +49,8 @@ def _invoke_cli_with_captured_goodbye(monkeypatch, tmp_path: Path, args: list[st
             workspace=tmp_path,
             stream=False,
             agent=None,
+            gear=None,
+            no_confirm=None,
         ),
         project=None,
     )
@@ -125,6 +127,8 @@ class TestOutputFormatValidation:
                 workspace=tmp_path,
                 stream=False,
                 agent=None,
+                gear=None,
+                no_confirm=None,
             ),
             project=None,
         )
