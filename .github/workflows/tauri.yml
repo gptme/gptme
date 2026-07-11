@@ -656,6 +656,25 @@ jobs:
           print(f"Tauri semver version: {semver_version}")
           PY
 
+      # Resolve the existing GitHub release (created by release.yml with a
+      # proper changelog) and pass its ID to tauri-action. With releaseId,
+      # tauri-action only uploads assets; with tagName/releaseName/releaseBody,
+      # tauri-action@v1 PATCHes existing published releases and overwrites the
+      # changelog with the placeholder body (regression vs @v0, which left
+      # existing releases untouched).
+      - name: Resolve release ID
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          if ! RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" --jq '.id'); then
+            echo "::error::No GitHub release found for tag ${TAG}. The release must be created first (release.yml does this before triggering builds)."
+            exit 1
+          fi
+          echo "id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
+
       - name: Build and publish release (signed macOS)
         if: matrix.platform == 'macos-latest' && env.HAS_APPLE_SIGNING == 'true'
         uses: tauri-apps/tauri-action@v1
@@ -669,11 +688,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: tauri
-          tagName: ${{ inputs.tag || github.ref_name }}
-          releaseName: 'gptme ${{ inputs.tag || github.ref_name }}'
-          releaseBody: 'Desktop app release. See the assets to download and install.'
-          releaseDraft: ${{ inputs.tag == '' }}
-          prerelease: ${{ contains(inputs.tag || github.ref_name, '.dev') || contains(inputs.tag || github.ref_name, '.a') || contains(inputs.tag || github.ref_name, '.b') || contains(inputs.tag || github.ref_name, '.rc') }}
+          releaseId: ${{ steps.release.outputs.id }}
           args: ${{ matrix.args }}
 
       - name: Build and publish release (unsigned/fallback)
@@ -683,11 +698,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: tauri
-          tagName: ${{ inputs.tag || github.ref_name }}
-          releaseName: 'gptme ${{ inputs.tag || github.ref_name }}'
-          releaseBody: 'Desktop app release. See the assets to download and install.'
-          releaseDraft: ${{ inputs.tag == '' }}
-          prerelease: ${{ contains(inputs.tag || github.ref_name, '.dev') || contains(inputs.tag || github.ref_name, '.a') || contains(inputs.tag || github.ref_name, '.b') || contains(inputs.tag || github.ref_name, '.rc') }}
+          releaseId: ${{ steps.release.outputs.id }}
           args: ${{ matrix.args }}
 
   build-android:
