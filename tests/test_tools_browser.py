@@ -13,6 +13,7 @@ Tests cover:
 
 import base64
 import json
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -394,7 +395,8 @@ class TestReadPdfUrl:
         mock_response.content = b"fake pdf content"
         mock_requests.get.return_value = mock_response
 
-        with patch("gptme.tools.browser.pypdf") as mock_pypdf:
+        mock_pypdf = MagicMock()
+        with patch.dict(sys.modules, {"pypdf": mock_pypdf}):
             mock_reader = MagicMock()
             mock_page = MagicMock()
             mock_page.extract_text.return_value = "Page 1 text content"
@@ -415,7 +417,8 @@ class TestReadPdfUrl:
         mock_response.content = b"fake"
         mock_requests.get.return_value = mock_response
 
-        with patch("gptme.tools.browser.pypdf") as mock_pypdf:
+        mock_pypdf = MagicMock()
+        with patch.dict(sys.modules, {"pypdf": mock_pypdf}):
             pages = []
             for i in range(20):
                 p = MagicMock()
@@ -441,7 +444,8 @@ class TestReadPdfUrl:
         mock_response.content = b"fake"
         mock_requests.get.return_value = mock_response
 
-        with patch("gptme.tools.browser.pypdf") as mock_pypdf:
+        mock_pypdf = MagicMock()
+        with patch.dict(sys.modules, {"pypdf": mock_pypdf}):
             pages = []
             for i in range(3):
                 p = MagicMock()
@@ -466,7 +470,8 @@ class TestReadPdfUrl:
         mock_response.content = b"fake"
         mock_requests.get.return_value = mock_response
 
-        with patch("gptme.tools.browser.pypdf") as mock_pypdf:
+        mock_pypdf = MagicMock()
+        with patch.dict(sys.modules, {"pypdf": mock_pypdf}):
             mock_page = MagicMock()
             mock_page.extract_text.return_value = "   "  # whitespace only
             mock_reader = MagicMock()
@@ -486,7 +491,8 @@ class TestReadPdfUrl:
         mock_response.content = b"fake"
         mock_requests.get.return_value = mock_response
 
-        with patch("gptme.tools.browser.pypdf") as mock_pypdf:
+        mock_pypdf = MagicMock()
+        with patch.dict(sys.modules, {"pypdf": mock_pypdf}):
             pages = []
             for i in range(15):
                 p = MagicMock()
