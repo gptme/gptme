@@ -7,10 +7,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gptme.tools.pruner import PrunePlan
 from gptme.tools.shell import (
     ShellSession,
     _format_gh_list_preview,
     _format_git_log_preview,
+    _format_query_pruned_output,
     _format_shell_output,
     _get_truncation_budget,
     _matches_gh_list,
@@ -618,6 +620,32 @@ def test_format_shell_output_lower_threshold_records_savings(monkeypatch, tmp_pa
     assert "output truncated" in output or "lines truncated" in output
     ledger = tmp_path / "context-savings.jsonl"
     assert ledger.exists()
+
+
+def test_format_query_pruned_output_records_savings(tmp_path):
+    stdout = "keep 1\ndrop 2\nkeep 3\ndrop 4\n"
+    plan = PrunePlan(
+        ranges=((1, 1), (3, 3)),
+        total_lines=4,
+        kept_lines=2,
+        original_tokens=400,
+        kept_tokens=10,
+        model="mock/echo",
+    )
+
+    with patch("gptme.tools.shell.plan_tool_output_prune", return_value=plan):
+        output = _format_query_pruned_output("rg keep .", stdout, tmp_path)
+
+    assert output is not None
+    assert "Pruned to 2 of 4 lines" in output
+    assert "keep 1" in output
+    assert "keep 3" in output
+    assert "drop 2" not in output
+
+    ledger = tmp_path / "context-savings.jsonl"
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["command_info"] == "query-pruned: rg keep ."
     rows = [
         json.loads(line) for line in ledger.read_text().splitlines() if line.strip()
     ]

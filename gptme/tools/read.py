@@ -13,11 +13,15 @@ from pathlib import Path
 
 from ..message import Message
 from ..util.context import md_codeblock
+from ..util.context_savings import record_context_savings
+from ..util.output_storage import save_large_output
+from ..util.tokens import len_tokens
 from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
 )
+from .pruner import plan_tool_output_prune
 
 instructions = """
 Read the content of one or more files, or list the contents of a directory.
@@ -121,6 +125,13 @@ def _list_directory(path: Path) -> Generator[Message, None, None]:
     )
 
 
+def _current_logdir() -> Path | None:
+    from ..logmanager import LogManager
+
+    manager = LogManager.get_current_log()
+    return manager.logdir if manager and manager.logdir else None
+
+
 def _read_one(
     path: Path,
     start_line: int = 1,
@@ -170,11 +181,59 @@ def _read_one(
     start_idx = max(0, start_line - 1)
     end_idx = min(total_lines, end_line) if end_line is not None else total_lines
     selected = lines[start_idx:end_idx]
+    display_pairs = list(enumerate(selected, start=start_idx + 1))
+
+    pruned_message_prefix = ""
+    if display_pairs:
+        display_text = "\n".join(line for _, line in display_pairs)
+        plan = plan_tool_output_prune("read", display_text, context_label=str(path))
+        if plan:
+            display_pairs = [
+                pair
+                for start, end in plan.ranges
+                for pair in display_pairs[start - 1 : end]
+            ]
+            logdir = _current_logdir()
+            saved_path: Path | None = None
+            if logdir:
+                _, saved_path = save_large_output(
+                    content=display_text,
+                    logdir=logdir,
+                    output_type="read",
+                    command_info=str(path),
+                )
+
+            pruned_message_prefix = f"Pruned to {plan.kept_lines} of {plan.total_lines} lines for the current query."
+            if saved_path:
+                pruned_message_prefix += f" Full output saved to {saved_path}; read that file for the complete result."
+            else:
+                pruned_message_prefix += " Full output was not saved because no conversation logdir is active."
+
+            if logdir:
+                final_preview = md_codeblock(
+                    str(path),
+                    "\n".join(f"{line_no}\t{line}" for line_no, line in display_pairs),
+                )
+                try:
+                    kept_tokens = len_tokens(
+                        pruned_message_prefix + "\n\n" + final_preview, plan.model
+                    )
+                except Exception:
+                    kept_tokens = plan.kept_tokens
+                record_context_savings(
+                    logdir=logdir,
+                    source="read",
+                    original_tokens=plan.original_tokens,
+                    kept_tokens=kept_tokens,
+                    command_info=str(path),
+                    saved_path=saved_path,
+                )
 
     # Format with line numbers (cat -n style)
-    width = len(str(end_idx)) if end_idx > 0 else 1
+    last_line_number = display_pairs[-1][0] if display_pairs else end_idx
+    width = len(str(last_line_number)) if last_line_number > 0 else 1
     numbered = "\n".join(
-        f"{i:>{width}}\t{line}" for i, line in enumerate(selected, start=start_idx + 1)
+        f"{line_no:>{width}}\t{line}" for line_no, line in display_pairs
     )
 
     range_info = ""
@@ -182,7 +241,11 @@ def _read_one(
         shown = f"{start_idx + 1}-{end_idx}"
         range_info = f" (lines {shown} of {total_lines})"
 
-    yield Message("system", md_codeblock(f"{path}{range_info}", numbered))
+    body = md_codeblock(f"{path}{range_info}", numbered)
+    if pruned_message_prefix:
+        body = pruned_message_prefix + "\n\n" + body
+
+    yield Message("system", body)
 
 
 def execute_read(

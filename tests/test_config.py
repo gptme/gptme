@@ -1215,7 +1215,39 @@ def test_cli_auto_envvar_prefix():
     params = {p.name: p for p in main.params}
     assert "model" in params, "CLI should have --model option"
     assert "tool_format" in params, "CLI should have --tool-format option"
+    assert "prune_tool_output" in params, "CLI should have --prune-tool-output option"
     assert "workspace" in params, "CLI should have --workspace option"
+
+
+def test_setup_config_from_cli_merges_prune_tool_output_override(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+    (logdir / "config.toml").write_text(
+        f"""[chat]
+workspace = "{workspace!s}"
+
+[env]
+EXISTING = "1"
+"""
+    )
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist=None,
+        tool_format=None,
+        prune_tool_output=True,
+        stream=True,
+        interactive=True,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    assert config.chat.env["EXISTING"] == "1"
+    assert config.chat.env["PRUNE_TOOL_OUTPUT"] == "1"
 
 
 def test_tool_exclusion_config(tmp_path):

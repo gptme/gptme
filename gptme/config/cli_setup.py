@@ -85,6 +85,7 @@ def setup_config_from_cli(
     model: str | None = None,
     tool_allowlist: str | None = None,
     tool_format: "ToolFormat | None" = None,
+    prune_tool_output: bool | None = None,
     stream: bool = True,
     interactive: bool = True,
     agent_path: Path | None = None,
@@ -219,6 +220,12 @@ def setup_config_from_cli(
             agent=resolved_agent_path,
         ),
     )
+
+    if prune_tool_output is not None:
+        config.chat.env = {
+            **config.chat.env,
+            "PRUNE_TOOL_OUTPUT": "1" if prune_tool_output else "0",
+        }
 
     # Set tools if not already set or if CLI override provided
     if config.chat.tools is None or tool_allowlist is not None:
