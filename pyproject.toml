@@ -54,7 +54,7 @@ python = "^3.10"
 click = "^8.4"
 click-default-group = "^1.2.4"
 python-dotenv = "^1.2.2"
-rich = "^13.5.2"
+rich = "^14.2"
 tabulate = "*"
 pick = {version = "^2.6.0", markers = "sys_platform != 'win32'"}
 tiktoken = ">=0.13.0"
@@ -122,7 +122,7 @@ pyinstaller = {version="^6.21", python=">=3.10,<3.15", optional=true}  # not yet
 agent-client-protocol = {version = ">=0.10.1", optional=true, python=">=3.10,<3.15"}
 
 # tui
-textual = {version = ">=1.0,<7", optional=true}  # <7 while we pin rich ^13 (textual 7+ needs rich>=14.2)
+textual = {version = ">=8,<9", optional=true}
 
 [tool.poetry.group.dev.dependencies]
 # lint
