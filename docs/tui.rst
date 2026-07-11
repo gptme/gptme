@@ -41,6 +41,21 @@ Conversations are stored in the same format and location as CLI conversations,
 so they can be opened interchangeably: start in the TUI, resume in the CLI
 (``gptme --resume``), or vice versa (``gptme-tui -n <name>``).
 
+Inline mode (experimental)
+--------------------------
+
+By default the TUI runs in the alternate screen with its own scrollable chat
+view. With ``--inline`` it instead renders like Claude Code: messages are
+printed into the terminal's **native scrollback** while only a small live
+region (streaming preview, input, status bar) stays at the bottom::
+
+    gptme-tui --inline
+
+Terminal/tmux scrolling then works normally, and the transcript stays in your
+scrollback after exit. Trade-offs: past tool output can't be expanded in
+place (:kbd:`Ctrl+O` instead toggles whether *future* tool output prints
+expanded), and mouse interaction is left entirely to the terminal.
+
 Keys
 ----
 

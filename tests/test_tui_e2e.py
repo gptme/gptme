@@ -417,3 +417,40 @@ class TestTmuxRealTerminal:
         time.sleep(0.5)
         assert_no_escape_garbage(tui.capture())
         assert tui.alive()
+
+
+@pytest.mark.skipif(not TMUX, reason="tmux not available")
+@pytest.mark.timeout(120)
+class TestTmuxInlineMode:
+    """--inline: native-scrollback rendering (no alternate screen)."""
+
+    def test_inline_prints_to_scrollback(self, tmux_tui, tmp_path):
+        tui = tmux_tui(extra_args="-t shell --inline")
+        tui.wait_ready()
+        tui.send("hello inline")
+        tui.send_key("Enter")
+        pane = tui.wait_for("Echo: hello inline")
+        assert_no_escape_garbage(pane)
+        # transcript lines are plain terminal output (native scrollback), so
+        # they appear above the live region which contains the input
+        assert pane.index("Echo: hello inline") < pane.index("Type a message")
+
+    def test_inline_tool_flow(self, tmux_tui, tmp_path):
+        marker = tmp_path / "inline_marker"
+        tui = tmux_tui(extra_args="-t shell --inline")
+        tui.wait_ready()
+        for i, line in enumerate(["run this:", "```shell", f"touch {marker}", "```"]):
+            if i:
+                tui.send_key("C-j")
+            tui.send(line)
+        tui.send_key("Enter")
+        tui.wait_for("Execute shell?")
+        tui.send("y")
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline and not marker.exists():
+            time.sleep(0.3)
+        assert marker.exists()
+        # tool output printed as a collapsed summary line
+        pane = tui.wait_for("Ran command")
+        assert "▶" in pane
+        assert_no_escape_garbage(pane)

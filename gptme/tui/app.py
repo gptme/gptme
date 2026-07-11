@@ -125,6 +125,32 @@ class InfoMessage(Static):
         super().__init__(Text(content), classes="info" + (" error" if error else ""))
 
 
+def renderables_for_message(msg: Message, expanded: bool = False) -> list:
+    """Rich renderables for a message, for native-scrollback (inline) mode."""
+    from rich.markdown import Markdown as RichMarkdown
+    from rich.padding import Padding
+
+    content = msg.content.strip()
+    if msg.role == "user":
+        return [
+            Text("User", style="bold green"),
+            Padding(RichMarkdown(content), (0, 0, 0, 2)),
+            Text(),
+        ]
+    if msg.role == "assistant":
+        return [
+            Text("Assistant", style="bold blue"),
+            Padding(RichMarkdown(content), (0, 0, 0, 2)),
+            Text(),
+        ]
+    # system/tool output: compact summary line, optionally expanded
+    renderables: list = [Text(f"▶ {_summarize(content)}", style="dim")]
+    if expanded:
+        renderables.append(Padding(RichMarkdown(content), (0, 0, 0, 2)))
+    renderables.append(Text())
+    return renderables
+
+
 def complete_input(text: str) -> list[str]:
     """Full-line completion candidates, reusing the CLI command completers."""
     from ..commands import get_command_completer, get_user_commands
@@ -270,6 +296,15 @@ class GptmeApp(App):
     TITLE = "gptme"
 
     CSS = """
+    Screen:inline {
+        height: auto;
+        max-height: 40%;
+    }
+    #live {
+        height: auto;
+        max-height: 8;
+        margin: 0 1;
+    }
     #chat {
         padding: 0 1;
     }
@@ -381,12 +416,15 @@ class GptmeApp(App):
         tool_format: ToolFormat = "markdown",
         workspace: Path | None = None,
         auto_confirm: bool = False,
+        inline: bool = False,
     ):
         super().__init__()
         self.manager = manager
         self.tool_format: ToolFormat = tool_format
         self.workspace = workspace or manager.workspace
         self.auto_confirm = auto_confirm
+        self.inline = inline
+        self._stream_text = ""
         # Snapshot the caller's context (default model, output format, …) so
         # worker threads see it — gptme stores this state in ContextVars,
         # which fresh threads do not inherit. Workers run sequentially
@@ -413,6 +451,17 @@ class GptmeApp(App):
     # ------------------------------------------------------------------ UI
 
     def compose(self) -> ComposeResult:
+        if self.inline:
+            # native-scrollback mode: no in-app chat view; completed messages
+            # are printed into the terminal's scrollback via _print_above
+            yield Static(id="live")
+            yield ChatInput(id="input")
+            yield Static(
+                Text("Type a message… (Enter to send, Alt+Enter for newline)"),
+                id="input-hint",
+            )
+            yield Static(id="status")
+            return
         yield VerticalScroll(id="chat")
         with Vertical(id="bottom"):
             yield ChatInput(id="input")
@@ -453,7 +502,9 @@ class GptmeApp(App):
             func=self._tui_confirm_hook,
             priority=100,
         )
-        self._render_history()
+        if not self.inline:
+            # inline mode prints history to the terminal before the app starts
+            self._render_history()
         self.query_one("#input", ChatInput).focus()
         self._update_status()
         # watchdog: tools can reset the tty at any point during execution
@@ -494,7 +545,57 @@ class GptmeApp(App):
             return SystemMessage(msg.content)
         return None
 
+    def _print_above(self, *renderables) -> None:
+        """Print rich renderables into the terminal's native scrollback,
+        above the inline app (must be called on the UI thread).
+
+        Exploits the inline driver's frame invariant: between frames the
+        cursor sits at the top-left of the app region. Clear the region,
+        write the content (scrolling the terminal naturally), and repaint
+        the app below it.
+        """
+        driver = self._driver
+        if driver is None:
+            return
+        from rich.console import Console as RichConsole
+        from rich.control import Control
+
+        buf = io.StringIO()
+        console = RichConsole(
+            file=buf,
+            force_terminal=True,
+            color_system="truecolor",
+            width=self.size.width or 80,
+        )
+        for renderable in renderables:
+            console.print(renderable)
+        # Between frames the cursor is parked at the caret position, offset
+        # from the region origin by App._previous_cursor_position (see
+        # App._display's inline branch). Move back to the origin, clear the
+        # region, print (scrolling the terminal), and park the cursor at the
+        # caret offset again so the next frame's relative move stays correct.
+        caret = getattr(self, "_previous_cursor_position", None)
+        sequence = ""
+        if caret is not None:
+            sequence += Control.move(-caret.x, -caret.y).segment.text
+        sequence += "\x1b[J" + buf.getvalue()
+        if caret is not None:
+            sequence += Control.move(caret.x, caret.y).segment.text
+        driver.write(sequence)
+        self.refresh()
+
+    def _show_message(self, msg: Message) -> None:
+        if self.inline:
+            self._print_above(*renderables_for_message(msg, self._outputs_expanded))
+            return
+        widget = self._widget_for(msg)
+        if widget:
+            self._mount_in_chat(widget)
+
     def _show_info(self, text: str, error: bool = False) -> None:
+        if self.inline:
+            self._print_above(Text(text, style="red" if error else "bright_black"))
+            return
         self._mount_in_chat(InfoMessage(text, error=error))
 
     def _mount_in_chat(self, widget: Widget) -> None:
@@ -566,9 +667,12 @@ class GptmeApp(App):
             return
         if self.generating:
             self.prompt_queue.append(text)
-            widget = UserMessage(text, queued=True)
-            self._queued_widgets.append(widget)
-            self._mount_in_chat(widget)
+            if self.inline:
+                self._print_above(Text(f"(queued) {text}", style="bright_black"))
+            else:
+                widget = UserMessage(text, queued=True)
+                self._queued_widgets.append(widget)
+                self._mount_in_chat(widget)
             self._update_status()
         else:
             self._submit(text)
@@ -638,13 +742,16 @@ class GptmeApp(App):
             # command changed the log (undo, appended messages, …): re-render
             self._rebuild_chat()
         if output := buf.getvalue().strip():
-            self._mount_in_chat(InfoMessage(output))
+            self._show_info(output)
         if not handled:
             logger.warning("Command %r not handled by registry", text)
             self._show_info(f"Unknown command: /{cmd}")
         self._update_status()
 
     def _rebuild_chat(self) -> None:
+        if self.inline:
+            # scrollback can't be rewritten; the change is noted via output
+            return
         chat = self.query_one("#chat", VerticalScroll)
         chat.remove_children()
         self._render_history()
@@ -653,7 +760,7 @@ class GptmeApp(App):
         msg = Message("user", text, quiet=True)
         msg = include_paths(msg, self.workspace)
         self.manager.append(msg)
-        self._mount_in_chat(UserMessage(msg.content))
+        self._show_message(msg)
         self._start_generation()
 
     # --------------------------------------------------------- generation
@@ -732,14 +839,10 @@ class GptmeApp(App):
         except SessionCompleteException:
             # complete tool is filtered out in interactive TUI mode, but a
             # resumed autonomous conversation may still have it loaded
-            self.call_from_thread(
-                self._mount_in_chat, InfoMessage("Session marked complete.")
-            )
+            self.call_from_thread(self._show_info, "Session marked complete.")
         except Exception as e:
             logger.exception("Error in generation worker")
-            self.call_from_thread(
-                self._mount_in_chat, InfoMessage(f"Error: {e}", error=True)
-            )
+            self.call_from_thread(self._show_info, f"Error: {e}", True)
         # NOTE: completion handling (queue dispatch etc.) happens in
         # on_worker_state_changed, which fires only after this thread has
         # fully exited self._chat_ctx — dispatching from here would make the
@@ -755,6 +858,14 @@ class GptmeApp(App):
         self._set_state("generating")
 
     def _on_stream_token(self, token: str) -> None:
+        if self.inline:
+            # live preview in the inline region: show the last few lines
+            self._stream_text += token
+            lines = self._stream_text.strip().splitlines()[-6:]
+            self.query_one("#live", Static).update(
+                Text("\n".join(lines), style="bright_black")
+            )
+            return
         if self._stream_widget is None:
             self._stream_widget = StreamingMessage()
             self._mount_in_chat(self._stream_widget)
@@ -764,14 +875,19 @@ class GptmeApp(App):
         if stick:
             self.call_after_refresh(chat.scroll_end, animate=False)
 
-    def _on_step_message(self, msg: Message) -> None:
-        if msg.role == "assistant" and self._stream_widget is not None:
-            # replace the live stream view with the final markdown rendering
+    def _clear_stream_view(self) -> None:
+        self._stream_text = ""
+        if self.inline:
+            self.query_one("#live", Static).update("")
+        if self._stream_widget is not None:
             self._stream_widget.remove()
             self._stream_widget = None
-        widget = self._widget_for(msg)
-        if widget:
-            self._mount_in_chat(widget)
+
+    def _on_step_message(self, msg: Message) -> None:
+        if msg.role == "assistant":
+            # replace the live stream view with the final rendering
+            self._clear_stream_view()
+        self._show_message(msg)
         if msg.role == "assistant":
             self._set_state("executing tools")
         self._update_status()
@@ -788,10 +904,8 @@ class GptmeApp(App):
 
     def _generation_done(self) -> None:
         self.generating = False
-        if self._stream_widget is not None:
-            # stream ended without a final message (e.g. interrupt mid-stream)
-            self._stream_widget.remove()
-            self._stream_widget = None
+        # stream may have ended without a final message (interrupt mid-stream)
+        self._clear_stream_view()
         if self._interrupt_event.is_set() and self.prompt_queue:
             # user interrupted: hand queued text back instead of auto-submitting
             text = "\n".join(self.prompt_queue)
@@ -861,6 +975,14 @@ class GptmeApp(App):
 
     def action_toggle_outputs(self) -> None:
         self._outputs_expanded = not self._outputs_expanded
+        if self.inline:
+            # scrollback is immutable; the toggle affects future tool output
+            self._show_info(
+                "Tool output will be printed "
+                + ("expanded" if self._outputs_expanded else "collapsed")
+                + " from now on."
+            )
+            return
         for collapsible in self.query(Collapsible):
             collapsible.collapsed = not self._outputs_expanded
 

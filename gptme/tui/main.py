@@ -41,6 +41,22 @@ def _get_logdir_resume() -> Path:
     return candidates[0]
 
 
+def _print_history(manager: LogManager, limit: int = 50) -> None:
+    """Print past messages to the terminal before an inline session starts."""
+    from rich.console import Console
+
+    from .app import renderables_for_message
+
+    console = Console()
+    msgs = [m for m in manager.log if not m.hide]
+    if len(msgs) > limit:
+        console.print(f"[dim]… {len(msgs) - limit} earlier messages not shown[/dim]")
+        msgs = msgs[-limit:]
+    for msg in msgs:
+        for renderable in renderables_for_message(msg):
+            console.print(renderable)
+
+
 @click.command("gptme-tui")
 @click.option(
     "-n", "--name", default="random", help="Conversation name to open or create."
@@ -72,6 +88,13 @@ def _get_logdir_resume() -> Path:
     type=click.Choice(["markdown", "xml", "tool"]),
 )
 @click.option("--no-confirm", is_flag=True, help="Skip tool confirmation prompts.")
+@click.option(
+    "--inline",
+    is_flag=True,
+    help="Experimental: render inline without the alternate screen, printing "
+    "messages into the terminal's native scrollback (tmux/terminal scrolling "
+    "works normally, like Claude Code).",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging.")
 def main(
     name: str,
@@ -81,6 +104,7 @@ def main(
     tool_allowlist: str | None,
     tool_format: str | None,
     no_confirm: bool,
+    inline: bool,
     verbose: bool,
 ) -> None:
     """gptme TUI — interactive terminal UI for gptme.
@@ -155,8 +179,14 @@ def main(
         tool_format=config.chat.tool_format,
         workspace=workspace_path,
         auto_confirm=no_confirm,
+        inline=inline,
     )
-    app.run()
+    if inline:
+        _print_history(manager)
+        # mouse=False leaves wheel scrolling to the terminal (native scrollback)
+        app.run(inline=True, inline_no_clear=True, mouse=False)
+    else:
+        app.run()
     print(f"Conversation saved: {logdir.name}")
     print(f"Resume with: gptme-tui -n {logdir.name}  (or gptme -r in the CLI)")
     sys.exit(0)
