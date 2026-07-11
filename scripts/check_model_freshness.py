@@ -9,8 +9,9 @@ Usage:
     python3 scripts/check_model_freshness.py [--json] [--gptme-src PATH]
 
 Exit codes:
-    0  All checked models are live (or no providers reachable)
+    0  All checked models are live
     1  One or more stale model IDs detected
+    2  OpenRouter API unreachable; no models could be verified
 
 Requires OPENROUTER_API_KEY to be set in the environment (or reachable via the
 OPENAI_API_KEY fallback accepted by the OpenRouter /v1/models endpoint).
@@ -40,6 +41,7 @@ MODEL_FILES = [
     "llm/models/resolution.py",
     "llm/models/data.py",
     "llm/__init__.py",
+    "tools/morph.py",
 ]
 
 # Matches quoted strings that look like OpenRouter-style "provider/model-name" IDs.
@@ -57,8 +59,12 @@ MODEL_FILES = [
 #   - openai/* → skip (OpenAI SDK, not OpenRouter)
 _MODEL_RE = re.compile(
     r'"('
-    # Providers where "/" format always means OpenRouter (not direct provider SDK)
-    r"(?:meta-llama|mistral(?:ai)?|google|moonshotai|deepseek|qwen|z-ai)/"
+    # gptme's "openrouter/" prefix format: openrouter/provider/model[-suffixes]
+    # The prefix is stripped when recording the model ID (see _iter_model_ids).
+    r"openrouter/[^/\"]+/[^\"]{4,}"
+    r"|"
+    # Providers where "provider/model" always means OpenRouter (not direct provider SDK)
+    r"(?:meta-llama|mistral(?:ai)?|google|moonshotai|deepseek|qwen|z-ai|morph)/"
     r"[^\"]{4,}"  # at least 4 chars after the slash
     r"|"
     # anthropic/ ONLY when the version uses dots (e.g. 4.5, 4.6) → true OpenRouter format
@@ -94,6 +100,9 @@ def _iter_model_ids(gptme_src: Path) -> Iterator[ModelOccurrence]:
         for lineno, raw in enumerate(path.read_text().splitlines(), 1):
             for m in _MODEL_RE.finditer(raw):
                 model_id = m.group(1)
+                # Strip gptme's "openrouter/" prefix to get the bare OpenRouter ID
+                # e.g. "openrouter/meta-llama/llama-3.3-70b" → "meta-llama/llama-3.3-70b"
+                model_id = model_id.removeprefix("openrouter/")
                 key = (model_id, rel, lineno)
                 if key in seen:
                     continue
@@ -256,6 +265,14 @@ def print_results(results: list[CheckResult]) -> int:
             print(f"  {r.model_id}")
         print()
 
+    if not stale and not live and unknown:
+        # Fetch failed — every model is unchecked; do not silently exit 0
+        print(
+            f"Error: OpenRouter API unreachable — {len(unknown)} model(s) could not be verified.",
+            file=sys.stderr,
+        )
+        return 2
+
     if stale:
         print(f"Summary: {len(stale)} stale, {len(live)} live, {len(unknown)} unknown")
         return 1
@@ -311,7 +328,12 @@ def main() -> None:
             )
         )
         stale_count = sum(1 for r in results if r.is_live is False)
-        sys.exit(1 if stale_count else 0)
+        unknown_count = sum(1 for r in results if r.is_live is None)
+        if stale_count:
+            sys.exit(1)
+        elif unknown_count and not stale_count and not any(r.is_live for r in results):
+            sys.exit(2)
+        sys.exit(0)
 
     sys.exit(print_results(results))
 
