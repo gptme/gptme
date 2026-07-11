@@ -119,6 +119,15 @@ class TestSubagentParallelBudget:
                 if aid not in self_job.results:
                     r = results_by_id.get(aid, ReturnType("failure", "no mock result"))
                     self_job.results[aid] = r
+            # Mirror BatchJob.wait_all() budget recording so tests see correct spend
+            if self_job.budget is not None:
+                for aid, r in self_job.results.items():
+                    if (
+                        aid not in self_job._budget_recorded_ids
+                        and r.output_tokens is not None
+                    ):
+                        self_job.budget.record(r.output_tokens)
+                        self_job._budget_recorded_ids.add(aid)
             return {aid: asdict(r) for aid, r in self_job.results.items()}
 
         with (
@@ -198,6 +207,14 @@ class TestSubagentParallelBudget:
                     self_job.results[aid] = results_by_id.get(
                         aid, ReturnType("failure", "no mock")
                     )
+            if self_job.budget is not None:
+                for aid, r in self_job.results.items():
+                    if (
+                        aid not in self_job._budget_recorded_ids
+                        and r.output_tokens is not None
+                    ):
+                        self_job.budget.record(r.output_tokens)
+                        self_job._budget_recorded_ids.add(aid)
             return {}
 
         with (
@@ -224,6 +241,14 @@ class TestSubagentParallelBudget:
         def fake_wait_all(self_job, timeout=300, cancel_on_failure=False):
             for aid in self_job.agent_ids:
                 self_job.results[aid] = results_by_id[aid]
+            if self_job.budget is not None:
+                for aid, r in self_job.results.items():
+                    if (
+                        aid not in self_job._budget_recorded_ids
+                        and r.output_tokens is not None
+                    ):
+                        self_job.budget.record(r.output_tokens)
+                        self_job._budget_recorded_ids.add(aid)
             return {}
 
         with (
@@ -251,11 +276,27 @@ class TestSubagentParallelBudget:
         def fake_wait_all_a(self_job, timeout=300, cancel_on_failure=False):
             for aid in self_job.agent_ids:
                 self_job.results[aid] = results_by_id_a[aid]
+            if self_job.budget is not None:
+                for aid, r in self_job.results.items():
+                    if (
+                        aid not in self_job._budget_recorded_ids
+                        and r.output_tokens is not None
+                    ):
+                        self_job.budget.record(r.output_tokens)
+                        self_job._budget_recorded_ids.add(aid)
             return {}
 
         def fake_wait_all_b(self_job, timeout=300, cancel_on_failure=False):
             for aid in self_job.agent_ids:
                 self_job.results[aid] = results_by_id_b[aid]
+            if self_job.budget is not None:
+                for aid, r in self_job.results.items():
+                    if (
+                        aid not in self_job._budget_recorded_ids
+                        and r.output_tokens is not None
+                    ):
+                        self_job.budget.record(r.output_tokens)
+                        self_job._budget_recorded_ids.add(aid)
             return {}
 
         with (

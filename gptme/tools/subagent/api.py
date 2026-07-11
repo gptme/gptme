@@ -339,6 +339,13 @@ def subagent(
         if not workdir_path.is_dir():
             raise ValueError(f"workdir is not a directory: {workdir_path}")
 
+    # Clear any stale cached result for this agent_id before starting a new run.
+    # Without this, a reused deterministic id (e.g. "<item>-s0" in a pipeline) can
+    # return the previous run's terminal result from the shared cache, hiding the
+    # current run entirely.
+    with _subagent_results_lock:
+        _subagent_results.pop(agent_id, None)
+
     if mode == "planner":
         if context_turns is not None:
             logger.warning(

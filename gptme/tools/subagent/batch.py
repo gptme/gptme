@@ -723,16 +723,12 @@ def subagent_parallel(
         else "",
     )
 
-    # Collect results from started agents in parallel
-    job = BatchJob(agent_ids=started_ids)
+    # Collect results from started agents in parallel.
+    # Pass budget so wait_all() records tokens once via BatchJob._budget_recorded_ids,
+    # which prevents double-counting on repeated wait_all() calls.
+    job = BatchJob(agent_ids=started_ids, budget=budget)
     if started_ids:
         job.wait_all(timeout=timeout, cancel_on_failure=cancel_on_failure)
-
-    # Record output tokens from completed agents into the shared budget
-    if budget is not None:
-        for result in job.results.values():
-            if result.output_tokens is not None:
-                budget.record(result.output_tokens)
 
     # Build ordered results, substituting budget_exceeded for skipped agents
     _budget_exceeded_result = ReturnType(
