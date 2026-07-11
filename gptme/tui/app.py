@@ -1,0 +1,596 @@
+"""The gptme Textual application.
+
+Drives conversations with the same machinery as the CLI (``gptme.chat.step``),
+but runs generation in a background worker thread so the input stays live:
+prompts submitted while the agent is working are queued (#569), and tool
+output is rendered in collapsible sections for a compact view.
+"""
+
+import contextvars
+import logging
+import sys
+import threading
+from pathlib import Path
+from typing import IO, cast
+
+from rich.syntax import Syntax
+from rich.text import Text
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Vertical, VerticalScroll
+from textual.screen import ModalScreen
+from textual.widget import Widget
+from textual.widgets import Collapsible, Input, Markdown, Static
+
+from ..chat import step
+from ..constants import DECLINED_CONTENT, INTERRUPT_CONTENT
+from ..hooks import HookType, register_hook
+from ..hooks.cli_confirm import _get_lang_for_tool
+from ..hooks.confirm import ConfirmationResult
+from ..llm.models import get_default_model
+from ..logmanager import LogManager
+from ..message import Message
+from ..tools import ToolFormat, ToolUse
+from ..tools.base import ToolUse as ToolUseType
+from ..util.context import include_paths
+from ..util.tokens import len_tokens
+
+logger = logging.getLogger(__name__)
+
+# Max messages rendered when resuming a long conversation
+MAX_INITIAL_MESSAGES = 100
+
+
+def _summarize(content: str, maxlen: int = 80) -> str:
+    """One-line summary of message content, for collapsed sections."""
+    lines = content.strip().splitlines() or [""]
+    first = next((line for line in lines if line.strip()), "").strip()
+    # strip codeblock fence from summary
+    if first.startswith("```"):
+        first = first.lstrip("`") or "output"
+    if len(first) > maxlen:
+        first = first[: maxlen - 1] + "…"
+    n = len(lines)
+    return f"{first} ({n} line{'s' if n != 1 else ''})"
+
+
+class UserMessage(Vertical):
+    """A user message, rendered with a distinct border."""
+
+    def __init__(self, content: str, queued: bool = False):
+        super().__init__(classes="message user" + (" queued" if queued else ""))
+        self.content = content
+
+    def compose(self) -> ComposeResult:
+        label = "User (queued)" if "queued" in self.classes else "User"
+        yield Static(Text(label), classes="role")
+        yield Static(Text(self.content))
+
+
+class AssistantMessage(Vertical):
+    """A completed assistant message, rendered as markdown."""
+
+    def __init__(self, content: str):
+        super().__init__(classes="message assistant")
+        self.content = content
+
+    def compose(self) -> ComposeResult:
+        yield Static(Text("Assistant"), classes="role")
+        yield Markdown(self.content)
+
+
+class SystemMessage(Vertical):
+    """A system/tool-output message, collapsed by default (like <details>)."""
+
+    def __init__(self, content: str):
+        super().__init__(classes="message system")
+        self.content = content
+
+    def compose(self) -> ComposeResult:
+        yield Collapsible(
+            Markdown(self.content),
+            title=_summarize(self.content),
+            collapsed=True,
+        )
+
+
+class StreamingMessage(Vertical):
+    """Live view of the assistant response while tokens stream in."""
+
+    def __init__(self) -> None:
+        super().__init__(classes="message assistant streaming")
+        self._buffer = ""
+        self._body = Static(Text(""))
+
+    def compose(self) -> ComposeResult:
+        yield Static(Text("Assistant"), classes="role")
+        yield self._body
+
+    def append_token(self, token: str) -> None:
+        self._buffer += token
+        self._body.update(Text(self._buffer))
+
+
+class InfoMessage(Static):
+    """Dim informational line (help text, errors, hints)."""
+
+    def __init__(self, content: str, error: bool = False):
+        super().__init__(Text(content), classes="info" + (" error" if error else ""))
+
+
+class ConfirmScreen(ModalScreen[ConfirmationResult]):
+    """Modal asking the user to confirm a tool execution."""
+
+    BINDINGS = [
+        Binding("y,enter", "confirm", "Execute"),
+        Binding("n,escape", "skip", "Skip"),
+        Binding("a", "auto", "Auto-confirm session"),
+    ]
+
+    def __init__(self, tool_use: ToolUseType | None, preview: str | None):
+        super().__init__()
+        self.tool_name = tool_use.tool if tool_use else "tool"
+        content = preview or (tool_use.content if tool_use else "") or ""
+        self.preview_content = content
+        self.lang = _get_lang_for_tool(self.tool_name, content)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-dialog"):
+            yield Static(
+                Text(f"Execute {self.tool_name}?", style="bold"), id="confirm-title"
+            )
+            with VerticalScroll(id="confirm-preview"):
+                yield Static(
+                    Syntax(
+                        self.preview_content,
+                        self.lang,
+                        word_wrap=True,
+                        background_color="default",
+                    )
+                )
+            yield Static(
+                Text("[y] execute   [n] skip   [a] auto-confirm session"),
+                id="confirm-help",
+            )
+
+    def action_confirm(self) -> None:
+        self.dismiss(ConfirmationResult.confirm())
+
+    def action_skip(self) -> None:
+        self.dismiss(ConfirmationResult.skip("Declined by user"))
+
+    def action_auto(self) -> None:
+        cast("GptmeApp", self.app).auto_confirm = True
+        self.dismiss(ConfirmationResult.confirm())
+
+
+class GptmeApp(App):
+    """gptme TUI: streaming chat with live input, queueing and collapsible output."""
+
+    TITLE = "gptme"
+
+    CSS = """
+    #chat {
+        padding: 0 1;
+    }
+    .message {
+        height: auto;
+        margin: 1 0 0 0;
+    }
+    .message > .role {
+        color: $text-muted;
+        text-style: bold;
+    }
+    .message.user {
+        border-left: thick $success;
+        padding-left: 1;
+    }
+    .message.user > .role {
+        color: $success;
+    }
+    .message.user.queued {
+        opacity: 0.5;
+    }
+    .message.assistant {
+        border-left: thick $primary;
+        padding-left: 1;
+    }
+    .message.assistant > .role {
+        color: $primary;
+    }
+    .message.system {
+        border-left: thick $surface-lighten-2;
+        padding-left: 1;
+    }
+    .message.system Collapsible {
+        border: none;
+        padding: 0;
+        background: transparent;
+    }
+    .info {
+        color: $text-muted;
+        margin: 1 0 0 1;
+    }
+    .info.error {
+        color: $error;
+    }
+    #input {
+        dock: bottom;
+        margin: 0 1;
+    }
+    #status {
+        dock: bottom;
+        height: 1;
+        padding: 0 1;
+        background: $surface;
+        color: $text-muted;
+    }
+    ConfirmScreen {
+        align: center middle;
+    }
+    #confirm-dialog {
+        width: 80%;
+        max-height: 80%;
+        height: auto;
+        border: round $warning;
+        background: $surface;
+        padding: 1;
+    }
+    #confirm-preview {
+        height: auto;
+        max-height: 20;
+        margin: 1 0;
+    }
+    #confirm-help {
+        color: $text-muted;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "interrupt", "Interrupt", show=True),
+        Binding("ctrl+c", "interrupt_or_quit", "Interrupt/Quit", priority=True),
+        Binding("ctrl+d", "quit", "Quit", show=True),
+        Binding("ctrl+o", "toggle_outputs", "Expand/collapse outputs", show=True),
+    ]
+
+    def __init__(
+        self,
+        manager: LogManager,
+        tool_format: ToolFormat = "markdown",
+        workspace: Path | None = None,
+        auto_confirm: bool = False,
+    ):
+        super().__init__()
+        self.manager = manager
+        self.tool_format: ToolFormat = tool_format
+        self.workspace = workspace or manager.workspace
+        self.auto_confirm = auto_confirm
+        # Snapshot the caller's context (default model, output format, …) so
+        # worker threads see it — gptme stores this state in ContextVars,
+        # which fresh threads do not inherit. Workers run sequentially
+        # (exclusive=True), so reusing one Context is safe, and mutations
+        # (e.g. /model-style changes) persist across turns.
+        self._chat_ctx = contextvars.copy_context()
+        self.prompt_queue: list[str] = []
+        self._queued_widgets: list[Widget] = []
+        self.generating = False
+        self.state = "idle"
+        self._interrupt_event = threading.Event()
+        self._quitting = False
+        self._stream_widget: StreamingMessage | None = None
+        self._outputs_expanded = False
+        self._stdio_sink: IO[str] | None = None
+        self._real_stdout: IO[str] | None = None
+        self._real_stderr: IO[str] | None = None
+
+    # ------------------------------------------------------------------ UI
+
+    def compose(self) -> ComposeResult:
+        yield VerticalScroll(id="chat")
+        yield Input(placeholder="Type a message… (Enter to send)", id="input")
+        yield Static(id="status")
+
+    def on_mount(self) -> None:
+        # Redirect stdout/stderr to a log file: core machinery (tool output
+        # streaming, terminal titles, stray logs) writes to stdout, which
+        # would corrupt the display. The Textual driver renders via
+        # sys.__stderr__ and is unaffected.
+        self._stdio_sink = open(self.manager.logdir / "tui.log", "a", buffering=1)
+        self._real_stdout, self._real_stderr = sys.stdout, sys.stderr
+        sys.stdout = self._stdio_sink
+        sys.stderr = self._stdio_sink
+
+        self.sub_title = self.manager.logdir.name
+        # confirmation dialog for tool execution; takes precedence over the
+        # CLI hook (priority 0) registered by init()
+        register_hook(
+            name="tui_confirm",
+            hook_type=HookType.TOOL_CONFIRM,
+            func=self._tui_confirm_hook,
+            priority=100,
+        )
+        self._render_history()
+        self.query_one("#input", Input).focus()
+        self._update_status()
+
+    def on_unmount(self) -> None:
+        if self._real_stdout is not None:
+            sys.stdout = self._real_stdout
+        if self._real_stderr is not None:
+            sys.stderr = self._real_stderr
+        if self._stdio_sink is not None:
+            self._stdio_sink.close()
+            self._stdio_sink = None
+
+    def _render_history(self) -> None:
+        chat = self.query_one("#chat", VerticalScroll)
+        msgs = [m for m in self.manager.log if not m.hide]
+        if len(msgs) > MAX_INITIAL_MESSAGES:
+            chat.mount(
+                InfoMessage(
+                    f"… {len(msgs) - MAX_INITIAL_MESSAGES} earlier messages not shown"
+                )
+            )
+            msgs = msgs[-MAX_INITIAL_MESSAGES:]
+        for msg in msgs:
+            widget = self._widget_for(msg)
+            if widget:
+                chat.mount(widget)
+        self.call_after_refresh(chat.scroll_end, animate=False)
+
+    def _widget_for(self, msg: Message) -> Widget | None:
+        if msg.role == "user":
+            return UserMessage(msg.content)
+        if msg.role == "assistant":
+            return AssistantMessage(msg.content)
+        if msg.role == "system":
+            return SystemMessage(msg.content)
+        return None
+
+    def _mount_in_chat(self, widget: Widget) -> None:
+        chat = self.query_one("#chat", VerticalScroll)
+        stick = chat.scroll_offset.y >= chat.max_scroll_y - 2
+        chat.mount(widget)
+        if stick:
+            self.call_after_refresh(chat.scroll_end, animate=False)
+
+    def _update_status(self) -> None:
+        parts = []
+        model = get_default_model()
+        if model:
+            parts.append(model.full)
+            try:
+                tokens = len_tokens(self.manager.log.messages, model.model)
+                pct = 100 * tokens / model.context if model.context else 0
+                parts.append(f"{tokens // 1000}k/{model.context // 1000}k ({pct:.0f}%)")
+            except Exception:  # token counting must never break the UI
+                pass
+        parts.append(self.state)
+        if self.prompt_queue:
+            parts.append(f"{len(self.prompt_queue)} queued")
+        self.query_one("#status", Static).update(Text(" | ".join(parts)))
+
+    def _set_state(self, state: str) -> None:
+        self.state = state
+        self._update_status()
+
+    # -------------------------------------------------------------- input
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        text = event.value.strip()
+        self.query_one("#input", Input).value = ""
+        if not text:
+            # empty submit resumes generation (e.g. after interrupt/decline)
+            if not self.generating and self._can_resume():
+                self._start_generation()
+            return
+        if text.startswith("/"):
+            self._handle_command(text)
+            return
+        if self.generating:
+            self.prompt_queue.append(text)
+            widget = UserMessage(text, queued=True)
+            self._queued_widgets.append(widget)
+            self._mount_in_chat(widget)
+            self._update_status()
+        else:
+            self._submit(text)
+
+    def _can_resume(self) -> bool:
+        last = next((m for m in reversed(self.manager.log) if not m.hide), None)
+        return last is not None and last.role != "assistant"
+
+    def _handle_command(self, text: str) -> None:
+        cmd = text.split()[0].lstrip("/")
+        if cmd in ("quit", "exit", "q"):
+            self.exit()
+        elif cmd == "help":
+            self._mount_in_chat(
+                InfoMessage(
+                    "Commands: /help /quit — Keys: Enter send (queues while busy), "
+                    "Esc interrupt, Ctrl+O expand/collapse outputs, Ctrl+D quit. "
+                    "Other slash-commands are not supported in the TUI yet; "
+                    "use the gptme CLI for those."
+                )
+            )
+        else:
+            self._mount_in_chat(
+                InfoMessage(
+                    f"Command /{cmd} is not supported in the TUI yet "
+                    "(resume this conversation in the CLI to use it)."
+                )
+            )
+
+    def _submit(self, text: str) -> None:
+        msg = Message("user", text, quiet=True)
+        msg = include_paths(msg, self.workspace)
+        self.manager.append(msg)
+        self._mount_in_chat(UserMessage(msg.content))
+        self._start_generation()
+
+    # --------------------------------------------------------- generation
+
+    def _start_generation(self) -> None:
+        self.generating = True
+        self._interrupt_event.clear()
+        self._set_state("generating")
+        self.run_worker(
+            self._generation_worker, thread=True, exclusive=True, group="generation"
+        )
+
+    def _generation_worker(self) -> None:
+        """Thread worker: run the step loop inside the captured chat context."""
+        self._chat_ctx.run(self._generation_body)
+
+    def _generation_body(self) -> None:
+        """Runs the step loop until no more runnable tools."""
+        manager = self.manager
+        try:
+            while True:
+                self.call_from_thread(self._begin_stream)
+                interrupted = False
+                declined = False
+                try:
+                    for msg in step(
+                        manager.log,
+                        stream=True,
+                        tool_format=self.tool_format,
+                        workspace=self.workspace,
+                        logdir=manager.logdir,
+                        on_token=self._on_token,
+                    ):
+                        manager.append(msg)
+                        if msg.content == DECLINED_CONTENT:
+                            declined = True
+                        self.call_from_thread(self._on_step_message, msg)
+                except KeyboardInterrupt:
+                    interrupted = True
+                    msg = Message("system", INTERRUPT_CONTENT)
+                    manager.append(msg)
+                    self.call_from_thread(self._on_step_message, msg)
+
+                if interrupted or declined or self._interrupt_event.is_set():
+                    break
+                # continue stepping while the last assistant msg has runnable tools
+                last_content = next(
+                    (m.content for m in reversed(manager.log) if m.role == "assistant"),
+                    "",
+                )
+                if not any(
+                    t.is_runnable for t in ToolUse.iter_from_content(last_content)
+                ):
+                    break
+        except Exception as e:
+            logger.exception("Error in generation worker")
+            self.call_from_thread(
+                self._mount_in_chat, InfoMessage(f"Error: {e}", error=True)
+            )
+        finally:
+            self.call_from_thread(self._generation_done)
+
+    def _on_token(self, token: str) -> None:
+        # called from the worker thread, per streamed line/chunk
+        if self._interrupt_event.is_set():
+            raise KeyboardInterrupt
+        self.call_from_thread(self._on_stream_token, token)
+
+    def _begin_stream(self) -> None:
+        self._set_state("generating")
+
+    def _on_stream_token(self, token: str) -> None:
+        if self._stream_widget is None:
+            self._stream_widget = StreamingMessage()
+            self._mount_in_chat(self._stream_widget)
+        chat = self.query_one("#chat", VerticalScroll)
+        stick = chat.scroll_offset.y >= chat.max_scroll_y - 2
+        self._stream_widget.append_token(token)
+        if stick:
+            self.call_after_refresh(chat.scroll_end, animate=False)
+
+    def _on_step_message(self, msg: Message) -> None:
+        if msg.role == "assistant" and self._stream_widget is not None:
+            # replace the live stream view with the final markdown rendering
+            self._stream_widget.remove()
+            self._stream_widget = None
+        widget = self._widget_for(msg)
+        if widget:
+            self._mount_in_chat(widget)
+        if msg.role == "assistant":
+            self._set_state("executing tools")
+        self._update_status()
+
+    def _generation_done(self) -> None:
+        self.generating = False
+        if self._stream_widget is not None:
+            # stream ended without a final message (e.g. interrupt mid-stream)
+            self._stream_widget.remove()
+            self._stream_widget = None
+        if self._interrupt_event.is_set() and self.prompt_queue:
+            # user interrupted: hand queued text back instead of auto-submitting
+            text = "\n".join(self.prompt_queue)
+            self.prompt_queue.clear()
+            for w in self._queued_widgets:
+                w.remove()
+            self._queued_widgets.clear()
+            self.query_one("#input", Input).value = text
+        elif self.prompt_queue:
+            text = self.prompt_queue.pop(0)
+            if self._queued_widgets:
+                self._queued_widgets.pop(0).remove()
+            self._set_state("idle")
+            self._submit(text)
+            return
+        self._set_state("idle")
+
+    # ------------------------------------------------------- confirmation
+
+    def _tui_confirm_hook(
+        self,
+        tool_use: ToolUseType,
+        preview: str | None = None,
+        workspace: Path | None = None,
+    ) -> ConfirmationResult:
+        """TOOL_CONFIRM hook; called from the worker thread, blocks on dialog."""
+        if self.auto_confirm:
+            return ConfirmationResult.confirm()
+
+        result: dict[str, ConfirmationResult] = {}
+        done = threading.Event()
+
+        def show() -> None:
+            self._set_state("awaiting confirmation")
+
+            def on_result(r: ConfirmationResult | None) -> None:
+                result["r"] = r or ConfirmationResult.skip("Dialog dismissed")
+                done.set()
+
+            self.push_screen(ConfirmScreen(tool_use, preview), on_result)
+
+        self.call_from_thread(show)
+        while not done.wait(timeout=0.5):
+            if self._quitting:
+                return ConfirmationResult.skip("App exiting")
+        self.call_from_thread(self._set_state, "executing tools")
+        return result["r"]
+
+    # ------------------------------------------------------------ actions
+
+    def action_interrupt(self) -> None:
+        if self.generating:
+            self._interrupt_event.set()
+            self._set_state("interrupting…")
+
+    def action_interrupt_or_quit(self) -> None:
+        if self.generating:
+            self.action_interrupt()
+        else:
+            self.exit()
+
+    def action_toggle_outputs(self) -> None:
+        self._outputs_expanded = not self._outputs_expanded
+        for collapsible in self.query(Collapsible):
+            collapsible.collapsed = not self._outputs_expanded
+
+    async def action_quit(self) -> None:
+        self._quitting = True
+        self.exit()

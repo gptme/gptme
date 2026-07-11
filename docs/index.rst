@@ -33,6 +33,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    tools
    commands
    cli
+   tui
    config
    providers
    model-routing

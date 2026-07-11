@@ -22,6 +22,7 @@ aw_watcher_agent = "gptme.hooks.aw_watcher_agent:plugin"
 
 [project.scripts]
 gptme = "gptme.cli.main:main"
+gptme-tui = "gptme.tui.main:main"
 gptme-server = "gptme.server.cli:main"
 gptme-acp = "gptme.acp.__main__:main"
 gptme-eval = "gptme.eval.main:main"
@@ -120,6 +121,9 @@ pyinstaller = {version="^6.21", python=">=3.10,<3.15", optional=true}  # not yet
 # acp (Agent Client Protocol)
 agent-client-protocol = {version = ">=0.10.1", optional=true, python=">=3.10,<3.15"}
 
+# tui
+textual = {version = ">=1.0,<7", optional=true}  # <7 while we pin rich ^13 (textual 7+ needs rich>=14.2)
+
 [tool.poetry.group.dev.dependencies]
 # lint
 mypy = "*"
@@ -171,6 +175,7 @@ sounds = ["sounddevice", "scipy"]
 computer = []  # pillow (non-opt); AT-SPI2 accessibility needs system pkg: apt install python3-pyatspi
 pyinstaller = ["pyinstaller"]
 acp = ["agent-client-protocol"]
+tui = ["textual"]
 telemetry = [
     "opentelemetry-api", "opentelemetry-sdk",
     "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus",
@@ -186,6 +191,8 @@ all = [
     "flask", "flask-cors", "flask-compress", "pydantic",
     # acp
     "agent-client-protocol",
+    # tui
+    "textual",
     # browser
     "playwright",
     # datascience
