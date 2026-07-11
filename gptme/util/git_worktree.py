@@ -16,6 +16,83 @@ logger = logging.getLogger(__name__)
 DEFAULT_WORKTREE_BASE = Path("/tmp/gptme-worktrees")
 
 
+def has_changes(worktree_path: Path) -> bool:
+    """Return True if the worktree has local changes vs the repository HEAD.
+
+    Checks both uncommitted file modifications and commits that were made
+    inside the worktree branch since it was created.
+
+    Args:
+        worktree_path: Path to the worktree to inspect.
+
+    Returns:
+        True if the worktree has any local changes, False if it is identical
+        to the commit it was created from.
+    """
+    try:
+        # 1. Uncommitted changes (staged or unstaged)
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return True
+
+        # 2. Committed changes: find commits in the worktree branch that are
+        # not reachable from the commit the branch was created at (initial
+        # entry in the branch's reflog).
+        #
+        # git reflog show <branch> lists entries newest-first; the last entry
+        # is the creation point. If HEAD != that initial SHA, commits exist.
+        branch_r = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if branch_r.returncode != 0:
+            return False
+
+        branch = branch_r.stdout.strip()
+        if branch in ("HEAD", ""):
+            # Detached HEAD — can't use branch reflog
+            return False
+
+        reflog_r = subprocess.run(
+            ["git", "reflog", "show", "--format=%H", branch],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if reflog_r.returncode == 0:
+            shas = [l.strip() for l in reflog_r.stdout.splitlines() if l.strip()]
+            if shas:
+                creation_sha = shas[-1]  # oldest reflog entry = creation point
+                ahead_r = subprocess.run(
+                    ["git", "rev-list", "--count", f"{creation_sha}..HEAD"],
+                    cwd=worktree_path,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=10,
+                )
+                if ahead_r.returncode == 0 and int(ahead_r.stdout.strip() or "0") > 0:
+                    return True
+
+        return False
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        # On error, assume changes exist (safe default: don't lose modified work)
+        return True
+
+
 def get_git_root(path: Path | None = None) -> Path | None:
     """Find the git repository root from the given path.
 
@@ -86,7 +163,8 @@ def create_worktree(
 def cleanup_worktree(
     worktree_path: Path,
     repo_path: Path | None = None,
-) -> None:
+    keep_branch_if_changed: bool = False,
+) -> str | None:
     """Clean up a git worktree and its associated branch.
 
     Attempts git worktree remove first, falls back to directory removal.
@@ -96,10 +174,18 @@ def cleanup_worktree(
     Args:
         worktree_path: Path to the worktree to remove.
         repo_path: Path to the main repository. If None, attempts to find it.
+        keep_branch_if_changed: When True, preserve the branch if the worktree
+            has local changes or commits. The working-tree directory is still
+            removed; only the branch ref is kept so the caller can inspect or
+            merge the changes later.
+
+    Returns:
+        The preserved branch name when ``keep_branch_if_changed=True`` and
+        the worktree had changes; ``None`` otherwise.
     """
     if not worktree_path.exists():
         logger.debug(f"Worktree already removed: {worktree_path}")
-        return
+        return None
 
     # Branch name matches the last path component (as created by create_worktree)
     branch_name = worktree_path.name
@@ -107,6 +193,16 @@ def cleanup_worktree(
     # Try to find repo_path if not given
     if repo_path is None:
         repo_path = get_git_root(worktree_path)
+
+    # Smart cleanup: preserve the branch when the worktree has local changes.
+    # The working-tree directory is always removed; only the branch ref is kept.
+    preserved_branch: str | None = None
+    if keep_branch_if_changed and has_changes(worktree_path):
+        preserved_branch = branch_name
+        logger.info(
+            f"Worktree {worktree_path} has changes — preserving branch {branch_name!r} "
+            "for inspection/merge. Directory will still be removed."
+        )
 
     # Try git worktree remove (clean approach)
     if repo_path:
@@ -128,6 +224,10 @@ def cleanup_worktree(
                 logger.info(f"Removed worktree directory (fallback): {worktree_path}")
             except OSError as e2:
                 logger.warning(f"Failed to remove worktree directory: {e2}")
+
+        if preserved_branch:
+            # Keep the branch — skip deletion so changes remain accessible.
+            return preserved_branch
 
         # Delete the branch that was created for this worktree.
         # git worktree remove only removes the working tree, not the branch.
@@ -168,3 +268,5 @@ def cleanup_worktree(
             logger.info(f"Removed worktree directory (no repo): {worktree_path}")
         except OSError as e:
             logger.warning(f"Failed to remove worktree directory: {e}")
+
+    return None

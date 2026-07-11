@@ -197,6 +197,9 @@ class Subagent:
     isolated: bool = False
     worktree_path: Path | None = None
     repo_path: Path | None = None
+    # String isolation mode ("worktree" or None). When set, cleanup uses smart
+    # behaviour: auto-remove if unchanged, preserve branch if changes exist.
+    isolation_mode: str | None = None
     # Maximum time (seconds) the subprocess monitor will wait before killing
     timeout: int = 1800  # 30 minutes
     role: Role | None = None

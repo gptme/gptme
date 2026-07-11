@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from .api import subagent, subagent_cancel, subagent_wait
 from .types import ReturnType
@@ -438,6 +438,7 @@ def subagent_parallel(
     model: str | None = None,
     profile: str | None = None,
     isolated: bool = False,
+    isolation: Literal["worktree"] | None = None,
     output_schema: "type | dict | None" = None,
     workdir: str | Path | None = None,
     context_turns: int | None = None,
@@ -471,6 +472,12 @@ def subagent_parallel(
             ``"explorer"``, ``"developer"``, ``"verifier"``).
         isolated: If True, run each subagent in its own git worktree so file
             edits don't conflict between agents or with the parent.
+            Prefer ``isolation="worktree"`` for new code.
+        isolation: String-based isolation mode. Use ``"worktree"`` to give each
+            subagent its own git worktree. On completion, worktrees with no
+            local changes are auto-removed; worktrees with commits ahead of
+            HEAD have their branch preserved (reported in the result) for
+            the caller to inspect or merge.
         output_schema: Optional Pydantic model class. When set, subagents are
             instructed to return valid JSON matching the schema in their
             ``complete`` block. Results are automatically parsed: on success the
@@ -506,10 +513,10 @@ def subagent_parallel(
         for (agent_id, _), result in zip(tasks, results):
             print(f"{agent_id}: {result['status']} — {result['result'][:80]}")
 
-        # With worktree isolation for concurrent file edits
+        # With worktree isolation for concurrent file edits (string API)
         results = subagent_parallel(
             [("fix-a", "Fix bug in module A"), ("fix-b", "Fix bug in module B")],
-            isolated=True,
+            isolation="worktree",
         )
 
         # With structured output (Pydantic model)
@@ -545,6 +552,7 @@ def subagent_parallel(
                 model=model,
                 profile=profile,
                 isolated=isolated,
+                isolation=isolation,
                 output_schema=output_schema,
                 workdir=workdir,
                 context_turns=context_turns,

@@ -582,17 +582,40 @@ def _summarize_result(result: "ReturnType", max_chars: int = 200) -> str:
     return text[: max_chars - 3] + "..."
 
 
-def _cleanup_isolation(subagent: "Subagent") -> None:
-    """Clean up worktree or temp directory after subagent completes."""
+def _cleanup_isolation(subagent: "Subagent") -> str | None:
+    """Clean up worktree or temp directory after subagent completes.
+
+    For ``isolation_mode="worktree"`` subagents, uses smart cleanup:
+    - No local changes → remove directory AND branch (full cleanup).
+    - Local changes → preserve branch, remove directory only.
+
+    Returns:
+        The preserved branch name when changes exist and smart cleanup is
+        active; ``None`` otherwise.
+    """
     if not subagent.isolated or not subagent.worktree_path:
-        return
+        return None
 
     from ...util.git_worktree import cleanup_worktree
 
     try:
-        cleanup_worktree(subagent.worktree_path, subagent.repo_path)
+        # Smart cleanup: preserve branch when isolation="worktree" was used
+        # and the worktree has local changes so the orchestrator can merge them.
+        keep_if_changed = subagent.isolation_mode == "worktree"
+        preserved_branch = cleanup_worktree(
+            subagent.worktree_path,
+            subagent.repo_path,
+            keep_branch_if_changed=keep_if_changed,
+        )
+        if preserved_branch:
+            logger.info(
+                f"Subagent {subagent.agent_id!r}: changes preserved on branch "
+                f"{preserved_branch!r} — merge with: git merge {preserved_branch}"
+            )
+        return preserved_branch
     except Exception as e:
         logger.warning(f"Failed to cleanup isolation for {subagent.agent_id}: {e}")
+        return None
 
 
 def _drain_progress_file(

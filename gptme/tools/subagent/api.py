@@ -67,6 +67,7 @@ def subagent(
     profile: str | None = None,
     model: str | None = None,
     isolated: bool | None = None,
+    isolation: Literal["worktree"] | None = None,
     timeout: int = 1800,
     role: Role | None = None,
     redact_secrets: bool = True,
@@ -134,6 +135,20 @@ def subagent(
             can modify files without affecting the parent. The worktree is
             automatically cleaned up after the subagent completes.
             Falls back to a temporary directory if not in a git repo.
+            Prefer ``isolation="worktree"`` for new code — it is the string-based
+            API equivalent and enables smarter cleanup behaviour.
+        isolation: String-based isolation mode. Use ``"worktree"`` to create a
+            temporary git worktree for the subagent, giving it an isolated copy
+            of the repository to work in. On completion:
+
+            - **No local changes**: worktree directory *and* branch are removed
+              automatically (zero cleanup needed).
+            - **Local changes exist**: the branch is preserved and its name is
+              reported in the result so the orchestrator can inspect or merge it.
+              The working-tree directory is still removed.
+
+            Falls back to a temporary directory when not in a git repository.
+            Equivalent to ``isolated=True`` but adds smart cleanup behaviour.
         timeout: Maximum seconds before the subprocess monitor kills the
             subagent (default 1800 = 30 min). Only applies to subprocess mode.
         redact_secrets: If True (default), scrub common secret patterns from
@@ -234,6 +249,15 @@ def subagent(
         raise ValueError(
             f"context_turns must be None or a positive integer, got {context_turns!r}"
         )
+    if isolation is not None and isolation != "worktree":
+        raise ValueError(
+            f"Unknown isolation mode: {isolation!r}. Supported values: 'worktree'."
+        )
+
+    # isolation="worktree" is the string-based API equivalent of isolated=True.
+    # When isolation is set, it overrides isolated (but both can still coexist).
+    if isolation == "worktree":
+        isolated = True
 
     # Fetch parent messages from the active LogManager when context_turns is set.
     # LogManager.get_current_log() reads a ContextVar set by the chat loop, so
@@ -364,6 +388,7 @@ def subagent(
             context_include=context_include,
             profile=profile,
             isolated=isolated,
+            isolation_mode=isolation,
             redact_secrets=redact_secrets,
             context_window=context_window,
             max_time=max_time,
@@ -627,6 +652,7 @@ def subagent(
             acp_command=acp_command,
             workdir=workdir_path,
             isolated=isolated,
+            isolation_mode=isolation,
             worktree_path=worktree_path,
             repo_path=repo_path,
             role=role,
@@ -728,6 +754,7 @@ def subagent(
             execution_mode="subprocess",
             workdir=workdir_path,
             isolated=isolated,
+            isolation_mode=isolation,
             worktree_path=worktree_path,
             repo_path=repo_path,
             timeout=timeout,
@@ -843,6 +870,7 @@ def subagent(
             execution_mode="thread",
             workdir=workdir_path,
             isolated=isolated,
+            isolation_mode=isolation,
             worktree_path=worktree_path,
             repo_path=repo_path,
             role=role,
