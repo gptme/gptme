@@ -2270,17 +2270,16 @@ def fill_native(coordinate: tuple[int, int], text: str) -> list[Message]:
         Verify the field type before using this helper in those contexts.
 
     .. note::
-        Native transport actions do not return a screenshot, so this function
-        typically returns an empty list.  Call ``observe_desktop()`` afterwards
-        to confirm the fill succeeded.
+        A screenshot is always captured after the fill so callers can observe
+        the field state and detect partial or failed replacements.
 
     Args:
         coordinate: X,Y coordinates of the text field (in API space).
         text: Replacement text to type into the field.
 
     Returns:
-        List of :class:`~gptme.message.Message` objects from the operations
-        (usually empty for native targets; call ``observe_desktop()`` to verify).
+        List of :class:`~gptme.message.Message` objects — usually a single
+        screenshot message showing the field state after the fill.
 
     Example (from IPython in a computer-use session)::
 
@@ -2299,6 +2298,11 @@ def fill_native(coordinate: tuple[int, int], text: str) -> list[Message]:
     result = computer("type", text=text)
     if result is not None:
         messages.append(result)
+    # Capture a post-fill screenshot so callers can observe the field state
+    # and detect partial or failed replacements before continuing.
+    observation = computer("screenshot")
+    if observation is not None:
+        messages.append(observation)
     return messages
 
 

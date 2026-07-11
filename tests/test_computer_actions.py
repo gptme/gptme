@@ -667,13 +667,16 @@ class TestFillNative:
         with patch("gptme.tools.computer.computer", side_effect=mock_computer):
             fill_native((300, 200), "new text")
 
-        assert len(calls) == 2, f"Expected 2 calls, got {len(calls)}: {calls}"
+        assert len(calls) == 3, f"Expected 3 calls, got {len(calls)}: {calls}"
         assert calls[0] == ("triple_click", (300, 200), None), (
             f"First call should be triple_click with coordinate, got {calls[0]}"
         )
         assert calls[1][0] == "type", f"Second call should be type, got {calls[1][0]}"
         assert calls[1][2] == "new text", (
             f"type call should carry the replacement text, got {calls[1][2]}"
+        )
+        assert calls[2][0] == "screenshot", (
+            f"Third call should be screenshot for post-fill observation, got {calls[2][0]}"
         )
 
     def test_fill_native_returns_list(self):

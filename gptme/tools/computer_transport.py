@@ -84,13 +84,19 @@ class ComputerTransport(abc.ABC):
         Not all transports support triple-click natively; the default falls
         back to three rapid left_click calls.
 
-        .. note::
-            Transports that require an explicit cursor position (e.g. CUA) must
-            have had a prior ``mouse_move`` call; otherwise the fallback
-            ``left_click`` calls will fail.  Pass a ``coordinate`` to the
-            top-level ``computer('triple_click', coordinate=...)`` call to
-            ensure ``mouse_move`` is issued automatically.
+        For transports that require an explicit cursor position (e.g. CUA),
+        the fallback queries ``cursor_position()`` to anchor the cursor with
+        a ``mouse_move`` before clicking.  If the transport cannot report the
+        current position, the fallback will raise from ``left_click()`` with a
+        clear message.  Pass a ``coordinate`` to the top-level
+        ``computer('triple_click', coordinate=...)`` call to move to a specific
+        position instead.
         """
+        try:
+            x, y = self.cursor_position()
+            self.mouse_move(x, y)
+        except (RuntimeError, NotImplementedError, AttributeError):
+            pass
         self.left_click()
         self.left_click()
         self.left_click()
