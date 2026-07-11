@@ -319,10 +319,14 @@ def get_plugin_tool_modules(
     Returns:
         List of module names containing tools (e.g., "my_plugin.tools")
     """
+    import importlib
+    import time
+
     plugins = discover_plugins(plugin_paths)
 
     tool_modules: list[str] = []
     newly_loaded: list[str] = []
+    load_times: dict[str, float] = {}
     for plugin in plugins:
         # Apply allowlist if provided
         if enabled_plugins and plugin.name not in enabled_plugins:
@@ -330,18 +334,32 @@ def get_plugin_tool_modules(
             continue
 
         # Track newly loaded plugins
-        # Track newly loaded plugins
         if _mark_plugin_loaded(plugin):
             newly_loaded.append(plugin.name)
+            # Import the plugin's tool modules now so we can attribute import
+            # time per plugin; tool discovery later hits sys.modules for free.
+            start = time.monotonic()
+            for mod in plugin.tool_modules:
+                try:
+                    importlib.import_module(mod)
+                except Exception:
+                    # errors are surfaced by tool discovery, which imports again
+                    logger.debug("Failed to import %s", mod, exc_info=True)
+            load_times[plugin.name] = time.monotonic() - start
 
         # Add plugin's tool modules
         tool_modules.extend(plugin.tool_modules)
 
-    # Log all newly loaded plugins in one line
+    # Log all newly loaded plugins in one line, with init times for slow ones
     if newly_loaded:
-        console.log(
-            f"Using plugins {', '.join(f'[green]{plugin}[/green]' for plugin in newly_loaded)}"
-        )
+
+        def _fmt(name: str) -> str:
+            label = f"[green]{name}[/green]"
+            if (t := load_times.get(name, 0.0)) > 0.2:
+                label += f" [yellow]({t:.1f}s)[/yellow]"
+            return label
+
+        console.log(f"Using plugins {', '.join(_fmt(p) for p in newly_loaded)}")
 
     if tool_modules:
         logger.debug(f"Loaded {len(tool_modules)} tool modules")
