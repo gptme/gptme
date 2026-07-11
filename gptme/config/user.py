@@ -10,7 +10,7 @@ import os
 from collections.abc import MutableMapping
 from dataclasses import asdict, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import tomlkit
 from tomlkit import TOMLDocument
@@ -407,7 +407,7 @@ def set_config_value(
             existing = d[k]
             if not isinstance(existing, MutableMapping):
                 raise ValueError(f"Cannot set '{key}': '{k}' exists but is not a table")
-        d = d[k]
+        d = cast("Container", d[k])
     d[keypath[-1]] = value
 
     # Write the config
@@ -456,7 +456,7 @@ def save_provider_config(
     if "providers" not in doc:
         doc.add("providers", tomlkit.aot())
 
-    providers: AoT = doc["providers"]
+    providers = cast("AoT", doc["providers"])
     for idx, existing_provider in enumerate(providers):
         if existing_provider.get("name") == provider.name:
             providers[idx] = provider_table
