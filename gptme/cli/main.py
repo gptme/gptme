@@ -102,14 +102,27 @@ class _DynamicHelpCommand(click.Command):
             return
         self._help_expanded = True
 
+        import textwrap
+
         from ..commands import _gen_help
         from ..llm.models import get_recommended_model
         from ..tools import get_available_tools
+        from ..util import console
 
-        commands_help = "\n".join(_gen_help(incl_langtags=False))
-        tools = get_available_tools(include_mcp=False)
-        available_tools = ", ".join(
-            sorted(tool.name for tool in tools if tool.is_available)
+        # Tool discovery loads plugins, which log status lines (e.g.
+        # "Using plugins ...") — suppress those while rendering help.
+        prev_quiet = console.quiet
+        console.quiet = True
+        try:
+            commands_help = "\n".join(_gen_help(incl_langtags=False))
+            tools = get_available_tools(include_mcp=False)
+        finally:
+            console.quiet = prev_quiet
+        available_tools = textwrap.fill(
+            ", ".join(sorted(tool.name for tool in tools if tool.is_available)),
+            width=76,
+            initial_indent="  ",
+            subsequent_indent="  ",
         )
         model_examples = (
             f"openai/{get_recommended_model('openai')}, "
@@ -117,12 +130,12 @@ class _DynamicHelpCommand(click.Command):
         )
 
         if self.help:
-            self.help = self.help.replace("{commands_help}", commands_help)
+            self.help = self.help.replace("{commands_help}", commands_help).replace(
+                "{available_tools}", available_tools
+            )
         for param in self.params:
             if isinstance(param, click.Option) and param.help:
-                param.help = param.help.replace(
-                    "{available_tools}", available_tools
-                ).replace("{model_examples}", model_examples)
+                param.help = param.help.replace("{model_examples}", model_examples)
 
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         self._expand_dynamic_help()
@@ -402,6 +415,10 @@ Examples:
   gptme --context files "do task"             Skip context_cmd, keep project files
 
 \b
+Available tools:
+{{available_tools}}
+
+\b
 The interface provides /commands during a conversation:
 {{commands_help}}
 
@@ -413,19 +430,19 @@ Subcommand shortcuts:
   (installed gptme-* binaries in PATH are listed at the bottom of this help)
 
 \b
-Utilities (gptme-util):
-  gptme-util tools list       List all tools and their availability
-  gptme-util tools info TOOL  Show detailed tool instructions/examples
-  gptme-util skills list      List discoverable skills in the current workspace
-  gptme-util skills show NAME Show a skill or lesson by name
-  gptme-util chats list       List past conversations
-  gptme-util chats search Q   Search conversations for query (full options)
-  gptme-util chats send ID MSG Queue a prompt for a running chat from another terminal
-  gptme-util chats rename     Rename a conversation
-  gptme-util models list      List available models
-  gptme-util snapshot list    List workspace snapshots outside a session
-  gptme-util context index    Index project files for RAG
-  gptme-util llm generate     Direct LLM generation without chat
+Utilities:
+  gptme tools list        List all tools and their availability
+  gptme tools info TOOL   Show detailed tool instructions/examples
+  gptme skills list       List discoverable skills in the current workspace
+  gptme skills show NAME  Show a skill or lesson by name
+  gptme chats list        List past conversations
+  gptme chats search Q    Search conversations for query (full options)
+  gptme chats send ID MSG Queue a prompt for a running chat from another terminal
+  gptme chats rename      Rename a conversation
+  gptme models list       List available models
+  gptme snapshot list     List workspace snapshots outside a session
+  gptme context index     Index project files for RAG
+  gptme llm generate      Direct LLM generation without chat
 
 Run 'gptme-util --help' for all utility commands."""
 
@@ -529,7 +546,7 @@ Run 'gptme-util --help' for all utility commands."""
         lenient_prefixes=["+"],
         metavar="TOOL",
     ),
-    help="Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use '-tool' to exclude from defaults (e.g., '-t=-browser'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). Available: {available_tools}.",
+    help="Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use '-tool' to exclude from defaults (e.g., '-t=-browser'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). See 'Available tools' above for the list.",
 )
 @click.option(
     "--agent-profile",

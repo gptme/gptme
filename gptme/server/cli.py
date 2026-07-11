@@ -236,12 +236,8 @@ def serve(
     watch_pid: int | None,
     default_profile: str | None,
 ):  # pragma: no cover
-    """
-    Starts a server and web UI for gptme.
-
-    Note that this is very much a work in progress, and is not yet ready for normal use.
-    """
-    init_logging(verbose)
+    """Starts a server and web UI for gptme."""
+    init_logging(verbose, compact=False)
     set_config_from_workspace(Path.cwd())
 
     if exit_on_parent_death or watch_pid is not None:
