@@ -280,13 +280,32 @@ class TmuxTUI:
             if needle in content:
                 return content
             time.sleep(0.3)
-        stderr = ""
-        stderr_file = self.tmp_path / "stderr.log"
-        if stderr_file.exists():
-            stderr = stderr_file.read_text()[-2000:]
         raise AssertionError(
-            f"Timed out waiting for {needle!r} in tmux pane.\n"
-            f"--- pane ---\n{content}\n--- stderr ---\n{stderr}"
+            f"Timed out waiting for {needle!r} in tmux pane.\n--- pane ---\n{content}"
+        )
+
+    def wait_ready(self) -> None:
+        """Wait until the app renders and settles enough to receive input.
+
+        Right after first paint, Textual is still negotiating terminal
+        protocols and can drop the first keypress.
+        """
+        self.wait_for("Type a message")
+        time.sleep(0.7)
+
+    def resume(self, expect: str, timeout: float = 10.0) -> str:
+        """Press Enter on the empty input to resume generation, with retries
+        (a keypress sent during app startup can be dropped)."""
+        for _attempt in range(3):
+            self.send_key("Enter")
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                content = self.capture()
+                if expect in content:
+                    return content
+                time.sleep(0.3)
+        raise AssertionError(
+            f"Resume did not produce {expect!r}.\n--- pane ---\n{self.capture()}"
         )
 
     def alive(self) -> bool:
@@ -344,7 +363,7 @@ class TestTmuxRealTerminal:
     def test_renders_and_responds(self, tmux_tui):
         """The TUI starts in a real terminal, accepts input, renders response."""
         tui = tmux_tui()
-        tui.wait_for("Type a message")
+        tui.wait_ready()
         tui.send("hello from tmux")
         tui.send_key("Enter")
         pane = tui.wait_for("Echo: hello from tmux")
@@ -359,7 +378,7 @@ class TestTmuxRealTerminal:
         line-buffers input, so y/n appeared dead)."""
         marker = tmp_path / "confirmed.txt"
         tui = tmux_tui(extra_args="-t shell")
-        tui.wait_for("Type a message")
+        tui.wait_ready()
         # multiline input: Ctrl+J inserts newlines, Enter submits
         for i, line in enumerate(["run this:", "```shell", f"touch {marker}", "```"]):
             if i:
@@ -381,9 +400,9 @@ class TestTmuxRealTerminal:
             tmp_path, "ipython-test", "run this:\n```ipython\nprint('tty_marker')\n```"
         )
         tui = tmux_tui(extra_args="-t shell,ipython -n ipython-test")
-        tui.wait_for("Type a message")
-        tui.send_key("Enter")
-        tui.wait_for("Execute ipython?")
+        tui.wait_ready()
+        # empty-submit resumes generation from the pending user message
+        tui.resume("Execute ipython?")
         tui.send("y")
         # max-steps info message marks the end of the turn deterministically
         tui.wait_for("Reached max steps", timeout=30)

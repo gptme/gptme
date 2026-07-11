@@ -105,6 +105,39 @@ async def test_slash_command_help(tmp_path):
         assert infos, "expected /help output to be shown"
 
 
+@pytest.mark.asyncio
+async def test_path_prompt_not_treated_as_command(tmp_path):
+    """Absolute paths (/tmp/foo.md) are prompts (with include_paths), not commands."""
+    somefile = tmp_path / "notes.md"
+    somefile.write_text("hello notes")
+    manager = make_manager(tmp_path)
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.generating = True  # queue instead of hitting the LLM
+        inp = app.query_one("#input", ChatInput)
+        inp.text = str(somefile)
+        await pilot.press("enter")
+        await pilot.pause()
+        # queued as a prompt, not executed (or rejected) as a command
+        assert app.prompt_queue == [str(somefile)]
+
+
+@pytest.mark.asyncio
+async def test_interactive_command_fails_fast(tmp_path):
+    """Commands that prompt on stdin get EOF and a helpful error, not a hang."""
+    manager = make_manager(tmp_path)
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "/impersonate"  # prompts via input() when no args given
+        await pilot.press("enter")
+        await pilot.pause()
+        infos = [str(i.render()) for i in app.query(InfoMessage)]
+        assert any("interactive input" in i for i in infos), infos
+
+
 def test_complete_input_commands():
     """Completion reuses the CLI command registry and completers."""
     from gptme.tui.app import complete_input

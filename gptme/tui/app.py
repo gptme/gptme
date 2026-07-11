@@ -30,7 +30,7 @@ from textual.worker import Worker, WorkerState
 
 from ..chat import step
 from ..constants import DECLINED_CONTENT, INTERRUPT_CONTENT
-from ..hooks import HookType, register_hook
+from ..hooks import HookType, register_hook, unregister_hook
 from ..hooks.cli_confirm import _get_lang_for_tool
 from ..hooks.confirm import ConfirmationResult
 from ..llm.models import ModelMeta, get_default_model
@@ -460,6 +460,7 @@ class GptmeApp(App):
         self.set_interval(0.5, self._restore_terminal)
 
     def on_unmount(self) -> None:
+        unregister_hook("tui_confirm", HookType.TOOL_CONFIRM)
         if self._real_stdout is not None:
             sys.stdout = self._real_stdout
         if self._real_stderr is not None:
@@ -545,12 +546,22 @@ class GptmeApp(App):
     def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         text = event.value.strip()
         self.query_one("#input", ChatInput).text = ""
+        logger.debug(
+            "input submitted: %r (generating=%s, queue=%d)",
+            text[:80],
+            self.generating,
+            len(self.prompt_queue),
+        )
         if not text:
             # empty submit resumes generation (e.g. after interrupt/decline)
             if not self.generating and self._can_resume():
                 self._start_generation()
             return
-        if text.startswith("/"):
+        from ..util.content import is_message_command
+
+        if is_message_command(text):
+            # a real /command; paths like /tmp/foo.md fall through to _submit,
+            # which attaches file contents via include_paths
             self._handle_command(text)
             return
         if self.generating:
@@ -566,27 +577,40 @@ class GptmeApp(App):
         last = next((m for m in reversed(self.manager.log) if not m.hide), None)
         return last is not None and last.role != "assistant"
 
+    # commands that take over the terminal (e.g. spawn $EDITOR), which would
+    # corrupt the TUI display
+    UNSUPPORTED_COMMANDS = frozenset({"edit"})
+
     def _handle_command(self, text: str) -> None:
         """Run a slash-command through the CLI command registry."""
         from ..commands import execute_cmd
 
-        if text.split()[0] in ("/quit", "/q"):  # TUI-local alias for /exit
+        cmd = text.split()[0].lstrip("/")
+        if cmd in ("quit", "q"):  # TUI-local alias for /exit
             self.exit()
             return
+        if cmd in self.UNSUPPORTED_COMMANDS:
+            self._show_info(
+                f"/{cmd} takes over the terminal and is not supported in the "
+                "TUI; resume this conversation in the CLI to use it."
+            )
+            return
         if self.generating:
-            self._mount_in_chat(
-                InfoMessage(
-                    "Commands can't run while the agent is working; retry when idle."
-                )
+            self._show_info(
+                "Commands can't run while the agent is working; retry when idle."
             )
             return
 
         msg = Message("user", text, quiet=True)
         before = self.manager.log.messages
         self.manager.append(msg)
-        # capture command output (print/rich console both write to sys.stdout)
+        # capture command output (print/rich console both write to sys.stdout);
+        # give commands an empty stdin so ones that prompt interactively fail
+        # fast (EOFError) instead of hanging the UI on a raw-mode tty
         buf = io.StringIO()
+        real_stdin = sys.stdin
         try:
+            sys.stdin = io.StringIO("")
             with contextlib.redirect_stdout(buf):
                 # run inside the chat context so state changes (e.g. /model
                 # switching the default-model ContextVar) are seen by workers
@@ -594,10 +618,20 @@ class GptmeApp(App):
         except SystemExit:  # /exit
             self.exit()
             return
+        except EOFError:
+            self._show_info(
+                f"/{cmd} needs interactive input, which the TUI doesn't "
+                f"support; pass arguments directly (e.g. /{cmd} <args>) or "
+                "use the CLI.",
+                error=True,
+            )
+            return
         except Exception as e:
             logger.exception("Command failed")
-            self._mount_in_chat(InfoMessage(f"Command failed: {e}", error=True))
+            self._show_info(f"Command failed: {e}", error=True)
             return
+        finally:
+            sys.stdin = real_stdin
 
         self._model = self._chat_ctx.run(get_default_model)
         if self.manager.log.messages != before:
@@ -606,10 +640,8 @@ class GptmeApp(App):
         if output := buf.getvalue().strip():
             self._mount_in_chat(InfoMessage(output))
         if not handled:
-            # looked like a path, not a command: treat as a regular prompt
-            self._mount_in_chat(UserMessage(msg.content))
-            self._start_generation()
-            return
+            logger.warning("Command %r not handled by registry", text)
+            self._show_info(f"Unknown command: /{cmd}")
         self._update_status()
 
     def _rebuild_chat(self) -> None:
@@ -627,6 +659,7 @@ class GptmeApp(App):
     # --------------------------------------------------------- generation
 
     def _start_generation(self) -> None:
+        logger.debug("starting generation worker")
         self.generating = True
         self._interrupt_event.clear()
         self._set_state("generating")
