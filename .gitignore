@@ -37,6 +37,7 @@ docs/releases/v*-*.md
 .coverage*
 coverage.xml
 htmlcov
+.mypy_coverage_report
 junit.xml
 __pycache__
 .*cache
