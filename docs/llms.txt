@@ -54,6 +54,7 @@
 - [What does “gptme” stand for?](https://gptme.org/docs/_sources/misc/acronyms.md)
 - [Timeline](https://gptme.org/docs/_sources/timeline.rst)
 - [Changelog](https://gptme.org/docs/_sources/changelog.rst)
+- [v0.32.0](https://gptme.org/docs/_sources/releases/v0.32.0.md)
 - [v0.31.0](https://gptme.org/docs/_sources/releases/v0.31.0.md)
 - [v0.30.0](https://gptme.org/docs/_sources/releases/v0.30.0.md)
 - [v0.29.0](https://gptme.org/docs/_sources/releases/v0.29.0.md)
