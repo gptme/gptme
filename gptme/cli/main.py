@@ -1239,12 +1239,14 @@ def main(
             ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
             new_name = f"{logdir.name}-branch-{ts}"
 
-        new_logdir = get_logdir(new_name)
-        if new_logdir.exists() and any(new_logdir.iterdir()):
+        # Check for collision BEFORE get_logdir(), which creates the dir
+        _candidate = get_logs_dir() / new_name
+        if _candidate.exists() and any(_candidate.iterdir()):
             raise click.UsageError(
                 f"Branch name '{new_name}' already exists with session state. "
                 f"Choose a different branch name with --branch."
             )
+        new_logdir = get_logdir(new_name)
         Log(sliced).write_jsonl(new_logdir / "conversation.jsonl")
 
         click.echo(
