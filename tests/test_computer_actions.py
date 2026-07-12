@@ -402,7 +402,14 @@ class TestActAndObserve:
                 return settled_msg
             return action_msg if action == "left_click" else None
 
-        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+        with (
+            patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch("gptme.tools.computer.get_transport", return_value=None),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
+        ):
             msgs = act_and_observe("left_click", coordinate=(100, 200))
 
         assert len(call_args) == 2
@@ -419,7 +426,14 @@ class TestActAndObserve:
             call_args.append((action, text, coordinate))
             return settled_msg if action == "wait_for_change" else None
 
-        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+        with (
+            patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch("gptme.tools.computer.get_transport", return_value=None),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
+        ):
             msgs = act_and_observe("type", text="hello")
 
         assert call_args[0][0] == "type"
@@ -470,6 +484,10 @@ class TestActAndObserve:
         with (
             patch("gptme.tools.computer.get_transport", return_value=None),
             patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
         ):
             act_and_observe("left_click", coordinate=(0, 0), timeout=7.5)
 
@@ -488,6 +506,10 @@ class TestActAndObserve:
         with (
             patch("gptme.tools.computer.get_transport", return_value=None),
             patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
         ):
             msgs = act_and_observe("scroll", coordinate=(0, 0), text="down")
 
@@ -503,6 +525,10 @@ class TestActAndObserve:
         with (
             patch("gptme.tools.computer.get_transport", return_value=None),
             patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
         ):
             msgs = act_and_observe("left_click", coordinate=(100, 100))
 
@@ -519,6 +545,10 @@ class TestActAndObserve:
         with (
             patch("gptme.tools.computer.get_transport", return_value=None),
             patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
         ):
             act_and_observe("key", text="Return")
 
