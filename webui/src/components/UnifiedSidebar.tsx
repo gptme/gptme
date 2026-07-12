@@ -139,8 +139,9 @@ export const UnifiedSidebar: FC<Props> = ({
   const currentSection = location.pathname.startsWith('/tasks') ? 'tasks' : 'chat';
 
   // Fetch external sessions for the chat sidebar (capability-gated, best-effort)
+  // Key includes the day window to avoid colliding with ExternalSessionsView's full-range query
   const { data: externalSessions } = useQuery({
-    queryKey: ['external-sessions'],
+    queryKey: ['external-sessions', 7],
     queryFn: () => api.getExternalSessions(7),
     enabled: isConnected && currentSection === 'chat',
     staleTime: 60 * 1000,

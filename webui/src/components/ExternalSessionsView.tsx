@@ -166,13 +166,11 @@ export const ExternalSessionsView: FC = () => {
   const [searchParams] = useSearchParams();
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('selected'));
 
-  // Sync ?selected param on first load only (URL-driven deep link from sidebar)
+  // Sync ?selected param whenever it changes (handles sidebar navigation while component is mounted)
   useEffect(() => {
     const paramId = searchParams.get('selected');
-    if (paramId && !selectedId) {
-      setSelectedId(paramId);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    setSelectedId(paramId);
+  }, [searchParams]);
 
   const {
     data: sessions = [],
