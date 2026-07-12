@@ -1,8 +1,8 @@
 build: prebuild
 	@# Set NO_STRIP=true on Linux to avoid "failed to run linuxdeploy" error
 	@if [ "$$(uname)" = "Linux" ]; then \
-		echo "Building on Linux, setting NO_STRIP=true..."; \
-		NO_STRIP=true npm run tauri build; \
+		echo "Building on Linux with AppImage dependency patch..."; \
+		./scripts/build-appimage.sh; \
 	else \
 		echo "Building on non-Linux platform..."; \
 		npm run tauri build; \
