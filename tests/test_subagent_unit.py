@@ -5178,7 +5178,10 @@ class TestBatchJobCancelOnFailure:
 
         assert results["failing"]["status"] == "failure"
         assert "slow" in results
-        assert results["slow"]["status"] == "failure"
+        # "cancelled" when _wait_one exits early via cancel_event check;
+        # "failure" when _wait_one was already inside subagent_wait and the mock
+        # returned after the cancel signal unblocked it.  Both are valid outcomes.
+        assert results["slow"]["status"] in ("failure", "cancelled")
         assert "slow" in cancel_calls
 
     def test_cancel_on_failure_false_does_not_cancel_remaining(self, monkeypatch):
@@ -5263,7 +5266,10 @@ class TestBatchJobCancelOnFailure:
         assert results["fail"]["status"] == "failure"
         # Both remaining agents should be cancelled
         assert len(results) == 3
-        assert all(results[aid]["status"] == "failure" for aid in ["slow-1", "slow-2"])
+        assert all(
+            results[aid]["status"] in ("failure", "cancelled")
+            for aid in ["slow-1", "slow-2"]
+        )
         # Both should have been cancelled (cancel_calls may include one or both,
         # depending on which one was still pending when cancel fired)
         assert any(aid in cancel_calls for aid in ["slow-1", "slow-2"])
@@ -5372,6 +5378,57 @@ class TestBatchJobCancelOnFailure:
         # Overall timeout always cancels — regardless of cancel_on_failure flag
         assert sorted(cancel_calls) == ["agent-a", "agent-b"]
 
+    def test_cancel_on_failure_budget_accounts_for_completed_sibling(self, monkeypatch):
+        """Budget tokens from an agent that completed concurrently with the cancel loop
+        must be recorded even when the cancel loop wrote a synthetic 'cancelled'
+        placeholder before the future's real result was available.
+
+        Regression test for the race described in the Greptile review of PR #3198:
+        without the post-cancel sweep + overwrite condition fix, the cancel loop's
+        synthetic placeholder prevents the budget from seeing the real tokens.
+        """
+        from gptme.tools.subagent import batch as batch_mod
+        from gptme.tools.subagent.batch import BatchJob
+        from gptme.tools.subagent.types import SubagentBudget
+
+        def mock_subagent_wait(agent_id, timeout=None, max_result_chars=None, **kwargs):
+            if agent_id == "fail":
+                return {
+                    "status": "failure",
+                    "result": "task failed",
+                    "output_tokens": 10,
+                }
+            return {
+                "status": "success",
+                "result": "done",
+                "output_tokens": 500,
+                "input_tokens": 100,
+            }
+
+        def mock_subagent_cancel(agent_id):
+            pass  # no-op — let _wait_one return naturally
+
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_subagent_wait)
+        monkeypatch.setattr(batch_mod, "subagent_cancel", mock_subagent_cancel)
+
+        budget = SubagentBudget(total=10_000)
+        job = BatchJob(agent_ids=["fail", "slow"], budget=budget)
+        results = job.wait_all(timeout=5, cancel_on_failure=True)
+
+        assert "fail" in results
+        assert "slow" in results
+
+        # Budget must record at least the "fail" agent's tokens.
+        assert budget.spent() >= 10, (
+            f"Expected at least 10 tokens in budget, got {budget.spent()}"
+        )
+        # If "slow" returned a real result (not just a synthetic placeholder),
+        # its 500 tokens must also be counted.
+        if results["slow"].get("output_tokens") == 500:
+            assert budget.spent() == 510, (
+                f"slow completed with real tokens; budget should be 510, got {budget.spent()}"
+            )
+
 
 class TestSubagentParallelCancelOnFailure:
     """Tests for subagent_parallel(cancel_on_failure=True)."""
@@ -5412,7 +5469,12 @@ class TestSubagentParallelCancelOnFailure:
 
         assert len(results) == 2
         assert results[0]["status"] == "failure"  # fail-agent
-        assert results[1]["status"] == "failure"  # slow-agent (cancelled)
+        # "cancelled" when _wait_one exits early via cancel_event check;
+        # "failure" when subagent_wait returned after the cancel signal.
+        assert results[1]["status"] in (
+            "failure",
+            "cancelled",
+        )  # slow-agent (cancelled)
         assert "slow-agent" in cancel_calls
 
     def test_parallel_cancel_on_failure_false_collects_all_results(self, monkeypatch):

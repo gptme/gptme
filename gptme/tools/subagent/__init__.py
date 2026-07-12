@@ -35,6 +35,7 @@ from .types import (
     ReturnType,
     Status,
     Subagent,
+    SubagentBudget,
     SubtaskDef,
     _completion_queue,
     _progress_queue,
@@ -473,6 +474,7 @@ __all__ = [
     "ReturnType",
     "Subagent",
     "Status",
+    "SubagentBudget",
     # Hooks
     "notify_completion",
     "notify_progress",

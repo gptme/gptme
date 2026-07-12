@@ -30,7 +30,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-Status = Literal["running", "success", "failure", "clarification_needed", "timeout"]
+Status = Literal[
+    "running",
+    "success",
+    "failure",
+    "clarification_needed",
+    "timeout",
+    "budget_exceeded",
+    "cancelled",
+]
 Role = Literal["general", "explore", "implement", "verify"]
 
 # Role → profile name mapping
@@ -178,6 +186,62 @@ class ReturnType:
     # None means unavailable (e.g. cached terminal result, pre-budget-tracking log).
     input_tokens: int | None = None
     output_tokens: int | None = None
+
+
+@dataclass
+class SubagentBudget:
+    """Fleet-wide output-token budget tracker. Thread-safe.
+
+    Pass a shared instance to ``subagent_parallel()`` or ``subagent_pipeline()``
+    to gate new agent spawns when the budget is exhausted. Agents that are already
+    running when the budget hits zero are allowed to complete normally — only new
+    spawns are blocked.
+
+    Tracks output tokens only (the expensive marginal cost), matching the
+    Claude Code Workflow ``budget.spent()`` semantics.
+
+    Example::
+
+        from gptme.tools.subagent import subagent_parallel, SubagentBudget
+
+        budget = SubagentBudget(total=200_000)   # 200k output tokens
+        results = subagent_parallel(tasks, budget=budget)
+        # Items spawned after the budget was exhausted have status="budget_exceeded"
+
+    Dynamic loop pattern (accumulate until budget runs out)::
+
+        budget = SubagentBudget(total=500_000)
+        findings = []
+        while not budget.exhausted():
+            batch_results = subagent_parallel(next_batch, budget=budget)
+            findings.extend(r["result"] for r in batch_results if r["status"] == "success")
+    """
+
+    total: int | None = None  # None = unlimited
+    _spent: int = field(default=0, init=False, repr=False)
+    _lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False
+    )
+
+    def record(self, output_tokens: int) -> None:
+        """Add output_tokens to the spent counter."""
+        with self._lock:
+            self._spent += output_tokens
+
+    def spent(self) -> int:
+        """Return total output tokens spent so far."""
+        with self._lock:
+            return self._spent
+
+    def remaining(self) -> float:
+        """Return remaining token budget, or ``float('inf')`` when total is None."""
+        if self.total is None:
+            return float("inf")
+        return max(0, self.total - self.spent())
+
+    def exhausted(self) -> bool:
+        """Return True when a finite budget has been fully consumed."""
+        return self.total is not None and self.remaining() <= 0
 
 
 def clarification_result_from_content(content: str) -> ReturnType | None:

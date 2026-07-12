@@ -14,14 +14,15 @@ import math
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
+from concurrent.futures import wait as futures_wait
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal, cast
 
 from .api import subagent, subagent_cancel, subagent_wait
-from .types import ReturnType
+from .types import ReturnType, SubagentBudget
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,9 @@ class BatchJob:
     agent_ids: list[str]
     results: dict[str, ReturnType] = field(default_factory=dict)
     output_schema: "type | dict | None" = field(default=None)
+    budget: SubagentBudget | None = field(default=None)
     _lock: threading.Lock = field(default_factory=threading.Lock)
+    _budget_recorded_ids: set = field(default_factory=set, init=False, repr=False)
 
     def wait_all(
         self, timeout: int = 300, cancel_on_failure: bool = False
@@ -150,7 +153,7 @@ class BatchJob:
                         if agent_id in self.results:
                             return agent_id, self.results[agent_id]
                     return agent_id, ReturnType(
-                        "failure", "Cancelled due to sibling failure"
+                        "cancelled", "Cancelled due to sibling failure"
                     )
 
                 remaining = deadline - time.monotonic()
@@ -186,6 +189,9 @@ class BatchJob:
         import time
 
         deadline = time.monotonic() + timeout
+        # Safe default: if the try block raises before agent_to_future is built,
+        # the post-cancel sweep below still has a valid (empty) dict to iterate.
+        agent_to_future: dict[str, Future[tuple[str, ReturnType]]] = {}
         # Use explicit lifecycle instead of context manager so we can return
         # immediately after cancellation without blocking on still-running
         # _wait_one threads (ThreadPoolExecutor.__exit__ calls shutdown(wait=True)).
@@ -194,13 +200,27 @@ class BatchJob:
             futures = {
                 pool.submit(_wait_one, aid, deadline): aid
                 for aid in self.agent_ids
+                # Re-wait agents whose previous wait_all() call timed out, or
+                # whose post-cancel sweep left a synthetic "cancelled" placeholder
+                # after the 0.5s grace window — both have output_tokens=None, so
+                # skipping them would leave the budget undercounted when the agent
+                # eventually finishes in a later call.
                 if aid not in self.results
+                or self.results[aid].status in ("timeout", "cancelled")
             }
+            # Reverse lookup so the cancel_on_failure path can collect real
+            # results from concurrently-completed futures before writing synthetic
+            # placeholders (otherwise output_tokens can be silently lost).
+            agent_to_future = {aid: f for f, aid in futures.items()}
             try:
                 for future in as_completed(futures, timeout=timeout):
                     agent_id, result = future.result()
                     with self._lock:
-                        if agent_id not in self.results:
+                        prev = self.results.get(agent_id)
+                        # Overwrite placeholder results (timeout, synthetic cancel)
+                        # with the real result. Never overwrite an already-final
+                        # non-placeholder result.
+                        if prev is None or prev.status in ("timeout", "cancelled"):
                             self.results[agent_id] = result
 
                     # Cancel remaining agents on first failure/timeout
@@ -216,8 +236,19 @@ class BatchJob:
                                 pass  # Agent already finished
                             with self._lock:
                                 if aid_to_cancel not in self.results:
-                                    self.results[aid_to_cancel] = ReturnType(
-                                        "failure", "Cancelled due to sibling failure"
+                                    # Prefer the real result if the future has already
+                                    # completed concurrently — preserves output_tokens
+                                    # for accurate budget accounting instead of losing
+                                    # them to a synthetic placeholder with None tokens.
+                                    f = agent_to_future.get(aid_to_cancel)
+                                    real: ReturnType | None = None
+                                    if f is not None and f.done() and not f.cancelled():
+                                        try:
+                                            _, real = f.result()
+                                        except Exception:
+                                            pass
+                                    self.results[aid_to_cancel] = real or ReturnType(
+                                        "cancelled", "Cancelled due to sibling failure"
                                     )
                         # Signal workers to exit poll loops, then exit the loop.
                         cancel_event.set()
@@ -231,7 +262,10 @@ class BatchJob:
                 timed_out_ids: list[str] = []
                 for aid in futures.values():
                     with self._lock:
-                        if aid not in self.results:
+                        prev = self.results.get(aid)
+                        # Only set/keep the timeout placeholder if no final result
+                        # is stored yet (don't overwrite a real result that snuck in).
+                        if prev is None or prev.status == "timeout":
                             self.results[aid] = ReturnType(
                                 "timeout", f"Timed out after {timeout}s"
                             )
@@ -248,7 +282,54 @@ class BatchJob:
             # _POLL_SECS seconds once cancel_event is set.
             pool.shutdown(wait=False, cancel_futures=True)
 
+        # Post-cancel sweep: upgrade synthetic "cancelled" placeholders with real
+        # results from futures that completed after the cancel loop wrote the
+        # placeholder.  This handles the race where:
+        #   1. cancel loop checks f.done() → False, writes "cancelled" placeholder
+        #   2. main loop breaks because all agent slots are filled
+        #   3. _wait_one thread finishes shortly after (future becomes done)
+        # Without this sweep the real result (which may carry output_tokens) is
+        # discarded and the budget under-counts.
+        if cancel_on_failure and agent_to_future:
+            # Brief wait for _wait_one threads whose agents were just cancelled via
+            # subagent_cancel().  After cancel, those threads typically finish within
+            # microseconds (the cancel call unblocks their subagent_wait), but
+            # pool.shutdown(wait=False) does not wait for them.  0.5s is generous.
+            with self._lock:
+                pending = [
+                    agent_to_future[aid]
+                    for aid, r in self.results.items()
+                    if r.status == "cancelled" and aid in agent_to_future
+                ]
+            if pending:
+                futures_wait(pending, timeout=0.5)
+            for aid, f in agent_to_future.items():
+                if f.done() and not f.cancelled():
+                    with self._lock:
+                        r = self.results.get(aid)
+                    if r is not None and r.status == "cancelled":
+                        try:
+                            _, real = f.result()
+                            with self._lock:
+                                # Only replace if still the same placeholder (another
+                                # concurrent wait_all() hasn't updated it first).
+                                if self.results.get(aid) is r:
+                                    self.results[aid] = real
+                        except Exception:
+                            pass
+
         raw = {aid: asdict(r) for aid, r in self.results.items()}
+
+        # Record output tokens from completed agents into the shared budget.
+        # Track per-agent IDs so repeated wait_all() calls (e.g. after a timeout
+        # followed by a second wait) record newly-completed agents without
+        # double-counting those already recorded in a prior call.
+        if self.budget is not None:
+            for aid, r in self.results.items():
+                if aid not in self._budget_recorded_ids and r.output_tokens is not None:
+                    self.budget.record(r.output_tokens)
+                    self._budget_recorded_ids.add(aid)
+
         if self.output_schema is not None:
             return {aid: _parse_result(r, self.output_schema) for aid, r in raw.items()}
         return raw
@@ -420,6 +501,7 @@ def subagent_batch(
     context_turns: int | None = None,
     context_window: int | None = None,
     redact_secrets: bool = True,
+    budget: SubagentBudget | None = None,
 ) -> BatchJob:
     """Start multiple subagents in parallel and return a BatchJob to manage them.
 
@@ -478,10 +560,22 @@ def subagent_batch(
         # Or explicitly wait for all if needed:
         results = job.wait_all(timeout=300)
     """
-    job = BatchJob(agent_ids=[t[0] for t in tasks], output_schema=output_schema)
+    job = BatchJob(
+        agent_ids=[t[0] for t in tasks], output_schema=output_schema, budget=budget
+    )
 
-    # Start all subagents (completions delivered via hooks)
+    # Start subagents, skipping any after the budget is exhausted
+    started: list[str] = []
     for agent_id, prompt in tasks:
+        if budget is not None and budget.exhausted():
+            logger.debug(
+                "subagent_batch: budget exhausted, skipping agent '%s'", agent_id
+            )
+            with job._lock:
+                job.results[agent_id] = ReturnType(
+                    "budget_exceeded", "Budget exhausted before this agent could start"
+                )
+            continue
         subagent(
             agent_id=agent_id,
             prompt=prompt,
@@ -497,8 +591,9 @@ def subagent_batch(
             context_window=context_window,
             redact_secrets=redact_secrets,
         )
+        started.append(agent_id)
 
-    logger.info(f"Started batch of {len(tasks)} subagents: {job.agent_ids}")
+    logger.info(f"Started batch of {len(started)} subagents: {started}")
     return job
 
 
@@ -518,6 +613,7 @@ def subagent_parallel(
     context_window: int | None = None,
     redact_secrets: bool = True,
     cancel_on_failure: bool = False,
+    budget: SubagentBudget | None = None,
 ) -> list[dict]:
     """Fan out N subagents in parallel, wait for all, return results as an ordered list.
 
@@ -581,12 +677,20 @@ def subagent_parallel(
             waste resources. Equivalent to calling ``subagent_cancel()``
             manually after ``subagent_wait_any()`` detects a failure, but
             handled automatically inside the parallel wait.
+        budget: Optional shared token budget. When set, each agent's output
+            tokens are recorded after it completes, and any agent whose spawn
+            is attempted after the budget is exhausted is returned immediately
+            with ``status="budget_exceeded"`` without being started. Agents
+            already running when the budget hits zero are allowed to finish
+            normally. Pass a ``SubagentBudget`` to share a budget across
+            multiple ``subagent_parallel()`` calls (dynamic fan-out loop).
 
     Returns:
         List of result dicts in the same order as ``tasks``. Each dict has
-        ``"status"`` (``"success"`` / ``"failure"`` / ``"timeout"``) and
-        ``"result"`` (parsed object when ``output_schema`` is set, else the
-        summary text from the subagent's ``complete`` block).
+        ``"status"`` (``"success"`` / ``"failure"`` / ``"timeout"`` /
+        ``"budget_exceeded"``) and ``"result"`` (parsed object when
+        ``output_schema`` is set, else the summary text from the subagent's
+        ``complete`` block).
 
     Example::
 
@@ -629,14 +733,29 @@ def subagent_parallel(
             if r["status"] == "success":
                 analysis = r["result"]  # already a validated dict
                 print(f"Score: {analysis['score']}, Issues: {analysis['issues']}")
+
+        # Budget-aware dynamic loop (spawn until budget runs out)
+        from gptme.tools.subagent import SubagentBudget
+        budget = SubagentBudget(total=200_000)
+        while not budget.exhausted():
+            results = subagent_parallel(next_batch, budget=budget)
+            # items skipped after budget exhaustion have status="budget_exceeded"
     """
     if not tasks:
         return []
 
-    # Start all subagents; on failure, cancel any already-started ones to avoid orphans
+    # Track which agent_ids were skipped due to budget exhaustion vs actually started.
     started_ids: list[str] = []
+    budget_exceeded_ids: set[str] = set()
+
     try:
         for agent_id, prompt in tasks:
+            if budget is not None and budget.exhausted():
+                budget_exceeded_ids.add(agent_id)
+                logger.debug(
+                    "subagent_parallel: budget exhausted, skipping agent '%s'", agent_id
+                )
+                continue
             subagent(
                 agent_id=agent_id,
                 prompt=prompt,
@@ -662,17 +781,30 @@ def subagent_parallel(
                 pass
         raise
 
-    logger.info(f"subagent_parallel: started {len(tasks)} subagents")
+    logger.info(
+        "subagent_parallel: started %d subagents%s",
+        len(started_ids),
+        f", skipped {len(budget_exceeded_ids)} (budget exhausted)"
+        if budget_exceeded_ids
+        else "",
+    )
 
-    # Collect results in parallel using BatchJob
-    job = BatchJob(agent_ids=[t[0] for t in tasks])
-    job.wait_all(timeout=timeout, cancel_on_failure=cancel_on_failure)
+    # Collect results from started agents in parallel.
+    # Pass budget so wait_all() records tokens once via BatchJob._budget_recorded_ids,
+    # which prevents double-counting on repeated wait_all() calls.
+    job = BatchJob(agent_ids=started_ids, budget=budget)
+    if started_ids:
+        job.wait_all(timeout=timeout, cancel_on_failure=cancel_on_failure)
 
-    # Return results in input order; fall back to failure for missing results.
-    # When output_schema is set, parse the JSON result against the schema.
+    # Build ordered results, substituting budget_exceeded for skipped agents
+    _budget_exceeded_result = ReturnType(
+        "budget_exceeded", "Budget exhausted before this agent could start"
+    )
     raw_results = [
         asdict(
-            job.results.get(
+            _budget_exceeded_result
+            if agent_id in budget_exceeded_ids
+            else job.results.get(
                 agent_id, ReturnType("failure", "No result (timeout or missing)")
             )
         )
@@ -698,6 +830,7 @@ def subagent_pipeline(
     context_turns: int | None = None,
     context_window: int | None = None,
     redact_secrets: bool = True,
+    budget: SubagentBudget | None = None,
 ) -> list[list[dict]]:
     """Process items through multiple stages with no barrier between stages.
 
@@ -785,6 +918,25 @@ def subagent_pipeline(
             agent_id = f"{item_id_prefix}-s{stage_idx}"
             # Only pass output_schema to the final stage
             is_final = stage_idx == len(stages) - 1
+
+            # Budget check: skip remaining stages if budget is exhausted.
+            # Note: enforcement near exhaustion is best-effort in concurrent pipelines.
+            # Another thread may record tokens and exhaust the budget between this check
+            # and the subagent() call below. The violation is bounded (at most one extra
+            # agent per concurrent item thread). A hard atomic reserve is not possible
+            # without knowing the token cost upfront.
+            if budget is not None and budget.exhausted():
+                logger.debug(
+                    "subagent_pipeline: budget exhausted, skipping '%s'", agent_id
+                )
+                with results_lock:
+                    for remaining in range(stage_idx, len(stages)):
+                        all_results[item_idx][remaining] = {
+                            "status": "budget_exceeded",
+                            "result": "Budget exhausted before this stage could start",
+                        }
+                return
+
             try:
                 stage_prompt = stage_fn(item_prompt, prev_result_text)
                 subagent(
@@ -809,10 +961,43 @@ def subagent_pipeline(
                 )
             except Exception as exc:
                 result = {"status": "failure", "result": str(exc)}
+
+            # Record output tokens in the shared budget.
+            # When output_tokens is absent (exception path or "running" result),
+            # fall back to reading the agent's log directly so that tokens spent
+            # by an already-started agent are not silently lost.
+            if budget is not None:
+                out_tok = result.get("output_tokens")
+                if out_tok is not None:
+                    budget.record(out_tok)
+                else:
+                    try:
+                        from .types import _subagents, _subagents_lock
+
+                        with _subagents_lock:
+                            # Use the last match — _subagents is append-only so the
+                            # most recently spawned entry for this agent_id is last.
+                            # next() with a forward iterator would return the oldest
+                            # (stale) entry when the same id is reused across runs.
+                            sa = next(
+                                (
+                                    s
+                                    for s in reversed(_subagents)
+                                    if s.agent_id == agent_id
+                                ),
+                                None,
+                            )
+                        if sa:
+                            _, fb_out = sa._read_token_stats()
+                            if fb_out is not None:
+                                budget.record(fb_out)
+                    except Exception:
+                        pass
+
             with results_lock:
                 all_results[item_idx][stage_idx] = result
             if result.get("status") != "success":
-                # On failure, mark remaining stages as skipped and abort item
+                # On failure/budget_exceeded, mark remaining stages as skipped
                 with results_lock:
                     for remaining in range(stage_idx + 1, len(stages)):
                         all_results[item_idx][remaining] = {
