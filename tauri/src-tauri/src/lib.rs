@@ -16,6 +16,8 @@ use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_shell::process::CommandChild;
 #[cfg(desktop)]
 use tauri_plugin_shell::ShellExt;
+#[cfg(desktop)]
+use tauri_plugin_updater::UpdaterExt;
 
 const GPTME_SERVER_PORT: u16 = 5700;
 #[cfg(not(desktop))]
@@ -426,6 +428,80 @@ fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
 }
 
 #[cfg(desktop)]
+async fn check_for_updates(app: tauri::AppHandle) {
+    // Skip if pubkey is absent or still a placeholder (key not yet configured)
+    let pubkey = app
+        .config()
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|v| v.get("pubkey"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if pubkey.is_empty() || pubkey.starts_with("PLACEHOLDER") {
+        log::debug!("Update check skipped: updater public key is not configured");
+        return;
+    }
+
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            log::debug!("Updater not available (pubkey not configured?): {}", e);
+            return;
+        }
+    };
+    let update = match updater.check().await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            log::debug!("No update available");
+            return;
+        }
+        Err(e) => {
+            log::warn!("Update check failed: {}", e);
+            return;
+        }
+    };
+    let version = update.version.clone();
+    let body = update.body.clone().unwrap_or_default();
+    log::info!("Update available: v{}", version);
+    let msg = format!(
+        "A new version of gptme is available: v{}\n\n{}\n\nDownload and install now?",
+        version,
+        body.lines().take(5).collect::<Vec<_>>().join("\n")
+    );
+    let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+    MessageDialogBuilder::new(app.dialog().clone(), "Update Available", msg)
+        .kind(MessageDialogKind::Info)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Install Update".to_string(),
+            "Later".to_string(),
+        ))
+        .show(move |accepted| {
+            let _ = tx.send(accepted);
+        });
+    if rx.await.unwrap_or(false) {
+        log::info!(
+            "User accepted update, downloading and installing v{}",
+            version
+        );
+        if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
+            log::error!("Update install failed: {}", e);
+            MessageDialogBuilder::new(
+                app.dialog().clone(),
+                "Update Failed",
+                format!("Failed to install update v{}: {}", version, e),
+            )
+            .kind(MessageDialogKind::Error)
+            .buttons(MessageDialogButtons::Ok)
+            .show(|_| {});
+        } else {
+            log::info!("Update installed, restarting...");
+            app.restart();
+        }
+    }
+}
+
+#[cfg(desktop)]
 fn show_port_conflict_dialog(app: &tauri::AppHandle, message: String) {
     MessageDialogBuilder::new(app.dialog().clone(), "Port Conflict", message)
         .kind(MessageDialogKind::Error)
@@ -477,6 +553,7 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_shell::init());
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     }
 
     builder
@@ -547,6 +624,14 @@ pub fn run() {
                             );
                         }
                     }
+                });
+            }
+
+            #[cfg(desktop)]
+            {
+                let update_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    check_for_updates(update_handle).await;
                 });
             }
 

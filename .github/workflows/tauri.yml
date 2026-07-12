@@ -451,8 +451,10 @@ jobs:
       needs.build.result == 'success' &&
       (startsWith(github.ref, 'refs/tags/v') || inputs.tag != '')
     needs: [lint, test, build, build-sidecar]
+    environment: tauri-autoupdater-signing
     env:
       HAS_APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.KEYCHAIN_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_ID_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+      HAS_TAURI_SIGNING: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -675,6 +677,18 @@ jobs:
           fi
           echo "id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
 
+      - name: Set updater artifacts arg
+        id: updater
+        shell: bash
+        run: |
+          # Only pass createUpdaterArtifacts when the signing key is present.
+          # Without it, Tauri requires a signing key to produce signed update artifacts.
+          if [ "$HAS_TAURI_SIGNING" = "true" ]; then
+            echo 'extra=--config {"bundle":{"createUpdaterArtifacts":true}}' >> "$GITHUB_OUTPUT"
+          else
+            echo 'extra=' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and publish release (signed macOS)
         if: matrix.platform == 'macos-latest' && env.HAS_APPLE_SIGNING == 'true'
         uses: tauri-apps/tauri-action@v1
@@ -686,20 +700,24 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: tauri
           releaseId: ${{ steps.release.outputs.id }}
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ steps.updater.outputs.extra }}
 
       - name: Build and publish release (unsigned/fallback)
         if: matrix.platform != 'macos-latest' || env.HAS_APPLE_SIGNING != 'true'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: tauri
           releaseId: ${{ steps.release.outputs.id }}
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ steps.updater.outputs.extra }}
 
   build-android:
     name: Build Android (APK/AAB)
