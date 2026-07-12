@@ -679,20 +679,14 @@ class GptmeAgent:
             NewSessionResponse, "NewSessionResponse"
         )
 
-        # Build modes and models state for the session response.
+        # Build modes state for the session response.
         # Note: models field was removed from NewSessionResponse in ACP 0.11.0.
         modes = self._build_modes_state(session_id)
-        models = self._build_models_state(session_model)
 
-        # Build response dict, conditionally including models for older ACP versions
-        response_kwargs = {
-            "session_id": session_id,
-            "modes": modes,
-        }
-        if models is not None:
-            response_kwargs["models"] = models
-
-        return _NewSessionResponse(**response_kwargs)
+        return _NewSessionResponse(
+            session_id=session_id,
+            modes=modes,
+        )
 
     def _build_modes_state(self, session_id: str) -> Any:
         """Build SessionModeState for the session response.
@@ -1277,10 +1271,9 @@ class GptmeAgent:
         # Initialize per-session model if not already set
         session_model = self._session_models.setdefault(session_id, self._model)
 
-        # Build modes and models state (same as new_session)
+        # Build modes state (same as new_session).
         # Note: models field was removed from NewSessionResponse in ACP 0.11.0.
         modes = self._build_modes_state(session_id)
-        models = self._build_models_state(session_model)
 
         # Schedule deferred notifications (commands, model info)
         session = self._registry.get(session_id)
@@ -1292,15 +1285,10 @@ class GptmeAgent:
                 )
             )
 
-        # Build response dict, conditionally including models for older ACP versions
-        response_kwargs = {
-            "session_id": session_id,
-            "modes": modes,
-        }
-        if models is not None:
-            response_kwargs["models"] = models
-
-        return _NewSessionResponse(**response_kwargs)
+        return _NewSessionResponse(
+            session_id=session_id,
+            modes=modes,
+        )
 
     def _cleanup_session(self, session_id: str) -> None:
         """Remove all per-session state for a given session.
