@@ -200,11 +200,13 @@ class BatchJob:
             futures = {
                 pool.submit(_wait_one, aid, deadline): aid
                 for aid in self.agent_ids
-                # Re-wait agents whose previous wait_all() call timed out —
-                # their placeholder result has output_tokens=None, so a naive
-                # "skip if already in results" would leave the budget undercounted
-                # when the agent eventually finishes in a later call.
-                if aid not in self.results or self.results[aid].status == "timeout"
+                # Re-wait agents whose previous wait_all() call timed out, or
+                # whose post-cancel sweep left a synthetic "cancelled" placeholder
+                # after the 0.5s grace window — both have output_tokens=None, so
+                # skipping them would leave the budget undercounted when the agent
+                # eventually finishes in a later call.
+                if aid not in self.results
+                or self.results[aid].status in ("timeout", "cancelled")
             }
             # Reverse lookup so the cancel_on_failure path can collect real
             # results from concurrently-completed futures before writing synthetic
