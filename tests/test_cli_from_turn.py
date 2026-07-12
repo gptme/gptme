@@ -197,7 +197,7 @@ def test_from_turn_creates_branched_session(
     assert roles == ["system", "user", "assistant", "user", "assistant"]
 
 
-def test_from_turn_branch_name_collision():
+def test_from_turn_branch_name_collision(monkeypatch):
     """--branch with an existing session name should error."""
     from gptme.cli.main import main
 
@@ -225,6 +225,11 @@ def test_from_turn_branch_name_collision():
                 {"role": "assistant", "content": "A2."},
             ],
         )
+
+        # Redirect get_logs_dir to use the isolated filesystem
+        logs_dir = Path("logs")
+        monkeypatch.setattr("gptme.cli.main.get_logs_dir", lambda: logs_dir)
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
 
         # Try to branch into the existing session name
         result = runner.invoke(
