@@ -964,7 +964,12 @@ def _subagent_parallel_capped(
                 inflight_ids.discard(agent_id)
 
         # Record output tokens in the shared budget.
-        if budget is not None:
+        # Skip on the overall-timeout path (_timed_out=True): pool.shutdown(wait=False)
+        # means this thread may still be executing after _subagent_parallel_capped()
+        # has returned. A post-return budget.record() would corrupt the caller's
+        # next-batch spawn decisions. This guard makes the invariant unconditional;
+        # tokens from timed-out agents are not counted (they never completed usefully).
+        if budget is not None and not _timed_out:
             out_tok = result.get("output_tokens")
             if out_tok is not None:
                 budget.record(out_tok)
@@ -1029,16 +1034,9 @@ def _subagent_parallel_capped(
         # On timeout, don't block on shutdown: subagent_cancel() signals running agents
         # to stop, but we don't wait for threads blocked in subagent_wait() to return.
         # cancel_futures=True also discards any queued-but-not-yet-started workers.
+        # Budget recording in run_one is guarded by _timed_out so abandoned threads
+        # cannot mutate the shared budget after this function returns.
         pool.shutdown(wait=not _timed_out, cancel_futures=_timed_out)
-        # On timeout: subagent_cancel() was already called for all in-flight agents
-        # above, so their subagent_wait() calls return promptly. Give those threads a
-        # brief window to finish recording budget tokens into the shared budget object
-        # before we return to the caller — otherwise the caller may see a stale
-        # budget.spent() that under-counts tokens from recently-cancelled agents.
-        if budget is not None and _timed_out:
-            _still_running = [f for f in futures if not f.done() and not f.cancelled()]
-            if _still_running:
-                futures_wait(_still_running, timeout=0.5)
 
     raw_results = [
         results_map.get(
