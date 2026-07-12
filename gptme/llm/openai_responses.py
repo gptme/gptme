@@ -428,7 +428,6 @@ def _extract_usage_token_counts(usage: Any) -> UsageTokenCounts:
     prompt_tokens = getattr(usage, "prompt_tokens", None)
     output_tokens = getattr(usage, "completion_tokens", None)
     details = getattr(usage, "prompt_tokens_details", None)
-    _is_chat_completions = prompt_tokens is not None
     if prompt_tokens is None:
         prompt_tokens = getattr(usage, "input_tokens", None)
         details = getattr(usage, "input_tokens_details", None)
@@ -436,10 +435,12 @@ def _extract_usage_token_counts(usage: Any) -> UsageTokenCounts:
         output_tokens = getattr(usage, "output_tokens", None)
     cache_read_tokens = getattr(details, "cached_tokens", None)
     cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", None)
-    # OpenRouter nested shape: prompt_tokens_details.cache_write_tokens
-    # Only for Chat Completions (not Responses API input_tokens_details.cache_write_tokens)
-    if cache_creation_tokens is None and _is_chat_completions:
-        cache_creation_tokens = getattr(details, "cache_write_tokens", None)
+    if cache_creation_tokens is None:
+        write_tokens = getattr(details, "cache_write_tokens", None)
+        if (
+            write_tokens
+        ):  # 0 is a required structural default in Responses API; ignore it
+            cache_creation_tokens = write_tokens
     total_tokens = getattr(usage, "total_tokens", None)
 
     if isinstance(prompt_tokens, int):
