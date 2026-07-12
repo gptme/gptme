@@ -680,14 +680,19 @@ class GptmeAgent:
         )
 
         # Build modes and models state for the session response.
+        # Note: models field was removed from NewSessionResponse in ACP 0.11.0.
         modes = self._build_modes_state(session_id)
         models = self._build_models_state(session_model)
 
-        return _NewSessionResponse(
-            session_id=session_id,
-            modes=modes,
-            models=models,
-        )
+        # Build response dict, conditionally including models for older ACP versions
+        response_kwargs = {
+            "session_id": session_id,
+            "modes": modes,
+        }
+        if models is not None:
+            response_kwargs["models"] = models
+
+        return _NewSessionResponse(**response_kwargs)
 
     def _build_modes_state(self, session_id: str) -> Any:
         """Build SessionModeState for the session response.
@@ -1273,6 +1278,7 @@ class GptmeAgent:
         session_model = self._session_models.setdefault(session_id, self._model)
 
         # Build modes and models state (same as new_session)
+        # Note: models field was removed from NewSessionResponse in ACP 0.11.0.
         modes = self._build_modes_state(session_id)
         models = self._build_models_state(session_model)
 
@@ -1286,11 +1292,15 @@ class GptmeAgent:
                 )
             )
 
-        return _NewSessionResponse(
-            session_id=session_id,
-            modes=modes,
-            models=models,
-        )
+        # Build response dict, conditionally including models for older ACP versions
+        response_kwargs = {
+            "session_id": session_id,
+            "modes": modes,
+        }
+        if models is not None:
+            response_kwargs["models"] = models
+
+        return _NewSessionResponse(**response_kwargs)
 
     def _cleanup_session(self, session_id: str) -> None:
         """Remove all per-session state for a given session.

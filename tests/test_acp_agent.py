@@ -27,6 +27,16 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def _acp_has_session_model_state() -> bool:
+    """Check if ACP schema has SessionModelState (removed in 0.11.0)."""
+    try:
+        from acp.schema import SessionModelState  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def _mock_permission_response(option_id: str | None = None, cancelled: bool = False):
     """Create a mock RequestPermissionResponse matching the ACP SDK Pydantic model.
 
@@ -1139,9 +1149,6 @@ class TestSessionPersistence:
         assert result.modes is not None
         assert result.modes.current_mode_id == "default"
         assert len(result.modes.available_modes) == 2
-        # Verify models are present
-        assert result.models is not None
-        assert len(result.models.available_models) > 0
 
     def test_load_session_initializes_session_model(self):
         """load_session should set up per-session model tracking."""
@@ -1183,7 +1190,6 @@ class TestSessionPersistence:
 
         assert result is not None
         assert result.modes is not None
-        assert result.models is not None
 
 
 class TestBuildModesState:
@@ -1229,7 +1235,10 @@ class TestBuildModesState:
 class TestBuildModelsState:
     """Tests for _build_models_state()."""
 
-    @pytest.mark.skipif(not _import_acp(), reason="acp package not installed")
+    @pytest.mark.skipif(
+        not _import_acp() or not _acp_has_session_model_state(),
+        reason="acp package not installed or SessionModelState removed (>=0.11.0)",
+    )
     def test_returns_models(self):
         """Should return available models from registry."""
         agent = GptmeAgent()
@@ -1238,7 +1247,10 @@ class TestBuildModelsState:
         assert len(result.available_models) > 0
         assert result.current_model_id == "anthropic/claude-sonnet-4-6"
 
-    @pytest.mark.skipif(not _import_acp(), reason="acp package not installed")
+    @pytest.mark.skipif(
+        not _import_acp() or not _acp_has_session_model_state(),
+        reason="acp package not installed or SessionModelState removed (>=0.11.0)",
+    )
     def test_uses_global_model_as_fallback(self):
         """Falls back to global model when session model is None."""
         agent = GptmeAgent()
@@ -1247,7 +1259,10 @@ class TestBuildModelsState:
         assert result is not None
         assert result.current_model_id == "anthropic/claude-opus-4-6"
 
-    @pytest.mark.skipif(not _import_acp(), reason="acp package not installed")
+    @pytest.mark.skipif(
+        not _import_acp() or not _acp_has_session_model_state(),
+        reason="acp package not installed or SessionModelState removed (>=0.11.0)",
+    )
     def test_models_have_required_fields(self):
         """Each model should have model_id and name."""
         agent = GptmeAgent()
@@ -1257,7 +1272,10 @@ class TestBuildModelsState:
             assert model.model_id
             assert model.name
 
-    @pytest.mark.skipif(not _import_acp(), reason="acp package not installed")
+    @pytest.mark.skipif(
+        not _import_acp() or not _acp_has_session_model_state(),
+        reason="acp package not installed or SessionModelState removed (>=0.11.0)",
+    )
     def test_excludes_deprecated_models(self):
         """Deprecated models should not appear in available list."""
         agent = GptmeAgent()

@@ -674,7 +674,10 @@ def test_chat_uses_responses_api_for_gpt5_by_default(monkeypatch):
         usage=ResponseUsage.model_validate(
             {
                 "input_tokens": 120,
-                "input_tokens_details": {"cached_tokens": 20},
+                "input_tokens_details": {
+                    "cached_tokens": 20,
+                    "cache_write_tokens": 0,
+                },
                 "output_tokens": 30,
                 "output_tokens_details": {"reasoning_tokens": 10},
                 "total_tokens": 150,
@@ -1035,7 +1038,10 @@ def test_stream_responses_emits_function_calls_and_usage(monkeypatch):
     usage = ResponseUsage.model_validate(
         {
             "input_tokens": 120,
-            "input_tokens_details": {"cached_tokens": 20},
+            "input_tokens_details": {
+                "cached_tokens": 20,
+                "cache_write_tokens": 0,
+            },
             "output_tokens": 30,
             "output_tokens_details": {"reasoning_tokens": 10},
             "total_tokens": 150,
@@ -2407,7 +2413,10 @@ class TestRecordUsageCacheTokens:
             "total_tokens": input_tokens + output_tokens,
         }
         if cached_tokens is not None:
-            raw["input_tokens_details"] = {"cached_tokens": cached_tokens}
+            raw["input_tokens_details"] = {
+                "cached_tokens": cached_tokens,
+                "cache_write_tokens": 0,
+            }
         if reasoning_tokens is not None:
             raw["output_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
         return ResponseUsage.model_validate(raw)
