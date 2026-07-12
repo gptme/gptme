@@ -719,3 +719,55 @@ class TestSubagentParallelMaxConcurrent:
         tasks = [("same-id", "prompt A"), ("same-id", "prompt B")]
         with pytest.raises(ValueError, match="agent_ids must be unique"):
             subagent_parallel(tasks)
+
+    def test_cancel_on_failure_cancels_inflight_siblings(self):
+        """When cancel_on_failure=True and one agent fails, in-flight siblings
+        are cancelled via subagent_cancel() rather than running to completion.
+
+        Synchronisation: "slow" sets slow_entered once it is inside mock_wait
+        (and already in inflight_ids). "fast-fail" waits for that signal before
+        returning its failure so that inflight_ids is guaranteed to contain "slow"
+        when the cancel sweep runs. mock_cancel("slow") then sets slow_interrupted
+        so the sleeping thread exits promptly and the test completes quickly.
+        """
+        slow_entered = threading.Event()
+        slow_interrupted = threading.Event()
+        cancelled_ids: list[str] = []
+        cancel_lock = threading.Lock()
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            pass
+
+        def mock_wait(agent_id, timeout=60, max_result_chars=0):
+            if agent_id == "slow":
+                # inflight_ids.add("slow") already ran before this call
+                slow_entered.set()
+                slow_interrupted.wait(timeout=10)  # released by mock_cancel
+                return {"status": "success", "result": "ok", "output_tokens": 10}
+            # fast-fail: wait until slow is registered in inflight_ids
+            slow_entered.wait(timeout=5)
+            return {"status": "failure", "result": "boom", "output_tokens": 0}
+
+        def mock_cancel(agent_id):
+            with cancel_lock:
+                cancelled_ids.append(agent_id)
+            if agent_id == "slow":
+                slow_interrupted.set()
+
+        with (
+            patch("gptme.tools.subagent.batch.subagent", side_effect=mock_subagent),
+            patch("gptme.tools.subagent.batch.subagent_wait", side_effect=mock_wait),
+            patch(
+                "gptme.tools.subagent.batch.subagent_cancel", side_effect=mock_cancel
+            ),
+        ):
+            results = subagent_parallel(
+                [("fast-fail", "p1"), ("slow", "p2")],
+                max_concurrent=2,
+                cancel_on_failure=True,
+                timeout=10,
+            )
+
+        # fast-fail should have triggered cancellation of "slow"
+        assert any(r["status"] == "failure" for r in results)
+        assert "slow" in cancelled_ids

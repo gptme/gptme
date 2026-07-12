@@ -890,6 +890,11 @@ def _subagent_parallel_capped(
     results_map: dict[str, dict] = {}
     results_lock = threading.Lock()
     cancel_event = threading.Event()
+    # Track agents currently blocked in subagent_wait() so we can cancel them
+    # immediately when cancel_on_failure fires, rather than waiting for their
+    # natural timeout.
+    inflight_ids: set[str] = set()
+    inflight_lock = threading.Lock()
 
     _budget_exceeded = asdict(
         ReturnType("budget_exceeded", "Budget exhausted before this agent could start")
@@ -932,10 +937,15 @@ def _subagent_parallel_capped(
         except Exception as exc:
             return agent_id, asdict(ReturnType("failure", str(exc)))
 
+        with inflight_lock:
+            inflight_ids.add(agent_id)
         try:
             result = subagent_wait(agent_id, timeout=remaining_secs, max_result_chars=0)
         except Exception as exc:
             return agent_id, asdict(ReturnType("failure", str(exc)))
+        finally:
+            with inflight_lock:
+                inflight_ids.discard(agent_id)
 
         # Record output tokens in the shared budget.
         if budget is not None:
@@ -944,10 +954,16 @@ def _subagent_parallel_capped(
                 budget.record(out_tok)
 
         # Trigger cancellation if this agent failed and fail-fast is on.
-        # Note: workers already inside subagent_wait() are not interrupted —
-        # cancellation only takes effect at the next slot-acquire check.
+        # Cancel siblings currently blocked in subagent_wait() so they stop
+        # promptly rather than running until their natural timeout.
         if cancel_on_failure and result.get("status") in ("failure", "timeout"):
             cancel_event.set()
+            with inflight_lock:
+                for sibling_id in list(inflight_ids):
+                    try:
+                        subagent_cancel(sibling_id)
+                    except Exception:
+                        pass
 
         return agent_id, result
 
