@@ -37,16 +37,6 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def _acp_has_session_model_state() -> bool:
-    """Check if ACP schema has SessionModelState (removed in 0.11.0)."""
-    try:
-        from acp.schema import SessionModelState  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
 def _mock_permission_response(option_id: str | None = None, cancelled: bool = False):
     """Create a mock RequestPermissionResponse matching the ACP SDK Pydantic model.
 
