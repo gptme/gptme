@@ -1,8 +1,9 @@
-import { Loader2, Search, BookOpen, X, Star, ArrowUpDown } from 'lucide-react';
+import { Loader2, Search, BookOpen, X, Star, ArrowUpDown, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { useApi } from '@/contexts/ApiContext';
-import { groupByDate } from '@/utils/time';
+import { groupByDate, getRelativeTimeString } from '@/utils/time';
 import { demoConversations } from '@/democonversations';
 import {
   exportConversationAsMarkdown,
@@ -15,12 +16,20 @@ import { ConversationItem, getConversationName } from './ConversationItem';
 
 import { useConversationMetadata } from '@/hooks/useConversationMetadata';
 import type { ConversationSummary } from '@/types/conversation';
+import type { ExternalSessionCatalogItem } from '@/types/api';
 import { type FC, useRef, useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
 import { toast } from 'sonner';
+
+const HARNESS_LABELS: Record<string, string> = {
+  'claude-code': 'CC',
+  gptme: 'gptme',
+  codex: 'Codex',
+  copilot: 'Copilot',
+};
 
 type SortBy = 'recent' | 'longest' | 'alpha';
 const SORT_STORAGE_KEY = 'gptme:conv-sort';
@@ -56,6 +65,8 @@ interface Props {
   selectedId$?: Observable<string | null>;
   showServerLabels?: boolean;
   onOpenInSplitView?: (conversationId: string) => void;
+  externalSessions?: ExternalSessionCatalogItem[];
+  onSelectExternal?: (id: string) => void;
 }
 
 export const ConversationList: FC<Props> = ({
@@ -71,6 +82,8 @@ export const ConversationList: FC<Props> = ({
   selectedId$,
   showServerLabels = false,
   onOpenInSplitView,
+  externalSessions,
+  onSelectExternal,
 }) => {
   const { api, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
@@ -586,6 +599,44 @@ export const ConversationList: FC<Props> = ({
                 setOptimisticStars={setOptimisticStars}
               />
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* External sessions section — compact view of cross-harness sessions */}
+      {externalSessions && externalSessions.length > 0 && onSelectExternal && (
+        <div>
+          <div className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-muted-foreground">
+            <Layers className="h-3 w-3" />
+            External Sessions
+          </div>
+          <div className="space-y-1 px-2">
+            {externalSessions.slice(0, 10).map((session) => {
+              const displayName = session.session_name ?? session.session_id.slice(0, 8);
+              const harnessLabel = HARNESS_LABELS[session.harness] ?? session.harness;
+              const timeStr = session.last_activity
+                ? getRelativeTimeString(new Date(session.last_activity))
+                : session.started_at
+                  ? getRelativeTimeString(new Date(session.started_at))
+                  : null;
+              return (
+                <button
+                  key={session.id}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50"
+                  onClick={() => onSelectExternal(session.id)}
+                >
+                  <Badge variant="secondary" className="h-4 flex-shrink-0 px-1.5 text-[10px]">
+                    {harnessLabel}
+                  </Badge>
+                  <span className="min-w-0 flex-1 truncate text-xs">{displayName}</span>
+                  {timeStr && (
+                    <span className="flex-shrink-0 text-[10px] text-muted-foreground">
+                      {timeStr}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
