@@ -1165,6 +1165,21 @@ def subagent_steer(agent_id: str, message: str) -> str:
         NotImplementedError: If the subagent is running in ACP mode, which
             does not expose a logdir channel for steering.
 
+    Note:
+        Delivery is **guaranteed for thread-mode** subagents: ``prompt_queue_closed``
+        is set inside the subagent thread immediately when ``chat()`` returns,
+        so any steer attempted after that point raises ``ValueError``.
+
+        For **subprocess-mode** subagents, delivery is best-effort: there is an
+        inherent window between the child's ``chat()`` loop finishing its last
+        prompt-queue drain and the parent detecting process exit via
+        ``process.poll()``. In practice this window is sub-millisecond (process
+        cleanup only), but it cannot be fully closed without a child-side
+        drain-complete signal (which would require modifying ``chat()`` itself,
+        beyond the scope of this PR). ``prompt_queue_closed`` is set when the
+        subprocess exits, catching the post-exit case; the pre-exit cleanup window
+        is an accepted best-effort limitation.
+
     Example::
 
         subagent("researcher", "Research Python async frameworks")
