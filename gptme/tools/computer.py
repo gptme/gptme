@@ -107,7 +107,7 @@ from typing import IO, TYPE_CHECKING, Literal, TypedDict
 
 from ._computer_gate import action_risk_level, sensitive_action_gate
 from .base import ToolFunction, ToolSpec, ToolUse
-from .computer_transport import ComputerTransport, get_transport
+from .computer_transport import ComputerTransport, _resize_image, get_transport
 from .screenshot import screenshot
 from .vision import view_image
 
@@ -2558,7 +2558,11 @@ class _NativeScreenshotTransport(ComputerTransport):
     """
 
     def screenshot(self, width: int = 0, height: int = 0) -> Path:
-        return screenshot()
+        path = screenshot()
+        if not width or not height:
+            width, height = _get_api_resolution()
+        _resize_image(path, width, height)
+        return path
 
     def close(self) -> None:
         pass

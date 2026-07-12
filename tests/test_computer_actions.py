@@ -654,6 +654,10 @@ class TestActAndObservePreBaseline:
             patch("gptme.tools.computer.computer", return_value=None),
             patch("gptme.tools.computer.get_transport", return_value=None),
             patch("gptme.tools.computer.screenshot", side_effect=mock_screenshot),
+            patch("gptme.tools.computer._resize_image"),  # no ImageMagick in CI
+            patch(
+                "gptme.tools.computer._get_api_resolution", return_value=(1024, 768)
+            ),  # no display in CI
         ):
             msgs = act_and_observe("left_click", coordinate=(100, 100), timeout=1.0)
 
