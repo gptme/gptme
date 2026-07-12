@@ -724,11 +724,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          bash tauri/scripts/build-appimage.sh --patch-only
           APPIMAGE=$(find tauri/src-tauri/target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
           if [[ -n "$APPIMAGE" ]]; then
             TAG="${{ inputs.tag || github.ref_name }}"
-            gh release upload "$TAG" "$APPIMAGE" --clobber
+            # Remove the unpatched asset before patching so the broken version
+            # is never publicly available (even briefly between upload and re-upload)
+            ASSET_NAME=$(basename "$APPIMAGE")
+            ASSET_ID=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" \
+              --jq ".assets[] | select(.name == \"$ASSET_NAME\") | .id" 2>/dev/null || true)
+            if [[ -n "$ASSET_ID" ]]; then
+              gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$ASSET_ID"
+            fi
+            bash tauri/scripts/build-appimage.sh --patch-only
+            gh release upload "$TAG" "$APPIMAGE"
           fi
 
   build-android:
