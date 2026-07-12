@@ -34,8 +34,11 @@ APPIMAGE="$(find "$TAURI_DIR/src-tauri/target/release/bundle/appimage" -maxdepth
 
 if [[ ! -d "$APPDIR" || -z "$APPIMAGE" ]]; then
     if [[ "$PATCH_ONLY" == "true" ]]; then
-        echo "No AppDir/AppImage found — nothing to patch"
-        exit 0
+        # AppDir left by linuxdeploy must still be present for us to verify and
+        # patch the bundle. Exit non-zero so callers don't re-upload an AppImage
+        # that may be missing libgpg-error.so.0.
+        echo "AppDir not found — cannot verify AppImage is patched" >&2
+        exit 1
     fi
     echo "AppImage build did not produce expected AppDir/AppImage" >&2
     exit 1
