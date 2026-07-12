@@ -77,6 +77,32 @@ class ComputerTransport(abc.ABC):
         """Double-click left mouse button at current position."""
         ...
 
+    def triple_click(self) -> None:
+        """Triple-click left mouse button at current position.
+
+        Selects all text in most native text inputs.
+        Not all transports support triple-click natively; the default falls
+        back to three rapid left_click calls.
+
+        For transports that require an explicit cursor position (e.g. CUA),
+        the fallback queries ``cursor_position()`` to anchor the cursor with
+        a ``mouse_move`` before clicking.  If the transport raises
+        ``RuntimeError`` (e.g. CUA transport before any ``mouse_move``), that
+        error propagates immediately.  Pass a ``coordinate`` to the top-level
+        ``computer('triple_click', coordinate=...)`` call to avoid this.
+        Transports that do not implement ``cursor_position`` at all
+        (``NotImplementedError`` / ``AttributeError``) proceed directly to the
+        three ``left_click`` calls.
+        """
+        try:
+            x, y = self.cursor_position()
+            self.mouse_move(x, y)
+        except (NotImplementedError, AttributeError):
+            pass
+        self.left_click()
+        self.left_click()
+        self.left_click()
+
     @abc.abstractmethod
     def left_click_drag(self, x: int, y: int) -> None:
         """Click and drag from current position to (x, y)."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast as _ast
 import json
 import os
 import re
@@ -104,6 +105,7 @@ def _extract_computer_calls(messages) -> list[dict]:
     - ``click_element(selector)`` — DOM element click
     - ``hover_element(selector)`` — hover over a DOM element
     - ``fill_element(selector, value)`` — form fill (value length logged, not raw text)
+    - ``fill_native(coordinate, text)`` — native field fill (triple-click + type; text length logged)
     - ``press_key(key)`` — navigation key press (Enter, Tab, Escape, …)
     - ``select_option(selector, value)`` — dropdown/select element change
     - ``wait_for_element(selector)`` — wait for a DOM element to appear
@@ -264,6 +266,43 @@ def _extract_computer_calls(messages) -> list[dict]:
                     code,
                 )
             )
+
+            # fill_native(coordinate, text) — native field fill; text is sensitive.
+            # Use _slice_call + ast.parse to handle all valid text forms:
+            # triple-quoted strings, escaped quotes, variables, keyword args.
+            for m in re.finditer(r"\bfill_native\s*\(", code):
+                call_src = _slice_call(code, m.start())
+                value_len: int | None = None
+                try:
+                    tree = _ast.parse(call_src, mode="eval")
+                    call_node = tree.body
+                    if isinstance(call_node, _ast.Call):
+                        text_node = None
+                        if len(call_node.args) >= 2:
+                            text_node = call_node.args[1]
+                        else:
+                            for kw in call_node.keywords:
+                                if kw.arg == "text":
+                                    text_node = kw.value
+                                    break
+                        if isinstance(text_node, _ast.Constant) and isinstance(
+                            text_node.value, str
+                        ):
+                            value_len = len(text_node.value)
+                except (SyntaxError, AttributeError, TypeError):
+                    pass
+                all_positioned.append(
+                    (
+                        m.start(),
+                        {
+                            "timestamp": ts,
+                            "action": "fill_native",
+                            "source": "computer",
+                            "value_len": value_len,
+                            "risk_level": action_risk_level("fill_native"),
+                        },
+                    )
+                )
 
             # No-argument browser observation functions
             # (read_page_text, snapshot_page, get_current_url)

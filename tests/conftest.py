@@ -287,7 +287,8 @@ def cleanup_subagents_after():
     finally:
         # Always reset shared state so subsequent tests start clean,
         # even if the join/terminate phase above was interrupted.
-        _subagents.clear()
+        with _subagents_lock:
+            _subagents.clear()
         # Clear cached terminal results too; many tests intentionally reuse agent IDs
         # like "explorer"/"checker", and the queued-cancel guards now treat a stale
         # cached result as "already completed" and skip the new launch.

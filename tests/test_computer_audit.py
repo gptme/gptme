@@ -567,6 +567,72 @@ def test_fill_element_password_not_logged():
     assert records[0]["value_len"] == len("supersecret")
 
 
+def test_fill_native_value_redacted():
+    """fill_native must log only value length, never raw text."""
+    code = "fill_native((300, 200), 'secret-password')"
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    r = records[0]
+    assert r["action"] == "fill_native"
+    assert r["source"] == "computer"
+    assert "secret-password" not in str(r), "raw text must not appear in audit record"
+    assert r["value_len"] == len("secret-password")
+
+
+def test_fill_native_risk_is_sensitive():
+    """fill_native carries sensitive risk level (handles private text)."""
+    code = "fill_native((100, 50), 'alice@example.com')"
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1
+    assert records[0]["risk_level"] == "sensitive"
+
+
+def test_fill_native_variable_text_is_audited():
+    """fill_native with a variable text arg must still appear in the audit (value_len=None)."""
+    code = "fill_native((300, 200), password)"
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1, "variable-text fill_native must be audited"
+    r = records[0]
+    assert r["action"] == "fill_native"
+    assert r["value_len"] is None, "value_len must be None when text is a variable"
+
+
+def test_fill_native_keyword_arg_is_audited():
+    """fill_native(coordinate=..., text=variable) must be audited."""
+    code = "fill_native(coordinate=(300, 200), text=user_input)"
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1, "keyword-arg fill_native must be audited"
+    r = records[0]
+    assert r["action"] == "fill_native"
+    assert r["value_len"] is None
+
+
+def test_fill_native_triple_quoted_string_is_audited():
+    """fill_native with a triple-quoted text arg must log the correct length."""
+    code = 'fill_native((300, 200), """line1\nline2""")'
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1, "triple-quoted fill_native must be audited"
+    r = records[0]
+    assert r["action"] == "fill_native"
+    assert r["value_len"] == len("line1\nline2")
+
+
+def test_fill_native_escaped_quote_is_audited():
+    """fill_native with an escaped quote in text must log the correct length."""
+    code = r"fill_native((300, 200), 'it\'s secret')"
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1, "escaped-quote fill_native must be audited"
+    r = records[0]
+    assert r["action"] == "fill_native"
+    assert r["value_len"] == len("it's secret")
+
+
 def test_read_page_text_captured():
     msgs = [_msg("assistant", _ipython_block("read_page_text()"))]
     records = _extract_computer_calls(msgs)
