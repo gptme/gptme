@@ -353,6 +353,29 @@ def test_tiktoken_timeout_valid_env():
         assert _parse_tiktoken_timeout() == 10.5
 
 
+def test_tiktoken_timeout_rejects_nan_and_infinity():
+    """NaN and infinity env values are rejected, falling back to 5.0."""
+    import os
+    import unittest.mock as mock
+
+    from gptme.util.tokens import _parse_tiktoken_timeout
+
+    # NaN should be rejected
+    with mock.patch.dict(os.environ, {"GPTME_TIKTOKEN_TIMEOUT": "nan"}):
+        val = _parse_tiktoken_timeout()
+    assert val == 5.0
+
+    # Infinity should also be rejected
+    with mock.patch.dict(os.environ, {"GPTME_TIKTOKEN_TIMEOUT": "inf"}):
+        val = _parse_tiktoken_timeout()
+    assert val == 5.0
+
+    # Negative infinity as well
+    with mock.patch.dict(os.environ, {"GPTME_TIKTOKEN_TIMEOUT": "-inf"}):
+        val = _parse_tiktoken_timeout()
+    assert val == 5.0
+
+
 def test_get_tokenizer_timeout_not_cached(monkeypatch):
     """Timeout results (None) are NOT cached, enabling retries after network recovery."""
     import threading
