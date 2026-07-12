@@ -421,3 +421,16 @@ mitigations above reduce total session time by shortening the wait, not by fixin
 - **Combine with `--non-interactive`**: add `-n` for scripted or CI use where you don't want
   prompts (but ensure the task is well-scoped first).
 - **Describe visual outcomes**: "confirm the dialog closed" works better than "click OK and move on".
+
+## Background
+
+Computer use support in gptme was bootstrapped in
+[issue #32](https://github.com/gptme/gptme/issues/32), where gptme used its own
+screenshot and keyboard tools to extend its own computer-use capabilities — writing
+much of the initial implementation itself.  That thread is an end-to-end example of
+gptme applying computer use in practice: taking screenshots of its own output, reading
+the results, and editing its own source code in response.
+
+The feature has since grown substantially (see [issue #216](https://github.com/gptme/gptme/issues/216)
+for the full development history), but the original conversation in #32 remains the
+clearest self-contained demonstration of what the tool can do when pointed at a real task.
