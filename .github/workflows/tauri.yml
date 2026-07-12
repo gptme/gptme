@@ -736,7 +736,7 @@ jobs:
             if [[ -n "$ASSET_ID" ]]; then
               gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$ASSET_ID"
             fi
-            gh release upload "$TAG" "$APPIMAGE"
+            gh release upload --clobber "$TAG" "$APPIMAGE"
           fi
 
   build-android:
