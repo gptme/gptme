@@ -86,16 +86,18 @@ class ComputerTransport(abc.ABC):
 
         For transports that require an explicit cursor position (e.g. CUA),
         the fallback queries ``cursor_position()`` to anchor the cursor with
-        a ``mouse_move`` before clicking.  If the transport cannot report the
-        current position, the fallback will raise from ``left_click()`` with a
-        clear message.  Pass a ``coordinate`` to the top-level
-        ``computer('triple_click', coordinate=...)`` call to move to a specific
-        position instead.
+        a ``mouse_move`` before clicking.  If the transport raises
+        ``RuntimeError`` (e.g. CUA transport before any ``mouse_move``), that
+        error propagates immediately.  Pass a ``coordinate`` to the top-level
+        ``computer('triple_click', coordinate=...)`` call to avoid this.
+        Transports that do not implement ``cursor_position`` at all
+        (``NotImplementedError`` / ``AttributeError``) proceed directly to the
+        three ``left_click`` calls.
         """
         try:
             x, y = self.cursor_position()
             self.mouse_move(x, y)
-        except (RuntimeError, NotImplementedError, AttributeError):
+        except (NotImplementedError, AttributeError):
             pass
         self.left_click()
         self.left_click()
