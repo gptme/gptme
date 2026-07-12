@@ -1793,7 +1793,12 @@ def computer(
         # burning CPU on long waits.
         poll_interval = 0.05
         max_poll_interval = 0.5
-        change_threshold = 0.01  # 1% of pixels must differ
+        # 0.2% threshold — must match _poll_for_change (transport path).
+        # The old 1% threshold caused "No screen change detected" even when the
+        # xterm had updated: typing a short command changes only ~0.3–0.5% of a
+        # 1024×768 screen (issue #216). PNG is lossless so identical frames are
+        # always exactly 0.0%, making false positives impossible in Xvfb.
+        change_threshold = 0.002
         baseline = screenshot()
         deadline = _monotonic() + timeout
         while _monotonic() < deadline:

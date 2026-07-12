@@ -1393,6 +1393,58 @@ def test_wait_for_change_polls_with_backoff(mock_transport, mock_res, tmp_path):
     assert sleep_calls[2] == pytest.approx(0.20)  # 200ms after second backoff
 
 
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_LINUX_RES_WFC
+)
+@mock.patch("gptme.tools.computer.get_transport", return_value=None)
+def test_wait_for_change_detects_small_change(mock_transport, mock_res, tmp_path):
+    """wait_for_change must detect small pixel changes (~0.3%) typical of terminal output.
+
+    Regression test for issue #216: typing a short command in a terminal changes
+    only ~0.3-0.5% of a 1024x768 screen.  The old 1% threshold missed these small
+    changes and produced spurious "No screen change detected" messages.  The correct
+    0.2% threshold catches them.
+
+    This test uses a 100x100 image where 30 pixels (0.3%) change colour: above the
+    0.2% threshold but below the old 1% threshold.
+    """
+    from PIL import Image
+
+    # 100x100 image; 30 pixels differ = 0.3% change.
+    # 0.3% >= 0.2% (new threshold) → must be detected.
+    # 0.3% <  1.0% (old threshold) → would NOT have been detected.
+    baseline_img = Image.new("RGB", (100, 100), (0, 0, 0))
+    changed_img = baseline_img.copy()
+    for x in range(30):
+        changed_img.putpixel((x, 0), (255, 255, 255))
+
+    baseline = tmp_path / "baseline.png"
+    changed = tmp_path / "changed.png"
+    baseline_img.save(baseline)
+    changed_img.save(changed)
+
+    call_count = {"n": 0}
+
+    def _fake_screenshot():
+        call_count["n"] += 1
+        return baseline if call_count["n"] == 1 else changed
+
+    with (
+        mock.patch("gptme.tools.computer.screenshot", side_effect=_fake_screenshot),
+        mock.patch("gptme.tools.computer._sleep"),
+        mock.patch(
+            "gptme.tools.computer._make_screenshot_msg", return_value=mock.sentinel.msg
+        ),
+    ):
+        result = computer("wait_for_change", text="5")
+
+    assert result is mock.sentinel.msg, (
+        "wait_for_change did not detect a 0.3% pixel change — "
+        "threshold may be set too high (old 1% threshold caused issue #216 terminal delays)"
+    )
+
+
 # ============================================================
 # window_focus action tests
 # ============================================================
