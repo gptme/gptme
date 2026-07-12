@@ -406,16 +406,22 @@ def proactive_summarize_log(
                     i += 1
                     pinned_middle.append(middle[i])
         else:
-            # A non-pinned tool-use whose immediately following message is a pinned
-            # tool result must travel to pinned_middle — the pinned result requires
-            # its anchor, and the result IS pinned so it will be preserved.
-            if (
-                message_contains_tool_use(m)
-                and i + 1 < len(middle)
-                and middle[i + 1].pinned
-                and middle[i + 1].role == "system"
-            ):
-                pinned_middle.append(m)
+            if message_contains_tool_use(m):
+                # Scan ALL consecutive system messages (tool results) following
+                # this anchor.  If ANY is pinned the entire chain must travel to
+                # pinned_middle — a pinned result requires its anchor and all
+                # sibling results before it; separating them causes provider
+                # validation errors (tool-use with missing or partial results).
+                j = i + 1
+                while j < len(middle) and middle[j].role == "system":
+                    j += 1
+                result_msgs = middle[i + 1 : j]
+                if any(r.pinned for r in result_msgs):
+                    pinned_middle.append(m)
+                    pinned_middle.extend(result_msgs)
+                    i = j - 1  # outer i += 1 will advance past all results
+                else:
+                    summarize_middle.append(m)
             else:
                 summarize_middle.append(m)
         i += 1
