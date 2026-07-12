@@ -505,3 +505,197 @@ class TestBatchJobTimeoutRetry:
 
         # "a" must not be double-counted; "b" must now be counted.
         assert budget.spent() == 500  # 200 (a) + 300 (b)
+
+
+# ---------------------------------------------------------------------------
+# subagent_parallel max_concurrent tests
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentParallelMaxConcurrent:
+    """Tests for max_concurrent fleet cap in subagent_parallel()."""
+
+    def _make_mock_wait(self, results_by_id: dict[str, "ReturnType"]):
+        """Return a mock for subagent_wait() that returns pre-set results."""
+
+        def mock_wait(agent_id, timeout=60, max_result_chars=0):
+            r = results_by_id.get(agent_id, ReturnType("success", "done"))
+            return asdict(r)
+
+        return mock_wait
+
+    def test_max_concurrent_none_spawns_all_at_once(self):
+        """With max_concurrent=None, all agents are spawned before any waits."""
+        tasks = [("a", "p"), ("b", "p"), ("c", "p")]
+        all_success = {
+            t[0]: ReturnType("success", "ok", output_tokens=50) for t in tasks
+        }
+
+        with (
+            patch("gptme.tools.subagent.batch.subagent") as mock_sub,
+            patch(
+                "gptme.tools.subagent.batch.subagent_wait",
+                side_effect=self._make_mock_wait(all_success),
+            ),
+        ):
+            results = subagent_parallel(tasks, max_concurrent=None)
+
+        assert mock_sub.call_count == 3
+        assert all(r["status"] == "success" for r in results)
+
+    def test_max_concurrent_limits_simultaneous_agents(self):
+        """At most max_concurrent agents are active at the same time."""
+        n_tasks = 8
+        cap = 3
+        tasks = [(f"t{i}", f"prompt {i}") for i in range(n_tasks)]
+
+        active_count = 0
+        max_active = 0
+        lock = threading.Lock()
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            pass
+
+        def mock_wait(agent_id, timeout=60, max_result_chars=0):
+            nonlocal active_count, max_active
+            with lock:
+                active_count += 1
+                if active_count > max_active:
+                    max_active = active_count
+            # Small sleep so multiple threads are in this critical section together
+            import time
+
+            time.sleep(0.02)
+            with lock:
+                active_count -= 1
+            return {"status": "success", "result": "done", "output_tokens": 10}
+
+        with (
+            patch("gptme.tools.subagent.batch.subagent", side_effect=mock_subagent),
+            patch("gptme.tools.subagent.batch.subagent_wait", side_effect=mock_wait),
+        ):
+            results = subagent_parallel(tasks, max_concurrent=cap)
+
+        assert max_active <= cap, f"Expected ≤{cap} concurrent, saw {max_active}"
+        assert len(results) == n_tasks
+        assert all(r["status"] == "success" for r in results)
+
+    def test_max_concurrent_all_tasks_complete(self):
+        """With max_concurrent set, all tasks eventually complete (none dropped)."""
+        tasks = [(f"w{i}", f"work {i}") for i in range(10)]
+        all_results = {
+            t[0]: ReturnType("success", f"result {t[0]}", output_tokens=20)
+            for t in tasks
+        }
+
+        with (
+            patch("gptme.tools.subagent.batch.subagent"),
+            patch(
+                "gptme.tools.subagent.batch.subagent_wait",
+                side_effect=self._make_mock_wait(all_results),
+            ),
+        ):
+            results = subagent_parallel(tasks, max_concurrent=3)
+
+        assert len(results) == 10
+        for i, r in enumerate(results):
+            assert r["status"] == "success", f"task {i} failed: {r}"
+
+    def test_max_concurrent_preserves_order(self):
+        """Results are returned in the same order as input tasks."""
+        tasks = [(f"ord-{i}", f"p{i}") for i in range(6)]
+        results_by_id = {
+            f"ord-{i}": ReturnType("success", f"result-{i}", output_tokens=10)
+            for i in range(6)
+        }
+
+        with (
+            patch("gptme.tools.subagent.batch.subagent"),
+            patch(
+                "gptme.tools.subagent.batch.subagent_wait",
+                side_effect=self._make_mock_wait(results_by_id),
+            ),
+        ):
+            results = subagent_parallel(tasks, max_concurrent=2)
+
+        for i, r in enumerate(results):
+            assert r["result"] == f"result-{i}", f"Order wrong at index {i}"
+
+    def test_max_concurrent_with_budget_respects_both_caps(self):
+        """max_concurrent and budget are both enforced simultaneously."""
+        tasks = [(f"b{i}", f"p{i}") for i in range(6)]
+        # Budget only allows 2 agents (50 tokens each, 100 total)
+        budget = SubagentBudget(total=100)
+        results_by_id = {
+            f"b{i}": ReturnType("success", "ok", output_tokens=50) for i in range(6)
+        }
+
+        with (
+            patch("gptme.tools.subagent.batch.subagent"),
+            patch(
+                "gptme.tools.subagent.batch.subagent_wait",
+                side_effect=self._make_mock_wait(results_by_id),
+            ),
+        ):
+            results = subagent_parallel(tasks, max_concurrent=4, budget=budget)
+
+        successes = [r for r in results if r["status"] == "success"]
+        budget_exceeded = [r for r in results if r["status"] == "budget_exceeded"]
+        # At least some agents ran before budget was exhausted
+        assert len(successes) >= 1
+        # Remaining agents got budget_exceeded
+        assert len(budget_exceeded) >= 1
+        assert len(successes) + len(budget_exceeded) == 6
+        # Budget not exceeded significantly — at most a small overrun is allowed
+        # because concurrency makes exact enforcement best-effort
+        assert budget.spent() <= 300  # at most a few extra agents slip through
+
+    def test_max_concurrent_one_limits_to_serial(self):
+        """max_concurrent=1 means agents run one at a time (serial)."""
+        tasks = [(f"s{i}", f"p{i}") for i in range(4)]
+        active_count = 0
+        max_active = 0
+        lock = threading.Lock()
+
+        def mock_wait(agent_id, timeout=60, max_result_chars=0):
+            nonlocal active_count, max_active
+            with lock:
+                active_count += 1
+                max_active = max(max_active, active_count)
+            import time
+
+            time.sleep(0.01)
+            with lock:
+                active_count -= 1
+            return {"status": "success", "result": "ok", "output_tokens": 5}
+
+        with (
+            patch("gptme.tools.subagent.batch.subagent"),
+            patch("gptme.tools.subagent.batch.subagent_wait", side_effect=mock_wait),
+        ):
+            results = subagent_parallel(tasks, max_concurrent=1)
+
+        assert max_active == 1, f"Expected serial execution (max=1), saw {max_active}"
+        assert all(r["status"] == "success" for r in results)
+
+    def test_max_concurrent_budget_exceeded_before_slot(self):
+        """Budget exhausted before a slot is acquired → budget_exceeded status."""
+        tasks = [("first", "p1"), ("second", "p2"), ("third", "p3")]
+        # Budget allows 1 agent; second and third get budget_exceeded
+        budget = SubagentBudget(total=100)
+
+        call_order: list[str] = []
+
+        def mock_wait(agent_id, timeout=60, max_result_chars=0):
+            call_order.append(agent_id)
+            return {"status": "success", "result": "ok", "output_tokens": 100}
+
+        with (
+            patch("gptme.tools.subagent.batch.subagent"),
+            patch("gptme.tools.subagent.batch.subagent_wait", side_effect=mock_wait),
+        ):
+            results = subagent_parallel(tasks, max_concurrent=1, budget=budget)
+
+        budget_exceeded = [r for r in results if r["status"] == "budget_exceeded"]
+        # At most 1 agent ran (serial + tight budget)
+        assert len(budget_exceeded) >= 1

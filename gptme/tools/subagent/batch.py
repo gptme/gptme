@@ -600,6 +600,7 @@ def subagent_batch(
 def subagent_parallel(
     tasks: list[tuple[str, str]],
     timeout: int = 300,
+    max_concurrent: int | None = None,
     use_subprocess: bool = False,
     use_acp: bool = False,
     acp_command: str = "gptme-acp",
@@ -630,6 +631,12 @@ def subagent_parallel(
             unique within this call.
         timeout: Maximum seconds to wait for all subagents to finish. Agents
             that exceed this deadline are reported with status ``"timeout"``.
+        max_concurrent: Maximum number of subagents to run at the same time.
+            When set, excess tasks are queued and spawned as earlier agents
+            complete — this never raises an error, it only limits concurrency.
+            Pass ``None`` (default) to spawn all tasks simultaneously.
+            Useful for large fan-outs where running too many agents at once
+            would exhaust system resources or API rate limits.
         use_subprocess: If True, run each subagent in a subprocess for output
             isolation. Subprocess mode captures stdout/stderr separately and
             supports hard-kill on timeout.
@@ -740,9 +747,40 @@ def subagent_parallel(
         while not budget.exhausted():
             results = subagent_parallel(next_batch, budget=budget)
             # items skipped after budget exhaustion have status="budget_exceeded"
+
+        # Fleet cap: run at most 4 agents at a time, queueing the rest
+        results = subagent_parallel(
+            [("task-1", "..."), ("task-2", "..."), ("task-3", "..."), ("task-4", "..."),
+             ("task-5", "..."), ("task-6", "...")],
+            max_concurrent=4,
+        )
+        # task-5 and task-6 start only after earlier slots free up
     """
     if not tasks:
         return []
+
+    # When max_concurrent is set, use a ThreadPoolExecutor where each worker
+    # does spawn+wait — this naturally queues excess tasks and respects the cap.
+    if max_concurrent is not None:
+        return _subagent_parallel_capped(
+            tasks=tasks,
+            max_concurrent=max_concurrent,
+            timeout=timeout,
+            use_subprocess=use_subprocess,
+            use_acp=use_acp,
+            acp_command=acp_command,
+            model=model,
+            profile=profile,
+            isolated=isolated,
+            isolation=isolation,
+            output_schema=output_schema,
+            workdir=workdir,
+            context_turns=context_turns,
+            context_window=context_window,
+            redact_secrets=redact_secrets,
+            cancel_on_failure=cancel_on_failure,
+            budget=budget,
+        )
 
     # Track which agent_ids were skipped due to budget exhaustion vs actually started.
     started_ids: list[str] = []
@@ -809,6 +847,122 @@ def subagent_parallel(
             )
         )
         for agent_id, _ in tasks
+    ]
+    if output_schema is not None:
+        return [_parse_result(r, output_schema) for r in raw_results]
+    return raw_results
+
+
+def _subagent_parallel_capped(
+    tasks: list[tuple[str, str]],
+    max_concurrent: int,
+    timeout: int,
+    use_subprocess: bool,
+    use_acp: bool,
+    acp_command: str,
+    model: str | None,
+    profile: str | None,
+    isolated: bool,
+    isolation: "Literal['worktree'] | None",
+    output_schema: "type | dict | None",
+    workdir: "str | Path | None",
+    context_turns: "int | None",
+    context_window: "int | None",
+    redact_secrets: bool,
+    cancel_on_failure: bool,
+    budget: "SubagentBudget | None",
+) -> list[dict]:
+    """Spawn+wait each task with at most max_concurrent running simultaneously.
+
+    Uses a ThreadPoolExecutor so excess tasks are naturally queued.
+    Each worker acquires a slot, checks the budget, spawns, waits, records tokens.
+    """
+    deadline = time.monotonic() + timeout
+    results_map: dict[str, dict] = {}
+    results_lock = threading.Lock()
+    cancel_event = threading.Event()
+
+    _budget_exceeded = asdict(
+        ReturnType("budget_exceeded", "Budget exhausted before this agent could start")
+    )
+
+    def run_one(agent_id: str, prompt: str) -> tuple[str, dict]:
+        # Fast-exit if a sibling failure triggered cancellation.
+        if cancel_event.is_set():
+            return agent_id, asdict(
+                ReturnType("cancelled", "Cancelled due to sibling failure")
+            )
+
+        # Budget check at the moment this slot is acquired.
+        if budget is not None and budget.exhausted():
+            return agent_id, _budget_exceeded
+
+        remaining_secs = max(1, int(deadline - time.monotonic()))
+        if remaining_secs <= 0:
+            return agent_id, asdict(
+                ReturnType("timeout", f"Timed out after {timeout}s")
+            )
+
+        try:
+            subagent(
+                agent_id=agent_id,
+                prompt=prompt,
+                use_subprocess=use_subprocess,
+                use_acp=use_acp,
+                acp_command=acp_command,
+                model=model,
+                profile=profile,
+                isolated=isolated,
+                isolation=isolation,
+                output_schema=output_schema,
+                workdir=workdir,
+                context_turns=context_turns,
+                context_window=context_window,
+                redact_secrets=redact_secrets,
+            )
+        except Exception as exc:
+            return agent_id, asdict(ReturnType("failure", str(exc)))
+
+        try:
+            result = subagent_wait(agent_id, timeout=remaining_secs, max_result_chars=0)
+        except Exception as exc:
+            return agent_id, asdict(ReturnType("failure", str(exc)))
+
+        # Record output tokens in the shared budget.
+        if budget is not None:
+            out_tok = result.get("output_tokens")
+            if out_tok is not None:
+                budget.record(out_tok)
+
+        # Trigger cancellation if this agent failed and fail-fast is on.
+        if cancel_on_failure and result.get("status") in ("failure", "timeout"):
+            cancel_event.set()
+
+        return agent_id, result
+
+    with ThreadPoolExecutor(max_workers=max_concurrent) as pool:
+        futures: dict[Future[tuple[str, dict]], str] = {
+            pool.submit(run_one, aid, prompt): aid for aid, prompt in tasks
+        }
+        try:
+            for future in as_completed(futures, timeout=timeout):
+                aid, result = future.result()
+                with results_lock:
+                    results_map[aid] = result
+        except FuturesTimeoutError:
+            for f, aid in futures.items():
+                if not f.done():
+                    with results_lock:
+                        if aid not in results_map:
+                            results_map[aid] = asdict(
+                                ReturnType("timeout", f"Timed out after {timeout}s")
+                            )
+
+    raw_results = [
+        results_map.get(
+            aid, asdict(ReturnType("failure", "No result (timeout or missing)"))
+        )
+        for aid, _ in tasks
     ]
     if output_schema is not None:
         return [_parse_result(r, output_schema) for r in raw_results]
