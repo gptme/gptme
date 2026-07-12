@@ -202,6 +202,10 @@ class BatchJob:
                 # when the agent eventually finishes in a later call.
                 if aid not in self.results or self.results[aid].status == "timeout"
             }
+            # Reverse lookup so the cancel_on_failure path can collect real
+            # results from concurrently-completed futures before writing synthetic
+            # placeholders (otherwise output_tokens can be silently lost).
+            agent_to_future = {aid: f for f, aid in futures.items()}
             try:
                 for future in as_completed(futures, timeout=timeout):
                     agent_id, result = future.result()
@@ -225,7 +229,18 @@ class BatchJob:
                                 pass  # Agent already finished
                             with self._lock:
                                 if aid_to_cancel not in self.results:
-                                    self.results[aid_to_cancel] = ReturnType(
+                                    # Prefer the real result if the future has already
+                                    # completed concurrently — preserves output_tokens
+                                    # for accurate budget accounting instead of losing
+                                    # them to a synthetic placeholder with None tokens.
+                                    f = agent_to_future.get(aid_to_cancel)
+                                    real: ReturnType | None = None
+                                    if f is not None and f.done() and not f.cancelled():
+                                        try:
+                                            _, real = f.result()
+                                        except Exception:
+                                            pass
+                                    self.results[aid_to_cancel] = real or ReturnType(
                                         "failure", "Cancelled due to sibling failure"
                                     )
                         # Signal workers to exit poll loops, then exit the loop.
