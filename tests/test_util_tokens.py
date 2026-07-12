@@ -377,6 +377,15 @@ def test_get_tokenizer_timeout_not_cached(monkeypatch):
         assert model not in tokens_mod._tokenizer_cache
         hang_event.set()  # unblock daemon thread
 
+        # Wait for the in-flight thread to finish its cleanup before retrying.
+        # Without this wait the second get_tokenizer call might join the still-running
+        # first thread (which used the _hang loader) instead of starting a fresh one.
+        import time
+
+        deadline = time.monotonic() + 1.0
+        while tokens_mod._inflight_loads and time.monotonic() < deadline:
+            time.sleep(0.001)
+
         # Second call: replace with a fast-returning loader to confirm retry happens
         fake_enc = object()
         load_called: list[str] = []
@@ -422,4 +431,43 @@ def test_get_tokenizer_successful_load_is_cached(monkeypatch):
             "Second call should be served from cache, not reload"
         )
     finally:
+        tokens_mod.get_tokenizer.cache_clear()
+
+
+def test_get_tokenizer_no_duplicate_threads(monkeypatch):
+    """Repeated calls during a timeout reuse the in-flight thread, not spawn new ones.
+
+    Regression test: in an airgapped/local-model session len_tokens() is called
+    repeatedly (once per message). Each call used to start a new daemon thread for
+    the same stuck encoding download, accumulating unbounded blocked threads.
+    """
+    import threading
+
+    import gptme.util.tokens as tokens_mod
+
+    tokens_mod.get_tokenizer.cache_clear()
+    model = "local/model-thread-dedup"
+    hang_event = threading.Event()
+    load_calls: list[str] = []
+
+    def _hang(name: str) -> None:
+        load_calls.append(name)
+        hang_event.wait()
+
+    monkeypatch.setattr(tokens_mod, "_load_encoding", _hang)
+    monkeypatch.setattr(tokens_mod, "_TIKTOKEN_TIMEOUT", 0.05)
+
+    try:
+        # Two sequential calls while the encoding thread is blocked.
+        # Both should time out and return None; only one thread should be created.
+        result1 = tokens_mod.get_tokenizer(model)
+        result2 = tokens_mod.get_tokenizer(model)
+
+        assert result1 is None
+        assert result2 is None
+        assert len(load_calls) == 1, (
+            f"Expected exactly one _load_encoding call (one thread), got {len(load_calls)}: {load_calls}"
+        )
+    finally:
+        hang_event.set()
         tokens_mod.get_tokenizer.cache_clear()
