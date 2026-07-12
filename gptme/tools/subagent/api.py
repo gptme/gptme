@@ -1167,22 +1167,25 @@ def subagent_steer(agent_id: str, message: str) -> str:
             "for ACP subagents — they run in a separate harness with no shared logdir channel."
         )
 
-    if not sa.is_running():
+    pre_status = sa.status().status
+    if pre_status != "running":
         raise ValueError(
-            f"Subagent '{agent_id}' is not running (status: {sa.status().status}). "
+            f"Subagent '{agent_id}' is not running (status: {pre_status}). "
             "Only active subagents can be steered. "
             "For clarification_needed subagents, use subagent_reply() to re-spawn them."
         )
 
     queue_prompt(sa.logdir, message)
 
-    # Re-check is_running() after queuing to detect the race where the subagent
-    # exits between the initial check and the queue write. If it's no longer
-    # running, the queued message will never be drained.
-    if not sa.is_running():
+    # Re-check status() after queuing to detect the race where the subagent exits
+    # between the initial check and the queue write. Using status() (not is_running())
+    # catches the thread-mode "cleanup window": the thread is still alive, but chat()
+    # has returned and the result is already cached — is_running() would falsely pass.
+    post_status = sa.status().status
+    if post_status != "running":
         raise ValueError(
             f"Subagent '{agent_id}' exited after steering message was queued. "
-            "The message may not be processed. Status: {sa.status().status}"
+            f"The message may not be processed. Status: {post_status}"
         )
 
     logger.info(f"Steering message queued for subagent '{agent_id}': {message[:80]!r}")

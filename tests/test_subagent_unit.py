@@ -6105,12 +6105,12 @@ class TestSubagentSteer:
         logdir = tmp_path / "steer-race-detect"
         logdir.mkdir()
         mock_thread = MagicMock(spec=threading.Thread)
-        # Default to False for teardown cleanup calls, but override with side_effect
-        # for the test scenario (True on first check, False on second check after
-        # queuing). This prevents the mock from running out of side_effect values
-        # when teardown calls is_alive() a third time.
-        mock_thread.is_alive.return_value = False
-        mock_thread.is_alive.side_effect = [True, False]
+        # side_effect order: [pre-check, post-check, conftest teardown]
+        # Three calls total: status() pre-check, status() post-check,
+        # and cleanup_subagents_after fixture calling thread.is_alive() directly.
+        # When side_effect list is exhausted it raises StopIteration (overrides
+        # return_value), so the list must cover all calls.
+        mock_thread.is_alive.side_effect = [True, False, False]
         sa = Subagent(
             agent_id="race-agent",
             prompt="test",
@@ -6126,3 +6126,32 @@ class TestSubagentSteer:
             ValueError, match="exited after steering message was queued"
         ):
             subagent_steer("race-agent", "steer me")
+
+    def test_steer_cleanup_window_raises(self, tmp_path):
+        """subagent_steer raises when the subagent is in the cleanup window.
+
+        Thread-mode: the wrapper thread is still alive (is_alive()=True) but
+        chat() has already returned and the result is cached in _subagent_results.
+        is_running() would falsely pass; status() correctly returns the terminal status.
+        """
+        logdir = tmp_path / "steer-cleanup-window"
+        logdir.mkdir()
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True  # thread alive (cleanup still running)
+        sa = Subagent(
+            agent_id="cleanup-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        # Simulate the result being cached (as set_subagent_result_if_absent does)
+        # while the wrapper thread is still alive doing post-chat cleanup.
+        with _subagent_results_lock:
+            _subagent_results["cleanup-agent"] = ReturnType("success", "done")
+
+        with pytest.raises(ValueError, match="not running"):
+            subagent_steer("cleanup-agent", "too late")
