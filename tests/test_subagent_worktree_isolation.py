@@ -21,6 +21,7 @@ import gptme.tools.subagent.execution as subagent_execution
 from gptme.tools.subagent.api import subagent
 from gptme.tools.subagent.batch import subagent_parallel
 from gptme.tools.subagent.types import (
+    ReturnType,
     _subagent_results,
     _subagent_results_lock,
     _subagents,
@@ -450,3 +451,130 @@ def test_concurrent_worktrees_are_isolated(tmp_path):
     finally:
         cleanup_worktree(wt_a, repo)
         cleanup_worktree(wt_b, repo)
+
+
+# ---------------------------------------------------------------------------
+# Preserved branch must reach the caller even when the normal completion
+# path loses a caching race, or never caches at all before cleanup runs.
+# ---------------------------------------------------------------------------
+
+
+def test_subprocess_monitor_patches_branch_when_result_already_cached(tmp_path):
+    """Subprocess mode: a preserved branch is patched onto a result that a
+    timeout/cancel watchdog already cached before cleanup completed.
+
+    Regression test for a Greptile P1 finding: previously the subprocess
+    monitor discarded ``preserved_branch`` when ``set_subagent_result_if_absent``
+    lost the race, unlike the thread-mode fallback.
+    """
+    from unittest.mock import MagicMock
+
+    from gptme.tools.subagent.types import Subagent
+
+    repo = _make_repo(tmp_path, "repo-subprocess-race")
+    from gptme.util.git_worktree import create_worktree
+
+    wt = create_worktree(
+        repo, branch_name="subprocess-race-wt", worktree_base=tmp_path / "wts"
+    )
+    (wt / "output.txt").write_text("agent result\n")  # dirty the worktree
+
+    mock_proc = MagicMock()
+    mock_proc.wait.return_value = 0
+    mock_proc.returncode = 0
+
+    sa = Subagent(
+        agent_id="subprocess-race",
+        prompt="task",
+        thread=None,
+        logdir=tmp_path / "log",
+        model=None,
+        process=mock_proc,
+        execution_mode="subprocess",
+        isolated=True,
+        isolation_mode="worktree",
+        worktree_path=wt,
+        repo_path=repo,
+    )
+    with _subagents_lock:
+        _subagents.append(sa)
+
+    # Simulate the timeout/cancel watchdog winning the cache race before
+    # _monitor_subprocess reaches its own set_subagent_result_if_absent call.
+    with _subagent_results_lock:
+        _subagent_results["subprocess-race"] = ReturnType(
+            "timeout", "Auto-cancelled after 5s (max_time exceeded)"
+        )
+
+    subagent_execution._monitor_subprocess(sa)
+
+    assert not wt.exists(), "Worktree directory should still be cleaned up"
+    with _subagent_results_lock:
+        result = _subagent_results["subprocess-race"]
+    assert result.status == "timeout", "Cached status should be left untouched"
+    assert result.result is not None
+    assert "Changes preserved on branch" in result.result, (
+        "Preserved branch must be patched onto the already-cached result"
+    )
+    assert "subprocess-race-wt" in result.result
+
+
+def test_acp_cleanup_patches_branch_onto_cached_result(tmp_path, monkeypatch):
+    """ACP mode: a preserved worktree branch is patched onto the cached result.
+
+    Regression test for a Greptile P1 finding: the ACP path runs
+    ``_cleanup_isolation()`` from a ``finally`` block after the result has
+    already been cached, and previously discarded the returned branch name.
+    """
+    import gptme.acp.client as acp_client
+
+    cli_main = importlib.import_module("gptme.cli.main")
+    logdir = tmp_path / "subagent-acp-branch"
+    monkeypatch.setattr(cli_main, "get_logdir", lambda name: logdir)
+
+    repo = _make_repo(tmp_path, "repo-acp-branch")
+
+    class FakeRunResult:
+        stop_reason = "end_turn"
+
+    class FakeAcpClient:
+        def __init__(self, *args, on_update=None, **kwargs):
+            self.on_update = on_update
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def run(self, prompt, cwd=None):
+            # Simulate the agent leaving uncommitted work in its worktree.
+            (Path(cwd) / "output.txt").write_text("acp agent result\n")
+            return FakeRunResult()
+
+    monkeypatch.setattr(acp_client, "GptmeAcpClient", FakeAcpClient)
+
+    subagent_api.subagent(
+        "acp-branch",
+        "test prompt",
+        use_acp=True,
+        isolation="worktree",
+        workdir=str(repo),
+    )
+
+    with _subagents_lock:
+        sa = next(s for s in _subagents if s.agent_id == "acp-branch")
+    assert sa.thread is not None
+    sa.thread.join(timeout=5)
+    assert not sa.thread.is_alive()
+
+    with _subagent_results_lock:
+        result = _subagent_results["acp-branch"]
+    assert result.status == "success"
+    assert result.result is not None
+    assert "Changes preserved on branch" in result.result, (
+        "Preserved branch must be patched onto the ACP result after cleanup"
+    )
+    assert "subagent-acp-branch-" in result.result
+    assert sa.worktree_path is not None
+    assert not sa.worktree_path.exists(), "Worktree directory should be cleaned up"

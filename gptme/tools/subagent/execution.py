@@ -733,6 +733,7 @@ def _monitor_subprocess(
     from .types import (
         ReturnType,
         set_subagent_result_if_absent,
+        update_subagent_result_with_branch,
     )
 
     if not subagent.process:
@@ -808,6 +809,11 @@ def _monitor_subprocess(
         output_tokens=output_tokens,
     )
     if not set_subagent_result_if_absent(subagent.agent_id, final_result):
+        # Timeout/cancel won the cache race. Patch the stored result with
+        # branch info (mirrors the thread-mode fallback in api.py) so
+        # callers can still find preserved work.
+        if preserved_branch:
+            update_subagent_result_with_branch(subagent.agent_id, preserved_branch)
         return
 
     # Notify via hook system (fire-and-forget-then-get-alerted pattern)

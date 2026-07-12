@@ -631,7 +631,14 @@ def subagent(
                             (s for s in _subagents if s.agent_id == agent_id), None
                         )
                     if sa_ref:
-                        _exec._cleanup_isolation(sa_ref)
+                        # ACP always caches a result above before reaching this
+                        # cleanup, so patch the already-stored result with any
+                        # preserved branch (mirrors the thread-mode fallback).
+                        preserved_branch = _exec._cleanup_isolation(sa_ref)
+                        if preserved_branch:
+                            update_subagent_result_with_branch(
+                                agent_id, preserved_branch
+                            )
             finally:
                 _sem.release()
 
