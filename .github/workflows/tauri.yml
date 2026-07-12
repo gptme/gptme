@@ -438,6 +438,7 @@ jobs:
         with:
           name: sidecar-${{ matrix.os }}
           path: tauri/bins/gptme-server-*
+          overwrite: true
 
   release:
     name: Release (${{ matrix.platform }})
@@ -814,6 +815,7 @@ jobs:
           path: |
             tauri/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
             tauri/src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
+          overwrite: true
 
   release-android:
     name: Release Android
