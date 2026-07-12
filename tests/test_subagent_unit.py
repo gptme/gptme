@@ -17,7 +17,7 @@ import pytest
 import gptme.tools.subagent.api as subagent_api
 import gptme.tools.subagent.execution as subagent_execution
 import gptme.tools.subagent.types as subagent_types
-from gptme.tools.subagent.api import subagent, subagent_cancel
+from gptme.tools.subagent.api import subagent, subagent_cancel, subagent_steer
 from gptme.tools.subagent.batch import BatchJob
 from gptme.tools.subagent.execution import _monitor_subprocess
 from gptme.tools.subagent.hooks import (
@@ -5484,3 +5484,143 @@ class TestSubagentParallelCancelOnFailure:
         third_idx = 2
         assert results[third_idx]["status"] == "failure"
         assert results[third_idx]["result"] == "third failed"
+
+
+# ---------------------------------------------------------------------------
+# subagent_steer tests
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentSteer:
+    """Tests for subagent_steer() — in-flight orchestrator-to-subagent messaging."""
+
+    _logdir = Path("/tmp/test-steer-log")
+
+    def setup_method(self, tmp_path_factory=None):
+        """Clear global subagent registry and steer queue before each test."""
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
+    def _register(
+        self,
+        agent_id: str,
+        logdir: Path | None = None,
+        execution_mode: Literal["thread", "subprocess", "acp"] = "thread",
+        **kwargs,
+    ) -> Subagent:
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt="test",
+            thread=kwargs.get("thread", mock_thread),
+            logdir=logdir or self._logdir,
+            model=None,
+            execution_mode=execution_mode,
+            process=kwargs.get("process"),
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        return sa
+
+    def test_steer_unknown_raises(self):
+        """subagent_steer raises ValueError when agent_id is unknown."""
+
+        with pytest.raises(ValueError, match="not found"):
+            subagent_steer("nonexistent", "change direction")
+
+    def test_steer_finished_subagent_raises(self):
+        """subagent_steer raises ValueError when the subagent has already finished."""
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = False
+        self._register("done-agent", thread=mock_thread)
+
+        with pytest.raises(ValueError, match="not running"):
+            subagent_steer("done-agent", "too late")
+
+    def test_steer_acp_mode_raises_not_implemented(self):
+        """subagent_steer raises NotImplementedError for ACP-mode subagents."""
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = Subagent(
+            agent_id="acp-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=self._logdir,
+            model=None,
+            execution_mode="acp",
+            use_acp=True,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        with pytest.raises(NotImplementedError, match="ACP mode"):
+            subagent_steer("acp-agent", "steer me")
+
+    def test_steer_writes_to_prompt_queue(self, tmp_path):
+        """subagent_steer queues the message via the file-based prompt queue."""
+        from gptme.prompt_queue import drain_prompt_queue
+
+        logdir = tmp_path / "subagent-steer-test"
+        logdir.mkdir()
+        self._register("running-agent", logdir=logdir)
+
+        result = subagent_steer("running-agent", "Focus on async frameworks only")
+
+        assert "queued" in result.lower()
+
+        # Verify the message was written to the prompt queue file
+        drained = drain_prompt_queue(logdir)
+        assert len(drained) == 1
+        assert "Focus on async frameworks only" in drained[0].content
+
+    def test_steer_multiple_messages_queued_in_order(self, tmp_path):
+        """Multiple steer calls append messages in FIFO order."""
+        from gptme.prompt_queue import drain_prompt_queue
+
+        logdir = tmp_path / "subagent-steer-fifo"
+        logdir.mkdir()
+        self._register("running-agent", logdir=logdir)
+
+        subagent_steer("running-agent", "First instruction")
+        subagent_steer("running-agent", "Second instruction")
+        subagent_steer("running-agent", "Third instruction")
+
+        drained = drain_prompt_queue(logdir)
+        assert len(drained) == 3
+        assert "First instruction" in drained[0].content
+        assert "Second instruction" in drained[1].content
+        assert "Third instruction" in drained[2].content
+
+    def test_steer_subprocess_mode_uses_logdir(self, tmp_path):
+        """subagent_steer works for subprocess-mode subagents via the same logdir channel."""
+        from gptme.prompt_queue import drain_prompt_queue
+
+        logdir = tmp_path / "subagent-subprocess-steer"
+        logdir.mkdir()
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # still running
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = Subagent(
+            agent_id="proc-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="subprocess",
+            process=mock_proc,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        result = subagent_steer("proc-agent", "Change focus to security issues")
+
+        assert "queued" in result.lower()
+        drained = drain_prompt_queue(logdir)
+        assert len(drained) == 1
+        assert "Change focus to security issues" in drained[0].content
