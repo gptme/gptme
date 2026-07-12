@@ -977,13 +977,35 @@ def _subagent_parallel_capped(
                 with results_lock:
                     results_map[aid] = result
         except FuturesTimeoutError:
+            # Stop queued workers from starting new agents and cancel in-flight ones.
+            cancel_event.set()
+            with inflight_lock:
+                for sibling_id in list(inflight_ids):
+                    try:
+                        subagent_cancel(sibling_id)
+                    except Exception:
+                        pass
+            for f in futures:
+                f.cancel()
             for f, aid in futures.items():
-                if not f.done():
-                    with results_lock:
-                        if aid not in results_map:
-                            results_map[aid] = asdict(
-                                ReturnType("timeout", f"Timed out after {timeout}s")
-                            )
+                with results_lock:
+                    if aid in results_map:
+                        continue
+                    if f.cancelled():
+                        results_map[aid] = asdict(
+                            ReturnType("cancelled", "Cancelled due to overall timeout")
+                        )
+                    elif f.done():
+                        # Completed on the timeout boundary but wasn't yielded by as_completed
+                        try:
+                            _, result = f.result()
+                        except Exception as exc:
+                            result = asdict(ReturnType("failure", str(exc)))
+                        results_map[aid] = result
+                    else:
+                        results_map[aid] = asdict(
+                            ReturnType("timeout", f"Timed out after {timeout}s")
+                        )
 
     raw_results = [
         results_map.get(

@@ -771,3 +771,54 @@ class TestSubagentParallelMaxConcurrent:
         # fast-fail should have triggered cancellation of "slow"
         assert any(r["status"] == "failure" for r in results)
         assert "slow" in cancelled_ids
+
+    def test_timeout_cancels_inflight_agents(self):
+        """Overall timeout cancels in-flight agents via subagent_cancel() and
+        stops queued workers from starting, rather than letting them run to their
+        natural timeout.
+
+        "blocking" sits inside mock_wait waiting to be released (simulating a
+        long-running agent). After the overall timeout fires, the fix should call
+        subagent_cancel("blocking"), which releases the wait and lets the test
+        complete quickly instead of hanging until the per-agent timeout.
+        """
+        released = threading.Event()
+        cancelled_ids: list[str] = []
+        cancel_lock = threading.Lock()
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            pass
+
+        def mock_wait(agent_id, timeout=60, max_result_chars=0):
+            if agent_id == "blocking":
+                released.wait(timeout=10)  # released by mock_cancel
+                return {"status": "success", "result": "ok", "output_tokens": 0}
+            return {"status": "success", "result": "ok", "output_tokens": 0}
+
+        def mock_cancel(agent_id):
+            with cancel_lock:
+                cancelled_ids.append(agent_id)
+            if agent_id == "blocking":
+                released.set()
+
+        with (
+            patch("gptme.tools.subagent.batch.subagent", side_effect=mock_subagent),
+            patch("gptme.tools.subagent.batch.subagent_wait", side_effect=mock_wait),
+            patch(
+                "gptme.tools.subagent.batch.subagent_cancel", side_effect=mock_cancel
+            ),
+        ):
+            results = subagent_parallel(
+                [("blocking", "p1"), ("queued", "p2")],
+                max_concurrent=1,
+                timeout=1,  # short timeout triggers the FuturesTimeoutError path
+            )
+
+        # "blocking" should have been cancelled on timeout
+        assert "blocking" in cancelled_ids
+        # All tasks should have a result — no "failure" fallback
+        assert len(results) == 2
+        statuses = {r["status"] for r in results}
+        assert statuses <= {"timeout", "cancelled", "success"}, (
+            f"Unexpected statuses: {statuses}"
+        )
