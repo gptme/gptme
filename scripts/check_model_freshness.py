@@ -42,6 +42,8 @@ MODEL_FILES = [
     "llm/models/data.py",
     "llm/__init__.py",
     "tools/morph.py",
+    "eval/main.py",
+    "eval/agents/swebench.py",
 ]
 
 # Matches quoted strings that look like OpenRouter-style "provider/model-name" IDs.
