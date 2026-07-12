@@ -939,6 +939,21 @@ def _subagent_parallel_capped(
 
         with inflight_lock:
             inflight_ids.add(agent_id)
+
+        # Race guard: cancel_on_failure can fire between the initial cancel_event
+        # check (above) and this registration. If so, the canceller already walked
+        # inflight_ids without seeing us. Cancel ourselves before entering the wait.
+        if cancel_event.is_set():
+            with inflight_lock:
+                inflight_ids.discard(agent_id)
+            try:
+                subagent_cancel(agent_id)
+            except Exception:
+                pass
+            return agent_id, asdict(
+                ReturnType("cancelled", "Cancelled due to sibling failure")
+            )
+
         try:
             result = subagent_wait(agent_id, timeout=remaining_secs, max_result_chars=0)
         except Exception as exc:

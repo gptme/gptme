@@ -867,3 +867,48 @@ class TestSubagentParallelMaxConcurrent:
         # Should return within 2× the overall timeout, not wait for the 5s worker
         assert elapsed < 3.0, f"shutdown blocked for {elapsed:.1f}s (expected <3s)"
         assert results[0]["status"] in {"timeout", "cancelled"}
+
+    def test_cancel_on_failure_race_between_check_and_inflight_registration(self):
+        """cancel_on_failure race: an agent spawns after the initial cancel_event check
+        but before it is added to inflight_ids. The post-registration guard must catch
+        this and cancel the newly spawned agent rather than leaving it running.
+        """
+        fast_failed = threading.Event()  # signalled when the fast agent reports failure
+        cancelled_ids: list[str] = []
+        cancel_lock = threading.Lock()
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            if agent_id == "slow-spawner":
+                # Block in spawn just long enough for "fast-fail" to finish
+                fast_failed.wait(timeout=5)
+
+        def mock_wait(agent_id, timeout=60, max_result_chars=0):
+            if agent_id == "fast-fail":
+                return {"status": "failure", "result": "boom", "output_tokens": 0}
+            # "slow-spawner" reaches here only if the race guard doesn't fire
+            return {"status": "success", "result": "ok", "output_tokens": 0}
+
+        def mock_cancel(agent_id):
+            with cancel_lock:
+                cancelled_ids.append(agent_id)
+            fast_failed.set()  # unblocks slow-spawner's spawn if still waiting
+
+        with (
+            patch("gptme.tools.subagent.batch.subagent", side_effect=mock_subagent),
+            patch("gptme.tools.subagent.batch.subagent_wait", side_effect=mock_wait),
+            patch(
+                "gptme.tools.subagent.batch.subagent_cancel", side_effect=mock_cancel
+            ),
+        ):
+            results = subagent_parallel(
+                [("fast-fail", "p1"), ("slow-spawner", "p2")],
+                max_concurrent=2,
+                cancel_on_failure=True,
+                timeout=5,
+            )
+
+        statuses_list = [r["status"] for r in results]
+        # "slow-spawner" must be cancelled (or cancelled-due-to-sibling) not "success"
+        assert "success" not in statuses_list, (
+            f"slow-spawner should have been cancelled, got statuses: {statuses_list}"
+        )
