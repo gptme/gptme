@@ -1,4 +1,4 @@
-"""Tests for gptme --from-turn session branching."""
+"""Tests for `gptme-util chats fork` session forking."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Literal
 import pytest
 from click.testing import CliRunner
 
-from gptme.cli.main import _slice_at_turn
+from gptme.cli.cmd_chats import _slice_at_turn
 from gptme.message import Message
 
 # ── _slice_at_turn unit tests ─────────────────────────────────────────
@@ -122,7 +122,7 @@ def test_slice_multi_assistant_same_turn():
     assert result[-1].content == "Tool result received."
 
 
-# ── --from-turn CLI integration tests ────────────────────────────────
+# ── gptme-util chats fork CLI integration tests ───────────────────────
 
 
 def _write_conversation(logdir: Path, messages: list[dict]) -> None:
@@ -151,60 +151,39 @@ def source_session(tmp_path: Path) -> Path:
     return logs_dir
 
 
-def test_slice_at_turn_requires_name_or_resume():
-    """--from-turn without --resume or --name should error."""
-    from gptme.cli.main import main
-
-    runner = CliRunner()
-    result = runner.invoke(main, ["--from-turn", "2"])
-    assert result.exit_code != 0
-    assert "--resume" in result.output or "--name" in result.output
-
-
-def test_from_turn_creates_branched_session(
-    source_session: Path, monkeypatch, tmp_path
-):
-    """--name src --from-turn 2 creates a new session with 2 turns."""
-    from gptme.cli.main import main
+def test_chats_fork_creates_forked_session(source_session: Path, monkeypatch):
+    """chats fork my-session --at-turn 2 --name my-fork creates a new session."""
+    from gptme.cli.cmd_chats import chats_fork
 
     logs_dir = source_session
-    monkeypatch.setattr("gptme.cli.main.get_logs_dir", lambda: logs_dir)
-    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+    monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: logs_dir)
 
     runner = CliRunner()
     result = runner.invoke(
-        main,
-        [
-            "--name",
-            "my-session",
-            "--from-turn",
-            "2",
-            "--branch",
-            "my-branch",
-            "--non-interactive",
-        ],
+        chats_fork,
+        ["my-session", "--at-turn", "2", "--name", "my-fork"],
         catch_exceptions=False,
     )
 
-    # Session was branched: new dir should exist with sliced messages
-    branch_dir = logs_dir / "my-branch"
-    assert branch_dir.exists(), f"Branch dir not created. Output:\n{result.output}"
-    conv = branch_dir / "conversation.jsonl"
+    assert result.exit_code == 0, f"Exit {result.exit_code}. Output:\n{result.output}"
+    fork_dir = logs_dir / "my-fork"
+    assert fork_dir.exists(), "Fork dir not created"
+    conv = fork_dir / "conversation.jsonl"
     assert conv.exists()
     messages = [json.loads(line) for line in conv.read_text().splitlines() if line]
     roles = [m["role"] for m in messages]
-    # Should have system + 2 user+assistant pairs = 5 messages
+    # system + 2 user+assistant pairs = 5 messages
     assert roles == ["system", "user", "assistant", "user", "assistant"]
 
 
-def test_from_turn_branch_name_collision(monkeypatch):
-    """--branch with an existing session name should error."""
-    from gptme.cli.main import main
+def test_chats_fork_name_collision(monkeypatch):
+    """Forking into an existing session name should error."""
+    from gptme.cli.cmd_chats import chats_fork
 
     runner = CliRunner()
     with runner.isolated_filesystem():
-        # Create an existing session
-        existing_dir = Path("logs/existing-session")
+        logs_dir = Path("logs")
+        existing_dir = logs_dir / "existing-session"
         _write_conversation(
             existing_dir,
             [
@@ -213,8 +192,7 @@ def test_from_turn_branch_name_collision(monkeypatch):
                 {"role": "assistant", "content": "Answer."},
             ],
         )
-        # Create a source session
-        src_dir = Path("logs/source-session")
+        src_dir = logs_dir / "source-session"
         _write_conversation(
             src_dir,
             [
@@ -226,46 +204,30 @@ def test_from_turn_branch_name_collision(monkeypatch):
             ],
         )
 
-        # Redirect get_logs_dir to use the isolated filesystem
-        logs_dir = Path("logs")
-        monkeypatch.setattr("gptme.cli.main.get_logs_dir", lambda: logs_dir)
-        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: logs_dir)
 
-        # Try to branch into the existing session name
         result = runner.invoke(
-            main,
-            [
-                "--name",
-                "source-session",
-                "--from-turn",
-                "1",
-                "--branch",
-                "existing-session",
-                "--non-interactive",
-            ],
+            chats_fork,
+            ["source-session", "--at-turn", "1", "--name", "existing-session"],
             catch_exceptions=False,
         )
 
-        # Should error on branch-name collision
         assert result.exit_code != 0
-        assert (
-            "already exists" in result.output or "choose a different" in result.output
-        )
+        assert "already exists" in result.output
 
 
-def test_from_turn_branch_name_collision_stale_state(monkeypatch):
-    """--branch into a dir with stale state (no conversation.jsonl) should also error."""
-    from gptme.cli.main import main
+def test_chats_fork_name_collision_stale_state(monkeypatch):
+    """Forking into a dir with stale state (no conversation.jsonl) should also error."""
+    from gptme.cli.cmd_chats import chats_fork
 
     runner = CliRunner()
     with runner.isolated_filesystem():
-        # Simulate an interrupted run: directory exists with config.toml but no conversation.jsonl
-        stale_dir = Path("logs/stale-branch")
+        logs_dir = Path("logs")
+        stale_dir = logs_dir / "stale-fork"
         stale_dir.mkdir(parents=True)
         (stale_dir / "config.toml").write_text("[session]\n")
 
-        # Create a source session
-        src_dir = Path("logs/source-session")
+        src_dir = logs_dir / "source-session"
         _write_conversation(
             src_dir,
             [
@@ -275,26 +237,13 @@ def test_from_turn_branch_name_collision_stale_state(monkeypatch):
             ],
         )
 
-        logs_dir = Path("logs")
-        monkeypatch.setattr("gptme.cli.main.get_logs_dir", lambda: logs_dir)
-        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: logs_dir)
 
         result = runner.invoke(
-            main,
-            [
-                "--name",
-                "source-session",
-                "--from-turn",
-                "1",
-                "--branch",
-                "stale-branch",
-                "--non-interactive",
-            ],
+            chats_fork,
+            ["source-session", "--at-turn", "1", "--name", "stale-fork"],
             catch_exceptions=False,
         )
 
-        # Stale state should be rejected the same as an existing conversation
         assert result.exit_code != 0
-        assert (
-            "already exists" in result.output or "choose a different" in result.output
-        )
+        assert "already exists" in result.output

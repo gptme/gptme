@@ -486,6 +486,123 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
         click.echo("\nDry run. Use --delete to remove these conversations.")
 
 
+def _slice_at_turn(messages: list, turn: int) -> list:
+    """Return messages up to the end of the Nth user turn (1-indexed).
+
+    Turn 0: system/pre-user messages only (no user input included).
+    Turn N: through the Nth complete user+assistant exchange.
+
+    If N exceeds the number of turns in the conversation, all messages
+    are returned (no truncation).
+    """
+    if turn < 0:
+        raise ValueError(f"Turn must be non-negative, got {turn}")
+
+    if turn == 0:
+        result = []
+        for msg in messages:
+            if msg.role == "user":
+                break
+            result.append(msg)
+        return result
+
+    user_count = 0
+    for i, msg in enumerate(messages):
+        if msg.role == "user":
+            user_count += 1
+            if user_count == turn:
+                # Include all messages through the rest of this exchange
+                # (up to but not including the next user message)
+                for j in range(i + 1, len(messages)):
+                    if messages[j].role == "user":
+                        return list(messages[:j])
+                # This was the last user turn — include all remaining
+                return list(messages)
+
+    # Requested turn exceeds available turns — include all messages
+    return list(messages)
+
+
+@chats.command("fork")
+@click.argument("id")
+@click.option(
+    "--at-turn",
+    "at_turn",
+    required=True,
+    type=click.IntRange(min=0),
+    metavar="N",
+    help="Fork at turn N. Turn 0 = system context only; turn N = through Nth user+assistant exchange.",
+)
+@click.option(
+    "--name",
+    "fork_name",
+    default=None,
+    metavar="NAME",
+    help="Name for the forked session. Defaults to '<source>-fork-<timestamp>'.",
+)
+def chats_fork(id: str, at_turn: int, fork_name: str | None):
+    """Fork a session at a specific turn into a new session.
+
+    Creates a new session containing only the first N user turns from the
+    source session. The source session is never modified.
+
+    Turn 0 keeps only pre-user messages (e.g. system prompt).
+    Turn N includes through the Nth complete user+assistant exchange.
+
+    Examples:
+
+    \b
+        # Fork at turn 2
+        gptme-util chats fork my-session --at-turn 2
+
+    \b
+        # Fork at turn 5 with a custom name
+        gptme-util chats fork my-session --at-turn 5 --name retry-v2
+    """
+    from datetime import datetime, timezone  # fmt: skip
+
+    from ..logmanager import conversation_name_error  # fmt: skip
+    from ..logmanager.manager import Log  # fmt: skip
+
+    if not _is_valid_id(id):
+        raise click.UsageError(f"Invalid conversation ID: {id!r}")
+
+    logs_dir = get_logs_dir()
+    source_logdir = logs_dir / id
+    source_logfile = source_logdir / "conversation.jsonl"
+
+    if not source_logdir.exists():
+        raise click.UsageError(f"Session not found: {id!r}")
+    if not source_logfile.exists():
+        raise click.UsageError(f"Session has no conversation: {id!r}")
+
+    source_msgs = list(Log.read_jsonl(source_logfile).messages)
+    sliced = _slice_at_turn(source_msgs, at_turn)
+
+    if fork_name:
+        new_name = fork_name
+    else:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        new_name = f"{id}-fork-{ts}"
+
+    name_err = conversation_name_error(new_name)
+    if name_err:
+        raise click.UsageError(name_err)
+
+    new_logdir = logs_dir / new_name
+    try:
+        new_logdir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        raise click.UsageError(
+            f"Session name '{new_name}' already exists. Choose a different name with --name."
+        ) from None
+
+    Log(sliced).write_jsonl(new_logdir / "conversation.jsonl")
+    click.echo(
+        f"Forked '{id}' at turn {at_turn} → '{new_name}' ({len(sliced)} messages kept)"
+    )
+
+
 @chats.command("stats")
 @click.argument("id", required=False)
 @click.option(
