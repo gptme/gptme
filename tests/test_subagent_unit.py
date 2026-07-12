@@ -6160,6 +6160,40 @@ class TestSubagentSteer:
         with pytest.raises(ValueError, match="closed its prompt queue"):
             subagent_steer("cleanup-agent", "too late")
 
+    def test_steer_subprocess_cleanup_window_raises(self, tmp_path):
+        """subagent_steer raises for subprocess-mode when prompt_queue_closed is set.
+
+        Subprocess mode: process.poll() can still return None while the OS process
+        is exiting its final teardown. prompt_queue_closed is set by _launch_subprocess()
+        in the finally block immediately when the subprocess exits, before result
+        caching completes. This test verifies that the flag catches the cleanup window
+        for subprocess-mode subagents just as it does for thread-mode.
+        """
+        logdir = tmp_path / "steer-subprocess-cleanup"
+        logdir.mkdir()
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # process appears running per poll()
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True  # launcher thread still alive
+        sa = Subagent(
+            agent_id="proc-cleanup-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="subprocess",
+            process=mock_proc,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        # Simulate _launch_subprocess() finally block: subprocess exited,
+        # prompt_queue_closed set before result is cached.
+        sa.prompt_queue_closed.set()
+        assert "proc-cleanup-agent" not in _subagent_results
+
+        with pytest.raises(ValueError, match="closed its prompt queue"):
+            subagent_steer("proc-cleanup-agent", "too late")
+
     def test_steer_result_cached_still_raises(self, tmp_path):
         """subagent_steer raises when result is cached (covers the post-cache half of cleanup).
 

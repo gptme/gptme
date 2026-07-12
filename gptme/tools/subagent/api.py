@@ -805,6 +805,13 @@ def subagent(
                     notify_completion(agent_id, "failure", f"Subprocess failed: {e}")
                 _exec._cleanup_isolation(sa)
             finally:
+                # Mark the prompt queue as closed: the subprocess has exited (or
+                # never started). Any steer attempt after this point would write
+                # to a queue that no process will drain. Set before _sem.release()
+                # so subagent_steer() can detect this via prompt_queue_closed
+                # even during the narrow window between process exit and result
+                # caching.
+                sa.prompt_queue_closed.set()
                 _sem.release()
 
         launcher = threading.Thread(target=_launch_subprocess, daemon=True)
