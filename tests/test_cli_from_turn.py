@@ -251,3 +251,50 @@ def test_from_turn_branch_name_collision(monkeypatch):
         assert (
             "already exists" in result.output or "choose a different" in result.output
         )
+
+
+def test_from_turn_branch_name_collision_stale_state(monkeypatch):
+    """--branch into a dir with stale state (no conversation.jsonl) should also error."""
+    from gptme.cli.main import main
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        # Simulate an interrupted run: directory exists with config.toml but no conversation.jsonl
+        stale_dir = Path("logs/stale-branch")
+        stale_dir.mkdir(parents=True)
+        (stale_dir / "config.toml").write_text("[session]\n")
+
+        # Create a source session
+        src_dir = Path("logs/source-session")
+        _write_conversation(
+            src_dir,
+            [
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "Q1."},
+                {"role": "assistant", "content": "A1."},
+            ],
+        )
+
+        logs_dir = Path("logs")
+        monkeypatch.setattr("gptme.cli.main.get_logs_dir", lambda: logs_dir)
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+        result = runner.invoke(
+            main,
+            [
+                "--name",
+                "source-session",
+                "--from-turn",
+                "1",
+                "--branch",
+                "stale-branch",
+                "--non-interactive",
+            ],
+            catch_exceptions=False,
+        )
+
+        # Stale state should be rejected the same as an existing conversation
+        assert result.exit_code != 0
+        assert (
+            "already exists" in result.output or "choose a different" in result.output
+        )
