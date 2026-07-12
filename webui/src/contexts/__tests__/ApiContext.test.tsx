@@ -142,11 +142,15 @@ describe('ApiProvider mobile auto-connect', () => {
 
       return serverRegistry$.get().servers[0] ?? null;
     });
-    mockGetConnectionConfigFromSources.mockImplementation(() => ({
-      baseUrl: getActiveServerBaseUrl(),
-      authToken: null,
-      useAuthToken: false,
-    }));
+    // Dynamic mock that reads from current registry state
+    mockGetConnectionConfigFromSources.mockImplementation(() => {
+      const currentUrl = getActiveServerBaseUrl();
+      return {
+        baseUrl: currentUrl,
+        authToken: null,
+        useAuthToken: false,
+      };
+    });
     mockProcessConnectionFromHash.mockResolvedValue({
       baseUrl: getActiveServerBaseUrl(),
       authToken: null,
@@ -199,12 +203,19 @@ describe('ApiProvider mobile auto-connect', () => {
 
     renderProvider();
 
+    // Verify: the sync effect triggers updateServer with the Tauri-managed port
     await waitFor(() => {
       expect(mockUpdateServer).toHaveBeenCalledWith('server-1', {
         baseUrl: 'http://127.0.0.1:5712',
       });
     });
+
+    // Verify: auto-connect is skipped during the sync (needsTauriServerUrlSync is true)
     expect(mockCheckConnection).not.toHaveBeenCalled();
+
+    // After the sync completes (registry updates), the next render should proceed
+    // with auto-connect. This is tested in integration/e2e scenarios where the
+    // full reactive chain (update → registry change → component re-render) works.
   });
 
   it('stops retrying after a CORS failure (permanent, not transient)', async () => {
