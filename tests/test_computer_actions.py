@@ -402,7 +402,14 @@ class TestActAndObserve:
                 return settled_msg
             return action_msg if action == "left_click" else None
 
-        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+        with (
+            patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch("gptme.tools.computer.get_transport", return_value=None),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
+        ):
             msgs = act_and_observe("left_click", coordinate=(100, 200))
 
         assert len(call_args) == 2
@@ -419,7 +426,14 @@ class TestActAndObserve:
             call_args.append((action, text, coordinate))
             return settled_msg if action == "wait_for_change" else None
 
-        with patch("gptme.tools.computer.computer", side_effect=mock_computer):
+        with (
+            patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch("gptme.tools.computer.get_transport", return_value=None),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
+        ):
             msgs = act_and_observe("type", text="hello")
 
         assert call_args[0][0] == "type"
@@ -470,6 +484,10 @@ class TestActAndObserve:
         with (
             patch("gptme.tools.computer.get_transport", return_value=None),
             patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
         ):
             act_and_observe("left_click", coordinate=(0, 0), timeout=7.5)
 
@@ -488,6 +506,10 @@ class TestActAndObserve:
         with (
             patch("gptme.tools.computer.get_transport", return_value=None),
             patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
         ):
             msgs = act_and_observe("scroll", coordinate=(0, 0), text="down")
 
@@ -503,6 +525,10 @@ class TestActAndObserve:
         with (
             patch("gptme.tools.computer.get_transport", return_value=None),
             patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
         ):
             msgs = act_and_observe("left_click", coordinate=(100, 100))
 
@@ -519,6 +545,10 @@ class TestActAndObserve:
         with (
             patch("gptme.tools.computer.get_transport", return_value=None),
             patch("gptme.tools.computer.computer", side_effect=mock_computer),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
         ):
             act_and_observe("key", text="Return")
 
@@ -593,10 +623,13 @@ class TestActAndObservePreBaseline:
             "act_and_observe should return a screenshot even for window_focus"
         )
 
-    def test_act_and_observe_falls_back_when_no_transport(self) -> None:
-        """When get_transport() returns None, fall back to computer('wait_for_change').
+    def test_act_and_observe_falls_back_when_no_transport_and_screenshot_fails(
+        self,
+    ) -> None:
+        """When get_transport()=None AND native screenshot() fails, fall back to computer('wait_for_change').
 
-        This is the path taken in environments without a display (CI, unit tests).
+        This is the path taken in environments without a display (CI, unit tests)
+        where screenshot() raises because DISPLAY is not set.
         """
         settled_msg = MagicMock()
         calls: list[str] = []
@@ -610,13 +643,101 @@ class TestActAndObservePreBaseline:
         with (
             patch("gptme.tools.computer.computer", side_effect=mock_computer),
             patch("gptme.tools.computer.get_transport", return_value=None),
+            patch(
+                "gptme.tools.computer.screenshot",
+                side_effect=RuntimeError("no display"),
+            ),
         ):
             msgs = act_and_observe("left_click", coordinate=(100, 100))
 
         assert "wait_for_change" in calls, (
-            "fallback path must call computer('wait_for_change') when no transport"
+            "fallback path must call computer('wait_for_change') when screenshot() fails"
         )
         assert settled_msg in msgs
+
+    def test_act_and_observe_native_baseline_uses_poll_for_change(
+        self, tmp_path: Path
+    ) -> None:
+        """When get_transport()=None but screenshot() succeeds, use _poll_for_change.
+
+        This is the native xdotool path (no GPTME_COMPUTER_TRANSPORT set) with a
+        working X11 display.  _poll_for_change should be used with the native
+        baseline so settle_time works and immediate changes (e.g. window_focus)
+        are detected.
+        """
+        # A pre-action baseline (white) and a post-action screenshot (black).
+        baseline_path = tmp_path / "baseline.png"
+        _write_png(baseline_path, (255, 255, 255))
+        post_action_path = tmp_path / "post.png"
+        _write_png(post_action_path, (0, 0, 0))
+
+        screenshot_calls: list[int] = [0]
+
+        def mock_screenshot() -> Path:
+            # First call = pre-action baseline (white); subsequent = changed (black)
+            screenshot_calls[0] += 1
+            if screenshot_calls[0] == 1:
+                return baseline_path
+            return post_action_path
+
+        with (
+            patch("gptme.tools.computer.computer", return_value=None),
+            patch("gptme.tools.computer.get_transport", return_value=None),
+            patch("gptme.tools.computer.screenshot", side_effect=mock_screenshot),
+            patch("gptme.tools.computer._resize_image"),  # no ImageMagick in CI
+            patch(
+                "gptme.tools.computer._get_api_resolution", return_value=(1024, 768)
+            ),  # no display in CI
+        ):
+            msgs = act_and_observe("left_click", coordinate=(100, 100), timeout=1.0)
+
+        # The poll must have fired: at least one screenshot after the action
+        assert screenshot_calls[0] >= 2, (
+            "native baseline path must poll for changes after the action"
+        )
+        # A settled screenshot should be returned
+        assert len(msgs) >= 1, (
+            "native baseline path must return at least one message (the settled screenshot)"
+        )
+
+    def test_act_and_observe_native_tolerates_resize_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """A resize failure (e.g. missing ImageMagick) mid-poll must not abort
+        act_and_observe on the native path — it should return the unresized
+        screenshot instead, matching the old wait_for_change tolerance.
+        """
+        baseline_path = tmp_path / "baseline.png"
+        _write_png(baseline_path, (255, 255, 255))
+        post_action_path = tmp_path / "post.png"
+        _write_png(post_action_path, (0, 0, 0))
+
+        screenshot_calls: list[int] = [0]
+
+        def mock_screenshot() -> Path:
+            screenshot_calls[0] += 1
+            if screenshot_calls[0] == 1:
+                return baseline_path
+            return post_action_path
+
+        with (
+            patch("gptme.tools.computer.computer", return_value=None),
+            patch("gptme.tools.computer.get_transport", return_value=None),
+            patch("gptme.tools.computer.screenshot", side_effect=mock_screenshot),
+            patch(
+                "gptme.tools.computer._resize_image",
+                side_effect=RuntimeError("ImageMagick 'convert' not found."),
+            ),
+            patch("gptme.tools.computer._get_api_resolution", return_value=(1024, 768)),
+        ):
+            msgs = act_and_observe("left_click", coordinate=(100, 100), timeout=1.0)
+
+        assert screenshot_calls[0] >= 2, (
+            "polling must still proceed despite resize failures"
+        )
+        assert len(msgs) >= 1, (
+            "settled screenshot must still be returned when resize fails"
+        )
 
 
 # ---------------------------------------------------------------------------
