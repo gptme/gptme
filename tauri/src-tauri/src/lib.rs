@@ -429,8 +429,11 @@ fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
 
 #[cfg(desktop)]
 async fn check_for_updates(app: tauri::AppHandle) {
-    // Respect user opt-out via environment variable
-    if std::env::var("GPTME_DISABLE_AUTO_UPDATE").is_ok() {
+    // Respect user opt-out via environment variable (truthy values: 1, true, yes, on)
+    if std::env::var("GPTME_DISABLE_AUTO_UPDATE")
+        .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+    {
         log::debug!("Update check disabled via GPTME_DISABLE_AUTO_UPDATE");
         return;
     }
