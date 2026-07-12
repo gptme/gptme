@@ -318,6 +318,7 @@ async fn spawn_server_sidecar(
     // still sees the bootloader. Pass the Tauri PID explicitly so the server
     // self-terminates when Tauri itself disappears.
     let tauri_pid = std::process::id().to_string();
+    let port_str = server_port().to_string();
     let sidecar_command = app
         .shell()
         .sidecar("gptme-server")
@@ -325,6 +326,8 @@ async fn spawn_server_sidecar(
         .args([
             "--cors-origin",
             cors_origin,
+            "--port",
+            port_str.as_str(),
             "--watch-pid",
             tauri_pid.as_str(),
         ]);
