@@ -175,6 +175,13 @@ def chat(
             for msg in session_end_msgs:
                 manager.append(msg)
     finally:
+        # Write a sentinel file so subprocess-mode subagent_steer() can detect
+        # that the chat loop has finished draining the prompt queue. For thread
+        # mode, the Python event (prompt_queue_closed) handles this; subprocess
+        # mode needs a file-based signal because the child and parent don't share
+        # memory. Written before set_output_format to minimise the race window.
+        if logdir is not None:
+            (logdir / "prompt-queue-closed").touch()
         # Restore the caller's format so nested chat() calls (inline subagents)
         # don't clobber the parent's JSON mode when they exit.
         set_output_format(_prev_output_format)

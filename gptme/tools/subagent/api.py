@@ -1166,19 +1166,19 @@ def subagent_steer(agent_id: str, message: str) -> str:
             does not expose a logdir channel for steering.
 
     Note:
-        Delivery is **guaranteed for thread-mode** subagents: ``prompt_queue_closed``
-        is set inside the subagent thread immediately when ``chat()`` returns,
-        so any steer attempted after that point raises ``ValueError``.
+        Delivery is **guaranteed for both thread-mode and subprocess-mode**
+        subagents:
 
-        For **subprocess-mode** subagents, delivery is best-effort: there is an
-        inherent window between the child's ``chat()`` loop finishing its last
-        prompt-queue drain and the parent detecting process exit via
-        ``process.poll()``. In practice this window is sub-millisecond (process
-        cleanup only), but it cannot be fully closed without a child-side
-        drain-complete signal (which would require modifying ``chat()`` itself,
-        beyond the scope of this PR). ``prompt_queue_closed`` is set when the
-        subprocess exits, catching the post-exit case; the pre-exit cleanup window
-        is an accepted best-effort limitation.
+        - **Thread mode**: ``prompt_queue_closed`` is a Python event set inside
+          the subagent thread immediately when ``chat()`` returns.
+        - **Subprocess mode**: ``chat()`` writes a ``"prompt-queue-closed"``
+          sentinel file to the logdir in its ``finally`` block — before the
+          process exits — giving a child-side signal that closes the drain
+          boundary precisely.  The parent-side ``prompt_queue_closed`` event
+          (set after ``_monitor_subprocess`` returns) is a second-level catch.
+
+        Any steer attempted after the sentinel/event is set raises
+        ``ValueError``.
 
     Example::
 
@@ -1200,15 +1200,28 @@ def subagent_steer(agent_id: str, message: str) -> str:
             "for ACP subagents — they run in a separate harness with no shared logdir channel."
         )
 
-    # Check prompt_queue_closed first: for thread mode, set inside
-    # _create_subagent_thread right after chat() returns (before any caller
-    # cleanup); for subprocess mode, set in the launcher's finally block after
-    # the process exits. Both paths fire before the disk-reading _read_log()
-    # and result caching, giving an earlier signal than status() alone.
-    # Known limitation: a sub-millisecond window remains between chat()'s last
-    # _drain_external_prompt_queue() call and the event being set; closing that
-    # would require modifying chat() itself.
-    if sa.prompt_queue_closed.is_set():
+    def _queue_is_closed() -> bool:
+        """Return True if the subagent's chat loop has finished draining.
+
+        Thread mode: prompt_queue_closed is a Python event set inside
+        _create_subagent_thread immediately when chat() returns.
+
+        Subprocess mode: chat.py writes a "prompt-queue-closed" sentinel file
+        to the logdir in its finally block — before the process exits — giving
+        a child-side signal that closes the gap between the last queue drain and
+        process exit.  The Python event (set in the launcher's finally block
+        after _monitor_subprocess returns) is a second-level catch.
+        """
+        return sa.prompt_queue_closed.is_set() or (
+            sa.execution_mode == "subprocess"
+            and (sa.logdir / "prompt-queue-closed").exists()
+        )
+
+    # Check prompt_queue_closed / sentinel first: both paths fire as close as
+    # possible to the actual last drain boundary (thread: Python event set inside
+    # the thread; subprocess: sentinel file written by chat.py's finally block
+    # before process exit, so no gap between last drain and parent detection).
+    if _queue_is_closed():
         raise ValueError(
             f"Subagent '{agent_id}' has closed its prompt queue — "
             "its chat loop has finished and will not accept new steering messages."
@@ -1226,9 +1239,7 @@ def subagent_steer(agent_id: str, message: str) -> str:
 
     # Re-check after queuing: catches the race where the subagent exits between
     # the initial check and the queue write.
-    # prompt_queue_closed catches the cleanup window (chat() returned but result
-    # not yet cached); status() catches the post-cache case.
-    if sa.prompt_queue_closed.is_set():
+    if _queue_is_closed():
         raise ValueError(
             f"Subagent '{agent_id}' closed its prompt queue while the steering message "
             "was being queued. The message will not be processed."

@@ -6194,6 +6194,42 @@ class TestSubagentSteer:
         with pytest.raises(ValueError, match="closed its prompt queue"):
             subagent_steer("proc-cleanup-agent", "too late")
 
+    def test_steer_subprocess_sentinel_file_raises(self, tmp_path):
+        """subagent_steer raises for subprocess-mode when the sentinel file exists.
+
+        chat.py writes "prompt-queue-closed" to the logdir in its finally block
+        immediately when chat() returns — before the process exits.  This closes
+        the race window between the child's last _drain_external_prompt_queue()
+        call and the parent detecting process exit via process.poll().
+
+        The sentinel is a child-side signal: no shared memory needed.
+        """
+        logdir = tmp_path / "steer-subprocess-sentinel"
+        logdir.mkdir()
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # process appears running per poll()
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = Subagent(
+            agent_id="sentinel-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="subprocess",
+            process=mock_proc,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        # Simulate chat.py writing the sentinel in its finally block
+        # (prompt_queue_closed Python event NOT yet set — that happens later
+        # when the parent's launcher finally block runs after process exit).
+        (logdir / "prompt-queue-closed").touch()
+        assert not sa.prompt_queue_closed.is_set()
+
+        with pytest.raises(ValueError, match="closed its prompt queue"):
+            subagent_steer("sentinel-agent", "too late")
+
     def test_steer_result_cached_still_raises(self, tmp_path):
         """subagent_steer raises when result is cached (covers the post-cache half of cleanup).
 
