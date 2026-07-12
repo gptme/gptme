@@ -1,7 +1,15 @@
 import '@testing-library/jest-dom';
 import userEvent from '@testing-library/user-event';
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { ExternalSessionsView } from '../ExternalSessionsView';
+
+const renderInRouter = (initialEntry = '/external-sessions') =>
+  render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <ExternalSessionsView />
+    </MemoryRouter>
+  );
 
 const mockUseQuery = jest.fn();
 
@@ -58,13 +66,22 @@ describe('ExternalSessionsView', () => {
 
   it('labels the search field and detail close button', async () => {
     const user = userEvent.setup();
-    render(<ExternalSessionsView />);
+    renderInRouter();
 
     expect(screen.getByRole('textbox', { name: 'Search external sessions' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Imported session/i }));
 
     expect(screen.getByRole('button', { name: 'Close session details' })).toBeInTheDocument();
+  });
+
+  it('pre-selects a session when ?selected param is present in URL', async () => {
+    renderInRouter('/external-sessions?selected=session-1');
+
+    // Detail panel should open immediately without a click
+    expect(
+      await screen.findByRole('button', { name: 'Close session details' })
+    ).toBeInTheDocument();
   });
 
   it('renders normalized transcript messages with a collapsed system prelude', async () => {
@@ -112,7 +129,7 @@ describe('ExternalSessionsView', () => {
     });
 
     const user = userEvent.setup();
-    render(<ExternalSessionsView />);
+    renderInRouter();
     await user.click(screen.getByRole('button', { name: /Imported session/i }));
 
     expect(screen.getByRole('button', { name: /Show 1 system message/i })).toBeInTheDocument();

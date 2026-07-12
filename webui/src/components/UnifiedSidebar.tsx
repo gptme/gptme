@@ -20,7 +20,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useApi } from '@/contexts/ApiContext';
 import { initConversation } from '@/stores/conversations';
 import { parseConversationImportJSON } from '@/utils/exportConversation';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import type { ChangeEvent, FC } from 'react';
@@ -137,6 +137,22 @@ export const UnifiedSidebar: FC<Props> = ({
 
   // Navigation state - agents/workspaces show chat sidebar content
   const currentSection = location.pathname.startsWith('/tasks') ? 'tasks' : 'chat';
+
+  // Fetch external sessions for the chat sidebar (capability-gated, best-effort)
+  const { data: externalSessions } = useQuery({
+    queryKey: ['external-sessions'],
+    queryFn: () => api.getExternalSessions(7),
+    enabled: isConnected && currentSection === 'chat',
+    staleTime: 60 * 1000,
+    retry: false,
+  });
+
+  const handleSelectExternal = useCallback(
+    (id: string) => {
+      navigate(`/external-sessions?selected=${id}`);
+    },
+    [navigate]
+  );
 
   // Filter state for tasks
   const [selectedTargetTypes, setSelectedTargetTypes] = useState<Set<string>>(new Set(['all']));
@@ -405,6 +421,8 @@ export const UnifiedSidebar: FC<Props> = ({
               hasNextPage={hasNextPage}
               showServerLabels={showServerLabels}
               onOpenInSplitView={onOpenInSplitView}
+              externalSessions={externalSessions}
+              onSelectExternal={handleSelectExternal}
             />
           )}
 

@@ -1,4 +1,4 @@
-import { type FC, useState } from 'react';
+import { type FC, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Bot, Clock, Cpu, FolderOpen, AlertCircle, Search, ChevronRight, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useApi } from '@/contexts/ApiContext';
 import { use$ } from '@legendapp/state/react';
+import { useSearchParams } from 'react-router-dom';
 import { getRelativeTimeString } from '@/utils/time';
 import type { ExternalSessionCatalogItem } from '@/types/api';
 import { ApiClientError } from '@/utils/api';
@@ -162,7 +163,16 @@ export const ExternalSessionsView: FC = () => {
   const { api } = useApi();
   const isConnected = use$(api.isConnected$);
   const [search, setSearch] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('selected'));
+
+  // Sync ?selected param on first load only (URL-driven deep link from sidebar)
+  useEffect(() => {
+    const paramId = searchParams.get('selected');
+    if (paramId && !selectedId) {
+      setSelectedId(paramId);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
     data: sessions = [],
