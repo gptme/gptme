@@ -20,6 +20,7 @@ from .api import (
     subagent_read_log,
     subagent_reply,
     subagent_status,
+    subagent_steer,
     subagent_wait,
     subagent_wait_any,
 )
@@ -357,6 +358,20 @@ Assistant: I'll use context_window=0 so the subagent only sees what I explicitly
         ).to_output(tool_format)
     }
 System: Subagent started successfully.
+
+### Steer a Running Subagent (in-flight course correction)
+User: redirect a running subagent without restarting it
+Assistant: I'll use subagent_steer() to inject a new instruction into the running subagent's conversation.
+{
+        ToolUse(
+            "ipython",
+            [],
+            '''subagent("researcher", "Research Python web frameworks and their performance")
+# ... later, after checking progress ...
+subagent_steer("researcher", "Focus only on async frameworks — skip synchronous ones like Flask/Django")''',
+        ).to_output(tool_format)
+    }
+System: Steering message queued for subagent 'researcher'. It will be injected into the subagent's conversation on its next loop iteration.
 """.strip()
 
 
@@ -384,8 +399,9 @@ Key features:
 - subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage's prompt
 - subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 - subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
+- subagent_steer(agent_id, message): Inject a steering message into a RUNNING subagent's conversation — redirect, clarify, or course-correct mid-run without restarting. Works for thread-mode and subprocess-mode subagents. Distinct from subagent_reply() which only works on finished clarification_needed subagents.
 - subagent_wait_any(agent_ids, timeout): Wait for the first of N subagents to complete — returns (agent_id, result). Useful for race/hedging patterns.
-- subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
+- subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent (for subagents that already stopped with clarification_needed status)
 - Hook-based notifications: Completions (and clarification requests) delivered as system messages
 
 ## Token Budget and Concurrency Control
@@ -518,6 +534,7 @@ tool = ToolSpec(
         for f in [
             subagent,
             subagent_cancel,
+            subagent_steer,
             subagent_list,
             subagent_reply,
             subagent_status,
@@ -554,6 +571,7 @@ __all__ = [
     # Public API
     "subagent",
     "subagent_cancel",
+    "subagent_steer",
     "subagent_list",
     "subagent_reply",
     "subagent_status",

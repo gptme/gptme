@@ -1120,6 +1120,68 @@ def subagent_cancel(agent_id: str) -> str:
     )
 
 
+def subagent_steer(agent_id: str, message: str) -> str:
+    """Inject a steering message into a running subagent's conversation.
+
+    The message is queued via the subagent's logdir prompt-queue and picked up
+    on the subagent's next chat loop iteration, allowing the orchestrator to
+    redirect, clarify, or course-correct a subagent mid-run without restarting
+    it. Works for thread-mode and subprocess-mode subagents.
+
+    This is distinct from ``subagent_reply()``, which re-spawns a subagent that
+    has *already stopped* with a ``clarification_needed`` status. Use this
+    function to steer a subagent that is still actively running.
+
+    Args:
+        agent_id: The running subagent to steer.
+        message: The guidance to inject. This will appear as a user turn in the
+            subagent's conversation on its next loop iteration.
+
+    Returns:
+        A human-readable confirmation message.
+
+    Raises:
+        ValueError: If no subagent with ``agent_id`` is found, or if the
+            subagent has already finished (use ``subagent_reply()`` for
+            clarification-needed subagents).
+        NotImplementedError: If the subagent is running in ACP mode, which
+            does not expose a logdir channel for steering.
+
+    Example::
+
+        subagent("researcher", "Research Python async frameworks")
+        # ... the researcher is going off-track ...
+        subagent_steer("researcher", "Focus only on frameworks with >5k GitHub stars")
+    """
+    from ...prompt_queue import queue_prompt  # fmt: skip
+
+    with _subagents_lock:
+        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+
+    if sa is None:
+        raise ValueError(f"Subagent with ID {agent_id!r} not found.")
+
+    if sa.execution_mode == "acp":
+        raise NotImplementedError(
+            f"Subagent '{agent_id}' is in ACP mode. Steering is not supported "
+            "for ACP subagents — they run in a separate harness with no shared logdir channel."
+        )
+
+    if not sa.is_running():
+        raise ValueError(
+            f"Subagent '{agent_id}' is not running (status: {sa.status().status}). "
+            "Only active subagents can be steered. "
+            "For clarification_needed subagents, use subagent_reply() to re-spawn them."
+        )
+
+    queue_prompt(sa.logdir, message)
+    logger.info(f"Steering message queued for subagent '{agent_id}': {message[:80]!r}")
+    return (
+        f"Steering message queued for subagent '{agent_id}'. "
+        "It will be injected into the subagent's conversation on its next loop iteration."
+    )
+
+
 def subagent_reply(agent_id: str, reply: str) -> None:
     """Re-spawn a subagent that requested clarification.
 
