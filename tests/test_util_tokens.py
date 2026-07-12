@@ -324,3 +324,102 @@ def test_len_tokens_approximation_not_cached():
         tokens_mod.get_tokenizer = orig_get_tokenizer
         tokens_mod._token_cache.clear()
         orig_get_tokenizer.cache_clear()
+
+
+def test_tiktoken_timeout_invalid_env():
+    """Invalid GPTME_TIKTOKEN_TIMEOUT value falls back to 5.0 instead of crashing."""
+    # Monkeypatching os.environ is not needed here — we test the parser directly
+    import os
+    import unittest.mock as mock
+
+    from gptme.util.tokens import _parse_tiktoken_timeout
+
+    with mock.patch.dict(os.environ, {"GPTME_TIKTOKEN_TIMEOUT": "not-a-number"}):
+        val = _parse_tiktoken_timeout()
+    assert val == 5.0
+
+
+def test_tiktoken_timeout_valid_env():
+    """Valid GPTME_TIKTOKEN_TIMEOUT values are parsed correctly."""
+    import os
+    import unittest.mock as mock
+
+    from gptme.util.tokens import _parse_tiktoken_timeout
+
+    with mock.patch.dict(os.environ, {"GPTME_TIKTOKEN_TIMEOUT": "0"}):
+        assert _parse_tiktoken_timeout() == 0.0
+
+    with mock.patch.dict(os.environ, {"GPTME_TIKTOKEN_TIMEOUT": "10.5"}):
+        assert _parse_tiktoken_timeout() == 10.5
+
+
+def test_get_tokenizer_timeout_not_cached(monkeypatch):
+    """Timeout results (None) are NOT cached, enabling retries after network recovery."""
+    import threading
+
+    import gptme.util.tokens as tokens_mod
+
+    tokens_mod.get_tokenizer.cache_clear()
+    model = "local/model-retry-test"
+    try:
+        # First call: simulate a hang → timeout → None (not cached)
+        hang_event = threading.Event()
+
+        def _hang(name: str) -> None:
+            hang_event.wait()
+
+        monkeypatch.setattr(tokens_mod, "_load_encoding", _hang)
+        monkeypatch.setattr(tokens_mod, "_TIKTOKEN_TIMEOUT", 0.05)
+
+        result1 = tokens_mod.get_tokenizer(model)
+        assert result1 is None
+        # None must NOT be cached — _tokenizer_cache should still be empty for this model
+        assert model not in tokens_mod._tokenizer_cache
+        hang_event.set()  # unblock daemon thread
+
+        # Second call: replace with a fast-returning loader to confirm retry happens
+        fake_enc = object()
+        load_called: list[str] = []
+
+        def _fast(name: str):
+            load_called.append(name)
+            return fake_enc
+
+        monkeypatch.setattr(tokens_mod, "_load_encoding", _fast)
+        monkeypatch.setattr(tokens_mod, "_TIKTOKEN_TIMEOUT", 5.0)
+
+        result2 = tokens_mod.get_tokenizer(model)
+        assert result2 is fake_enc, "Expected retry to succeed after timeout"
+        assert load_called, (
+            "Expected _load_encoding to be called on retry (not served None from cache)"
+        )
+    finally:
+        tokens_mod.get_tokenizer.cache_clear()
+
+
+def test_get_tokenizer_successful_load_is_cached(monkeypatch):
+    """Successful tokenizer loads ARE cached so repeated calls don't reload."""
+    import gptme.util.tokens as tokens_mod
+
+    tokens_mod.get_tokenizer.cache_clear()
+    model = "gpt-4-cache-test"
+    try:
+        load_count: list[str] = []
+        fake_enc = object()
+
+        def _counting_load(name: str):
+            load_count.append(name)
+            return fake_enc
+
+        monkeypatch.setattr(tokens_mod, "_load_encoding", _counting_load)
+
+        result1 = tokens_mod.get_tokenizer(model)
+        result2 = tokens_mod.get_tokenizer(model)
+
+        assert result1 is fake_enc
+        assert result2 is fake_enc
+        assert len(load_count) == 1, (
+            "Second call should be served from cache, not reload"
+        )
+    finally:
+        tokens_mod.get_tokenizer.cache_clear()
