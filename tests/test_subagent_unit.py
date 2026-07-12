@@ -6092,3 +6092,33 @@ class TestSubagentSteer:
         drained = drain_prompt_queue(logdir)
         assert len(drained) == 1
         assert "Change focus to security issues" in drained[0].content
+
+    def test_steer_race_condition_finished_after_check(self, tmp_path):
+        """subagent_steer detects when subagent finishes after the initial running check.
+
+        This tests the race condition where:
+        1. is_running() returns True
+        2. The subagent exits
+        3. queue_prompt() writes to a queue no one will drain
+        4. We re-check is_running() and catch the race
+        """
+        logdir = tmp_path / "steer-race-detect"
+        logdir.mkdir()
+        mock_thread = MagicMock(spec=threading.Thread)
+        # First is_alive() call returns True, subsequent ones return False
+        mock_thread.is_alive.side_effect = [True, False]
+        sa = Subagent(
+            agent_id="race-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        with pytest.raises(
+            ValueError, match="exited after steering message was queued"
+        ):
+            subagent_steer("race-agent", "steer me")

@@ -1175,6 +1175,16 @@ def subagent_steer(agent_id: str, message: str) -> str:
         )
 
     queue_prompt(sa.logdir, message)
+
+    # Re-check is_running() after queuing to detect the race where the subagent
+    # exits between the initial check and the queue write. If it's no longer
+    # running, the queued message will never be drained.
+    if not sa.is_running():
+        raise ValueError(
+            f"Subagent '{agent_id}' exited after steering message was queued. "
+            "The message may not be processed. Status: {sa.status().status}"
+        )
+
     logger.info(f"Steering message queued for subagent '{agent_id}': {message[:80]!r}")
     return (
         f"Steering message queued for subagent '{agent_id}'. "
