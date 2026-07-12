@@ -129,13 +129,21 @@ def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
         return True
 
 
-def update_subagent_result_with_branch(agent_id: str, branch: str) -> None:
+def update_subagent_result_with_branch(
+    agent_id: str, branch: str, has_output_schema: bool = False
+) -> None:
     """Amend a cached result to include a preserved branch name.
 
     Called when the normal-completion thread loses the set_subagent_result_if_absent
     race to a timeout/cancel watchdog. Cleanup already ran and found a preserved
     branch; without this patch the caller's stored result would have no branch name.
+
+    When ``has_output_schema`` is True, the cached result string is JSON that
+    callers parse — appending human-readable text would break that parse, so
+    the branch is logged only (via ``_cleanup_isolation``) and not patched in.
     """
+    if has_output_schema:
+        return
     suffix = (
         f"\n\nChanges preserved on branch {branch!r} — merge with: git merge {branch}"
     )

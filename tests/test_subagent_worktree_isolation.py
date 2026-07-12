@@ -578,3 +578,36 @@ def test_acp_cleanup_patches_branch_onto_cached_result(tmp_path, monkeypatch):
     assert "subagent-acp-branch-" in result.result
     assert sa.worktree_path is not None
     assert not sa.worktree_path.exists(), "Worktree directory should be cleaned up"
+
+
+def test_update_subagent_result_with_branch_skips_structured_results():
+    """update_subagent_result_with_branch() must not corrupt a JSON result string.
+
+    Regression test for a Greptile P1 finding: appending human-readable branch
+    text to a cached ``output_schema`` result (a JSON string) would make it
+    fail to parse for callers.
+    """
+    from gptme.tools.subagent.types import update_subagent_result_with_branch
+
+    with _subagent_results_lock:
+        _subagent_results["schema-agent"] = ReturnType(
+            "success", '{"summary": "done", "score": 5}'
+        )
+
+    update_subagent_result_with_branch(
+        "schema-agent", "subagent-schema-agent-abc123", has_output_schema=True
+    )
+
+    with _subagent_results_lock:
+        result = _subagent_results["schema-agent"]
+    assert result.result == '{"summary": "done", "score": 5}', (
+        "Structured result must be left untouched, not amended with branch text"
+    )
+
+    # Without output_schema, the branch is patched in as before.
+    update_subagent_result_with_branch(
+        "schema-agent", "subagent-schema-agent-abc123", has_output_schema=False
+    )
+    with _subagent_results_lock:
+        result = _subagent_results["schema-agent"]
+    assert "Changes preserved on branch" in (result.result or "")

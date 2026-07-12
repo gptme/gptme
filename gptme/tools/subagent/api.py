@@ -637,7 +637,9 @@ def subagent(
                         preserved_branch = _exec._cleanup_isolation(sa_ref)
                         if preserved_branch:
                             update_subagent_result_with_branch(
-                                agent_id, preserved_branch
+                                agent_id,
+                                preserved_branch,
+                                has_output_schema=bool(sa_ref.output_schema),
                             )
             finally:
                 _sem.release()
@@ -845,7 +847,14 @@ def subagent(
                     # Clean up isolation first so preserved branch name can be
                     # included in the result returned to callers.
                     preserved_branch = _exec._cleanup_isolation(sa)
-                    if preserved_branch and isinstance(result.result, str):
+                    # Skip appending human-readable branch text when output_schema
+                    # is set — the result string is JSON that callers parse, and
+                    # appending text after it would break that parse.
+                    if (
+                        preserved_branch
+                        and isinstance(result.result, str)
+                        and not sa.output_schema
+                    ):
                         from .types import ReturnType as _ReturnType
 
                         result = _ReturnType(
@@ -861,7 +870,9 @@ def subagent(
                         # Patch the stored result with branch info so callers can find it.
                         if preserved_branch:
                             update_subagent_result_with_branch(
-                                agent_id, preserved_branch
+                                agent_id,
+                                preserved_branch,
+                                has_output_schema=bool(sa.output_schema),
                             )
                         return
                     try:

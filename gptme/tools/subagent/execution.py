@@ -795,7 +795,10 @@ def _monitor_subprocess(
     # Clean up worktree isolation; capture preserved branch so it can be
     # included in the result that callers receive via subagent_wait() / subagent_parallel().
     preserved_branch = _cleanup_isolation(subagent)
-    if preserved_branch and isinstance(result, str):
+    # Skip appending human-readable branch text when output_schema is set —
+    # the result string is JSON that callers parse, and appending text after
+    # it would break that parse.
+    if preserved_branch and isinstance(result, str) and not subagent.output_schema:
         result = (
             f"{result}\n\nChanges preserved on branch {preserved_branch!r}"
             f" — merge with: git merge {preserved_branch}"
@@ -813,7 +816,11 @@ def _monitor_subprocess(
         # branch info (mirrors the thread-mode fallback in api.py) so
         # callers can still find preserved work.
         if preserved_branch:
-            update_subagent_result_with_branch(subagent.agent_id, preserved_branch)
+            update_subagent_result_with_branch(
+                subagent.agent_id,
+                preserved_branch,
+                has_output_schema=bool(subagent.output_schema),
+            )
         return
 
     # Notify via hook system (fire-and-forget-then-get-alerted pattern)
