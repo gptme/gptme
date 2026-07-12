@@ -17,7 +17,7 @@ import traceback
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import click
 from click.core import ParameterSource
@@ -447,6 +447,40 @@ Utilities:
 Run 'gptme-util --help' for all utility commands."""
 
 
+def _slice_at_turn(messages: list[Any], turn: int) -> list[Any]:
+    """Return messages up to the end of the Nth user turn (1-indexed).
+
+    Turn 0: system/pre-user messages only (no user input included).
+    Turn N: through the Nth complete user+assistant exchange.
+
+    If N exceeds the number of turns in the conversation, all messages
+    are returned (no truncation).
+    """
+    if turn == 0:
+        result = []
+        for msg in messages:
+            if msg.role == "user":
+                break
+            result.append(msg)
+        return result
+
+    user_count = 0
+    for i, msg in enumerate(messages):
+        if msg.role == "user":
+            user_count += 1
+            if user_count == turn:
+                # Include all messages through the rest of this exchange
+                # (up to but not including the next user message)
+                for j in range(i + 1, len(messages)):
+                    if messages[j].role == "user":
+                        return list(messages[:j])
+                # This was the last user turn — include all remaining
+                return list(messages)
+
+    # Requested turn exceeds available turns — include all messages
+    return list(messages)
+
+
 @click.command(
     help=docstring,
     context_settings={"auto_envvar_prefix": "GPTME"},
@@ -492,6 +526,21 @@ Run 'gptme-util --help' for all utility commands."""
     "--resume",
     is_flag=True,
     help="Load most recent conversation.",
+)
+@click.option(
+    "--from-turn",
+    "from_turn",
+    default=None,
+    type=int,
+    metavar="N",
+    help="Fork at turn N: create a new session with the first N user turns from the source (requires --resume or --name). Turn 0 = system context only; turn N = through Nth user+assistant exchange.",
+)
+@click.option(
+    "--branch",
+    "branch_name",
+    default=None,
+    metavar="NAME",
+    help="Name for the branched session (used with --from-turn). Defaults to '<source>-branch-<timestamp>'.",
 )
 @click.option(
     "-y",
@@ -686,6 +735,8 @@ def main(
     version: bool,
     version_json: bool,
     resume: bool,
+    from_turn: int | None,
+    branch_name: str | None,
     workspace: str | None,
     agent_path: str | None,
     profile: bool,
@@ -1163,6 +1214,38 @@ def main(
         logdir_preexisting = name != "random" and (get_logs_dir() / name).exists()
         logdir = get_logdir(name)
         prompt_msgs = inject_stdin(prompt_msgs, piped_input)
+
+    # --from-turn: fork the source session at turn N into a new session
+    if from_turn is not None:
+        if not resume and name == "random":
+            raise click.UsageError(
+                "--from-turn requires --resume or --name to identify the source session"
+            )
+        from ..logmanager.manager import Log  # heavy import, deferred
+
+        source_logfile = logdir / "conversation.jsonl"
+        if not source_logfile.exists():
+            raise click.UsageError(f"Source session has no conversation: {logdir}")
+
+        source_msgs = list(Log.read_jsonl(source_logfile).messages)
+        sliced = _slice_at_turn(source_msgs, from_turn)
+
+        if branch_name:
+            new_name = branch_name
+        else:
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            new_name = f"{logdir.name}-branch-{ts}"
+
+        new_logdir = get_logdir(new_name)
+        Log(sliced).write_jsonl(new_logdir / "conversation.jsonl")
+
+        click.echo(
+            f"Branching '{logdir.name}' at turn {from_turn} → '{new_name}' ({len(sliced)} messages kept)",
+            err=True,
+        )
+        logdir = new_logdir
+        logdir_preexisting = True
+        resume = False  # treat as existing conversation, not resume
 
     show_resume_hint_on_exit = False
 
