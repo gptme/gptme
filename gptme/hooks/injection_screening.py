@@ -1,10 +1,11 @@
 """Injection screening hook for untrusted tool outputs.
 
-Screens tool outputs from web/email/GitHub/shell sources for prompt injection
-patterns. When detected, appends an [UNTRUSTED] or [INJECTION BLOCKED] warning
-to the model context so the model treats the preceding tool output as untrusted.
+Screens tool outputs from shell, file reads, web, GitHub, MCP, and research
+sources for prompt injection patterns. When detected, appends an [UNTRUSTED]
+or [INJECTION BLOCKED] warning to the model context so the model treats the
+preceding tool output as untrusted.
 
-**Modes** (set via GPTME_INJECTION_HYGIENE env var):
+**Modes** (set via ``--injection-hygiene`` flag or ``GPTME_INJECTION_HYGIENE`` env var):
   off   — no screening (disable entirely)
   warn  — prepend [UNTRUSTED: ...] warning, log HIGH hits to injection-attempts.jsonl
   block — same as warn, but HIGH-severity patterns get a stronger [INJECTION BLOCKED]
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 _UNTRUSTED_SOURCE_TOOLS = frozenset(
     {
         "browser",  # Web page fetches
-        "read",  # URL reads (not local file reads — checked via content)
+        "read",  # File/URL reads (local files can embed injection payloads too)
         "gh",  # GitHub issue/PR bodies from non-collaborators
         "elicit",  # Web research
         "shell",  # Commands that read external content (curl, git log, pip show…)
@@ -79,11 +80,6 @@ def _get_hygiene_mode() -> str:
 def _is_untrusted_source(tool_name: str, tool_content: str | None) -> bool:
     """Return True if the tool retrieves untrusted external content."""
     if tool_name in _UNTRUSTED_SOURCE_TOOLS:
-        # For "read" tool: only flag URL reads, not local file reads.
-        if tool_name == "read":
-            if not tool_content:
-                return False
-            return tool_content.strip().startswith(("http://", "https://"))
         return True
     # MCP server tools are registered as "<server>.<tool>" (e.g. "filesystem.read_file").
     # The dot convention uniquely identifies them; screen all such calls.
