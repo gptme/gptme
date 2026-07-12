@@ -5,6 +5,7 @@ All tests are pure-unit (no LLM calls, no subprocess spawning).
 """
 
 import threading
+import time
 from dataclasses import asdict
 from unittest.mock import patch
 
@@ -822,3 +823,47 @@ class TestSubagentParallelMaxConcurrent:
         assert statuses <= {"timeout", "cancelled", "success"}, (
             f"Unexpected statuses: {statuses}"
         )
+
+    def test_timeout_does_not_block_shutdown(self):
+        """Non-blocking shutdown: subagent_parallel returns shortly after the
+        overall timeout even when a worker's subagent_wait() hasn't returned yet.
+
+        If shutdown(wait=True) were used, the function would block for the full
+        per-agent wait (5s here); with shutdown(wait=False, cancel_futures=True)
+        it returns within ~2× the overall timeout (1s).
+        """
+        slow_done = threading.Event()
+
+        def mock_subagent(agent_id, prompt, **kwargs):
+            pass
+
+        def mock_wait(agent_id, timeout=60, max_result_chars=0):
+            # Blocks for up to 5s regardless of cancel — simulates an agent that
+            # is slow to acknowledge cancellation.
+            slow_done.wait(timeout=5)
+            return {"status": "success", "result": "ok", "output_tokens": 0}
+
+        def mock_cancel(agent_id):
+            pass  # deliberately does NOT release slow_done
+
+        start = time.monotonic()
+        with (
+            patch("gptme.tools.subagent.batch.subagent", side_effect=mock_subagent),
+            patch("gptme.tools.subagent.batch.subagent_wait", side_effect=mock_wait),
+            patch(
+                "gptme.tools.subagent.batch.subagent_cancel", side_effect=mock_cancel
+            ),
+        ):
+            results = subagent_parallel(
+                [("slow", "p1")],
+                max_concurrent=1,
+                timeout=1,  # overall deadline
+            )
+        elapsed = time.monotonic() - start
+
+        # Unblock the still-running background thread so it doesn't linger
+        slow_done.set()
+
+        # Should return within 2× the overall timeout, not wait for the 5s worker
+        assert elapsed < 3.0, f"shutdown blocked for {elapsed:.1f}s (expected <3s)"
+        assert results[0]["status"] in {"timeout", "cancelled"}

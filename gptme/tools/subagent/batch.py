@@ -967,7 +967,9 @@ def _subagent_parallel_capped(
 
         return agent_id, result
 
-    with ThreadPoolExecutor(max_workers=max_concurrent) as pool:
+    pool = ThreadPoolExecutor(max_workers=max_concurrent)
+    _timed_out = False
+    try:
         futures: dict[Future[tuple[str, dict]], str] = {
             pool.submit(run_one, aid, prompt): aid for aid, prompt in tasks
         }
@@ -977,6 +979,7 @@ def _subagent_parallel_capped(
                 with results_lock:
                     results_map[aid] = result
         except FuturesTimeoutError:
+            _timed_out = True
             # Stop queued workers from starting new agents and cancel in-flight ones.
             cancel_event.set()
             with inflight_lock:
@@ -1006,6 +1009,11 @@ def _subagent_parallel_capped(
                         results_map[aid] = asdict(
                             ReturnType("timeout", f"Timed out after {timeout}s")
                         )
+    finally:
+        # On timeout, don't block on shutdown: subagent_cancel() signals running agents
+        # to stop, but we don't wait for threads blocked in subagent_wait() to return.
+        # cancel_futures=True also discards any queued-but-not-yet-started workers.
+        pool.shutdown(wait=not _timed_out, cancel_futures=_timed_out)
 
     raw_results = [
         results_map.get(
