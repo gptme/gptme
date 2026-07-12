@@ -73,7 +73,7 @@ _LOW_SEVERITY_PATTERNS: list[re.Pattern] = [
 
 def _get_hygiene_mode() -> str:
     """Return the active hygiene mode (off | warn | block)."""
-    return os.environ.get("GPTME_INJECTION_HYGIENE", "warn").lower()
+    return os.environ.get("GPTME_INJECTION_HYGIENE", "warn").strip().lower()
 
 
 def _is_untrusted_source(tool_name: str, tool_content: str | None) -> bool:
@@ -85,7 +85,9 @@ def _is_untrusted_source(tool_name: str, tool_content: str | None) -> bool:
                 return False
             return tool_content.strip().startswith(("http://", "https://"))
         return True
-    return False
+    # MCP server tools are registered as "<server>.<tool>" (e.g. "filesystem.read_file").
+    # The dot convention uniquely identifies them; screen all such calls.
+    return "." in tool_name
 
 
 def _has_injection_pattern(text: str | None) -> tuple[bool, str, bool]:
