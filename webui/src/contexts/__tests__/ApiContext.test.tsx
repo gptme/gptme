@@ -185,6 +185,28 @@ describe('ApiProvider mobile auto-connect', () => {
     expect(mockCheckConnection).not.toHaveBeenCalled();
   });
 
+  it('syncs the default local URL to the Tauri-managed server port before auto-connect', async () => {
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5712,
+        port_available: false,
+        manages_local_server: true,
+      },
+    });
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(mockUpdateServer).toHaveBeenCalledWith('server-1', {
+        baseUrl: 'http://127.0.0.1:5712',
+      });
+    });
+    expect(mockCheckConnection).not.toHaveBeenCalled();
+  });
+
   it('stops retrying after a CORS failure (permanent, not transient)', async () => {
     setActiveServerBaseUrl('https://bob.example.com');
 
