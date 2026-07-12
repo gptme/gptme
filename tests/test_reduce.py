@@ -620,6 +620,65 @@ def test_proactive_summarize_pinned_tool_use_keeps_result(monkeypatch):
         )
 
 
+def test_proactive_summarize_pinned_result_keeps_anchor(monkeypatch):
+    """A pinned tool-result's non-pinned tool-use anchor must not be summarized away.
+
+    When a non-pinned assistant message in the middle block contains a tool call,
+    and its immediately following system message is pinned, the anchor must be
+    preserved alongside the pinned result — otherwise the final log contains a
+    tool result with no preceding tool-use, which provider APIs reject.
+    """
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        summarized: list[list] = []
+
+        def fake_summarize(msgs):
+            summarized.append(msgs)
+            return Message("system", "Summary of old turns")
+
+        monkeypatch.setattr("gptme.llm.summarize", fake_summarize)
+
+        tool_use = Message(
+            "assistant",
+            content="I'll run this.\n```shell\necho hi\n```",
+        )  # NOT pinned — but its result is pinned
+        pinned_tool_result = Message("system", "hi", pinned=True)
+
+        msgs = [
+            Message("system", "System."),  # initial system — kept
+            Message("user", "word " * 4),  # old — candidate for middle
+            Message("assistant", "word " * 4),  # old — candidate for middle
+            tool_use,  # non-pinned tool-use — anchor must survive with its result
+            pinned_tool_result,  # pinned tool-result — must survive verbatim
+            Message("user", "recent q"),  # recent
+            Message("assistant", "recent a"),  # recent
+        ]
+
+        result = proactive_summarize_log(msgs, threshold=0.5, recent_keep=2)
+
+        assert any(m is pinned_tool_result for m in result), (
+            "Pinned tool-result must be preserved in result"
+        )
+        assert any(m is tool_use for m in result), (
+            "Non-pinned tool-use anchor must be preserved when its result is pinned"
+        )
+        if summarized:
+            assert not any(m is tool_use for m in summarized[0]), (
+                "Tool-use anchor of a pinned result must not appear in the summarized portion"
+            )
+        assert any("recent q" in m.content for m in result)
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+
+
 def test_proactive_summarize_tool_call_boundary(monkeypatch):
     """Tool-call / tool-result pairs must not be split at the middle/recent boundary."""
     from gptme.llm.models.resolution import _default_model_var

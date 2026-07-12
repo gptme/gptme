@@ -407,7 +407,18 @@ def proactive_summarize_log(
                 i += 1
                 pinned_middle.append(middle[i])
         else:
-            summarize_middle.append(m)
+            # A non-pinned tool-use whose immediately following message is a pinned
+            # tool result must travel to pinned_middle — the pinned result requires
+            # its anchor, and the result IS pinned so it will be preserved.
+            if (
+                message_contains_tool_use(m)
+                and i + 1 < len(middle)
+                and middle[i + 1].pinned
+                and middle[i + 1].role == "system"
+            ):
+                pinned_middle.append(m)
+            else:
+                summarize_middle.append(m)
         i += 1
     if not summarize_middle:
         return log
