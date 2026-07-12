@@ -129,6 +129,42 @@ def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
         return True
 
 
+def update_subagent_result_with_branch(
+    agent_id: str, branch: str, has_output_schema: bool = False
+) -> None:
+    """Amend a cached result to include a preserved branch name.
+
+    Called when the normal-completion thread loses the set_subagent_result_if_absent
+    race to a timeout/cancel watchdog. Cleanup already ran and found a preserved
+    branch; without this patch the caller's stored result would have no branch name.
+
+    When ``has_output_schema`` is True, the cached result string is JSON that
+    callers parse — appending human-readable text would break that parse, so
+    the branch is logged only (via ``_cleanup_isolation``) and not patched in.
+    """
+    if has_output_schema:
+        return
+    suffix = (
+        f"\n\nChanges preserved on branch {branch!r} — merge with: git merge {branch}"
+    )
+    with _subagent_results_lock:
+        existing = _subagent_results.get(agent_id)
+        if existing is None:
+            return
+        if isinstance(existing.result, str):
+            amended: str | None = existing.result + suffix
+        elif existing.result is None:
+            amended = suffix.lstrip("\n")
+        else:
+            return  # structured (dict) result — cannot amend inline
+        _subagent_results[agent_id] = ReturnType(
+            existing.status,
+            amended,
+            input_tokens=existing.input_tokens,
+            output_tokens=existing.output_tokens,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -197,6 +233,9 @@ class Subagent:
     isolated: bool = False
     worktree_path: Path | None = None
     repo_path: Path | None = None
+    # String isolation mode ("worktree" or None). When set, cleanup uses smart
+    # behaviour: auto-remove if unchanged, preserve branch if changes exist.
+    isolation_mode: str | None = None
     # Maximum time (seconds) the subprocess monitor will wait before killing
     timeout: int = 1800  # 30 minutes
     role: Role | None = None

@@ -316,7 +316,7 @@ Key features:
 - use_subprocess=True: Run subagent in subprocess for output isolation
 - use_acp=True: Run subagent via ACP protocol (supports any ACP-compatible agent)
 - acp_command="claude-code-acp": Use a different ACP agent (default: gptme-acp)
-- isolated=True: Run subagent in a git worktree for filesystem isolation
+- isolation="worktree": Run subagent in a git worktree for filesystem isolation (preferred over isolated=True)
 - workdir="/path/to/dir": Set the working directory for the subagent (defaults to cwd)
 - redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
 - context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)

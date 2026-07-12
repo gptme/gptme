@@ -30,6 +30,7 @@ from .types import (
     clarification_result_from_content,
     resolve_role_defaults,
     set_subagent_result_if_absent,
+    update_subagent_result_with_branch,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ def subagent(
     profile: str | None = None,
     model: str | None = None,
     isolated: bool | None = None,
+    isolation: Literal["worktree"] | None = None,
     timeout: int = 1800,
     role: Role | None = None,
     redact_secrets: bool = True,
@@ -134,6 +136,20 @@ def subagent(
             can modify files without affecting the parent. The worktree is
             automatically cleaned up after the subagent completes.
             Falls back to a temporary directory if not in a git repo.
+            Prefer ``isolation="worktree"`` for new code — it is the string-based
+            API equivalent and enables smarter cleanup behaviour.
+        isolation: String-based isolation mode. Use ``"worktree"`` to create a
+            temporary git worktree for the subagent, giving it an isolated copy
+            of the repository to work in. On completion:
+
+            - **No local changes**: worktree directory *and* branch are removed
+              automatically (zero cleanup needed).
+            - **Local changes exist**: the branch is preserved and its name is
+              reported in the result so the orchestrator can inspect or merge it.
+              The working-tree directory is still removed.
+
+            Falls back to a temporary directory when not in a git repository.
+            Equivalent to ``isolated=True`` but adds smart cleanup behaviour.
         timeout: Maximum seconds before the subprocess monitor kills the
             subagent (default 1800 = 30 min). Only applies to subprocess mode.
         redact_secrets: If True (default), scrub common secret patterns from
@@ -234,6 +250,15 @@ def subagent(
         raise ValueError(
             f"context_turns must be None or a positive integer, got {context_turns!r}"
         )
+    if isolation is not None and isolation != "worktree":
+        raise ValueError(
+            f"Unknown isolation mode: {isolation!r}. Supported values: 'worktree'."
+        )
+
+    # isolation="worktree" is the string-based API equivalent of isolated=True.
+    # When isolation is set, it overrides isolated (but both can still coexist).
+    if isolation == "worktree":
+        isolated = True
 
     # Fetch parent messages from the active LogManager when context_turns is set.
     # LogManager.get_current_log() reads a ContextVar set by the chat loop, so
@@ -364,6 +389,7 @@ def subagent(
             context_include=context_include,
             profile=profile,
             isolated=isolated,
+            isolation_mode=isolation,
             redact_secrets=redact_secrets,
             context_window=context_window,
             max_time=max_time,
@@ -605,7 +631,16 @@ def subagent(
                             (s for s in _subagents if s.agent_id == agent_id), None
                         )
                     if sa_ref:
-                        _exec._cleanup_isolation(sa_ref)
+                        # ACP always caches a result above before reaching this
+                        # cleanup, so patch the already-stored result with any
+                        # preserved branch (mirrors the thread-mode fallback).
+                        preserved_branch = _exec._cleanup_isolation(sa_ref)
+                        if preserved_branch:
+                            update_subagent_result_with_branch(
+                                agent_id,
+                                preserved_branch,
+                                has_output_schema=bool(sa_ref.output_schema),
+                            )
             finally:
                 _sem.release()
 
@@ -627,6 +662,7 @@ def subagent(
             acp_command=acp_command,
             workdir=workdir_path,
             isolated=isolated,
+            isolation_mode=isolation,
             worktree_path=worktree_path,
             repo_path=repo_path,
             role=role,
@@ -728,6 +764,7 @@ def subagent(
             execution_mode="subprocess",
             workdir=workdir_path,
             isolated=isolated,
+            isolation_mode=isolation,
             worktree_path=worktree_path,
             repo_path=repo_path,
             timeout=timeout,
@@ -807,16 +844,42 @@ def subagent(
                     # Use _read_log() instead of status(): the thread is still alive here,
                     # so status() would return "running" and poison the result cache.
                     result = sa._read_log()
+                    # Clean up isolation first so preserved branch name can be
+                    # included in the result returned to callers.
+                    preserved_branch = _exec._cleanup_isolation(sa)
+                    # Skip appending human-readable branch text when output_schema
+                    # is set — the result string is JSON that callers parse, and
+                    # appending text after it would break that parse.
+                    if (
+                        preserved_branch
+                        and isinstance(result.result, str)
+                        and not sa.output_schema
+                    ):
+                        from .types import ReturnType as _ReturnType
+
+                        result = _ReturnType(
+                            result.status,
+                            f"{result.result}\n\nChanges preserved on branch "
+                            f"{preserved_branch!r}"
+                            f" — merge with: git merge {preserved_branch}",
+                            input_tokens=result.input_tokens,
+                            output_tokens=result.output_tokens,
+                        )
                     if not set_subagent_result_if_absent(agent_id, result):
-                        _exec._cleanup_isolation(sa)
+                        # Timeout/cancel won the cache race. Cleanup already ran above.
+                        # Patch the stored result with branch info so callers can find it.
+                        if preserved_branch:
+                            update_subagent_result_with_branch(
+                                agent_id,
+                                preserved_branch,
+                                has_output_schema=bool(sa.output_schema),
+                            )
                         return
                     try:
                         summary = _exec._summarize_result(result, max_chars=200)
                         notify_completion(agent_id, result.status, summary)
                     except Exception as e:
                         logger.warning(f"Failed to notify subagent completion: {e}")
-                    # Clean up worktree isolation
-                    _exec._cleanup_isolation(sa)
             finally:
                 _sem.release()
 
@@ -843,6 +906,7 @@ def subagent(
             execution_mode="thread",
             workdir=workdir_path,
             isolated=isolated,
+            isolation_mode=isolation,
             worktree_path=worktree_path,
             repo_path=repo_path,
             role=role,

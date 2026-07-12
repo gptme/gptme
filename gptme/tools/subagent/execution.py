@@ -582,17 +582,40 @@ def _summarize_result(result: "ReturnType", max_chars: int = 200) -> str:
     return text[: max_chars - 3] + "..."
 
 
-def _cleanup_isolation(subagent: "Subagent") -> None:
-    """Clean up worktree or temp directory after subagent completes."""
+def _cleanup_isolation(subagent: "Subagent") -> str | None:
+    """Clean up worktree or temp directory after subagent completes.
+
+    For ``isolation_mode="worktree"`` subagents, uses smart cleanup:
+    - No local changes → remove directory AND branch (full cleanup).
+    - Local changes → preserve branch, remove directory only.
+
+    Returns:
+        The preserved branch name when changes exist and smart cleanup is
+        active; ``None`` otherwise.
+    """
     if not subagent.isolated or not subagent.worktree_path:
-        return
+        return None
 
     from ...util.git_worktree import cleanup_worktree
 
     try:
-        cleanup_worktree(subagent.worktree_path, subagent.repo_path)
+        # Smart cleanup: preserve branch when isolation="worktree" was used
+        # and the worktree has local changes so the orchestrator can merge them.
+        keep_if_changed = subagent.isolation_mode == "worktree"
+        preserved_branch = cleanup_worktree(
+            subagent.worktree_path,
+            subagent.repo_path,
+            keep_branch_if_changed=keep_if_changed,
+        )
+        if preserved_branch:
+            logger.info(
+                f"Subagent {subagent.agent_id!r}: changes preserved on branch "
+                f"{preserved_branch!r} — merge with: git merge {preserved_branch}"
+            )
+        return preserved_branch
     except Exception as e:
         logger.warning(f"Failed to cleanup isolation for {subagent.agent_id}: {e}")
+        return None
 
 
 def _drain_progress_file(
@@ -710,6 +733,7 @@ def _monitor_subprocess(
     from .types import (
         ReturnType,
         set_subagent_result_if_absent,
+        update_subagent_result_with_branch,
     )
 
     if not subagent.process:
@@ -768,6 +792,18 @@ def _monitor_subprocess(
         status = "failure"
         result = f"Process exited with code {subagent.process.returncode}"
 
+    # Clean up worktree isolation; capture preserved branch so it can be
+    # included in the result that callers receive via subagent_wait() / subagent_parallel().
+    preserved_branch = _cleanup_isolation(subagent)
+    # Skip appending human-readable branch text when output_schema is set —
+    # the result string is JSON that callers parse, and appending text after
+    # it would break that parse.
+    if preserved_branch and isinstance(result, str) and not subagent.output_schema:
+        result = (
+            f"{result}\n\nChanges preserved on branch {preserved_branch!r}"
+            f" — merge with: git merge {preserved_branch}"
+        )
+
     # Cache the result in module-level dict (Subagent is frozen)
     final_result = ReturnType(
         status,
@@ -776,7 +812,15 @@ def _monitor_subprocess(
         output_tokens=output_tokens,
     )
     if not set_subagent_result_if_absent(subagent.agent_id, final_result):
-        _cleanup_isolation(subagent)
+        # Timeout/cancel won the cache race. Patch the stored result with
+        # branch info (mirrors the thread-mode fallback in api.py) so
+        # callers can still find preserved work.
+        if preserved_branch:
+            update_subagent_result_with_branch(
+                subagent.agent_id,
+                preserved_branch,
+                has_output_schema=bool(subagent.output_schema),
+            )
         return
 
     # Notify via hook system (fire-and-forget-then-get-alerted pattern)
@@ -785,9 +829,6 @@ def _monitor_subprocess(
         notify_completion(subagent.agent_id, status, summary)
     except Exception as e:
         logger.warning(f"Failed to notify subagent completion: {e}")
-
-    # Clean up worktree isolation
-    _cleanup_isolation(subagent)
 
 
 def _run_planner(
