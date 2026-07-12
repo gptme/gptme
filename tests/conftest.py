@@ -1,5 +1,6 @@
 """Test configuration and shared fixtures."""
 
+import http.server
 import json
 import logging
 import os
@@ -532,6 +533,51 @@ def mock_generation():
         return mock_stream
 
     return create
+
+
+_LOCAL_FORM_HTML = """\
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Test Form</title></head>
+<body>
+<form>
+  <input name="q" type="text" placeholder="Search" />
+  <button type="submit">Go</button>
+</form>
+</body>
+</html>
+"""
+
+
+class _LocalFormHandler(http.server.BaseHTTPRequestHandler):
+    """Minimal HTTP handler that serves a simple form page."""
+
+    def log_message(self, *args):  # suppress request logs in test output
+        pass
+
+    def do_GET(self):
+        encoded = _LOCAL_FORM_HTML.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+
+@pytest.fixture()
+def local_form_page():
+    """Serve a minimal HTML form page locally and yield its URL.
+
+    Replaces external URLs (e.g. duckduckgo.com) in browser tests so the
+    suite stays hermetic and free of network flakiness.
+    """
+    server = http.server.HTTPServer(("127.0.0.1", 0), _LocalFormHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{port}/"
+    server.shutdown()
+    thread.join(timeout=2)
 
 
 @pytest.fixture

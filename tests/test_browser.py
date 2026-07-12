@@ -331,12 +331,11 @@ def test_scroll_page():
 
 
 @pytest.mark.slow
-def test_fill_element():
+def test_fill_element(local_form_page):
     """Test filling a form field on an open page."""
-    # Use DuckDuckGo which has a simple search input
-    open_page("https://duckduckgo.com")
+    open_page(local_form_page)
 
-    # Fill the search box
+    # Fill the search input (name="q" matches the local fixture's HTML)
     snapshot = fill_element("input[name='q']", "gptme test")
     assert snapshot, "Fill should return a valid snapshot"
     assert "gptme test" in snapshot, "Snapshot should reflect filled value"
