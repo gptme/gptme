@@ -279,6 +279,11 @@ def run(workspace: Path | None = None) -> None:
     gptme.toml [lessons] dirs. Already-injected lessons are tracked per session
     to avoid duplicates.
     """
+    # Suppress diagnostic output since this command must output only JSON
+    from ..message import set_output_format
+
+    set_output_format("json")
+
     try:
         raw = sys.stdin.read()
         if not raw.strip():
