@@ -14,8 +14,9 @@ import math
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
+from concurrent.futures import wait as futures_wait
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import cast
@@ -152,7 +153,7 @@ class BatchJob:
                         if agent_id in self.results:
                             return agent_id, self.results[agent_id]
                     return agent_id, ReturnType(
-                        "failure", "Cancelled due to sibling failure"
+                        "cancelled", "Cancelled due to sibling failure"
                     )
 
                 remaining = deadline - time.monotonic()
@@ -188,6 +189,9 @@ class BatchJob:
         import time
 
         deadline = time.monotonic() + timeout
+        # Safe default: if the try block raises before agent_to_future is built,
+        # the post-cancel sweep below still has a valid (empty) dict to iterate.
+        agent_to_future: dict[str, Future[tuple[str, ReturnType]]] = {}
         # Use explicit lifecycle instead of context manager so we can return
         # immediately after cancellation without blocking on still-running
         # _wait_one threads (ThreadPoolExecutor.__exit__ calls shutdown(wait=True)).
@@ -211,9 +215,10 @@ class BatchJob:
                     agent_id, result = future.result()
                     with self._lock:
                         prev = self.results.get(agent_id)
-                        # Overwrite a prior timeout placeholder with the real result;
-                        # never overwrite a non-timeout (already-final) result.
-                        if prev is None or prev.status == "timeout":
+                        # Overwrite placeholder results (timeout, synthetic cancel)
+                        # with the real result. Never overwrite an already-final
+                        # non-placeholder result.
+                        if prev is None or prev.status in ("timeout", "cancelled"):
                             self.results[agent_id] = result
 
                     # Cancel remaining agents on first failure/timeout
@@ -241,7 +246,7 @@ class BatchJob:
                                         except Exception:
                                             pass
                                     self.results[aid_to_cancel] = real or ReturnType(
-                                        "failure", "Cancelled due to sibling failure"
+                                        "cancelled", "Cancelled due to sibling failure"
                                     )
                         # Signal workers to exit poll loops, then exit the loop.
                         cancel_event.set()
@@ -274,6 +279,42 @@ class BatchJob:
             # collected in self.results. Workers will exit their poll loops within
             # _POLL_SECS seconds once cancel_event is set.
             pool.shutdown(wait=False, cancel_futures=True)
+
+        # Post-cancel sweep: upgrade synthetic "cancelled" placeholders with real
+        # results from futures that completed after the cancel loop wrote the
+        # placeholder.  This handles the race where:
+        #   1. cancel loop checks f.done() → False, writes "cancelled" placeholder
+        #   2. main loop breaks because all agent slots are filled
+        #   3. _wait_one thread finishes shortly after (future becomes done)
+        # Without this sweep the real result (which may carry output_tokens) is
+        # discarded and the budget under-counts.
+        if cancel_on_failure and agent_to_future:
+            # Brief wait for _wait_one threads whose agents were just cancelled via
+            # subagent_cancel().  After cancel, those threads typically finish within
+            # microseconds (the cancel call unblocks their subagent_wait), but
+            # pool.shutdown(wait=False) does not wait for them.  0.5s is generous.
+            with self._lock:
+                pending = [
+                    agent_to_future[aid]
+                    for aid, r in self.results.items()
+                    if r.status == "cancelled" and aid in agent_to_future
+                ]
+            if pending:
+                futures_wait(pending, timeout=0.5)
+            for aid, f in agent_to_future.items():
+                if f.done() and not f.cancelled():
+                    with self._lock:
+                        r = self.results.get(aid)
+                    if r is not None and r.status == "cancelled":
+                        try:
+                            _, real = f.result()
+                            with self._lock:
+                                # Only replace if still the same placeholder (another
+                                # concurrent wait_all() hasn't updated it first).
+                                if self.results.get(aid) is r:
+                                    self.results[aid] = real
+                        except Exception:
+                            pass
 
         raw = {aid: asdict(r) for aid, r in self.results.items()}
 

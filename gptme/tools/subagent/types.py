@@ -37,6 +37,7 @@ Status = Literal[
     "clarification_needed",
     "timeout",
     "budget_exceeded",
+    "cancelled",
 ]
 Role = Literal["general", "explore", "implement", "verify"]
 
