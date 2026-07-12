@@ -719,6 +719,18 @@ jobs:
           releaseId: ${{ steps.release.outputs.id }}
           args: ${{ matrix.args }} ${{ steps.updater.outputs.extra }}
 
+      - name: Patch AppImage libgpg-error dependency
+        if: matrix.platform == 'ubuntu-24.04'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash tauri/scripts/build-appimage.sh --patch-only
+          APPIMAGE=$(find tauri/src-tauri/target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
+          if [[ -n "$APPIMAGE" ]]; then
+            TAG="${{ inputs.tag || github.ref_name }}"
+            gh release upload "$TAG" "$APPIMAGE" --clobber
+          fi
+
   build-android:
     name: Build Android (APK/AAB)
     # Only aarch64 for PR/push checks; full multi-arch on release tags

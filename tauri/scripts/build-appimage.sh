@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Build the Linux AppImage and patch linuxdeploy's incomplete libgcrypt bundle.
+#
+# Usage:
+#   ./build-appimage.sh [tauri build args...]   -- full build + patch
+#   ./build-appimage.sh --patch-only            -- patch an already-built AppImage
 
 set -euo pipefail
 
@@ -15,12 +19,24 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     exit 1
 fi
 
-NO_STRIP="${NO_STRIP:-true}" npm run tauri -- build "$@"
+PATCH_ONLY=false
+if [[ "${1:-}" == "--patch-only" ]]; then
+    PATCH_ONLY=true
+    shift
+fi
+
+if [[ "$PATCH_ONLY" != "true" ]]; then
+    NO_STRIP="${NO_STRIP:-true}" npm run tauri -- build "$@"
+fi
 
 APPDIR="$TAURI_DIR/src-tauri/target/release/bundle/appimage/gptme-tauri.AppDir"
 APPIMAGE="$(find "$TAURI_DIR/src-tauri/target/release/bundle/appimage" -maxdepth 1 -name '*.AppImage' -print -quit)"
 
 if [[ ! -d "$APPDIR" || -z "$APPIMAGE" ]]; then
+    if [[ "$PATCH_ONLY" == "true" ]]; then
+        echo "No AppDir/AppImage found — nothing to patch"
+        exit 0
+    fi
     echo "AppImage build did not produce expected AppDir/AppImage" >&2
     exit 1
 fi
