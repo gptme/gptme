@@ -181,3 +181,56 @@ def test_from_turn_creates_branched_session(
     roles = [m["role"] for m in messages]
     # Should have system + 2 user+assistant pairs = 5 messages
     assert roles == ["system", "user", "assistant", "user", "assistant"]
+
+
+def test_slice_negative_turn_raises_error():
+    """Negative turn values should raise ValueError."""
+    msgs = _msgs("system", "user", "assistant")
+    with pytest.raises(ValueError, match="Turn number must be >= 0"):
+        _slice_at_turn(msgs, -1)
+
+
+def test_slice_negative_turn_large():
+    """Large negative turn values should also raise ValueError."""
+    msgs = _msgs("system", "user", "assistant")
+    with pytest.raises(ValueError, match="Turn number must be >= 0"):
+        _slice_at_turn(msgs, -999)
+
+
+def test_from_turn_branch_name_collision(source_session: Path, monkeypatch, tmp_path):
+    """--from-turn with existing branch name should error."""
+    from gptme.cli.main import main
+
+    logs_dir = source_session
+    monkeypatch.setattr("gptme.cli.main.get_logs_dir", lambda: logs_dir)
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+    runner = CliRunner()
+
+    # Create a session with the branch name already in use
+    existing_branch = logs_dir / "my-branch"
+    _write_conversation(
+        existing_branch,
+        [{"role": "system", "content": "Existing session"}],
+    )
+
+    # Try to create a branch with the same name — should fail
+    result = runner.invoke(
+        main,
+        [
+            "--name",
+            "my-session",
+            "--from-turn",
+            "1",
+            "--branch",
+            "my-branch",
+            "--non-interactive",
+        ],
+        catch_exceptions=False,
+    )
+
+    # Should error about existing branch
+    assert result.exit_code != 0
+    assert "already exists" in result.output or "already exists" in str(
+        result.exception
+    )

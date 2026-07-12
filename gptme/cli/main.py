@@ -456,6 +456,9 @@ def _slice_at_turn(messages: list[Any], turn: int) -> list[Any]:
     If N exceeds the number of turns in the conversation, all messages
     are returned (no truncation).
     """
+    if turn < 0:
+        raise ValueError(f"Turn number must be >= 0, got {turn}")
+
     if turn == 0:
         result = []
         for msg in messages:
@@ -1237,6 +1240,12 @@ def main(
             new_name = f"{logdir.name}-branch-{ts}"
 
         new_logdir = get_logdir(new_name)
+        if new_logdir.exists() and (new_logdir / "conversation.jsonl").exists():
+            raise click.UsageError(
+                f"Branch '{new_name}' already exists. "
+                f"Use a different --branch name or resume '{new_name}' instead."
+            )
+        new_logdir.mkdir(parents=True, exist_ok=True)
         Log(sliced).write_jsonl(new_logdir / "conversation.jsonl")
 
         click.echo(
