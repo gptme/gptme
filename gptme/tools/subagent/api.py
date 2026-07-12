@@ -848,6 +848,11 @@ def subagent(
         # Thread mode: original behavior, gated by the concurrency semaphore.
         # The semaphore is acquired before starting LLM work and released in
         # finally so excess agents queue until a slot opens.
+        #
+        # Pre-create the event so run_subagent captures it directly (no lock+lookup
+        # window between _create_subagent_thread returning and finding sa to set it).
+        _pqc = threading.Event()
+
         def run_subagent():
             # Bind retry generation at thread birth so test-teardown interrupts
             # abort backoffs even for LLM calls that start after teardown.
@@ -882,6 +887,7 @@ def subagent(
                         redact_secrets=redact_secrets,
                         context_window=context_window,
                         parent_messages=parent_messages,
+                        prompt_queue_closed=_pqc,
                     )
                 except Exception as e:
                     # If subagent creation fails, notify with error status
@@ -913,11 +919,8 @@ def subagent(
                 with _subagents_lock:
                     sa = next((s for s in _subagents if s.agent_id == agent_id), None)
                 if sa:
-                    # Mark the prompt queue as closed: chat() has returned and will no
-                    # longer drain prompt-queue.jsonl. Set this before _read_log() so
-                    # subagent_steer() can detect the cleanup window without waiting
-                    # for the disk read and result caching to complete.
-                    sa.prompt_queue_closed.set()
+                    # prompt_queue_closed is already set inside _create_subagent_thread
+                    # (right after chat() returns, before this thread gets the lock).
                     # Use _read_log() instead of status(): the thread is still alive here,
                     # so status() would return "running" and poison the result cache.
                     result = sa._read_log()
@@ -970,6 +973,8 @@ def subagent(
         # Register Subagent BEFORE starting thread to avoid race condition:
         # run_subagent closure looks up agent_id in _subagents, which would
         # return None if the thread runs before _subagents.append(sa).
+        # Pass the pre-created _pqc event so sa.prompt_queue_closed and the event
+        # captured by run_subagent are the same object.
         sa = Subagent(
             agent_id=agent_id,
             prompt=prompt,
@@ -993,6 +998,7 @@ def subagent(
             max_time=max_time,
             context_turns=context_turns,
             parent_logdir=parent_logdir,
+            prompt_queue_closed=_pqc,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -1179,9 +1185,14 @@ def subagent_steer(agent_id: str, message: str) -> str:
             "for ACP subagents — they run in a separate harness with no shared logdir channel."
         )
 
-    # Check prompt_queue_closed first: set by run_subagent() immediately when
-    # chat() returns, before the disk-reading _read_log() and result caching.
-    # This is an earlier and more reliable signal than status() alone.
+    # Check prompt_queue_closed first: for thread mode, set inside
+    # _create_subagent_thread right after chat() returns (before any caller
+    # cleanup); for subprocess mode, set in the launcher's finally block after
+    # the process exits. Both paths fire before the disk-reading _read_log()
+    # and result caching, giving an earlier signal than status() alone.
+    # Known limitation: a sub-millisecond window remains between chat()'s last
+    # _drain_external_prompt_queue() call and the event being set; closing that
+    # would require modifying chat() itself.
     if sa.prompt_queue_closed.is_set():
         raise ValueError(
             f"Subagent '{agent_id}' has closed its prompt queue — "
