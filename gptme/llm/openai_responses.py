@@ -428,6 +428,7 @@ def _extract_usage_token_counts(usage: Any) -> UsageTokenCounts:
     prompt_tokens = getattr(usage, "prompt_tokens", None)
     output_tokens = getattr(usage, "completion_tokens", None)
     details = getattr(usage, "prompt_tokens_details", None)
+    is_responses_api = prompt_tokens is None
     if prompt_tokens is None:
         prompt_tokens = getattr(usage, "input_tokens", None)
         details = getattr(usage, "input_tokens_details", None)
@@ -435,6 +436,11 @@ def _extract_usage_token_counts(usage: Any) -> UsageTokenCounts:
         output_tokens = getattr(usage, "output_tokens", None)
     cache_read_tokens = getattr(details, "cached_tokens", None)
     cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", None)
+    # OpenRouter and other OpenAI-compatible brokers expose cache_write_tokens
+    # under prompt_tokens_details (Chat Completions) but not for Responses API.
+    # Only apply the fallback to Chat Completions to avoid mixing APIs.
+    if cache_creation_tokens is None and not is_responses_api and details is not None:
+        cache_creation_tokens = getattr(details, "cache_write_tokens", None)
     total_tokens = getattr(usage, "total_tokens", None)
 
     if isinstance(prompt_tokens, int):
