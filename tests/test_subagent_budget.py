@@ -703,17 +703,39 @@ class TestSubagentParallelMaxConcurrent:
         # At most 1 agent ran (serial + tight budget)
         assert len(budget_exceeded) >= 1
 
-    def test_max_concurrent_zero_raises(self):
-        """max_concurrent=0 raises ValueError before spawning any agents."""
+    def test_max_concurrent_zero_treated_as_uncapped(self):
+        """max_concurrent=0 is treated as no cap (same as None)."""
         tasks = [("a", "p1"), ("b", "p2")]
-        with pytest.raises(ValueError, match="max_concurrent must be >= 1"):
-            subagent_parallel(tasks, max_concurrent=0)
+        with (
+            patch("gptme.tools.subagent.batch.subagent") as mock_spawn,
+            patch("gptme.tools.subagent.batch.subagent_wait") as mock_wait,
+        ):
+            mock_wait.return_value = {
+                "status": "success",
+                "result": "done",
+                "input_tokens": 10,
+                "output_tokens": 5,
+            }
+            results = subagent_parallel(tasks, max_concurrent=0)
+        assert len(results) == 2
+        assert mock_spawn.call_count == 2
 
-    def test_max_concurrent_negative_raises(self):
-        """max_concurrent=-1 raises ValueError before spawning any agents."""
+    def test_max_concurrent_negative_treated_as_uncapped(self):
+        """max_concurrent=-1 is treated as no cap (same as None)."""
         tasks = [("a", "p1"), ("b", "p2")]
-        with pytest.raises(ValueError, match="max_concurrent must be >= 1"):
-            subagent_parallel(tasks, max_concurrent=-1)
+        with (
+            patch("gptme.tools.subagent.batch.subagent") as mock_spawn,
+            patch("gptme.tools.subagent.batch.subagent_wait") as mock_wait,
+        ):
+            mock_wait.return_value = {
+                "status": "success",
+                "result": "done",
+                "input_tokens": 10,
+                "output_tokens": 5,
+            }
+            results = subagent_parallel(tasks, max_concurrent=-1)
+        assert len(results) == 2
+        assert mock_spawn.call_count == 2
 
     def test_duplicate_agent_ids_raises(self):
         """Duplicate task agent_ids raise ValueError before any work starts."""

@@ -760,7 +760,8 @@ def subagent_parallel(
         return []
 
     if max_concurrent is not None and max_concurrent < 1:
-        raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
+        # Treat non-positive as uncapped (consistent with docstring: "never raises an error")
+        max_concurrent = None
 
     agent_ids = [aid for aid, _ in tasks]
     if len(agent_ids) != len(set(agent_ids)):
@@ -1029,6 +1030,15 @@ def _subagent_parallel_capped(
         # to stop, but we don't wait for threads blocked in subagent_wait() to return.
         # cancel_futures=True also discards any queued-but-not-yet-started workers.
         pool.shutdown(wait=not _timed_out, cancel_futures=_timed_out)
+        # On timeout: subagent_cancel() was already called for all in-flight agents
+        # above, so their subagent_wait() calls return promptly. Give those threads a
+        # brief window to finish recording budget tokens into the shared budget object
+        # before we return to the caller — otherwise the caller may see a stale
+        # budget.spent() that under-counts tokens from recently-cancelled agents.
+        if budget is not None and _timed_out:
+            _still_running = [f for f in futures if not f.done() and not f.cancelled()]
+            if _still_running:
+                futures_wait(_still_running, timeout=0.5)
 
     raw_results = [
         results_map.get(
