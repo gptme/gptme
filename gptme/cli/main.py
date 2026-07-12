@@ -1239,14 +1239,21 @@ def main(
             ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
             new_name = f"{logdir.name}-branch-{ts}"
 
-        # Check for collision BEFORE get_logdir(), which creates the dir
-        _candidate = get_logs_dir() / new_name
-        if _candidate.exists() and any(_candidate.iterdir()):
+        # Atomically claim the branch directory to prevent concurrent branches
+        # from overwriting each other (check-then-mkdir races on exist_ok=True).
+        from ..logmanager import conversation_name_error
+
+        name_err = conversation_name_error(new_name)
+        if name_err:
+            raise click.UsageError(name_err)
+        new_logdir = get_logs_dir() / new_name
+        try:
+            new_logdir.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
             raise click.UsageError(
-                f"Branch name '{new_name}' already exists with session state. "
+                f"Branch name '{new_name}' already exists. "
                 f"Choose a different branch name with --branch."
-            )
-        new_logdir = get_logdir(new_name)
+            ) from None
         Log(sliced).write_jsonl(new_logdir / "conversation.jsonl")
 
         click.echo(
