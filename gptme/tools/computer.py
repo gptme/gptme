@@ -107,13 +107,12 @@ from typing import IO, TYPE_CHECKING, Literal, TypedDict
 
 from ._computer_gate import action_risk_level, sensitive_action_gate
 from .base import ToolFunction, ToolSpec, ToolUse
-from .computer_transport import get_transport
+from .computer_transport import ComputerTransport, get_transport
 from .screenshot import screenshot
 from .vision import view_image
 
 if TYPE_CHECKING:
     from ..message import ArtifactDescriptor, Message, MessageMetadata
-    from .computer_transport import ComputerTransport
 
 logger = logging.getLogger(__name__)
 
@@ -2546,6 +2545,58 @@ _OBSERVATION_ACTIONS: frozenset[str] = frozenset(
 )
 
 
+class _NativeScreenshotTransport(ComputerTransport):
+    """Minimal ComputerTransport that captures screenshots via the native screenshot() function.
+
+    Used by :func:`act_and_observe` when no ``GPTME_COMPUTER_TRANSPORT`` is configured,
+    so that :func:`_poll_for_change` can be reused for settle_time support and
+    pre-action baseline detection on the native xdotool/cliclick path.
+
+    Only :meth:`screenshot` is implemented; all other methods raise
+    :class:`NotImplementedError` since this transport is used only for
+    observation (polling), never for control actions.
+    """
+
+    def screenshot(self, width: int = 0, height: int = 0) -> Path:
+        return screenshot()
+
+    def close(self) -> None:
+        pass
+
+    def key(self, text: str) -> None:
+        raise NotImplementedError
+
+    def type_text(self, text: str) -> None:
+        raise NotImplementedError
+
+    def mouse_move(self, x: int, y: int) -> None:
+        raise NotImplementedError
+
+    def left_click(self) -> None:
+        raise NotImplementedError
+
+    def right_click(self) -> None:
+        raise NotImplementedError
+
+    def middle_click(self) -> None:
+        raise NotImplementedError
+
+    def double_click(self) -> None:
+        raise NotImplementedError
+
+    def left_click_drag(self, x: int, y: int) -> None:
+        raise NotImplementedError
+
+    def scroll(self, x: int, y: int, direction: str, amount: int = 3) -> None:
+        raise NotImplementedError
+
+    def cursor_position(self) -> tuple[int, int]:
+        raise NotImplementedError
+
+    def window_focus(self, pattern: str) -> None:
+        raise NotImplementedError
+
+
 def act_and_observe(
     action: Action,
     text: str | None = None,
@@ -2615,14 +2666,27 @@ def act_and_observe(
     # always times out, producing the "delay" symptom reported in #216.
     pre_action_baseline = None
     transport = None
+    _poll_transport: ComputerTransport | None = None
     if action not in _OBSERVATION_ACTIONS:
         transport = get_transport()
         if transport is not None:
+            _poll_transport = transport
             try:
                 pre_action_baseline = transport.screenshot()
             except Exception as e:
                 print(
                     f"Warning: pre-action baseline screenshot failed ({e!r}); falling back to post-action polling"
+                )
+        else:
+            # Native path: capture a pre-action baseline using the native screenshot()
+            # function and wrap it in a thin transport so _poll_for_change (and
+            # settle_time) can be reused — same fix as the transport path above.
+            _poll_transport = _NativeScreenshotTransport()
+            try:
+                pre_action_baseline = _poll_transport.screenshot()
+            except Exception as e:
+                print(
+                    f"Warning: native pre-action baseline screenshot failed ({e!r}); falling back to post-action polling"
                 )
 
     result = computer(action, text=text, coordinate=coordinate)
@@ -2635,14 +2699,15 @@ def act_and_observe(
 
     # For any action that modifies desktop state, poll for changes and return
     # one screenshot showing the settled screen.
-    if pre_action_baseline is not None and transport is not None:
+    if pre_action_baseline is not None and _poll_transport is not None:
         # Use the pre-action baseline so changes that happened immediately
         # (e.g. window_focus) are detected rather than missed.
         # settle_time ensures we wait for the screen to stop changing (not just
         # detect the first frame of a multi-phase transition like a terminal
         # appearing frame-by-frame before the shell prompt renders).
+        # This now works on both the transport path AND the native xdotool path.
         settled = _poll_for_change(
-            transport, pre_action_baseline, timeout, settle_time=settle_time
+            _poll_transport, pre_action_baseline, timeout, settle_time=settle_time
         )
     else:
         settled = computer("wait_for_change", text=str(timeout))
