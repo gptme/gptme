@@ -6130,9 +6130,11 @@ class TestSubagentSteer:
     def test_steer_cleanup_window_raises(self, tmp_path):
         """subagent_steer raises when the subagent is in the cleanup window.
 
-        Thread-mode: the wrapper thread is still alive (is_alive()=True) but
-        chat() has already returned and the result is cached in _subagent_results.
-        is_running() would falsely pass; status() correctly returns the terminal status.
+        Thread-mode: the wrapper thread is still alive (is_alive()=True),
+        the result is NOT yet cached (_subagent_results is empty), but chat()
+        has returned and prompt_queue_closed is set. is_running() and status()
+        alone would both falsely report "running" here; prompt_queue_closed
+        catches this gap directly.
         """
         logdir = tmp_path / "steer-cleanup-window"
         logdir.mkdir()
@@ -6148,10 +6150,38 @@ class TestSubagentSteer:
         )
         with _subagents_lock:
             _subagents.append(sa)
-        # Simulate the result being cached (as set_subagent_result_if_absent does)
-        # while the wrapper thread is still alive doing post-chat cleanup.
+        # Simulate run_subagent() having set prompt_queue_closed immediately
+        # after _create_subagent_thread() returned, before _read_log() and
+        # set_subagent_result_if_absent() are called.
+        sa.prompt_queue_closed.set()
+        # Result is NOT cached yet — the cleanup is mid-flight.
+        assert "cleanup-agent" not in _subagent_results
+
+        with pytest.raises(ValueError, match="closed its prompt queue"):
+            subagent_steer("cleanup-agent", "too late")
+
+    def test_steer_result_cached_still_raises(self, tmp_path):
+        """subagent_steer raises when result is cached (covers the post-cache half of cleanup).
+
+        Thread alive, result already written to _subagent_results but
+        prompt_queue_closed not yet set (extremely narrow gap). status() catches this.
+        """
+        logdir = tmp_path / "steer-cached-not-closed"
+        logdir.mkdir()
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = Subagent(
+            agent_id="cached-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
         with _subagent_results_lock:
-            _subagent_results["cleanup-agent"] = ReturnType("success", "done")
+            _subagent_results["cached-agent"] = ReturnType("success", "done")
 
         with pytest.raises(ValueError, match="not running"):
-            subagent_steer("cleanup-agent", "too late")
+            subagent_steer("cached-agent", "too late")

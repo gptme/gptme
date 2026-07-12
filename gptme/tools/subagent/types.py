@@ -324,6 +324,12 @@ class Subagent:
     cancel_event: threading.Event = field(
         default_factory=threading.Event, init=False, repr=False
     )
+    # Set when chat() has returned and the prompt queue will no longer be drained.
+    # Provides an earlier, more reliable signal than _subagent_results caching
+    # (which requires a disk read via _read_log() before the result is stored).
+    # subagent_steer() checks this flag to catch the cleanup window where
+    # thread.is_alive() is True but the chat loop has already stopped.
+    prompt_queue_closed: threading.Event = field(default_factory=threading.Event)
 
     def _normalize_json_result(self, result: str) -> str:
         """Normalize a complete-block result as canonical JSON.

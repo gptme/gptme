@@ -906,6 +906,11 @@ def subagent(
                 with _subagents_lock:
                     sa = next((s for s in _subagents if s.agent_id == agent_id), None)
                 if sa:
+                    # Mark the prompt queue as closed: chat() has returned and will no
+                    # longer drain prompt-queue.jsonl. Set this before _read_log() so
+                    # subagent_steer() can detect the cleanup window without waiting
+                    # for the disk read and result caching to complete.
+                    sa.prompt_queue_closed.set()
                     # Use _read_log() instead of status(): the thread is still alive here,
                     # so status() would return "running" and poison the result cache.
                     result = sa._read_log()
@@ -1167,6 +1172,15 @@ def subagent_steer(agent_id: str, message: str) -> str:
             "for ACP subagents — they run in a separate harness with no shared logdir channel."
         )
 
+    # Check prompt_queue_closed first: set by run_subagent() immediately when
+    # chat() returns, before the disk-reading _read_log() and result caching.
+    # This is an earlier and more reliable signal than status() alone.
+    if sa.prompt_queue_closed.is_set():
+        raise ValueError(
+            f"Subagent '{agent_id}' has closed its prompt queue — "
+            "its chat loop has finished and will not accept new steering messages."
+        )
+
     pre_status = sa.status().status
     if pre_status != "running":
         raise ValueError(
@@ -1177,10 +1191,15 @@ def subagent_steer(agent_id: str, message: str) -> str:
 
     queue_prompt(sa.logdir, message)
 
-    # Re-check status() after queuing to detect the race where the subagent exits
-    # between the initial check and the queue write. Using status() (not is_running())
-    # catches the thread-mode "cleanup window": the thread is still alive, but chat()
-    # has returned and the result is already cached — is_running() would falsely pass.
+    # Re-check after queuing: catches the race where the subagent exits between
+    # the initial check and the queue write.
+    # prompt_queue_closed catches the cleanup window (chat() returned but result
+    # not yet cached); status() catches the post-cache case.
+    if sa.prompt_queue_closed.is_set():
+        raise ValueError(
+            f"Subagent '{agent_id}' closed its prompt queue while the steering message "
+            "was being queued. The message will not be processed."
+        )
     post_status = sa.status().status
     if post_status != "running":
         raise ValueError(
