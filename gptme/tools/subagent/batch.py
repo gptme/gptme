@@ -759,6 +759,15 @@ def subagent_parallel(
     if not tasks:
         return []
 
+    if max_concurrent is not None and max_concurrent < 1:
+        raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
+
+    agent_ids = [aid for aid, _ in tasks]
+    if len(agent_ids) != len(set(agent_ids)):
+        raise ValueError(
+            "Task agent_ids must be unique within a subagent_parallel() call"
+        )
+
     # When max_concurrent is set, use a ThreadPoolExecutor where each worker
     # does spawn+wait — this naturally queues excess tasks and respects the cap.
     if max_concurrent is not None:
@@ -935,6 +944,8 @@ def _subagent_parallel_capped(
                 budget.record(out_tok)
 
         # Trigger cancellation if this agent failed and fail-fast is on.
+        # Note: workers already inside subagent_wait() are not interrupted —
+        # cancellation only takes effect at the next slot-acquire check.
         if cancel_on_failure and result.get("status") in ("failure", "timeout"):
             cancel_event.set()
 
