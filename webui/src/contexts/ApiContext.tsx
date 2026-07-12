@@ -117,7 +117,11 @@ export function ApiProvider({
 }) {
   const [isExchangingAuthCode, setIsExchangingAuthCode] = useState(needsAuthCodeExchange);
   const isTauri = isTauriEnvironment();
-  const { isLoading: isLoadingTauriStatus, managesLocalServer } = useTauriServerStatus();
+  const {
+    isLoading: isLoadingTauriStatus,
+    managesLocalServer,
+    serverStatus: tauriServerStatus,
+  } = useTauriServerStatus();
 
   // Get client for any server from the shared pool
   const getClient = useCallback((serverId?: string): IApiClient => {
@@ -373,6 +377,22 @@ export function ApiProvider({
       }
     : { baseUrl: DEFAULT_LOCAL_SERVER_URL, authToken: null, useAuthToken: false };
 
+  const tauriServerBaseUrl = tauriServerStatus
+    ? `http://127.0.0.1:${tauriServerStatus.port}`
+    : null;
+  const needsTauriServerUrlSync = Boolean(
+    isTauri &&
+      tauriServerBaseUrl &&
+      activeServer &&
+      isDefaultLoopbackTarget(connectionConfig.baseUrl) &&
+      connectionConfig.baseUrl.replace(/\/+$/, '') !== tauriServerBaseUrl
+  );
+
+  useEffect(() => {
+    if (!needsTauriServerUrlSync || !activeServer || !tauriServerBaseUrl) return;
+    updateServer(activeServer.id, { baseUrl: tauriServerBaseUrl });
+  }, [activeServer, needsTauriServerUrlSync, tauriServerBaseUrl]);
+
   const shouldSkipInitialMobileAutoConnect =
     isTauri && managesLocalServer === false && isDefaultLoopbackTarget(connectionConfig.baseUrl);
   const shouldSkipHostedLoopbackAutoConnectOnFirstLoad = shouldSkipHostedLoopbackAutoConnect(
@@ -389,6 +409,7 @@ export function ApiProvider({
     const currentHash = window.location.hash.substring(1);
     if (hasAuthCodeInHash(currentHash)) return;
     if (isTauri && isLoadingTauriStatus) return;
+    if (needsTauriServerUrlSync) return;
     if (shouldSkipInitialMobileAutoConnect) return;
     if (shouldSkipHostedLoopbackAutoConnectOnFirstLoad) return;
 
@@ -401,6 +422,7 @@ export function ApiProvider({
     connectionConfig.baseUrl,
     isLoadingTauriStatus,
     isTauri,
+    needsTauriServerUrlSync,
     shouldSkipHostedLoopbackAutoConnectOnFirstLoad,
     shouldSkipInitialMobileAutoConnect,
   ]);
