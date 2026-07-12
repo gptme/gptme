@@ -399,13 +399,12 @@ def proactive_summarize_log(
         m = middle[i]
         if m.pinned:
             pinned_middle.append(m)
-            if (
-                message_contains_tool_use(m)
-                and i + 1 < len(middle)
-                and middle[i + 1].role == "system"
-            ):
-                i += 1
-                pinned_middle.append(middle[i])
+            if message_contains_tool_use(m):
+                # Pull ALL consecutive system messages (tool results) so we don't
+                # orphan any result from a multi-result tool call.
+                while i + 1 < len(middle) and middle[i + 1].role == "system":
+                    i += 1
+                    pinned_middle.append(middle[i])
         else:
             # A non-pinned tool-use whose immediately following message is a pinned
             # tool result must travel to pinned_middle — the pinned result requires
