@@ -358,7 +358,7 @@ tauri-build: ## Build the gptme-tauri desktop app
 	cd webui && npm install && npm run build
 	cd tauri && npm install && \
 	if [ "$$(uname)" = "Linux" ]; then \
-		NO_STRIP=true npm run tauri build; \
+		./scripts/build-appimage.sh; \
 	else \
 		npm run tauri build; \
 	fi
