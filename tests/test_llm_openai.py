@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, Mock, patch
 
+import openai  # noqa: F401  # warm import cache before per-test 10s timeout
 import pytest
 from pydantic import BaseModel
 
