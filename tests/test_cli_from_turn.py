@@ -234,3 +234,42 @@ def test_from_turn_branch_name_collision(source_session: Path, monkeypatch, tmp_
     assert "already exists" in result.output or "already exists" in str(
         result.exception
     )
+
+
+def test_from_turn_branch_collision_with_stale_state(source_session: Path, monkeypatch):
+    """--from-turn should reject existing dirs with stale state (not just conversation.jsonl)."""
+    from gptme.cli.main import main
+
+    logs_dir = source_session
+    monkeypatch.setattr("gptme.cli.main.get_logs_dir", lambda: logs_dir)
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+    runner = CliRunner()
+
+    # Create a directory with stale state but no conversation.jsonl
+    # (e.g., from an interrupted run)
+    stale_session = logs_dir / "stale-session"
+    stale_session.mkdir(parents=True, exist_ok=True)
+    (stale_session / "config.toml").write_text("# stale config\n")
+    (stale_session / ".lock").write_text("")
+
+    # Try to branch into the stale session name — should fail
+    result = runner.invoke(
+        main,
+        [
+            "--name",
+            "my-session",
+            "--from-turn",
+            "1",
+            "--branch",
+            "stale-session",
+            "--non-interactive",
+        ],
+        catch_exceptions=False,
+    )
+
+    # Should error about existing session state
+    assert result.exit_code != 0
+    assert "already exists" in result.output or "already exists" in str(
+        result.exception
+    )

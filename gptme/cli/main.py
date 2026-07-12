@@ -534,7 +534,7 @@ def _slice_at_turn(messages: list[Any], turn: int) -> list[Any]:
     "--from-turn",
     "from_turn",
     default=None,
-    type=int,
+    type=click.IntRange(min=0),
     metavar="N",
     help="Fork at turn N: create a new session with the first N user turns from the source (requires --resume or --name). Turn 0 = system context only; turn N = through Nth user+assistant exchange.",
 )
@@ -1240,9 +1240,9 @@ def main(
             new_name = f"{logdir.name}-branch-{ts}"
 
         new_logdir = get_logdir(new_name)
-        if new_logdir.exists() and (new_logdir / "conversation.jsonl").exists():
+        if new_logdir.exists() and any(new_logdir.iterdir()):
             raise click.UsageError(
-                f"Branch '{new_name}' already exists. "
+                f"Branch '{new_name}' already exists with session state. "
                 f"Use a different --branch name or resume '{new_name}' instead."
             )
         new_logdir.mkdir(parents=True, exist_ok=True)
