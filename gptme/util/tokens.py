@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import math
 import os
 import threading
 import typing
@@ -33,7 +34,13 @@ def _parse_tiktoken_timeout() -> float:
     """Parse GPTME_TIKTOKEN_TIMEOUT from the environment, falling back to 5.0."""
     raw = os.environ.get("GPTME_TIKTOKEN_TIMEOUT", "5.0")
     try:
-        return float(raw)
+        val = float(raw)
+        if math.isnan(val) or math.isinf(val):
+            logger.warning(
+                f"Invalid GPTME_TIKTOKEN_TIMEOUT value {raw!r} (NaN or infinite); using default 5.0 seconds."
+            )
+            return 5.0
+        return val
     except ValueError:
         logger.warning(
             f"Invalid GPTME_TIKTOKEN_TIMEOUT value {raw!r}; using default 5.0 seconds."
