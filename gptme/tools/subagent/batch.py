@@ -936,6 +936,15 @@ def _subagent_parallel_capped(
                 redact_secrets=redact_secrets,
             )
         except Exception as exc:
+            # cancel_on_failure: sweep siblings even on spawn failure
+            if cancel_on_failure:
+                cancel_event.set()
+                with inflight_lock:
+                    for sibling_id in list(inflight_ids):
+                        try:
+                            subagent_cancel(sibling_id)
+                        except Exception:
+                            pass
             return agent_id, asdict(ReturnType("failure", str(exc)))
 
         with inflight_lock:
@@ -958,6 +967,16 @@ def _subagent_parallel_capped(
         try:
             result = subagent_wait(agent_id, timeout=remaining_secs, max_result_chars=0)
         except Exception as exc:
+            # cancel_on_failure: sweep siblings even when subagent_wait() raises.
+            # Self is removed from inflight_ids by the finally block below.
+            if cancel_on_failure:
+                cancel_event.set()
+                with inflight_lock:
+                    for sibling_id in list(inflight_ids):
+                        try:
+                            subagent_cancel(sibling_id)
+                        except Exception:
+                            pass
             return agent_id, asdict(ReturnType("failure", str(exc)))
         finally:
             with inflight_lock:
