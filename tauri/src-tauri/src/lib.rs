@@ -20,6 +20,16 @@ use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
 
 const GPTME_SERVER_PORT: u16 = 5700;
+
+/// Returns the port gptme-server should bind to.
+/// Override at run time with `GPTME_SERVER_PORT=<port>` for development or
+/// testing in environments where the default port is already occupied.
+fn server_port() -> u16 {
+    std::env::var("GPTME_SERVER_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(GPTME_SERVER_PORT)
+}
 #[cfg(not(desktop))]
 const LOCAL_SERVER_UNSUPPORTED: &str =
     "Local gptme-server management is desktop-only. Connect to a remote gptme instance instead.";
@@ -143,14 +153,14 @@ async fn get_server_status(state: tauri::State<'_, ServerProcess>) -> Result<Ser
         .lock()
         .map(|guard| guard.is_some())
         .unwrap_or(false);
-    let port_available = is_port_available(GPTME_SERVER_PORT);
+    let port_available = is_port_available(server_port());
     // Only probe TCP when the port is occupied but we're not managing it —
     // avoids false-positive existing_server_detected during TIME_WAIT after stop_server.
     let existing_server_detected =
-        !running && !port_available && is_server_responsive(GPTME_SERVER_PORT).await;
+        !running && !port_available && is_server_responsive(server_port()).await;
     Ok(ServerStatus {
         running,
-        port: GPTME_SERVER_PORT,
+        port: server_port(),
         port_available,
         manages_local_server: true,
         existing_server_detected,
@@ -162,7 +172,7 @@ async fn get_server_status(state: tauri::State<'_, ServerProcess>) -> Result<Ser
 fn get_server_status() -> ServerStatus {
     ServerStatus {
         running: false,
-        port: GPTME_SERVER_PORT,
+        port: server_port(),
         port_available: false,
         manages_local_server: false,
         existing_server_detected: false,
@@ -218,7 +228,7 @@ async fn start_server(state: tauri::State<'_, ServerProcess>) -> Result<u16, Str
         .clone()
         .ok_or_else(|| "ServerProcess.app_handle not set".to_string())?;
     spawn_server_sidecar(&app, state.child.clone(), state.owns_port.clone()).await?;
-    Ok(GPTME_SERVER_PORT)
+    Ok(server_port())
 }
 
 #[cfg(not(desktop))]
@@ -249,13 +259,13 @@ async fn spawn_server_sidecar(
     state_arc: Arc<Mutex<Option<CommandChild>>>,
     owns_port: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    if !is_port_available(GPTME_SERVER_PORT) {
+    if !is_port_available(server_port()) {
         // Port is occupied — probe whether we can actually use the server there.
         // A bare TCP connect isn't enough: a leftover auth-gated gptme-server
         // accepts connections but 401s every API call, leaving the app silently
         // degraded (gptme/gptme#2457, finding F2). Only reuse a server we can
         // actually talk to.
-        match probe_server(GPTME_SERVER_PORT).await {
+        match probe_server(server_port()).await {
             ServerProbe::Usable => {
                 // Common crash-recovery case: the gptme-server sidecar outlived
                 // the Tauri process and is still serving. Reuse it silently
@@ -263,7 +273,7 @@ async fn spawn_server_sidecar(
                 log::info!(
                     "Port {} is occupied and a usable server is responding — \
                      reusing existing gptme-server (likely a leftover from a previous session)",
-                    GPTME_SERVER_PORT
+                    server_port()
                 );
                 // Mark that we own (reuse) this port so cleanup_server_process
                 // knows it should kill it on exit.
@@ -276,19 +286,19 @@ async fn spawn_server_sidecar(
                 log::warn!(
                     "Port {} is occupied by a gptme-server that requires authentication \
                      this app doesn't have — refusing to reuse it",
-                    GPTME_SERVER_PORT
+                    server_port()
                 );
                 return Err(format!(
                     "Another gptme-server is already running on port {} and requires \
                      authentication this app doesn't have. Stop that server (or restart \
                      it without a token) and try again.",
-                    GPTME_SERVER_PORT
+                    server_port()
                 ));
             }
             ServerProbe::Unreachable => {
                 // Port is occupied by a non-responsive / non-HTTP foreign process —
                 // do NOT set owns_port; cleanup must not kill a process we never started.
-                return Err(format!("Port {} is already in use", GPTME_SERVER_PORT));
+                return Err(format!("Port {} is already in use", server_port()));
             }
         }
     }
@@ -296,7 +306,7 @@ async fn spawn_server_sidecar(
     let cors_origin = desktop_cors_origin();
     log::info!(
         "Starting gptme-server on port {} with CORS origin: {}",
-        GPTME_SERVER_PORT,
+        server_port(),
         cors_origin
     );
 
@@ -374,13 +384,13 @@ async fn spawn_server_sidecar(
                     // port is actually free before declaring the server gone;
                     // otherwise leave owns_port=true so cleanup_server_process
                     // catches the orphan on app exit (#2260).
-                    if is_port_available(GPTME_SERVER_PORT) {
+                    if is_port_available(server_port()) {
                         owns_port_for_output.store(false, Ordering::Relaxed);
                     } else {
                         log::warn!(
                             "[gptme-server] Sidecar exited but port {} still in use — \
                              likely an orphaned subprocess; deferring port cleanup to app exit",
-                            GPTME_SERVER_PORT
+                            server_port()
                         );
                     }
                     break;
@@ -618,7 +628,7 @@ pub fn run() {
                                     "Cannot start gptme-server because port {} is already in use.\n\n\
                                      This usually means another gptme-server instance is already running.\n\n\
                                      Please stop the existing gptme-server process and restart this application.",
-                                    GPTME_SERVER_PORT
+                                    server_port()
                                 ),
                             );
                         } else if err.contains("requires authentication") {
@@ -628,7 +638,7 @@ pub fn run() {
                                     "Cannot start gptme-server because port {} is occupied by another \
                                      gptme-server that requires authentication this app doesn't have.\n\n\
                                      Stop that server (or restart it without a token) and restart this application.",
-                                    GPTME_SERVER_PORT
+                                    server_port()
                                 ),
                             );
                         }
@@ -742,9 +752,9 @@ fn cleanup_server_process(app: &tauri::AppHandle) {
     if owns_port_at_entry {
         log::info!(
             "Cleaning up any remaining process on port {}...",
-            GPTME_SERVER_PORT
+            server_port()
         );
-        kill_server_on_port(GPTME_SERVER_PORT);
+        kill_server_on_port(server_port());
         state.owns_port.store(false, Ordering::Relaxed);
     }
 }
