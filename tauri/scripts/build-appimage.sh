@@ -5,7 +5,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TAURI_DIR="$(dirname "$SCRIPT_DIR")"
-APPIMAGE_PLUGIN_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage"
+ARCH="$(uname -m)"
+APPIMAGE_PLUGIN_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-${ARCH}.AppImage"
 
 cd "$TAURI_DIR"
 
@@ -39,7 +40,7 @@ if [[ -f "$APPDIR/usr/lib/libgcrypt.so.20" && ! -e "$APPDIR/usr/lib/libgpg-error
     cp -L "$libgpg_error" "$APPDIR/usr/lib/$(basename "$(readlink -f "$libgpg_error")")"
     ln -sf "$(basename "$(readlink -f "$libgpg_error")")" "$APPDIR/usr/lib/libgpg-error.so.0"
 
-    plugin="${XDG_CACHE_HOME:-$HOME/.cache}/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage"
+    plugin="${XDG_CACHE_HOME:-$HOME/.cache}/tauri/linuxdeploy-plugin-appimage-${ARCH}.AppImage"
     if [[ ! -x "$plugin" ]]; then
         mkdir -p "$(dirname "$plugin")"
         curl -L --fail -o "$plugin" "$APPIMAGE_PLUGIN_URL"
