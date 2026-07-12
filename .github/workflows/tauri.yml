@@ -451,6 +451,7 @@ jobs:
       needs.build.result == 'success' &&
       (startsWith(github.ref, 'refs/tags/v') || inputs.tag != '')
     needs: [lint, test, build, build-sidecar]
+    environment: tauri-autoupdater-signing
     env:
       HAS_APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.KEYCHAIN_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_ID_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
       HAS_TAURI_SIGNING: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
