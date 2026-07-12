@@ -770,7 +770,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f5622ba2700&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f8fd0c86700&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1184,7 +1184,7 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 
 <span class="gu">### Observation helpers (structured-first policy)</span>
 
-Three higher-level helpers are available that implement the structured-first observation policy:
+Higher-level helpers are available that implement the structured-first observation policy:
 
 <span class="k">-</span><span class="w"> </span>``observe_web(url, screenshot_too=False)`` — observe a web page using ARIA snapshots first
   (no vision tokens), with automatic fallback to a browser screenshot, then desktop screenshot.
@@ -1196,6 +1196,10 @@ Three higher-level helpers are available that implement the structured-first obs
   ``wait_for_change`` in one call — the complete &quot;act then look&quot; loop without separate
   screenshot calls. Use this for tight interaction loops where you want to see the screen
   after every click, keypress, or scroll.
+<span class="k">-</span><span class="w"> </span>``fill_native(coordinate, text)`` — replace text in a native (non-browser) text field in one
+  call. Triple-clicks to select all existing text, then types the replacement. The native
+  equivalent of ``fill_element(selector, value)`` for DOM targets. Use when the target is a
+  native app input (terminal, dialog, form) rather than a web page.
 <span class="k">-</span><span class="w"> </span>``computer_task(task, timeout=300, model=None)`` — run a multi-step computer-use task
   in a <span class="gs">**context-isolated subagent**</span> and block until done. All screenshots and intermediate
   steps are kept inside the subagent&#39;s own context — the caller&#39;s context stays lean. Use
@@ -1214,6 +1218,7 @@ The following Python functions are available:
 <span class="s">observe_web(url: str, screenshot_too: bool) -&gt; list[Message]: Observe a web page: structured ARIA snapshot first, screenshot as fallback.</span>
 <span class="s">observe_desktop() -&gt; Message | None: Observe the current desktop state via screenshot.</span>
 <span class="s">act_and_observe(action: Action, text: str | None, coordinate: tuple[int, int] | None, timeout: float, settle_time: float) -&gt; list[Message]: Perform a desktop action then automatically observe the result.</span>
+<span class="s">fill_native(coordinate: tuple[int, int], text: str) -&gt; list[Message]: Fill a native (non-browser) text field by clicking, selecting all, and typing.</span>
 <span class="s">computer_task(task: str, timeout: int, model: str | None) -&gt; dict: Run a computer-use task in a context-isolated subagent.</span>
 <span class="s">record_screen(output: str | Path | None, duration: float, fps: int, display: str | None) -&gt; Path: Record the screen for a fixed duration and return the output path.</span>
 <span class="s">start_recording(output: str | Path | None, fps: int, display: str | None) -&gt; ScreenRecording: Start recording the screen to an MP4 file.</span>
@@ -1280,6 +1285,16 @@ The following Python functions are available:
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll delegate this to computer_task() so all the intermediate screenshots stay in a subagent context rather than here.</span>
 <span class="sb">```ipython</span>
 <span class="n">computer_task</span><span class="p">(</span><span class="s2">&quot;Open Firefox, navigate to https://x.com/compose/tweet, type &#39;Hello from gptme!&#39;, and click the Tweet button.&quot;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">User: Replace the text in the URL bar of the browser window with &quot;https://example.com&quot;</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use fill_native to triple-click the URL bar to select all text, then type the new URL.</span>
+<span class="sb">```ipython</span>
+<span class="n">fill_native</span><span class="p">((</span><span class="mi">760</span><span class="p">,</span> <span class="mi">45</span><span class="p">),</span> <span class="s2">&quot;https://example.com&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">User: Fill the &quot;Username&quot; field at (300, 200) in this native login dialog</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use fill_native to replace whatever is in the field with the username.</span>
+<span class="sb">```ipython</span>
+<span class="n">fill_native</span><span class="p">((</span><span class="mi">300</span><span class="p">,</span> <span class="mi">200</span><span class="p">),</span> <span class="s2">&quot;alice@example.com&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">User: Open a new browser tab</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll open a new browser tab.</span>
@@ -2681,7 +2696,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 17073</p>
+<p>Tokens: 17329</p>
 </dd></dl>
 
 <dl class="py function">

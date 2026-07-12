@@ -4339,6 +4339,7 @@ Similar to Anthropic’s computer use demo, but integrated with gptme’s archit
 <li><p>right_click: Click right mouse button</p></li>
 <li><p>middle_click: Click middle mouse button</p></li>
 <li><p>double_click: Double click left mouse button</p></li>
+<li><p>triple_click: Triple click at position (selects all text in most native inputs; use with coordinate to click a field)</p></li>
 <li><p>left_click_drag: Click and drag to coordinates</p></li>
 </ul>
 </dd>
@@ -4466,7 +4467,7 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 
 <span class="gu">### Observation helpers (structured-first policy)</span>
 
-Three higher-level helpers are available that implement the structured-first observation policy:
+Higher-level helpers are available that implement the structured-first observation policy:
 
 <span class="k">-</span><span class="w"> </span>``observe_web(url, screenshot_too=False)`` — observe a web page using ARIA snapshots first
   (no vision tokens), with automatic fallback to a browser screenshot, then desktop screenshot.
@@ -4478,6 +4479,10 @@ Three higher-level helpers are available that implement the structured-first obs
   ``wait_for_change`` in one call — the complete &quot;act then look&quot; loop without separate
   screenshot calls. Use this for tight interaction loops where you want to see the screen
   after every click, keypress, or scroll.
+<span class="k">-</span><span class="w"> </span>``fill_native(coordinate, text)`` — replace text in a native (non-browser) text field in one
+  call. Triple-clicks to select all existing text, then types the replacement. The native
+  equivalent of ``fill_element(selector, value)`` for DOM targets. Use when the target is a
+  native app input (terminal, dialog, form) rather than a web page.
 <span class="k">-</span><span class="w"> </span>``computer_task(task, timeout=300, model=None)`` — run a multi-step computer-use task
   in a <span class="gs">**context-isolated subagent**</span> and block until done. All screenshots and intermediate
   steps are kept inside the subagent&#39;s own context — the caller&#39;s context stays lean. Use
@@ -4786,6 +4791,52 @@ Viewing image...</pre>
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
   <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Replace the text in the URL bar of the browser window with "https://example.com"</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll use fill_native to triple-click the URL bar to select all text, then type the new URL.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">fill_native((760, 45), "https://example.com")
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Performed triple_click
+Typed text: https://example.com</pre>
+  </td>
+</tr>
+</table><table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Fill the "Username" field at (300, 200) in this native login dialog</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll use fill_native to replace whatever is in the field with the username.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">fill_native((300, 200), "alice@example.com")
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Performed triple_click
+Typed text: alice@example.com</pre>
+  </td>
+</tr>
+</table><table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Open a new browser tab</pre>
   </td>
 </tr>
@@ -4985,6 +5036,48 @@ background, but callers immediately see the terminal timeout result.</p>
 <span class="c1"># Read the full step-by-step transcript</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.subagent</span><span class="w"> </span><span class="kn">import</span> <span class="n">subagent_read_log</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">subagent_read_log</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;agent_id&quot;</span><span class="p">]))</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.computer.</span></span><span class="sig-name descname"><span class="pre">fill_native</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coordinate</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">text</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Fill a native (non-browser) text field by clicking, selecting all, and typing.</p>
+<p>Use this to replace the content of a native text input with new text —
+equivalent to <code class="docutils literal notranslate"><span class="pre">fill_element(selector,</span> <span class="pre">value)</span></code> for web targets, but for
+native desktop/X11/macOS apps.</p>
+<p>The sequence is: triple-click to select all existing text, then type the
+replacement text.  No separate ctrl+a step is needed.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Triple-click selects all text in <em>most</em> single-line native inputs, but
+may select only a word or line in terminals and multi-line text widgets.
+Verify the field type before using this helper in those contexts.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>A screenshot is always captured after the fill so callers can observe
+the field state and detect partial or failed replacements.</p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>coordinate</strong> – X,Y coordinates of the text field (in API space).</p></li>
+<li><p><strong>text</strong> – Replacement text to type into the field.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of <a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><code class="xref py py-class docutils literal notranslate"><span class="pre">Message</span></code></a> objects — usually a single
+screenshot message showing the field state after the fill.</p>
+</dd>
+</dl>
+<p>Example (from IPython in a computer-use session):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Replace the URL bar text in a browser window</span>
+<span class="n">msgs</span> <span class="o">=</span> <span class="n">fill_native</span><span class="p">((</span><span class="mi">400</span><span class="p">,</span> <span class="mi">50</span><span class="p">),</span> <span class="s2">&quot;https://example.com&quot;</span><span class="p">)</span>
+
+<span class="c1"># Fill a login field in a native app</span>
+<span class="n">msgs</span> <span class="o">=</span> <span class="n">fill_native</span><span class="p">((</span><span class="mi">300</span><span class="p">,</span> <span class="mi">200</span><span class="p">),</span> <span class="s2">&quot;username@example.com&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
