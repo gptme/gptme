@@ -56,7 +56,7 @@ jobs:
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -160,7 +160,7 @@ jobs:
     outputs:
       tag: ${{ steps.version.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           ref: master
           fetch-depth: 0
@@ -276,12 +276,12 @@ jobs:
       TAG: ${{ needs.prepare.outputs.tag || github.event.release.tag_name || github.ref_name }}
 
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@v4
       with:
         ref: ${{ env.TAG }}
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v5
       with:
         python-version: '3.x'
 
@@ -289,7 +289,7 @@ jobs:
       run: pipx install poetry
 
     - name: Set up Node.js
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@v4
       with:
         node-version: '20'
         cache: 'npm'

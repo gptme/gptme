@@ -34,7 +34,7 @@ jobs:
 
     steps:
     - name: Checkout PR branch
-      uses: actions/checkout@v7
+      uses: actions/checkout@v4
 
     - name: Check API key availability
       id: check_key
@@ -54,7 +54,7 @@ jobs:
 
     - name: Set up Python
       if: steps.check_key.outputs.available == 'true'
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v5
       with:
         python-version: '3.12'
         cache: 'poetry'

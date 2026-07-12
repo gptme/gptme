@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -77,7 +77,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -125,7 +125,7 @@ jobs:
       TAURI_DRIVER_VERSION: 2.0.6
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -157,7 +157,7 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-tauri-driver-${{ env.TAURI_DRIVER_VERSION }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
           cache: 'npm'
@@ -287,7 +287,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -311,7 +311,7 @@ jobs:
           workspaces: 'tauri/src-tauri -> target'
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
           cache: 'npm'
@@ -389,7 +389,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -407,7 +407,7 @@ jobs:
         run: pipx install poetry
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: 'poetry'
@@ -434,7 +434,7 @@ jobs:
           fi
 
       - name: Upload sidecar artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: sidecar-${{ matrix.os }}
           path: tauri/bins/gptme-server-*
@@ -471,7 +471,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -497,7 +497,7 @@ jobs:
           workspaces: 'tauri/src-tauri -> target'
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
           cache: 'npm'
@@ -746,7 +746,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -772,7 +772,7 @@ jobs:
           workspaces: 'tauri/src-tauri -> target'
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
           cache: 'npm'
@@ -808,7 +808,7 @@ jobs:
           NDK_HOME: ${{ env.NDK_HOME }}
 
       - name: Upload Android artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: android-build
           path: |
@@ -830,7 +830,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 

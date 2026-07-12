@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout base repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         # No ref: defaults to base branch (master), not the fork's head SHA.
         # This prevents a malicious fork from exfiltrating secrets by modifying
         # scripts/github_ci_self_heal.py — we always run the trusted base copy.
@@ -102,7 +102,7 @@ jobs:
 
       - name: Set up Python
         if: steps.pr.outputs.found == 'true'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -144,7 +144,7 @@ jobs:
 
       - name: Upload artifacts
         if: steps.pr.outputs.found == 'true' && success()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: self-heal-artifacts
           path: |
@@ -274,7 +274,7 @@ jobs:
 
     steps:
       - name: Checkout base repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           path: base
 
@@ -285,7 +285,7 @@ jobs:
           path: /tmp/artifacts
 
       - name: Checkout PR head
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           ref: ${{ needs.analyze.outputs.head_sha }}
           path: pr-head

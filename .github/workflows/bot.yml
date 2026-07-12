@@ -19,7 +19,7 @@ jobs:
     steps:
       # needed to run the action in the same repo
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Run gptme-bot action
         uses: ./.github/actions/bot

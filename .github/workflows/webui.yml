@@ -21,10 +21,10 @@ jobs:
         node-version: [20.x]
 
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@v4
 
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
@@ -47,7 +47,7 @@ jobs:
 
     - name: Upload dist artifact
       if: github.ref == 'refs/heads/master'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       with:
         name: webui-dist
         path: webui/dist
@@ -61,10 +61,10 @@ jobs:
       name: chat-gptme-org
       url: https://chat.gptme.org
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@v4
 
     - name: Download dist artifact
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v4
       with:
         name: webui-dist
         path: dist
@@ -87,17 +87,17 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@v4
 
     - name: Use Node.js 20
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@v4
       with:
         node-version: 20
         cache: 'npm'
         cache-dependency-path: webui/package-lock.json
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
         cache: 'pip'
@@ -132,7 +132,7 @@ jobs:
 
     - name: Upload stable test results
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       with:
         name: playwright-report-stable
         path: webui/playwright-report/
@@ -169,7 +169,7 @@ jobs:
 
     - name: Upload dev test results
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       with:
         name: playwright-report-dev
         path: webui/playwright-report/
