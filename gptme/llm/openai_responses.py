@@ -435,8 +435,6 @@ def _extract_usage_token_counts(usage: Any) -> UsageTokenCounts:
         output_tokens = getattr(usage, "output_tokens", None)
     cache_read_tokens = getattr(details, "cached_tokens", None)
     cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", None)
-    if cache_creation_tokens is None:
-        cache_creation_tokens = getattr(details, "cache_write_tokens", None)
     total_tokens = getattr(usage, "total_tokens", None)
 
     if isinstance(prompt_tokens, int):
