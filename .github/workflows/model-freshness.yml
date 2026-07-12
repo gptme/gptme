@@ -1,0 +1,26 @@
+name: Model Freshness
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"  # every Monday at 09:00 UTC
+  workflow_dispatch:     # allow manual trigger
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check OpenRouter model IDs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check model freshness
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: python3 scripts/check_model_freshness.py
