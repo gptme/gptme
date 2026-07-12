@@ -670,6 +670,45 @@ class TestActAndObservePreBaseline:
             "native baseline path must return at least one message (the settled screenshot)"
         )
 
+    def test_act_and_observe_native_tolerates_resize_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """A resize failure (e.g. missing ImageMagick) mid-poll must not abort
+        act_and_observe on the native path — it should return the unresized
+        screenshot instead, matching the old wait_for_change tolerance.
+        """
+        baseline_path = tmp_path / "baseline.png"
+        _write_png(baseline_path, (255, 255, 255))
+        post_action_path = tmp_path / "post.png"
+        _write_png(post_action_path, (0, 0, 0))
+
+        screenshot_calls: list[int] = [0]
+
+        def mock_screenshot() -> Path:
+            screenshot_calls[0] += 1
+            if screenshot_calls[0] == 1:
+                return baseline_path
+            return post_action_path
+
+        with (
+            patch("gptme.tools.computer.computer", return_value=None),
+            patch("gptme.tools.computer.get_transport", return_value=None),
+            patch("gptme.tools.computer.screenshot", side_effect=mock_screenshot),
+            patch(
+                "gptme.tools.computer._resize_image",
+                side_effect=RuntimeError("ImageMagick 'convert' not found."),
+            ),
+            patch("gptme.tools.computer._get_api_resolution", return_value=(1024, 768)),
+        ):
+            msgs = act_and_observe("left_click", coordinate=(100, 100), timeout=1.0)
+
+        assert screenshot_calls[0] >= 2, (
+            "polling must still proceed despite resize failures"
+        )
+        assert len(msgs) >= 1, (
+            "settled screenshot must still be returned when resize fails"
+        )
+
 
 # ---------------------------------------------------------------------------
 # TestTripleClick

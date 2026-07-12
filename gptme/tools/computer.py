@@ -2561,7 +2561,15 @@ class _NativeScreenshotTransport(ComputerTransport):
         path = screenshot()
         if not width or not height:
             width, height = _get_api_resolution()
-        _resize_image(path, width, height)
+        try:
+            _resize_image(path, width, height)
+        except RuntimeError as e:
+            # Tolerate resize failures (e.g. ImageMagick missing) the same way
+            # the old native wait_for_change path did — return the unresized
+            # screenshot rather than aborting the poll/act_and_observe call.
+            print(
+                f"Warning: screenshot resize failed ({e!r}); returning unresized image"
+            )
         return path
 
     def close(self) -> None:
