@@ -896,6 +896,11 @@ def _subagent_parallel_capped(
     # natural timeout.
     inflight_ids: set[str] = set()
     inflight_lock = threading.Lock()
+    # Tracks which agent_ids have had budget.record() called inside run_one.
+    # The timeout handler needs this to avoid skipping budget for agents that
+    # completed on the boundary (run_one skips record when _timed_out is True,
+    # but f.done() futures still have their results returned to the caller).
+    budget_recorded_ids: set[str] = set()
 
     _budget_exceeded = asdict(
         ReturnType("budget_exceeded", "Budget exhausted before this agent could start")
@@ -988,10 +993,13 @@ def _subagent_parallel_capped(
         # has returned. A post-return budget.record() would corrupt the caller's
         # next-batch spawn decisions. This guard makes the invariant unconditional;
         # tokens from timed-out agents are not counted (they never completed usefully).
+        # Agents that finish on the boundary (f.done() in the timeout handler) are
+        # recorded there instead, using budget_recorded_ids to avoid double-counting.
         if budget is not None and not _timed_out:
             out_tok = result.get("output_tokens")
             if out_tok is not None:
                 budget.record(out_tok)
+                budget_recorded_ids.add(agent_id)
 
         # Trigger cancellation if this agent failed and fail-fast is on.
         # Cancel siblings currently blocked in subagent_wait() so they stop
@@ -1039,11 +1047,20 @@ def _subagent_parallel_capped(
                             ReturnType("cancelled", "Cancelled due to overall timeout")
                         )
                     elif f.done():
-                        # Completed on the timeout boundary but wasn't yielded by as_completed
+                        # Completed on the timeout boundary but wasn't yielded by as_completed.
+                        # f.result() acts as a memory barrier: any writes in run_one (including
+                        # budget_recorded_ids.add) are visible here after this call returns.
                         try:
                             _, result = f.result()
                         except Exception as exc:
                             result = asdict(ReturnType("failure", str(exc)))
+                        # run_one skips budget.record() when _timed_out is True, but this
+                        # result is being returned to the caller, so record the tokens now
+                        # to keep the budget accurate for subsequent batches.
+                        if budget is not None and aid not in budget_recorded_ids:
+                            out_tok = result.get("output_tokens")
+                            if out_tok is not None:
+                                budget.record(out_tok)
                         results_map[aid] = result
                     else:
                         results_map[aid] = asdict(
