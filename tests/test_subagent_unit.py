@@ -6197,10 +6197,12 @@ class TestSubagentSteer:
     def test_steer_subprocess_sentinel_file_raises(self, tmp_path):
         """subagent_steer raises for subprocess-mode when the sentinel file exists.
 
-        chat.py writes "prompt-queue-closed" to the logdir in its finally block
-        immediately when chat() returns — before the process exits.  This closes
-        the race window between the child's last _drain_external_prompt_queue()
-        call and the parent detecting process exit via process.poll().
+        chat.py writes "prompt-queue-closed" to the logdir at the actual drain
+        boundary — right before `break` in _run_chat_loop (non-interactive path)
+        and right before raising SessionCompleteException — so the window between
+        the final _drain_external_prompt_queue() call and the sentinel becoming
+        visible is just a few bytecode instructions.  The chat() finally block
+        writes it again as a safety net for unexpected exit paths (idempotent).
 
         The sentinel is a child-side signal: no shared memory needed.
         """

@@ -175,11 +175,12 @@ def chat(
             for msg in session_end_msgs:
                 manager.append(msg)
     finally:
-        # Write a sentinel file so subprocess-mode subagent_steer() can detect
-        # that the chat loop has finished draining the prompt queue. For thread
-        # mode, the Python event (prompt_queue_closed) handles this; subprocess
-        # mode needs a file-based signal because the child and parent don't share
-        # memory. Written before set_output_format to minimise the race window.
+        # Safety-net sentinel write.  The primary writes happen inside
+        # _run_chat_loop at the actual break/raise points so the window between
+        # the final _drain_external_prompt_queue() call and the sentinel being
+        # visible is just a few bytecode instructions.  This finally block
+        # catches any exit path we didn't explicitly handle (exceptions, etc.).
+        # touch() is idempotent so double-writing is harmless.
         if logdir is not None:
             (logdir / "prompt-queue-closed").touch()
         # Restore the caller's format so nested chat() calls (inline subagents)
@@ -231,7 +232,11 @@ def _run_chat_loop(
                 except SessionCompleteException:
                     _drain_external_prompt_queue(manager, prompt_queue)
                     if not prompt_queue:
-                        # No more prompts, properly exit
+                        # No more prompts, properly exit.  Write the sentinel
+                        # before raising so the subprocess-mode race window is
+                        # closed at this boundary too.
+                        if logdir is not None:
+                            (logdir / "prompt-queue-closed").touch()
                         raise
                     # More chained prompts remain — continue processing them
                     logger.debug(
@@ -243,6 +248,12 @@ def _run_chat_loop(
                 # Get user input or exit if non-interactive
                 if not interactive:
                     logger.debug("Non-interactive and exhausted prompts")
+                    # Write the sentinel here, at the actual drain boundary, so
+                    # subprocess-mode subagent_steer() cannot falsely succeed in
+                    # the gap between the final _drain_external_prompt_queue call
+                    # above and the chat() finally block below.
+                    if logdir is not None:
+                        (logdir / "prompt-queue-closed").touch()
                     break
 
                 user_input = _get_user_input(manager.log, manager.workspace)
