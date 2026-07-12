@@ -6105,7 +6105,11 @@ class TestSubagentSteer:
         logdir = tmp_path / "steer-race-detect"
         logdir.mkdir()
         mock_thread = MagicMock(spec=threading.Thread)
-        # First is_alive() call returns True, subsequent ones return False
+        # Default to False for teardown cleanup calls, but override with side_effect
+        # for the test scenario (True on first check, False on second check after
+        # queuing). This prevents the mock from running out of side_effect values
+        # when teardown calls is_alive() a third time.
+        mock_thread.is_alive.return_value = False
         mock_thread.is_alive.side_effect = [True, False]
         sa = Subagent(
             agent_id="race-agent",
