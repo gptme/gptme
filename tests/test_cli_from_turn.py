@@ -247,3 +247,70 @@ def test_chats_fork_name_collision_stale_state(monkeypatch):
 
         assert result.exit_code != 0
         assert "already exists" in result.output
+
+
+def test_chats_fork_out_of_range_turn_errors(monkeypatch):
+    """Forking with --at-turn beyond the session's turn count should error."""
+    from gptme.cli.cmd_chats import chats_fork
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        logs_dir = Path("logs")
+        src_dir = logs_dir / "source-session"
+        _write_conversation(
+            src_dir,
+            [
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "Q1."},
+                {"role": "assistant", "content": "A1."},
+                {"role": "user", "content": "Q2."},
+                {"role": "assistant", "content": "A2."},
+            ],
+        )
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: logs_dir)
+
+        result = runner.invoke(
+            chats_fork,
+            ["source-session", "--at-turn", "99", "--name", "my-fork"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code != 0
+        assert "out of range" in result.output
+
+
+def test_chats_fork_copies_files_dir(monkeypatch):
+    """Forking copies the source session's files/ directory to the fork."""
+    from gptme.cli.cmd_chats import chats_fork
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        logs_dir = Path("logs")
+        src_dir = logs_dir / "source-session"
+        _write_conversation(
+            src_dir,
+            [
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "Q1."},
+                {"role": "assistant", "content": "A1."},
+            ],
+        )
+        # Create a files/ subdirectory with a stored attachment
+        files_dir = src_dir / "files"
+        files_dir.mkdir()
+        (files_dir / "abc123.png").write_bytes(b"\x89PNG\r\n")
+
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: logs_dir)
+
+        result = runner.invoke(
+            chats_fork,
+            ["source-session", "--at-turn", "1", "--name", "my-fork"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, (
+            f"Exit {result.exit_code}. Output:\n{result.output}"
+        )
+        fork_files = logs_dir / "my-fork" / "files"
+        assert fork_files.exists(), "files/ dir not copied to fork"
+        assert (fork_files / "abc123.png").exists(), "attachment not copied"
