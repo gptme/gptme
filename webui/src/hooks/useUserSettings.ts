@@ -67,6 +67,14 @@ export function useUserSettings() {
           headers,
           signal: controller.signal,
         });
+        if (response.status === 404) {
+          // Older gptme-server versions don't expose /api/v2/user/settings.
+          // Return null settings without surfacing an error so the UI degrades
+          // gracefully instead of producing a background 404.
+          setSettings(null);
+          setIsLoading(false);
+          return;
+        }
         if (!response.ok) {
           throw new Error(`Failed to fetch user settings: ${response.statusText}`);
         }

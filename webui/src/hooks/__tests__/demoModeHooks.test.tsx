@@ -86,3 +86,55 @@ describe('demo-mode hooks', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });
+
+describe('older-server 404 graceful degradation', () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+    mockIsDemoMode.mockReturnValue(false);
+    providerHealth$.set({
+      data: null,
+      isLoading: false,
+      error: null,
+    });
+    Object.defineProperty(window, 'fetch', {
+      writable: true,
+      value: mockFetch,
+    });
+    // Simulate a connected server so the hooks issue the request
+    act(() => {
+      isConnected$.set(true);
+    });
+  });
+
+  afterEach(() => {
+    act(() => {
+      isConnected$.set(false);
+    });
+  });
+
+  it('useProviderHealth treats 404 as empty data without raising an error', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found' });
+
+    const { result } = renderHook(() => useProviderHealth());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.data).toEqual({ providers: {} });
+    expect(result.current.error).toBeNull();
+  });
+
+  it('useUserSettings treats 404 as null settings without raising an error', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found' });
+
+    const { result } = renderHook(() => useUserSettings());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.settings).toBeNull();
+    expect(result.current.error).toBeNull();
+  });
+});
