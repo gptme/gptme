@@ -280,7 +280,7 @@ def test_chats_fork_out_of_range_turn_errors(monkeypatch):
 
 
 def test_chats_fork_copies_files_dir(monkeypatch):
-    """Forking copies the source session's files/ directory to the fork."""
+    """Forking copies the source session's files/ and attachments/ directories."""
     from gptme.cli.cmd_chats import chats_fork
 
     runner = CliRunner()
@@ -295,10 +295,13 @@ def test_chats_fork_copies_files_dir(monkeypatch):
                 {"role": "assistant", "content": "A1."},
             ],
         )
-        # Create a files/ subdirectory with a stored attachment
+        # Create files/ (content-addressed store) and attachments/ (paste/upload store)
         files_dir = src_dir / "files"
         files_dir.mkdir()
         (files_dir / "abc123.png").write_bytes(b"\x89PNG\r\n")
+        attachments_dir = src_dir / "attachments"
+        attachments_dir.mkdir()
+        (attachments_dir / "pasted.txt").write_text("pasted content")
 
         monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: logs_dir)
 
@@ -313,4 +316,7 @@ def test_chats_fork_copies_files_dir(monkeypatch):
         )
         fork_files = logs_dir / "my-fork" / "files"
         assert fork_files.exists(), "files/ dir not copied to fork"
-        assert (fork_files / "abc123.png").exists(), "attachment not copied"
+        assert (fork_files / "abc123.png").exists(), "content-addressed file not copied"
+        fork_attachments = logs_dir / "my-fork" / "attachments"
+        assert fork_attachments.exists(), "attachments/ dir not copied to fork"
+        assert (fork_attachments / "pasted.txt").exists(), "paste attachment not copied"
