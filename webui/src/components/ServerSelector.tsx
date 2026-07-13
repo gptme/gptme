@@ -32,13 +32,16 @@ import { cn } from '@/lib/utils';
 
 /** In embedded/hosted mode, a server is considered "user-configured" only if
  *  it is not the default preset (i.e. the user explicitly changed something).
- *  The auto-created Local preset at the default URL is invisible in hosted mode. */
+ *  The auto-created Local preset at the default URL is invisible in hosted mode.
+ *  Normalizes both `localhost` and `127.0.0.1` to treat them as equivalent. */
 export function isDefaultPreset(server: { isPreset?: boolean; baseUrl: string }): boolean {
-  return (
-    server.isPreset === true &&
-    server.baseUrl.toLowerCase().replace(/\/+$/, '') ===
-      PRESET_LOCAL.baseUrl.toLowerCase().replace(/\/+$/, '')
-  );
+  if (server.isPreset !== true) return false;
+  const normalize = (url: string) =>
+    url
+      .toLowerCase()
+      .replace(/\/+$/, '')
+      .replace(/\blocalhost\b/g, '127.0.0.1');
+  return normalize(server.baseUrl) === normalize(PRESET_LOCAL.baseUrl);
 }
 
 /** Check actual connectivity for a server via its client in the pool. */
@@ -85,6 +88,19 @@ export const ServerSelector: FC = () => {
   const visibleServers = isEmbedded
     ? registry.servers.filter((s) => !isDefaultPreset(s))
     : registry.servers;
+
+  // If the stored active server is hidden (filtered out in embedded mode), fall back
+  // to the first visible server for trigger display so the button never shows a
+  // hidden disconnected Local server as "selected" while the dropdown offers fleet.
+  const activeIsHidden =
+    isEmbedded &&
+    visibleServers.length > 0 &&
+    !visibleServers.some((s) => s.id === registry.activeServerId);
+  const effectiveActiveServerId = activeIsHidden ? visibleServers[0].id : registry.activeServerId;
+
+  // Per-server live connectivity for the trigger dot when the effective server differs
+  // from the primary tracked by useApi (i.e. when falling back to a visible server).
+  const effectiveConnected = useServerConnected(effectiveActiveServerId);
 
   // No visible servers after filtering: nothing to show — hide the selector entirely.
   // All hooks are above; this return is safe per React rules.
@@ -185,11 +201,12 @@ export const ServerSelector: FC = () => {
     }
   };
 
-  const activeServer = registry.servers.find((s) => s.id === registry.activeServerId);
+  const activeServer = registry.servers.find((s) => s.id === effectiveActiveServerId);
   const label = activeServer?.name || 'Servers';
 
-  // Trigger dot color: based on primary server's actual connectivity
-  const dotColor = isConnected
+  // Trigger dot color: use effective server's connectivity (falls back to the first
+  // visible server in embedded mode when the stored active server is hidden).
+  const dotColor = (activeIsHidden ? effectiveConnected : isConnected)
     ? 'bg-green-500'
     : isConnecting || isAutoConnecting
       ? 'bg-yellow-500 animate-pulse'
@@ -257,7 +274,7 @@ export const ServerSelector: FC = () => {
 
           {visibleServers.map((server) => {
             const isInList = registry.connectedServerIds.includes(server.id);
-            const isPrimary = server.id === registry.activeServerId;
+            const isPrimary = server.id === effectiveActiveServerId;
 
             // Tooltip text depends on state
             const rowTooltip = !isInList

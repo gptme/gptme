@@ -80,6 +80,14 @@ describe('isDefaultPreset', () => {
       })
     ).toBe(false);
   });
+
+  it('returns true for a migrated preset stored as localhost:5700', () => {
+    expect(isDefaultPreset({ isPreset: true, baseUrl: 'http://localhost:5700' })).toBe(true);
+  });
+
+  it('returns true for localhost:5700 with trailing slash', () => {
+    expect(isDefaultPreset({ isPreset: true, baseUrl: 'http://localhost:5700/' })).toBe(true);
+  });
 });
 
 // ── ServerSelector render behaviour ───────────────────────────────────────
@@ -143,6 +151,34 @@ describe('ServerSelector in embedded (hosted) mode', () => {
       </TooltipProvider>
     );
     expect(container.firstChild).not.toBeNull();
+  });
+
+  it('shows fleet server label when Local is active but hidden', () => {
+    mockIsEmbedded = true;
+    mockRegistry = {
+      servers: [LOCAL_PRESET, FLEET_SERVER],
+      activeServerId: 'local', // Local is still the stored primary
+      connectedServerIds: ['local'],
+    };
+    const { getByText } = render(
+      <TooltipProvider>
+        <ServerSelector />
+      </TooltipProvider>
+    );
+    // The trigger should show the fleet server name, not the hidden "Local"
+    expect(getByText('Cloud')).toBeTruthy();
+  });
+
+  it('filters localhost:5700 preset the same as 127.0.0.1:5700 in embedded mode', () => {
+    mockIsEmbedded = true;
+    const localhostPreset = { ...LOCAL_PRESET, baseUrl: 'http://localhost:5700' };
+    mockRegistry = {
+      servers: [localhostPreset],
+      activeServerId: 'local',
+      connectedServerIds: ['local'],
+    };
+    const { container } = render(<ServerSelector />);
+    expect(container.firstChild).toBeNull();
   });
 });
 
