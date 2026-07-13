@@ -53,7 +53,13 @@ DEFAULT_CONTEXT_FILES = [
     "docker-compose.y*ml",
 ]
 
-PromptType = Literal["full", "short"]
+PromptType = Literal["full", "short", "brief"]
+
+BREVITY_PROMPT = """# Response Style: Brief
+
+Respond in the minimum words needed to be correct. Use fragments when clear,
+skip preambles, and do not hedge unless uncertainty changes the answer. Keep
+necessary technical detail, safety guidance, and tool results."""
 
 logger = logging.getLogger(__name__)
 
@@ -130,9 +136,11 @@ def _build_core_prompt_sections(
             "prompt_gptme",
             list(prompt_gptme(interactive, model, agent_name, tool_format=tool_format)),
         )
+        if prompt == "brief":
+            add("prompt_brief", [Message("system", BREVITY_PROMPT)])
         return sections
 
-    if prompt == "full":
+    if prompt in {"full", "brief"}:
         add(
             "prompt_gptme",
             list(prompt_gptme(interactive, model, agent_name, tool_format=tool_format)),
@@ -155,6 +163,8 @@ def _build_core_prompt_sections(
                 "prompt_skills_summary",
                 list(prompt_skills_summary(tool_format=tool_format)),
             )
+        if prompt == "brief":
+            add("prompt_brief", [Message("system", BREVITY_PROMPT)])
         return sections
 
     if prompt == "short":

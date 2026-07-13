@@ -291,6 +291,15 @@ files = ["README.md"]
     assert project_config.system is None
 
 
+def test_project_config_system_field_accepts_brief():
+    import tomlkit
+
+    config_data = dict(tomlkit.loads('[prompt]\nsystem = "brief"\n'))
+    project_config = ProjectConfig.from_dict(config_data)
+
+    assert project_config.system == "brief"
+
+
 def test_project_config_system_field_rejects_invalid_value():
     """Test that [prompt] system rejects typos instead of treating them as custom prompts."""
     import tomlkit
@@ -300,7 +309,9 @@ def test_project_config_system_field_rejects_invalid_value():
 system = "typo"
 """
     config_data = dict(tomlkit.loads(toml_str))
-    with pytest.raises(ValueError, match="prompt.system must be one of: full, short"):
+    with pytest.raises(
+        ValueError, match="prompt.system must be one of: brief, full, short"
+    ):
         ProjectConfig.from_dict(config_data)
 
 
