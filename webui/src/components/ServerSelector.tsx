@@ -21,12 +21,25 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useApi } from '@/contexts/ApiContext';
+import { useEmbeddedContext } from '@/contexts/EmbeddedContext';
 import { use$ } from '@legendapp/state/react';
 import { serverRegistry$, addServer, connectServer, disconnectServer } from '@/stores/servers';
 import { getClientForServer } from '@/stores/serverClients';
+import { PRESET_LOCAL } from '@/types/servers';
 import { settingsModal$ } from './SettingsModal';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+
+/** In embedded/hosted mode, a server is considered "user-configured" only if
+ *  it is not the default preset (i.e. the user explicitly changed something).
+ *  The auto-created Local preset at the default URL is invisible in hosted mode. */
+export function isDefaultPreset(server: { isPreset?: boolean; baseUrl: string }): boolean {
+  return (
+    server.isPreset === true &&
+    server.baseUrl.toLowerCase().replace(/\/+$/, '') ===
+      PRESET_LOCAL.baseUrl.toLowerCase().replace(/\/+$/, '')
+  );
+}
 
 /** Check actual connectivity for a server via its client in the pool. */
 function useServerConnected(serverId: string): boolean {
@@ -52,6 +65,7 @@ const ServerDot: FC<{ serverId: string; className?: string }> = ({ serverId, cla
 export const ServerSelector: FC = () => {
   const { switchServer, isConnected$, isConnecting$, isAutoConnecting$, stopAutoConnect } =
     useApi();
+  const { isEmbedded } = useEmbeddedContext();
   const registry = use$(serverRegistry$);
   const isConnected = use$(isConnected$);
   const isConnecting = use$(isConnecting$);
@@ -64,6 +78,17 @@ export const ServerSelector: FC = () => {
     authToken: '',
     useAuthToken: false,
   });
+
+  // In embedded/hosted mode, hide the auto-created Local preset so users
+  // don't see a permanently-disconnected "Local" entry in the server list.
+  // User-configured presets (changed URL) and all non-preset servers remain visible.
+  const visibleServers = isEmbedded
+    ? registry.servers.filter((s) => !isDefaultPreset(s))
+    : registry.servers;
+
+  // No visible servers after filtering: nothing to show — hide the selector entirely.
+  // All hooks are above; this return is safe per React rules.
+  if (isEmbedded && visibleServers.length === 0) return null;
 
   const serverCommand = `gptme-server --cors-origin='${window.location.origin}'`;
 
@@ -178,8 +203,8 @@ export const ServerSelector: FC = () => {
         ? 'Auto-connecting...'
         : 'Disconnected';
 
-  // Show command help when primary is disconnected
-  const showCommandHelp = !isConnected && !isConnecting && !isAutoConnecting;
+  // Show command help when primary is disconnected (not applicable in hosted mode)
+  const showCommandHelp = !isEmbedded && !isConnected && !isConnecting && !isAutoConnecting;
 
   return (
     <>
@@ -230,7 +255,7 @@ export const ServerSelector: FC = () => {
           </div>
           <DropdownMenuSeparator />
 
-          {registry.servers.map((server) => {
+          {visibleServers.map((server) => {
             const isInList = registry.connectedServerIds.includes(server.id);
             const isPrimary = server.id === registry.activeServerId;
 
