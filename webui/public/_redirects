@@ -8,6 +8,7 @@
 /chat/* / 200
 /tasks / 200
 /tasks/* / 200
+/skills / 200
 /agents / 200
 /workspaces / 200
 /history / 200
