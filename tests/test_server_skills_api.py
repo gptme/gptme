@@ -1,4 +1,12 @@
+"""Tests for the skills API endpoint."""
+
 import json
+
+import pytest
+
+pytest.importorskip(
+    "flask", reason="flask not installed, install server extras (-E server)"
+)
 
 from flask.testing import FlaskClient
 
