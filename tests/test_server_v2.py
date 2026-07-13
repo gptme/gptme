@@ -238,6 +238,63 @@ def test_models_endpoint_proxy_rewrites_ids(client: FlaskClient, monkeypatch):
     )
 
 
+def test_models_endpoint_proxy_translates_native_favorites(
+    client: FlaskClient, monkeypatch
+):
+    """Favorites saved with native IDs should be translated to gptme/ prefix in proxy mode.
+
+    A user may have saved 'anthropic/claude-test' before the proxy was configured.
+    The endpoint must return the gptme/-prefixed equivalent so the UI can mark
+    those models as favorited without requiring the user to re-save.
+    """
+    from gptme.llm.models.types import ModelMeta
+
+    fake_anthropic_model = ModelMeta(
+        provider="anthropic",
+        model="claude-test",
+        context=100_000,
+        max_output=4096,
+    )
+
+    def fake_get_models(provider, dynamic_fetch=True):
+        if provider == "anthropic":
+            return [fake_anthropic_model]
+        return []
+
+    monkeypatch.setattr("gptme.server.api_v2._get_models_for_provider", fake_get_models)
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: None)
+
+    # Simulate a user whose favorite was saved using the native (pre-proxy) ID
+    class FakeUserModels:
+        favorites = ["anthropic/claude-test"]
+
+    class FakeUser:
+        models = FakeUserModels()
+
+    class FakeConfig:
+        user = FakeUser()
+
+        def get_env(self, key):
+            if key == "LLM_PROXY_URL":
+                return "https://proxy.example.com"
+            if key == "LLM_PROXY_API_KEY":
+                return "test-key"
+            return None
+
+    monkeypatch.setattr("gptme.server.api_v2.Config", FakeConfig)
+
+    response = client.get("/api/v2/models")
+    assert response.status_code == 200
+    data = response.get_json()
+
+    favorites = data["favorites"]
+    # Native ID must be translated to gptme/ prefix — not silently dropped
+    assert "gptme/anthropic/claude-test" in favorites, (
+        f"Expected favorite to be translated to gptme/ prefix, got: {favorites}"
+    )
+    assert "anthropic/claude-test" not in favorites
+
+
 def test_webui_deploy_status_disabled(client: FlaskClient, monkeypatch):
     """The web UI deploy endpoint reports disabled state by default."""
     monkeypatch.delenv("GPTME_WEBUI_ENABLE_DEV_DEPLOY", raising=False)

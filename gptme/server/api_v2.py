@@ -2190,7 +2190,17 @@ def api_models():
 
     # User-curated favorites (only those still available in the model list)
     available_ids = {m["id"] for m in models_data}
-    favorites = [m for m in config.user.models.favorites if m in available_ids]
+    if is_proxy:
+        # Saved favorites may use native IDs (e.g. "anthropic/model") even though
+        # proxy mode rewrites them to "gptme/anthropic/model". Translate on output.
+        native_to_proxy = {mid.removeprefix("gptme/"): mid for mid in available_ids}
+        favorites = [
+            native_to_proxy.get(fav, fav)
+            for fav in config.user.models.favorites
+            if fav in available_ids or fav in native_to_proxy
+        ]
+    else:
+        favorites = [m for m in config.user.models.favorites if m in available_ids]
 
     return flask.jsonify(
         {
