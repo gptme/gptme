@@ -801,11 +801,31 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dd><p>Skip user confirmation between architect and editor turns.</p>
 </dd></dl>
 
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-injection-hygiene">
+<span class="sig-name descname"><span class="pre">--injection-hygiene</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;injection_hygiene&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-injection-hygiene" title="Link to this definition">#</a></dt>
+<dd><p>Prompt injection hygiene for tool outputs: off (disabled), warn (flag suspicious content), block (redact HIGH-severity patterns). Overrides GPTME_INJECTION_HYGIENE env var.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options<span class="colon">:</span></dt>
+<dd class="field-odd"><p>off | warn | block</p>
+</dd>
+</dl>
+</dd></dl>
+
 <p class="rubric">Arguments</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-arg-PROMPTS">
 <span class="sig-name descname"><span class="pre">PROMPTS</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-arg-PROMPTS" title="Link to this definition">#</a></dt>
 <dd><p>Optional argument(s)</p>
+</dd></dl>
+
+<p class="rubric">Environment variables</p>
+<dl class="std envvar" id="gptme-injection-hygiene-gptme-injection-hygiene">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">GPTME_INJECTION_HYGIENE</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-gptme-injection-hygiene"><code class="xref std std-option docutils literal notranslate"><span class="pre">--injection-hygiene</span></code></a></p>
+</div></blockquote>
 </dd></dl>
 
 </section>
