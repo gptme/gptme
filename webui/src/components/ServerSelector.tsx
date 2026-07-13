@@ -104,13 +104,16 @@ export const ServerSelector: FC = () => {
 
   // When the stored active server is hidden in embedded mode, auto-promote the first
   // visible server in the registry so the API context uses the correct server for all
-  // requests — not just the display. The ref guard prevents retrying the same switch
-  // after a failed attempt (even if state oscillates while the fleet server connects).
+  // requests — not just the display. The ref guard prevents rapid retries; on failure
+  // the ref is cleared so the next render (e.g. when the fleet server comes online)
+  // can retry rather than staying permanently diverged.
   const lastAutoSwitchId = useRef<string | null>(null);
   useEffect(() => {
     if (activeIsHidden && lastAutoSwitchId.current !== effectiveActiveServerId) {
       lastAutoSwitchId.current = effectiveActiveServerId;
-      void switchServer(effectiveActiveServerId);
+      void switchServer(effectiveActiveServerId).catch(() => {
+        lastAutoSwitchId.current = null; // allow retry when server becomes reachable
+      });
     }
   }, [activeIsHidden, effectiveActiveServerId]); // eslint-disable-line react-hooks/exhaustive-deps
 

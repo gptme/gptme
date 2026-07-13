@@ -189,6 +189,27 @@ describe('ServerSelector in embedded (hosted) mode', () => {
     expect(mockSwitchServer).toHaveBeenCalledWith('fleet-1');
   });
 
+  it('still renders fleet server if switchServer fails (graceful degradation)', async () => {
+    mockIsEmbedded = true;
+    mockRegistry = {
+      servers: [LOCAL_PRESET, FLEET_SERVER],
+      activeServerId: 'local',
+      connectedServerIds: ['local', 'fleet-1'],
+    };
+    mockSwitchServer.mockRejectedValueOnce(new Error('connection refused'));
+    const { getByText } = render(
+      <TooltipProvider>
+        <ServerSelector />
+      </TooltipProvider>
+    );
+    // switchServer was attempted (best effort)
+    expect(mockSwitchServer).toHaveBeenCalledWith('fleet-1');
+    // Component still shows the fleet server label — no crash on failure
+    expect(getByText('Cloud')).toBeTruthy();
+    // Allow the rejected promise to settle without crashing
+    await Promise.resolve();
+  });
+
   it('trigger dot is green (connected) based on effective fleet server, not hidden Local', () => {
     mockIsEmbedded = true;
     mockRegistry = {
