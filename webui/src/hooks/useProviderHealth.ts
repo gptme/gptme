@@ -35,6 +35,14 @@ export function useProviderHealth(poll = false) {
         const response = await fetch(`${api.baseUrl}/api/v2/providers/health${suffix}`, {
           headers,
         });
+        if (response.status === 404) {
+          // Older gptme-server versions don't expose /api/v2/providers/health.
+          // Treat as "no provider health data" rather than an error so the UI
+          // degrades gracefully instead of surfacing a background 404.
+          providerHealth$.data.set({ providers: {} });
+          providerHealth$.isLoading.set(false);
+          return;
+        }
         if (!response.ok) {
           throw new Error(`Failed to fetch provider health: ${response.statusText}`);
         }
