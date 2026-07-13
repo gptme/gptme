@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { ChevronDown, Plus, Unplug, Copy, Square, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,12 +21,28 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useApi } from '@/contexts/ApiContext';
+import { useEmbeddedContext } from '@/contexts/EmbeddedContext';
 import { use$ } from '@legendapp/state/react';
 import { serverRegistry$, addServer, connectServer, disconnectServer } from '@/stores/servers';
 import { getClientForServer } from '@/stores/serverClients';
+import { PRESET_LOCAL } from '@/types/servers';
 import { settingsModal$ } from './SettingsModal';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+
+/** In embedded/hosted mode, a server is considered "user-configured" only if
+ *  it is not the default preset (i.e. the user explicitly changed something).
+ *  The auto-created Local preset at the default URL is invisible in hosted mode.
+ *  Normalizes both `localhost` and `127.0.0.1` to treat them as equivalent. */
+export function isDefaultPreset(server: { isPreset?: boolean; baseUrl: string }): boolean {
+  if (server.isPreset !== true) return false;
+  const normalize = (url: string) =>
+    url
+      .toLowerCase()
+      .replace(/\/+$/, '')
+      .replace(/\blocalhost\b/g, '127.0.0.1');
+  return normalize(server.baseUrl) === normalize(PRESET_LOCAL.baseUrl);
+}
 
 /** Check actual connectivity for a server via its client in the pool. */
 function useServerConnected(serverId: string): boolean {
@@ -52,6 +68,7 @@ const ServerDot: FC<{ serverId: string; className?: string }> = ({ serverId, cla
 export const ServerSelector: FC = () => {
   const { switchServer, isConnected$, isConnecting$, isAutoConnecting$, stopAutoConnect } =
     useApi();
+  const { isEmbedded } = useEmbeddedContext();
   const registry = use$(serverRegistry$);
   const isConnected = use$(isConnected$);
   const isConnecting = use$(isConnecting$);
@@ -64,6 +81,45 @@ export const ServerSelector: FC = () => {
     authToken: '',
     useAuthToken: false,
   });
+
+  // In embedded/hosted mode, hide the auto-created Local preset so users
+  // don't see a permanently-disconnected "Local" entry in the server list.
+  // User-configured presets (changed URL) and all non-preset servers remain visible.
+  const visibleServers = isEmbedded
+    ? registry.servers.filter((s) => !isDefaultPreset(s))
+    : registry.servers;
+
+  // If the stored active server is hidden (filtered out in embedded mode), fall back
+  // to the first visible server for trigger display so the button never shows a
+  // hidden disconnected Local server as "selected" while the dropdown offers fleet.
+  const activeIsHidden =
+    isEmbedded &&
+    visibleServers.length > 0 &&
+    !visibleServers.some((s) => s.id === registry.activeServerId);
+  const effectiveActiveServerId = activeIsHidden ? visibleServers[0].id : registry.activeServerId;
+
+  // Per-server live connectivity for the trigger dot when the effective server differs
+  // from the primary tracked by useApi (i.e. when falling back to a visible server).
+  const effectiveConnected = useServerConnected(effectiveActiveServerId);
+
+  // When the stored active server is hidden in embedded mode, auto-promote the first
+  // visible server in the registry so the API context uses the correct server for all
+  // requests — not just the display. The ref guard prevents rapid retries; on failure
+  // the ref is cleared so the next render (e.g. when the fleet server comes online)
+  // can retry rather than staying permanently diverged.
+  const lastAutoSwitchId = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeIsHidden && lastAutoSwitchId.current !== effectiveActiveServerId) {
+      lastAutoSwitchId.current = effectiveActiveServerId;
+      void switchServer(effectiveActiveServerId).catch(() => {
+        lastAutoSwitchId.current = null; // allow retry when server becomes reachable
+      });
+    }
+  }, [activeIsHidden, effectiveActiveServerId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // No visible servers after filtering: nothing to show — hide the selector entirely.
+  // All hooks are above; this return is safe per React rules.
+  if (isEmbedded && visibleServers.length === 0) return null;
 
   const serverCommand = `gptme-server --cors-origin='${window.location.origin}'`;
 
@@ -160,17 +216,18 @@ export const ServerSelector: FC = () => {
     }
   };
 
-  const activeServer = registry.servers.find((s) => s.id === registry.activeServerId);
+  const activeServer = registry.servers.find((s) => s.id === effectiveActiveServerId);
   const label = activeServer?.name || 'Servers';
 
-  // Trigger dot color: based on primary server's actual connectivity
-  const dotColor = isConnected
+  // Trigger dot color: use effective server's connectivity (falls back to the first
+  // visible server in embedded mode when the stored active server is hidden).
+  const dotColor = (activeIsHidden ? effectiveConnected : isConnected)
     ? 'bg-green-500'
     : isConnecting || isAutoConnecting
       ? 'bg-yellow-500 animate-pulse'
       : 'bg-gray-400';
 
-  const statusText = isConnected
+  const statusText = (activeIsHidden ? effectiveConnected : isConnected)
     ? 'Connected'
     : isConnecting
       ? 'Connecting...'
@@ -178,8 +235,8 @@ export const ServerSelector: FC = () => {
         ? 'Auto-connecting...'
         : 'Disconnected';
 
-  // Show command help when primary is disconnected
-  const showCommandHelp = !isConnected && !isConnecting && !isAutoConnecting;
+  // Show command help when primary is disconnected (not applicable in hosted mode)
+  const showCommandHelp = !isEmbedded && !isConnected && !isConnecting && !isAutoConnecting;
 
   return (
     <>
@@ -230,9 +287,9 @@ export const ServerSelector: FC = () => {
           </div>
           <DropdownMenuSeparator />
 
-          {registry.servers.map((server) => {
+          {visibleServers.map((server) => {
             const isInList = registry.connectedServerIds.includes(server.id);
-            const isPrimary = server.id === registry.activeServerId;
+            const isPrimary = server.id === effectiveActiveServerId;
 
             // Tooltip text depends on state
             const rowTooltip = !isInList
