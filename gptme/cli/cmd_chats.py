@@ -608,9 +608,10 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
 
     Log(sliced).write_jsonl(new_logdir / "conversation.jsonl")
 
-    source_files_dir = source_logdir / "files"
-    if source_files_dir.exists():
-        shutil.copytree(source_files_dir, new_logdir / "files")
+    for subdir in ("files", "attachments"):
+        src = source_logdir / subdir
+        if src.exists():
+            shutil.copytree(src, new_logdir / subdir)
 
     click.echo(
         f"Forked '{id}' at turn {at_turn} → '{new_name}' ({len(sliced)} messages kept)"
