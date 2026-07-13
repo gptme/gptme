@@ -523,7 +523,7 @@ Run 'gptme-util --help' for all utility commands."""
     "--system",
     "prompt_system",
     default=None,
-    help="System prompt [full|short|<custom>]. Defaults to 'full', or the value of `system` in gptme.toml [prompt] if set.",
+    help="System prompt [full|short|brief|<custom>]. Defaults to 'full', or the value of `system` in gptme.toml [prompt] if set.",
 )
 @click.option(
     "-t",

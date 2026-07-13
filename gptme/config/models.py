@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-VALID_PROJECT_SYSTEM_PROMPTS = {"full", "short"}
+VALID_PROJECT_SYSTEM_PROMPTS = {"brief", "full", "short"}
 
 
 def _pop_object_section(config_data: dict, key: str) -> dict:
