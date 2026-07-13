@@ -3,6 +3,8 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, Mock, patch
 
+import openai  # warm import cache before per-test 10s timeout
+import openai._types  # noqa: F401  # warm openai._types (NOT_GIVEN) before per-test 10s timeout
 import pytest
 from pydantic import BaseModel
 
@@ -674,10 +676,7 @@ def test_chat_uses_responses_api_for_gpt5_by_default(monkeypatch):
         usage=ResponseUsage.model_validate(
             {
                 "input_tokens": 120,
-                "input_tokens_details": {
-                    "cached_tokens": 20,
-                    "cache_write_tokens": 0,
-                },
+                "input_tokens_details": {"cached_tokens": 20, "cache_write_tokens": 0},
                 "output_tokens": 30,
                 "output_tokens_details": {"reasoning_tokens": 10},
                 "total_tokens": 150,
@@ -1038,10 +1037,7 @@ def test_stream_responses_emits_function_calls_and_usage(monkeypatch):
     usage = ResponseUsage.model_validate(
         {
             "input_tokens": 120,
-            "input_tokens_details": {
-                "cached_tokens": 20,
-                "cache_write_tokens": 0,
-            },
+            "input_tokens_details": {"cached_tokens": 20, "cache_write_tokens": 0},
             "output_tokens": 30,
             "output_tokens_details": {"reasoning_tokens": 10},
             "total_tokens": 150,

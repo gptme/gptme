@@ -5,7 +5,12 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import openai  # noqa: F401  # warm import cache before per-test 10s timeout
 import pytest
+
+from gptme.llm import (
+    _chat_complete,  # warm gptme.llm before per-test 10s timeout
+)
 
 
 def test_gptme_in_providers():
@@ -561,7 +566,6 @@ def test_gptme_api_model_wire_name():
 def test_gptme_anthropic_uses_anthropic_sdk_no_stream_options():
     """Anthropic-backed gptme models route via the Anthropic SDK (native, no
     stream_options) and never touch the user's real anthropic client."""
-    from gptme.llm import _chat_complete
     from gptme.message import Message
 
     gateway = MagicMock()
@@ -600,7 +604,6 @@ def test_gptme_anthropic_uses_anthropic_sdk_no_stream_options():
 def test_gptme_openai_chat_sends_max_completion_tokens():
     """openai-backed gptme models stay on the OpenAI SDK path, send the
     backend-prefixed wire model, and use max_completion_tokens for gpt-5."""
-    from gptme.llm import _chat_complete
     from gptme.message import Message
 
     client = MagicMock()

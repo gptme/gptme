@@ -22,11 +22,6 @@ from gptme.acp.types import (
 )
 
 
-def _run(coro):
-    """Run an async coroutine synchronously."""
-    return asyncio.run(coro)
-
-
 def _acp_has_session_model_state() -> bool:
     """Check if ACP schema has SessionModelState (removed in 0.11.0)."""
     try:
@@ -35,6 +30,11 @@ def _acp_has_session_model_state() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _run(coro):
+    """Run an async coroutine synchronously."""
+    return asyncio.run(coro)
 
 
 def _mock_permission_response(option_id: str | None = None, cancelled: bool = False):
