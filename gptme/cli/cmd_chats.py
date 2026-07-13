@@ -1,6 +1,7 @@
 """CLI commands for chat/conversation management."""
 
 import json
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -577,6 +578,14 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
         raise click.UsageError(f"Session has no conversation: {id!r}")
 
     source_msgs = list(Log.read_jsonl(source_logfile).messages)
+
+    user_turn_count = sum(1 for m in source_msgs if m.role == "user")
+    if at_turn > user_turn_count:
+        raise click.UsageError(
+            f"Turn {at_turn} out of range — session '{id}' has {user_turn_count} user turn(s) "
+            f"(valid range: 0–{user_turn_count})"
+        )
+
     sliced = _slice_at_turn(source_msgs, at_turn)
 
     if fork_name:
@@ -597,7 +606,17 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
             f"Session name '{new_name}' already exists. Choose a different name with --name."
         ) from None
 
-    Log(sliced).write_jsonl(new_logdir / "conversation.jsonl")
+    try:
+        Log(sliced).write_jsonl(new_logdir / "conversation.jsonl")
+
+        for subdir in ("files", "attachments"):
+            src = source_logdir / subdir
+            if src.exists():
+                shutil.copytree(src, new_logdir / subdir, symlinks=True)
+    except Exception:
+        shutil.rmtree(new_logdir, ignore_errors=True)
+        raise
+
     click.echo(
         f"Forked '{id}' at turn {at_turn} → '{new_name}' ({len(sliced)} messages kept)"
     )
