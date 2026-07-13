@@ -142,6 +142,21 @@ class TestBuiltinProfiles:
         assert "screenshot()" not in prompt, (
             "computer-use must name real screenshot backends"
         )
+        # Dynamic web interaction — needed for the "Can it Tweet?" milestone and
+        # any flow where DOM elements appear after actions (post-click spinners,
+        # form submission redirects, lazy-loaded content).
+        assert "wait_for_element" in prompt, (
+            "must mention wait_for_element for post-action DOM waiting"
+        )
+        assert "press_key" in prompt, (
+            "must mention press_key for keyboard navigation (Enter, Tab, Escape)"
+        )
+        assert "select_option" in prompt, (
+            "must mention select_option for <select> dropdown elements"
+        )
+        assert "hover_element" in prompt, (
+            "must mention hover_element for hover-only menus/tooltips"
+        )
 
     def test_browser_use_profile(self):
         browser_use = BUILTIN_PROFILES["browser-use"]
@@ -152,6 +167,16 @@ class TestBuiltinProfiles:
         assert "screenshot" in browser_use.tools
         assert "vision" in browser_use.tools
         assert "shell" in browser_use.tools
+
+    def test_browser_use_profile_interactive_functions(self):
+        """browser-use interactive session must list the full dynamic-interaction set."""
+        browser_use = BUILTIN_PROFILES["browser-use"]
+        prompt = browser_use.system_prompt
+
+        for fn in ("wait_for_element", "press_key", "select_option", "hover_element"):
+            assert fn in prompt, (
+                f"browser-use profile must mention {fn} for dynamic web interaction"
+            )
 
 
 class TestGetProfile:
