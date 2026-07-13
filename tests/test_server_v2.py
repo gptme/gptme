@@ -184,6 +184,60 @@ def test_v2_api_root_provider_configured(client: FlaskClient, monkeypatch):
     assert data["provider_configured"] is True
 
 
+def test_models_endpoint_proxy_rewrites_ids(client: FlaskClient, monkeypatch):
+    """When LLM_PROXY_URL is set, /api/v2/models must only expose gptme/ prefixed IDs.
+
+    Raw provider IDs (anthropic/..., openrouter/...) cannot be used on managed
+    instances because the pod has no provider API keys — only gptme/ routes through
+    the proxy. Selecting a raw ID causes 'LLM not initialized'. See gptme/gptme#3232.
+    """
+    from gptme.llm.models.types import ModelMeta
+
+    fake_anthropic_model = ModelMeta(
+        provider="anthropic",
+        model="claude-test",
+        context=100_000,
+        max_output=4096,
+    )
+
+    def fake_get_models(provider, dynamic_fetch=True):
+        if provider == "anthropic":
+            return [fake_anthropic_model]
+        return []
+
+    monkeypatch.setattr("gptme.server.api_v2._get_models_for_provider", fake_get_models)
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: None)
+
+    # Without proxy: model IDs should use native provider prefix
+    monkeypatch.delenv("LLM_PROXY_URL", raising=False)
+    monkeypatch.delenv("LLM_PROXY_API_KEY", raising=False)
+    response = client.get("/api/v2/models")
+    assert response.status_code == 200
+    data = response.get_json()
+    ids_no_proxy = [m["id"] for m in data["models"]]
+    assert any(mid == "anthropic/claude-test" for mid in ids_no_proxy)
+    assert not any(mid.startswith("gptme/") for mid in ids_no_proxy)
+
+    # With proxy: all model IDs must be gptme/ prefixed so they route correctly
+    monkeypatch.setenv("LLM_PROXY_URL", "https://proxy.example.com")
+    monkeypatch.setenv("LLM_PROXY_API_KEY", "test-key")
+    response = client.get("/api/v2/models")
+    assert response.status_code == 200
+    data = response.get_json()
+    ids_proxy = [m["id"] for m in data["models"]]
+    assert all(mid.startswith("gptme/") for mid in ids_proxy), (
+        f"Expected all IDs to start with 'gptme/' when proxy is set, got: {ids_proxy}"
+    )
+    assert any(mid == "gptme/anthropic/claude-test" for mid in ids_proxy)
+    # Raw provider IDs must not appear — they would cause 'LLM not initialized'
+    assert "anthropic/claude-test" not in ids_proxy
+    # Provider field should be 'gptme' for all models
+    providers = [m["provider"] for m in data["models"]]
+    assert all(p == "gptme" for p in providers), (
+        f"Expected all providers to be 'gptme' when proxy is set, got: {providers}"
+    )
+
+
 def test_webui_deploy_status_disabled(client: FlaskClient, monkeypatch):
     """The web UI deploy endpoint reports disabled state by default."""
     monkeypatch.delenv("GPTME_WEBUI_ENABLE_DEV_DEPLOY", raising=False)

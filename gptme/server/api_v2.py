@@ -2157,8 +2157,13 @@ def api_models():
         models = _apply_model_filters(provider_models, include_deprecated=False)
         models_data.extend(
             {
-                "id": model.full,
-                "provider": model.provider,
+                # When routing through LLM proxy, rewrite model IDs to the gptme/
+                # provider prefix so they route correctly. Without this, selecting
+                # e.g. "anthropic/claude-sonnet-4-6" fails with 'LLM not initialized'
+                # because the pod has no ANTHROPIC_API_KEY — only the gptme provider
+                # routes through the proxy.
+                "id": f"gptme/{model.full}" if is_proxy else model.full,
+                "provider": "gptme" if is_proxy else model.provider,
                 "model": model.model,
                 "context": model.context,
                 "max_output": model.max_output,
@@ -2177,7 +2182,7 @@ def api_models():
     for provider in providers_to_check:
         try:
             rec = get_recommended_model(provider)
-            full_id = f"{provider}/{rec}"
+            full_id = f"gptme/{provider}/{rec}" if is_proxy else f"{provider}/{rec}"
             if any(m["id"] == full_id for m in models_data):
                 recommended.append(full_id)
         except ValueError:
