@@ -40,6 +40,7 @@ export function useProviderHealth(poll = false) {
           // Treat as "no provider health data" rather than an error so the UI
           // degrades gracefully instead of surfacing a background 404.
           providerHealth$.data.set({ providers: {} });
+          providerHealth$.isLoading.set(false);
           return;
         }
         if (!response.ok) {
