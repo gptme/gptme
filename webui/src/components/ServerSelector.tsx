@@ -212,7 +212,7 @@ export const ServerSelector: FC = () => {
       ? 'bg-yellow-500 animate-pulse'
       : 'bg-gray-400';
 
-  const statusText = isConnected
+  const statusText = (activeIsHidden ? effectiveConnected : isConnected)
     ? 'Connected'
     : isConnecting
       ? 'Connecting...'

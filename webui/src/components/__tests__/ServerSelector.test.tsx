@@ -169,6 +169,32 @@ describe('ServerSelector in embedded (hosted) mode', () => {
     expect(getByText('Cloud')).toBeTruthy();
   });
 
+  it('trigger dot is green (connected) based on effective fleet server, not hidden Local', () => {
+    mockIsEmbedded = true;
+    mockRegistry = {
+      servers: [LOCAL_PRESET, FLEET_SERVER],
+      activeServerId: 'local', // Local is still the stored primary (hidden)
+      connectedServerIds: ['local', 'fleet-1'],
+    };
+    // Fleet server reports connected; Local (hidden) reports disconnected
+    const { getClientForServer } =
+      jest.requireMock<typeof import('@/stores/serverClients')>('@/stores/serverClients');
+    (getClientForServer as jest.Mock).mockImplementation((id: string) =>
+      id === 'fleet-1' ? { isConnected$: { get: () => true } } : null
+    );
+    const { container } = render(
+      <TooltipProvider>
+        <ServerSelector />
+      </TooltipProvider>
+    );
+    // The trigger button dot should be green (fleet is connected),
+    // not gray (which would mean Local's disconnected state leaked through).
+    const triggerDot = container.querySelector('.bg-green-500');
+    expect(triggerDot).not.toBeNull();
+    // Reset mock
+    (getClientForServer as jest.Mock).mockReturnValue(null);
+  });
+
   it('filters localhost:5700 preset the same as 127.0.0.1:5700 in embedded mode', () => {
     mockIsEmbedded = true;
     const localhostPreset = { ...LOCAL_PRESET, baseUrl: 'http://localhost:5700' };
