@@ -612,7 +612,7 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
         for subdir in ("files", "attachments"):
             src = source_logdir / subdir
             if src.exists():
-                shutil.copytree(src, new_logdir / subdir)
+                shutil.copytree(src, new_logdir / subdir, symlinks=True)
     except Exception:
         shutil.rmtree(new_logdir, ignore_errors=True)
         raise
