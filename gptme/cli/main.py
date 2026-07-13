@@ -665,6 +665,14 @@ Run 'gptme-util --help' for all utility commands."""
     hidden=True,
     help="Schema for structured output in format 'module:ClassName'. The class should be a Pydantic BaseModel.",
 )
+@click.option(
+    "--injection-hygiene",
+    "injection_hygiene",
+    type=click.Choice(["off", "warn", "block"]),
+    default=None,
+    envvar="GPTME_INJECTION_HYGIENE",
+    help="Prompt injection hygiene for tool outputs: off (disabled), warn (flag suspicious content), block (redact HIGH-severity patterns). Overrides GPTME_INJECTION_HYGIENE env var.",
+)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -697,6 +705,7 @@ def main(
     context_include: tuple[str, ...],
     no_workspace: bool,
     output_schema: str | None,
+    injection_hygiene: str | None,
 ):
     """Main entrypoint for the CLI."""
 
@@ -799,6 +808,12 @@ def main(
         # Only set GPTME_BREAK_ON_TOOLUSE - multi-tool mode allows multiple tool calls
         # per LLM response but executes them sequentially (no thread-safety issues)
         os.environ["GPTME_BREAK_ON_TOOLUSE"] = "0" if multi_tool else "1"
+
+    # Propagate --injection-hygiene to the env var read by the hook at call time.
+    # envvar= on the option means Click already reads GPTME_INJECTION_HYGIENE if set,
+    # so this only fires when the flag was explicitly passed on the command line.
+    if injection_hygiene is not None:
+        os.environ["GPTME_INJECTION_HYGIENE"] = injection_hygiene
 
     # Convert tool_allowlist from tuple to string or None
     # Use get_parameter_source to distinguish between default (None) and explicit empty list
