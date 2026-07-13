@@ -5,12 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from gptme.message import len_tokens
-from gptme.prompts import (
-    BREVITY_PROMPT,
-    format_prompt_stats,
-    get_prompt,
-    get_prompt_stats,
-)
+from gptme.prompts import format_prompt_stats, get_prompt, get_prompt_stats
 from gptme.tools import get_tools, init_tools
 
 
@@ -41,19 +36,6 @@ def test_get_prompt_short():
     # TODO: make the short prompt shorter
     # Note: prompt size grows with new tools/features; bump ceiling as needed
     assert 400 < len_tokens(combined_content, "gpt-4") < 4500 + user_config_size
-
-
-def test_get_prompt_brief_keeps_full_context_and_adds_response_constraint():
-    brief_content = "\n\n".join(
-        msg.content for msg in get_prompt(get_tools(), prompt="brief")
-    )
-    full_content = "\n\n".join(
-        msg.content for msg in get_prompt(get_tools(), prompt="full")
-    )
-
-    assert BREVITY_PROMPT in brief_content
-    assert BREVITY_PROMPT not in full_content
-    assert "Current Project" in brief_content
 
 
 def test_get_prompt_custom():
@@ -141,17 +123,6 @@ def test_get_prompt_stats_short_without_tools_keeps_minimal_core():
     )
 
     assert [section.name for section in stats.sections] == ["prompt_gptme"]
-
-
-def test_get_prompt_stats_brief_marks_response_constraint():
-    stats = get_prompt_stats(
-        [], prompt="brief", context_mode="selective", context_include=[]
-    )
-
-    assert [section.name for section in stats.sections] == [
-        "prompt_gptme",
-        "prompt_brief",
-    ]
 
 
 def test_get_prompt_stats_includes_workspace_and_dynamic_context(tmp_path):
