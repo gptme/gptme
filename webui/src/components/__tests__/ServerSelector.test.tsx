@@ -15,9 +15,11 @@ let mockRegistry: ServerRegistry = {
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
+const mockSwitchServer = jest.fn(() => Promise.resolve());
+
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
-    switchServer: jest.fn(),
+    switchServer: mockSwitchServer,
     isConnected$: { get: () => false },
     isConnecting$: { get: () => false },
     isAutoConnecting$: { get: () => false },
@@ -118,6 +120,7 @@ const FLEET_SERVER: ServerConfig = {
 describe('ServerSelector in embedded (hosted) mode', () => {
   afterEach(() => {
     mockIsEmbedded = false;
+    mockSwitchServer.mockClear();
   });
 
   it('renders nothing when the only server is the default Local preset', () => {
@@ -167,6 +170,23 @@ describe('ServerSelector in embedded (hosted) mode', () => {
     );
     // The trigger should show the fleet server name, not the hidden "Local"
     expect(getByText('Cloud')).toBeTruthy();
+  });
+
+  it('auto-calls switchServer to reconcile registry when Local is active but hidden', () => {
+    mockIsEmbedded = true;
+    mockRegistry = {
+      servers: [LOCAL_PRESET, FLEET_SERVER],
+      activeServerId: 'local', // Local is stored primary but hidden
+      connectedServerIds: ['local', 'fleet-1'],
+    };
+    render(
+      <TooltipProvider>
+        <ServerSelector />
+      </TooltipProvider>
+    );
+    // The component should call switchServer so the registry's activeServerId
+    // migrates to the fleet server — preventing API calls from going to Local.
+    expect(mockSwitchServer).toHaveBeenCalledWith('fleet-1');
   });
 
   it('trigger dot is green (connected) based on effective fleet server, not hidden Local', () => {

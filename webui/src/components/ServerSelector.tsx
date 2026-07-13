@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { ChevronDown, Plus, Unplug, Copy, Square, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -101,6 +101,16 @@ export const ServerSelector: FC = () => {
   // Per-server live connectivity for the trigger dot when the effective server differs
   // from the primary tracked by useApi (i.e. when falling back to a visible server).
   const effectiveConnected = useServerConnected(effectiveActiveServerId);
+
+  // When the stored active server is hidden in embedded mode, auto-promote the first
+  // visible server in the registry so the API context uses the correct server for all
+  // requests — not just the display. Runs once per hidden-active event (the effect
+  // re-fires only if effectiveActiveServerId changes, which it won't after the switch).
+  useEffect(() => {
+    if (activeIsHidden) {
+      void switchServer(effectiveActiveServerId);
+    }
+  }, [activeIsHidden, effectiveActiveServerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // No visible servers after filtering: nothing to show — hide the selector entirely.
   // All hooks are above; this return is safe per React rules.
