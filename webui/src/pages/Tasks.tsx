@@ -11,7 +11,7 @@ const Tasks: FC<Props> = () => {
   const { id } = useParams<{ id?: string }>();
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-dvh flex-col">
       <MenuBar />
       <MainLayout taskId={id} />
     </div>

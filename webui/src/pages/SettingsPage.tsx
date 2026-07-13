@@ -57,7 +57,7 @@ const SettingsPage: FC = () => {
   return (
     <div
       ref={containerRef}
-      className="flex h-screen flex-col"
+      className="flex h-dvh flex-col"
       tabIndex={-1}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {

@@ -10,7 +10,7 @@ const Workspace: FC = () => {
 
   if (!conversationId) {
     return (
-      <div className="flex h-screen flex-col">
+      <div className="flex h-dvh flex-col">
         <MenuBar />
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
@@ -29,7 +29,7 @@ const Workspace: FC = () => {
   }
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-dvh flex-col">
       <MenuBar />
       <div className="flex-1 overflow-hidden">
         <WorkspaceExplorer conversationId={conversationId} />

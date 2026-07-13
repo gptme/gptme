@@ -7,7 +7,7 @@ const NotFound: FC = () => {
   const location = useLocation();
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-dvh flex-col">
       <MenuBar />
       <div className="flex flex-1 items-center justify-center">
         <div className="text-center">
