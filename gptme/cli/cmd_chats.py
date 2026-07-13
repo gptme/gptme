@@ -606,12 +606,16 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
             f"Session name '{new_name}' already exists. Choose a different name with --name."
         ) from None
 
-    Log(sliced).write_jsonl(new_logdir / "conversation.jsonl")
+    try:
+        Log(sliced).write_jsonl(new_logdir / "conversation.jsonl")
 
-    for subdir in ("files", "attachments"):
-        src = source_logdir / subdir
-        if src.exists():
-            shutil.copytree(src, new_logdir / subdir)
+        for subdir in ("files", "attachments"):
+            src = source_logdir / subdir
+            if src.exists():
+                shutil.copytree(src, new_logdir / subdir)
+    except Exception:
+        shutil.rmtree(new_logdir, ignore_errors=True)
+        raise
 
     click.echo(
         f"Forked '{id}' at turn {at_turn} → '{new_name}' ({len(sliced)} messages kept)"
