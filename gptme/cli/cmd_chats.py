@@ -1,6 +1,7 @@
 """CLI commands for chat/conversation management."""
 
 import json
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -577,6 +578,14 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
         raise click.UsageError(f"Session has no conversation: {id!r}")
 
     source_msgs = list(Log.read_jsonl(source_logfile).messages)
+
+    user_turn_count = sum(1 for m in source_msgs if m.role == "user")
+    if at_turn > user_turn_count:
+        raise click.UsageError(
+            f"Turn {at_turn} out of range — session '{id}' has {user_turn_count} user turn(s) "
+            f"(valid range: 0–{user_turn_count})"
+        )
+
     sliced = _slice_at_turn(source_msgs, at_turn)
 
     if fork_name:
@@ -598,6 +607,11 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
         ) from None
 
     Log(sliced).write_jsonl(new_logdir / "conversation.jsonl")
+
+    source_files_dir = source_logdir / "files"
+    if source_files_dir.exists():
+        shutil.copytree(source_files_dir, new_logdir / "files")
+
     click.echo(
         f"Forked '{id}' at turn {at_turn} → '{new_name}' ({len(sliced)} messages kept)"
     )
