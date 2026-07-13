@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { ChevronDown, Plus, Unplug, Copy, Square, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -104,10 +104,12 @@ export const ServerSelector: FC = () => {
 
   // When the stored active server is hidden in embedded mode, auto-promote the first
   // visible server in the registry so the API context uses the correct server for all
-  // requests — not just the display. Runs once per hidden-active event (the effect
-  // re-fires only if effectiveActiveServerId changes, which it won't after the switch).
+  // requests — not just the display. The ref guard prevents retrying the same switch
+  // after a failed attempt (even if state oscillates while the fleet server connects).
+  const lastAutoSwitchId = useRef<string | null>(null);
   useEffect(() => {
-    if (activeIsHidden) {
+    if (activeIsHidden && lastAutoSwitchId.current !== effectiveActiveServerId) {
+      lastAutoSwitchId.current = effectiveActiveServerId;
       void switchServer(effectiveActiveServerId);
     }
   }, [activeIsHidden, effectiveActiveServerId]); // eslint-disable-line react-hooks/exhaustive-deps
