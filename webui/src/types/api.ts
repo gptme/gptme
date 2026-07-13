@@ -59,6 +59,29 @@ export interface ExternalSessionDetail {
   transcript: Record<string, unknown> & { messages?: NormalizedMessage[] };
 }
 
+export type SkillReputationBand = 'excellent' | 'good' | 'neutral' | 'low' | 'blocked';
+
+export interface SkillReputation {
+  score: number | null;
+  band: SkillReputationBand;
+  band_label: string;
+  blocked: boolean;
+  computed_at: string | null;
+}
+
+export interface SkillRegistryItem {
+  name: string;
+  description: string;
+  path: string;
+  category: string;
+  install_count: number;
+  reputation: SkillReputation;
+}
+
+export interface SkillListResponse {
+  skills: SkillRegistryItem[];
+}
+
 export interface ApiErrorDetails {
   message?: string;
   type?: string;

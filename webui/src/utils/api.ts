@@ -10,6 +10,7 @@ import type {
   ExternalSessionDetail,
   SendMessageRequest,
   ServerHealth,
+  SkillListResponse,
   UserInfo,
 } from '@/types/api';
 import type { ConversationSummary, Message, ToolUse } from '@/types/conversation';
@@ -561,6 +562,10 @@ export class ApiClient {
       this.lastConnectionResult$.set({ ok: false, url, reason, message });
       return false;
     }
+  }
+
+  async getSkills(): Promise<SkillListResponse> {
+    return this.fetchJson<SkillListResponse>(`${this.baseUrl}/api/v2/skills`);
   }
 
   // Add method to explicitly set connection state
