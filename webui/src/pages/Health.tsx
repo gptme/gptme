@@ -10,7 +10,7 @@ const Health: FC = () => {
   const { data: tasks = [] } = useTasksQuery();
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-dvh flex-col">
       <MenuBar />
       <div className="flex min-h-0 flex-1">
         <SidebarIcons tasks={tasks} />

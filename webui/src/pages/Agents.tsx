@@ -4,7 +4,7 @@ import MainLayout from '@/components/MainLayout';
 
 const Agents: FC = () => {
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-dvh flex-col">
       <MenuBar />
       <MainLayout />
     </div>

@@ -427,7 +427,7 @@ export default function ExtensionChat() {
     : '';
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
+    <div className="flex h-dvh flex-col bg-background text-foreground">
       {/* Status bar */}
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 text-xs">
         <span className={state.online ? 'text-green-500' : 'text-muted-foreground'}>
