@@ -515,29 +515,35 @@ def _restore_redacted_secrets(incoming: str, original: str) -> str:
     any field that still holds the sentinel should preserve the real on-disk
     value rather than writing the placeholder.
 
-    Uses (section, key_name) as the lookup key so duplicate bare key names
-    across different TOML sections are restored to their correct values.
+    Uses (section, occurrence_index, key_name) as the lookup key so that
+    repeated TOML array-of-tables (e.g. [[providers]]) restore each entry
+    to its own correct secret rather than the last-seen value.
     """
     # Build section-scoped map of real secret values from the on-disk file.
-    originals: dict[tuple[str, str], str] = {}
+    # Key: (section_header, occurrence_index, key_name)
+    originals: dict[tuple[str, int, str], str] = {}
+    section_counts: dict[str, int] = {}
     current_section = ""
+    current_section_idx = 0
     for line in original.splitlines():
         sm = _SECTION_HEADER_RE.match(line)
         if sm:
             current_section = sm.group(1)
+            current_section_idx = section_counts.get(current_section, 0)
+            section_counts[current_section] = current_section_idx + 1
             continue
         for pat in _SECRET_KEY_PATTERNS:
             km = pat.search(line)
             if km:
                 key = km.group(1).split("=")[0].strip().lower()
-                originals[(current_section, key)] = km.group(2)
+                originals[(current_section, current_section_idx, key)] = km.group(2)
                 break
 
-    def _make_restore(section: str):
+    def _make_restore(section: str, section_idx: int):
         def _restore(m: re.Match) -> str:
             key = m.group(1).split("=")[0].strip().lower()
             if m.group(2) == _REDACT_SENTINEL:
-                real = originals.get((section, key))
+                real = originals.get((section, section_idx, key))
                 if real is not None:
                     return m.group(1) + real + m.group(3)
             return m.group(0)
@@ -546,14 +552,18 @@ def _restore_redacted_secrets(incoming: str, original: str) -> str:
 
     result_lines: list[str] = []
     current_section = ""
+    current_section_idx = 0
+    section_counts = {}
     for line in incoming.splitlines(keepends=True):
         sm = _SECTION_HEADER_RE.match(line)
         if sm:
             current_section = sm.group(1)
+            current_section_idx = section_counts.get(current_section, 0)
+            section_counts[current_section] = current_section_idx + 1
             result_lines.append(line)
             continue
         for pat in _SECRET_KEY_PATTERNS:
-            line = pat.sub(_make_restore(current_section), line)
+            line = pat.sub(_make_restore(current_section, current_section_idx), line)
         result_lines.append(line)
 
     return "".join(result_lines)

@@ -601,6 +601,26 @@ def test_restore_redacted_secrets_single_quoted():
     assert restored == original
 
 
+def test_restore_redacted_secrets_repeated_array_of_tables():
+    """Repeated [[section]] tables each restore their own secret, not the last one."""
+    from gptme.server.api_v2 import _redact_secrets, _restore_redacted_secrets
+
+    original = (
+        "[[providers]]\n"
+        'name = "openai"\n'
+        'api_key = "key-openai"\n'
+        "\n"
+        "[[providers]]\n"
+        'name = "anthropic"\n'
+        'api_key = "key-anthropic"\n'
+    )
+    redacted = _redact_secrets(original)
+    assert "key-openai" not in redacted
+    assert "key-anthropic" not in redacted
+    restored = _restore_redacted_secrets(redacted, original)
+    assert restored == original
+
+
 @pytest.mark.parametrize(
     "endpoint", ["/api/v2/user/api-key", "/api/v2/user/default-model"]
 )
