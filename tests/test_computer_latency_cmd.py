@@ -442,6 +442,63 @@ class TestLatencyTerminalFlag:
         assert "error" in result
         assert "xdotool" in result["error"]
 
+    def test_measure_terminal_startup_xdotool_timeout(self):
+        """_measure_terminal_startup returns error dict when xdotool --sync times out."""
+        import subprocess as _subprocess
+
+        from gptme.cli.cmd_computer import _measure_terminal_startup
+
+        fake_proc = MagicMock()
+        fake_proc.pid = 99999
+
+        def _which(cmd: str) -> str | None:
+            return f"/usr/bin/{cmd}" if cmd in ("xterm", "xdotool") else None
+
+        with (
+            patch("shutil.which", side_effect=_which),
+            patch("subprocess.Popen", return_value=fake_proc),
+            patch(
+                "subprocess.run",
+                side_effect=_subprocess.TimeoutExpired(cmd=["xdotool"], timeout=5.0),
+            ),
+        ):
+            result = _measure_terminal_startup(":1", timeout=5.0)
+
+        assert "error" in result
+        assert "xterm" in result.get("terminal", "") or "terminal" in result["error"]
+        assert (
+            "did not appear" in result["error"] or "timeout" in result["error"].lower()
+        )
+
+    def test_measure_terminal_startup_xdotool_called_process_error(self):
+        """_measure_terminal_startup returns error dict when xdotool exits non-zero."""
+        import subprocess as _subprocess
+
+        from gptme.cli.cmd_computer import _measure_terminal_startup
+
+        fake_proc = MagicMock()
+        fake_proc.pid = 99999
+
+        def _which(cmd: str) -> str | None:
+            return f"/usr/bin/{cmd}" if cmd in ("xterm", "xdotool") else None
+
+        with (
+            patch("shutil.which", side_effect=_which),
+            patch("subprocess.Popen", return_value=fake_proc),
+            patch(
+                "subprocess.run",
+                side_effect=_subprocess.CalledProcessError(
+                    returncode=1,
+                    cmd=["xdotool", "search"],
+                    stderr="no windows found",
+                ),
+            ),
+        ):
+            result = _measure_terminal_startup(":1", timeout=5.0)
+
+        assert "error" in result
+        assert "xdotool" in result["error"]
+
     def test_measure_terminal_startup_returns_startup_ms_on_success(self, tmp_path):
         """_measure_terminal_startup returns startup_ms (int) on a successful launch."""
         import subprocess as _subprocess
