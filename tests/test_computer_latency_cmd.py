@@ -258,5 +258,214 @@ class TestLatencyCmd:
         ):
             runner = CliRunner()
             result = runner.invoke(latency_cmd, [])
-
         assert result.exit_code == 1
+
+
+class TestLatencyTerminalFlag:
+    """Tests for ``--terminal`` flag in ``gptme-util computer latency``.
+
+    These tests verify the terminal startup measurement added to address the
+    "figure out what is causing the delays" item from gptme/gptme#216.
+
+    All subprocess calls are patched so tests run without a real X11 display.
+    """
+
+    def _make_screenshot_transport(self, tmp_path: Path) -> MagicMock:
+        """Minimal transport mock that returns a valid PNG for each screenshot."""
+        transport = MagicMock()
+        png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
+
+        def _fake_shot(width: int = 0, height: int = 0) -> Path:
+            p = tmp_path / "shot.png"
+            p.write_bytes(png_bytes)
+            return p
+
+        transport.screenshot.side_effect = _fake_shot
+        return transport
+
+    def test_terminal_flag_on_non_linux_warns(self, tmp_path, monkeypatch):
+        """On non-Linux, --terminal emits a warning instead of failing hard."""
+        transport = self._make_screenshot_transport(tmp_path)
+        monkeypatch.setenv("DISPLAY", ":1")
+        with (
+            patch(
+                "gptme.tools.computer_transport.get_transport", return_value=transport
+            ),
+            patch("platform.system", return_value="Darwin"),
+            patch("sys.platform", "darwin"),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(latency_cmd, ["--shots", "1", "--terminal"])
+
+        assert result.exit_code == 0
+        assert (
+            "only supported on Linux" in result.output
+            or "terminal" in result.output.lower()
+        )
+
+    def test_terminal_flag_without_display_skips_measurement(
+        self, tmp_path, monkeypatch
+    ):
+        """When DISPLAY is unset, --terminal skips the measurement with a warning."""
+        transport = self._make_screenshot_transport(tmp_path)
+        monkeypatch.delenv("DISPLAY", raising=False)
+        with (
+            patch(
+                "gptme.tools.computer_transport.get_transport", return_value=transport
+            ),
+            patch("platform.system", return_value="Linux"),
+            patch("sys.platform", "linux"),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(latency_cmd, ["--shots", "1", "--terminal"])
+
+        assert result.exit_code == 0
+        assert "DISPLAY" in result.output or "terminal" in result.output.lower()
+
+    def test_terminal_json_includes_terminal_startup_key(self, tmp_path, monkeypatch):
+        """With --terminal and --json, result includes 'terminal_startup' key."""
+        transport = self._make_screenshot_transport(tmp_path)
+        monkeypatch.setenv("DISPLAY", ":1")
+
+        fake_startup = {
+            "terminal": "xterm",
+            "args": ["-fn", "fixed"],
+            "startup_ms": 120,
+            "display": ":1",
+        }
+
+        with (
+            patch(
+                "gptme.tools.computer_transport.get_transport", return_value=transport
+            ),
+            patch("platform.system", return_value="Linux"),
+            patch("sys.platform", "linux"),
+            patch(
+                "gptme.cli.cmd_computer._measure_terminal_startup",
+                return_value=fake_startup,
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                latency_cmd, ["--shots", "1", "--terminal", "--json"]
+            )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert "terminal_startup" in data
+        assert data["terminal_startup"]["startup_ms"] == 120
+        assert data["terminal_startup"]["terminal"] == "xterm"
+
+    def test_terminal_json_error_propagated(self, tmp_path, monkeypatch):
+        """When terminal launch fails, error is included in 'terminal_startup' key."""
+        transport = self._make_screenshot_transport(tmp_path)
+        monkeypatch.setenv("DISPLAY", ":1")
+
+        fake_error = {
+            "error": "no terminal emulator found — install xterm: sudo apt install xterm"
+        }
+
+        with (
+            patch(
+                "gptme.tools.computer_transport.get_transport", return_value=transport
+            ),
+            patch("platform.system", return_value="Linux"),
+            patch("sys.platform", "linux"),
+            patch(
+                "gptme.cli.cmd_computer._measure_terminal_startup",
+                return_value=fake_error,
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                latency_cmd, ["--shots", "1", "--terminal", "--json"]
+            )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert "terminal_startup" in data
+        assert "error" in data["terminal_startup"]
+        assert "xterm" in data["terminal_startup"]["error"]
+
+    def test_terminal_text_output_shows_startup_time(self, tmp_path, monkeypatch):
+        """Non-JSON --terminal output shows the terminal name and startup time."""
+        transport = self._make_screenshot_transport(tmp_path)
+        monkeypatch.setenv("DISPLAY", ":1")
+
+        fake_startup = {
+            "terminal": "xterm",
+            "args": ["-fn", "fixed"],
+            "startup_ms": 150,
+            "display": ":1",
+        }
+
+        with (
+            patch(
+                "gptme.tools.computer_transport.get_transport", return_value=transport
+            ),
+            patch("platform.system", return_value="Linux"),
+            patch("sys.platform", "linux"),
+            patch(
+                "gptme.cli.cmd_computer._measure_terminal_startup",
+                return_value=fake_startup,
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(latency_cmd, ["--shots", "1", "--terminal"])
+
+        assert result.exit_code == 0, result.output
+        assert "150" in result.output  # startup_ms
+        assert "xterm" in result.output
+
+    def test_measure_terminal_startup_no_xterm(self):
+        """_measure_terminal_startup returns error dict when no terminal is found."""
+        from gptme.cli.cmd_computer import _measure_terminal_startup
+
+        with patch("shutil.which", return_value=None):
+            result = _measure_terminal_startup(":1")
+
+        assert "error" in result
+        assert "terminal" in result["error"].lower() or "xterm" in result["error"]
+
+    def test_measure_terminal_startup_no_xdotool(self):
+        """_measure_terminal_startup returns error dict when xdotool is absent."""
+        from gptme.cli.cmd_computer import _measure_terminal_startup
+
+        def _which(cmd: str) -> str | None:
+            if cmd == "xterm":
+                return "/usr/bin/xterm"
+            return None  # xdotool not found
+
+        with patch("shutil.which", side_effect=_which):
+            result = _measure_terminal_startup(":1")
+
+        assert "error" in result
+        assert "xdotool" in result["error"]
+
+    def test_measure_terminal_startup_returns_startup_ms_on_success(self, tmp_path):
+        """_measure_terminal_startup returns startup_ms (int) on a successful launch."""
+        import subprocess as _subprocess
+
+        from gptme.cli.cmd_computer import _measure_terminal_startup
+
+        fake_proc = MagicMock()
+        fake_proc.pid = 99999
+
+        def _which(cmd: str) -> str | None:
+            return f"/usr/bin/{cmd}" if cmd in ("xterm", "xdotool") else None
+
+        with (
+            patch("shutil.which", side_effect=_which),
+            patch("subprocess.Popen", return_value=fake_proc),
+            patch(
+                "subprocess.run",
+                return_value=_subprocess.CompletedProcess([], 0, "", ""),
+            ),
+        ):
+            result = _measure_terminal_startup(":1", timeout=5.0)
+
+        assert "startup_ms" in result, f"Expected startup_ms in {result}"
+        assert isinstance(result["startup_ms"], int)
+        assert result["startup_ms"] >= 0
+        assert result["terminal"] == "xterm"
+        assert result["display"] == ":1"
