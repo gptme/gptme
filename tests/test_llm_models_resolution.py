@@ -206,19 +206,32 @@ class TestAliasResolution:
         assert model.context == 1_000_000
 
     def test_subscription_gpt56_sol_named_form_has_metadata(self):
-        """openai-subscription/gpt-5.6-sol resolves real Sol metadata.
-
-        ChatGPT-account (Plus/Pro) auth rejects the bare gpt-5.6 alias with a
-        400 ("not supported when using Codex with a ChatGPT account" — verified
-        live 2026-07-14), so subscription users must request the named form.
-        It therefore needs a concrete OPENAI_SUBSCRIPTION_MODELS entry rather
-        than falling through to closest-match/128k-fallback metadata.
-        """
+        """openai-subscription/gpt-5.6-sol resolves real Sol metadata."""
         from gptme.llm.llm_openai_models import OPENAI_SUBSCRIPTION_MODELS
 
         assert "gpt-5.6-sol" in OPENAI_SUBSCRIPTION_MODELS
         model = get_model("openai-subscription/gpt-5.6-sol")
         assert model.model == "gpt-5.6-sol"
+        assert model.context == 1_000_000
+        assert model.price_input > 0
+
+    def test_subscription_gpt56_bare_alias_resolves_via_model_aliases(self):
+        """openai-subscription/gpt-5.6 resolves via MODEL_ALIASES to gpt-5.6-sol metadata.
+
+        ChatGPT-account (Plus/Pro) auth rejects the bare gpt-5.6 alias with a
+        400 ("not supported when using Codex with a ChatGPT account" — verified
+        live 2026-07-14). The bare name is NOT in OPENAI_SUBSCRIPTION_MODELS;
+        instead MODEL_ALIASES["openai-subscription"]["gpt-5.6"] -> "gpt-5.6-sol"
+        so metadata lookup still works for users who write the short form.
+        """
+        from gptme.llm.llm_openai_models import OPENAI_SUBSCRIPTION_MODELS
+        from gptme.llm.models.types import MODEL_ALIASES
+
+        assert "gpt-5.6" not in OPENAI_SUBSCRIPTION_MODELS
+        assert (
+            MODEL_ALIASES.get("openai-subscription", {}).get("gpt-5.6") == "gpt-5.6-sol"
+        )
+        model = get_model("openai-subscription/gpt-5.6")
         assert model.context == 1_000_000
         assert model.price_input > 0
 

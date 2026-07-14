@@ -32,6 +32,11 @@ MODEL_ALIASES: dict[str, dict[str, str]] = {
         # 2026-07-10); this entry is for metadata lookup, not wire rewriting.
         "gpt-5.6": "gpt-5.6-sol",
     },
+    "openai-subscription": {
+        # ChatGPT-account auth rejects the bare alias with a 400; only the
+        # named form works. Alias so users can still write gpt-5.6 shorthand.
+        "gpt-5.6": "gpt-5.6-sol",
+    },
     "anthropic": {
         "claude-opus-4-1": "claude-opus-4-1-20250805",
         "claude-opus-4-0": "claude-opus-4-20250514",

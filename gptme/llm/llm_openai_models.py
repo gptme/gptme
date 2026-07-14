@@ -222,22 +222,8 @@ OPENAI_SUBSCRIPTION_MODELS: dict[str, "_ModelDictMeta"] = {
     # GPT-5.6 Sol — flagship tier of the Sol/Terra/Luna family (GA: 2026-07-09)
     # https://openai.com/index/previewing-gpt-5-6-sol/
     # Sol: $5/$30 per 1M; +5.8 pts above GPT-5.5 on Agents' Last Exam (52.7%)
-    "gpt-5.6": {
-        "context": 1_000_000,
-        "max_output": 128_000,
-        "price_input": 5,
-        "price_output": 30,
-        "supports_vision": True,
-        "supports_reasoning": True,
-        "supports_parallel_tool_calls": True,
-        "preferred_edit_format": "diff",
-        "knowledge_cutoff": datetime(2026, 2, 16, tzinfo=timezone.utc),
-    },
-    # GPT-5.6 Sol under its explicit name. ChatGPT-account (Plus/Pro) auth
-    # rejects the bare "gpt-5.6" alias with a 400 ("The 'gpt-5.6' model is not
-    # supported when using Codex with a ChatGPT account"), so subscription
-    # users need the named form — same behavior as the Codex CLI, where only
-    # named variants work on ChatGPT accounts.
+    # ChatGPT-account (Plus/Pro) auth rejects the bare "gpt-5.6" alias with a
+    # 400; the bare name is aliased to this entry via MODEL_ALIASES.
     "gpt-5.6-sol": {
         "context": 1_000_000,
         "max_output": 128_000,
