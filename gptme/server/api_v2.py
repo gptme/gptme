@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -483,11 +484,52 @@ def _validate_api_key_input(api_key: str) -> str:
     return trimmed
 
 
+# Sentinel substituted for secret values in GET /config-file responses.
+_REDACT_SENTINEL = "***"
+
+# Matches TOML string assignments whose key looks like a secret.
+# Group 1: key + whitespace + '= "'   Group 2: value   Group 3: closing '"'
+_SECRET_KEY_RE = re.compile(
+    r'(?i)(\b[\w]*(?:api_key|secret|password|token)\b\s*=\s*")([^"]*)(")',
+)
+
+
+def _redact_secrets(content: str) -> str:
+    """Replace secret values in TOML config content with the redaction sentinel."""
+    return _SECRET_KEY_RE.sub(rf"\g<1>{_REDACT_SENTINEL}\g<3>", content)
+
+
+def _restore_redacted_secrets(incoming: str, original: str) -> str:
+    """Restore sentinel placeholders with the real values from the on-disk file.
+
+    When the webui reads a redacted config and then submits it back via PUT,
+    any field that still holds the sentinel should preserve the real on-disk
+    value rather than writing the placeholder.
+    """
+    originals: dict[str, str] = {}
+    for m in _SECRET_KEY_RE.finditer(original):
+        key_name = m.group(1).split("=")[0].strip().lower()
+        originals[key_name] = m.group(2)
+
+    def _restore(m: re.Match) -> str:
+        key_name = m.group(1).split("=")[0].strip().lower()
+        if m.group(2) == _REDACT_SENTINEL and key_name in originals:
+            return m.group(1) + originals[key_name] + m.group(3)
+        return m.group(0)
+
+    return _SECRET_KEY_RE.sub(_restore, incoming)
+
+
 def _get_user_config_file_response(content: str) -> dict[str, str | bool]:
-    """Return raw config text with the same path metadata as user settings."""
+    """Return raw config text with the same path metadata as user settings.
+
+    Secret values (API keys etc.) are redacted with ``***`` before being
+    included in the response — even when the auth bypass is active for
+    local-only servers.
+    """
     runtime_info = get_user_config_runtime_info()
     return {
-        "content": content,
+        "content": _redact_secrets(content),
         "path": runtime_info["config_path"],
         "write_target": runtime_info["write_target"],
         "local_config_path": runtime_info["local_config_path"],
@@ -3007,12 +3049,18 @@ def api_user_config_file_put():
 
     config_file, _local_path = get_user_config_paths()
     config_file.parent.mkdir(parents=True, exist_ok=True)
-    config_file.write_text(content)
+
+    # If the submitted content contains redaction sentinels, restore the real
+    # values from the on-disk file so the webui round-trip doesn't wipe secrets.
+    original = config_file.read_text() if config_file.exists() else ""
+    write_content = _restore_redacted_secrets(content, original)
+
+    config_file.write_text(write_content)
     from gptme.config.core import reload_config
 
     reload_config()
 
-    response = _get_user_config_file_response(content)
+    response = _get_user_config_file_response(write_content)
     response["status"] = "ok"
     return flask.jsonify(response)
 
