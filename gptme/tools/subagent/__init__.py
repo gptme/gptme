@@ -181,6 +181,61 @@ System: impl: success — Authentication feature implemented in auth.py
 test: success — 12 tests added, all passing
 docs: success — API documented in docs/auth.md
 
+### Budget-Aware Parallel (fleet cap + token budget)
+User: audit 20 modules but stop if we spend more than 300k output tokens
+Assistant: I'll use SubagentBudget with max_concurrent to cap spend and concurrency.
+{
+        ToolUse(
+            "ipython",
+            [],
+            '''from gptme.tools.subagent import SubagentBudget, subagent_parallel
+
+budget = SubagentBudget(total=300_000)   # 300k output tokens
+modules = [f"module_{i}" for i in range(20)]
+tasks = [(m, f"Audit {m} for security issues") for m in modules]
+
+# At most 4 agents run simultaneously; extras queue.
+# New spawns are blocked once 300k output tokens are consumed.
+results = subagent_parallel(tasks, max_concurrent=4, budget=budget)
+
+for (agent_id, _), r in zip(tasks, results):
+    status = r["status"]
+    tokens = r.get("output_tokens") or 0
+    print(f"{agent_id}: {status} ({tokens} tokens)")
+
+print(f"Total output tokens used: {budget.spent()}")''',
+        ).to_output(tool_format)
+    }
+System: module_0: success (1200 tokens)
+module_1: success (980 tokens)
+...
+module_14: budget_exceeded (0 tokens)
+Total output tokens used: 298430
+
+### Dynamic Fan-out Loop (respawn until budget exhausted)
+User: keep running subagents on a work queue until we hit 500k tokens
+Assistant: I'll loop over batches with a shared budget — the loop exits automatically when tokens run out.
+{
+        ToolUse(
+            "ipython",
+            [],
+            '''from gptme.tools.subagent import SubagentBudget, subagent_parallel
+
+budget = SubagentBudget(total=500_000)
+work_queue = [("task-" + str(i), f"Process item {i}") for i in range(100)]
+all_results = []
+
+while work_queue and not budget.exhausted():
+    batch, work_queue = work_queue[:5], work_queue[5:]
+    batch_results = subagent_parallel(batch, budget=budget, max_concurrent=4)
+    all_results.extend(r for r in batch_results if r["status"] == "success")
+    # Status "budget_exceeded" means remaining budget was hit mid-batch
+
+print(f"Completed {len(all_results)} tasks, spent {budget.spent()} output tokens")''',
+        ).to_output(tool_format)
+    }
+System: Completed 34 tasks, spent 499821 output tokens
+
 ### Pipeline (multi-stage fan-out, no barrier between stages)
 User: review these files in two stages — first find issues, then verify each finding
 Assistant: I'll use subagent_pipeline so file B's review starts while file A's verification is running.
@@ -322,13 +377,40 @@ Key features:
 - redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
 - context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
 - context_window=N: Limit workspace context to at most N messages
-- subagent_parallel(tasks, timeout): Fan out N subagents and wait for all — returns ordered list of results
+- subagent_parallel(tasks, timeout, max_concurrent=N, budget=SubagentBudget(...)): Fan out N subagents and wait for all — returns ordered list of results. Use max_concurrent to cap simultaneous agents (extras queue). Use budget= to gate new spawns once a token ceiling is hit.
 - subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage's prompt
 - subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 - subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 - subagent_wait_any(agent_ids, timeout): Wait for the first of N subagents to complete — returns (agent_id, result). Useful for race/hedging patterns.
 - subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
 - Hook-based notifications: Completions (and clarification requests) delivered as system messages
+
+## Token Budget and Concurrency Control
+
+Use ``SubagentBudget`` to coordinate token spend across a fleet of subagents.
+Passing the same budget object to multiple ``subagent_parallel()`` calls
+accumulates spend across iterations — the canonical dynamic fan-out loop:
+
+```python
+budget = SubagentBudget(total=500_000)   # 500k output tokens
+results = []
+while not budget.exhausted():
+    batch = next_batch()   # your function to get the next chunk of work
+    if not batch:
+        break
+    batch_results = subagent_parallel(batch, budget=budget, max_concurrent=4)
+    results.extend(r for r in batch_results if r["status"] == "success")
+    # items skipped after budget exhaustion have status="budget_exceeded"
+```
+
+Each result dict has ``input_tokens`` / ``output_tokens`` fields so you can
+inspect per-agent spend. Budget is output-token-only (the expensive marginal
+cost). Agents already running when the budget hits zero are allowed to finish
+normally — only *new* spawns are blocked.
+
+``max_concurrent`` limits how many agents run simultaneously; excess tasks are
+queued (never dropped) and start as slots free up. It composes with ``budget``:
+both caps are enforced.
 
 ## Context Isolation
 
