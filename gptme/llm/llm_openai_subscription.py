@@ -537,7 +537,10 @@ def stream(
         json=request_body,
         headers=headers,
         stream=True,
-        timeout=120,
+        timeout=(
+            30,
+            600,
+        ),  # 30s connect, 10min read — reasoning models can think for minutes
     )
 
     if response.status_code != 200:
