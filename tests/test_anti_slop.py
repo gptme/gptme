@@ -8,7 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from gptme.anti_slop import DEFAULT_MODE, MODES, detect_smells, evaluate_gate
-from gptme.cli.cmd_anti_slop import anti_slop
+from gptme.cli.cmd_slop import slop as anti_slop
 
 # ---------------------------------------------------------------------------
 # detect_smells

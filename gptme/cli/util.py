@@ -54,6 +54,7 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "mcp": (".cmd_mcp", "mcp"),
     "resume": (".cmd_resume", "resume"),
     "skills": (".cmd_skills", "skills"),
+    "slop": (".cmd_slop", "slop"),
     "snapshot": (".cmd_snapshot", "snapshot"),
     "status": (".cmd_status", "status"),
 }

@@ -1,4 +1,4 @@
-"""CLI commands for the gptme anti-slop quality gate."""
+"""CLI commands for the gptme anti-slop quality gate (gptme slop …)."""
 
 from __future__ import annotations
 
@@ -12,11 +12,11 @@ from ..anti_slop import DEFAULT_MODE, MODES, _format_report, evaluate_gate
 
 
 @click.group()
-def anti_slop() -> None:
+def slop() -> None:
     """Detect LLM-generated slop in text (hedging, tics, em-dash abuse, …)."""
 
 
-@anti_slop.command("check")
+@slop.command("check")
 @click.argument(
     "file",
     required=False,
@@ -77,9 +77,9 @@ def check(
     Examples:
 
     \b
-        gptme-anti-slop check draft.md
-        gptme-anti-slop check draft.md --mode strict
-        cat output.md | gptme-anti-slop check --json
+        gptme slop check draft.md
+        gptme slop check draft.md --mode strict
+        cat output.md | gptme slop check --json
     """
     if file is not None and inline_text is not None:
         raise click.UsageError("Pass either FILE or --text, not both.")
@@ -109,10 +109,5 @@ def check(
         raise SystemExit(1)
 
 
-def main() -> None:
-    """Entry point for the standalone gptme-anti-slop script."""
-    anti_slop()
-
-
 if __name__ == "__main__":
-    main()
+    slop()
