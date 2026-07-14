@@ -42,6 +42,7 @@ import webbrowser
 from base64 import urlsafe_b64decode
 from collections.abc import Generator
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -537,7 +538,23 @@ def stream(
     # can think for minutes without emitting an event, so the default is
     # deliberately generous. Override via GPTME_SUBSCRIPTION_READ_TIMEOUT
     # for latency-sensitive callers.
-    read_timeout = float(os.environ.get("GPTME_SUBSCRIPTION_READ_TIMEOUT", "600"))
+    _DEFAULT_READ_TIMEOUT = 600.0
+    _env_val = os.environ.get("GPTME_SUBSCRIPTION_READ_TIMEOUT", "")
+    if _env_val:
+        try:
+            _parsed = float(_env_val)
+            if _parsed <= 0 or not isfinite(_parsed):
+                raise ValueError("must be a positive finite number")
+            read_timeout = _parsed
+        except ValueError:
+            logger.warning(
+                "Invalid GPTME_SUBSCRIPTION_READ_TIMEOUT=%r; using default %.0fs",
+                _env_val,
+                _DEFAULT_READ_TIMEOUT,
+            )
+            read_timeout = _DEFAULT_READ_TIMEOUT
+    else:
+        read_timeout = _DEFAULT_READ_TIMEOUT
     response = requests.post(
         CODEX_ENDPOINT,
         json=request_body,
