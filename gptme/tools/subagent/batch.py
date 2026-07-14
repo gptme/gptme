@@ -901,6 +901,11 @@ def _subagent_parallel_capped(
     # completed on the boundary (run_one skips record when _timed_out is True,
     # but f.done() futures still have their results returned to the caller).
     budget_recorded_ids: set[str] = set()
+    # Serializes the _timed_out check and budget.record() calls to eliminate the
+    # TOCTOU race where a worker reads _timed_out=False, the main thread then
+    # sets _timed_out=True and returns, and the worker mutates the shared budget
+    # after the function has already handed control back to the caller.
+    budget_lock = threading.Lock()
 
     _budget_exceeded = asdict(
         ReturnType("budget_exceeded", "Budget exhausted before this agent could start")
@@ -995,11 +1000,13 @@ def _subagent_parallel_capped(
         # tokens from timed-out agents are not counted (they never completed usefully).
         # Agents that finish on the boundary (f.done() in the timeout handler) are
         # recorded there instead, using budget_recorded_ids to avoid double-counting.
-        if budget is not None and not _timed_out:
-            out_tok = result.get("output_tokens")
-            if out_tok is not None:
-                budget.record(out_tok)
-                budget_recorded_ids.add(agent_id)
+        if budget is not None:
+            with budget_lock:
+                if not _timed_out:
+                    out_tok = result.get("output_tokens")
+                    if out_tok is not None:
+                        budget.record(out_tok)
+                        budget_recorded_ids.add(agent_id)
 
         # Trigger cancellation if this agent failed and fail-fast is on.
         # Cancel siblings currently blocked in subagent_wait() so they stop
@@ -1027,7 +1034,8 @@ def _subagent_parallel_capped(
                 with results_lock:
                     results_map[aid] = result
         except FuturesTimeoutError:
-            _timed_out = True
+            with budget_lock:
+                _timed_out = True
             # Stop queued workers from starting new agents and cancel in-flight ones.
             cancel_event.set()
             with inflight_lock:
