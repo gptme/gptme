@@ -3,6 +3,9 @@ from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+import requests
+
 from gptme.llm import llm_openai_subscription
 from gptme.llm.llm_openai_subscription import SubscriptionAuth
 from gptme.message import Message
@@ -213,3 +216,175 @@ def test_stream_omits_max_output_tokens_when_not_provided():
 
     request_json = mock_post.call_args.kwargs["json"]
     assert "max_output_tokens" not in request_json
+
+
+def test_stream_uses_generous_read_timeout_for_reasoning_models(monkeypatch):
+    """The read timeout applies BETWEEN stream chunks; reasoning-heavy models
+    (gpt-5.5 high, gpt-5.6-sol) can think for minutes without emitting an
+    event, and the old flat timeout=120 killed sessions mid-run after they
+    had already completed real work."""
+    auth = _make_auth()
+    response = _FakeSSEStreamResponse([{"type": "response.done"}])
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            return_value=response,
+        ) as mock_post,
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    timeout = mock_post.call_args.kwargs["timeout"]
+    assert timeout == (30, 600.0)
+
+
+def test_stream_read_timeout_env_override(monkeypatch):
+    monkeypatch.setenv("GPTME_SUBSCRIPTION_READ_TIMEOUT", "90")
+    auth = _make_auth()
+    response = _FakeSSEStreamResponse([{"type": "response.done"}])
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            return_value=response,
+        ) as mock_post,
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert mock_post.call_args.kwargs["timeout"] == (30, 90.0)
+
+
+@pytest.mark.parametrize("bad_val", ["", "abc", "0", "-1", "inf", "nan"])
+def test_stream_read_timeout_invalid_env_falls_back_to_default(monkeypatch, bad_val):
+    """Invalid or non-positive GPTME_SUBSCRIPTION_READ_TIMEOUT must fall back to 600s
+    rather than raising or passing a bad value to requests."""
+    if bad_val == "":
+        monkeypatch.delenv("GPTME_SUBSCRIPTION_READ_TIMEOUT", raising=False)
+    else:
+        monkeypatch.setenv("GPTME_SUBSCRIPTION_READ_TIMEOUT", bad_val)
+    auth = _make_auth()
+    response = _FakeSSEStreamResponse([{"type": "response.done"}])
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            return_value=response,
+        ) as mock_post,
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert mock_post.call_args.kwargs["timeout"] == (30, 600.0)
+
+
+class _TimeoutThenEventsResponse:
+    """First iter_lines() call raises ReadTimeout (silent reasoning pause
+    exceeding the read timeout); used to simulate a retryable idle stream."""
+
+    def __init__(self) -> None:
+        self.status_code = 200
+        self.text = ""
+
+    def iter_lines(self) -> Iterator[bytes]:
+        raise requests.exceptions.ReadTimeout("read timeout=600")
+        yield b""  # pragma: no cover — makes this a generator
+
+
+class _EventThenTimeoutResponse:
+    """Emits one event, then times out — retrying here would duplicate output."""
+
+    def __init__(self) -> None:
+        self.status_code = 200
+        self.text = ""
+
+    def iter_lines(self) -> Iterator[bytes]:
+        yield f"data: {json.dumps({'type': 'response.output_text.delta', 'delta': 'partial'})}".encode()
+        raise requests.exceptions.ReadTimeout("read timeout=600")
+
+
+def test_stream_retries_idle_timeout_before_first_event():
+    """A read timeout during the thinking phase (no events yielded yet) retries
+    the request instead of dying — mirrors codex-rs stream_max_retries."""
+    auth = _make_auth()
+    ok = _FakeSSEStreamResponse(
+        [
+            {"type": "response.output_text.delta", "delta": "Done."},
+            {"type": "response.done"},
+        ]
+    )
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            side_effect=[_TimeoutThenEventsResponse(), ok],
+        ) as mock_post,
+    ):
+        output = "".join(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert output == "Done."
+    assert mock_post.call_count == 2
+
+
+def test_stream_does_not_retry_after_first_event():
+    """After partial output a re-POST would duplicate content — re-raise."""
+    auth = _make_auth()
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            return_value=_EventThenTimeoutResponse(),
+        ) as mock_post,
+        pytest.raises(requests.exceptions.ReadTimeout),
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert mock_post.call_count == 1
+
+
+def test_stream_retries_exhausted_reraises(monkeypatch):
+    monkeypatch.setenv("GPTME_SUBSCRIPTION_STREAM_RETRIES", "2")
+    auth = _make_auth()
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            side_effect=[
+                _TimeoutThenEventsResponse(),
+                _TimeoutThenEventsResponse(),
+                _TimeoutThenEventsResponse(),
+            ],
+        ) as mock_post,
+        pytest.raises(requests.exceptions.ReadTimeout),
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert mock_post.call_count == 3  # initial + 2 retries
