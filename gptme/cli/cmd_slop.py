@@ -52,7 +52,7 @@ def slop() -> None:
 @click.option("--json", "as_json", is_flag=True, help="Emit the full JSON report.")
 @click.option(
     "--top",
-    type=int,
+    type=click.IntRange(min=1),
     default=5,
     show_default=True,
     help="Number of top smells to show.",
@@ -93,12 +93,15 @@ def check(
             raise click.UsageError("Pass a FILE argument or pipe text to stdin.")
         text = sys.stdin.read()
 
-    report = evaluate_gate(
-        text,
-        mode=mode,
-        warn_threshold=warn_threshold,
-        fail_threshold=fail_threshold,
-    )
+    try:
+        report = evaluate_gate(
+            text,
+            mode=mode,
+            warn_threshold=warn_threshold,
+            fail_threshold=fail_threshold,
+        )
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from None
 
     if as_json:
         click.echo(json.dumps(report, indent=2))

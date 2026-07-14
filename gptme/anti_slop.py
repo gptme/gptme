@@ -151,6 +151,9 @@ MODES: dict[str, dict[str, float]] = {
 }
 DEFAULT_MODE = "balanced"
 
+# Scores are unreliable below this threshold; evaluate_gate() returns "skip".
+MIN_WORDS_FOR_GATE = 20
+
 
 def _count_staccato_runs(text: str) -> int:
     sentences = _SENT_END.split(text)
@@ -195,7 +198,9 @@ def detect_smells(text: str, *, em_dash_tolerance: float = 1.0) -> dict[str, Any
             weighted_total += n * weight
 
     em_dash_count = len(_EM_DASH.findall(text))
-    per_1k = (1000.0 / word_count) if word_count else 0.0
+    per_1k = 1000.0 / max(
+        word_count, 1
+    )  # avoid ZeroDivisionError; gate handles short text
     tolerated = word_count * em_dash_tolerance / 1000.0
     em_excess = max(0, em_dash_count - round(tolerated))
     if em_excess:
@@ -260,7 +265,10 @@ def evaluate_gate(
         Dict with ``status`` (``"pass"`` / ``"warn"`` / ``"fail"``),
         ``reason``, ``mode``, ``thresholds``, and ``smell_report``.
     """
-    cfg = MODES.get(mode or DEFAULT_MODE, MODES[DEFAULT_MODE])
+    _mode = mode or DEFAULT_MODE
+    if _mode not in MODES:
+        raise ValueError(f"unknown mode {_mode!r}; valid modes: {', '.join(MODES)}")
+    cfg = MODES[_mode]
     _warn = warn_threshold if warn_threshold is not None else cfg["warn"]
     _fail = fail_threshold if fail_threshold is not None else cfg["fail"]
     _em_tol = em_dash_tolerance if em_dash_tolerance is not None else cfg["em_tol"]
@@ -271,6 +279,20 @@ def evaluate_gate(
         raise ValueError("fail_threshold must be greater than warn_threshold")
 
     smell_report = detect_smells(text, em_dash_tolerance=_em_tol)
+    thresholds = {"warn": _warn, "fail": _fail, "em_dash_tolerance": _em_tol}
+
+    if smell_report["word_count"] < MIN_WORDS_FOR_GATE:
+        return {
+            "status": "skip",
+            "reason": (
+                f"text too short to score reliably "
+                f"({smell_report['word_count']} words < {MIN_WORDS_FOR_GATE} minimum)"
+            ),
+            "mode": _mode,
+            "thresholds": thresholds,
+            "smell_report": smell_report,
+        }
+
     score = float(smell_report["weighted_score"])
 
     if score >= _fail:
@@ -286,8 +308,8 @@ def evaluate_gate(
     return {
         "status": status,
         "reason": reason,
-        "mode": mode or DEFAULT_MODE,
-        "thresholds": {"warn": _warn, "fail": _fail, "em_dash_tolerance": _em_tol},
+        "mode": _mode,
+        "thresholds": thresholds,
         "smell_report": smell_report,
     }
 
