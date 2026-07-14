@@ -396,7 +396,7 @@ def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
     if provider == "openai":
         return "gpt-5"
     if provider == "openai-subscription":
-        return "gpt-5.6"
+        return "gpt-5.6-sol"
     if provider == "openrouter":
         return "deepseek/deepseek-v4-pro"
     if provider == "gemini":
