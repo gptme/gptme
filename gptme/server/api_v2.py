@@ -490,13 +490,19 @@ _REDACT_SENTINEL = "***"
 # Matches TOML section headers: [section] or [section.subsection]
 _SECTION_HEADER_RE = re.compile(r"^\s*\[([^\]]+)\]")
 
-# Separate patterns for double-quoted and single-quoted TOML string assignments
-# whose key looks like a secret.  Group 1: key + '= <quote>'  Group 2: value  Group 3: closing quote
+# Key sub-patterns: bare (`API_KEY`), double-quoted (`"API_KEY"`), or single-quoted (`'API_KEY'`).
+_SECRET_KEY_BARE = r"\b[\w]*(?:api_key|secret|password|token)\b"
+_SECRET_KEY_DQUOTED = r'"[\w]*(?:api_key|secret|password|token)[\w]*"'
+_SECRET_KEY_SQUOTED = r"'[\w]*(?:api_key|secret|password|token)[\w]*'"
+_SECRET_KEY_ANY = rf"(?:{_SECRET_KEY_BARE}|{_SECRET_KEY_DQUOTED}|{_SECRET_KEY_SQUOTED})"
+
+# Separate patterns for double-quoted and single-quoted TOML string values.
+# Group 1: key + '= <quote>'  Group 2: value  Group 3: closing quote
 _SECRET_KEY_DOUBLE_RE = re.compile(
-    r'(?i)(\b[\w]*(?:api_key|secret|password|token)\b\s*=\s*")([^"]*?)(")',
+    rf'(?i)({_SECRET_KEY_ANY}\s*=\s*")([^"]*?)(")',
 )
 _SECRET_KEY_SINGLE_RE = re.compile(
-    r"(?i)(\b[\w]*(?:api_key|secret|password|token)\b\s*=\s*')([^']*?)(')",
+    rf"(?i)({_SECRET_KEY_ANY}\s*=\s*')([^']*?)(')",
 )
 _SECRET_KEY_PATTERNS = [_SECRET_KEY_DOUBLE_RE, _SECRET_KEY_SINGLE_RE]
 

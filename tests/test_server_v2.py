@@ -621,6 +621,29 @@ def test_restore_redacted_secrets_repeated_array_of_tables():
     assert restored == original
 
 
+def test_redact_secrets_quoted_key_name():
+    """Secrets under quoted TOML key names must also be redacted."""
+    from gptme.server.api_v2 import _redact_secrets, _restore_redacted_secrets
+
+    # Double-quoted key with double-quoted value
+    original_dq = '[env]\n"OPENAI_API_KEY" = "sk-real"\n'
+    redacted_dq = _redact_secrets(original_dq)
+    assert "sk-real" not in redacted_dq, "double-quoted key: value should be redacted"
+    restored_dq = _restore_redacted_secrets(redacted_dq, original_dq)
+    assert restored_dq == original_dq, (
+        "double-quoted key: round-trip should restore value"
+    )
+
+    # Single-quoted key with double-quoted value
+    original_sq = "[env]\n'ANTHROPIC_API_KEY' = \"sk-real2\"\n"
+    redacted_sq = _redact_secrets(original_sq)
+    assert "sk-real2" not in redacted_sq, "single-quoted key: value should be redacted"
+    restored_sq = _restore_redacted_secrets(redacted_sq, original_sq)
+    assert restored_sq == original_sq, (
+        "single-quoted key: round-trip should restore value"
+    )
+
+
 @pytest.mark.parametrize(
     "endpoint", ["/api/v2/user/api-key", "/api/v2/user/default-model"]
 )
