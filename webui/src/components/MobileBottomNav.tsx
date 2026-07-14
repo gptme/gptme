@@ -1,6 +1,7 @@
 import { MessageSquare, History, Kanban, Bot, FolderOpen, Search, BadgeCheck } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { appRoute } from '@/utils/routes';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import type { FC } from 'react';
 
@@ -56,7 +57,7 @@ export const MobileBottomNav: FC = () => {
         return (
           <NavLink
             key={item.id}
-            to={item.path}
+            to={appRoute(item.path)}
             className={cn(
               'flex flex-1 flex-col items-center justify-center gap-0.5 py-1 text-muted-foreground transition-colors',
               isActive && 'text-foreground'

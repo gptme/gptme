@@ -9,6 +9,7 @@ import { SettingsContent } from '@/components/SettingsContent';
 import { SETTINGS_CATEGORIES, type SettingsCategory } from '@/stores/settingsModal';
 import { use$ } from '@legendapp/state/react';
 import { settingsModal$ } from '@/stores/settingsModal';
+import { appRoute } from '@/utils/routes';
 
 function toCategoryOrDefault(raw: string | undefined): SettingsCategory {
   return (SETTINGS_CATEGORIES as ReadonlyArray<string>).includes(raw ?? '')
@@ -73,7 +74,7 @@ const SettingsPage: FC = () => {
           if (window.history.length > 2) {
             navigate(-1);
           } else {
-            navigate('/chat');
+            navigate(appRoute('/chat'));
           }
         }
       }}

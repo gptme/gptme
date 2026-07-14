@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { appRoute } from '@/utils/routes';
 import { toggleLeftSidebarCollapsed } from '@/stores/sidebar';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import { SettingsModal } from './SettingsModal';
@@ -98,7 +99,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
       toggleLeftSidebarCollapsed();
       return;
     }
-    navigate(`/${section === 'chat' ? 'chat' : section}`);
+    navigate(appRoute(`/${section === 'chat' ? 'chat' : section}`));
   };
 
   const activeTasks = tasks.filter((t) => t.status === 'active' && !t.archived);
@@ -225,7 +226,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
                   className="relative h-8 w-full min-w-0 justify-start gap-2 px-2"
                   aria-label="Settings"
                   aria-current="page"
-                  onClick={() => navigate('/settings')}
+                  onClick={() => navigate(appRoute('/settings'))}
                 >
                   <span className="relative flex-shrink-0">
                     <Settings className="h-4 w-4" />

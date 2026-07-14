@@ -16,6 +16,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { appRoute } from '@/utils/routes';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useApi } from '@/contexts/ApiContext';
@@ -328,7 +329,7 @@ export const HistoryView: FC = () => {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => navigate('/chat')}
+            onClick={() => navigate(appRoute('/chat'))}
             className="h-8 w-8"
             aria-label="Back to chat"
           >

@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useEmbeddedContext } from '@/contexts/EmbeddedContext';
 import type { EmbeddedMenuItem } from '@/lib/embeddedContext';
 import { Link } from 'react-router-dom';
+import { appRoute } from '@/utils/routes';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import { shortcutsDialogOpen$ } from '@/stores/shortcutsDialog';
 import { leftSidebarVisible$, toggleLeftSidebar } from '@/stores/sidebar';
@@ -60,7 +61,7 @@ export const MenuBar: FC = () => {
           <Menu className="h-4 w-4" />
         </Button>
         <Link
-          to="/chat"
+          to={appRoute('/chat')}
           className="flex items-center space-x-1 transition-opacity hover:opacity-80 sm:space-x-2"
         >
           <img src="/logo.png" alt="gptme logo" className="w-4" />

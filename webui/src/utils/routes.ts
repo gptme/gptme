@@ -1,3 +1,8 @@
+export function appRoute(path: string): string {
+  const search = currentSearchParams();
+  return `${path}${search ? `?${search}` : ''}`;
+}
+
 export function chatRoute(conversationId: string, queryString?: string): string {
   const encodedId = encodeURIComponent(conversationId);
   const search = queryString ?? currentSearchParams();

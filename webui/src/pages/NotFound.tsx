@@ -2,6 +2,7 @@ import type { FC } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { MenuBar } from '@/components/MenuBar';
 import { Button } from '@/components/ui/button';
+import { appRoute } from '@/utils/routes';
 
 const NotFound: FC = () => {
   const location = useLocation();
@@ -19,7 +20,7 @@ const NotFound: FC = () => {
             The link may be broken, or the page may have moved.
           </p>
           <Button asChild>
-            <Link to="/">Go to chat</Link>
+            <Link to={appRoute('/')}>Go to chat</Link>
           </Button>
         </div>
       </div>

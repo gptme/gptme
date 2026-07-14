@@ -28,7 +28,7 @@ import {
   exportConversationAsJSON,
   getExportableMessages,
 } from '@/utils/exportConversation';
-import { chatRoute } from '@/utils/routes';
+import { appRoute, chatRoute } from '@/utils/routes';
 import { toast } from 'sonner';
 
 interface CommandAction {
@@ -96,7 +96,7 @@ export function CommandPalette() {
         return;
       }
       e.preventDefault();
-      navigate('/');
+      navigate(appRoute('/'));
       setOpen(false);
     };
     document.addEventListener('keydown', down);
@@ -162,7 +162,7 @@ export function CommandPalette() {
         icon: <Plus className="mr-2 h-4 w-4" />,
         keywords: ['new', 'chat', 'conversation', 'create'],
         action: () => {
-          navigate('/');
+          navigate(appRoute('/'));
           setOpen(false);
         },
         group: 'Actions',
@@ -174,7 +174,7 @@ export function CommandPalette() {
         icon: <Sparkles className="mr-2 h-4 w-4" />,
         keywords: ['agent', 'create', 'new', 'ai'],
         action: () => {
-          navigate('/agents');
+          navigate(appRoute('/agents'));
           setOpen(false);
         },
         group: 'Actions',
@@ -187,7 +187,7 @@ export function CommandPalette() {
         keywords: ['settings', 'preferences', 'config'],
         action: () => {
           setOpen(false);
-          navigate('/settings');
+          navigate(appRoute('/settings'));
         },
         group: 'Navigation',
       },
@@ -198,7 +198,7 @@ export function CommandPalette() {
         icon: <Home className="mr-2 h-4 w-4" />,
         keywords: ['home', 'main'],
         action: () => {
-          navigate('/');
+          navigate(appRoute('/'));
           setOpen(false);
         },
         group: 'Navigation',
@@ -210,7 +210,7 @@ export function CommandPalette() {
         icon: <FileText className="mr-2 h-4 w-4" />,
         keywords: ['workspace', 'folder', 'project'],
         action: () => {
-          navigate('/workspaces');
+          navigate(appRoute('/workspaces'));
           setOpen(false);
         },
         group: 'Navigation',
@@ -222,7 +222,7 @@ export function CommandPalette() {
         icon: <Users className="mr-2 h-4 w-4" />,
         keywords: ['agents', 'list', 'view'],
         action: () => {
-          navigate('/agents');
+          navigate(appRoute('/agents'));
           setOpen(false);
         },
         group: 'Navigation',
