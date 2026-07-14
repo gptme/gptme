@@ -589,6 +589,12 @@ document.write(`
 <li><p><code class="docutils literal notranslate"><span class="pre">project</span></code>: A table of project descriptions, keyed by project name, included when working in the matching Git repository. The default config includes descriptions for <code class="docutils literal notranslate"><span class="pre">activitywatch</span></code> and <code class="docutils literal notranslate"><span class="pre">gptme</span></code> — when the git root directory name matches one of these keys, the description is automatically injected into the system prompt.</p></li>
 </ul>
 <p>The <code class="docutils literal notranslate"><span class="pre">env</span></code> section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a>. It can also be used to set default tool configuration options, see <a class="reference internal" href="custom_tool.html"><span class="doc">Custom Tools</span></a> for more information.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>API keys and other secrets belong in <a class="reference internal" href="#global-config-local"><span class="std std-ref">config.local.toml</span></a>, not in
+<code class="docutils literal notranslate"><span class="pre">config.toml</span></code>. That lets you keep <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> in dotfiles or version control without
+exposing your keys. The webui setup wizard already writes keys to <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>.</p>
+</div>
 <p>The <code class="docutils literal notranslate"><span class="pre">settings</span></code> section contains user-level CLI defaults. Currently supported:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">gear</span></code>: Default autonomy preset for new conversations. Gear <code class="docutils literal notranslate"><span class="pre">0</span></code> is read-only
