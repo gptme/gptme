@@ -770,7 +770,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f91caa5b1a0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fd60ce131a0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2155,13 +2155,40 @@ Key features:
 <span class="k">-</span><span class="w"> </span>redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
 <span class="k">-</span><span class="w"> </span>context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
 <span class="k">-</span><span class="w"> </span>context_window=N: Limit workspace context to at most N messages
-<span class="k">-</span><span class="w"> </span>subagent_parallel(tasks, timeout): Fan out N subagents and wait for all — returns ordered list of results
+<span class="k">-</span><span class="w"> </span>subagent_parallel(tasks, timeout, max_concurrent=N, budget=SubagentBudget(...)): Fan out N subagents and wait for all — returns ordered list of results. Use max_concurrent to cap simultaneous agents (extras queue). Use budget= to gate new spawns once a token ceiling is hit.
 <span class="k">-</span><span class="w"> </span>subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage&#39;s prompt
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 <span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 <span class="k">-</span><span class="w"> </span>subagent_wait_any(agent_ids, timeout): Wait for the first of N subagents to complete — returns (agent_id, result). Useful for race/hedging patterns.
 <span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
 <span class="k">-</span><span class="w"> </span>Hook-based notifications: Completions (and clarification requests) delivered as system messages
+
+<span class="gu">## Token Budget and Concurrency Control</span>
+
+Use ``SubagentBudget`` to coordinate token spend across a fleet of subagents.
+Passing the same budget object to multiple ``subagent_parallel()`` calls
+accumulates spend across iterations — the canonical dynamic fan-out loop:
+
+<span class="sb">```python</span>
+<span class="n">budget</span> <span class="o">=</span> <span class="n">SubagentBudget</span><span class="p">(</span><span class="n">total</span><span class="o">=</span><span class="mi">500_000</span><span class="p">)</span>   <span class="c1"># 500k output tokens</span>
+<span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">while</span> <span class="ow">not</span> <span class="n">budget</span><span class="o">.</span><span class="n">exhausted</span><span class="p">():</span>
+    <span class="n">batch</span> <span class="o">=</span> <span class="n">next_batch</span><span class="p">()</span>   <span class="c1"># your function to get the next chunk of work</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">batch</span><span class="p">:</span>
+        <span class="k">break</span>
+    <span class="n">batch_results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="n">budget</span><span class="o">=</span><span class="n">budget</span><span class="p">,</span> <span class="n">max_concurrent</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+    <span class="n">results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">batch_results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;success&quot;</span><span class="p">)</span>
+    <span class="c1"># items skipped after budget exhaustion have status=&quot;budget_exceeded&quot;</span>
+<span class="sb">```</span>
+
+Each result dict has ``input_tokens`` / ``output_tokens`` fields so you can
+inspect per-agent spend. Budget is output-token-only (the expensive marginal
+cost). Agents already running when the budget hits zero are allowed to finish
+normally — only <span class="ge">*new*</span> spawns are blocked.
+
+``max_concurrent`` limits how many agents run simultaneously; excess tasks are
+queued (never dropped) and start as slots free up. It composes with ``budget``:
+both caps are enforced.
 
 <span class="gu">## Context Isolation</span>
 
@@ -2360,6 +2387,48 @@ The following Python functions are available:
 <span class="k">&gt; </span><span class="ge">test: success — 12 tests added, all passing</span>
 <span class="k">&gt; </span><span class="ge">docs: success — API documented in docs/auth.md</span>
 
+<span class="gu">### Budget-Aware Parallel (fleet cap + token budget)</span>
+
+<span class="k">&gt; </span><span class="ge">User: audit 20 modules but stop if we spend more than 300k output tokens</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use SubagentBudget with max_concurrent to cap spend and concurrency.</span>
+<span class="sb">```ipython</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.subagent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SubagentBudget</span><span class="p">,</span> <span class="n">subagent_parallel</span>
+
+<span class="n">budget</span> <span class="o">=</span> <span class="n">SubagentBudget</span><span class="p">(</span><span class="n">total</span><span class="o">=</span><span class="mi">300_000</span><span class="p">)</span>   <span class="c1"># 300k output tokens</span>
+<span class="n">modules</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;module_</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">20</span><span class="p">)]</span>
+<span class="n">tasks</span> <span class="o">=</span> <span class="p">[(</span><span class="n">m</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Audit </span><span class="si">{</span><span class="n">m</span><span class="si">}</span><span class="s2"> for security issues&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">modules</span><span class="p">]</span>
+
+<span class="c1"># At most 4 agents run simultaneously; extras queue.</span>
+
+<span class="c1"># New spawns are blocked once 300k output tokens are consumed.</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span><span class="n">tasks</span><span class="p">,</span> <span class="n">max_concurrent</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">budget</span><span class="o">=</span><span class="n">budget</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="p">(</span><span class="n">agent_id</span><span class="p">,</span> <span class="n">_</span><span class="p">),</span> <span class="n">r</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">tasks</span><span class="p">,</span> <span class="n">results</span><span class="p">):</span>
+    <span class="n">status</span> <span class="o">=</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span>
+    <span class="n">tokens</span> <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;output_tokens&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">0</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">agent_id</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">status</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">tokens</span><span class="si">}</span><span class="s2"> tokens)&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total output tokens used: </span><span class="si">{</span><span class="n">budget</span><span class="o">.</span><span class="n">spent</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="gu">### Dynamic Fan-out Loop (respawn until budget exhausted)</span>
+
+<span class="k">&gt; </span><span class="ge">User: keep running subagents on a work queue until we hit 500k tokens</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll loop over batches with a shared budget — the loop exits automatically when tokens run out.</span>
+<span class="sb">```ipython</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.subagent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SubagentBudget</span><span class="p">,</span> <span class="n">subagent_parallel</span>
+
+<span class="n">budget</span> <span class="o">=</span> <span class="n">SubagentBudget</span><span class="p">(</span><span class="n">total</span><span class="o">=</span><span class="mi">500_000</span><span class="p">)</span>
+<span class="n">work_queue</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">&quot;task-&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Process item </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">)]</span>
+<span class="n">all_results</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="k">while</span> <span class="n">work_queue</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">budget</span><span class="o">.</span><span class="n">exhausted</span><span class="p">():</span>
+    <span class="n">batch</span><span class="p">,</span> <span class="n">work_queue</span> <span class="o">=</span> <span class="n">work_queue</span><span class="p">[:</span><span class="mi">5</span><span class="p">],</span> <span class="n">work_queue</span><span class="p">[</span><span class="mi">5</span><span class="p">:]</span>
+    <span class="n">batch_results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="n">budget</span><span class="o">=</span><span class="n">budget</span><span class="p">,</span> <span class="n">max_concurrent</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+    <span class="n">all_results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">batch_results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;success&quot;</span><span class="p">)</span>
+    <span class="c1"># Status &quot;budget_exceeded&quot; means remaining budget was hit mid-batch</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Completed </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">all_results</span><span class="p">)</span><span class="si">}</span><span class="s2"> tasks, spent </span><span class="si">{</span><span class="n">budget</span><span class="o">.</span><span class="n">spent</span><span class="p">()</span><span class="si">}</span><span class="s2"> output tokens&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
 <span class="gu">### Pipeline (multi-stage fan-out, no barrier between stages)</span>
 
 <span class="k">&gt; </span><span class="ge">User: review these files in two stages — first find issues, then verify each finding</span>
@@ -2696,7 +2765,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 17397</p>
+<p>Tokens: 18186</p>
 </dd></dl>
 
 <dl class="py function">

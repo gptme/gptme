@@ -1376,13 +1376,40 @@ Key features:
 <span class="k">-</span><span class="w"> </span>redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
 <span class="k">-</span><span class="w"> </span>context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
 <span class="k">-</span><span class="w"> </span>context_window=N: Limit workspace context to at most N messages
-<span class="k">-</span><span class="w"> </span>subagent_parallel(tasks, timeout): Fan out N subagents and wait for all — returns ordered list of results
+<span class="k">-</span><span class="w"> </span>subagent_parallel(tasks, timeout, max_concurrent=N, budget=SubagentBudget(...)): Fan out N subagents and wait for all — returns ordered list of results. Use max_concurrent to cap simultaneous agents (extras queue). Use budget= to gate new spawns once a token ceiling is hit.
 <span class="k">-</span><span class="w"> </span>subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage&#39;s prompt
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 <span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 <span class="k">-</span><span class="w"> </span>subagent_wait_any(agent_ids, timeout): Wait for the first of N subagents to complete — returns (agent_id, result). Useful for race/hedging patterns.
 <span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
 <span class="k">-</span><span class="w"> </span>Hook-based notifications: Completions (and clarification requests) delivered as system messages
+
+<span class="gu">## Token Budget and Concurrency Control</span>
+
+Use ``SubagentBudget`` to coordinate token spend across a fleet of subagents.
+Passing the same budget object to multiple ``subagent_parallel()`` calls
+accumulates spend across iterations — the canonical dynamic fan-out loop:
+
+<span class="sb">```python</span>
+<span class="n">budget</span> <span class="o">=</span> <span class="n">SubagentBudget</span><span class="p">(</span><span class="n">total</span><span class="o">=</span><span class="mi">500_000</span><span class="p">)</span>   <span class="c1"># 500k output tokens</span>
+<span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">while</span> <span class="ow">not</span> <span class="n">budget</span><span class="o">.</span><span class="n">exhausted</span><span class="p">():</span>
+    <span class="n">batch</span> <span class="o">=</span> <span class="n">next_batch</span><span class="p">()</span>   <span class="c1"># your function to get the next chunk of work</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">batch</span><span class="p">:</span>
+        <span class="k">break</span>
+    <span class="n">batch_results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="n">budget</span><span class="o">=</span><span class="n">budget</span><span class="p">,</span> <span class="n">max_concurrent</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+    <span class="n">results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">batch_results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;success&quot;</span><span class="p">)</span>
+    <span class="c1"># items skipped after budget exhaustion have status=&quot;budget_exceeded&quot;</span>
+<span class="sb">```</span>
+
+Each result dict has ``input_tokens`` / ``output_tokens`` fields so you can
+inspect per-agent spend. Budget is output-token-only (the expensive marginal
+cost). Agents already running when the budget hits zero are allowed to finish
+normally — only <span class="ge">*new*</span> spawns are blocked.
+
+``max_concurrent`` limits how many agents run simultaneously; excess tasks are
+queued (never dropped) and start as slots free up. It composes with ``budget``:
+both caps are enforced.
 
 <span class="gu">## Context Isolation</span>
 
@@ -1724,6 +1751,84 @@ for (agent_id, _), result in zip(tasks, results):
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">impl: success — Authentication feature implemented in auth.py
 test: success — 12 tests added, all passing
 docs: success — API documented in docs/auth.md</pre>
+  </td>
+</tr>
+</table><p>Budget-Aware Parallel (fleet cap + token budget)</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">audit 20 modules but stop if we spend more than 300k output tokens</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll use SubagentBudget with max_concurrent to cap spend and concurrency.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">from gptme.tools.subagent import SubagentBudget, subagent_parallel
+
+budget = SubagentBudget(total=300_000)   # 300k output tokens
+modules = [f"module_{i}" for i in range(20)]
+tasks = [(m, f"Audit {m} for security issues") for m in modules]
+
+# At most 4 agents run simultaneously; extras queue.
+
+# New spawns are blocked once 300k output tokens are consumed.
+results = subagent_parallel(tasks, max_concurrent=4, budget=budget)
+
+for (agent_id, _), r in zip(tasks, results):
+    status = r["status"]
+    tokens = r.get("output_tokens") or 0
+    print(f"{agent_id}: {status} ({tokens} tokens)")
+
+print(f"Total output tokens used: {budget.spent()}")
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">module_0: success (1200 tokens)
+module_1: success (980 tokens)
+...
+module_14: budget_exceeded (0 tokens)
+Total output tokens used: 298430</pre>
+  </td>
+</tr>
+</table><p>Dynamic Fan-out Loop (respawn until budget exhausted)</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">keep running subagents on a work queue until we hit 500k tokens</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll loop over batches with a shared budget — the loop exits automatically when tokens run out.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">from gptme.tools.subagent import SubagentBudget, subagent_parallel
+
+budget = SubagentBudget(total=500_000)
+work_queue = [("task-" + str(i), f"Process item {i}") for i in range(100)]
+all_results = []
+
+while work_queue and not budget.exhausted():
+    batch, work_queue = work_queue[:5], work_queue[5:]
+    batch_results = subagent_parallel(batch, budget=budget, max_concurrent=4)
+    all_results.extend(r for r in batch_results if r["status"] == "success")
+    # Status "budget_exceeded" means remaining budget was hit mid-batch
+
+print(f"Completed {len(all_results)} tasks, spent {budget.spent()} output tokens")
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Completed 34 tasks, spent 499821 output tokens</pre>
   </td>
 </tr>
 </table><p>Pipeline (multi-stage fan-out, no barrier between stages)</p>
