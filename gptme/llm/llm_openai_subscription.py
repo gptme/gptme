@@ -532,15 +532,18 @@ def stream(
         "session_id": str(uuid4()),
     }
 
+    # Timeout is (connect, read). With stream=True the read timeout applies
+    # BETWEEN stream chunks — reasoning models (gpt-5.5 high, gpt-5.6-sol)
+    # can think for minutes without emitting an event, so the default is
+    # deliberately generous. Override via GPTME_SUBSCRIPTION_READ_TIMEOUT
+    # for latency-sensitive callers.
+    read_timeout = float(os.environ.get("GPTME_SUBSCRIPTION_READ_TIMEOUT", "600"))
     response = requests.post(
         CODEX_ENDPOINT,
         json=request_body,
         headers=headers,
         stream=True,
-        timeout=(
-            30,
-            600,
-        ),  # 30s connect, 10min read — reasoning models can think for minutes
+        timeout=(30, read_timeout),
     )
 
     if response.status_code != 200:

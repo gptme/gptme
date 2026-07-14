@@ -213,3 +213,49 @@ def test_stream_omits_max_output_tokens_when_not_provided():
 
     request_json = mock_post.call_args.kwargs["json"]
     assert "max_output_tokens" not in request_json
+
+
+def test_stream_uses_generous_read_timeout_for_reasoning_models(monkeypatch):
+    """The read timeout applies BETWEEN stream chunks; reasoning-heavy models
+    (gpt-5.5 high, gpt-5.6-sol) can think for minutes without emitting an
+    event, and the old flat timeout=120 killed sessions mid-run after they
+    had already completed real work."""
+    auth = _make_auth()
+    response = _FakeSSEStreamResponse([{"type": "response.done"}])
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            return_value=response,
+        ) as mock_post,
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    timeout = mock_post.call_args.kwargs["timeout"]
+    assert timeout == (30, 600.0)
+
+
+def test_stream_read_timeout_env_override(monkeypatch):
+    monkeypatch.setenv("GPTME_SUBSCRIPTION_READ_TIMEOUT", "90")
+    auth = _make_auth()
+    response = _FakeSSEStreamResponse([{"type": "response.done"}])
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            return_value=response,
+        ) as mock_post,
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert mock_post.call_args.kwargs["timeout"] == (30, 90.0)
