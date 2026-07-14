@@ -4,6 +4,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+import requests
 
 from gptme.llm import llm_openai_subscription
 from gptme.llm.llm_openai_subscription import SubscriptionAuth
@@ -288,3 +289,102 @@ def test_stream_read_timeout_invalid_env_falls_back_to_default(monkeypatch, bad_
         )
 
     assert mock_post.call_args.kwargs["timeout"] == (30, 600.0)
+
+
+class _TimeoutThenEventsResponse:
+    """First iter_lines() call raises ReadTimeout (silent reasoning pause
+    exceeding the read timeout); used to simulate a retryable idle stream."""
+
+    def __init__(self) -> None:
+        self.status_code = 200
+        self.text = ""
+
+    def iter_lines(self) -> Iterator[bytes]:
+        raise requests.exceptions.ReadTimeout("read timeout=600")
+        yield b""  # pragma: no cover — makes this a generator
+
+
+class _EventThenTimeoutResponse:
+    """Emits one event, then times out — retrying here would duplicate output."""
+
+    def __init__(self) -> None:
+        self.status_code = 200
+        self.text = ""
+
+    def iter_lines(self) -> Iterator[bytes]:
+        yield f"data: {json.dumps({'type': 'response.output_text.delta', 'delta': 'partial'})}".encode()
+        raise requests.exceptions.ReadTimeout("read timeout=600")
+
+
+def test_stream_retries_idle_timeout_before_first_event():
+    """A read timeout during the thinking phase (no events yielded yet) retries
+    the request instead of dying — mirrors codex-rs stream_max_retries."""
+    auth = _make_auth()
+    ok = _FakeSSEStreamResponse(
+        [
+            {"type": "response.output_text.delta", "delta": "Done."},
+            {"type": "response.done"},
+        ]
+    )
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            side_effect=[_TimeoutThenEventsResponse(), ok],
+        ) as mock_post,
+    ):
+        output = "".join(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert output == "Done."
+    assert mock_post.call_count == 2
+
+
+def test_stream_does_not_retry_after_first_event():
+    """After partial output a re-POST would duplicate content — re-raise."""
+    auth = _make_auth()
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            return_value=_EventThenTimeoutResponse(),
+        ) as mock_post,
+        pytest.raises(requests.exceptions.ReadTimeout),
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert mock_post.call_count == 1
+
+
+def test_stream_retries_exhausted_reraises(monkeypatch):
+    monkeypatch.setenv("GPTME_SUBSCRIPTION_STREAM_RETRIES", "2")
+    auth = _make_auth()
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            side_effect=[
+                _TimeoutThenEventsResponse(),
+                _TimeoutThenEventsResponse(),
+                _TimeoutThenEventsResponse(),
+            ],
+        ) as mock_post,
+        pytest.raises(requests.exceptions.ReadTimeout),
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert mock_post.call_count == 3  # initial + 2 retries
