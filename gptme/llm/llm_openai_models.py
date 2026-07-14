@@ -233,6 +233,22 @@ OPENAI_SUBSCRIPTION_MODELS: dict[str, "_ModelDictMeta"] = {
         "preferred_edit_format": "diff",
         "knowledge_cutoff": datetime(2026, 2, 16, tzinfo=timezone.utc),
     },
+    # GPT-5.6 Sol under its explicit name. ChatGPT-account (Plus/Pro) auth
+    # rejects the bare "gpt-5.6" alias with a 400 ("The 'gpt-5.6' model is not
+    # supported when using Codex with a ChatGPT account"), so subscription
+    # users need the named form — same behavior as the Codex CLI, where only
+    # named variants work on ChatGPT accounts.
+    "gpt-5.6-sol": {
+        "context": 1_000_000,
+        "max_output": 128_000,
+        "price_input": 5,
+        "price_output": 30,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+        "preferred_edit_format": "diff",
+        "knowledge_cutoff": datetime(2026, 2, 16, tzinfo=timezone.utc),
+    },
     # GPT-5.6 Terra — balanced tier; matches GPT-5.5 quality at ~half the price
     "gpt-5.6-terra": {
         "context": 1_000_000,

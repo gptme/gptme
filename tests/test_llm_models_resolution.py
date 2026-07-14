@@ -205,6 +205,23 @@ class TestAliasResolution:
         assert model.model == "gpt-5.6"
         assert model.context == 1_000_000
 
+    def test_subscription_gpt56_sol_named_form_has_metadata(self):
+        """openai-subscription/gpt-5.6-sol resolves real Sol metadata.
+
+        ChatGPT-account (Plus/Pro) auth rejects the bare gpt-5.6 alias with a
+        400 ("not supported when using Codex with a ChatGPT account" — verified
+        live 2026-07-14), so subscription users must request the named form.
+        It therefore needs a concrete OPENAI_SUBSCRIPTION_MODELS entry rather
+        than falling through to closest-match/128k-fallback metadata.
+        """
+        from gptme.llm.llm_openai_models import OPENAI_SUBSCRIPTION_MODELS
+
+        assert "gpt-5.6-sol" in OPENAI_SUBSCRIPTION_MODELS
+        model = get_model("openai-subscription/gpt-5.6-sol")
+        assert model.model == "gpt-5.6-sol"
+        assert model.context == 1_000_000
+        assert model.price_input > 0
+
     def test_all_openai_aliases_resolve_known_metadata(self):
         """Every openai alias should resolve real metadata (not the 128k unknown fallback)."""
         for alias, canonical in MODEL_ALIASES.get("openai", {}).items():
