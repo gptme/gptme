@@ -548,6 +548,59 @@ def test_v2_user_config_file_patch_rejects_invalid_key(client: FlaskClient):
     assert "dotted path" in response.get_json()["error"]
 
 
+# ---------------------------------------------------------------------------
+# Unit tests for _redact_secrets / _restore_redacted_secrets
+# ---------------------------------------------------------------------------
+
+
+def test_redact_secrets_double_quoted():
+    from gptme.server.api_v2 import _redact_secrets
+
+    content = '[openai]\nOPENAI_API_KEY = "sk-abc123"\n'
+    redacted = _redact_secrets(content)
+    assert "sk-abc123" not in redacted
+    assert '***"' in redacted or '"***"' in redacted
+
+
+def test_redact_secrets_single_quoted():
+    """Secrets in single-quoted TOML strings must also be redacted."""
+    from gptme.server.api_v2 import _redact_secrets
+
+    content = "[openai]\nOPENAI_API_KEY = 'sk-abc123'\n"
+    redacted = _redact_secrets(content)
+    assert "sk-abc123" not in redacted
+
+
+def test_redact_secrets_preserves_non_secret_keys():
+    from gptme.server.api_v2 import _redact_secrets
+
+    content = '[env]\nMODEL = "anthropic/claude-3"\n'
+    assert _redact_secrets(content) == content
+
+
+def test_restore_redacted_secrets_section_scoped():
+    """Keys with the same bare name in different sections restore independently."""
+    from gptme.server.api_v2 import _redact_secrets, _restore_redacted_secrets
+
+    original = (
+        '[openai]\napi_key = "key-openai"\n[anthropic]\napi_key = "key-anthropic"\n'
+    )
+    redacted = _redact_secrets(original)
+    restored = _restore_redacted_secrets(redacted, original)
+    assert restored == original
+
+
+def test_restore_redacted_secrets_single_quoted():
+    """Single-quoted secrets survive a redact → restore round-trip."""
+    from gptme.server.api_v2 import _redact_secrets, _restore_redacted_secrets
+
+    original = "[openai]\napi_key = 'sk-real'\n"
+    redacted = _redact_secrets(original)
+    assert "sk-real" not in redacted
+    restored = _restore_redacted_secrets(redacted, original)
+    assert restored == original
+
+
 @pytest.mark.parametrize(
     "endpoint", ["/api/v2/user/api-key", "/api/v2/user/default-model"]
 )

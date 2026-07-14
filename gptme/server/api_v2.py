@@ -487,16 +487,25 @@ def _validate_api_key_input(api_key: str) -> str:
 # Sentinel substituted for secret values in GET /config-file responses.
 _REDACT_SENTINEL = "***"
 
-# Matches TOML string assignments whose key looks like a secret.
-# Group 1: key + whitespace + '= "'   Group 2: value   Group 3: closing '"'
-_SECRET_KEY_RE = re.compile(
-    r'(?i)(\b[\w]*(?:api_key|secret|password|token)\b\s*=\s*")([^"]*)(")',
+# Matches TOML section headers: [section] or [section.subsection]
+_SECTION_HEADER_RE = re.compile(r"^\s*\[([^\]]+)\]")
+
+# Separate patterns for double-quoted and single-quoted TOML string assignments
+# whose key looks like a secret.  Group 1: key + '= <quote>'  Group 2: value  Group 3: closing quote
+_SECRET_KEY_DOUBLE_RE = re.compile(
+    r'(?i)(\b[\w]*(?:api_key|secret|password|token)\b\s*=\s*")([^"]*?)(")',
 )
+_SECRET_KEY_SINGLE_RE = re.compile(
+    r"(?i)(\b[\w]*(?:api_key|secret|password|token)\b\s*=\s*')([^']*?)(')",
+)
+_SECRET_KEY_PATTERNS = [_SECRET_KEY_DOUBLE_RE, _SECRET_KEY_SINGLE_RE]
 
 
 def _redact_secrets(content: str) -> str:
     """Replace secret values in TOML config content with the redaction sentinel."""
-    return _SECRET_KEY_RE.sub(rf"\g<1>{_REDACT_SENTINEL}\g<3>", content)
+    for pat in _SECRET_KEY_PATTERNS:
+        content = pat.sub(rf"\g<1>{_REDACT_SENTINEL}\g<3>", content)
+    return content
 
 
 def _restore_redacted_secrets(incoming: str, original: str) -> str:
@@ -505,19 +514,49 @@ def _restore_redacted_secrets(incoming: str, original: str) -> str:
     When the webui reads a redacted config and then submits it back via PUT,
     any field that still holds the sentinel should preserve the real on-disk
     value rather than writing the placeholder.
+
+    Uses (section, key_name) as the lookup key so duplicate bare key names
+    across different TOML sections are restored to their correct values.
     """
-    originals: dict[str, str] = {}
-    for m in _SECRET_KEY_RE.finditer(original):
-        key_name = m.group(1).split("=")[0].strip().lower()
-        originals[key_name] = m.group(2)
+    # Build section-scoped map of real secret values from the on-disk file.
+    originals: dict[tuple[str, str], str] = {}
+    current_section = ""
+    for line in original.splitlines():
+        sm = _SECTION_HEADER_RE.match(line)
+        if sm:
+            current_section = sm.group(1)
+            continue
+        for pat in _SECRET_KEY_PATTERNS:
+            km = pat.search(line)
+            if km:
+                key = km.group(1).split("=")[0].strip().lower()
+                originals[(current_section, key)] = km.group(2)
+                break
 
-    def _restore(m: re.Match) -> str:
-        key_name = m.group(1).split("=")[0].strip().lower()
-        if m.group(2) == _REDACT_SENTINEL and key_name in originals:
-            return m.group(1) + originals[key_name] + m.group(3)
-        return m.group(0)
+    def _make_restore(section: str):
+        def _restore(m: re.Match) -> str:
+            key = m.group(1).split("=")[0].strip().lower()
+            if m.group(2) == _REDACT_SENTINEL:
+                real = originals.get((section, key))
+                if real is not None:
+                    return m.group(1) + real + m.group(3)
+            return m.group(0)
 
-    return _SECRET_KEY_RE.sub(_restore, incoming)
+        return _restore
+
+    result_lines: list[str] = []
+    current_section = ""
+    for line in incoming.splitlines(keepends=True):
+        sm = _SECTION_HEADER_RE.match(line)
+        if sm:
+            current_section = sm.group(1)
+            result_lines.append(line)
+            continue
+        for pat in _SECRET_KEY_PATTERNS:
+            line = pat.sub(_make_restore(current_section), line)
+        result_lines.append(line)
+
+    return "".join(result_lines)
 
 
 def _get_user_config_file_response(content: str) -> dict[str, str | bool]:
