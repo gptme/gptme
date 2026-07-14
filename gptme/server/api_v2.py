@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -483,11 +484,107 @@ def _validate_api_key_input(api_key: str) -> str:
     return trimmed
 
 
+# Sentinel substituted for secret values in GET /config-file responses.
+_REDACT_SENTINEL = "***"
+
+# Matches TOML section headers: [section] or [section.subsection]
+_SECTION_HEADER_RE = re.compile(r"^\s*\[([^\]]+)\]")
+
+# Key sub-patterns: bare (`API_KEY`), double-quoted (`"API_KEY"`), or single-quoted (`'API_KEY'`).
+_SECRET_KEY_BARE = r"\b[\w]*(?:api_key|secret|password|token)\b"
+_SECRET_KEY_DQUOTED = r'"[\w]*(?:api_key|secret|password|token)[\w]*"'
+_SECRET_KEY_SQUOTED = r"'[\w]*(?:api_key|secret|password|token)[\w]*'"
+_SECRET_KEY_ANY = rf"(?:{_SECRET_KEY_BARE}|{_SECRET_KEY_DQUOTED}|{_SECRET_KEY_SQUOTED})"
+
+# Separate patterns for double-quoted and single-quoted TOML string values.
+# Group 1: key + '= <quote>'  Group 2: value  Group 3: closing quote
+_SECRET_KEY_DOUBLE_RE = re.compile(
+    rf'(?i)({_SECRET_KEY_ANY}\s*=\s*")([^"]*?)(")',
+)
+_SECRET_KEY_SINGLE_RE = re.compile(
+    rf"(?i)({_SECRET_KEY_ANY}\s*=\s*')([^']*?)(')",
+)
+_SECRET_KEY_PATTERNS = [_SECRET_KEY_DOUBLE_RE, _SECRET_KEY_SINGLE_RE]
+
+
+def _redact_secrets(content: str) -> str:
+    """Replace secret values in TOML config content with the redaction sentinel."""
+    for pat in _SECRET_KEY_PATTERNS:
+        content = pat.sub(rf"\g<1>{_REDACT_SENTINEL}\g<3>", content)
+    return content
+
+
+def _restore_redacted_secrets(incoming: str, original: str) -> str:
+    """Restore sentinel placeholders with the real values from the on-disk file.
+
+    When the webui reads a redacted config and then submits it back via PUT,
+    any field that still holds the sentinel should preserve the real on-disk
+    value rather than writing the placeholder.
+
+    Uses (section, occurrence_index, key_name) as the lookup key so that
+    repeated TOML array-of-tables (e.g. [[providers]]) restore each entry
+    to its own correct secret rather than the last-seen value.
+    """
+    # Build section-scoped map of real secret values from the on-disk file.
+    # Key: (section_header, occurrence_index, key_name)
+    originals: dict[tuple[str, int, str], str] = {}
+    section_counts: dict[str, int] = {}
+    current_section = ""
+    current_section_idx = 0
+    for line in original.splitlines():
+        sm = _SECTION_HEADER_RE.match(line)
+        if sm:
+            current_section = sm.group(1)
+            current_section_idx = section_counts.get(current_section, 0)
+            section_counts[current_section] = current_section_idx + 1
+            continue
+        for pat in _SECRET_KEY_PATTERNS:
+            km = pat.search(line)
+            if km:
+                key = km.group(1).split("=")[0].strip().lower()
+                originals[(current_section, current_section_idx, key)] = km.group(2)
+                break
+
+    def _make_restore(section: str, section_idx: int):
+        def _restore(m: re.Match) -> str:
+            key = m.group(1).split("=")[0].strip().lower()
+            if m.group(2) == _REDACT_SENTINEL:
+                real = originals.get((section, section_idx, key))
+                if real is not None:
+                    return m.group(1) + real + m.group(3)
+            return m.group(0)
+
+        return _restore
+
+    result_lines: list[str] = []
+    current_section = ""
+    current_section_idx = 0
+    section_counts = {}
+    for line in incoming.splitlines(keepends=True):
+        sm = _SECTION_HEADER_RE.match(line)
+        if sm:
+            current_section = sm.group(1)
+            current_section_idx = section_counts.get(current_section, 0)
+            section_counts[current_section] = current_section_idx + 1
+            result_lines.append(line)
+            continue
+        for pat in _SECRET_KEY_PATTERNS:
+            line = pat.sub(_make_restore(current_section, current_section_idx), line)
+        result_lines.append(line)
+
+    return "".join(result_lines)
+
+
 def _get_user_config_file_response(content: str) -> dict[str, str | bool]:
-    """Return raw config text with the same path metadata as user settings."""
+    """Return raw config text with the same path metadata as user settings.
+
+    Secret values (API keys etc.) are redacted with ``***`` before being
+    included in the response — even when the auth bypass is active for
+    local-only servers.
+    """
     runtime_info = get_user_config_runtime_info()
     return {
-        "content": content,
+        "content": _redact_secrets(content),
         "path": runtime_info["config_path"],
         "write_target": runtime_info["write_target"],
         "local_config_path": runtime_info["local_config_path"],
@@ -3007,12 +3104,18 @@ def api_user_config_file_put():
 
     config_file, _local_path = get_user_config_paths()
     config_file.parent.mkdir(parents=True, exist_ok=True)
-    config_file.write_text(content)
+
+    # If the submitted content contains redaction sentinels, restore the real
+    # values from the on-disk file so the webui round-trip doesn't wipe secrets.
+    original = config_file.read_text() if config_file.exists() else ""
+    write_content = _restore_redacted_secrets(content, original)
+
+    config_file.write_text(write_content)
     from gptme.config.core import reload_config
 
     reload_config()
 
-    response = _get_user_config_file_response(content)
+    response = _get_user_config_file_response(write_content)
     response["status"] = "ok"
     return flask.jsonify(response)
 

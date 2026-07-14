@@ -83,6 +83,12 @@ The ``prompt`` section contains options included in both interactive and non-int
 
 The ``env`` section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for :doc:`providers`. It can also be used to set default tool configuration options, see :doc:`custom_tool` for more information.
 
+.. note::
+
+   API keys and other secrets belong in :ref:`config.local.toml <global-config-local>`, not in
+   ``config.toml``. That lets you keep ``config.toml`` in dotfiles or version control without
+   exposing your keys. The webui setup wizard already writes keys to ``config.local.toml``.
+
 The ``settings`` section contains user-level CLI defaults. Currently supported:
 
 - ``gear``: Default autonomy preset for new conversations. Gear ``0`` is read-only
