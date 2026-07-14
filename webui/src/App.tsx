@@ -17,6 +17,7 @@ import { appRoutes } from './appRoutes';
 // Lazy-loaded route pages — code-split at route boundaries for smaller initial bundle
 const Index = lazy(() => import('./pages/Index'));
 const Tasks = lazy(() => import('./pages/Tasks'));
+const Skills = lazy(() => import('./pages/Skills'));
 const Workspace = lazy(() => import('./pages/Workspace'));
 const Agents = lazy(() => import('./pages/Agents'));
 const Workspaces = lazy(() => import('./pages/Workspaces'));
@@ -85,6 +86,7 @@ const App: FC = () => {
                         <Route path={appRoutes.chatConversation} element={<Index />} />
                         <Route path={appRoutes.tasks} element={<Tasks />} />
                         <Route path={appRoutes.taskDetails} element={<Tasks />} />
+                        <Route path={appRoutes.skills} element={<Skills />} />
                         <Route path={appRoutes.agents} element={<Agents />} />
                         <Route path={appRoutes.workspaces} element={<Workspaces />} />
                         <Route path={appRoutes.history} element={<History />} />

@@ -14,7 +14,13 @@
  */
 import { observable } from '@legendapp/state';
 import type { ConnectionProbeResult, IApiClient } from '@/utils/api';
-import type { UserInfo, ConversationResponse, ChatConfig, ServerHealth } from '@/types/api';
+import type {
+  UserInfo,
+  ConversationResponse,
+  ChatConfig,
+  ServerHealth,
+  SkillListResponse,
+} from '@/types/api';
 import type { Message, ConversationSummary, ToolUse } from '@/types/conversation';
 import { ToolFormat } from '@/types/api';
 import { initConversation, setMaxTokens, setTemperature, setTopP } from '@/stores/conversations';
@@ -272,6 +278,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       nextCursor: undefined,
     }),
     getExternalSessions: async () => [],
+    getSkills: async (): Promise<SkillListResponse> => ({ skills: [] }),
     getSessions: async () => [],
 
     // Conversation detail — serve the fixture or local in-memory conversations.

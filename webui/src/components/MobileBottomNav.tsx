@@ -1,4 +1,4 @@
-import { MessageSquare, History, Kanban, Bot, FolderOpen, Search } from 'lucide-react';
+import { MessageSquare, History, Kanban, Bot, FolderOpen, Search, BadgeCheck } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
@@ -9,6 +9,7 @@ const navItems = [
   { id: 'history', label: 'History', icon: History, path: '/history' },
   { id: 'search', label: 'Search', icon: Search, path: '' }, // path unused; opens command palette
   { id: 'tasks', label: 'Tasks', icon: Kanban, path: '/tasks' },
+  { id: 'skills', label: 'Skills', icon: BadgeCheck, path: '/skills' },
   { id: 'agents', label: 'Agents', icon: Bot, path: '/agents' },
   { id: 'workspaces', label: 'Workspaces', icon: FolderOpen, path: '/workspaces' },
 ] as const;
