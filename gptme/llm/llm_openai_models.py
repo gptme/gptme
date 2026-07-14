@@ -222,7 +222,9 @@ OPENAI_SUBSCRIPTION_MODELS: dict[str, "_ModelDictMeta"] = {
     # GPT-5.6 Sol — flagship tier of the Sol/Terra/Luna family (GA: 2026-07-09)
     # https://openai.com/index/previewing-gpt-5-6-sol/
     # Sol: $5/$30 per 1M; +5.8 pts above GPT-5.5 on Agents' Last Exam (52.7%)
-    "gpt-5.6": {
+    # ChatGPT-account (Plus/Pro) auth rejects the bare "gpt-5.6" alias with a
+    # 400; the bare name is aliased to this entry via MODEL_ALIASES.
+    "gpt-5.6-sol": {
         "context": 1_000_000,
         "max_output": 128_000,
         "price_input": 5,
