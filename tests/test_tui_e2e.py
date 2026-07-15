@@ -174,7 +174,7 @@ async def test_e2e_queue_dispatches_after_turn(mock_app, monkeypatch):
 
         def gen():
             if is_first:
-                first_turn_gate.wait(timeout=10)  # block until test releases
+                first_turn_gate.wait()  # block until test releases
             yield from orig_stream(*args, **kwargs)
 
         return gen()
