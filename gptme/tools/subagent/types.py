@@ -318,6 +318,12 @@ class Subagent:
     # Used by SESSION_END cleanup to scope cancellation to the correct session and
     # prevent cross-conversation interference in multi-session server deployments.
     parent_logdir: Path | None = field(default=None)
+    # In-memory fallback cancellation signal for thread mode.
+    # Set by subagent_cancel() when the control-file write fails (OSError), so the
+    # STEP_PRE checkpoint hook can still stop the thread without the file.
+    cancel_event: threading.Event = field(
+        default_factory=threading.Event, init=False, repr=False
+    )
 
     def _normalize_json_result(self, result: str) -> str:
         """Normalize a complete-block result as canonical JSON.
