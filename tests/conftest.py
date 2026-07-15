@@ -264,19 +264,22 @@ def cleanup_acp_health_monitor():
     """
     yield
     try:
-        from gptme.server.session_step import stop_acp_health_monitor
+        try:
+            from gptme.server.session_step import stop_acp_health_monitor
 
-        stop_acp_health_monitor()
-    except ImportError:
-        pass
-    try:
-        from gptme.server.session_models import SessionManager
+            stop_acp_health_monitor()
+        except ImportError:
+            pass
+        try:
+            from gptme.server.session_models import SessionManager
 
-        with SessionManager._lock:
-            SessionManager._sessions.clear()
-            SessionManager._conversation_sessions.clear()
-    except ImportError:
-        pass
+            with SessionManager._lock:
+                SessionManager._sessions.clear()
+                SessionManager._conversation_sessions.clear()
+        except ImportError:
+            pass
+    except Exception as e:
+        logger.warning(f"Error during ACP health monitor cleanup: {e}")
 
 
 @pytest.fixture(autouse=True)
