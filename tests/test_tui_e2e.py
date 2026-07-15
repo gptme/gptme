@@ -153,33 +153,49 @@ async def test_e2e_tool_skip(mock_app, tmp_path):
 @pytest.mark.asyncio
 async def test_e2e_queue_dispatches_after_turn(mock_app, monkeypatch):
     """Prompts queued while generating are submitted when the turn ends."""
+    import threading
+
     import gptme.llm.llm_mock as llm_mock
 
     app = mock_app
     orig_stream = llm_mock.stream
 
-    def slow_stream(*args, **kwargs):
+    # Gate that holds the first stream open until after we verify the queue.
+    # time.sleep()-based delays are unreliable: the Textual event loop can
+    # process the worker-done message during await pilot.pause(), clearing the
+    # queue before our assertion runs. A threading.Event is deterministic.
+    first_turn_gate = threading.Event()
+    call_count = 0
+
+    def gated_stream(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        is_first = call_count == 1
+
         def gen():
-            for chunk in orig_stream(*args, **kwargs):
-                time.sleep(0.25)
-                yield chunk
+            if is_first:
+                first_turn_gate.wait()  # block until test releases
+            yield from orig_stream(*args, **kwargs)
 
         return gen()
 
-    monkeypatch.setattr(llm_mock, "stream", slow_stream)
+    monkeypatch.setattr(llm_mock, "stream", gated_stream)
 
     async with app.run_test(size=(100, 40)) as pilot:
         await pilot.pause()
         inp = app.query_one("#input", ChatInput)
         inp.text = "first message please"
         await pilot.press("enter")
-        # generating is set synchronously on submit; the slowed stream keeps
-        # the turn busy while we queue the next prompt
+        # generating is set synchronously on submit; the gate holds the first
+        # stream open so we can safely queue the next prompt and assert
         assert app.generating
         inp.text = "second message please"
         await pilot.press("enter")
         await pilot.pause()
         assert app.prompt_queue == ["second message please"]
+        # Release the gate: first stream completes, generation ends, queued
+        # prompt is dispatched
+        first_turn_gate.set()
         await wait_for(
             pilot,
             lambda: (
