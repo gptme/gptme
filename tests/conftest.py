@@ -120,16 +120,17 @@ def pytest_configure(config):
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(item, call):
     """Convert API quota/rate-limit failures to skips for requires_api tests.
-    Also suppresses pytest-retry × pytest≥9.1 StashKey teardown errors.
+    Also suppresses pytest-retry StashKey teardown errors.
 
     The session-start quota check may pass with a tiny haiku call, but the
     actual test can hit quota limits with heavier models or longer generations.
     This hook catches those mid-run failures and converts them to skips.
 
     For the StashKey case: when pytest-retry retries a test that uses tmp_path,
-    pytest≥9.1's stash-based tmp_path tracking loses its key during teardown of
-    the retried attempt. The test body itself passed; treat the teardown as
-    passed to prevent a spurious CI ERROR from masking the real result.
+    pytest's stash-based fixture tracking loses its key during teardown of the
+    retried attempt (an architectural issue in pytest-retry, not version-specific).
+    The test body itself passed; treat the teardown as passed to prevent a
+    spurious CI ERROR from masking the real result.
     """
     report = yield
 
@@ -153,7 +154,7 @@ def pytest_runtest_makereport(item, call):
         )
         item._stash_guard_call_passed = report.passed
 
-    # pytest-retry × pytest≥9.1 compat: tmp_path (and caplog) stash keys are
+    # pytest-retry compat: tmp_path (and caplog) stash keys are
     # populated by pytest's fixture machinery during the first (failed) attempt.
     # When pytest-retry re-runs the test body without a full fixture re-setup,
     # the stash entry is absent during teardown of the retried (passing) attempt,
@@ -171,7 +172,8 @@ def pytest_runtest_makereport(item, call):
         longrepr_str = str(report.longrepr)
         if "_pytest.stash.StashKey" in longrepr_str and "KeyError" in longrepr_str:
             logger.warning(
-                "Suppressed pytest-retry × pytest≥9.1 StashKey teardown error "
+                "Suppressed pytest-retry StashKey teardown error (known "
+                "infrastructure artifact, not version-specific) "
                 "for %s — the test body passed; this is a known infrastructure "
                 "artifact (see ErikBjare/bob#1084)",
                 item.nodeid,
