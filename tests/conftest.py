@@ -202,12 +202,16 @@ def pytest_collection_modifyitems(config, items):
             if "requires_api" in item.keywords:
                 item.add_marker(skip_api)
 
-    # Wire up no_retry: override pytest-retry's global --retries for these tests.
-    # @pytest.mark.flaky(retries=0) takes precedence over the --retries CLI flag.
-    no_retry_mark = pytest.mark.flaky(retries=0)
+    # Wire up no_retry: prevent pytest-retry from retrying these tests.
+    # flaky(retries=0) is NOT sufficient — the retry loop always runs at least once.
+    # condition=False causes pytest-retry to return early before any retry attempt.
+    # append=False prepends our marker so get_closest_marker() finds it first,
+    # even if pytest-retry already added flaky(retries=N) during its own
+    # pytest_collection_modifyitems pass.
+    no_retry_mark = pytest.mark.flaky(condition=False)
     for item in items:
         if "no_retry" in item.keywords:
-            item.add_marker(no_retry_mark)
+            item.add_marker(no_retry_mark, append=False)
 
 
 def pytest_sessionstart(session):
