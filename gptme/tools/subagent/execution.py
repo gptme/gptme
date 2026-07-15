@@ -216,7 +216,10 @@ def _create_subagent_thread(
 
     from ...profiles import get_profile  # fmt: skip
     from ...prompts import get_prompt  # fmt: skip
-    from .hooks import _get_complete_instruction  # fmt: skip
+    from .hooks import (
+        _get_complete_instruction,  # fmt: skip
+        _subagent_control_hook,  # fmt: skip
+    )
 
     # Resolve profile if specified
     profile = get_profile(profile_name) if profile_name else None
@@ -234,6 +237,14 @@ def _create_subagent_thread(
 
     prepare_execution_environment(workspace=workspace, tools=None)
     _ensure_subagent_signal_tools_loaded()
+
+    # Register the control hook in this child thread's ContextVar context.
+    # Hook registrations use a ContextVar — child threads start with an empty
+    # registry and do not inherit the parent's registrations, so registering
+    # at module level is not sufficient: the child never sees those hooks.
+    from ...hooks import HookType, register_hook  # fmt: skip
+
+    register_hook("subagent-control", HookType.STEP_PRE, _subagent_control_hook, 0)
 
     # Get tools, filtered by profile if applicable
     if tool_allowlist is not None:

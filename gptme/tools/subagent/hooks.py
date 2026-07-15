@@ -16,7 +16,9 @@ from typing import TYPE_CHECKING
 
 from ...hooks.types import StopPropagation
 from ...message import Message
+from .control import CONTROL_FILENAME, drain_control_ops
 from .types import (
+    ReturnType,
     Status,
     _completion_queue,
     _progress_queue,
@@ -24,12 +26,52 @@ from .types import (
     _subagent_results_lock,
     _subagents,
     _subagents_lock,
+    set_subagent_result_if_absent,
 )
 
 if TYPE_CHECKING:
     from ...logmanager import LogManager  # fmt: skip
 
 logger = logging.getLogger(__name__)
+
+
+def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, None]:
+    """Stop a child conversation when its parent writes a cancel operation."""
+    if not (manager.logdir / CONTROL_FILENAME).exists():
+        return
+
+    try:
+        operations = drain_control_ops(manager.logdir)
+    except OSError:
+        # Control file existed but became unreadable or could not be removed.
+        # Treat as a cancel: a cancel op may have been written and must not be lost.
+        logger.warning(
+            "Could not drain control ops from %s; treating as cancel", manager.logdir
+        )
+        operations = [{"op": "cancel", "agent_id": manager.logdir.name}]
+    if not any(operation.get("op") == "cancel" for operation in operations):
+        return
+
+    agent_id = manager.logdir.name
+    for operation in operations:
+        candidate_agent_id = operation.get("agent_id")
+        if operation.get("op") == "cancel" and isinstance(candidate_agent_id, str):
+            agent_id = candidate_agent_id
+            break
+
+    manager.append(
+        Message(
+            "system",
+            "Subagent cancellation requested by orchestrator; ending at this step boundary.",
+        )
+    )
+    set_subagent_result_if_absent(
+        agent_id, ReturnType("failure", "Cancelled by orchestrator")
+    )
+    from ..complete import SessionCompleteException
+
+    raise SessionCompleteException("Subagent cancelled by orchestrator")
+    yield from ()
 
 
 # Python built-in types that are valid as values in a {field_name: python_type} mapping.

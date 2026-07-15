@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 from . import execution as _exec
 from .concurrency import get_slot_sem
+from .control import append_control_op
 from .hooks import notify_completion
 from .types import (
     ReturnType,
@@ -987,9 +988,9 @@ def subagent_cancel(agent_id: str) -> str:
     """Cancel a running subagent.
 
     For subprocess-mode subagents, sends SIGTERM (then SIGKILL after 5s) to the
-    process. For thread-mode subagents, marks the result as cancelled — the thread
-    continues until its next natural checkpoint but the result is already recorded
-    as failure so callers won't block waiting for it.
+    process. For thread-mode subagents, records a cancellation operation that stops
+    the child at its next step boundary while caching the failure result immediately
+    so callers do not block waiting for it.
 
     Args:
         agent_id: The subagent to cancel
@@ -1007,6 +1008,13 @@ def subagent_cancel(agent_id: str) -> str:
         return f"Subagent '{agent_id}' is not running (already finished)."
 
     cancelled_result = ReturnType("failure", "Cancelled by orchestrator")
+    # Best-effort: write the cancel signal so thread agents stop at their next
+    # checkpoint.  If the logdir is unavailable (removed, read-only, etc.) we
+    # still proceed with subprocess termination / result-marking below.
+    try:
+        append_control_op(sa.logdir, "cancel", agent_id=agent_id)
+    except OSError as e:
+        logger.warning("Failed to write cancel control op for '%s': %s", agent_id, e)
 
     if sa.execution_mode == "subprocess" and sa.process:
         if not set_subagent_result_if_absent(agent_id, cancelled_result):
@@ -1028,7 +1036,7 @@ def subagent_cancel(agent_id: str) -> str:
     )
     return (
         f"Subagent '{agent_id}' marked as cancelled. "
-        "The background thread will stop at its next natural checkpoint."
+        "The background thread will stop at its next step boundary."
     )
 
 

@@ -17,12 +17,19 @@ import pytest
 import gptme.tools.subagent.api as subagent_api
 import gptme.tools.subagent.execution as subagent_execution
 import gptme.tools.subagent.types as subagent_types
+from gptme.tools.complete import SessionCompleteException
 from gptme.tools.subagent.api import subagent, subagent_cancel
 from gptme.tools.subagent.batch import BatchJob
+from gptme.tools.subagent.control import (
+    CONTROL_FILENAME,
+    append_control_op,
+    drain_control_ops,
+)
 from gptme.tools.subagent.execution import _monitor_subprocess
 from gptme.tools.subagent.hooks import (
     _get_complete_instruction,
     _subagent_completion_hook,
+    _subagent_control_hook,
     notify_completion,
     notify_progress,
 )
@@ -37,6 +44,83 @@ from gptme.tools.subagent.types import (
     _subagents_lock,
     resolve_role_defaults,
 )
+
+# ---------------------------------------------------------------------------
+# Subagent control channel tests
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentControlChannel:
+    def setup_method(self):
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
+    def test_control_operations_drain_in_fifo_order(self, tmp_path):
+        append_control_op(tmp_path, "cancel", agent_id="first")
+        append_control_op(tmp_path, "cancel", agent_id="second")
+
+        operations = drain_control_ops(tmp_path)
+
+        assert [(op["op"], op["agent_id"]) for op in operations] == [
+            ("cancel", "first"),
+            ("cancel", "second"),
+        ]
+        assert not (tmp_path / CONTROL_FILENAME).exists()
+
+    def test_control_operations_skip_malformed_lines(self, tmp_path):
+        control_path = tmp_path / CONTROL_FILENAME
+        control_path.write_text('not json\n{"op": "cancel", "agent_id": "child"}\n')
+
+        operations = drain_control_ops(tmp_path)
+
+        assert operations[0]["agent_id"] == "child"
+
+    def test_drain_control_ops_raises_on_read_error(self, tmp_path):
+        control_path = tmp_path / CONTROL_FILENAME
+        control_path.write_text('{"op": "cancel", "agent_id": "child"}\n')
+        control_path.chmod(0o000)
+        try:
+            with pytest.raises(OSError, match="Permission denied"):
+                drain_control_ops(tmp_path)
+        finally:
+            control_path.chmod(0o644)
+
+    def test_control_hook_treats_read_error_as_cancel(self, tmp_path):
+        control_path = tmp_path / CONTROL_FILENAME
+        control_path.write_text('{"op": "cancel", "agent_id": "thread-agent"}\n')
+        control_path.chmod(0o000)
+        manager = MagicMock(logdir=tmp_path)
+        try:
+            with pytest.raises(SessionCompleteException, match="cancelled"):
+                list(_subagent_control_hook(manager))
+        finally:
+            control_path.chmod(0o644)
+
+    def test_control_hook_noops_without_control_file(self, tmp_path):
+        manager = MagicMock(logdir=tmp_path)
+
+        assert list(_subagent_control_hook(manager)) == []
+
+    def test_control_hook_cancels_and_preserves_completed_result(self, tmp_path):
+        append_control_op(tmp_path, "cancel", agent_id="thread-agent")
+        manager = MagicMock(logdir=tmp_path)
+
+        with pytest.raises(SessionCompleteException, match="cancelled"):
+            list(_subagent_control_hook(manager))
+        assert "cancellation requested" in manager.append.call_args.args[0].content
+        with _subagent_results_lock:
+            assert _subagent_results["thread-agent"] == ReturnType(
+                "failure", "Cancelled by orchestrator"
+            )
+
+        append_control_op(tmp_path, "cancel", agent_id="thread-agent")
+        with _subagent_results_lock:
+            _subagent_results["thread-agent"] = ReturnType("success", "done")
+        with pytest.raises(SessionCompleteException, match="cancelled"):
+            list(_subagent_control_hook(manager))
+        with _subagent_results_lock:
+            assert _subagent_results["thread-agent"] == ReturnType("success", "done")
+
 
 # ---------------------------------------------------------------------------
 # ReturnType tests
@@ -608,17 +692,23 @@ class TestSubagentCancel:
         result = subagent_cancel("done-agent")
         assert "not running" in result
 
-    def test_cancel_subprocess_terminates_process(self):
+    def test_cancel_subprocess_terminates_process(self, tmp_path):
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None  # still running
         mock_proc.wait.return_value = 0
-        self._register("proc-agent", process=mock_proc, execution_mode="subprocess")
+        self._register(
+            "proc-agent",
+            process=mock_proc,
+            execution_mode="subprocess",
+            logdir=tmp_path,
+        )
         result = subagent_cancel("proc-agent")
         mock_proc.terminate.assert_called_once()
         assert "cancelled" in result.lower()
         with _subagent_results_lock:
             assert _subagent_results["proc-agent"].status == "failure"
             assert "Cancelled" in (_subagent_results["proc-agent"].result or "")
+        assert drain_control_ops(tmp_path)[0]["agent_id"] == "proc-agent"
 
     def test_cancel_subprocess_kills_on_timeout(self):
         import subprocess as _subprocess
@@ -742,6 +832,15 @@ class TestSubagentCancel:
         assert "cancelled" in result.lower()
         with _subagent_results_lock:
             assert _subagent_results["thread-agent"].status == "failure"
+
+    def test_cancel_thread_writes_control_operation(self, tmp_path):
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        self._register("thread-agent", thread=mock_thread, logdir=tmp_path)
+
+        subagent_cancel("thread-agent")
+
+        assert drain_control_ops(tmp_path)[0]["agent_id"] == "thread-agent"
 
     def test_thread_completion_skips_notify_when_cancel_wins_race(
         self, monkeypatch, tmp_path
