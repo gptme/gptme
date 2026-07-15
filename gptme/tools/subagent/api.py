@@ -15,7 +15,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Literal
 
-from ...llm.retry_abort import bind_thread_generation
+from ...llm.retry_abort import bind_thread_generation, release_thread
 from . import execution as _exec
 from .concurrency import get_slot_sem
 from .hooks import notify_completion
@@ -653,6 +653,7 @@ def subagent(
                                 has_output_schema=bool(sa_ref.output_schema),
                             )
             finally:
+                release_thread()
                 _sem.release()
 
         t = threading.Thread(target=run_acp_subagent, daemon=True)
@@ -895,6 +896,7 @@ def subagent(
                     except Exception as e:
                         logger.warning(f"Failed to notify subagent completion: {e}")
             finally:
+                release_thread()
                 _sem.release()
 
         # Create thread (don't start yet)

@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from ...llm.retry_abort import bind_thread_generation
+from ...llm.retry_abort import bind_thread_generation, release_thread
 from ...message import Message
 from .. import clear_tools, get_tools, load_tool, set_tools
 from .._allowlist import (
@@ -1030,6 +1030,7 @@ def _run_planner(
                     object.__setattr__(_sa, "process", process)
                     _monitor_subprocess(_sa)
                 finally:
+                    release_thread()
                     _sem.release()
 
             monitor_t = threading.Thread(target=_run_executor_subprocess, daemon=True)
@@ -1094,6 +1095,7 @@ def _run_planner(
                         context_window=context_window,
                     )
                 finally:
+                    release_thread()
                     try:
                         _cleanup_isolation(cleanup_subagent)
                     except Exception:

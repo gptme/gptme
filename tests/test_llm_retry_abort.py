@@ -19,6 +19,7 @@ from gptme.llm.retry_abort import (
     current_generation,
     interrupt_pending_retries,
     interrupt_thread,
+    release_thread,
 )
 
 
@@ -209,6 +210,57 @@ def test_interrupt_thread_before_bind_still_aborts():
     assert not t.is_alive()
 
     assert results == [True]  # still interrupted despite startup race
+
+
+def test_release_thread_clears_stale_event_for_ident_reuse():
+    """release_thread() prevents a stale signaled event from poisoning a later bind.
+
+    Thread ident reuse scenario: Thread A is interrupted and exits. If it
+    calls release_thread() before dying, a new thread that gets Thread A's ident
+    starts with a fresh, unset event. Without release_thread(), bind_thread_generation()
+    adopts the stale signaled event and aborts at its first backoff.
+
+    We simulate this in a single thread: interrupt → release → rebind. The
+    second backoff should complete naturally (not abort) because release_thread()
+    cleared the stale event from the registry.
+    """
+    interrupted = threading.Event()
+    released = threading.Event()
+    rebound = threading.Event()
+    results: list[bool] = []
+
+    def worker():
+        bind_thread_generation()
+        interrupted.wait(timeout=5.0)
+
+        # Simulates thread exit cleanup: release removes the signaled event.
+        release_thread()
+        released.set()
+
+        # Simulates a new thread starting with the same ident (rebind with no
+        # pre-signaled event in the registry — should get a fresh, clean event).
+        bind_thread_generation()
+        rebound.set()
+
+        # This backoff must complete naturally; NOT abort due to the stale event.
+        results.append(backoff_wait(0.1))
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    # Let worker reach first bind_thread_generation before we interrupt.
+    # (There's no explicit "bound" gate here; interrupt_thread is safe to call early
+    # due to the startup-race pre-signaling path, but for clarity we signal after start.)
+    t.join(timeout=0)  # yield to let the thread start
+    interrupt_thread(t)  # signal the event
+    interrupted.set()
+
+    assert released.wait(timeout=5.0)
+    assert rebound.wait(timeout=5.0)
+    t.join(timeout=5.0)
+    assert not t.is_alive()
+
+    # After release + rebind, the short backoff must NOT abort.
+    assert results == [False]
 
 
 def test_anthropic_handler_stale_generation_reraises_same_error(monkeypatch):
