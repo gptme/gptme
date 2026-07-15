@@ -1039,7 +1039,7 @@ def test_poll_subprocess_progress_delivers_via_notify(tmp_path):
     mock_sa.agent_id = "poll-agent"
     mock_sa.logdir = tmp_path
 
-    with patch("gptme.tools.subagent.hooks.notify_progress", fake_notify):
+    with patch("gptme.tools.subagent.execution.notify_progress", fake_notify):
         # Set stop immediately so the loop exits after the final drain
         stop_event.set()
         _poll_subprocess_progress(mock_sa, stop_event)
@@ -1259,7 +1259,7 @@ def test_subprocess_monitor_timeout():
         timeout=2,  # 2 second timeout for test
     )
 
-    with patch("gptme.tools.subagent.hooks.notify_completion"):
+    with patch("gptme.tools.subagent.execution.notify_completion"):
         _monitor_subprocess(sa)
 
     # Verify: process was killed
@@ -1870,6 +1870,8 @@ def test_create_subagent_thread_profile_glob_filters_tools(tmp_path):
         ToolSpec(name="complete", desc=""),
         ToolSpec(name="clarify", desc=""),
     ]
+
+    import gptme.chat  # noqa: F401 — must import before patch.object on sys.modules["gptme.chat"]
 
     mock_prompt = MagicMock(return_value=[])
     mock_chat = MagicMock()

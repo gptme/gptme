@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import re
-import time
 from collections.abc import Generator, Iterable
 from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, cast
@@ -36,6 +35,7 @@ from .openai_responses import (
     _stream_responses_events,
     _tool_spec_to_responses_tool,
 )
+from .retry_abort import backoff_wait, current_generation
 from .utils import (
     apply_cache_control,
     extract_tool_uses_from_assistant_message,
@@ -641,7 +641,9 @@ def _is_proxy(client: OpenAI) -> bool:
     return str(client.base_url).rstrip("/") == proxy_url.rstrip("/")
 
 
-def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
+def _handle_openai_transient_error(
+    e, attempt, max_retries, base_delay, generation=None
+):
     """Handle OpenAI API transient errors with exponential backoff.
 
     Retries on:
@@ -769,7 +771,9 @@ def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
         f"OpenAI API transient error (status {status_code}), "
         f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
     )
-    time.sleep(delay)
+    if backoff_wait(delay, generation):
+        logger.warning("Retry backoff aborted, re-raising original error")
+        raise e
 
 
 def retry_on_openai_error(max_retries: int = 5, base_delay: float = 1.0):
@@ -781,11 +785,17 @@ def retry_on_openai_error(max_retries: int = 5, base_delay: float = 1.0):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            # Capture the retry generation once per call: if test teardown
+            # interrupts pending retries after this point, every backoff wait
+            # for this call aborts immediately (even attempts started later).
+            generation = current_generation()
             for attempt in range(max_retries):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
-                    _handle_openai_transient_error(e, attempt, max_retries, base_delay)
+                    _handle_openai_transient_error(
+                        e, attempt, max_retries, base_delay, generation=generation
+                    )
             # _handle_openai_transient_error raises on last attempt,
             # but guard against silent None return if logic changes
             raise RuntimeError("retry exhausted without raising")  # pragma: no cover
@@ -807,6 +817,8 @@ def retry_generator_on_openai_error(max_retries: int = 5, base_delay: float = 1.
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            # Capture the retry generation once per call (see retry_abort.py).
+            generation = current_generation()
             for attempt in range(max_retries):
                 has_yielded = False
                 try:
@@ -825,7 +837,9 @@ def retry_generator_on_openai_error(max_retries: int = 5, base_delay: float = 1.
                     if has_yielded:
                         # Can't retry after streaming has started - would cause duplicates
                         raise
-                    _handle_openai_transient_error(e, attempt, max_retries, base_delay)
+                    _handle_openai_transient_error(
+                        e, attempt, max_retries, base_delay, generation=generation
+                    )
             # _handle_openai_transient_error raises on last attempt,
             # but guard against silent None return if logic changes
             raise RuntimeError("retry exhausted without raising")  # pragma: no cover

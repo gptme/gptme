@@ -15,10 +15,12 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from ...llm.retry_abort import bind_thread_generation
 from ...message import Message
 from .. import clear_tools, get_tools, load_tool, set_tools
 from .._allowlist import (
@@ -27,11 +29,17 @@ from .._allowlist import (
     tool_matches_allowlist,
 )
 from .concurrency import get_slot_sem
+from .hooks import notify_completion, notify_progress
+from .types import (
+    ReturnType,
+    set_subagent_result_if_absent,
+    update_subagent_result_with_branch,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from .types import ReturnType, Status, Subagent, SubtaskDef
+    from .types import Status, Subagent, SubtaskDef
 
 logger = logging.getLogger(__name__)
 
@@ -695,10 +703,6 @@ def _poll_subprocess_progress(
             loop runs one final drain pass after the event is set to catch any
             progress updates written in the last moments before exit.
     """
-    import time
-
-    from .hooks import notify_progress
-
     progress_file = subagent.logdir / "progress.jsonl"
     file_pos = 0
     POLL_INTERVAL = 0.5
@@ -729,13 +733,6 @@ def _monitor_subprocess(
     written by the subprocess-mode ``progress`` tool and delivers intermediate
     updates to the parent via ``notify_progress``.
     """
-    from .hooks import notify_completion
-    from .types import (
-        ReturnType,
-        set_subagent_result_if_absent,
-        update_subagent_result_with_branch,
-    )
-
     if not subagent.process:
         return
 
@@ -988,6 +985,9 @@ def _run_planner(
                 _workspace=workspace,
                 _profile=resolved_profile,
             ):
+                # Bind retry generation at thread birth so test-teardown
+                # interrupts abort backoffs even post-teardown (see retry_abort).
+                bind_thread_generation()
                 _sem = get_slot_sem()
                 _sem.acquire()
                 try:
@@ -1067,6 +1067,9 @@ def _run_planner(
                 subtask_profile=resolved_profile,
                 cleanup_subagent=cleanup_sa,
             ):
+                # Bind retry generation at thread birth so test-teardown
+                # interrupts abort backoffs even post-teardown (see retry_abort).
+                bind_thread_generation()
                 _sem = get_slot_sem()
                 _sem.acquire()
                 try:

@@ -15,6 +15,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Literal
 
+from ...llm.retry_abort import bind_thread_generation
 from . import execution as _exec
 from .concurrency import get_slot_sem
 from .hooks import notify_completion
@@ -531,6 +532,9 @@ def subagent(
             )
 
         def run_acp_subagent():
+            # Bind retry generation at thread birth so test-teardown interrupts
+            # abort backoffs even for LLM calls that start after teardown.
+            bind_thread_generation()
             _sem = get_slot_sem()
             _sem.acquire()
             try:
@@ -787,6 +791,9 @@ def subagent(
         # The semaphore is acquired before starting LLM work and released in
         # finally so excess agents queue until a slot opens.
         def run_subagent():
+            # Bind retry generation at thread birth so test-teardown interrupts
+            # abort backoffs even for LLM calls that start after teardown.
+            bind_thread_generation()
             _sem = get_slot_sem()
             _sem.acquire()
             try:
