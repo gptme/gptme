@@ -314,6 +314,10 @@ class Subagent:
     started_at: float = field(default_factory=time.time)
     # Wall-clock limit in seconds; when set, a watchdog auto-cancels after this time
     max_time: float | None = None
+    # Logdir of the parent session that spawned this subagent.
+    # Used by SESSION_END cleanup to scope cancellation to the correct session and
+    # prevent cross-conversation interference in multi-session server deployments.
+    parent_logdir: Path | None = field(default=None)
 
     def _normalize_json_result(self, result: str) -> str:
         """Normalize a complete-block result as canonical JSON.

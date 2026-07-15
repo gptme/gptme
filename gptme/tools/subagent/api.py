@@ -260,14 +260,19 @@ def subagent(
     if isolation == "worktree":
         isolated = True
 
-    # Fetch parent messages from the active LogManager when context_turns is set.
+    # Capture the parent session's logdir unconditionally — used by SESSION_END
+    # cleanup to scope cancellation to this conversation only (multi-session safety).
     # LogManager.get_current_log() reads a ContextVar set by the chat loop, so
     # this works when subagent() is called from within an ipython tool execution.
+    from ...logmanager import LogManager  # fmt: skip
+
+    parent_log = LogManager.get_current_log()
+    parent_logdir = (
+        getattr(parent_log, "logdir", None) if parent_log is not None else None
+    )
+
     parent_messages = None
     if context_turns is not None:
-        from ...logmanager import LogManager  # fmt: skip
-
-        parent_log = LogManager.get_current_log()
         if parent_log is not None:
             msgs = parent_log.log
             # Slice from the N-th-from-last user message so tool-result system
@@ -400,6 +405,7 @@ def subagent(
             redact_secrets=redact_secrets,
             context_window=context_window,
             max_time=max_time,
+            parent_logdir=parent_logdir,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -425,6 +431,7 @@ def subagent(
                 redact_secrets=redact_secrets,
                 context_window=context_window,
                 workdir=workdir_path,
+                parent_logdir=parent_logdir,
             )
         finally:
             if _timer is not None:
@@ -675,6 +682,7 @@ def subagent(
             role=role,
             max_time=max_time,
             context_turns=context_turns,
+            parent_logdir=parent_logdir,
         )
         # Append sa before starting the thread so the finally block can find it
         # (avoids race condition where fast completion can't locate sa in _subagents)
@@ -778,6 +786,7 @@ def subagent(
             role=role,
             max_time=max_time,
             context_turns=context_turns,
+            parent_logdir=parent_logdir,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -921,6 +930,7 @@ def subagent(
             context_window=context_window,
             max_time=max_time,
             context_turns=context_turns,
+            parent_logdir=parent_logdir,
         )
         with _subagents_lock:
             _subagents.append(sa)
