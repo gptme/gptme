@@ -102,21 +102,26 @@ class TestSubagentControlChannel:
 
         assert list(_subagent_control_hook(manager)) == []
 
-    def test_control_hook_cancels_and_preserves_completed_result(self, tmp_path):
+    def test_control_hook_stores_cancelled_status(self, tmp_path):
+        """Hook must store 'cancelled' (not 'failure') when no prior result exists."""
         append_control_op(tmp_path, "cancel", agent_id="thread-agent")
         manager = MagicMock(logdir=tmp_path)
+        with _subagent_results_lock:
+            _subagent_results.clear()
 
         with pytest.raises(SessionCompleteException, match="cancelled"):
             list(_subagent_control_hook(manager))
         assert "cancellation requested" in manager.append.call_args.args[0].content
         with _subagent_results_lock:
-            assert _subagent_results["thread-agent"] == ReturnType(
-                "failure", "Cancelled by orchestrator"
-            )
+            assert _subagent_results["thread-agent"].status == "cancelled"
 
-        append_control_op(tmp_path, "cancel", agent_id="thread-agent")
+    def test_control_hook_cancels_and_preserves_completed_result(self, tmp_path):
+        """Hook must not overwrite a success result from natural completion."""
+        manager = MagicMock(logdir=tmp_path)
         with _subagent_results_lock:
             _subagent_results["thread-agent"] = ReturnType("success", "done")
+        append_control_op(tmp_path, "cancel", agent_id="thread-agent")
+
         with pytest.raises(SessionCompleteException, match="cancelled"):
             list(_subagent_control_hook(manager))
         with _subagent_results_lock:
@@ -870,6 +875,44 @@ class TestSubagentCancel:
         subagent_cancel("thread-agent")
 
         assert drain_control_ops(tmp_path)[0]["agent_id"] == "thread-agent"
+
+    def test_cancel_thread_result_set_before_control_file(self, tmp_path):
+        """Result must be 'cancelled' in cache before control file is written.
+
+        Regression test for the race where the STEP_PRE hook could observe the
+        cancel op before set_subagent_result_if_absent and store 'failure'.
+        """
+        control_written_after_result: list[bool] = []
+
+        original_append = __import__(
+            "gptme.tools.subagent.control", fromlist=["append_control_op"]
+        ).append_control_op
+
+        def spy_append(logdir, op, **kwargs):
+            # At the moment the control file is written, check if result is set
+            with _subagent_results_lock:
+                already_set = "thread-agent" in _subagent_results
+            control_written_after_result.append(already_set)
+            original_append(logdir, op, **kwargs)
+
+        import gptme.tools.subagent.api as _sapi
+
+        original = _sapi.append_control_op
+        _sapi.append_control_op = spy_append
+        try:
+            mock_thread = MagicMock(spec=threading.Thread)
+            mock_thread.is_alive.return_value = True
+            self._register("thread-agent", thread=mock_thread, logdir=tmp_path)
+            subagent_cancel("thread-agent")
+        finally:
+            _sapi.append_control_op = original
+
+        # The result must already be in the cache when the control file is written
+        assert control_written_after_result == [True], (
+            "Control file was written before result was set — race condition present"
+        )
+        with _subagent_results_lock:
+            assert _subagent_results["thread-agent"].status == "cancelled"
 
     def test_thread_completion_skips_notify_when_cancel_wins_race(
         self, monkeypatch, tmp_path

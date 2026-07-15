@@ -1053,22 +1053,20 @@ def subagent_cancel(agent_id: str) -> str:
         return f"Subagent '{agent_id}' is not running (already finished)."
 
     cancelled_result = ReturnType("cancelled", "Cancelled by orchestrator")
-    # Best-effort: write the cancel signal so thread agents stop at their next
-    # checkpoint.  If the logdir is unavailable (removed, read-only, etc.) we
-    # still proceed with subprocess termination / result-marking below.
-    try:
-        append_control_op(sa.logdir, "cancel", agent_id=agent_id)
-    except OSError as e:
-        logger.warning("Failed to write cancel control op for '%s': %s", agent_id, e)
 
     if sa.execution_mode == "subprocess" and sa.process:
+        # Mark result BEFORE writing the control file so the cooperative checkpoint
+        # can never observe the cancel op without a "cancelled" result already in
+        # the cache — preventing a race where the hook's set_subagent_result_if_absent
+        # would win with the wrong status.
         if not set_subagent_result_if_absent(agent_id, cancelled_result):
             return f"Subagent '{agent_id}' already finished before cancellation."
-        # Write cancel op so the subprocess checkpoint can exit cleanly before SIGTERM.
         try:
-            _write_cancel_op(sa.logdir, agent_id)
-        except Exception as e:
-            logger.warning(f"Failed to write cancel op for '{agent_id}': {e}")
+            append_control_op(sa.logdir, "cancel", agent_id=agent_id)
+        except OSError as e:
+            logger.warning(
+                "Failed to write cancel control op for '%s': %s", agent_id, e
+            )
         sa.process.terminate()
         try:
             sa.process.wait(timeout=5)
@@ -1078,14 +1076,16 @@ def subagent_cancel(agent_id: str) -> str:
         logger.info(f"Subagent '{agent_id}' subprocess terminated.")
         return f"Subagent '{agent_id}' cancelled."
     if sa.execution_mode == "thread":
-        # Thread mode: write cancel op so the cooperative STEP_PRE checkpoint stops
-        # the thread cleanly and releases the concurrency slot.
+        # Thread mode: mark result BEFORE writing the control file (same race fix).
+        # The thread stops at its next STEP_PRE checkpoint and releases the slot.
         if not set_subagent_result_if_absent(agent_id, cancelled_result):
             return f"Subagent '{agent_id}' already finished before cancellation."
         try:
-            _write_cancel_op(sa.logdir, agent_id)
-        except Exception as e:
-            logger.warning(f"Failed to write cancel op for '{agent_id}': {e}")
+            append_control_op(sa.logdir, "cancel", agent_id=agent_id)
+        except OSError as e:
+            logger.warning(
+                "Failed to write cancel control op for '%s': %s", agent_id, e
+            )
         logger.info(
             f"Subagent '{agent_id}' marked cancelled (thread will stop at next checkpoint)."
         )

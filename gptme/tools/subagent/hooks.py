@@ -66,7 +66,7 @@ def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, No
         )
     )
     set_subagent_result_if_absent(
-        agent_id, ReturnType("failure", "Cancelled by orchestrator")
+        agent_id, ReturnType("cancelled", "Cancelled by orchestrator")
     )
     from ..complete import SessionCompleteException
 
