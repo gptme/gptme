@@ -3785,3 +3785,160 @@ def test_subprocess_pydantic_schema_via_prompt():
     assert schema_dict["type"] == "object"
     assert "score" in schema_dict.get("properties", {})
     assert "summary" in schema_dict.get("properties", {})
+
+
+# ---------------------------------------------------------------------------
+# SESSION_END teardown hook tests (issue #3259)
+# ---------------------------------------------------------------------------
+
+
+def test_session_end_hook_cancels_running_subprocess():
+    """SESSION_END hook terminates running subprocess subagents."""
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from gptme.tools.subagent import (
+        _subagent_session_end_hook,
+        _subagents,
+        _subagents_lock,
+    )
+    from gptme.tools.subagent.types import Subagent
+
+    _subagents.clear()
+
+    # Fake running subprocess
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None  # still running
+
+    sa = Subagent(
+        agent_id="subprocess-teardown-test",
+        prompt="some task",
+        thread=None,
+        logdir=Path("/tmp/fake-logdir"),
+        model=None,
+        execution_mode="subprocess",
+        process=mock_proc,
+    )
+    with _subagents_lock:
+        _subagents.append(sa)
+
+    msgs = list(_session_end_hook_drain(_subagent_session_end_hook))
+
+    # Process should have been terminated
+    mock_proc.terminate.assert_called_once()
+    # Hook should have yielded a summary message
+    assert len(msgs) == 1
+    assert "subprocess-teardown-test" in msgs[0].content
+
+
+def test_session_end_hook_cancels_running_thread():
+    """SESSION_END hook marks running thread-mode subagents as cancelled."""
+    import threading
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from gptme.tools.subagent import (
+        _subagent_results,
+        _subagent_results_lock,
+        _subagent_session_end_hook,
+        _subagents,
+        _subagents_lock,
+    )
+    from gptme.tools.subagent.types import Subagent
+
+    _subagents.clear()
+    with _subagent_results_lock:
+        _subagent_results.clear()
+
+    # Fake alive thread
+    t = MagicMock(spec=threading.Thread)
+    t.is_alive.return_value = True
+
+    sa = Subagent(
+        agent_id="thread-teardown-test",
+        prompt="some task",
+        thread=t,
+        logdir=Path("/tmp/fake-logdir"),
+        model=None,
+        execution_mode="thread",
+    )
+    with _subagents_lock:
+        _subagents.append(sa)
+
+    msgs = list(_session_end_hook_drain(_subagent_session_end_hook))
+
+    # A cancelled result should have been written for the thread agent
+    with _subagent_results_lock:
+        result = _subagent_results.get("thread-teardown-test")
+    assert result is not None
+    assert result.status == "failure"  # subagent_cancel writes failure
+    assert len(msgs) == 1
+    assert "thread-teardown-test" in msgs[0].content
+
+
+def test_session_end_hook_skips_finished_subagents():
+    """SESSION_END hook leaves already-finished subagents alone."""
+    import threading
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from gptme.tools.subagent import (
+        _subagent_results,
+        _subagent_results_lock,
+        _subagent_session_end_hook,
+        _subagents,
+        _subagents_lock,
+    )
+    from gptme.tools.subagent.types import ReturnType, Subagent
+
+    _subagents.clear()
+    with _subagent_results_lock:
+        _subagent_results.clear()
+
+    # Thread that is already dead
+    t = MagicMock(spec=threading.Thread)
+    t.is_alive.return_value = False
+
+    sa = Subagent(
+        agent_id="done-agent",
+        prompt="already done",
+        thread=t,
+        logdir=Path("/tmp/fake-logdir"),
+        model=None,
+        execution_mode="thread",
+    )
+    # Pre-seed a terminal result
+    with _subagent_results_lock:
+        _subagent_results["done-agent"] = ReturnType("success", "finished")
+    with _subagents_lock:
+        _subagents.append(sa)
+
+    msgs = list(_session_end_hook_drain(_subagent_session_end_hook))
+
+    # No messages — nothing to tear down
+    assert len(msgs) == 0
+    # Existing cached result is untouched
+    with _subagent_results_lock:
+        result = _subagent_results.get("done-agent")
+    assert result is not None
+    assert result.status == "success"
+
+
+def test_session_end_hook_no_subagents():
+    """SESSION_END hook yields nothing when no subagents are registered."""
+    from gptme.tools.subagent import (
+        _subagent_session_end_hook,
+        _subagents,
+        _subagents_lock,
+    )
+
+    with _subagents_lock:
+        _subagents.clear()
+
+    msgs = list(_session_end_hook_drain(_subagent_session_end_hook))
+    assert len(msgs) == 0
+
+
+def _session_end_hook_drain(hook_fn):
+    """Helper: call a SESSION_END hook with a None manager and collect messages."""
+    return list(hook_fn(None))

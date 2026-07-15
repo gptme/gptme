@@ -14,6 +14,7 @@ Package structure:
 # Re-export ToolUse for examples()
 from ..base import ToolFunction, ToolSpec, ToolUse
 from .api import (
+    _subagent_session_end_hook,
     subagent,
     subagent_cancel,
     subagent_list,
@@ -532,7 +533,12 @@ tool = ToolSpec(
             "loop.continue",  # HookType.LOOP_CONTINUE.value
             _subagent_completion_hook,
             50,  # High priority to ensure timely delivery
-        )
+        ),
+        "teardown": (
+            "session.end",  # HookType.SESSION_END.value
+            _subagent_session_end_hook,
+            50,  # Run early so subprocesses are reaped before other end-hooks
+        ),
     },
 )
 __doc__ = tool.get_doc(__doc__)
@@ -561,6 +567,7 @@ __all__ = [
     "notify_completion",
     "notify_progress",
     "_subagent_completion_hook",
+    "_subagent_session_end_hook",
     "_get_complete_instruction",
     # Execution context
     "get_current_agent_id",

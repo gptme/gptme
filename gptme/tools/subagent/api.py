@@ -13,7 +13,13 @@ import time
 import uuid
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from collections.abc import Generator  # fmt: skip
+
+    from ...logmanager import LogManager  # fmt: skip
+    from ...message import Message  # fmt: skip
 
 from . import execution as _exec
 from .concurrency import get_slot_sem
@@ -1019,6 +1025,42 @@ def subagent_cancel(agent_id: str) -> str:
     return (
         f"Subagent '{agent_id}' marked as cancelled. "
         "The background thread will stop at its next natural checkpoint."
+    )
+
+
+def _subagent_session_end_hook(
+    manager: "LogManager",
+) -> "Generator[Message, None, None]":
+    """Stop still-running subagents when the parent session ends.
+
+    Registered as a SESSION_END hook so that subprocess-mode subagents are
+    reaped when the orchestrator exits — whether via normal completion,
+    KeyboardInterrupt, or SessionCompleteException.  Thread-mode subagents are
+    daemon threads and die with the process in CLI runs, but we cancel them too
+    so their cached result reflects the teardown cleanly.
+    """
+    from ...message import Message  # avoid circular at module load
+
+    with _subagents_lock:
+        snapshot = list(_subagents)
+
+    running = [sa for sa in snapshot if sa.is_running()]
+    if not running:
+        return
+
+    for sa in running:
+        try:
+            subagent_cancel(sa.agent_id)
+        except Exception as e:
+            logger.warning(
+                "Error cancelling subagent '%s' at session end: %s", sa.agent_id, e
+            )
+
+    logger.info("Stopped %d running subagent(s) at session end.", len(running))
+    yield Message(
+        "system",
+        f"[session teardown] Stopped {len(running)} running subagent(s): "
+        + ", ".join(f"'{sa.agent_id}'" for sa in running),
     )
 
 
