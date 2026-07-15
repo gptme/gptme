@@ -276,6 +276,37 @@ def test_release_thread_clears_stale_event_for_ident_reuse():
     assert results == [False]
 
 
+def test_interrupt_dead_thread_leaves_no_stale_event():
+    """interrupt_thread() on a dead thread must not pre-signal a stale entry.
+
+    A completed worker calls release_thread() in its finally block and then dies.
+    If teardown calls interrupt_thread() on the already-dead thread, the pre-signal
+    path must not create a stale _thread_events entry — that would poison any
+    later thread that Python reuses the same ident for.
+    """
+    done = threading.Event()
+
+    def worker():
+        bind_thread_generation()
+        done.set()
+        release_thread()  # normally called by the api.py worker finally block
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    assert done.wait(timeout=5.0)
+    t.join(timeout=5.0)
+    assert not t.is_alive()
+
+    ident = t.ident
+    interrupt_thread(t)  # called on a dead thread (simulates late teardown)
+
+    from gptme.llm import retry_abort
+
+    assert ident not in retry_abort._thread_events, (
+        "interrupt_thread() on a dead thread must not create a stale pre-signaled event"
+    )
+
+
 def test_anthropic_handler_stale_generation_reraises_same_error(monkeypatch):
     """Same as the OpenAI case, for the Anthropic transient-error handler."""
     from anthropic import APIStatusError

@@ -86,6 +86,12 @@ def interrupt_thread(thread: threading.Thread) -> None:
         if event is not None:
             event.set()
         else:
+            # Only pre-create a signaled event if the thread is still alive.
+            # A dead thread already called release_thread() (or never registered).
+            # Pre-signaling its ident after it exits would poison a later thread
+            # that Python reuses the same ident for.
+            if not thread.is_alive():
+                return
             # Thread started but bind_thread_generation() hasn't run yet.
             # Pre-create a signaled event; bind_thread_generation() will adopt it.
             pre = threading.Event()
