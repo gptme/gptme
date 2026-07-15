@@ -2156,7 +2156,7 @@ def test_cancelled_queued_acp_does_not_launch_after_slot_frees():
         assert cleanup_calls == ["test-acp-cancelled"]
 
     with _subagent_results_lock:
-        assert _subagent_results["test-acp-cancelled"].status == "failure"
+        assert _subagent_results["test-acp-cancelled"].status == "cancelled"
         assert (
             _subagent_results["test-acp-cancelled"].result
             == "Cancelled by orchestrator"

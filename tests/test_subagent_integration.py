@@ -44,7 +44,7 @@ def clean_subagent_state():
 
 
 class TestCancelLifecycle:
-    """Integration tests: cancel completes within deadline and marks result as failure."""
+    """Integration tests: cancel completes within deadline and marks result as cancelled."""
 
     def _spawn_blocking_subagent(
         self,
@@ -72,8 +72,8 @@ class TestCancelLifecycle:
 
         subagent(agent_id, "do a thing")
 
-    def test_cancel_marks_result_as_failure(self, monkeypatch, tmp_path):
-        """Cancelled subagent result is failure/cancelled within 5 seconds."""
+    def test_cancel_marks_result_as_cancelled(self, monkeypatch, tmp_path):
+        """Cancelled subagent result has status 'cancelled' within 5 seconds."""
         hold = threading.Event()
 
         self._spawn_blocking_subagent("agent-a", hold, monkeypatch, tmp_path)
@@ -90,7 +90,7 @@ class TestCancelLifecycle:
         with _subagent_results_lock:
             result = _subagent_results.get("agent-a")
         assert result is not None
-        assert result.status == "failure"
+        assert result.status == "cancelled"
         assert result.result is not None
         assert isinstance(result.result, str)
         assert "cancelled" in result.result.lower()
