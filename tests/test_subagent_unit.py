@@ -5735,7 +5735,9 @@ class TestSubagentCancelThreadWritesControlFile:
         assert "cancelled" in result.lower()
         control = tmp_path / "control.jsonl"
         assert control.exists(), "cancel must write control.jsonl for thread mode"
-        entry = json.loads(control.read_text().strip())
+        # Parse first line of JSONL file
+        lines = control.read_text().strip().split("\n")
+        entry = json.loads(lines[0])
         assert entry["op"] == "cancel"
         assert entry["agent_id"] == "thr-agent"
 
@@ -5759,7 +5761,9 @@ class TestSubagentCancelThreadWritesControlFile:
 
         control = tmp_path / "control.jsonl"
         assert control.exists(), "cancel must write control.jsonl for subprocess mode"
-        entry = json.loads(control.read_text().strip())
+        # Parse first line of JSONL file
+        lines = control.read_text().strip().split("\n")
+        entry = json.loads(lines[0])
         assert entry["op"] == "cancel"
 
 
