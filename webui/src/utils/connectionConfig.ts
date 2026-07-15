@@ -24,16 +24,35 @@ function isUnsetViteHtmlPlaceholder(value: string): boolean {
   return /^%VITE_[A-Z0-9_]+%$/.test(value);
 }
 
+let demoModeLatch: boolean | null = null;
+
 /**
  * Whether the app should run in offline demo mode (fixture-backed, no live
  * backend, no auth). Activated by a `?demo=1` URL flag so a demo can be shared
  * as a plain link. Safe to call outside a browser (returns false).
+ *
+ * The result is latched on the first browser call: demo mode can only change
+ * with a full page reload, but SPA navigation may rewrite the URL and drop the
+ * `?demo=1` param. Without the latch, guards that consult this function go
+ * false mid-session while the demo ApiClient (selected once at module init in
+ * `serverClients.ts`) stays active with `baseUrl=demo://offline`, so live
+ * fetches fire against the unfetchable `demo://` scheme
+ * ("Failed to fetch models" console errors on chat.gptme.org after navigating
+ * inside the demo).
  */
 export function isDemoMode(): boolean {
   if (typeof window === 'undefined' || !window.location) {
     return false;
   }
-  return new URLSearchParams(window.location.search).get('demo') === '1';
+  if (demoModeLatch === null) {
+    demoModeLatch = new URLSearchParams(window.location.search).get('demo') === '1';
+  }
+  return demoModeLatch;
+}
+
+/** Test-only: clear the {@link isDemoMode} latch between test cases. */
+export function resetDemoModeForTests(): void {
+  demoModeLatch = null;
 }
 
 // Browser builds can inject runtime env from index.html before this module

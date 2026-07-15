@@ -21,7 +21,9 @@ jest.mock('@/stores/servers', () => ({
 
 import {
   getConnectionConfigFromSources,
+  isDemoMode,
   processConnectionFromHash,
+  resetDemoModeForTests,
   resolveCloudExchangeBaseUrl,
 } from '../connectionConfig';
 
@@ -171,5 +173,35 @@ describe('processConnectionFromHash', () => {
     expect(mockFindOrCreateServerByUrl).not.toHaveBeenCalled();
     expect(mockConnectServer).not.toHaveBeenCalled();
     expect(mockSetActiveServer).not.toHaveBeenCalled();
+  });
+});
+
+describe('isDemoMode', () => {
+  beforeEach(() => {
+    resetDemoModeForTests();
+  });
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+    resetDemoModeForTests();
+  });
+
+  it('latches true on first call and survives SPA URL rewrites that drop ?demo=1', () => {
+    window.history.replaceState(null, '', '/?demo=1');
+    expect(isDemoMode()).toBe(true);
+
+    // SPA navigation rewrites the URL without the demo param (regression:
+    // guards went false while the demo ApiClient stayed active, firing live
+    // fetches against demo://offline).
+    window.history.replaceState(null, '', '/agents');
+    expect(isDemoMode()).toBe(true);
+  });
+
+  it('latches false on first call; adding ?demo=1 without a reload does not enable demo', () => {
+    window.history.replaceState(null, '', '/');
+    expect(isDemoMode()).toBe(false);
+
+    window.history.replaceState(null, '', '/?demo=1');
+    expect(isDemoMode()).toBe(false);
   });
 });
