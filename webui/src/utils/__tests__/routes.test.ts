@@ -1,4 +1,4 @@
-import { chatRoute, decodeRouteParam } from '../routes';
+import { appRoute, chatRoute, decodeRouteParam } from '../routes';
 
 describe('chatRoute', () => {
   beforeEach(() => {
@@ -30,6 +30,17 @@ describe('chatRoute', () => {
   it('forwards demo but strips step when both are present', () => {
     window.history.replaceState(null, '', '/?demo=1&step=true');
     expect(chatRoute('demo/conv-123')).toBe('/chat/demo%2Fconv-123?demo=1');
+  });
+});
+
+describe('appRoute', () => {
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('preserves durable mode params across top-level navigation', () => {
+    window.history.replaceState(null, '', '/chat/demo?demo=1&step=true');
+    expect(appRoute('/agents')).toBe('/agents?demo=1');
   });
 });
 

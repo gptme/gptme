@@ -3,6 +3,7 @@ import { extractWorkspacesFromConversations, formatPath } from '@/utils/workspac
 import { formatDistanceToNow } from 'date-fns';
 import type { ConversationSummary } from '@/types/conversation';
 import { useNavigate } from 'react-router-dom';
+import { appRoute } from '@/utils/routes';
 import { selectedWorkspace$ } from '@/stores/sidebar';
 import type { FC } from 'react';
 
@@ -16,7 +17,7 @@ export const WorkspacesView: FC<WorkspacesViewProps> = ({ conversations }) => {
 
   const handleWorkspaceClick = (path: string) => {
     selectedWorkspace$.set(path);
-    navigate('/chat');
+    navigate(appRoute('/chat'));
   };
 
   return (

@@ -68,6 +68,7 @@ const renderSidebar = () =>
 describe('SidebarIcons', () => {
   beforeEach(() => {
     mockLocalStorage.clear();
+    window.history.replaceState(null, '', '/chat');
     // Default to lg screen
     Object.defineProperty(window, 'innerWidth', { value: 1280, configurable: true });
   });
@@ -80,6 +81,16 @@ describe('SidebarIcons', () => {
     expect(screen.getByTestId('toggle-conversations-sidebar')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /agents/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /tasks/i })).toBeInTheDocument();
+  });
+
+  it('preserves demo mode when navigating between top-level sections', () => {
+    window.history.replaceState(null, '', '/chat?demo=1');
+    renderSidebar();
+
+    fireEvent.click(screen.getByRole('button', { name: /agents/i }));
+
+    expect(window.location.pathname).toBe('/agents');
+    expect(window.location.search).toBe('?demo=1');
   });
 
   it('starts expanded on lg+ screens when no preference stored', () => {

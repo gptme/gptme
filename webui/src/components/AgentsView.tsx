@@ -6,6 +6,8 @@ import { formatDistanceToNow } from 'date-fns';
 import type { ConversationSummary } from '@/types/conversation';
 import { useApi } from '@/contexts/ApiContext';
 import { useNavigate } from 'react-router-dom';
+import { isDemoMode } from '@/utils/connectionConfig';
+import { appRoute } from '@/utils/routes';
 import { selectedAgent$ } from '@/stores/sidebar';
 import CreateAgentDialog, { type CreateAgentRequest } from './CreateAgentDialog';
 import type { FC } from 'react';
@@ -19,13 +21,14 @@ export const AgentsView: FC<AgentsViewProps> = ({ conversations }) => {
   const baseUrl = connectionConfig.baseUrl.replace(/\/+$/, '');
   const navigate = useNavigate();
   const agents = extractAgentsFromConversations(conversations);
+  const demoMode = isDemoMode();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   const handleAgentClick = (agentName: string) => {
     const agent = agents.find((a) => a.name === agentName);
     if (agent) {
       selectedAgent$.set(agent);
-      navigate('/chat');
+      navigate(appRoute('/chat'));
     }
   };
 
@@ -49,10 +52,12 @@ export const AgentsView: FC<AgentsViewProps> = ({ conversations }) => {
               conversations
             </p>
           </div>
-          <Button onClick={() => setShowCreateDialog(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create Agent
-          </Button>
+          {!demoMode && (
+            <Button onClick={() => setShowCreateDialog(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Agent
+            </Button>
+          )}
         </div>
 
         {agents.length === 0 ? (
@@ -60,13 +65,16 @@ export const AgentsView: FC<AgentsViewProps> = ({ conversations }) => {
             <Bot className="mb-4 h-16 w-16 text-muted-foreground opacity-40" />
             <h2 className="mb-2 text-lg font-medium">No agents yet</h2>
             <p className="mb-6 max-w-md text-sm text-muted-foreground">
-              Agents are discovered from your conversation history. Create one to get started, or
-              start a conversation in an agent workspace.
+              {demoMode
+                ? 'Agent creation requires a live gptme server.'
+                : 'Agents are discovered from your conversation history. Create one to get started, or start a conversation in an agent workspace.'}
             </p>
-            <Button onClick={() => setShowCreateDialog(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Agent
-            </Button>
+            {!demoMode && (
+              <Button onClick={() => setShowCreateDialog(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Agent
+              </Button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -123,11 +131,13 @@ export const AgentsView: FC<AgentsViewProps> = ({ conversations }) => {
         )}
       </div>
 
-      <CreateAgentDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
-        onAgentCreated={handleAgentCreated}
-      />
+      {!demoMode && (
+        <CreateAgentDialog
+          open={showCreateDialog}
+          onOpenChange={setShowCreateDialog}
+          onAgentCreated={handleAgentCreated}
+        />
+      )}
     </div>
   );
 };

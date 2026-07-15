@@ -20,6 +20,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useApi } from '@/contexts/ApiContext';
 import { initConversation } from '@/stores/conversations';
 import { parseConversationImportJSON } from '@/utils/exportConversation';
+import { appRoute } from '@/utils/routes';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -150,7 +151,9 @@ export const UnifiedSidebar: FC<Props> = ({
 
   const handleSelectExternal = useCallback(
     (id: string) => {
-      navigate(`/external-sessions?selected=${id}`);
+      const route = appRoute('/external-sessions');
+      const separator = route.includes('?') ? '&' : '?';
+      navigate(`${route}${separator}selected=${encodeURIComponent(id)}`);
     },
     [navigate]
   );
@@ -190,7 +193,7 @@ export const UnifiedSidebar: FC<Props> = ({
   }, [tasks, selectedTargetTypes]);
 
   const handleNewConversation = () => {
-    navigate('/chat');
+    navigate(appRoute('/chat'));
   };
 
   const handleImportConversation = useCallback(

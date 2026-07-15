@@ -24,7 +24,7 @@ import {
 import { withLocalAddressSpace } from '@/utils/addressSpace';
 import { isLikelyChromeCorsPna } from '@/utils/api';
 import { isDemoMode } from '@/utils/connectionConfig';
-import { chatRoute } from '@/utils/routes';
+import { appRoute, chatRoute } from '@/utils/routes';
 
 const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://localhost:5700']);
 
@@ -566,7 +566,7 @@ export const WelcomeView = () => {
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => navigate('/history')}
+                onClick={() => navigate(appRoute('/history'))}
                 className="rounded-full border border-transparent text-muted-foreground hover:border-border/70 hover:bg-background/70"
               >
                 <History className="mr-2 h-4 w-4" />
