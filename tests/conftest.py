@@ -144,9 +144,13 @@ def pytest_runtest_makereport(item, call):
             report.outcome = "skipped"
             report.longrepr = f"API quota exhausted or invalid credentials during test: {call.excinfo.value}"
 
-    # Track call-phase outcome so the teardown guard below can verify the test
-    # body actually passed before suppressing any teardown error.
+    # Count call-phase attempts so the teardown guard below can verify the test
+    # was actually retried (not just that a single passing call existed). Track
+    # whether the last call passed so we know the retry succeeded.
     if report.when == "call":
+        item._stash_guard_call_attempts = (
+            getattr(item, "_stash_guard_call_attempts", 0) + 1
+        )
         item._stash_guard_call_passed = report.passed
 
     # pytest-retry × pytest≥9.1 compat: tmp_path (and caplog) stash keys are
@@ -154,12 +158,14 @@ def pytest_runtest_makereport(item, call):
     # When pytest-retry re-runs the test body without a full fixture re-setup,
     # the stash entry is absent during teardown of the retried (passing) attempt,
     # producing KeyError: <_pytest.stash.StashKey object at 0x...>.
-    # Guard: only suppress when (a) the test body passed and (b) the error is
-    # specifically from _pytest.stash internals — avoids masking genuine fixture
-    # teardown bugs that happen to involve a KeyError (Greptile P1).
+    # Three-way guard to avoid masking genuine teardown failures (Greptile P1):
+    #   (a) test was actually retried (>1 call attempts seen by this hook)
+    #   (b) the last call attempt passed (retry succeeded)
+    #   (c) the error is specifically from _pytest.stash internals
     if (
         report.when == "teardown"
         and report.failed
+        and getattr(item, "_stash_guard_call_attempts", 0) > 1
         and getattr(item, "_stash_guard_call_passed", False)
     ):
         longrepr_str = str(report.longrepr)
