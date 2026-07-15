@@ -71,7 +71,7 @@ def drain_control_ops(logdir: Path) -> list[dict[str, object]]:
             text = control_path.read_text(encoding="utf-8")
         except OSError as e:
             logger.warning("Could not read control file %s: %s", control_path, e)
-            return []  # Leave file in place; hook will retry at next checkpoint
+            raise  # Let the hook treat a read failure as a cancel signal
         for line in text.splitlines():
             if not line.strip():
                 continue

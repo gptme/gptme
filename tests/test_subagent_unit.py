@@ -75,6 +75,27 @@ class TestSubagentControlChannel:
 
         assert operations[0]["agent_id"] == "child"
 
+    def test_drain_control_ops_raises_on_read_error(self, tmp_path):
+        control_path = tmp_path / CONTROL_FILENAME
+        control_path.write_text('{"op": "cancel", "agent_id": "child"}\n')
+        control_path.chmod(0o000)
+        try:
+            with pytest.raises(OSError, match="Permission denied"):
+                drain_control_ops(tmp_path)
+        finally:
+            control_path.chmod(0o644)
+
+    def test_control_hook_treats_read_error_as_cancel(self, tmp_path):
+        control_path = tmp_path / CONTROL_FILENAME
+        control_path.write_text('{"op": "cancel", "agent_id": "thread-agent"}\n')
+        control_path.chmod(0o000)
+        manager = MagicMock(logdir=tmp_path)
+        try:
+            with pytest.raises(SessionCompleteException, match="cancelled"):
+                list(_subagent_control_hook(manager))
+        finally:
+            control_path.chmod(0o644)
+
     def test_control_hook_noops_without_control_file(self, tmp_path):
         manager = MagicMock(logdir=tmp_path)
 
