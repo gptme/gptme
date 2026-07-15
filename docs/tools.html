@@ -2573,9 +2573,9 @@ is_complete() to check status, and get_completed() for partial results.</p>
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.subagent.</span></span><span class="sig-name descname"><span class="pre">subagent_cancel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">agent_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
 <dd><p>Cancel a running subagent.</p>
 <p>For subprocess-mode subagents, sends SIGTERM (then SIGKILL after 5s) to the
-process. For thread-mode subagents, marks the result as cancelled — the thread
-continues until its next natural checkpoint but the result is already recorded
-as failure so callers won’t block waiting for it.</p>
+process. For thread-mode subagents, records a cancellation operation that stops
+the child at its next step boundary while caching the failure result immediately
+so callers do not block waiting for it.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>agent_id</strong> – The subagent to cancel</p>
