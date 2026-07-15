@@ -559,6 +559,34 @@ class TestBatchJob:
         )
         assert "b" not in completed  # Only completed agent appears
 
+    def test_wait_any_returns_on_cancelled(self, monkeypatch):
+        """wait_any() must treat 'cancelled' as a terminal status and return immediately."""
+        import threading
+
+        from gptme.tools.subagent import batch as batch_mod
+
+        # Simulate: agent-a is cancelled, agent-b is still running
+        call_counts: dict[str, int] = {}
+        unblock = threading.Event()
+
+        def mock_wait(agent_id, timeout=None, max_result_chars=0):
+            call_counts[agent_id] = call_counts.get(agent_id, 0) + 1
+            if agent_id == "agent-a":
+                return {"status": "cancelled", "result": "Cancelled by orchestrator"}
+            # agent-b blocks until the event — should never be called since agent-a
+            # returns a terminal result first
+            unblock.wait(timeout=timeout)
+            return {"status": "success", "result": "done"}
+
+        monkeypatch.setattr(batch_mod, "subagent_wait", mock_wait)
+
+        job = BatchJob(agent_ids=["agent-a", "agent-b"])
+        result_id, result_dict = job.wait_any(timeout=5)
+
+        assert result_id == "agent-a"
+        assert result_dict["status"] == "cancelled"
+        unblock.set()  # release any background threads
+
     def test_wait_all_does_not_raise_on_as_completed_timeout(self, monkeypatch):
         """wait_all() must not propagate TimeoutError — stalled agents get a result dict."""
         import threading
