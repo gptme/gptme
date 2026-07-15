@@ -120,10 +120,16 @@ def pytest_configure(config):
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(item, call):
     """Convert API quota/rate-limit failures to skips for requires_api tests.
+    Also suppresses pytest-retry × pytest≥9.1 StashKey teardown errors.
 
     The session-start quota check may pass with a tiny haiku call, but the
     actual test can hit quota limits with heavier models or longer generations.
     This hook catches those mid-run failures and converts them to skips.
+
+    For the StashKey case: when pytest-retry retries a test that uses tmp_path,
+    pytest≥9.1's stash-based tmp_path tracking loses its key during teardown of
+    the retried attempt. The test body itself passed; treat the teardown as
+    passed to prevent a spurious CI ERROR from masking the real result.
     """
     report = yield
 
@@ -137,6 +143,25 @@ def pytest_runtest_makereport(item, call):
         if any(pattern in error_str for pattern in _QUOTA_ERROR_PATTERNS):
             report.outcome = "skipped"
             report.longrepr = f"API quota exhausted or invalid credentials during test: {call.excinfo.value}"
+
+    # pytest-retry × pytest≥9.1 compat: tmp_path (and caplog) stash keys are
+    # populated by pytest's fixture machinery during the first (failed) attempt.
+    # When pytest-retry re-runs the test body without a full fixture re-setup,
+    # the stash entry is absent during teardown of the retried (passing) attempt,
+    # producing KeyError: <_pytest.stash.StashKey object at 0x...>.
+    # The test itself passed; converting teardown to "passed" avoids surfacing
+    # this infrastructure artifact as a CI ERROR.
+    if report.when == "teardown" and report.failed:
+        longrepr_str = str(report.longrepr)
+        if "StashKey" in longrepr_str and "KeyError" in longrepr_str:
+            logger.warning(
+                "Suppressed pytest-retry × pytest≥9.1 StashKey teardown error "
+                "for %s — the test body passed; this is a known infrastructure "
+                "artifact (see ErikBjare/bob#1084)",
+                item.nodeid,
+            )
+            report.outcome = "passed"
+            report.longrepr = None
 
     return report
 
