@@ -1084,8 +1084,14 @@ def subagent_cancel(agent_id: str) -> str:
             append_control_op(sa.logdir, "cancel", agent_id=agent_id)
         except OSError as e:
             logger.warning(
-                "Failed to write cancel control op for '%s': %s", agent_id, e
+                "Failed to write cancel control op for '%s': %s — "
+                "falling back to in-memory cancel_event",
+                agent_id,
+                e,
             )
+            # Control file is unavailable; signal the thread in-memory so the
+            # STEP_PRE checkpoint hook can still stop it at its next step.
+            sa.cancel_event.set()
         logger.info(
             f"Subagent '{agent_id}' marked cancelled (thread will stop at next checkpoint)."
         )

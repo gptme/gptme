@@ -102,6 +102,37 @@ class TestSubagentControlChannel:
 
         assert list(_subagent_control_hook(manager)) == []
 
+    def test_control_hook_cancels_via_in_memory_event(self, tmp_path):
+        """Hook must fire via cancel_event even when no control file exists.
+
+        Regression for the Greptile P1: when append_control_op raises OSError the
+        control file is never written, so without the in-memory fallback the thread
+        keeps running indefinitely.
+        """
+        manager = MagicMock(logdir=tmp_path)
+        sa = Subagent(
+            agent_id=tmp_path.name,
+            prompt="test",
+            thread=None,
+            logdir=tmp_path,
+            model=None,
+        )
+        sa.cancel_event.set()
+        with _subagents_lock:
+            _subagents.append(sa)
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
+        try:
+            with pytest.raises(SessionCompleteException, match="cancelled"):
+                list(_subagent_control_hook(manager))
+        finally:
+            with _subagents_lock:
+                _subagents.remove(sa)
+
+        # No control file should have been needed
+        assert not (tmp_path / CONTROL_FILENAME).exists()
+
     def test_control_hook_stores_cancelled_status(self, tmp_path):
         """Hook must store 'cancelled' (not 'failure') when no prior result exists."""
         append_control_op(tmp_path, "cancel", agent_id="thread-agent")
@@ -910,6 +941,32 @@ class TestSubagentCancel:
         # The result must already be in the cache when the control file is written
         assert control_written_after_result == [True], (
             "Control file was written before result was set — race condition present"
+        )
+        with _subagent_results_lock:
+            assert _subagent_results["thread-agent"].status == "cancelled"
+
+    def test_cancel_thread_sets_cancel_event_on_ioerror(self, tmp_path):
+        """When control-file write fails, cancel_event must be set as fallback signal."""
+        import gptme.tools.subagent.api as _sapi
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = self._register("thread-agent", thread=mock_thread, logdir=tmp_path)
+
+        original = _sapi.append_control_op
+
+        def failing_append(logdir, op, **kwargs):
+            raise OSError("disk full")
+
+        _sapi.append_control_op = failing_append
+        try:
+            result = subagent_cancel("thread-agent")
+        finally:
+            _sapi.append_control_op = original
+
+        assert "cancelled" in result.lower()
+        assert sa.cancel_event.is_set(), (
+            "cancel_event must be set when control-file write fails"
         )
         with _subagent_results_lock:
             assert _subagent_results["thread-agent"].status == "cancelled"

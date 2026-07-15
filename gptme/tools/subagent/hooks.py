@@ -37,27 +37,36 @@ logger = logging.getLogger(__name__)
 
 def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, None]:
     """Stop a child conversation when its parent writes a cancel operation."""
-    if not (manager.logdir / CONTROL_FILENAME).exists():
-        return
-
-    try:
-        operations = drain_control_ops(manager.logdir)
-    except OSError:
-        # Control file existed but became unreadable or could not be removed.
-        # Treat as a cancel: a cancel op may have been written and must not be lost.
-        logger.warning(
-            "Could not drain control ops from %s; treating as cancel", manager.logdir
-        )
-        operations = [{"op": "cancel", "agent_id": manager.logdir.name}]
-    if not any(operation.get("op") == "cancel" for operation in operations):
-        return
-
     agent_id = manager.logdir.name
-    for operation in operations:
-        candidate_agent_id = operation.get("agent_id")
-        if operation.get("op") == "cancel" and isinstance(candidate_agent_id, str):
-            agent_id = candidate_agent_id
-            break
+
+    # Check in-memory fallback first: set by subagent_cancel() when the control-file
+    # write fails with OSError, so the thread is still stopped at its next checkpoint.
+    with _subagents_lock:
+        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+    in_memory_cancel = sa is not None and sa.cancel_event.is_set()
+
+    if not in_memory_cancel:
+        if not (manager.logdir / CONTROL_FILENAME).exists():
+            return
+
+        try:
+            operations = drain_control_ops(manager.logdir)
+        except OSError:
+            # Control file existed but became unreadable or could not be removed.
+            # Treat as a cancel: a cancel op may have been written and must not be lost.
+            logger.warning(
+                "Could not drain control ops from %s; treating as cancel",
+                manager.logdir,
+            )
+            operations = [{"op": "cancel", "agent_id": agent_id}]
+        if not any(operation.get("op") == "cancel" for operation in operations):
+            return
+
+        for operation in operations:
+            candidate_agent_id = operation.get("agent_id")
+            if operation.get("op") == "cancel" and isinstance(candidate_agent_id, str):
+                agent_id = candidate_agent_id
+                break
 
     manager.append(
         Message(
