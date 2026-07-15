@@ -1052,7 +1052,7 @@ def subagent_cancel(agent_id: str) -> str:
     if not sa.is_running():
         return f"Subagent '{agent_id}' is not running (already finished)."
 
-    cancelled_result = ReturnType("failure", "Cancelled by orchestrator")
+    cancelled_result = ReturnType("cancelled", "Cancelled by orchestrator")
     # Best-effort: write the cancel signal so thread agents stop at their next
     # checkpoint.  If the logdir is unavailable (removed, read-only, etc.) we
     # still proceed with subprocess termination / result-marking below.

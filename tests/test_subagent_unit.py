@@ -707,7 +707,7 @@ class TestSubagentCancel:
         mock_proc.terminate.assert_called_once()
         assert "cancelled" in result.lower()
         with _subagent_results_lock:
-            assert _subagent_results["proc-agent"].status == "failure"
+            assert _subagent_results["proc-agent"].status == "cancelled"
             assert "Cancelled" in (_subagent_results["proc-agent"].result or "")
         assert drain_control_ops(tmp_path)[0]["agent_id"] == "proc-agent"
 
@@ -749,13 +749,13 @@ class TestSubagentCancel:
         )
         with _subagent_results_lock:
             _subagent_results["proc-agent"] = ReturnType(
-                "failure", "Cancelled by orchestrator"
+                "cancelled", "Cancelled by orchestrator"
             )
 
         _monitor_subprocess(sa)
 
         with _subagent_results_lock:
-            assert _subagent_results["proc-agent"].status == "failure"
+            assert _subagent_results["proc-agent"].status == "cancelled"
             assert _subagent_results["proc-agent"].result == "Cancelled by orchestrator"
         assert _completion_queue.empty()
 
@@ -832,7 +832,7 @@ class TestSubagentCancel:
         result = subagent_cancel("thread-agent")
         assert "cancelled" in result.lower()
         with _subagent_results_lock:
-            assert _subagent_results["thread-agent"].status == "failure"
+            assert _subagent_results["thread-agent"].status == "cancelled"
 
     def test_cancel_thread_writes_control_operation(self, tmp_path):
         mock_thread = MagicMock(spec=threading.Thread)
@@ -867,7 +867,7 @@ class TestSubagentCancel:
         ) -> bool:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = ReturnType(
-                    "failure", "Cancelled by orchestrator"
+                    "cancelled", "Cancelled by orchestrator"
                 )
             return False
 
@@ -888,7 +888,7 @@ class TestSubagentCancel:
         assert notify_calls == []
         with _subagent_results_lock:
             assert _subagent_results["thread-agent"] == ReturnType(
-                "failure", "Cancelled by orchestrator"
+                "cancelled", "Cancelled by orchestrator"
             )
 
     def test_thread_exception_cleans_isolation_when_cancel_wins_race(
@@ -916,7 +916,7 @@ class TestSubagentCancel:
         ) -> bool:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = ReturnType(
-                    "failure", "Cancelled by orchestrator"
+                    "cancelled", "Cancelled by orchestrator"
                 )
             return False
 
@@ -937,7 +937,7 @@ class TestSubagentCancel:
         assert cleanup_calls == ["thread-agent"]
         with _subagent_results_lock:
             assert _subagent_results["thread-agent"] == ReturnType(
-                "failure", "Cancelled by orchestrator"
+                "cancelled", "Cancelled by orchestrator"
             )
 
     def test_subprocess_launch_failure_cleans_isolation_when_cancel_wins_race(
@@ -971,7 +971,7 @@ class TestSubagentCancel:
         ) -> bool:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = ReturnType(
-                    "failure", "Cancelled by orchestrator"
+                    "cancelled", "Cancelled by orchestrator"
                 )
             return False
 
@@ -994,7 +994,7 @@ class TestSubagentCancel:
         assert notify_calls == []
         with _subagent_results_lock:
             assert _subagent_results["proc-agent"] == ReturnType(
-                "failure", "Cancelled by orchestrator"
+                "cancelled", "Cancelled by orchestrator"
             )
 
     def test_cancelled_queued_subprocess_does_not_launch_after_slot_frees(
@@ -1041,7 +1041,7 @@ class TestSubagentCancel:
         assert cleanup_calls == ["proc-agent"]
         with _subagent_results_lock:
             assert _subagent_results["proc-agent"] == ReturnType(
-                "failure", "Cancelled by orchestrator"
+                "cancelled", "Cancelled by orchestrator"
             )
 
     def test_cancelled_queued_thread_does_not_launch_after_slot_frees(
@@ -1085,7 +1085,7 @@ class TestSubagentCancel:
         assert cleanup_calls == ["thread-agent"]
         with _subagent_results_lock:
             assert _subagent_results["thread-agent"] == ReturnType(
-                "failure", "Cancelled by orchestrator"
+                "cancelled", "Cancelled by orchestrator"
             )
 
     def test_cancelled_queued_planner_subprocess_does_not_launch_after_slot_frees(
@@ -1137,7 +1137,7 @@ class TestSubagentCancel:
         assert cleanup_calls == ["planner-agent-verify"]
         with _subagent_results_lock:
             assert _subagent_results["planner-agent-verify"] == ReturnType(
-                "failure", "Cancelled by orchestrator"
+                "cancelled", "Cancelled by orchestrator"
             )
 
     def test_cancelled_queued_planner_thread_does_not_launch_after_slot_frees(
@@ -1188,7 +1188,7 @@ class TestSubagentCancel:
         assert cleanup_calls == ["planner-agent-implement"]
         with _subagent_results_lock:
             assert _subagent_results["planner-agent-implement"] == ReturnType(
-                "failure", "Cancelled by orchestrator"
+                "cancelled", "Cancelled by orchestrator"
             )
 
     def test_planner_thread_cleanup_failure_still_releases_semaphore(

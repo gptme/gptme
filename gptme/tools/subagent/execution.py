@@ -43,13 +43,14 @@ _thread_local = threading.local()
 
 
 def get_current_agent_id() -> str | None:
-    """Return the agent_id of the currently running subagent thread, or None.
+    """Return the agent_id of the currently running subagent, or None.
 
-    Set by _create_subagent_thread before calling chat(). Used by the progress
-    tool to identify which subagent is sending a progress update.
-    Only populated in thread-mode subagents.
+    Thread-mode subagents: set via _create_subagent_thread (thread-local).
+    Subprocess-mode subagents: set via GPTME_SUBAGENT_AGENT_ID env var.
     """
-    return getattr(_thread_local, "agent_id", None)
+    return getattr(_thread_local, "agent_id", None) or os.environ.get(
+        "GPTME_SUBAGENT_AGENT_ID"
+    )
 
 
 def _ensure_subagent_signal_tools_loaded() -> None:
