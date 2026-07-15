@@ -28,6 +28,7 @@ from .execution import get_current_agent_id
 from .hooks import (
     _get_complete_instruction,
     _session_end_subagent_cleanup,
+    _subagent_cancel_checkpoint,
     _subagent_completion_hook,
     _subagent_control_hook,
     notify_completion,
@@ -574,6 +575,7 @@ __all__ = [
     "notify_progress",
     "_session_end_subagent_cleanup",
     "_subagent_completion_hook",
+    "_subagent_cancel_checkpoint",
     "_get_complete_instruction",
     # Execution context
     "get_current_agent_id",

@@ -37,6 +37,46 @@ from .types import (
 logger = logging.getLogger(__name__)
 
 
+def _write_cancel_op(logdir: Path, agent_id: str) -> None:
+    """Append a cancel op to logdir/control.jsonl for the cooperative checkpoint.
+
+    Uses the same JSONL/flock conventions as prompt_queue.py.
+    The subagent's STEP_PRE checkpoint hook reads this file each step and exits
+    cleanly when it sees a cancel op, releasing its concurrency slot.
+    """
+    import importlib
+    import json
+    from datetime import datetime, timezone
+
+    try:
+        fcntl = importlib.import_module("fcntl")
+    except ImportError:  # Windows / environments without fcntl
+        fcntl = None
+
+    control_file = logdir / "control.jsonl"
+    record = json.dumps(
+        {
+            "op": "cancel",
+            "agent_id": agent_id,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+    lock_file = logdir / ".control.lock"
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    lock_file.touch(exist_ok=True)
+
+    with lock_file.open("r+") as lock_fd:
+        if fcntl is not None:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            with control_file.open("a") as f:
+                f.write(record + "\n")
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+
+
 def _wait_for_cached_subagent_result(
     agent_id: str, timeout: float = 0.05, poll_interval: float = 0.005
 ) -> ReturnType | None:
@@ -987,10 +1027,15 @@ def _timeout_subagent(agent_id: str, max_time: float) -> None:
 def subagent_cancel(agent_id: str) -> str:
     """Cancel a running subagent.
 
-    For subprocess-mode subagents, sends SIGTERM (then SIGKILL after 5s) to the
-    process. For thread-mode subagents, records a cancellation operation that stops
-    the child at its next step boundary while caching the failure result immediately
-    so callers do not block waiting for it.
+    For subprocess-mode subagents, writes a cancel op to ``logdir/control.jsonl``
+    so the agent's cooperative checkpoint can exit cleanly before SIGTERM arrives,
+    then sends SIGTERM (and SIGKILL after 5s) as escalation.
+
+    For thread-mode subagents, writes the cancel op and marks the result cache so
+    callers don't block.  The thread stops at its next STEP_PRE checkpoint and
+    releases its concurrency slot.
+
+    ACP-mode subagents keep today's cache-mark-only behavior (no control file).
 
     Args:
         agent_id: The subagent to cancel
@@ -1019,6 +1064,11 @@ def subagent_cancel(agent_id: str) -> str:
     if sa.execution_mode == "subprocess" and sa.process:
         if not set_subagent_result_if_absent(agent_id, cancelled_result):
             return f"Subagent '{agent_id}' already finished before cancellation."
+        # Write cancel op so the subprocess checkpoint can exit cleanly before SIGTERM.
+        try:
+            _write_cancel_op(sa.logdir, agent_id)
+        except Exception as e:
+            logger.warning(f"Failed to write cancel op for '{agent_id}': {e}")
         sa.process.terminate()
         try:
             sa.process.wait(timeout=5)
@@ -1027,12 +1077,27 @@ def subagent_cancel(agent_id: str) -> str:
             sa.process.wait()
         logger.info(f"Subagent '{agent_id}' subprocess terminated.")
         return f"Subagent '{agent_id}' cancelled."
-    # Thread/ACP mode: threads cannot be forcefully stopped in Python.
-    # Mark the result so the orchestrator sees it as cancelled immediately.
+    if sa.execution_mode == "thread":
+        # Thread mode: write cancel op so the cooperative STEP_PRE checkpoint stops
+        # the thread cleanly and releases the concurrency slot.
+        if not set_subagent_result_if_absent(agent_id, cancelled_result):
+            return f"Subagent '{agent_id}' already finished before cancellation."
+        try:
+            _write_cancel_op(sa.logdir, agent_id)
+        except Exception as e:
+            logger.warning(f"Failed to write cancel op for '{agent_id}': {e}")
+        logger.info(
+            f"Subagent '{agent_id}' marked cancelled (thread will stop at next checkpoint)."
+        )
+        return (
+            f"Subagent '{agent_id}' marked as cancelled. "
+            "The background thread will stop at its next cooperative checkpoint."
+        )
+    # ACP mode: threads cannot be stopped; keep cache-mark-only behavior.
     if not set_subagent_result_if_absent(agent_id, cancelled_result):
         return f"Subagent '{agent_id}' already finished before cancellation."
     logger.info(
-        f"Subagent '{agent_id}' marked cancelled (thread will stop at next checkpoint)."
+        f"Subagent '{agent_id}' (ACP) marked cancelled (no cooperative checkpoint)."
     )
     return (
         f"Subagent '{agent_id}' marked as cancelled. "

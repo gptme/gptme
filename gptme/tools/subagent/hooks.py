@@ -335,3 +335,62 @@ def _subagent_completion_hook(
 
         logger.debug(f"Delivering subagent notification: {msg}")
         yield Message("system", msg)
+
+
+def _subagent_cancel_checkpoint(
+    manager: "LogManager",
+) -> Generator[Message, None, None]:
+    """STEP_PRE cooperative cancel checkpoint for thread-mode subagents.
+
+    Registered at STEP_PRE so it fires before each LLM generation step.
+
+    Fast-path design: two O(1) guards keep overhead minimal for the common case
+    (no cancel, not inside a subagent thread):
+      1. Thread-local check — no-op when called in the parent's loop.
+      2. One stat() per step — no-op when logdir/control.jsonl doesn't exist.
+
+    On cancel op: appends a partial-work note to the conversation, writes
+    ``cancelled`` status to the result cache (first-writer-wins), then raises
+    ``SessionCompleteException`` so ``chat()`` exits cleanly and the thread's
+    semaphore slot is released.
+    """
+    import json
+
+    # Fast path: hook fires in every loop, including the parent's own loop in
+    # thread mode.  Only subagent threads have agent_id set in thread-local.
+    from .execution import get_current_agent_id  # avoid circular at module level
+
+    agent_id = get_current_agent_id()
+    if agent_id is None:
+        return
+
+    # Fast path: one stat() per step — no allocation when no control file.
+    control_file = manager.logdir / "control.jsonl"
+    if not control_file.exists():
+        return
+
+    try:
+        content = control_file.read_text()
+    except OSError:
+        return
+
+    for line in content.splitlines():
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if entry.get("op") == "cancel":
+            # Import here to avoid circular at module level (complete → hooks is safe,
+            # but execution → hooks already creates a cycle if we put it at top).
+            from ..complete import SessionCompleteException
+
+            yield Message(
+                "system",
+                f"Subagent '{agent_id}' received cancel signal — stopping at cooperative checkpoint.",
+            )
+            # First-writer-wins: keeps 'success' if agent already completed naturally.
+            cancelled_result = ReturnType(
+                "cancelled", "Cancelled by orchestrator via checkpoint"
+            )
+            set_subagent_result_if_absent(agent_id, cancelled_result)
+            raise SessionCompleteException("Cancelled at cooperative checkpoint")

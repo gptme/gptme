@@ -18,7 +18,7 @@ import gptme.tools.subagent.api as subagent_api
 import gptme.tools.subagent.execution as subagent_execution
 import gptme.tools.subagent.types as subagent_types
 from gptme.tools.complete import SessionCompleteException
-from gptme.tools.subagent.api import subagent, subagent_cancel
+from gptme.tools.subagent.api import _write_cancel_op, subagent, subagent_cancel
 from gptme.tools.subagent.batch import BatchJob
 from gptme.tools.subagent.control import (
     CONTROL_FILENAME,
@@ -28,6 +28,7 @@ from gptme.tools.subagent.control import (
 from gptme.tools.subagent.execution import _monitor_subprocess
 from gptme.tools.subagent.hooks import (
     _get_complete_instruction,
+    _subagent_cancel_checkpoint,
     _subagent_completion_hook,
     _subagent_control_hook,
     notify_completion,
@@ -5645,3 +5646,173 @@ class TestSubagentParallelCancelOnFailure:
         third_idx = 2
         assert results[third_idx]["status"] == "failure"
         assert results[third_idx]["result"] == "third failed"
+
+
+# ---------------------------------------------------------------------------
+# Cooperative cancel checkpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestWriteCancelOp:
+    """Tests for _write_cancel_op helper."""
+
+    def test_writes_jsonl_to_control_file(self, tmp_path):
+        _write_cancel_op(tmp_path, "agent-1")
+        control = tmp_path / "control.jsonl"
+        assert control.exists()
+        entry = json.loads(control.read_text().strip())
+        assert entry["op"] == "cancel"
+        assert entry["agent_id"] == "agent-1"
+        assert "ts" in entry
+
+    def test_appends_multiple_ops(self, tmp_path):
+        _write_cancel_op(tmp_path, "agent-1")
+        _write_cancel_op(tmp_path, "agent-1")
+        lines = (tmp_path / "control.jsonl").read_text().strip().splitlines()
+        assert len(lines) == 2
+        for line in lines:
+            assert json.loads(line)["op"] == "cancel"
+
+    def test_creates_logdir_if_missing(self, tmp_path):
+        logdir = tmp_path / "nested" / "logdir"
+        _write_cancel_op(logdir, "agent-1")
+        assert (logdir / "control.jsonl").exists()
+
+
+class TestSubagentCancelThreadWritesControlFile:
+    """Verify subagent_cancel() writes to control.jsonl for thread mode."""
+
+    def setup_method(self):
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
+    def test_cancel_thread_writes_control_file(self, tmp_path):
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = Subagent(
+            agent_id="thr-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=tmp_path,
+            model=None,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        result = subagent_cancel("thr-agent")
+
+        assert "cancelled" in result.lower()
+        control = tmp_path / "control.jsonl"
+        assert control.exists(), "cancel must write control.jsonl for thread mode"
+        entry = json.loads(control.read_text().strip())
+        assert entry["op"] == "cancel"
+        assert entry["agent_id"] == "thr-agent"
+
+    def test_cancel_subprocess_writes_control_file(self, tmp_path):
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.wait.return_value = 0
+        sa = Subagent(
+            agent_id="sub-agent",
+            prompt="test",
+            thread=None,
+            logdir=tmp_path,
+            model=None,
+            process=mock_proc,
+            execution_mode="subprocess",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        subagent_cancel("sub-agent")
+
+        control = tmp_path / "control.jsonl"
+        assert control.exists(), "cancel must write control.jsonl for subprocess mode"
+        entry = json.loads(control.read_text().strip())
+        assert entry["op"] == "cancel"
+
+
+class TestCancelCheckpointHook:
+    """Unit tests for _subagent_cancel_checkpoint STEP_PRE hook."""
+
+    def setup_method(self):
+        with _subagent_results_lock:
+            _subagent_results.clear()
+        import gptme.tools.subagent.execution as _exe
+
+        _exe._thread_local.__dict__.pop("agent_id", None)
+
+    def _make_manager(self, logdir: Path) -> MagicMock:
+        m = MagicMock()
+        m.logdir = logdir
+        return m
+
+    def _set_agent_id(self, agent_id: str) -> None:
+        import gptme.tools.subagent.execution as _exe
+
+        _exe._thread_local.agent_id = agent_id
+
+    def test_noop_outside_subagent_thread(self, tmp_path):
+        """Hook must be inert when called in the parent's loop (no thread-local agent_id)."""
+        (tmp_path / "control.jsonl").write_text(
+            json.dumps({"op": "cancel", "agent_id": "x"}) + "\n"
+        )
+        msgs = list(_subagent_cancel_checkpoint(self._make_manager(tmp_path)))
+        assert msgs == []
+
+    def test_noop_without_control_file(self, tmp_path):
+        """Hook must be inert when logdir/control.jsonl doesn't exist."""
+        self._set_agent_id("agent-1")
+        msgs = list(_subagent_cancel_checkpoint(self._make_manager(tmp_path)))
+        assert msgs == []
+
+    def test_noop_without_cancel_op(self, tmp_path):
+        """Hook must be inert when control.jsonl has no cancel op."""
+        self._set_agent_id("agent-1")
+        (tmp_path / "control.jsonl").write_text(
+            json.dumps({"op": "steer", "data": "something"}) + "\n"
+        )
+        msgs = list(_subagent_cancel_checkpoint(self._make_manager(tmp_path)))
+        assert msgs == []
+
+    def test_cancels_on_cancel_op(self, tmp_path):
+        """Hook yields a note and raises SessionCompleteException on cancel op."""
+        from gptme.tools.complete import SessionCompleteException
+
+        self._set_agent_id("agent-1")
+        (tmp_path / "control.jsonl").write_text(
+            json.dumps({"op": "cancel", "agent_id": "agent-1"}) + "\n"
+        )
+        gen = _subagent_cancel_checkpoint(self._make_manager(tmp_path))
+        # First iteration yields the partial-work note
+        msg = next(gen)
+        assert "cancel" in msg.content.lower()
+        # Second iteration raises SessionCompleteException
+        with pytest.raises(SessionCompleteException):
+            next(gen)
+        # Result cache must have 'cancelled' status
+        with _subagent_results_lock:
+            assert _subagent_results["agent-1"].status == "cancelled"
+
+    def test_first_writer_wins_on_natural_completion(self, tmp_path):
+        """When agent already completed, cancel doesn't overwrite the success result."""
+        from gptme.tools.complete import SessionCompleteException
+
+        self._set_agent_id("agent-1")
+        # Pre-seed with a success result (agent completed naturally first)
+        with _subagent_results_lock:
+            _subagent_results["agent-1"] = ReturnType("success", "done")
+
+        (tmp_path / "control.jsonl").write_text(
+            json.dumps({"op": "cancel", "agent_id": "agent-1"}) + "\n"
+        )
+        gen = _subagent_cancel_checkpoint(self._make_manager(tmp_path))
+        next(gen)  # yield the note
+        with pytest.raises(SessionCompleteException):
+            next(gen)
+        # Original success result must be preserved
+        with _subagent_results_lock:
+            assert _subagent_results["agent-1"].status == "success"
