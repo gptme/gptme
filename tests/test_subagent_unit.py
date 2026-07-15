@@ -18,7 +18,12 @@ import gptme.tools.subagent.api as subagent_api
 import gptme.tools.subagent.execution as subagent_execution
 import gptme.tools.subagent.types as subagent_types
 from gptme.tools.complete import SessionCompleteException
-from gptme.tools.subagent.api import _write_cancel_op, subagent, subagent_cancel, subagent_steer
+from gptme.tools.subagent.api import (
+    _write_cancel_op,
+    subagent,
+    subagent_cancel,
+    subagent_steer,
+)
 from gptme.tools.subagent.batch import BatchJob
 from gptme.tools.subagent.control import (
     CONTROL_FILENAME,
