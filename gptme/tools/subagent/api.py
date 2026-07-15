@@ -431,6 +431,7 @@ def subagent(
                 redact_secrets=redact_secrets,
                 context_window=context_window,
                 workdir=workdir_path,
+                parent_logdir=parent_logdir,
             )
         finally:
             if _timer is not None:

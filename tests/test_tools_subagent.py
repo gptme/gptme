@@ -3904,3 +3904,82 @@ def test_session_end_teardown_cancels_running_subagents():
         _subagents[:] = _subagents[:init_count]
     with _subagent_results_lock:
         _subagent_results.clear()
+
+
+def test_session_end_teardown_cancels_planner_executors():
+    """SESSION_END hook cancels planner executor subagents when parent_logdir is propagated.
+
+    _run_planner now propagates parent_logdir to every executor Subagent it
+    creates, so the SESSION_END hook can scope cancellation to the correct
+    session even for planner-spawned workers.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.subagent.hooks import _session_end_subagent_cleanup
+    from gptme.tools.subagent.types import (
+        Subagent,
+        _subagent_results,
+        _subagent_results_lock,
+        _subagents,
+        _subagents_lock,
+    )
+
+    init_count = len(_subagents)
+    with _subagent_results_lock:
+        _subagent_results.clear()
+
+    cancelled: list[str] = []
+
+    def tracking_cancel(aid: str) -> str:
+        cancelled.append(aid)
+        return f"cancelled {aid}"
+
+    session_logdir = Path.cwd() / "test-planner-parent-session"
+
+    manager_mock = MagicMock()
+    manager_mock.logdir = session_logdir
+
+    # Simulate two planner executor subagents created by _run_planner
+    # with parent_logdir propagated from the parent session (the fix in execution.py)
+    exec1_mock = MagicMock()
+    exec1_mock.is_alive.return_value = True
+    exec2_mock = MagicMock()
+    exec2_mock.is_alive.return_value = True
+
+    with _subagents_lock:
+        _subagents.append(
+            Subagent(
+                agent_id="test-planner-exec-scout",
+                prompt="explore the codebase",
+                thread=exec1_mock,
+                logdir=session_logdir / "exec-scout",
+                model="fake",
+                parent_logdir=session_logdir,
+            )
+        )
+        _subagents.append(
+            Subagent(
+                agent_id="test-planner-exec-implement",
+                prompt="implement the feature",
+                thread=exec2_mock,
+                logdir=session_logdir / "exec-implement",
+                model="fake",
+                parent_logdir=session_logdir,
+            )
+        )
+
+    with patch("gptme.tools.subagent.api.subagent_cancel", side_effect=tracking_cancel):
+        list(_session_end_subagent_cleanup(manager_mock))
+
+    assert "test-planner-exec-scout" in cancelled, (
+        "planner executor subagent should be cancelled when parent session ends"
+    )
+    assert "test-planner-exec-implement" in cancelled, (
+        "all planner executor subagents should be cancelled when parent session ends"
+    )
+
+    # Cleanup
+    with _subagents_lock:
+        _subagents[:] = _subagents[:init_count]
+    with _subagent_results_lock:
+        _subagent_results.clear()
