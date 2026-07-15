@@ -27,6 +27,7 @@ from .batch import BatchJob, subagent_batch, subagent_parallel, subagent_pipelin
 from .execution import get_current_agent_id
 from .hooks import (
     _get_complete_instruction,
+    _session_end_subagent_cleanup,
     _subagent_completion_hook,
     notify_completion,
     notify_progress,
@@ -532,7 +533,12 @@ tool = ToolSpec(
             "loop.continue",  # HookType.LOOP_CONTINUE.value
             _subagent_completion_hook,
             50,  # High priority to ensure timely delivery
-        )
+        ),
+        "session_end": (
+            "session.end",  # HookType.SESSION_END.value
+            _session_end_subagent_cleanup,
+            0,  # Default priority
+        ),
     },
 )
 __doc__ = tool.get_doc(__doc__)
@@ -560,6 +566,7 @@ __all__ = [
     # Hooks
     "notify_completion",
     "notify_progress",
+    "_session_end_subagent_cleanup",
     "_subagent_completion_hook",
     "_get_complete_instruction",
     # Execution context

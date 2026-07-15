@@ -3785,3 +3785,96 @@ def test_subprocess_pydantic_schema_via_prompt():
     assert schema_dict["type"] == "object"
     assert "score" in schema_dict.get("properties", {})
     assert "summary" in schema_dict.get("properties", {})
+
+
+def test_session_end_teardown_cancels_running_subagents():
+    """SESSION_END hook cancels orphaned subagents but skips finished ones."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.subagent.hooks import _session_end_subagent_cleanup
+    from gptme.tools.subagent.types import (
+        ReturnType,
+        Subagent,
+        _subagent_results,
+        _subagent_results_lock,
+        _subagents,
+        _subagents_lock,
+    )
+
+    init_count = len(_subagents)
+    with _subagent_results_lock:
+        _subagent_results.clear()
+
+    # Track cancel calls
+    cancelled: list[str] = []
+
+    def tracking_cancel(aid: str) -> str:
+        cancelled.append(aid)
+        return f"cancelled {aid}"
+
+    logdir = Path.cwd()
+
+    # --- Running subagent (no cached result, thread alive) ---
+    running_mock = MagicMock()
+    running_mock.is_alive.return_value = True
+
+    with _subagents_lock:
+        _subagents.append(
+            Subagent(
+                agent_id="test-running",
+                prompt="test",
+                thread=running_mock,
+                logdir=logdir,
+                model="fake",
+            )
+        )
+
+    # --- Terminated subagent (has cached result, thread still alive) ---
+    done_mock = MagicMock()
+    done_mock.is_alive.return_value = True
+
+    with _subagents_lock:
+        _subagents.append(
+            Subagent(
+                agent_id="test-done",
+                prompt="test",
+                thread=done_mock,
+                logdir=logdir,
+                model="fake",
+            )
+        )
+    with _subagent_results_lock:
+        _subagent_results["test-done"] = ReturnType("success", "already done")
+
+    # --- Dead subagent (thread dead, no cached result) ---
+    dead_mock = MagicMock()
+    dead_mock.is_alive.return_value = False
+
+    with _subagents_lock:
+        _subagents.append(
+            Subagent(
+                agent_id="test-dead",
+                prompt="test",
+                thread=dead_mock,
+                logdir=logdir,
+                model="fake",
+            )
+        )
+
+    with patch("gptme.tools.subagent.api.subagent_cancel", side_effect=tracking_cancel):
+        list(_session_end_subagent_cleanup(MagicMock()))
+
+    # Verify: only the running subagent with no terminal result was cancelled
+    assert "test-running" in cancelled, (
+        "running subagent with no result should be cancelled"
+    )
+    assert "test-done" not in cancelled, (
+        "subagent with cached result should NOT be cancelled"
+    )
+    assert "test-dead" not in cancelled, "not-running subagent should NOT be cancelled"
+
+    # Cleanup
+    with _subagents_lock:
+        _subagents[:] = _subagents[:init_count]
+    with _subagent_results_lock:
+        _subagent_results.clear()

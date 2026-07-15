@@ -1,8 +1,12 @@
-"""Subagent hook system — completion and progress notifications.
+"""Subagent hook system — completion, progress, and session-end cleanup.
 
 Handles the "fire-and-forget-then-get-alerted" pattern where subagent
 completions and intermediate progress updates are delivered via the
 LOOP_CONTINUE hook as system messages.
+
+Also handles SESSION_END teardown: cancels orphaned subagents when the
+parent conversation closes (server or CLI), preventing leaked subprocess
+children and zombie threads with dangling concurrency slots.
 """
 
 import logging
@@ -10,8 +14,17 @@ import queue
 from collections.abc import Generator
 from typing import TYPE_CHECKING
 
+from ...hooks.types import StopPropagation
 from ...message import Message
-from .types import Status, _completion_queue, _progress_queue
+from .types import (
+    Status,
+    _completion_queue,
+    _progress_queue,
+    _subagent_results,
+    _subagent_results_lock,
+    _subagents,
+    _subagents_lock,
+)
 
 if TYPE_CHECKING:
     from ...logmanager import LogManager  # fmt: skip
@@ -145,6 +158,50 @@ def notify_completion(agent_id: str, status: Status, summary: str) -> None:
     """
     _completion_queue.put((agent_id, status, summary))
     logger.debug(f"Queued completion notification for subagent '{agent_id}': {status}")
+
+
+def _session_end_subagent_cleanup(
+    manager: "LogManager",
+    **kwargs,
+) -> Generator[Message | StopPropagation, None, None]:
+    """Cancel orphaned subagents when the parent session ends.
+
+    Registered as a SESSION_END hook via ToolSpec.hooks so it is only
+    loaded when the subagent tool is active.  Snapshots the running
+    subagent list under the module lock and cancels each still-running
+    subagent that has no terminal cached result.
+
+    Subprocess-mode subagents receive SIGTERM → SIGKILL after 5s (handled
+    by ``subagent_cancel`` internally).  Thread-mode subagents have their
+    result pre-marked as cancelled so the orchestrator will not block
+    waiting for them, but the Python thread continues to its next natural
+    checkpoint and then stops.
+
+    Bounded: the per-agent cancel wait is capped at ~5s (subprocess
+    SIGKILL escalation); the overall hook never blocks indefinitely.
+    """
+    from .api import subagent_cancel  # avoid circular import
+
+    with _subagents_lock:
+        snapshot = list(_subagents)
+
+    for sa in snapshot:
+        with _subagent_results_lock:
+            has_terminal = sa.agent_id in _subagent_results
+
+        if has_terminal:
+            continue
+        if not sa.is_running():
+            continue
+
+        try:
+            subagent_cancel(sa.agent_id)
+        except Exception as e:
+            logger.warning(
+                "SESSION_END: error cancelling subagent '%s': %s", sa.agent_id, e
+            )
+
+    yield from ()
 
 
 def notify_progress(agent_id: str, message: str) -> None:
