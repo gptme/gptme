@@ -2,9 +2,9 @@
 
 See retry_abort.py for the rationale: leaked subagent threads sleep through
 LLM retry backoff (up to ~15s) far past the 2s conftest join timeout. The
-generation counter lets test teardown make every backoff wait belonging to an
-already-started LLM call return immediately — permanently, with no clear/reset
-window for a leaked thread to slip through.
+generation counter (process-wide) and per-thread Events (scoped) let test
+teardown make every backoff wait belonging to a leaked thread return
+immediately — permanently, with no clear/reset window to slip through.
 """
 
 import threading
@@ -18,6 +18,7 @@ from gptme.llm.retry_abort import (
     bind_thread_generation,
     current_generation,
     interrupt_pending_retries,
+    interrupt_thread,
 )
 
 
@@ -118,6 +119,66 @@ def test_openai_handler_stale_generation_reraises_same_error(monkeypatch):
 
     assert exc_info.value is error
     assert elapsed < 2.0
+
+
+def test_interrupt_thread_aborts_target_thread():
+    """interrupt_thread() aborts only the targeted thread's backoff wait."""
+    ready = threading.Event()
+    results: list[tuple[bool, float]] = []
+
+    def worker():
+        bind_thread_generation()
+        ready.set()
+        start = time.monotonic()
+        aborted = backoff_wait(10.0)
+        results.append((aborted, time.monotonic() - start))
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    assert ready.wait(timeout=5.0)
+
+    interrupt_thread(t)
+    t.join(timeout=5.0)
+    assert not t.is_alive()
+
+    assert len(results) == 1
+    aborted, elapsed = results[0]
+    assert aborted is True
+    assert elapsed < 2.0
+
+
+def test_interrupt_thread_does_not_affect_other_threads():
+    """interrupt_thread() leaves unrelated threads' backoffs untouched."""
+    ready1 = threading.Event()
+    ready2 = threading.Event()
+    results1: list[bool] = []
+    results2: list[bool] = []
+
+    def worker1():
+        bind_thread_generation()
+        ready1.set()
+        results1.append(backoff_wait(10.0))
+
+    def worker2():
+        bind_thread_generation()
+        ready2.set()
+        results2.append(backoff_wait(0.1))  # short wait, completes naturally
+
+    t1 = threading.Thread(target=worker1, daemon=True)
+    t2 = threading.Thread(target=worker2, daemon=True)
+    t1.start()
+    t2.start()
+    assert ready1.wait(timeout=5.0)
+    assert ready2.wait(timeout=5.0)
+
+    interrupt_thread(t1)  # only interrupt t1
+    t1.join(timeout=5.0)
+    t2.join(timeout=5.0)
+    assert not t1.is_alive()
+    assert not t2.is_alive()
+
+    assert results1 == [True]  # t1 was interrupted
+    assert results2 == [False]  # t2 completed its short wait naturally
 
 
 def test_anthropic_handler_stale_generation_reraises_same_error(monkeypatch):
