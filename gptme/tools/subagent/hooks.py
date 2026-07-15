@@ -37,12 +37,14 @@ logger = logging.getLogger(__name__)
 
 def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, None]:
     """Stop a child conversation when its parent writes a cancel operation."""
-    agent_id = manager.logdir.name
+    # Search by logdir, not logdir.name: thread subagent logdirs have a random suffix
+    # (subagent-{agent_id}-{suffix}), so logdir.name != agent_id for thread mode.
+    with _subagents_lock:
+        sa = next((s for s in _subagents if s.logdir == manager.logdir), None)
+    agent_id = sa.agent_id if sa is not None else manager.logdir.name
 
     # Check in-memory fallback first: set by subagent_cancel() when the control-file
     # write fails with OSError, so the thread is still stopped at its next checkpoint.
-    with _subagents_lock:
-        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
     in_memory_cancel = sa is not None and sa.cancel_event.is_set()
 
     if not in_memory_cancel:

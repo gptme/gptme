@@ -108,10 +108,14 @@ class TestSubagentControlChannel:
         Regression for the Greptile P1: when append_control_op raises OSError the
         control file is never written, so without the in-memory fallback the thread
         keeps running indefinitely.
+
+        Uses a mismatched agent_id/logdir.name to reproduce the real thread-mode
+        shape (logdir = subagent-{agent_id}-{suffix}, agent_id = the bare id).
         """
         manager = MagicMock(logdir=tmp_path)
+        # Deliberately differ from tmp_path.name to catch the old logdir.name lookup.
         sa = Subagent(
-            agent_id=tmp_path.name,
+            agent_id="real-agent-id",
             prompt="test",
             thread=None,
             logdir=tmp_path,
