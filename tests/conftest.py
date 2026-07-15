@@ -348,7 +348,10 @@ def cleanup_subagents_after():
         # if another thread or setup_method modifies _subagents during cleanup
         subagents_copy = list(_subagents)
     for subagent in subagents_copy:
-        if subagent.thread is not None:
+        # Subprocess launchers don't call backoff_wait(), so interrupt_thread()
+        # would create a stale pre-signaled event whose ident could be reused by
+        # a later real-LLM thread, aborting its first retry immediately.
+        if subagent.thread is not None and subagent.execution_mode != "subprocess":
             interrupt_thread(subagent.thread)
     # Use try/finally so _subagents.clear() and _reset_slot_sem() always run
     # even if pytest-timeout interrupts the join/terminate phase.  The 5s
