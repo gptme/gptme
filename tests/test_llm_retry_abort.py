@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from gptme.llm import retry_abort
 from gptme.llm.retry_abort import (
     backoff_wait,
     bind_thread_generation,
@@ -21,6 +22,18 @@ from gptme.llm.retry_abort import (
     interrupt_thread,
     release_thread,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_retry_abort_state():
+    """Reset global state before and after each test to isolate them."""
+    # Reset before test
+    retry_abort._generation = 0
+    retry_abort._thread_events.clear()
+    yield
+    # Reset after test
+    retry_abort._generation = 0
+    retry_abort._thread_events.clear()
 
 
 def test_backoff_wait_not_interrupted_waits_full_delay():
