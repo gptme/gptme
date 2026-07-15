@@ -1008,7 +1008,13 @@ def subagent_cancel(agent_id: str) -> str:
         return f"Subagent '{agent_id}' is not running (already finished)."
 
     cancelled_result = ReturnType("failure", "Cancelled by orchestrator")
-    append_control_op(sa.logdir, "cancel", agent_id=agent_id)
+    # Best-effort: write the cancel signal so thread agents stop at their next
+    # checkpoint.  If the logdir is unavailable (removed, read-only, etc.) we
+    # still proceed with subprocess termination / result-marking below.
+    try:
+        append_control_op(sa.logdir, "cancel", agent_id=agent_id)
+    except OSError as e:
+        logger.warning("Failed to write cancel control op for '%s': %s", agent_id, e)
 
     if sa.execution_mode == "subprocess" and sa.process:
         if not set_subagent_result_if_absent(agent_id, cancelled_result):
