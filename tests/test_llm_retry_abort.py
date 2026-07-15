@@ -181,6 +181,36 @@ def test_interrupt_thread_does_not_affect_other_threads():
     assert results2 == [False]  # t2 completed its short wait naturally
 
 
+def test_interrupt_thread_before_bind_still_aborts():
+    """interrupt_thread before bind_thread_generation still interrupts the worker.
+
+    Simulates the startup race: teardown fires while the thread is in early
+    setup, before it has called bind_thread_generation(). The pre-signaled
+    event path ensures the thread still aborts at its next backoff_wait().
+    """
+    started = threading.Event()
+    proceed = threading.Event()
+    results: list[bool] = []
+
+    def worker():
+        started.set()
+        proceed.wait(timeout=5.0)  # simulates pre-bind setup time
+        bind_thread_generation()  # called after interrupt_thread()
+        results.append(backoff_wait(10.0))
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    assert started.wait(timeout=5.0)
+
+    # Interrupt BEFORE the thread calls bind_thread_generation()
+    interrupt_thread(t)
+    proceed.set()
+    t.join(timeout=5.0)
+    assert not t.is_alive()
+
+    assert results == [True]  # still interrupted despite startup race
+
+
 def test_anthropic_handler_stale_generation_reraises_same_error(monkeypatch):
     """Same as the OpenAI case, for the Anthropic transient-error handler."""
     from anthropic import APIStatusError

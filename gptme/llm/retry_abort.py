@@ -37,14 +37,25 @@ def bind_thread_generation() -> None:
     the thread aborts once interrupt_thread() signals this thread's event — even
     for LLM calls that only begin after the owning test finished (a call-start
     capture alone misses threads still in pre-LLM setup at teardown time).
+
+    If interrupt_thread() was called before this thread registered (startup
+    race), a pre-signaled event is already stored; bind_thread_generation()
+    adopts it so the next backoff_wait() aborts immediately.
     """
     _tls.generation = _generation
-    event = threading.Event()
-    _tls.interrupt_event = event
     ident = threading.current_thread().ident
     if ident is not None:
         with _thread_events_lock:
-            _thread_events[ident] = event
+            existing = _thread_events.get(ident)
+            if existing is not None:
+                # Pre-signaled by interrupt_thread() before we registered.
+                _tls.interrupt_event = existing
+            else:
+                event = threading.Event()
+                _tls.interrupt_event = event
+                _thread_events[ident] = event
+    else:
+        _tls.interrupt_event = threading.Event()
 
 
 def release_thread() -> None:
@@ -61,14 +72,25 @@ def interrupt_thread(thread: threading.Thread) -> None:
     Prefer this over interrupt_pending_retries() — it is scoped to one
     registered subagent thread and does not cancel unrelated LLM work in
     the same pytest worker.
+
+    Handles the startup race: if the thread has not yet called
+    bind_thread_generation(), a pre-signaled event is stored under the lock
+    so the thread adopts it when it registers and aborts at its next
+    backoff_wait().
     """
     ident = thread.ident
     if ident is None:
         return
     with _thread_events_lock:
         event = _thread_events.get(ident)
-    if event is not None:
-        event.set()
+        if event is not None:
+            event.set()
+        else:
+            # Thread started but bind_thread_generation() hasn't run yet.
+            # Pre-create a signaled event; bind_thread_generation() will adopt it.
+            pre = threading.Event()
+            pre.set()
+            _thread_events[ident] = pre
 
 
 def interrupt_pending_retries() -> None:
