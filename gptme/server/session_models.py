@@ -202,7 +202,7 @@ class SessionManager:
 
         with cls._lock:
             to_remove: list[str] = []
-            for session_id, session in cls._sessions.items():
+            for session_id, session in list(cls._sessions.items()):
                 if session.last_activity < cutoff and not session.generating:
                     to_remove.append(session_id)
                 elif (
