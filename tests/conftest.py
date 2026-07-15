@@ -144,16 +144,26 @@ def pytest_runtest_makereport(item, call):
             report.outcome = "skipped"
             report.longrepr = f"API quota exhausted or invalid credentials during test: {call.excinfo.value}"
 
+    # Track call-phase outcome so the teardown guard below can verify the test
+    # body actually passed before suppressing any teardown error.
+    if report.when == "call":
+        item._stash_guard_call_passed = report.passed
+
     # pytest-retry × pytest≥9.1 compat: tmp_path (and caplog) stash keys are
     # populated by pytest's fixture machinery during the first (failed) attempt.
     # When pytest-retry re-runs the test body without a full fixture re-setup,
     # the stash entry is absent during teardown of the retried (passing) attempt,
     # producing KeyError: <_pytest.stash.StashKey object at 0x...>.
-    # The test itself passed; converting teardown to "passed" avoids surfacing
-    # this infrastructure artifact as a CI ERROR.
-    if report.when == "teardown" and report.failed:
+    # Guard: only suppress when (a) the test body passed and (b) the error is
+    # specifically from _pytest.stash internals — avoids masking genuine fixture
+    # teardown bugs that happen to involve a KeyError (Greptile P1).
+    if (
+        report.when == "teardown"
+        and report.failed
+        and getattr(item, "_stash_guard_call_passed", False)
+    ):
         longrepr_str = str(report.longrepr)
-        if "StashKey" in longrepr_str and "KeyError" in longrepr_str:
+        if "_pytest.stash.StashKey" in longrepr_str and "KeyError" in longrepr_str:
             logger.warning(
                 "Suppressed pytest-retry × pytest≥9.1 StashKey teardown error "
                 "for %s — the test body passed; this is a known infrastructure "
