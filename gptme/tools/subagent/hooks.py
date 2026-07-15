@@ -171,21 +171,36 @@ def _session_end_subagent_cleanup(
     subagent list under the module lock and cancels each still-running
     subagent that has no terminal cached result.
 
+    Only cancels subagents whose ``parent_logdir`` matches the ending
+    session's logdir, preventing cross-conversation interference in
+    multi-session server deployments.  Subagents with no ``parent_logdir``
+    (spawned outside a tracked session) are skipped conservatively.
+
     Subprocess-mode subagents receive SIGTERM → SIGKILL after 5s (handled
     by ``subagent_cancel`` internally).  Thread-mode subagents have their
     result pre-marked as cancelled so the orchestrator will not block
-    waiting for them, but the Python thread continues to its next natural
-    checkpoint and then stops.
+    waiting for them; the underlying Python thread is not forcibly stopped
+    (Python does not support forcible thread termination) — it continues
+    until its next natural checkpoint checks the cached result or the
+    process exits.
 
     Bounded: the per-agent cancel wait is capped at ~5s (subprocess
     SIGKILL escalation); the overall hook never blocks indefinitely.
     """
     from .api import subagent_cancel  # avoid circular import
 
+    session_logdir = manager.logdir
+
     with _subagents_lock:
         snapshot = list(_subagents)
 
     for sa in snapshot:
+        # Only cancel subagents that belong to this session.
+        # Skipping unknown-owner subagents (parent_logdir=None) is the safe
+        # default: we can't prove ownership, so we don't risk cross-session kills.
+        if sa.parent_logdir is None or sa.parent_logdir != session_logdir:
+            continue
+
         with _subagent_results_lock:
             has_terminal = sa.agent_id in _subagent_results
 

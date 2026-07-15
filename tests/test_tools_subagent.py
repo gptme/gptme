@@ -3812,9 +3812,13 @@ def test_session_end_teardown_cancels_running_subagents():
         cancelled.append(aid)
         return f"cancelled {aid}"
 
-    logdir = Path.cwd()
+    session_logdir = Path.cwd() / "test-session-a"
+    other_logdir = Path.cwd() / "test-session-b"
 
-    # --- Running subagent (no cached result, thread alive) ---
+    manager_mock = MagicMock()
+    manager_mock.logdir = session_logdir
+
+    # --- Running subagent owned by this session (no cached result, thread alive) ---
     running_mock = MagicMock()
     running_mock.is_alive.return_value = True
 
@@ -3824,8 +3828,9 @@ def test_session_end_teardown_cancels_running_subagents():
                 agent_id="test-running",
                 prompt="test",
                 thread=running_mock,
-                logdir=logdir,
+                logdir=session_logdir,
                 model="fake",
+                parent_logdir=session_logdir,
             )
         )
 
@@ -3839,8 +3844,9 @@ def test_session_end_teardown_cancels_running_subagents():
                 agent_id="test-done",
                 prompt="test",
                 thread=done_mock,
-                logdir=logdir,
+                logdir=session_logdir,
                 model="fake",
+                parent_logdir=session_logdir,
             )
         )
     with _subagent_results_lock:
@@ -3856,13 +3862,30 @@ def test_session_end_teardown_cancels_running_subagents():
                 agent_id="test-dead",
                 prompt="test",
                 thread=dead_mock,
-                logdir=logdir,
+                logdir=session_logdir,
                 model="fake",
+                parent_logdir=session_logdir,
+            )
+        )
+
+    # --- Running subagent owned by a DIFFERENT session (must NOT be cancelled) ---
+    other_session_mock = MagicMock()
+    other_session_mock.is_alive.return_value = True
+
+    with _subagents_lock:
+        _subagents.append(
+            Subagent(
+                agent_id="test-other-session",
+                prompt="test",
+                thread=other_session_mock,
+                logdir=other_logdir,
+                model="fake",
+                parent_logdir=other_logdir,
             )
         )
 
     with patch("gptme.tools.subagent.api.subagent_cancel", side_effect=tracking_cancel):
-        list(_session_end_subagent_cleanup(MagicMock()))
+        list(_session_end_subagent_cleanup(manager_mock))
 
     # Verify: only the running subagent with no terminal result was cancelled
     assert "test-running" in cancelled, (
@@ -3872,6 +3895,9 @@ def test_session_end_teardown_cancels_running_subagents():
         "subagent with cached result should NOT be cancelled"
     )
     assert "test-dead" not in cancelled, "not-running subagent should NOT be cancelled"
+    assert "test-other-session" not in cancelled, (
+        "subagent from a different session must NOT be cancelled"
+    )
 
     # Cleanup
     with _subagents_lock:
