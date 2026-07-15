@@ -67,7 +67,12 @@ def drain_control_ops(logdir: Path) -> list[dict[str, object]]:
             return []
 
         operations: list[dict[str, object]] = []
-        for line in control_path.read_text(encoding="utf-8").splitlines():
+        try:
+            text = control_path.read_text(encoding="utf-8")
+        except OSError as e:
+            logger.warning("Could not read control file %s: %s", control_path, e)
+            return []  # Leave file in place; hook will retry at next checkpoint
+        for line in text.splitlines():
             if not line.strip():
                 continue
             try:
@@ -84,5 +89,8 @@ def drain_control_ops(logdir: Path) -> list[dict[str, object]]:
                 continue
             operations.append(record)
 
-        control_path.unlink(missing_ok=True)
+        try:
+            control_path.unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning("Could not remove %s: %s", control_path, e)
         return operations

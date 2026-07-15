@@ -40,7 +40,15 @@ def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, No
     if not (manager.logdir / CONTROL_FILENAME).exists():
         return
 
-    operations = drain_control_ops(manager.logdir)
+    try:
+        operations = drain_control_ops(manager.logdir)
+    except OSError:
+        # Control file existed but became unreadable or could not be removed.
+        # Treat as a cancel: a cancel op may have been written and must not be lost.
+        logger.warning(
+            "Could not drain control ops from %s; treating as cancel", manager.logdir
+        )
+        operations = [{"op": "cancel", "agent_id": manager.logdir.name}]
     if not any(operation.get("op") == "cancel" for operation in operations):
         return
 
