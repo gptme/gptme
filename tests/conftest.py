@@ -120,10 +120,17 @@ def pytest_configure(config):
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(item, call):
     """Convert API quota/rate-limit failures to skips for requires_api tests.
+    Also suppresses pytest-retry StashKey teardown errors.
 
     The session-start quota check may pass with a tiny haiku call, but the
     actual test can hit quota limits with heavier models or longer generations.
     This hook catches those mid-run failures and converts them to skips.
+
+    For the StashKey case: when pytest-retry retries a test that uses tmp_path,
+    pytest's stash-based fixture tracking loses its key during teardown of the
+    retried attempt (an architectural issue in pytest-retry, not version-specific).
+    The test body itself passed; treat the teardown as passed to prevent a
+    spurious CI ERROR from masking the real result.
     """
     report = yield
 
@@ -137,6 +144,42 @@ def pytest_runtest_makereport(item, call):
         if any(pattern in error_str for pattern in _QUOTA_ERROR_PATTERNS):
             report.outcome = "skipped"
             report.longrepr = f"API quota exhausted or invalid credentials during test: {call.excinfo.value}"
+
+    # Count call-phase attempts so the teardown guard below can verify the test
+    # was actually retried (not just that a single passing call existed). Track
+    # whether the last call passed so we know the retry succeeded.
+    if report.when == "call":
+        item._stash_guard_call_attempts = (
+            getattr(item, "_stash_guard_call_attempts", 0) + 1
+        )
+        item._stash_guard_call_passed = report.passed
+
+    # pytest-retry compat: tmp_path (and caplog) stash keys are
+    # populated by pytest's fixture machinery during the first (failed) attempt.
+    # When pytest-retry re-runs the test body without a full fixture re-setup,
+    # the stash entry is absent during teardown of the retried (passing) attempt,
+    # producing KeyError: <_pytest.stash.StashKey object at 0x...>.
+    # Three-way guard to avoid masking genuine teardown failures (Greptile P1):
+    #   (a) test was actually retried (>1 call attempts seen by this hook)
+    #   (b) the last call attempt passed (retry succeeded)
+    #   (c) the error is specifically from _pytest.stash internals
+    if (
+        report.when == "teardown"
+        and report.failed
+        and getattr(item, "_stash_guard_call_attempts", 0) > 1
+        and getattr(item, "_stash_guard_call_passed", False)
+    ):
+        longrepr_str = str(report.longrepr)
+        if "_pytest.stash.StashKey" in longrepr_str and "KeyError" in longrepr_str:
+            logger.warning(
+                "Suppressed pytest-retry StashKey teardown error (known "
+                "infrastructure artifact, not version-specific) "
+                "for %s — the test body passed; this is a known infrastructure "
+                "artifact (see ErikBjare/bob#1084)",
+                item.nodeid,
+            )
+            report.outcome = "passed"
+            report.longrepr = None
 
     return report
 
