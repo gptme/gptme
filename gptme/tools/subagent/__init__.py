@@ -29,6 +29,7 @@ from .hooks import (
     _get_complete_instruction,
     _session_end_subagent_cleanup,
     _subagent_completion_hook,
+    _subagent_control_hook,
     notify_completion,
     notify_progress,
 )
@@ -538,6 +539,11 @@ tool = ToolSpec(
             "session.end",  # HookType.SESSION_END.value
             _session_end_subagent_cleanup,
             0,  # Default priority
+        ),
+        "control": (
+            "step.pre",  # HookType.STEP_PRE.value
+            _subagent_control_hook,
+            0,
         ),
     },
 )
