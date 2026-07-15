@@ -6232,6 +6232,40 @@ class TestSubagentSteer:
         with pytest.raises(ValueError, match="closed its prompt queue"):
             subagent_steer("sentinel-agent", "too late")
 
+    def test_steer_thread_mode_sentinel_file_raises(self, tmp_path):
+        """Thread-mode steer raises when the sentinel file exists but prompt_queue_closed is not set.
+
+        This is the race window Greptile identified: chat() writes the sentinel
+        at the drain boundary (inside _run_chat_loop's non-interactive break),
+        but prompt_queue_closed.set() is called only after chat() returns —
+        a gap where steer could falsely succeed without the file check.
+
+        Verifies that _queue_is_closed() checks the sentinel file for thread mode
+        too, not just subprocess mode.
+        """
+        logdir = tmp_path / "steer-thread-sentinel"
+        logdir.mkdir()
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True  # still "alive" — in cleanup
+        sa = Subagent(
+            agent_id="thread-sentinel-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        # Simulate chat.py writing the sentinel at the drain boundary
+        # (prompt_queue_closed NOT yet set — chat() hasn't returned yet).
+        (logdir / "prompt-queue-closed").touch()
+        assert not sa.prompt_queue_closed.is_set()
+        assert sa.execution_mode == "thread"
+
+        with pytest.raises(ValueError, match="closed its prompt queue"):
+            subagent_steer("thread-sentinel-agent", "too late")
+
     def test_steer_result_cached_still_raises(self, tmp_path):
         """subagent_steer raises when result is cached (covers the post-cache half of cleanup).
 

@@ -1203,24 +1203,31 @@ def subagent_steer(agent_id: str, message: str) -> str:
     def _queue_is_closed() -> bool:
         """Return True if the subagent's chat loop has finished draining.
 
-        Thread mode: prompt_queue_closed is a Python event set inside
-        _create_subagent_thread immediately when chat() returns.
+        Both modes: chat.py writes a "prompt-queue-closed" sentinel file to
+        the logdir at the actual drain boundary — right before the ``break``
+        in ``_run_chat_loop`` (non-interactive exit) and right before raising
+        ``SessionCompleteException`` — and again in ``chat()``'s ``finally``
+        block as a safety net.  Checking this file for both thread and
+        subprocess mode closes the race window between ``chat()``'s last
+        drain and ``prompt_queue_closed.set()`` being called.
 
-        Subprocess mode: chat.py writes a "prompt-queue-closed" sentinel file
-        to the logdir in its finally block — before the process exits — giving
-        a child-side signal that closes the gap between the last queue drain and
-        process exit.  The Python event (set in the launcher's finally block
-        after _monitor_subprocess returns) is a second-level catch.
+        Thread mode: the sentinel file is the primary, early signal.
+        ``prompt_queue_closed`` is a Python event set immediately *after*
+        ``chat()`` returns — slightly later than the file, so it is a
+        second-level catch.
+
+        Subprocess mode: the sentinel file is written by the child inside
+        ``chat()``, before the process exits.  ``prompt_queue_closed`` is
+        set by the parent launcher after the process exits — a second-level
+        catch here too.
         """
-        return sa.prompt_queue_closed.is_set() or (
-            sa.execution_mode == "subprocess"
-            and (sa.logdir / "prompt-queue-closed").exists()
+        return (
+            sa.prompt_queue_closed.is_set()
+            or (sa.logdir / "prompt-queue-closed").exists()
         )
 
-    # Check prompt_queue_closed / sentinel first: both paths fire as close as
-    # possible to the actual last drain boundary (thread: Python event set inside
-    # the thread; subprocess: sentinel file written by chat.py's finally block
-    # before process exit, so no gap between last drain and parent detection).
+    # Check closed state first: sentinel file is written at the actual drain
+    # boundary for both thread and subprocess modes (see _queue_is_closed).
     if _queue_is_closed():
         raise ValueError(
             f"Subagent '{agent_id}' has closed its prompt queue — "
