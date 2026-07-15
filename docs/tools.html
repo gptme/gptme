@@ -2289,10 +2289,9 @@ Claude Code Workflow <code class="docutils literal notranslate"><span class="pre
 <dl class="py function">
 <dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.subagent.</span></span><span class="sig-name descname"><span class="pre">get_current_agent_id</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span></dt>
-<dd><p>Return the agent_id of the currently running subagent thread, or None.</p>
-<p>Set by _create_subagent_thread before calling chat(). Used by the progress
-tool to identify which subagent is sending a progress update.
-Only populated in thread-mode subagents.</p>
+<dd><p>Return the agent_id of the currently running subagent, or None.</p>
+<p>Thread-mode subagents: set via _create_subagent_thread (thread-local).
+Subprocess-mode subagents: set via GPTME_SUBAGENT_AGENT_ID env var.</p>
 </dd></dl>
 
 <dl class="py function">
@@ -2572,10 +2571,13 @@ is_complete() to check status, and get_completed() for partial results.</p>
 <dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.subagent.</span></span><span class="sig-name descname"><span class="pre">subagent_cancel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">agent_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
 <dd><p>Cancel a running subagent.</p>
-<p>For subprocess-mode subagents, sends SIGTERM (then SIGKILL after 5s) to the
-process. For thread-mode subagents, records a cancellation operation that stops
-the child at its next step boundary while caching the failure result immediately
-so callers do not block waiting for it.</p>
+<p>For subprocess-mode subagents, writes a cancel op to <code class="docutils literal notranslate"><span class="pre">logdir/control.jsonl</span></code>
+so the agent’s cooperative checkpoint can exit cleanly before SIGTERM arrives,
+then sends SIGTERM (and SIGKILL after 5s) as escalation.</p>
+<p>For thread-mode subagents, writes the cancel op and marks the result cache so
+callers don’t block.  The thread stops at its next STEP_PRE checkpoint and
+releases its concurrency slot.</p>
+<p>ACP-mode subagents keep today’s cache-mark-only behavior (no control file).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>agent_id</strong> – The subagent to cancel</p>
