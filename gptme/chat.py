@@ -149,6 +149,14 @@ def chat(
         # Note: Confirmation is now handled within ToolUse.execute() using the hook system,
         # so we no longer need to create and pass confirm_func.
 
+        # Clear any stale prompt-queue-closed sentinel from a previous run.
+        # Planner-mode subagents reuse the same logdir (same agent_id); the
+        # sentinel from a prior run would otherwise falsely block steering of
+        # the new run even though subagent_steer()'s started_at guard already
+        # handles this — belt-and-suspenders cleanup at the start of each run.
+        if logdir is not None:
+            (logdir / "prompt-queue-closed").unlink(missing_ok=True)
+
         # Convert prompt_msgs to a queue for unified handling
         prompt_queue = list(prompt_msgs)
 

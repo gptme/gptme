@@ -1220,11 +1220,19 @@ def subagent_steer(agent_id: str, message: str) -> str:
         ``chat()``, before the process exits.  ``prompt_queue_closed`` is
         set by the parent launcher after the process exits — a second-level
         catch here too.
+
+        Stale-sentinel guard: planner-mode subagents reuse the same logdir
+        across runs (same ``agent_id`` → same ``subagent-{agent_id}``
+        directory).  A sentinel written by a *previous* run persists on
+        disk.  We ignore it by requiring the file's mtime to be no earlier
+        than ``sa.started_at`` (seconds since epoch, set when the Subagent
+        object is created at spawn time).
         """
-        return (
-            sa.prompt_queue_closed.is_set()
-            or (sa.logdir / "prompt-queue-closed").exists()
+        sentinel = sa.logdir / "prompt-queue-closed"
+        sentinel_is_current = (
+            sentinel.exists() and sentinel.stat().st_mtime >= sa.started_at
         )
+        return sa.prompt_queue_closed.is_set() or sentinel_is_current
 
     # Check closed state first: sentinel file is written at the actual drain
     # boundary for both thread and subprocess modes (see _queue_is_closed).

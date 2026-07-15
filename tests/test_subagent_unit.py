@@ -8,6 +8,7 @@ import importlib
 import json
 import queue
 import threading
+import time
 from pathlib import Path
 from typing import Literal
 from unittest.mock import MagicMock
@@ -6225,6 +6226,7 @@ class TestSubagentSteer:
             model=None,
             execution_mode="subprocess",
             process=mock_proc,
+            started_at=time.time() - 2.0,  # ensure sentinel written next is "current"
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -6259,6 +6261,7 @@ class TestSubagentSteer:
             logdir=logdir,
             model=None,
             execution_mode="thread",
+            started_at=time.time() - 2.0,  # ensure sentinel written next is "current"
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -6296,3 +6299,75 @@ class TestSubagentSteer:
 
         with pytest.raises(ValueError, match="not running"):
             subagent_steer("cached-agent", "too late")
+
+    def test_steer_stale_sentinel_from_previous_run_does_not_block(self, tmp_path):
+        """A prompt-queue-closed sentinel from a *previous* run must not block steering.
+
+        Planner-mode subagents reuse the same logdir (same agent_id, same
+        subagent-{agent_id} directory).  When a run exits it writes
+        prompt-queue-closed.  A subsequent run using the same logdir must not
+        be incorrectly blocked by that stale sentinel — only a sentinel written
+        at or after sa.started_at counts as current.
+        """
+        logdir = tmp_path / "steer-stale-sentinel"
+        logdir.mkdir()
+
+        # Simulate a previous run writing the sentinel (stale).
+        sentinel = logdir / "prompt-queue-closed"
+        sentinel.touch()
+        stale_mtime = sentinel.stat().st_mtime
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True  # current run is active
+
+        # started_at is clearly after the stale sentinel — this is a new run.
+        sa = Subagent(
+            agent_id="stale-sentinel-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="thread",
+            started_at=stale_mtime + 1.0,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        assert not sa.prompt_queue_closed.is_set()
+
+        # steer must succeed — the sentinel predates this run.
+        result = subagent_steer("stale-sentinel-agent", "redirect please")
+        assert "stale-sentinel-agent" in result
+
+    def test_steer_current_sentinel_after_reused_logdir_raises(self, tmp_path):
+        """A fresh sentinel written by the *current* run still blocks steering.
+
+        Companion to test_steer_stale_sentinel_from_previous_run_does_not_block:
+        when the sentinel's mtime is >= sa.started_at it belongs to this run
+        and steer must raise.
+        """
+        logdir = tmp_path / "steer-current-sentinel"
+        logdir.mkdir()
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+
+        # Record a "started_at" in the past so the sentinel written next is current.
+        past_start = time.time() - 2.0
+        sa = Subagent(
+            agent_id="current-sentinel-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="thread",
+            started_at=past_start,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        # Sentinel written after started_at — belongs to the current run.
+        (logdir / "prompt-queue-closed").touch()
+        assert not sa.prompt_queue_closed.is_set()
+
+        with pytest.raises(ValueError, match="closed its prompt queue"):
+            subagent_steer("current-sentinel-agent", "too late")
