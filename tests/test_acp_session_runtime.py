@@ -205,8 +205,9 @@ def test_acp_step_emits_events(monkeypatch, client: FlaskClient, tmp_path):
     session = ConversationSession(id="sid-evt", conversation_id=conversation_id)
     session.use_acp = True
     session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
-    SessionManager._sessions["sid-evt"] = session
-    SessionManager._conversation_sessions[conversation_id].add("sid-evt")
+    with SessionManager._lock:
+        SessionManager._sessions["sid-evt"] = session
+        SessionManager._conversation_sessions[conversation_id].add("sid-evt")
 
     try:
         _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
@@ -225,8 +226,9 @@ def test_acp_step_emits_events(monkeypatch, client: FlaskClient, tmp_path):
         assert len(assistant_msgs) == 1
         assert assistant_msgs[0].content == "hello world"
     finally:
-        SessionManager._sessions.pop("sid-evt", None)
-        SessionManager._conversation_sessions[conversation_id].discard("sid-evt")
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-evt", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-evt")
 
 
 def test_use_acp_step_rejects_non_boolean_flag(client: FlaskClient):
@@ -400,8 +402,9 @@ def test_acp_step_rejects_duplicate_without_new_user_message(
     session = ConversationSession(id="sid-dupe", conversation_id=conversation_id)
     session.use_acp = True
     session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
-    SessionManager._sessions["sid-dupe"] = session
-    SessionManager._conversation_sessions[conversation_id].add("sid-dupe")
+    with SessionManager._lock:
+        SessionManager._sessions["sid-dupe"] = session
+        SessionManager._conversation_sessions[conversation_id].add("sid-dupe")
 
     try:
         # First run consumes pending user message(s)
@@ -418,8 +421,9 @@ def test_acp_step_rejects_duplicate_without_new_user_message(
         err = session.events[-1]
         assert "No new user message" in str(err)
     finally:
-        SessionManager._sessions.pop("sid-dupe", None)
-        SessionManager._conversation_sessions[conversation_id].discard("sid-dupe")
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-dupe", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-dupe")
 
 
 def test_acp_step_processes_all_pending_user_messages(
@@ -455,8 +459,9 @@ def test_acp_step_processes_all_pending_user_messages(
     session = ConversationSession(id="sid-pending", conversation_id=conversation_id)
     session.use_acp = True
     session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
-    SessionManager._sessions["sid-pending"] = session
-    SessionManager._conversation_sessions[conversation_id].add("sid-pending")
+    with SessionManager._lock:
+        SessionManager._sessions["sid-pending"] = session
+        SessionManager._conversation_sessions[conversation_id].add("sid-pending")
 
     try:
         _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
@@ -479,8 +484,11 @@ def test_acp_step_processes_all_pending_user_messages(
         assert session.events[-1]["type"] == "error"
         assert "No new user message" in str(session.events[-1])
     finally:
-        SessionManager._sessions.pop("sid-pending", None)
-        SessionManager._conversation_sessions[conversation_id].discard("sid-pending")
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-pending", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-pending"
+            )
 
 
 def test_acp_step_runs_session_start_step_pre_and_turn_post_hooks(
@@ -537,8 +545,9 @@ def test_acp_step_runs_session_start_step_pre_and_turn_post_hooks(
     session = ConversationSession(id="sid-hooks", conversation_id=conversation_id)
     session.use_acp = True
     session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
-    SessionManager._sessions["sid-hooks"] = session
-    SessionManager._conversation_sessions[conversation_id].add("sid-hooks")
+    with SessionManager._lock:
+        SessionManager._sessions["sid-hooks"] = session
+        SessionManager._conversation_sessions[conversation_id].add("sid-hooks")
 
     try:
         _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
@@ -561,8 +570,9 @@ def test_acp_step_runs_session_start_step_pre_and_turn_post_hooks(
         assert current_conversation_id.get() is None
         assert current_session_id.get() is None
     finally:
-        SessionManager._sessions.pop("sid-hooks", None)
-        SessionManager._conversation_sessions[conversation_id].discard("sid-hooks")
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-hooks", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-hooks")
 
 
 def test_start_acp_step_thread_propagates_contextvars(monkeypatch, tmp_path):
@@ -648,8 +658,9 @@ def test_acp_step_bridges_generation_progress_events(
     session = ConversationSession(id="sid-stream", conversation_id=conversation_id)
     session.use_acp = True
     session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
-    SessionManager._sessions["sid-stream"] = session
-    SessionManager._conversation_sessions[conversation_id].add("sid-stream")
+    with SessionManager._lock:
+        SessionManager._sessions["sid-stream"] = session
+        SessionManager._conversation_sessions[conversation_id].add("sid-stream")
 
     try:
         _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
@@ -687,8 +698,9 @@ def test_acp_step_bridges_generation_progress_events(
             final_text = str(final_content)
         assert final_text == "hello world"
     finally:
-        SessionManager._sessions.pop("sid-stream", None)
-        SessionManager._conversation_sessions[conversation_id].discard("sid-stream")
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-stream", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-stream")
 
 
 @pytest.mark.timeout(15)
@@ -915,8 +927,9 @@ def test_health_check_cleans_dead_subprocess(monkeypatch, tmp_path):
     )()
     session.acp_runtime = runtime
 
-    SessionManager._sessions["dead-session"] = session
-    SessionManager._conversation_sessions["conv-dead"].add("dead-session")
+    with SessionManager._lock:
+        SessionManager._sessions["dead-session"] = session
+        SessionManager._conversation_sessions["conv-dead"].add("dead-session")
 
     try:
         _run_health_check()
@@ -925,8 +938,9 @@ def test_health_check_cleans_dead_subprocess(monkeypatch, tmp_path):
         assert "dead-session" not in SessionManager._sessions
     finally:
         # Cleanup in case test failed
-        SessionManager._sessions.pop("dead-session", None)
-        SessionManager._conversation_sessions.pop("conv-dead", None)
+        with SessionManager._lock:
+            SessionManager._sessions.pop("dead-session", None)
+            SessionManager._conversation_sessions.pop("conv-dead", None)
 
 
 def test_health_check_skips_generating_sessions(monkeypatch, tmp_path):
@@ -951,8 +965,9 @@ def test_health_check_skips_generating_sessions(monkeypatch, tmp_path):
     )()
     session.acp_runtime = runtime
 
-    SessionManager._sessions["gen-session"] = session
-    SessionManager._conversation_sessions["conv-gen"].add("gen-session")
+    with SessionManager._lock:
+        SessionManager._sessions["gen-session"] = session
+        SessionManager._conversation_sessions["conv-gen"].add("gen-session")
 
     try:
         _run_health_check()
@@ -960,8 +975,9 @@ def test_health_check_skips_generating_sessions(monkeypatch, tmp_path):
         # Session should still be present (generating flag protects it)
         assert "gen-session" in SessionManager._sessions
     finally:
-        SessionManager._sessions.pop("gen-session", None)
-        SessionManager._conversation_sessions.pop("conv-gen", None)
+        with SessionManager._lock:
+            SessionManager._sessions.pop("gen-session", None)
+            SessionManager._conversation_sessions.pop("conv-gen", None)
 
 
 def test_health_monitor_start_stop():
@@ -973,9 +989,9 @@ def test_health_monitor_start_stop():
 
     # Start with short interval for testing
     start_acp_health_monitor(interval=1)
-
-    # Starting again should be a no-op
-    start_acp_health_monitor(interval=1)
-
-    # Stop should clean up
-    stop_acp_health_monitor()
+    try:
+        # Starting again should be a no-op
+        start_acp_health_monitor(interval=1)
+    finally:
+        # Stop should clean up; always run so the thread never leaks on failure
+        stop_acp_health_monitor()
