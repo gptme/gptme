@@ -10,6 +10,8 @@ import subprocess
 import uuid
 from pathlib import Path
 
+from .git_cmd import GIT_CMD
+
 logger = logging.getLogger(__name__)
 
 # Default base directory for worktrees
@@ -32,7 +34,7 @@ def has_changes(worktree_path: Path) -> bool:
     try:
         # 1. Uncommitted changes (staged or unstaged)
         result = subprocess.run(
-            ["git", "status", "--porcelain"],
+            [GIT_CMD, "status", "--porcelain"],
             cwd=worktree_path,
             capture_output=True,
             text=True,
@@ -49,7 +51,7 @@ def has_changes(worktree_path: Path) -> bool:
         # git reflog show <branch> lists entries newest-first; the last entry
         # is the creation point. If HEAD != that initial SHA, commits exist.
         branch_r = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            [GIT_CMD, "rev-parse", "--abbrev-ref", "HEAD"],
             cwd=worktree_path,
             capture_output=True,
             text=True,
@@ -65,7 +67,7 @@ def has_changes(worktree_path: Path) -> bool:
             return False
 
         reflog_r = subprocess.run(
-            ["git", "reflog", "show", "--format=%H", branch],
+            [GIT_CMD, "reflog", "show", "--format=%H", branch],
             cwd=worktree_path,
             capture_output=True,
             text=True,
@@ -79,7 +81,7 @@ def has_changes(worktree_path: Path) -> bool:
             if shas:
                 creation_sha = shas[-1]  # oldest reflog entry = creation point
                 ahead_r = subprocess.run(
-                    ["git", "rev-list", "--count", f"{creation_sha}..HEAD"],
+                    [GIT_CMD, "rev-list", "--count", f"{creation_sha}..HEAD"],
                     cwd=worktree_path,
                     capture_output=True,
                     text=True,
@@ -106,7 +108,7 @@ def get_git_root(path: Path | None = None) -> Path | None:
     """
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
+            [GIT_CMD, "rev-parse", "--show-toplevel"],
             check=False,
             capture_output=True,
             text=True,
@@ -150,7 +152,7 @@ def create_worktree(
 
     # Create worktree with a new branch based on HEAD
     subprocess.run(
-        ["git", "worktree", "add", str(worktree_path), "-b", branch_name],
+        [GIT_CMD, "worktree", "add", str(worktree_path), "-b", branch_name],
         cwd=repo_path,
         capture_output=True,
         text=True,
@@ -210,7 +212,7 @@ def cleanup_worktree(
     if repo_path:
         try:
             subprocess.run(
-                ["git", "worktree", "remove", "--force", str(worktree_path)],
+                [GIT_CMD, "worktree", "remove", "--force", str(worktree_path)],
                 cwd=repo_path,
                 capture_output=True,
                 text=True,
@@ -235,7 +237,7 @@ def cleanup_worktree(
         # git worktree remove only removes the working tree, not the branch.
         try:
             result = subprocess.run(
-                ["git", "branch", "-D", branch_name],
+                [GIT_CMD, "branch", "-D", branch_name],
                 cwd=repo_path,
                 capture_output=True,
                 text=True,
@@ -254,7 +256,7 @@ def cleanup_worktree(
         # Prune stale worktree entries
         try:
             subprocess.run(
-                ["git", "worktree", "prune"],
+                [GIT_CMD, "worktree", "prune"],
                 check=False,
                 cwd=repo_path,
                 capture_output=True,

@@ -6,6 +6,8 @@ from pathlib import Path
 
 from platformdirs import user_config_dir, user_data_dir, user_state_dir
 
+from .util.git_cmd import GIT_CMD
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,7 +92,7 @@ def _get_project_git_dir_walk() -> Path | None:
 def _get_project_git_dir_call() -> Path | None:
     try:
         projectdir = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
+            [GIT_CMD, "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
             check=True,
@@ -117,7 +119,7 @@ def get_workspace() -> Path:
 
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
+            [GIT_CMD, "rev-parse", "--show-toplevel"],
             check=False,
             capture_output=True,
             text=True,
@@ -129,7 +131,7 @@ def get_workspace() -> Path:
             if (git_root / ".git").is_file():
                 try:
                     super_result = subprocess.run(
-                        ["git", "rev-parse", "--show-superproject-working-tree"],
+                        [GIT_CMD, "rev-parse", "--show-superproject-working-tree"],
                         check=False,
                         capture_output=True,
                         text=True,
