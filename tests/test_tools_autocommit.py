@@ -20,6 +20,7 @@ from gptme.tools.autocommit import (
     handle_commit_command,
     tool,
 )
+from gptme.util.git_cmd import GIT_CMD
 
 # ── autocommit() ────────────────────────────────────────────────────────
 
@@ -187,10 +188,10 @@ class TestAutocommit:
 
         assert mock_run.call_count == 3
         cmds = [call[0][0] for call in mock_run.call_args_list]
-        assert "git" in cmds[0]
+        assert GIT_CMD in cmds[0]
         assert "--porcelain" in cmds[0]
-        assert cmds[1] == ["git", "status"]
-        assert cmds[2] == ["git", "diff", "HEAD"]
+        assert cmds[1] == [GIT_CMD, "status"]
+        assert cmds[2] == [GIT_CMD, "diff", "HEAD"]
 
 
 # ── handle_commit_command() ──────────────────────────────────────────────

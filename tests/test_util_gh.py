@@ -96,8 +96,10 @@ def _mock_git_remote(url: str):
     """Helper to mock subprocess.run for git remote get-url."""
     import subprocess
 
+    from gptme.util.git_cmd import GIT_CMD
+
     def fake_run(cmd, **kwargs):
-        if cmd == ["git", "remote", "get-url", "origin"]:
+        if cmd == [GIT_CMD, "remote", "get-url", "origin"]:
             return subprocess.CompletedProcess(cmd, 0, stdout=url + "\n", stderr="")
         raise subprocess.CalledProcessError(1, cmd)
 
