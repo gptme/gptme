@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from ...message import Message
+from ...util.git_cmd import GIT_CMD
 from .file_config import FileSelectorConfig
 from .file_integration import FileItem
 from .hybrid import HybridSelector
@@ -23,7 +24,7 @@ def get_workspace_files(workspace: Path) -> list[Path]:
     # Try git first
     try:
         p = subprocess.run(
-            ["git", "ls-files"],
+            [GIT_CMD, "ls-files"],
             cwd=workspace,
             capture_output=True,
             text=True,
@@ -55,7 +56,7 @@ def get_git_status_files(workspace: Path) -> dict[Path, str]:
     """
     try:
         result = subprocess.run(
-            ["git", "status", "--short"],
+            [GIT_CMD, "status", "--short"],
             cwd=workspace,
             capture_output=True,
             text=True,

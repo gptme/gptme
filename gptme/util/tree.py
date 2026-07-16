@@ -1,10 +1,10 @@
 import logging
-import shlex
 import subprocess
 from pathlib import Path
 from typing import Literal
 
 from ..config import get_config
+from .git_cmd import GIT_CMD
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ def get_tree_output(workspace: Path, method: TreeMethod = "git") -> str | None:
     in_git_repo = False
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"],
+            [GIT_CMD, "rev-parse", "--is-inside-work-tree"],
             check=False,
             cwd=workspace,
             capture_output=True,
@@ -38,14 +38,14 @@ def get_tree_output(workspace: Path, method: TreeMethod = "git") -> str | None:
         logger.debug(f"Error checking git repository: {e}")
 
     # git and tree --gitignore require a git repo; ls works anywhere
-    git_methods: dict[TreeMethod, str] = {
-        "git": "git ls-files --exclude-standard",
-        "tree": "tree -fi --gitignore .",
+    git_methods: dict[TreeMethod, list[str]] = {
+        "git": [GIT_CMD, "ls-files", "--exclude-standard"],
+        "tree": ["tree", "-fi", "--gitignore", "."],
     }
-    non_git_methods: dict[TreeMethod, str] = {
-        "ls": "ls -R .",
+    non_git_methods: dict[TreeMethod, list[str]] = {
+        "ls": ["ls", "-R", "."],
     }
-    methods: dict[TreeMethod, str] = (
+    methods: dict[TreeMethod, list[str]] = (
         {**git_methods, **non_git_methods} if in_git_repo else dict(non_git_methods)
     )
 
@@ -62,7 +62,7 @@ def get_tree_output(workspace: Path, method: TreeMethod = "git") -> str | None:
     for current_method in methods_to_try:
         try:
             result = subprocess.run(
-                shlex.split(methods[current_method]),
+                methods[current_method],
                 check=False,
                 cwd=workspace,
                 capture_output=True,
