@@ -1,5 +1,4 @@
 import { GitBranch } from 'lucide-react';
-import { useObservable } from '@legendapp/state/react';
 import { use$ } from '@legendapp/state/react';
 import type { FC } from 'react';
 import { conversations$, setCurrentBranch } from '@/stores/conversations';
@@ -13,13 +12,8 @@ interface BranchMapPanelProps {
 export const BranchMapPanel: FC<BranchMapPanelProps> = ({ conversationId }) => {
   const conversation$ = conversations$.get(conversationId);
 
-  const data$ = useObservable(() => {
-    const branches = conversation$?.data.branches?.get() ?? {};
-    const currentBranch = conversation$?.currentBranch?.get() ?? 'main';
-    return { branches, currentBranch };
-  });
-
-  const { branches, currentBranch } = use$(data$);
+  const branches = use$(() => conversation$?.data.branches?.get()) ?? {};
+  const currentBranch = use$(() => conversation$?.currentBranch?.get()) ?? 'main';
 
   const branchEntries = Object.entries(branches ?? {});
 
