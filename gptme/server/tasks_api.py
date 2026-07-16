@@ -652,7 +652,7 @@ def setup_task_workspace(task_id: str, target_repo: str | None = None) -> Path:
             try:
                 subprocess.run(
                     [
-                        "git",
+                        GIT_CMD,
                         "clone",
                         f"https://github.com/{target_repo}.git",
                         str(repo_path),
