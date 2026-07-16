@@ -738,10 +738,20 @@ def _merge_consecutive_messages(msgs: list[Message]) -> list[Message]:
     Dropping an assistant turn between two user turns creates a sequence strict
     providers reject.  Merge the adjacent messages while preserving attachments
     and message flags via Message.concat().
+
+    Exception: system messages with a call_id are structured tool results.
+    Merging them would discard all but the first call_id, causing providers
+    that use the Responses API (Codex/OpenAI) to return 400 "No tool output
+    found for function call <id>" on the next multi-tool-call turn.
     """
     merged: list[Message] = []
     for msg in msgs:
-        if merged and merged[-1].role == msg.role:
+        if (
+            merged
+            and merged[-1].role == msg.role
+            and not msg.call_id
+            and not merged[-1].call_id
+        ):
             merged[-1] = merged[-1].concat(msg)
         else:
             merged.append(msg)
