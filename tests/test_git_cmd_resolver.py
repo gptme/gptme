@@ -1,8 +1,11 @@
 """Tests for the Git executable resolver (hardening against Windows CWD hijack)."""
 
 import importlib
+import os
 import shutil
+import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -49,17 +52,46 @@ def test_git_cmd_fallback_when_git_missing():
         git_cmd_mod.GIT_CMD = original
 
 
-def test_git_cmd_matches_shutil_which():
-    """GIT_CMD equals the path shutil.which returns, proving the constant is resolved."""
-    if shutil.which("git") is None:
-        pytest.skip("git not available on PATH")
+def test_git_cmd_not_in_cwd_on_windows():
+    """On Windows, _resolve_git_cmd never returns a path inside the CWD."""
+    if sys.platform != "win32":
+        pytest.skip("CWD-filter logic only applies on Windows")
 
-    import gptme.util.git_cmd as git_cmd_mod
+    from gptme.util.git_cmd import _resolve_git_cmd
 
-    # Re-import from a fresh load to avoid any earlier test side-effects.
-    importlib.reload(git_cmd_mod)
+    cwd = os.path.normcase(os.path.abspath(os.getcwd()))
+    result = _resolve_git_cmd()
+    if Path(result).is_absolute():
+        assert os.path.normcase(os.path.dirname(result)) != cwd, (
+            f"GIT_CMD={result!r} resolves into CWD={cwd!r} — hijack protection failed"
+        )
 
-    resolved = shutil.which("git")
-    assert resolved == git_cmd_mod.GIT_CMD, (
-        f"GIT_CMD={git_cmd_mod.GIT_CMD!r} should equal shutil.which('git')={resolved!r}"
+
+def test_git_cmd_cwd_filtered_from_path():
+    """_resolve_git_cmd skips '' and '.' PATH entries that map to CWD."""
+    if sys.platform != "win32":
+        pytest.skip("CWD-filter logic only applies on Windows")
+
+    from gptme.util import git_cmd as git_cmd_mod
+
+    cwd = os.getcwd()
+    # Inject a PATH that contains only the CWD (via empty-string entry) plus a
+    # real system path so which() can still find git if it exists there.
+    system_git_dir = (
+        str(Path(shutil.which("git")).parent)
+        if shutil.which("git")
+        else r"C:\Windows\System32"
     )
+    fake_path = os.pathsep.join(["", system_git_dir])
+
+    with patch.dict(os.environ, {"PATH": fake_path}):
+        importlib.reload(git_cmd_mod)
+        result = git_cmd_mod.GIT_CMD
+
+    # The result must not point into CWD.
+    if Path(result).is_absolute():
+        assert os.path.normcase(
+            os.path.abspath(os.path.dirname(result))
+        ) != os.path.normcase(os.path.abspath(cwd)), (
+            f"GIT_CMD={result!r} still points into CWD after filtering"
+        )
