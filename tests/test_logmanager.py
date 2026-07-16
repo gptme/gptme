@@ -9,6 +9,7 @@ from gptme.logmanager import (
     check_for_modifications,
     conversation_name_error,
 )
+from gptme.logmanager.manager import _merge_consecutive_messages
 from gptme.message import Message
 from gptme.tools import init_tools
 
@@ -371,6 +372,44 @@ def test_read_jsonl_malformed(tmp_path):
     assert len(log.messages) == 2
     assert log.messages[0].content == "hello"
     assert log.messages[1].content == "world"
+
+
+def test_merge_consecutive_does_not_merge_tool_result_messages():
+    """Regression: _merge_consecutive_messages must NOT merge adjacent system
+    messages that carry distinct call_ids.
+
+    When an assistant turn contains two tool calls (call_A, call_B), gptme
+    appends two system messages in sequence.  prune_ephemeral_messages() always
+    calls _merge_consecutive_messages() before the next LLM request.  If that
+    merge collapses the two messages into one (keeping only call_A via
+    Message.concat()), the Codex/OpenAI Responses API receives a
+    function_call(A) + function_call(B) but only a single
+    function_call_output(A) and returns 400: "No tool output found for
+    function call call_B".
+    """
+    msgs = [
+        Message(role="system", content="result A", call_id="call_A"),
+        Message(role="system", content="result B", call_id="call_B"),
+    ]
+    result = _merge_consecutive_messages(msgs)
+    assert len(result) == 2, (
+        f"Tool-result messages must NOT be merged; got {len(result)} message(s): {result}"
+    )
+    assert result[0].call_id == "call_A"
+    assert result[1].call_id == "call_B"
+
+
+def test_merge_consecutive_still_merges_plain_same_role_messages():
+    """Non-tool-result adjacent system messages (no call_id) should still be
+    merged as before — the fix must not regress the original pruning purpose."""
+    msgs = [
+        Message(role="system", content="part one"),
+        Message(role="system", content="part two"),
+    ]
+    result = _merge_consecutive_messages(msgs)
+    assert len(result) == 1
+    assert "part one" in result[0].content
+    assert "part two" in result[0].content
 
 
 def test_read_jsonl_unknown_field(tmp_path):

@@ -176,6 +176,54 @@ def test_stream_builds_shared_responses_request_shape():
     assert request_json["tools"][0]["name"] == "save"
 
 
+def test_stream_preserves_both_call_ids_for_multi_tool_assistant_turn():
+    """Regression: _merge_consecutive_messages was merging adjacent tool-result
+    system messages, dropping the second call_id.  When an assistant turn
+    contains two tool calls (call_A, call_B), two system messages are produced
+    in sequence.  prune_ephemeral_messages → _merge_consecutive_messages must
+    NOT merge them, so both function_call_output items survive in the Codex
+    Responses API input.  Without the fix the API returns 400:
+    "No tool output found for function call call_B"."""
+    response = _FakeSSEStreamResponse([{"type": "response.done"}])
+    init_tools(allowlist=["save"])
+    save_tool = get_tool("save")
+    assert save_tool is not None
+
+    messages = [
+        Message(role="system", content="You are concise."),
+        Message(role="user", content="Save two files."),
+        Message(
+            role="assistant",
+            content=(
+                '@save(call_A): {"path": "a.txt", "content": "a"}\n'
+                '@save(call_B): {"path": "b.txt", "content": "b"}'
+            ),
+        ),
+        Message(role="system", content="Saved a.txt", call_id="call_A"),
+        Message(role="system", content="Saved b.txt", call_id="call_B"),
+    ]
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post", return_value=response
+        ) as mock_post,
+    ):
+        list(llm_openai_subscription.stream(messages, "gpt-5.4", tools=[save_tool]))
+
+    request_json = mock_post.call_args.kwargs["json"]
+    input_items = request_json["input"]
+
+    fc_outputs = [it for it in input_items if it.get("type") == "function_call_output"]
+    assert len(fc_outputs) == 2, (
+        f"Expected 2 function_call_output items, got {len(fc_outputs)}: {fc_outputs}"
+    )
+    output_call_ids = {it["call_id"] for it in fc_outputs}
+    assert output_call_ids == {"call_A", "call_B"}, (
+        f"Expected both call_ids to be present; got {output_call_ids}"
+    )
+
+
 def test_stream_forwards_max_tokens_as_max_output_tokens():
     """max_tokens passed to stream() must appear as max_output_tokens in the POST body."""
     response = _FakeSSEStreamResponse([{"type": "response.done"}])
