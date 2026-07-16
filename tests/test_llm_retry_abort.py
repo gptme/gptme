@@ -30,10 +30,12 @@ def _reset_retry_abort_state():
     # Reset before test
     retry_abort._generation = 0
     retry_abort._thread_events.clear()
+    retry_abort._released_idents.clear()
     yield
     # Reset after test
     retry_abort._generation = 0
     retry_abort._thread_events.clear()
+    retry_abort._released_idents.clear()
 
 
 def test_backoff_wait_not_interrupted_waits_full_delay():
@@ -305,6 +307,34 @@ def test_interrupt_dead_thread_leaves_no_stale_event():
     assert ident not in retry_abort._thread_events, (
         "interrupt_thread() on a dead thread must not create a stale pre-signaled event"
     )
+
+
+def test_interrupt_after_release_but_before_full_exit_skips_pre_creation():
+    """Regression: interrupt_thread() in the release→exit window must not pre-create.
+
+    Race: release_thread() removes the event, but the thread hasn't finished dying
+    (is_alive() briefly returns True). interrupt_thread() called in this window
+    used to see: no event in _thread_events + is_alive()=True → pre-create stale
+    event → reused ident poisons the next thread's backoff.
+
+    The fix (Greptile score 4→5): _released_idents tracks cleaned-up idents so
+    interrupt_thread() skips pre-creation even when is_alive() is still True.
+    """
+    mock_thread = MagicMock(spec=threading.Thread)
+    mock_thread.ident = 777777
+    mock_thread.is_alive.return_value = True  # simulate: released but not yet dead
+
+    # Simulate release_thread() having run: ident is in _released_idents
+    with retry_abort._thread_events_lock:
+        retry_abort._released_idents.add(777777)
+
+    interrupt_thread(mock_thread)
+
+    with retry_abort._thread_events_lock:
+        assert 777777 not in retry_abort._thread_events, (
+            "released ident must not be pre-poisoned by interrupt_thread() "
+            "even when is_alive() still returns True"
+        )
 
 
 def test_anthropic_handler_stale_generation_reraises_same_error(monkeypatch):

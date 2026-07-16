@@ -24,6 +24,12 @@ _tls = threading.local()
 _thread_events: dict[int, "threading.Event"] = {}
 _thread_events_lock = threading.Lock()
 
+# Idents of threads that called release_thread() but may not yet be fully dead
+# (is_alive() can return True briefly after release_thread() runs). interrupt_thread()
+# skips pre-creating a signaled event for these idents so a reused ident doesn't
+# inherit a stale abort signal. Cleared per-ident by bind_thread_generation().
+_released_idents: set[int] = set()
+
 
 def current_generation() -> int:
     """Capture the current retry generation (call at LLM-call start)."""
@@ -46,6 +52,9 @@ def bind_thread_generation() -> None:
     ident = threading.current_thread().ident
     if ident is not None:
         with _thread_events_lock:
+            # Discard any stale release marker — this is a new thread that happens to
+            # reuse a previously-released ident; it should not inherit the poison.
+            _released_idents.discard(ident)
             existing = _thread_events.get(ident)
             if existing is not None:
                 # Pre-signaled by interrupt_thread() before we registered.
@@ -59,11 +68,17 @@ def bind_thread_generation() -> None:
 
 
 def release_thread() -> None:
-    """Remove this thread from the interrupt event registry (call at thread exit)."""
+    """Remove this thread from the interrupt event registry (call at thread exit).
+
+    Marks the ident in _released_idents so that a concurrent interrupt_thread() call
+    arriving after this but before the thread is fully dead does not pre-create a
+    stale signaled event that a later thread reusing the same ident would adopt.
+    """
     ident = threading.current_thread().ident
     if ident is not None:
         with _thread_events_lock:
             _thread_events.pop(ident, None)
+            _released_idents.add(ident)
 
 
 def interrupt_thread(thread: threading.Thread) -> None:
@@ -86,13 +101,16 @@ def interrupt_thread(thread: threading.Thread) -> None:
         if event is not None:
             event.set()
         else:
-            # Only pre-create a signaled event if the thread is still alive.
-            # A dead thread already called release_thread() (or never registered).
-            # Pre-signaling its ident after it exits would poison a later thread
-            # that Python reuses the same ident for.
+            # Don't pre-create if the thread already called release_thread() — even
+            # if is_alive() still returns True briefly (OS exit lag after Python
+            # release_thread() ran). Reusing the ident would poison a later thread.
+            if ident in _released_idents:
+                return
+            # Also skip dead threads that never called release_thread() (shouldn't
+            # happen in normal operation, but defensive).
             if not thread.is_alive():
                 return
-            # Thread started but bind_thread_generation() hasn't run yet.
+            # Thread started but bind_thread_generation() hasn't run yet (startup race).
             # Pre-create a signaled event; bind_thread_generation() will adopt it.
             pre = threading.Event()
             pre.set()
