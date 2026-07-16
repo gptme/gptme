@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import {
   Cpu,
+  GitBranch,
   Globe,
   FolderOpen,
   LayoutDashboard,
@@ -11,6 +12,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { RightSidebarPanelId } from '@/types/sidebar';
 import { ArtifactsPanel } from './ArtifactsPanel';
+import { BranchMapPanel } from './BranchMapPanel';
 import { BrowserPreview } from './BrowserPreview';
 import { ComputerPreview } from './ComputerPreview';
 import { ConversationSettings } from './ConversationSettings';
@@ -47,6 +49,12 @@ export const rightSidebarPanels: RightSidebarPanelDefinition[] = [
     label: 'Artifacts',
     icon: Package,
     render: ({ conversationId }) => <ArtifactsPanel conversationId={conversationId} />,
+  },
+  {
+    id: 'branches',
+    label: 'Branches',
+    icon: GitBranch,
+    render: ({ conversationId }) => <BranchMapPanel conversationId={conversationId} />,
   },
   {
     id: 'panels',
