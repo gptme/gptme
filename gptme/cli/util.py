@@ -41,6 +41,8 @@ from typing import TYPE_CHECKING
 
 import click
 
+from ..util.git_cmd import GIT_CMD
+
 if TYPE_CHECKING:
     from rich.tree import Tree as RichTree
 
@@ -403,7 +405,7 @@ def _git_run(cmd: list[str], check: bool = True, timeout: int = 10) -> tuple[str
         env = os.environ.copy()
         env.update({"PAGER": "cat", "GIT_PAGER": "cat", "GIT_TERMINAL_PROMPT": "0"})
         result = subprocess.run(
-            ["git"] + cmd,
+            [GIT_CMD] + cmd,
             capture_output=True,
             text=True,
             check=check,

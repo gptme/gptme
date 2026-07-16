@@ -25,6 +25,7 @@ from ..logmanager import LogManager
 from ..message import Message
 from ..prompts import get_prompt
 from ..tools import get_toolchain
+from ..util.git_cmd import GIT_CMD
 from .auth import require_auth
 from .openapi_docs import ErrorResponse, StatusResponse, api_doc_simple
 
@@ -389,7 +390,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
 
         # Check if it's a git repository
         result = subprocess.run(
-            ["git", "rev-parse", "--git-dir"],
+            [GIT_CMD, "rev-parse", "--git-dir"],
             cwd=workspace_path,
             capture_output=True,
             text=True,
@@ -403,7 +404,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
 
         # Get current branch
         branch_result = subprocess.run(
-            ["git", "branch", "--show-current"],
+            [GIT_CMD, "branch", "--show-current"],
             cwd=workspace_path,
             capture_output=True,
             text=True,
@@ -418,7 +419,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
 
         # Get status
         status_result = subprocess.run(
-            ["git", "status", "--porcelain"],
+            [GIT_CMD, "status", "--porcelain"],
             cwd=workspace_path,
             capture_output=True,
             text=True,
@@ -434,7 +435,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
         upstream_branch = None
         for candidate in ["origin/main", "origin/master", "origin/develop"]:
             check_result = subprocess.run(
-                ["git", "rev-parse", "--verify", candidate],
+                [GIT_CMD, "rev-parse", "--verify", candidate],
                 cwd=workspace_path,
                 capture_output=True,
                 text=True,
@@ -449,7 +450,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
         diff_stats = {"files_changed": 0, "lines_added": 0, "lines_removed": 0}
         if upstream_branch:
             diff_stat_result = subprocess.run(
-                ["git", "diff", "--stat", upstream_branch, "HEAD"],
+                [GIT_CMD, "diff", "--stat", upstream_branch, "HEAD"],
                 cwd=workspace_path,
                 capture_output=True,
                 text=True,
@@ -486,7 +487,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
         commits = []
         if upstream_branch:
             log_result = subprocess.run(
-                ["git", "log", "--oneline", f"{upstream_branch}..HEAD"],
+                [GIT_CMD, "log", "--oneline", f"{upstream_branch}..HEAD"],
                 cwd=workspace_path,
                 capture_output=True,
                 text=True,
@@ -499,7 +500,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
         else:
             # Fallback: show recent commits if no upstream found
             log_result = subprocess.run(
-                ["git", "log", "--oneline", "-5"],
+                [GIT_CMD, "log", "--oneline", "-5"],
                 cwd=workspace_path,
                 capture_output=True,
                 text=True,
@@ -512,7 +513,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
 
         # Try to get remote info for PR detection
         remote_result = subprocess.run(
-            ["git", "config", "--get", "remote.origin.url"],
+            [GIT_CMD, "config", "--get", "remote.origin.url"],
             cwd=workspace_path,
             capture_output=True,
             text=True,

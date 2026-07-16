@@ -8,6 +8,7 @@ from gptme.eval.agents import Agent
 from gptme.eval.cost import get_eval_costs, token_fields_from_cost
 from gptme.eval.types import CaseResult, EvalResult
 from gptme.util.cost_tracker import CostTracker
+from gptme.util.git_cmd import GIT_CMD
 
 from .retrieval import retrieve_files_for_prompt
 from .utils import (
@@ -227,7 +228,7 @@ def evaluate_instance(
     # Capture diff from agent workspace (repo copy)
     try:
         diff_result = subprocess.run(
-            ["git", "diff"],
+            [GIT_CMD, "diff"],
             cwd=agent.workspace_dir,
             capture_output=True,
             text=True,

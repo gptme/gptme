@@ -26,6 +26,7 @@ from tabulate import tabulate
 from ..config import get_config
 from ..message import len_tokens
 from ..tools import ToolFormat
+from ..util.git_cmd import GIT_CMD
 from .run import run_evals
 from .suites import suites, tests_default, tests_default_ids, tests_map
 from .types import CaseResult, EvalResult, EvalSpec, ModelConfig
@@ -69,7 +70,7 @@ def docker_reexec(argv: list[str]) -> None:
     # Get git root
     try:
         git_root = subprocess.check_output(
-            ["git", "rev-parse", "--show-toplevel"],
+            [GIT_CMD, "rev-parse", "--show-toplevel"],
             text=True,
             cwd=Path(__file__).parent,
             timeout=10,
@@ -1004,7 +1005,7 @@ def _get_commit_hash() -> str:
     """Get current commit hash and dirty status, like: a8b2ef0-dirty."""
     try:
         git_result = subprocess.run(
-            ["git", "describe", "--always", "--dirty", "--exclude", "'*'"],
+            [GIT_CMD, "describe", "--always", "--dirty", "--exclude", "'*'"],
             check=False,
             text=True,
             capture_output=True,

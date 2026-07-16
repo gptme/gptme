@@ -36,6 +36,7 @@ from gptme.prompts import get_prompt
 from ..dirs import get_logs_dir
 from ..logmanager import LogManager
 from ..tools import get_toolchain
+from ..util.git_cmd import GIT_CMD
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ def create_workspace_from_template(
     _success = False
     try:
         # Clone template repository
-        clone_cmd = ["git", "clone"]
+        clone_cmd = [GIT_CMD, "clone"]
         if template_branch:
             clone_cmd.extend(["--branch", template_branch])
         clone_cmd.extend([template_repo, str(temp_dir)])
@@ -106,7 +107,7 @@ def create_workspace_from_template(
         # Update submodules
         logger.info("Updating submodules")
         result = subprocess.run(
-            ["git", "submodule", "update", "--init", "--recursive"],
+            [GIT_CMD, "submodule", "update", "--init", "--recursive"],
             capture_output=True,
             check=False,
             cwd=temp_dir,
@@ -375,7 +376,7 @@ def _replace_template_strings(path: Path, agent_name: str) -> None:
     files: list[Path] = []
     try:
         result = subprocess.run(
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            [GIT_CMD, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
             cwd=path,
             capture_output=True,
             check=True,
@@ -439,7 +440,7 @@ def _reset_git_history(path: Path, agent_name: str) -> None:
     # Use -c flags to bypass global git hooks and set identity for CI environments
     # where user.email/user.name may not be configured globally
     git_no_hooks = [
-        "git",
+        GIT_CMD,
         "-c",
         "core.hooksPath=/dev/null",
         "-c",

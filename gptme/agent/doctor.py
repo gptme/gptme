@@ -12,6 +12,8 @@ from pathlib import Path
 
 import tomlkit
 
+from ..util.git_cmd import GIT_CMD
+
 try:
     import yaml
 
@@ -188,7 +190,7 @@ def check_git(workspace: Path, report: DoctorReport) -> None:
     # Check for remote
     try:
         result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
+            [GIT_CMD, "remote", "get-url", "origin"],
             cwd=workspace,
             capture_output=True,
             text=True,
@@ -275,7 +277,7 @@ def check_submodules(workspace: Path, report: DoctorReport, fix: bool = False) -
 
     try:
         result = subprocess.run(
-            ["git", "submodule", "status"],
+            [GIT_CMD, "submodule", "status"],
             cwd=workspace,
             capture_output=True,
             text=True,
@@ -301,7 +303,7 @@ def check_submodules(workspace: Path, report: DoctorReport, fix: bool = False) -
             )
             if fix:
                 subprocess.run(
-                    ["git", "submodule", "update", "--init", "--recursive"],
+                    [GIT_CMD, "submodule", "update", "--init", "--recursive"],
                     cwd=workspace,
                     capture_output=True,
                     timeout=60,

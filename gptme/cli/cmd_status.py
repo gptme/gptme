@@ -20,6 +20,8 @@ from pathlib import Path
 
 import click
 
+from ..util.git_cmd import GIT_CMD
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,7 +38,7 @@ def _run(cmd: list[str], *, timeout: int = 10) -> str:
 
 
 def _git_root() -> Path | None:
-    raw = _run(["git", "rev-parse", "--show-toplevel"])
+    raw = _run([GIT_CMD, "rev-parse", "--show-toplevel"])
     return Path(raw) if raw else None
 
 
@@ -74,7 +76,7 @@ def _active_tasks(lines: int = 3) -> list[dict]:
 
 
 def _recent_commits(n: int = 3) -> list[str]:
-    raw = _run(["git", "log", "--oneline", f"-{n}", "--no-merges"])
+    raw = _run([GIT_CMD, "log", "--oneline", f"-{n}", "--no-merges"])
     return raw.splitlines() if raw else []
 
 

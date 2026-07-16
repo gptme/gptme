@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from ..hooks import HookType, StopPropagation, register_hook
 from ..message import Message
+from ..util.git_cmd import GIT_CMD
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -785,7 +786,7 @@ def _get_git_branch(cwd: str) -> str | None:
     try:
         return (
             subprocess.check_output(
-                ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
+                [GIT_CMD, "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
                 stderr=subprocess.DEVNULL,
                 text=True,
                 timeout=10,

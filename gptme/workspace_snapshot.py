@@ -25,6 +25,7 @@ from pathlib import Path
 
 from .checkpoint import repo_fingerprint
 from .dirs import get_state_dir
+from .util.git_cmd import GIT_CMD
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class Shadow:
         if env:
             run_env.update(env)
         return subprocess.run(
-            ["git", *args],
+            [GIT_CMD, *args],
             env=run_env,
             cwd=self.workspace,
             check=check,
@@ -104,16 +105,16 @@ def init_shadow(workspace: Path) -> Shadow:
 
     shadow.git_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["git", "init", "--quiet", "--bare", str(shadow.git_dir)], check=True
+        [GIT_CMD, "init", "--quiet", "--bare", str(shadow.git_dir)], check=True
     )
     # Operate via env vars, not via the bare-repo working-tree machinery.
     subprocess.run(
-        ["git", "--git-dir", str(shadow.git_dir), "config", "core.bare", "false"],
+        [GIT_CMD, "--git-dir", str(shadow.git_dir), "config", "core.bare", "false"],
         check=True,
     )
     subprocess.run(
         [
-            "git",
+            GIT_CMD,
             "--git-dir",
             str(shadow.git_dir),
             "config",
@@ -124,7 +125,7 @@ def init_shadow(workspace: Path) -> Shadow:
     )
     subprocess.run(
         [
-            "git",
+            GIT_CMD,
             "--git-dir",
             str(shadow.git_dir),
             "config",
@@ -137,7 +138,7 @@ def init_shadow(workspace: Path) -> Shadow:
     # cannot fire on our internal snapshots.
     subprocess.run(
         [
-            "git",
+            GIT_CMD,
             "--git-dir",
             str(shadow.git_dir),
             "symbolic-ref",

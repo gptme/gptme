@@ -2,6 +2,8 @@ import importlib.metadata
 import os.path
 import subprocess
 
+from .util.git_cmd import GIT_CMD
+
 _cached_version: str | None = None
 
 
@@ -16,7 +18,7 @@ def get_git_version(package_dir):
 
         if (
             subprocess.call(
-                ["git", "rev-parse", "--is-inside-work-tree"],
+                [GIT_CMD, "rev-parse", "--is-inside-work-tree"],
                 cwd=package_dir,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -24,12 +26,12 @@ def get_git_version(package_dir):
             )
             == 0
         ):
-            tags = git_cmd(["git", "tag", "--list", "v*", "--sort=-v:refname"])
+            tags = git_cmd([GIT_CMD, "tag", "--list", "v*", "--sort=-v:refname"])
             if tags:
                 latest_tag = tags.split("\n")[0]
                 version = latest_tag.lstrip("v")
-                commit_hash = git_cmd(["git", "rev-parse", "--short", "HEAD"])
-                is_dirty = bool(git_cmd(["git", "status", "--porcelain"]))
+                commit_hash = git_cmd([GIT_CMD, "rev-parse", "--short", "HEAD"])
+                is_dirty = bool(git_cmd([GIT_CMD, "status", "--porcelain"]))
                 version += f"+{commit_hash}"
                 if is_dirty:
                     version += ".dirty"
