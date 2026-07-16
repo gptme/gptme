@@ -12,6 +12,8 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 
+from .git_cmd import GIT_CMD
+
 logger = logging.getLogger(__name__)
 
 # Default threshold for truncating long comment bodies
@@ -172,7 +174,7 @@ def _get_repo_from_git_remote(
     """
     try:
         result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
+            [GIT_CMD, "remote", "get-url", "origin"],
             capture_output=True,
             text=True,
             check=True,

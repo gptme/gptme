@@ -40,6 +40,7 @@ from ..hooks import HookType, StopPropagation
 from ..logmanager import check_for_modifications
 from ..message import Message
 from ..util.context import md_codeblock
+from ..util.git_cmd import GIT_CMD
 from .base import ToolSpec
 
 if TYPE_CHECKING:
@@ -110,7 +111,7 @@ def _get_modified_files() -> list[str]:
     try:
         # Modified (unstaged) + staged files
         result = subprocess.run(
-            ["git", "diff", "--name-only", "HEAD"],
+            [GIT_CMD, "diff", "--name-only", "HEAD"],
             capture_output=True,
             text=True,
             check=False,
@@ -121,7 +122,7 @@ def _get_modified_files() -> list[str]:
 
         # Untracked files (new files not yet added to git)
         result = subprocess.run(
-            ["git", "ls-files", "--others", "--exclude-standard"],
+            [GIT_CMD, "ls-files", "--others", "--exclude-standard"],
             capture_output=True,
             text=True,
             check=False,

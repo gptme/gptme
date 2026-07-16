@@ -177,6 +177,8 @@ class TestAutocommit:
     @patch("gptme.tools.autocommit.subprocess.run")
     def test_three_git_commands_called(self, mock_run: MagicMock):
         """When changes exist, exactly 3 git commands are run: porcelain, status, diff."""
+        from gptme.util.git_cmd import GIT_CMD
+
         mock_run.side_effect = [
             MagicMock(stdout=" M a.py\n", returncode=0),
             MagicMock(stdout="status output", returncode=0),
@@ -187,10 +189,10 @@ class TestAutocommit:
 
         assert mock_run.call_count == 3
         cmds = [call[0][0] for call in mock_run.call_args_list]
-        assert "git" in cmds[0]
+        assert cmds[0][0] == GIT_CMD
         assert "--porcelain" in cmds[0]
-        assert cmds[1] == ["git", "status"]
-        assert cmds[2] == ["git", "diff", "HEAD"]
+        assert cmds[1] == [GIT_CMD, "status"]
+        assert cmds[2] == [GIT_CMD, "diff", "HEAD"]
 
 
 # ── handle_commit_command() ──────────────────────────────────────────────

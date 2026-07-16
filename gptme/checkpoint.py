@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Literal
 
 from .dirs import get_state_dir
+from .util.git_cmd import GIT_CMD
 
 BackendKind = Literal["clean_git", "dirty_git", "non_git", "multi_root"]
 
@@ -78,7 +79,7 @@ def _git(repo: Path, *args: str) -> str:
     """Run ``git`` in ``repo``; return stripped stdout, or ``''`` on non-zero."""
     try:
         proc = subprocess.run(
-            ["git", *args],
+            [GIT_CMD, *args],
             cwd=str(repo),
             capture_output=True,
             text=True,
@@ -392,7 +393,7 @@ def restore_checkpoint(
         return f"Already at checkpoint {record.head_sha[:12]} — nothing to restore."
 
     result = subprocess.run(
-        ["git", "reset", "--hard", record.head_sha],
+        [GIT_CMD, "reset", "--hard", record.head_sha],
         check=False,
         cwd=decision.repo_root,
         capture_output=True,
@@ -407,7 +408,7 @@ def restore_checkpoint(
         # git reset --hard does not remove untracked files; clean them up so the
         # workspace is truly restored to the checkpointed state.
         clean = subprocess.run(
-            ["git", "clean", "-fd"],
+            [GIT_CMD, "clean", "-fd"],
             check=False,
             cwd=decision.repo_root,
             capture_output=True,
@@ -435,7 +436,7 @@ def diff_checkpoint(workspace: str | Path, identifier: str) -> str:
     record = _resolve_checkpoint(decision.repo_root, identifier)
 
     result = subprocess.run(
-        ["git", "diff", record.head_sha],
+        [GIT_CMD, "diff", record.head_sha],
         check=False,
         cwd=decision.repo_root,
         capture_output=True,

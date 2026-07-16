@@ -14,6 +14,7 @@ from typing import Any
 
 from .__version__ import __version__
 from .llm.models.resolution import get_default_model
+from .util.git_cmd import GIT_CMD
 from .util.git_worktree import get_git_root
 
 _SESSION_ENV_VARS = (
@@ -62,7 +63,7 @@ def _base62_encode(data: bytes, *, min_length: int = 1) -> str:
 def _run_git(repo_root: Path, args: list[str]) -> str:
     try:
         result = subprocess.run(
-            ["git", *args],
+            [GIT_CMD, *args],
             cwd=repo_root,
             check=False,
             capture_output=True,

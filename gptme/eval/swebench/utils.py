@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from ...util.git_cmd import GIT_CMD
+
 logger = logging.getLogger(__name__)
 
 # SWE-bench prediction format keys
@@ -133,7 +135,7 @@ def setup_github_repo(repo: str, base_commit: str, base_dir: str | None = None) 
             logger.info(f"Cloning repository {repo} to {repo_dir}")
             os.makedirs(repo_dir, exist_ok=True)
             subprocess.run(
-                ["git", "clone", f"https://github.com/{repo}.git", repo_dir],
+                [GIT_CMD, "clone", f"https://github.com/{repo}.git", repo_dir],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -142,7 +144,7 @@ def setup_github_repo(repo: str, base_commit: str, base_dir: str | None = None) 
 
         logger.info(f"Checking out commit {base_commit} in {repo_dir}")
         subprocess.run(
-            ["git", "fetch", "origin"],
+            [GIT_CMD, "fetch", "origin"],
             check=True,
             capture_output=True,
             text=True,
@@ -150,7 +152,7 @@ def setup_github_repo(repo: str, base_commit: str, base_dir: str | None = None) 
             timeout=120,
         )
         subprocess.run(
-            ["git", "checkout", base_commit],
+            [GIT_CMD, "checkout", base_commit],
             check=True,
             capture_output=True,
             text=True,

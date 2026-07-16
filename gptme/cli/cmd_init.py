@@ -19,6 +19,8 @@ from pathlib import Path
 
 import click
 
+from ..util.git_cmd import GIT_CMD
+
 logger = logging.getLogger(__name__)
 
 GPTME_TOML_TEMPLATE = """\
@@ -337,7 +339,7 @@ def _scaffold_from_template(
     else:
         click.echo(f"  Cloning template from {template_url}...")
         result = subprocess.run(
-            ["git", "clone", template_url, str(target)],
+            [GIT_CMD, "clone", template_url, str(target)],
             capture_output=True,
             text=True,
             check=False,

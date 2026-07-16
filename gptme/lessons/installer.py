@@ -17,6 +17,7 @@ from pathlib import Path
 import yaml
 
 from ..dirs import get_config_dir
+from ..util.git_cmd import GIT_CMD
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +176,7 @@ def _clone_skill_from_git(url: str, skill_path: str | None, dest: Path) -> Path 
         try:
             subprocess.run(
                 [
-                    "git",
+                    GIT_CMD,
                     "clone",
                     "--depth",
                     "1",
@@ -203,7 +204,7 @@ def _clone_skill_from_git(url: str, skill_path: str | None, dest: Path) -> Path 
         if skill_path:
             try:
                 subprocess.run(
-                    ["git", "sparse-checkout", "set", skill_path],
+                    [GIT_CMD, "sparse-checkout", "set", skill_path],
                     cwd=tmp,
                     check=True,
                     capture_output=True,
