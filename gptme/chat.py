@@ -238,15 +238,22 @@ def _run_chat_loop(
                         manager, stream, tool_format, model, output_schema
                     )
                 except SessionCompleteException:
+                    # Write sentinel BEFORE draining so there is no window
+                    # where the queue file is gone but the sentinel is not yet
+                    # visible.  A concurrent subagent_steer() in that gap would
+                    # see neither the sentinel nor the closed event, write a
+                    # new queue entry, and falsely report success even though
+                    # the chat loop has no remaining drain point.
+                    # If drain finds more chained prompts we unlink the sentinel
+                    # so the loop stays open for steering.
+                    if logdir is not None:
+                        (logdir / "prompt-queue-closed").touch()
                     _drain_external_prompt_queue(manager, prompt_queue)
                     if not prompt_queue:
-                        # No more prompts, properly exit.  Write the sentinel
-                        # before raising so the subprocess-mode race window is
-                        # closed at this boundary too.
-                        if logdir is not None:
-                            (logdir / "prompt-queue-closed").touch()
                         raise
-                    # More chained prompts remain — continue processing them
+                    # More chained prompts remain — clear sentinel, keep loop alive.
+                    if logdir is not None:
+                        (logdir / "prompt-queue-closed").unlink(missing_ok=True)
                     logger.debug(
                         "complete called but %d chained prompts remain, continuing",
                         len(prompt_queue),
