@@ -44,13 +44,13 @@ from collections.abc import Generator
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 from uuid import uuid4
 
 import requests
 
-from ..message import Message
+from ..message import Message, MessageMetadata
 from .openai_responses import (
     _extract_usage_token_counts,
     _messages_to_responses_input,
@@ -508,7 +508,7 @@ def stream(
     tools: list[Any] | None = None,
     max_tokens: int | None = None,
     **kwargs: Any,
-) -> Generator[str, None, dict | None]:
+) -> Generator[str, None, MessageMetadata | None]:
     """Stream completion from ChatGPT subscription API.
 
     Returns usage metadata dict via generator return value, captured by
@@ -643,7 +643,7 @@ def stream(
         usage_data["cache_read_tokens"] = counts.cache_read_tokens
     if isinstance(counts.cache_creation_tokens, int):
         usage_data["cache_creation_tokens"] = counts.cache_creation_tokens
-    return {"usage": usage_data} if usage_data else None
+    return cast(MessageMetadata, {"usage": usage_data}) if usage_data else None
 
 
 def chat(
