@@ -77,7 +77,7 @@ typecheck-coverage: ## Run mypy type checking with type coverage report (XML for
 	poetry run mypy ${SRCDIRS} $(if $(EXCLUDES),$(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE))) --cobertura-xml-report .mypy_coverage_report --txt-report .mypy_coverage_report
 	@echo ""
 	@echo "=== Type Coverage Summary ==="
-	@grep "Total" .mypy_coverage_report/index.txt || cat .mypy_coverage_report/index.txt
+	@cat .mypy_coverage_report/index.txt
 
 RUFF_ARGS=${SRCDIRS} $(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE))
 
