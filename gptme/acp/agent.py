@@ -89,19 +89,24 @@ def _import_acp() -> bool:
         )
         from acp.interfaces import Client as _Client
         from acp.schema import (
-            AuthMethodAgent as _AuthMethodAgent,
-        )
-        from acp.schema import (
             Implementation as _Implementation,
         )
 
         Agent = _Agent
-        AuthMethodAgent = _AuthMethodAgent
         Implementation = _Implementation
         InitializeResponse = _InitializeResponse
         NewSessionResponse = _NewSessionResponse
         PromptResponse = _PromptResponse
         Client = _Client
+
+        # AuthMethodAgent was added in a later release; degrade gracefully if absent
+        try:
+            from acp.schema import AuthMethodAgent as _AuthMethodAgent
+
+            AuthMethodAgent = _AuthMethodAgent
+        except ImportError:
+            pass
+
         return True
     except ImportError:
         return False
@@ -123,17 +128,20 @@ def _auth_methods() -> list:
     """Build the authMethods for InitializeResponse.
 
     gptme uses API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) configured
-    as environment variables or in ~/.config/gptme/config.toml before launch.
+    as environment variables or in ~/.config/gptme/config.local.toml before launch.
+    Returns an empty list on ACP releases that pre-date the AuthMethodAgent schema.
     """
-    _AuthMethodAgent = _check_acp_import(AuthMethodAgent, "AuthMethodAgent")
+    if AuthMethodAgent is None:
+        return []
     return [
-        _AuthMethodAgent(
+        AuthMethodAgent(
             id="api-key",
             name="API Key",
             description=(
                 "Set your LLM provider API key as an environment variable "
                 "(e.g. ANTHROPIC_API_KEY or OPENAI_API_KEY) before running gptme, "
-                "or configure it in ~/.config/gptme/config.toml."
+                "or add it to ~/.config/gptme/config.local.toml (not config.toml, "
+                "which may be version-controlled)."
             ),
         )
     ]
