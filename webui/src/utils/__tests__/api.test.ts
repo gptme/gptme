@@ -205,6 +205,31 @@ describe('ApiClient API compatibility', () => {
     expect(client.compatibilityWarning$.get()).toBeNull();
   });
 
+  it('clears a stale compatibility warning when a subsequent probe fails', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          api_version: CLIENT_API_VERSION + 1,
+          contract_revision: CLIENT_MIN_CONTRACT_REVISION,
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+      } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+
+    await client.checkConnection();
+    expect(client.compatibilityWarning$.get()).not.toBeNull();
+    await client.checkConnection();
+    expect(client.compatibilityWarning$.get()).toBeNull();
+    expect(client.isConnected$.get()).toBe(false);
+  });
+
   it('keeps legacy servers without version metadata compatible', async () => {
     global.fetch = jest
       .fn()

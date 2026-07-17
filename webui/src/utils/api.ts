@@ -544,6 +544,7 @@ export class ApiClient {
       if (!response.ok) {
         console.error('API endpoint returned non-OK status:', response.status);
         this.isConnected$.set(false);
+        this.compatibilityWarning$.set(null);
         this.lastConnectionResult$.set({
           ok: false,
           url,
@@ -563,6 +564,7 @@ export class ApiClient {
       } catch (parseError) {
         console.error(`[ApiClient] Failed to parse API response from ${url}:`, parseError);
         this.isConnected$.set(false);
+        this.compatibilityWarning$.set(null);
         this.lastConnectionResult$.set({
           ok: false,
           url,
@@ -616,6 +618,7 @@ export class ApiClient {
         console.error('[ApiClient] Connection check failed:', error);
       }
       this.isConnected$.set(false);
+      this.compatibilityWarning$.set(null);
       this.lastConnectionResult$.set({ ok: false, url, reason, message });
       return false;
     }
