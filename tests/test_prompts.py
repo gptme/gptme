@@ -378,6 +378,37 @@ def test_workspace_git_status_in_git_repo(tmp_path):
     assert "test-branch" in result
 
 
+def test_context_cmd_receives_initial_prompt(tmp_path):
+    """context_cmd receives the first prompt without shell interpolation."""
+    from gptme.prompts import get_prompt
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "gptme.toml").write_text(
+        "[prompt]\ncontext_cmd = 'printf %s \"$GPTME_PROMPT_INITIAL\"'\n"
+    )
+    initial_prompt = 'explain "copy on write"; echo not-executed'
+
+    msgs = get_prompt([], workspace=workspace, initial_prompt=initial_prompt)
+
+    assert any(initial_prompt in msg.content for msg in msgs)
+
+
+def test_context_cmd_unsets_inherited_initial_prompt(tmp_path, monkeypatch):
+    """Callers without a prompt never leak a stale inherited query."""
+    from gptme.prompts.context_cmd import get_project_context_cmd_output
+
+    monkeypatch.setenv("GPTME_PROMPT_INITIAL", "stale prompt")
+
+    output = get_project_context_cmd_output(
+        'printf %s "${GPTME_PROMPT_INITIAL-unset}"', tmp_path
+    )
+
+    assert output is not None
+    assert "unset" in output
+    assert "stale prompt" not in output
+
+
 def test_dynamic_context_after_static(tmp_path):
     """Test that context_cmd output comes after static workspace content.
 

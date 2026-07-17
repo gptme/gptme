@@ -208,6 +208,7 @@ def _build_prompt_sections(
     context_mode: ContextMode | None,
     context_include: list[str] | None,
     include_user_context: bool,
+    initial_prompt: str | None,
 ) -> tuple[
     list[tuple[str, list[Message]]],
     list[tuple[str, list[Message]]],
@@ -299,7 +300,7 @@ def _build_prompt_sections(
                 and ws_project.context_cmd
                 and (
                     cmd_output := get_project_context_cmd_output(
-                        ws_project.context_cmd, ws
+                        ws_project.context_cmd, ws, initial_prompt=initial_prompt
                     )
                 )
             ):
@@ -358,6 +359,7 @@ def get_prompt_stats(
         context_mode=context_mode,
         context_include=context_include,
         include_user_context=include_user_context,
+        initial_prompt=None,
     )
 
     stats = tuple(
@@ -453,6 +455,7 @@ def get_prompt(
     context_mode: ContextMode | None = None,
     context_include: list[str] | None = None,
     include_user_context: bool = True,
+    initial_prompt: str | None = None,
 ) -> list[Message]:
     """
     Get the initial system prompt.
@@ -499,6 +502,8 @@ def get_prompt(
         context_include: Components to include in selective mode
         include_user_context: Whether to include user-level prompt files and
             agent instruction files from ~/.config/gptme
+        initial_prompt: First user prompt, exported to context commands as
+            ``GPTME_PROMPT_INITIAL``.
 
     Returns a list of messages: [core_system_prompt, workspace_prompt, ...].
     """
@@ -513,6 +518,7 @@ def get_prompt(
         context_mode=context_mode,
         context_include=context_include,
         include_user_context=include_user_context,
+        initial_prompt=initial_prompt,
     )
 
     core_msgs = [msg for _, msgs in core_sections for msg in msgs]
