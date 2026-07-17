@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 # Lazy imports to avoid dependency issues when acp is not installed
 Agent: type | None = None
+AuthMethodAgent: type | None = None
 Implementation: type | None = None
 InitializeResponse: type | None = None
 NewSessionResponse: type | None = None
@@ -67,6 +68,7 @@ def _import_acp() -> bool:
     """Import ACP modules lazily."""
     global \
         Agent, \
+        AuthMethodAgent, \
         Implementation, \
         InitializeResponse, \
         NewSessionResponse, \
@@ -87,10 +89,14 @@ def _import_acp() -> bool:
         )
         from acp.interfaces import Client as _Client
         from acp.schema import (
+            AuthMethodAgent as _AuthMethodAgent,
+        )
+        from acp.schema import (
             Implementation as _Implementation,
         )
 
         Agent = _Agent
+        AuthMethodAgent = _AuthMethodAgent
         Implementation = _Implementation
         InitializeResponse = _InitializeResponse
         NewSessionResponse = _NewSessionResponse
@@ -111,6 +117,26 @@ def _agent_info() -> Any:
     except Exception:
         gptme_version = "unknown"
     return _Impl(name="gptme", title="gptme ACP Agent", version=gptme_version)
+
+
+def _auth_methods() -> list:
+    """Build the authMethods for InitializeResponse.
+
+    gptme uses API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) configured
+    as environment variables or in ~/.config/gptme/config.toml before launch.
+    """
+    _AuthMethodAgent = _check_acp_import(AuthMethodAgent, "AuthMethodAgent")
+    return [
+        _AuthMethodAgent(
+            id="api-key",
+            name="API Key",
+            description=(
+                "Set your LLM provider API key as an environment variable "
+                "(e.g. ANTHROPIC_API_KEY or OPENAI_API_KEY) before running gptme, "
+                "or configure it in ~/.config/gptme/config.toml."
+            ),
+        )
+    ]
 
 
 def _cwd_session_id(cwd: str) -> str:
@@ -498,6 +524,7 @@ class GptmeAgent:
                 return _check_acp_import(InitializeResponse, "InitializeResponse")(
                     protocol_version=protocol_version,
                     agent_info=_agent_info(),
+                    auth_methods=_auth_methods(),
                 )
 
             self._initialized = True
@@ -516,6 +543,7 @@ class GptmeAgent:
         return _InitializeResponse(
             protocol_version=protocol_version,
             agent_info=_agent_info(),
+            auth_methods=_auth_methods(),
         )
 
     async def new_session(
