@@ -461,6 +461,7 @@ def test_slow_response_divergence_unsafe_retry(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_print_fixture_summary(tmp_path: Path) -> None:
     """Run all scenarios and print a comparative summary table."""
     results = [_run_scenario(s, tmp_path) for s in SCENARIOS]
