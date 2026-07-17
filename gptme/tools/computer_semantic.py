@@ -71,18 +71,22 @@ class VerificationResult:
             belongs in a separate, opt-in caller.
     """
 
-    status: Literal["expectation_met", "expectation_not_met", "changed", "unchanged"]
-    change_detected: bool
-    expectation_satisfied: bool | None  # None → no expectation given
+    status: Literal[
+        "expectation_met", "expectation_not_met", "changed", "unchanged", "error"
+    ]
+    change_detected: bool | None  # None → comparison could not be completed
+    expectation_satisfied: bool | None  # None → no expectation given or verifier failed
     observation: str
     attempts: int = field(default=1)
 
     @property
     def is_successful(self) -> bool:
         """True when the result is positive by the best available signal."""
+        if self.status == "error":
+            return False
         if self.expectation_satisfied is not None:
             return self.expectation_satisfied
-        return self.change_detected
+        return bool(self.change_detected)
 
 
 # ---------------------------------------------------------------------------
@@ -154,9 +158,20 @@ def verify_action_result(
     """
     if expected is not None and verifier is None:
         raise ValueError("A verifier is required when expected is provided")
+    if expected is not None and not expected.strip():
+        raise ValueError("expected must not be empty or whitespace-only")
 
     # --- Pixel-change evidence --------------------------------------------------
     change_ratio = _compute_change_ratio(pre, post)
+    if change_ratio is None:
+        # Image comparison failed (unreadable file, mismatched dimensions, etc.).
+        # Return an explicit error rather than silently treating this as unchanged.
+        return VerificationResult(
+            status="error",
+            change_detected=None,
+            expectation_satisfied=None,
+            observation="Screenshot comparison failed: could not read or compare images",
+        )
     change_detected = change_ratio >= change_threshold
     pixel_summary = (
         f"Screen {'changed' if change_detected else 'unchanged'} "
@@ -168,7 +183,17 @@ def verify_action_result(
     semantic_detail = ""
 
     if expected is not None and verifier is not None:
-        expectation_satisfied, semantic_detail = verifier(post, expected)
+        try:
+            expectation_satisfied, semantic_detail = verifier(post, expected)
+        except Exception as exc:
+            # Verifier failure (LLM timeout, network error, invalid response, etc.)
+            # is represented as an explicit error, not as an unmet expectation.
+            return VerificationResult(
+                status="error",
+                change_detected=change_detected,
+                expectation_satisfied=None,
+                observation=f"{pixel_summary}; semantic verifier failed: {exc}",
+            )
 
     # --- Compose observation ---------------------------------------------------
     if semantic_detail:
@@ -246,8 +271,12 @@ def make_llm_verifier_stub() -> SemanticVerifier:
 # ---------------------------------------------------------------------------
 
 
-def _compute_change_ratio(path1: Path, path2: Path) -> float:
-    """Pixel-change ratio between two screenshots (0.0–1.0).
+def _compute_change_ratio(path1: Path, path2: Path) -> float | None:
+    """Pixel-change ratio between two screenshots (0.0–1.0), or None on error.
+
+    Returns None when images cannot be opened or have incompatible dimensions
+    so callers can distinguish a genuine unchanged screen from a failed
+    comparison.
 
     Mirrors ``_compute_change_ratio`` from ``computer.py`` so this module can
     be imported and tested independently, without importing the full computer
@@ -259,7 +288,7 @@ def _compute_change_ratio(path1: Path, path2: Path) -> float:
         img1 = Image.open(path1).convert("RGB")
         img2 = Image.open(path2).convert("RGB")
         if img1.size != img2.size:
-            return 0.0
+            return None
         diff = ImageChops.difference(img1, img2)
         total_pixels = img1.width * img1.height
         raw = diff.tobytes()
@@ -268,4 +297,4 @@ def _compute_change_ratio(path1: Path, path2: Path) -> float:
         )
         return nonzero / total_pixels
     except Exception:
-        return 0.0
+        return None

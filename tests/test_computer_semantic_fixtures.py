@@ -309,6 +309,7 @@ def test_verification_result_fields(scenario: ScenarioDef, tmp_path: Path) -> No
         "expectation_not_met",
         "changed",
         "unchanged",
+        "error",
     }
     assert r.attempts == 1, "This layer never retries"
     assert r.observation  # always has some text
@@ -354,6 +355,63 @@ def test_expected_without_verifier_raises(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="verifier is required"):
         verify_action_result(pre=pre, post=post, expected="something")
+
+
+def test_blank_expectation_raises(tmp_path: Path) -> None:
+    """Empty or whitespace-only expectation is rejected before calling the verifier."""
+    scenario = SCENARIOS[0]
+    pre, post = _build_images(scenario, tmp_path)
+    verifier = make_fixture_verifier(satisfied=True)
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        verify_action_result(pre=pre, post=post, expected="   ", verifier=verifier)
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        verify_action_result(pre=pre, post=post, expected="", verifier=verifier)
+
+
+def test_comparison_error_returns_error_status(tmp_path: Path) -> None:
+    """Unreadable or dimension-mismatched images produce an explicit error result."""
+    verifier = make_fixture_verifier(satisfied=True)
+    bogus = tmp_path / "not_an_image.png"
+    bogus.write_bytes(b"not a png")
+
+    result = verify_action_result(
+        pre=bogus,
+        post=bogus,
+        expected="some expectation",
+        verifier=verifier,
+    )
+
+    assert result.status == "error"
+    assert result.change_detected is None
+    assert result.expectation_satisfied is None
+    assert "comparison failed" in result.observation
+    assert not result.is_successful
+
+
+def test_verifier_exception_returns_error_status(tmp_path: Path) -> None:
+    """A verifier that raises is represented as an explicit error, not an unmet expectation."""
+    scenario = SCENARIOS[0]
+    pre, post = _build_images(scenario, tmp_path)
+
+    def _failing_verifier(screenshot: Path, expected: str) -> tuple[bool, str]:
+        raise ConnectionError("LLM endpoint unavailable")
+
+    result = verify_action_result(
+        pre=pre,
+        post=post,
+        expected="anything",
+        verifier=_failing_verifier,
+    )
+
+    assert result.status == "error"
+    assert result.expectation_satisfied is None
+    assert "verifier failed" in result.observation
+    assert "LLM endpoint unavailable" in result.observation
+    # Pixel evidence is still preserved in the error result
+    assert result.change_detected is not None
+    assert not result.is_successful
 
 
 def test_animation_noise_divergence(tmp_path: Path) -> None:
@@ -421,14 +479,21 @@ def test_print_fixture_summary(tmp_path: Path) -> None:
     ]
     for sr in results:
         r = sr.result
-        pixel_str = "YES" if r.change_detected else "NO "
+        pixel_str = (
+            "YES"
+            if r.change_detected
+            else ("ERR" if r.change_detected is None else "NO ")
+        )
         sem_str = (
             ("YES" if r.expectation_satisfied else "NO ")
             if r.expectation_satisfied is not None
             else "N/A"
         )
         match = (
-            "✓ agree" if r.change_detected == r.expectation_satisfied else "✗ DIVERGE"
+            "✓ agree"
+            if r.change_detected is not None
+            and r.change_detected == r.expectation_satisfied
+            else "✗ DIVERGE"
         )
         lines.append(
             f"{sr.scenario.name:<22} {pixel_str:>6} {sem_str:>9} {r.status:<22} {match:>7}"
