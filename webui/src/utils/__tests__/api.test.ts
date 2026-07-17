@@ -252,6 +252,57 @@ describe('ApiClient API compatibility', () => {
     await expect(client.checkConnection()).resolves.toBe(true);
     expect(client.compatibilityWarning$.get()).toBeNull();
   });
+
+  it('discards stale probe results when a newer probe finishes first', async () => {
+    // Simulate: probe A (older, incompatible) starts first; probe B (newer, compatible) starts
+    // second and would finish next. Without a generation guard, probe A's catch-path
+    // `compatibilityWarning$.set(null)` or success-path write would overwrite probe B's warning.
+    // With the guard: probe A sees _probeNonce !== nonceA and silently returns false.
+    let resolveOldProbe!: (r: Response) => void;
+    let resolveNewProbe!: (r: Response) => void;
+
+    const oldProbePromise = new Promise<Response>((res) => {
+      resolveOldProbe = res;
+    });
+    const newProbePromise = new Promise<Response>((res) => {
+      resolveNewProbe = res;
+    });
+
+    global.fetch = jest
+      .fn()
+      .mockReturnValueOnce(oldProbePromise)
+      .mockReturnValueOnce(newProbePromise);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+
+    // Start probe A (nonce=1) — it won't resolve yet.
+    const probeA = client.checkConnection();
+
+    // Start probe B (nonce=2) — probe A is now stale.
+    const probeB = client.checkConnection();
+
+    // Probe B resolves first with an incompatible server.
+    resolveNewProbe({
+      ok: true,
+      json: async () => ({
+        api_version: CLIENT_API_VERSION + 1,
+        contract_revision: CLIENT_MIN_CONTRACT_REVISION,
+      }),
+    } as Response);
+    await probeB;
+    expect(client.compatibilityWarning$.get()).not.toBeNull();
+
+    // Probe A (stale) resolves with a network error — must NOT clear the warning.
+    resolveOldProbe({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+    } as Response);
+    await probeA;
+
+    // Warning from probe B must survive.
+    expect(client.compatibilityWarning$.get()).not.toBeNull();
+  });
 });
 
 describe('ApiClient error parsing', () => {

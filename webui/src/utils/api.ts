@@ -314,6 +314,7 @@ export class ApiClient {
   private authCookieSet = false;
   private authCookieSetAt: number | null = null;
   private authCookiePromise: Promise<void> | null = null;
+  private _probeNonce = 0;
 
   constructor(baseUrl: string = getApiBaseUrl(), authHeader: string | null = null) {
     this.baseUrl = baseUrl;
@@ -538,9 +539,11 @@ export class ApiClient {
 
   async checkConnection(): Promise<boolean> {
     const url = `${this.baseUrl}/api/v2`;
+    const nonce = ++this._probeNonce;
     console.log('[ApiClient] Checking connection to', this.baseUrl);
     try {
       const response = await this.fetchWithTimeout(url, {}, 3000);
+      if (this._probeNonce !== nonce) return false;
       if (!response.ok) {
         console.error('API endpoint returned non-OK status:', response.status);
         this.isConnected$.set(false);
@@ -560,8 +563,10 @@ export class ApiClient {
       // contract metadata advertised by newer servers.
       try {
         const metadata = (await response.json()) as ApiRootMetadata;
+        if (this._probeNonce !== nonce) return false;
         this.compatibilityWarning$.set(getApiCompatibilityWarning(metadata));
       } catch (parseError) {
+        if (this._probeNonce !== nonce) return false;
         console.error(`[ApiClient] Failed to parse API response from ${url}:`, parseError);
         this.isConnected$.set(false);
         this.compatibilityWarning$.set(null);
@@ -617,6 +622,7 @@ export class ApiClient {
       } else {
         console.error('[ApiClient] Connection check failed:', error);
       }
+      if (this._probeNonce !== nonce) return false;
       this.isConnected$.set(false);
       this.compatibilityWarning$.set(null);
       this.lastConnectionResult$.set({ ok: false, url, reason, message });
