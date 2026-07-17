@@ -1440,34 +1440,40 @@ class TestOpenAIRetryLogic:
             "Error", response=mock_response, body={"error": "Overloaded"}
         )
 
-        # Test retry path: on attempt 0, should sleep and return (retry)
-        with patch("time.sleep") as mock_sleep:
+        # Test retry path: on attempt 0, should back off (wait) and return (retry)
+        with patch(
+            "gptme.llm.llm_openai.backoff_wait", return_value=False
+        ) as mock_wait:
             _handle_openai_transient_error(
                 error, attempt=0, max_retries=3, base_delay=0.1
             )
-            # Assert retry path was taken (sleep called = will retry)
-            mock_sleep.assert_called_once()
+            # Assert retry path was taken (backoff wait called = will retry)
+            mock_wait.assert_called_once()
 
         # Test with overload in string representation
         error_str = APIStatusError("Overloaded", response=mock_response, body=None)
 
-        with patch("time.sleep") as mock_sleep:
+        with patch(
+            "gptme.llm.llm_openai.backoff_wait", return_value=False
+        ) as mock_wait:
             _handle_openai_transient_error(
                 error_str, attempt=0, max_retries=3, base_delay=0.1
             )
             # Assert retry path was taken
-            mock_sleep.assert_called_once()
+            mock_wait.assert_called_once()
 
         # Test non-retry path: on last attempt, should raise the error
-        with patch("time.sleep") as mock_sleep:
+        with patch(
+            "gptme.llm.llm_openai.backoff_wait", return_value=False
+        ) as mock_wait:
             import pytest
 
             with pytest.raises(APIStatusError):
                 _handle_openai_transient_error(
                     error, attempt=2, max_retries=3, base_delay=0.1
                 )
-            # On last attempt, should not sleep (no retry)
-            mock_sleep.assert_not_called()
+            # On last attempt, should not back off (no retry)
+            mock_wait.assert_not_called()
 
     def test_handle_openai_transient_error_openrouter_402_diagnostic(self, caplog):
         """Test that OpenRouter 402 'insufficient credits' errors surface an

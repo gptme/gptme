@@ -18,6 +18,7 @@ import requests
 import gptme.init as _gptme_init
 from gptme.config import get_config, set_config
 from gptme.init import init
+from gptme.llm.retry_abort import interrupt_thread
 from gptme.tools import clear_tools
 from gptme.tools import shell as shell_module
 from gptme.tools.rag import _has_gptme_rag
@@ -334,6 +335,24 @@ def cleanup_subagents_after():
     Subprocesses in subprocess mode need explicit termination.
     """
     yield
+    # Interrupt in-progress LLM retry backoff sleeps before joining subagent
+    # threads. The retry decorators sleep through exponential backoff (1+2+4+8s
+    # = 15s+), far past the 2s join timeout below — without this, a thread
+    # stuck in backoff leaks past teardown, later mutates sys.modules via lazy
+    # imports, and races any main-thread iteration of it in an unrelated test
+    # file ("dictionary changed size during iteration").
+    # Scoped to the registered subagent threads only (not process-wide) so
+    # unrelated background LLM work in the same pytest worker is unaffected.
+    with _subagents_lock:
+        # Make a copy to iterate over to avoid "dictionary changed size during iteration"
+        # if another thread or setup_method modifies _subagents during cleanup
+        subagents_copy = list(_subagents)
+    for subagent in subagents_copy:
+        # Subprocess launchers don't call backoff_wait(), so interrupt_thread()
+        # would create a stale pre-signaled event whose ident could be reused by
+        # a later real-LLM thread, aborting its first retry immediately.
+        if subagent.thread is not None and subagent.execution_mode != "subprocess":
+            interrupt_thread(subagent.thread)
     # Use try/finally so _subagents.clear() and _reset_slot_sem() always run
     # even if pytest-timeout interrupts the join/terminate phase.  The 5s
     # timeouts used here (thread join + process wait) together with pytest's
@@ -341,10 +360,6 @@ def cleanup_subagents_after():
     # sequence could take exactly 10s, triggering the timeout and leaving shared
     # globals dirty for the next test.  Shorter timeouts give headroom.
     try:
-        with _subagents_lock:
-            # Make a copy to iterate over to avoid "dictionary changed size during iteration"
-            # if another thread or setup_method modifies _subagents during cleanup
-            subagents_copy = list(_subagents)
         for subagent in subagents_copy:
             # Clean up threads (2s cap — well under the 10s teardown limit)
             if subagent.thread is not None and subagent.thread.is_alive():
@@ -357,6 +372,15 @@ def cleanup_subagents_after():
                 except Exception:
                     # Force kill if graceful termination fails
                     subagent.process.kill()
+        # Leak check: warn loudly if a thread survived the join above so a
+        # future flake ("dictionary changed size during iteration" in an
+        # unrelated test) can be traced back to this test.
+        for subagent in subagents_copy:
+            if subagent.thread is not None and subagent.thread.is_alive():
+                logger.warning(
+                    "Subagent thread leaked past teardown: "
+                    f"{subagent.agent_id} ({subagent.thread.name})"
+                )
     finally:
         # Always reset shared state so subsequent tests start clean,
         # even if the join/terminate phase above was interrupted.

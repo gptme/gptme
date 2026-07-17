@@ -1,0 +1,160 @@
+"""Interrupt signal for LLM retry backoff sleeps.
+
+The retry decorators in llm_openai/llm_anthropic sleep through exponential
+backoff (up to ~15s total) inside whatever thread issued the LLM request, so
+threads stuck in backoff cannot be joined promptly. Each retrying call
+captures the generation at call start; interrupt_pending_retries() bumps the
+generation, making every backoff wait belonging to an older-generation call
+return immediately so the handler re-raises the original transient error.
+Production never calls either interrupt function; test teardown uses
+interrupt_thread() on the specific registered subagent threads to reap leaked
+threads without affecting unrelated LLM work in the same process.
+"""
+
+import threading
+import time
+
+_generation = 0
+_lock = threading.Lock()
+_tls = threading.local()
+
+# Maps thread ident → per-thread interrupt event. Populated by bind_thread_generation();
+# signalled by interrupt_thread(). Allows scoped interrupts that only affect specific
+# registered subagent threads, not every LLM call in the process.
+_thread_events: dict[int, "threading.Event"] = {}
+_thread_events_lock = threading.Lock()
+
+# Idents of threads that called release_thread() but may not yet be fully dead
+# (is_alive() can return True briefly after release_thread() runs). interrupt_thread()
+# skips pre-creating a signaled event for these idents so a reused ident doesn't
+# inherit a stale abort signal. Cleared per-ident by bind_thread_generation().
+_released_idents: set[int] = set()
+
+
+def current_generation() -> int:
+    """Capture the current retry generation (call at LLM-call start)."""
+    return _generation
+
+
+def bind_thread_generation() -> None:
+    """Bind the current generation and an interrupt event to this thread.
+
+    Subagent worker threads call this first thing; every later backoff wait in
+    the thread aborts once interrupt_thread() signals this thread's event — even
+    for LLM calls that only begin after the owning test finished (a call-start
+    capture alone misses threads still in pre-LLM setup at teardown time).
+
+    If interrupt_thread() was called before this thread registered (startup
+    race), a pre-signaled event is already stored; bind_thread_generation()
+    adopts it so the next backoff_wait() aborts immediately.
+    """
+    _tls.generation = _generation
+    ident = threading.current_thread().ident
+    if ident is not None:
+        with _thread_events_lock:
+            # Discard any stale release marker — this is a new thread that happens to
+            # reuse a previously-released ident; it should not inherit the poison.
+            _released_idents.discard(ident)
+            existing = _thread_events.get(ident)
+            if existing is not None:
+                # Pre-signaled by interrupt_thread() before we registered.
+                _tls.interrupt_event = existing
+            else:
+                event = threading.Event()
+                _tls.interrupt_event = event
+                _thread_events[ident] = event
+    else:
+        _tls.interrupt_event = threading.Event()
+
+
+def release_thread() -> None:
+    """Remove this thread from the interrupt event registry (call at thread exit).
+
+    Marks the ident in _released_idents so that a concurrent interrupt_thread() call
+    arriving after this but before the thread is fully dead does not pre-create a
+    stale signaled event that a later thread reusing the same ident would adopt.
+    """
+    ident = threading.current_thread().ident
+    if ident is not None:
+        with _thread_events_lock:
+            _thread_events.pop(ident, None)
+            _released_idents.add(ident)
+
+
+def interrupt_thread(thread: threading.Thread) -> None:
+    """Abort retry backoffs only for the given thread.
+
+    Prefer this over interrupt_pending_retries() — it is scoped to one
+    registered subagent thread and does not cancel unrelated LLM work in
+    the same pytest worker.
+
+    Handles the startup race: if the thread has not yet called
+    bind_thread_generation(), a pre-signaled event is stored under the lock
+    so the thread adopts it when it registers and aborts at its next
+    backoff_wait().
+    """
+    ident = thread.ident
+    if ident is None:
+        return
+    with _thread_events_lock:
+        event = _thread_events.get(ident)
+        if event is not None:
+            event.set()
+        else:
+            # Don't pre-create if the thread already called release_thread() — even
+            # if is_alive() still returns True briefly (OS exit lag after Python
+            # release_thread() ran). Reusing the ident would poison a later thread.
+            if ident in _released_idents:
+                return
+            # Also skip dead threads that never called release_thread() (shouldn't
+            # happen in normal operation, but defensive).
+            if not thread.is_alive():
+                return
+            # Thread started but bind_thread_generation() hasn't run yet (startup race).
+            # Pre-create a signaled event; bind_thread_generation() will adopt it.
+            pre = threading.Event()
+            pre.set()
+            _thread_events[ident] = pre
+
+
+def interrupt_pending_retries() -> None:
+    """Abort every retry backoff in the process.
+
+    Process-wide: affects all threads, not just registered subagents. Use
+    interrupt_thread() for scoped teardown instead.
+    """
+    global _generation
+    with _lock:
+        _generation += 1
+
+
+def backoff_wait(delay: float, generation: int | None = None) -> bool:
+    """Wait up to ``delay`` seconds before a retry attempt.
+
+    Returns True (abort the retry, re-raise) if interrupt_thread() signalled
+    this thread's event, or if interrupt_pending_retries() was called after the
+    effective generation was captured. The effective generation is the OLDEST of
+    the explicit/call generation and the thread generation bound via
+    bind_thread_generation() (generations only grow, so ``min`` means "abort if
+    either capture point is stale"). ``generation=None`` captures the current
+    generation at wait start (still aborts if interrupted mid-wait). Polls in
+    50ms steps — negligible for seconds-scale, rare backoff sleeps.
+    """
+    if generation is None:
+        generation = _generation
+    thread_generation = getattr(_tls, "generation", None)
+    if thread_generation is not None:
+        generation = min(generation, thread_generation)
+    interrupt_event: threading.Event | None = getattr(_tls, "interrupt_event", None)
+    if interrupt_event is not None and interrupt_event.is_set():
+        return True
+    deadline = time.monotonic() + delay
+    while True:
+        if _generation != generation:
+            return True
+        if interrupt_event is not None and interrupt_event.is_set():
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(0.05, remaining))

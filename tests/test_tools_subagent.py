@@ -406,7 +406,7 @@ def test_subagent_execution_mode_field():
 @patch("gptme.tools.subagent.execution._create_subagent_thread")
 def test_subagent_status_returns_dict(mock_create_thread: MagicMock):
     """Test that subagent_status returns a dictionary."""
-    from gptme.tools.subagent import subagent, subagent_status
+    from gptme.tools.subagent import _subagents_lock, subagent, subagent_status
 
     # First create a subagent (thread mocked to avoid real API calls in no-extras CI)
     subagent(agent_id="test-status-agent", prompt="Simple test")
@@ -415,6 +415,16 @@ def test_subagent_status_returns_dict(mock_create_thread: MagicMock):
     status = subagent_status("test-status-agent")
     assert isinstance(status, dict)
     assert "status" in status
+
+    # Join the spawned thread while the patch is still active, so the mock (not
+    # the real _create_subagent_thread) is what the thread's call-time lookup
+    # resolves to — otherwise the patch reverting before the thread reaches
+    # that lookup lets the real function run and leak past teardown.
+    with _subagents_lock:
+        sa = next(s for s in _subagents if s.agent_id == "test-status-agent")
+    assert sa.thread is not None
+    sa.thread.join(timeout=5.0)
+    assert not sa.thread.is_alive()
 
 
 def test_subagent_status_unknown_agent():
@@ -569,16 +579,43 @@ def test_subagent_wait_basic():
 @pytest.mark.eval
 def test_subagent_read_log_returns_string():
     """Test that subagent_read_log returns a string with log content."""
-    from gptme.tools.subagent import subagent, subagent_read_log
+    from gptme.logmanager import Log
+    from gptme.message import Message
+    from gptme.tools.subagent import _subagents_lock, subagent, subagent_read_log
 
-    # Create a subagent first
-    subagent(agent_id="test-log-agent", prompt="Log test task")
+    def _write_fake_log(*, logdir, prompt, **_kwargs):
+        """Stand-in for _create_subagent_thread: write a minimal real
+        conversation log to logdir instead of making a real (keyless) LLM
+        call, so subagent_read_log() still has content to read back."""
+        Log(
+            [
+                Message("system", "Test system prompt"),
+                Message("user", prompt),
+                Message("assistant", "Fake subagent response for read-log test"),
+            ]
+        ).write_jsonl(logdir / "conversation.jsonl")
+
+    with patch(
+        "gptme.tools.subagent.execution._create_subagent_thread",
+        side_effect=_write_fake_log,
+    ):
+        # Create a subagent first
+        subagent(agent_id="test-log-agent", prompt="Log test task")
+
+        # Join the thread while the patch is still active — otherwise the
+        # patch can revert before the background thread's call-time lookup
+        # of _create_subagent_thread, letting the real function run instead.
+        with _subagents_lock:
+            sa = next(s for s in _subagents if s.agent_id == "test-log-agent")
+        assert sa.thread is not None
+        sa.thread.join(timeout=5.0)
+        assert not sa.thread.is_alive()
 
     # Read the log
     result = subagent_read_log("test-log-agent")
     assert isinstance(result, str)
-    # The result should contain some log content
-    assert len(result) > 0
+    # The result should contain the content we wrote, not just any text
+    assert "Fake subagent response for read-log test" in result
 
 
 # Subprocess mode execution tests (per Erik's review comment)
@@ -1039,7 +1076,7 @@ def test_poll_subprocess_progress_delivers_via_notify(tmp_path):
     mock_sa.agent_id = "poll-agent"
     mock_sa.logdir = tmp_path
 
-    with patch("gptme.tools.subagent.hooks.notify_progress", fake_notify):
+    with patch("gptme.tools.subagent.execution.notify_progress", fake_notify):
         # Set stop immediately so the loop exits after the final drain
         stop_event.set()
         _poll_subprocess_progress(mock_sa, stop_event)
@@ -1259,7 +1296,7 @@ def test_subprocess_monitor_timeout():
         timeout=2,  # 2 second timeout for test
     )
 
-    with patch("gptme.tools.subagent.hooks.notify_completion"):
+    with patch("gptme.tools.subagent.execution.notify_completion"):
         _monitor_subprocess(sa)
 
     # Verify: process was killed
@@ -1870,6 +1907,8 @@ def test_create_subagent_thread_profile_glob_filters_tools(tmp_path):
         ToolSpec(name="complete", desc=""),
         ToolSpec(name="clarify", desc=""),
     ]
+
+    import gptme.chat  # noqa: F401 — must import before patch.object on sys.modules["gptme.chat"]
 
     mock_prompt = MagicMock(return_value=[])
     mock_chat = MagicMock()
@@ -3605,10 +3644,18 @@ def test_output_schema_dict_stored_on_subagent():
             output_schema={"score": int, "label": str},
         )
 
-    new_agents = _subagents[initial_count:]
-    assert new_agents, "Subagent should have been registered"
-    sa = next(a for a in new_agents if a.agent_id == "schema-test")
-    assert sa.output_schema == {"score": int, "label": str}
+        new_agents = _subagents[initial_count:]
+        assert new_agents, "Subagent should have been registered"
+        sa = next(a for a in new_agents if a.agent_id == "schema-test")
+        assert sa.output_schema == {"score": int, "label": str}
+
+        # Join the thread while the patch is still active: the background
+        # thread looks up _create_subagent_thread by attribute at call time,
+        # so joining outside the `with` block risks the patch reverting
+        # first and the real (network-calling) function running instead.
+        assert sa.thread is not None
+        sa.thread.join(timeout=5.0)
+        assert not sa.thread.is_alive()
 
 
 def test_dict_to_jsonschema_passthrough_ref_schema():

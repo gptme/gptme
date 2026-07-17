@@ -1,6 +1,5 @@
 import logging
 import os
-import time
 from collections.abc import Generator, Iterable
 from functools import wraps
 from typing import (
@@ -21,6 +20,7 @@ from ..telemetry import record_llm_request
 from ..tools.base import ToolSpec
 from .constants import _MIN_RESPONSE_TOKENS
 from .models import ModelMeta, get_model
+from .retry_abort import backoff_wait, current_generation
 from .utils import (
     apply_cache_control,
     extract_tool_uses_from_assistant_message,
@@ -392,7 +392,9 @@ def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) ->
     return model_meta.supports_reasoning
 
 
-def _handle_anthropic_transient_error(e, attempt, max_retries, base_delay):
+def _handle_anthropic_transient_error(
+    e, attempt, max_retries, base_delay, generation=None
+):
     """Handle Anthropic API transient errors with exponential backoff.
 
     Retries on:
@@ -451,7 +453,9 @@ def _handle_anthropic_transient_error(e, attempt, max_retries, base_delay):
     )
     if status_code in [200, "200"]:
         logger.warning(f"Status code was strangely 200. Error details: {e}")
-    time.sleep(delay)
+    if backoff_wait(delay, generation):
+        logger.warning("Retry backoff aborted, re-raising original error")
+        raise e
 
 
 def retry_on_overloaded(max_retries: int = 5, base_delay: float = 1.0):
@@ -463,12 +467,16 @@ def retry_on_overloaded(max_retries: int = 5, base_delay: float = 1.0):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            # Capture the retry generation once per call: if test teardown
+            # interrupts pending retries after this point, every backoff wait
+            # for this call aborts immediately (even attempts started later).
+            generation = current_generation()
             for attempt in range(max_retries):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
                     _handle_anthropic_transient_error(
-                        e, attempt, max_retries, base_delay
+                        e, attempt, max_retries, base_delay, generation=generation
                     )
             # _handle_anthropic_transient_error raises on last attempt,
             # but guard against silent None return if logic changes
@@ -491,6 +499,8 @@ def retry_generator_on_overloaded(max_retries: int = 5, base_delay: float = 1.0)
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            # Capture the retry generation once per call (see retry_abort.py).
+            generation = current_generation()
             for attempt in range(max_retries):
                 has_yielded = False
                 try:
@@ -510,7 +520,7 @@ def retry_generator_on_overloaded(max_retries: int = 5, base_delay: float = 1.0)
                         # Can't retry after streaming has started - would cause duplicates
                         raise
                     _handle_anthropic_transient_error(
-                        e, attempt, max_retries, base_delay
+                        e, attempt, max_retries, base_delay, generation=generation
                     )
             # _handle_anthropic_transient_error raises on last attempt,
             # but guard against silent None return if logic changes
