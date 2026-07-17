@@ -323,7 +323,7 @@ def _stream_responses_events(
     (chatgpt.com backend) interchangeably.
 
     ``usage_callback`` is called with the usage object from ``response.completed``
-    events; subscription streams (which use ``response.done``) never trigger it.
+    and ``response.done`` events (subscription streams use ``response.done``).
     """
     in_reasoning_block = False
     seen_reasoning_delta = False
@@ -407,7 +407,7 @@ def _stream_responses_events(
                 yield delta
 
         elif event_type in ("response.completed", "response.done"):
-            if usage_callback is not None and event_type == "response.completed":
+            if usage_callback is not None:
                 response_obj = _obj_get(event, "response", None)
                 if response_obj is not None:
                     usage = _obj_get(response_obj, "usage", None)
@@ -424,23 +424,32 @@ def _stream_responses_events(
 
 
 def _extract_usage_token_counts(usage: Any) -> UsageTokenCounts:
-    """Normalize Chat Completions and Responses API usage token fields."""
-    prompt_tokens = getattr(usage, "prompt_tokens", None)
-    output_tokens = getattr(usage, "completion_tokens", None)
-    details = getattr(usage, "prompt_tokens_details", None)
+    """Normalize Chat Completions and Responses API usage token fields.
+
+    Handles both SDK objects (attribute access) and raw dicts (subscription SSE).
+    """
+    prompt_tokens = _obj_get(usage, "prompt_tokens", None)
+    output_tokens = _obj_get(usage, "completion_tokens", None)
+    details = _obj_get(usage, "prompt_tokens_details", None)
     _is_chat_completions = prompt_tokens is not None
     if prompt_tokens is None:
-        prompt_tokens = getattr(usage, "input_tokens", None)
-        details = getattr(usage, "input_tokens_details", None)
+        prompt_tokens = _obj_get(usage, "input_tokens", None)
+        details = _obj_get(usage, "input_tokens_details", None)
     if output_tokens is None:
-        output_tokens = getattr(usage, "output_tokens", None)
-    cache_read_tokens = getattr(details, "cached_tokens", None)
-    cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", None)
+        output_tokens = _obj_get(usage, "output_tokens", None)
+    cache_read_tokens = (
+        _obj_get(details, "cached_tokens", None) if details is not None else None
+    )
+    cache_creation_tokens = _obj_get(usage, "cache_creation_input_tokens", None)
     # OpenRouter nested shape: prompt_tokens_details.cache_write_tokens
     # Only for Chat Completions (not Responses API input_tokens_details.cache_write_tokens)
     if cache_creation_tokens is None and _is_chat_completions:
-        cache_creation_tokens = getattr(details, "cache_write_tokens", None)
-    total_tokens = getattr(usage, "total_tokens", None)
+        cache_creation_tokens = (
+            _obj_get(details, "cache_write_tokens", None)
+            if details is not None
+            else None
+        )
+    total_tokens = _obj_get(usage, "total_tokens", None)
 
     if isinstance(prompt_tokens, int):
         cache_read = cache_read_tokens if isinstance(cache_read_tokens, int) else 0

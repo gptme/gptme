@@ -52,6 +52,7 @@ import requests
 
 from ..message import Message
 from .openai_responses import (
+    _extract_usage_token_counts,
     _messages_to_responses_input,
     _stream_responses_events,
     _tool_spec_to_responses_tool,
@@ -507,8 +508,12 @@ def stream(
     tools: list[Any] | None = None,
     max_tokens: int | None = None,
     **kwargs: Any,
-) -> Generator[str, None, None]:
-    """Stream completion from ChatGPT subscription API."""
+) -> Generator[str, None, dict | None]:
+    """Stream completion from ChatGPT subscription API.
+
+    Returns usage metadata dict via generator return value, captured by
+    _StreamWithMetadata in the caller.
+    """
     auth = get_auth()
 
     instructions, api_messages = _messages_to_responses_input(messages)
@@ -617,7 +622,28 @@ def stream(
                 )
                 response = _open_response()
 
-    yield from _stream_responses_events(_sse_events())
+    _usage_holder: list[Any] = []
+
+    def _capture_usage(usage: Any) -> None:
+        _usage_holder.append(usage)
+
+    yield from _stream_responses_events(_sse_events(), usage_callback=_capture_usage)
+
+    # Return usage metadata so _StreamWithMetadata can attach it to the message.
+    # _StreamWithMetadata adds the full provider-prefixed model name automatically.
+    if not _usage_holder:
+        return None
+    counts = _extract_usage_token_counts(_usage_holder[0])
+    usage_data: dict[str, int] = {}
+    if isinstance(counts.input_tokens, int):
+        usage_data["input_tokens"] = counts.input_tokens
+    if isinstance(counts.output_tokens, int):
+        usage_data["output_tokens"] = counts.output_tokens
+    if isinstance(counts.cache_read_tokens, int):
+        usage_data["cache_read_tokens"] = counts.cache_read_tokens
+    if isinstance(counts.cache_creation_tokens, int):
+        usage_data["cache_creation_tokens"] = counts.cache_creation_tokens
+    return {"usage": usage_data} if usage_data else None
 
 
 def chat(
