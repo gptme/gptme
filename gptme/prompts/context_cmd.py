@@ -1,4 +1,5 @@
 import logging
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -11,6 +12,9 @@ logger = logging.getLogger(__name__)
 # Maximum characters for context_cmd output to prevent context explosion
 # ~100k chars ~ ~25k tokens, a reasonable safeguard for most context windows
 CONTEXT_CMD_MAX_CHARS = 100_000
+# Linux commonly limits one environment entry to 128 KiB. Keep headroom for
+# the variable name and avoid making context generation fail to spawn.
+CONTEXT_CMD_PROMPT_MAX_BYTES = 120_000
 
 
 def _truncate_context_output(
@@ -42,12 +46,34 @@ def _truncate_context_output(
     return truncated + truncation_notice
 
 
-def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
+def get_project_context_cmd_output(
+    cmd: str, workspace: Path, *, initial_prompt: str | None = None
+) -> str | None:
+    """Run a context command with the first user prompt in its environment.
+
+    ``GPTME_PROMPT_INITIAL`` is intentionally an environment variable rather
+    than shell interpolation, so commands can consume arbitrary prompt text.
+    """
     from ..util import console
 
     console.log(f"Using project context command: {cmd}")
     try:
         start = time.time()
+        env = os.environ.copy()
+        if initial_prompt is None:
+            env.pop("GPTME_PROMPT_INITIAL", None)
+        else:
+            prompt_bytes = initial_prompt.encode("utf-8")
+            if len(prompt_bytes) > CONTEXT_CMD_PROMPT_MAX_BYTES:
+                logger.warning(
+                    "Initial prompt is too large for the context_cmd environment "
+                    "(%d bytes; limit %d); omitting GPTME_PROMPT_INITIAL",
+                    len(prompt_bytes),
+                    CONTEXT_CMD_PROMPT_MAX_BYTES,
+                )
+                env.pop("GPTME_PROMPT_INITIAL", None)
+            else:
+                env["GPTME_PROMPT_INITIAL"] = initial_prompt
         # shell=True is intentional: `cmd` is a user-configured project context
         # command. The trust model is that the user controls `cmd` and is also
         # the threat model — no untrusted input should ever reach this path.
@@ -59,6 +85,7 @@ def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
             capture_output=True,
             text=True,
             timeout=60,
+            env=env,
         )
         duration = time.time() - start
         logger.log(

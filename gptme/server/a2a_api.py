@@ -273,6 +273,7 @@ def _create_task_conversation(task_id: str, user_text: str) -> ConversationSessi
         prompt="full",
         workspace=chat_config.workspace,
         agent_path=chat_config.agent,
+        initial_prompt=user_text,
     )
     msgs.append(Message("user", user_text))
 

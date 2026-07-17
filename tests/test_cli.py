@@ -211,12 +211,15 @@ def test_show_prompt_stats_exits_before_chat(monkeypatch, tmp_path: Path, runner
         lambda **kwargs: pytest.fail("telemetry should not start for prompt stats"),
     )
 
-    result = runner.invoke(cli.main, ["--show-prompt-stats"], input="")
+    result = runner.invoke(
+        cli.main, ["--show-prompt-stats", "query-dependent stats"], input=""
+    )
 
     assert result.exit_code == 0
     assert "prompt-stats-output" in result.output
     assert seen["kwargs"]["workspace"] is not None
     assert seen["kwargs"]["model"] == "local/test"
+    assert seen["kwargs"]["initial_prompt"] == "query-dependent stats"
 
 
 def test_no_workspace_flag_wires_correctly(monkeypatch, tmp_path: Path, runner):

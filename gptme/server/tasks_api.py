@@ -600,6 +600,10 @@ def create_task_conversation(task: Task) -> str:
         _logdir=logdir,
     )
 
+    task_prompt = f"Task: {task.content}"
+    if task.target_type == "pr" and task.target_repo:
+        task_prompt += f"\n\nTarget: Create a PR in {task.target_repo}"
+
     # Create initial system messages
     messages = get_prompt(
         tools=list(get_toolchain(None)),
@@ -609,12 +613,8 @@ def create_task_conversation(task: Task) -> str:
         prompt="full",
         workspace=workspace,
         agent_path=None,
+        initial_prompt=task_prompt,
     )
-
-    # Add task-specific messages
-    task_prompt = f"Task: {task.content}"
-    if task.target_type == "pr" and task.target_repo:
-        task_prompt += f"\n\nTarget: Create a PR in {task.target_repo}"
 
     messages.append(Message("user", task_prompt))
 

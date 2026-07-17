@@ -1124,6 +1124,7 @@ def main(
                 agent_path=config.chat.agent,
                 context_mode=stats_context_mode,
                 context_include=stats_context_include,
+                initial_prompt=prompt_msgs[0].content if prompt_msgs else None,
             )
             extra_sections: list[PromptSectionStat] = []
             if selected_profile and selected_profile.system_prompt:
@@ -1317,6 +1318,7 @@ def main(
             agent_path=config.chat.agent,
             context_mode=effective_context_mode,
             context_include=effective_context_include,
+            initial_prompt=prompt_msgs[0].content if prompt_msgs else None,
         )
 
     # Append profile system prompt if using a profile
