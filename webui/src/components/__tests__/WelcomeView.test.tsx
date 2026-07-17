@@ -12,6 +12,13 @@ const mockConnect = jest.fn();
 const mockFetch = jest.fn();
 const mockIsDemoMode = jest.fn(() => false);
 const isConnected$ = observable(true);
+const compatibilityWarning$ = observable<null | {
+  kind: 'server_older' | 'api_major_mismatch';
+  serverApiVersion: number;
+  serverContractRevision: number;
+  clientApiVersion: number;
+  minimumContractRevision: number;
+}>(null);
 const lastConnectionResult$ = observable<null | {
   ok: false;
   url: string;
@@ -59,6 +66,7 @@ jest.mock('@/contexts/ApiContext', () => {
         createConversationWithPlaceholder: jest.fn(),
         authHeader: null,
         lastConnectionResult$,
+        compatibilityWarning$,
       },
       isConnected$,
       connect: mockConnect,
@@ -106,6 +114,7 @@ describe('WelcomeView', () => {
     setLocation('http://localhost/');
     isConnected$.set(true);
     lastConnectionResult$.set(null);
+    compatibilityWarning$.set(null);
     mockBaseUrl = 'http://localhost:5700';
     setupWizard$.step.set('welcome');
     setupWizard$.open.set(false);
@@ -433,6 +442,48 @@ describe('WelcomeView', () => {
     await waitFor(() => {
       expect(screen.queryByText('Provider setup required')).not.toBeInTheDocument();
     });
+  });
+
+  it('warns without disconnecting when the server contract is older', () => {
+    compatibilityWarning$.set({
+      kind: 'server_older',
+      serverApiVersion: 2,
+      serverContractRevision: 0,
+      clientApiVersion: 2,
+      minimumContractRevision: 1,
+    });
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByText('Server update recommended')).toBeInTheDocument();
+    expect(
+      screen.getByText(/server uses contract revision 0.*needs revision 1/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/some features may be unavailable/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Update server' })).toBeInTheDocument();
+  });
+
+  it('warns without disconnecting when the API major differs', () => {
+    compatibilityWarning$.set({
+      kind: 'api_major_mismatch',
+      serverApiVersion: 3,
+      serverContractRevision: 1,
+      clientApiVersion: 2,
+      minimumContractRevision: 1,
+    });
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByText('Server compatibility warning')).toBeInTheDocument();
+    expect(screen.getByText(/server uses API v3.*web UI expects API v2/i)).toBeInTheDocument();
   });
 
   it('shows "server not running" guidance for a network/refused error on the default local server', () => {

@@ -8,9 +8,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { ChevronDown, HelpCircle, Menu, Search, User } from 'lucide-react';
+import { AlertTriangle, ChevronDown, HelpCircle, Menu, Search, User } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useEmbeddedContext } from '@/contexts/EmbeddedContext';
+import { useApi } from '@/contexts/ApiContext';
 import type { EmbeddedMenuItem } from '@/lib/embeddedContext';
 import { Link } from 'react-router-dom';
 import { appRoute } from '@/utils/routes';
@@ -18,6 +19,7 @@ import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import { shortcutsDialogOpen$ } from '@/stores/shortcutsDialog';
 import { leftSidebarVisible$, toggleLeftSidebar } from '@/stores/sidebar';
 import { use$ } from '@legendapp/state/react';
+import { settingsModal$ } from '@/stores/settingsModal';
 
 import { Fragment, type FC } from 'react';
 
@@ -38,6 +40,8 @@ function groupEmbeddedMenuItems(menuItems: EmbeddedMenuItem[]) {
 
 export const MenuBar: FC = () => {
   const leftSidebarOpen = use$(leftSidebarVisible$);
+  const { api } = useApi();
+  const compatibilityWarning = use$(api.compatibilityWarning$);
   const { menuItems, sendAction, isEmbedded } = useEmbeddedContext();
   const embeddedMenuGroups = groupEmbeddedMenuItems(menuItems);
   const hasEmbeddedMenu = isEmbedded && embeddedMenuGroups.length > 0;
@@ -70,6 +74,31 @@ export const MenuBar: FC = () => {
       </div>
 
       <div className="flex items-center gap-1 sm:gap-4">
+        {compatibilityWarning && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-amber-700 dark:text-amber-300"
+                  onClick={() => {
+                    settingsModal$.open.set(true);
+                    settingsModal$.category.set('servers');
+                  }}
+                  aria-label="Server compatibility warning"
+                >
+                  <AlertTriangle className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {compatibilityWarning.kind === 'server_older'
+                  ? 'Server update recommended'
+                  : 'Server API version differs from this web UI'}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>

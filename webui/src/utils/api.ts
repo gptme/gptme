@@ -198,6 +198,59 @@ function inferTranscriptionFormat(blobType: string | undefined): string {
   }
 }
 
+// Keep this in sync with gptme.server.openapi_docs. A client may still connect to
+// other revisions; these constants only define when to surface a compatibility warning.
+export const CLIENT_API_VERSION = 2;
+export const CLIENT_MIN_CONTRACT_REVISION = 1;
+
+export type ApiCompatibilityWarning =
+  | {
+      kind: 'api_major_mismatch';
+      serverApiVersion: number;
+      serverContractRevision: number;
+      clientApiVersion: number;
+      minimumContractRevision: number;
+    }
+  | {
+      kind: 'server_older';
+      serverApiVersion: number;
+      serverContractRevision: number;
+      clientApiVersion: number;
+      minimumContractRevision: number;
+    };
+
+interface ApiRootMetadata {
+  api_version?: number;
+  contract_revision?: number;
+}
+
+export function getApiCompatibilityWarning(
+  metadata: ApiRootMetadata
+): ApiCompatibilityWarning | null {
+  const { api_version: serverApiVersion, contract_revision: serverContractRevision } = metadata;
+
+  // Servers released before contract metadata was introduced remain usable. We
+  // cannot make a sound compatibility claim, so preserve the legacy behavior.
+  if (serverApiVersion === undefined || serverContractRevision === undefined) {
+    return null;
+  }
+
+  const common = {
+    serverApiVersion,
+    serverContractRevision,
+    clientApiVersion: CLIENT_API_VERSION,
+    minimumContractRevision: CLIENT_MIN_CONTRACT_REVISION,
+  };
+
+  if (serverApiVersion !== CLIENT_API_VERSION) {
+    return { kind: 'api_major_mismatch', ...common };
+  }
+  if (serverContractRevision < CLIENT_MIN_CONTRACT_REVISION) {
+    return { kind: 'server_older', ...common };
+  }
+  return null;
+}
+
 // Result of a connection probe — captures enough context for a useful user-facing message.
 export type ConnectionProbeResult =
   | { ok: true; url: string }
@@ -248,6 +301,8 @@ export class ApiClient {
   public readonly isConnected$: Observable<boolean> = observable(false);
   public readonly lastConnectionResult$: Observable<ConnectionProbeResult | null> =
     observable<ConnectionProbeResult | null>(null);
+  public readonly compatibilityWarning$: Observable<ApiCompatibilityWarning | null> =
+    observable<ApiCompatibilityWarning | null>(null);
   private identifier: string;
   private controller: AbortController | null = null;
   public sessions$: Observable<Map<string, string>> = observable(new Map()); // Map conversation IDs to session IDs
@@ -259,6 +314,7 @@ export class ApiClient {
   private authCookieSet = false;
   private authCookieSetAt: number | null = null;
   private authCookiePromise: Promise<void> | null = null;
+  private _probeNonce = 0;
 
   constructor(baseUrl: string = getApiBaseUrl(), authHeader: string | null = null) {
     this.baseUrl = baseUrl;
@@ -483,12 +539,15 @@ export class ApiClient {
 
   async checkConnection(): Promise<boolean> {
     const url = `${this.baseUrl}/api/v2`;
+    const nonce = ++this._probeNonce;
     console.log('[ApiClient] Checking connection to', this.baseUrl);
     try {
       const response = await this.fetchWithTimeout(url, {}, 3000);
+      if (this._probeNonce !== nonce) return false;
       if (!response.ok) {
         console.error('API endpoint returned non-OK status:', response.status);
         this.isConnected$.set(false);
+        this.compatibilityWarning$.set(null);
         this.lastConnectionResult$.set({
           ok: false,
           url,
@@ -500,12 +559,17 @@ export class ApiClient {
         return false;
       }
 
-      // Try to parse the response to ensure it's valid JSON
+      // Parse the root response both to validate JSON and to inspect the API
+      // contract metadata advertised by newer servers.
       try {
-        await response.json();
+        const metadata = (await response.json()) as ApiRootMetadata;
+        if (this._probeNonce !== nonce) return false;
+        this.compatibilityWarning$.set(getApiCompatibilityWarning(metadata));
       } catch (parseError) {
+        if (this._probeNonce !== nonce) return false;
         console.error(`[ApiClient] Failed to parse API response from ${url}:`, parseError);
         this.isConnected$.set(false);
+        this.compatibilityWarning$.set(null);
         this.lastConnectionResult$.set({
           ok: false,
           url,
@@ -558,7 +622,9 @@ export class ApiClient {
       } else {
         console.error('[ApiClient] Connection check failed:', error);
       }
+      if (this._probeNonce !== nonce) return false;
       this.isConnected$.set(false);
+      this.compatibilityWarning$.set(null);
       this.lastConnectionResult$.set({ ok: false, url, reason, message });
       return false;
     }
@@ -936,11 +1002,19 @@ export class ApiClient {
     return info;
   }
 
-  async getServerInfo(): Promise<{ version?: string }> {
+  async getServerInfo(): Promise<{
+    version?: string;
+    api_version?: number;
+    contract_revision?: number;
+  }> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
     }
-    const data = await this.fetchJson<{ version?: string }>(`${this.baseUrl}/api/v2`);
+    const data = await this.fetchJson<{
+      version?: string;
+      api_version?: number;
+      contract_revision?: number;
+    }>(`${this.baseUrl}/api/v2`);
     return data;
   }
 

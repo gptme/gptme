@@ -10,7 +10,14 @@ jest.mock('@/stores/servers', () => ({
   getPrimaryClient: jest.fn(),
 }));
 
-import { ApiClient, ApiClientError, getApiErrorPresentation, isLikelyChromeCorsPna } from '../api';
+import {
+  ApiClient,
+  ApiClientError,
+  CLIENT_API_VERSION,
+  CLIENT_MIN_CONTRACT_REVISION,
+  getApiErrorPresentation,
+  isLikelyChromeCorsPna,
+} from '../api';
 
 class MockEventSource {
   static instances: MockEventSource[] = [];
@@ -89,6 +96,212 @@ describe('isLikelyChromeCorsPna', () => {
   it('returns false for invalid URL', () => {
     setHostname('chat.gptme.org');
     expect(isLikelyChromeCorsPna('not-a-url')).toBe(false);
+  });
+});
+
+describe('ApiClient API compatibility', () => {
+  const originalFetch = global.fetch;
+  const originalCrypto = global.crypto;
+
+  beforeEach(() => {
+    Object.defineProperty(global, 'crypto', {
+      value: {
+        ...originalCrypto,
+        randomUUID: jest.fn(() => 'test-client-id'),
+      },
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    Object.defineProperty(global, 'crypto', {
+      value: originalCrypto,
+      configurable: true,
+    });
+    jest.restoreAllMocks();
+  });
+
+  it('records compatible server contract metadata during connection', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        api_version: CLIENT_API_VERSION,
+        contract_revision: CLIENT_MIN_CONTRACT_REVISION,
+      }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+
+    await expect(client.checkConnection()).resolves.toBe(true);
+    expect(client.compatibilityWarning$.get()).toBeNull();
+  });
+
+  it('warns but remains connected when the server contract is older', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        api_version: CLIENT_API_VERSION,
+        contract_revision: CLIENT_MIN_CONTRACT_REVISION - 1,
+      }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+
+    await expect(client.checkConnection()).resolves.toBe(true);
+    expect(client.isConnected$.get()).toBe(true);
+    expect(client.compatibilityWarning$.get()).toEqual({
+      kind: 'server_older',
+      serverApiVersion: CLIENT_API_VERSION,
+      serverContractRevision: CLIENT_MIN_CONTRACT_REVISION - 1,
+      clientApiVersion: CLIENT_API_VERSION,
+      minimumContractRevision: CLIENT_MIN_CONTRACT_REVISION,
+    });
+  });
+
+  it('warns but remains connected when the server uses another API major', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        api_version: CLIENT_API_VERSION + 1,
+        contract_revision: 1,
+      }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+
+    await expect(client.checkConnection()).resolves.toBe(true);
+    expect(client.isConnected$.get()).toBe(true);
+    expect(client.compatibilityWarning$.get()).toMatchObject({
+      kind: 'api_major_mismatch',
+      serverApiVersion: CLIENT_API_VERSION + 1,
+      clientApiVersion: CLIENT_API_VERSION,
+    });
+  });
+
+  it('clears a stale compatibility warning after reconnecting to a compatible server', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          api_version: CLIENT_API_VERSION,
+          contract_revision: CLIENT_MIN_CONTRACT_REVISION - 1,
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          api_version: CLIENT_API_VERSION,
+          contract_revision: CLIENT_MIN_CONTRACT_REVISION,
+        }),
+      } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+
+    await client.checkConnection();
+    expect(client.compatibilityWarning$.get()).not.toBeNull();
+    await client.checkConnection();
+    expect(client.compatibilityWarning$.get()).toBeNull();
+  });
+
+  it('clears a stale compatibility warning when a subsequent probe fails', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          api_version: CLIENT_API_VERSION + 1,
+          contract_revision: CLIENT_MIN_CONTRACT_REVISION,
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+      } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+
+    await client.checkConnection();
+    expect(client.compatibilityWarning$.get()).not.toBeNull();
+    await client.checkConnection();
+    expect(client.compatibilityWarning$.get()).toBeNull();
+    expect(client.isConnected$.get()).toBe(false);
+  });
+
+  it('keeps legacy servers without version metadata compatible', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          api_version: CLIENT_API_VERSION,
+          contract_revision: CLIENT_MIN_CONTRACT_REVISION - 1,
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ version: '0.30.0' }),
+      } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+
+    await client.checkConnection();
+    expect(client.compatibilityWarning$.get()).not.toBeNull();
+    await expect(client.checkConnection()).resolves.toBe(true);
+    expect(client.compatibilityWarning$.get()).toBeNull();
+  });
+
+  it('discards stale probe results when a newer probe finishes first', async () => {
+    // Simulate: probe A (older, incompatible) starts first; probe B (newer, compatible) starts
+    // second and would finish next. Without a generation guard, probe A's catch-path
+    // `compatibilityWarning$.set(null)` or success-path write would overwrite probe B's warning.
+    // With the guard: probe A sees _probeNonce !== nonceA and silently returns false.
+    let resolveOldProbe!: (r: Response) => void;
+    let resolveNewProbe!: (r: Response) => void;
+
+    const oldProbePromise = new Promise<Response>((res) => {
+      resolveOldProbe = res;
+    });
+    const newProbePromise = new Promise<Response>((res) => {
+      resolveNewProbe = res;
+    });
+
+    global.fetch = jest
+      .fn()
+      .mockReturnValueOnce(oldProbePromise)
+      .mockReturnValueOnce(newProbePromise);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+
+    // Start probe A (nonce=1) — it won't resolve yet.
+    const probeA = client.checkConnection();
+
+    // Start probe B (nonce=2) — probe A is now stale.
+    const probeB = client.checkConnection();
+
+    // Probe B resolves first with an incompatible server.
+    resolveNewProbe({
+      ok: true,
+      json: async () => ({
+        api_version: CLIENT_API_VERSION + 1,
+        contract_revision: CLIENT_MIN_CONTRACT_REVISION,
+      }),
+    } as Response);
+    await probeB;
+    expect(client.compatibilityWarning$.get()).not.toBeNull();
+
+    // Probe A (stale) resolves with a network error — must NOT clear the warning.
+    resolveOldProbe({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+    } as Response);
+    await probeA;
+
+    // Warning from probe B must survive.
+    expect(client.compatibilityWarning$.get()).not.toBeNull();
   });
 });
 
