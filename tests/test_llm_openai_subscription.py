@@ -436,3 +436,78 @@ def test_stream_retries_exhausted_reraises(monkeypatch):
         )
 
     assert mock_post.call_count == 3  # initial + 2 retries
+
+
+def _drain_stream(events: list[dict[str, Any]]) -> tuple[str, Any]:
+    """Drain the stream generator, returning (content, return_value)."""
+    auth = _make_auth()
+    response = _FakeSSEStreamResponse(events)
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch("gptme.llm.llm_openai_subscription.requests.post", return_value=response),
+    ):
+        gen = llm_openai_subscription.stream(
+            [Message(role="user", content="hello")], "gpt-5.4"
+        )
+        parts = []
+        ret: Any = None
+        try:
+            while True:
+                parts.append(next(gen))
+        except StopIteration as e:
+            ret = e.value
+        return "".join(parts), ret
+
+
+def test_stream_returns_usage_from_response_done():
+    """response.done with usage dict must be returned as metadata by stream()."""
+    content, metadata = _drain_stream(
+        [
+            {"type": "response.output_text.delta", "delta": "Hello."},
+            {
+                "type": "response.done",
+                "response": {
+                    "usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 50,
+                        "total_tokens": 150,
+                    }
+                },
+            },
+        ]
+    )
+
+    assert content == "Hello."
+    assert metadata is not None
+    assert metadata.get("usage", {}).get("input_tokens") == 100
+    assert metadata.get("usage", {}).get("output_tokens") == 50
+
+
+def test_stream_returns_none_when_response_done_has_no_usage():
+    """response.done without usage must return None so the caller falls back."""
+    _, metadata = _drain_stream([{"type": "response.done"}])
+    assert metadata is None
+
+
+def test_stream_captures_usage_without_cache_fields():
+    """Subscription responses don't have cache token fields; must not crash."""
+    _, metadata = _drain_stream(
+        [
+            {
+                "type": "response.done",
+                "response": {
+                    "usage": {
+                        "input_tokens": 200,
+                        "output_tokens": 75,
+                    }
+                },
+            }
+        ]
+    )
+    assert metadata is not None
+    usage = metadata.get("usage", {})
+    assert usage.get("input_tokens") == 200
+    assert usage.get("output_tokens") == 75
+    assert "cache_read_tokens" not in usage
+    assert "cache_creation_tokens" not in usage
