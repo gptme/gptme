@@ -394,6 +394,21 @@ def test_context_cmd_receives_initial_prompt(tmp_path):
     assert any(initial_prompt in msg.content for msg in msgs)
 
 
+def test_context_cmd_omits_oversized_initial_prompt(tmp_path, caplog):
+    """Oversized prompt variables do not prevent the subprocess from spawning."""
+    from gptme.prompts.context_cmd import get_project_context_cmd_output
+
+    output = get_project_context_cmd_output(
+        'printf %s "${GPTME_PROMPT_INITIAL-unset}"',
+        tmp_path,
+        initial_prompt="x" * 120_001,
+    )
+
+    assert output is not None
+    assert "unset" in output
+    assert "too large" in caplog.text
+
+
 def test_context_cmd_unsets_inherited_initial_prompt(tmp_path, monkeypatch):
     """Callers without a prompt never leak a stale inherited query."""
     from gptme.prompts.context_cmd import get_project_context_cmd_output

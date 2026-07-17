@@ -346,6 +346,7 @@ def get_prompt_stats(
     context_mode: ContextMode | None = None,
     context_include: list[str] | None = None,
     include_user_context: bool = True,
+    initial_prompt: str | None = None,
 ) -> PromptStats:
     """Return token statistics for each startup prompt section."""
     core_sections, cacheable_sections, dynamic_sections = _build_prompt_sections(
@@ -359,7 +360,7 @@ def get_prompt_stats(
         context_mode=context_mode,
         context_include=context_include,
         include_user_context=include_user_context,
-        initial_prompt=None,
+        initial_prompt=initial_prompt,
     )
 
     stats = tuple(

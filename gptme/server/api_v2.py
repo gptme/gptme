@@ -1603,6 +1603,10 @@ def api_conversation_put(conversation_id: str):
             prompt=prompt,
             workspace=chat_config.workspace,
             agent_path=chat_config.agent,
+            initial_prompt=next(
+                (content for role, content, _, _ in validated_msgs if role == "user"),
+                None,
+            ),
         )
     )
 
