@@ -13,7 +13,7 @@
  * conversations.
  */
 import { observable } from '@legendapp/state';
-import type { ConnectionProbeResult, IApiClient } from '@/utils/api';
+import type { ApiCompatibilityWarning, ConnectionProbeResult, IApiClient } from '@/utils/api';
 import type {
   UserInfo,
   ConversationResponse,
@@ -168,6 +168,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     ok: true,
     url: baseUrl,
   });
+  const compatibilityWarning$ = observable<ApiCompatibilityWarning | null>(null);
   const sessions$ = observable(new Map<string, string>());
   const userInfo$ = observable<UserInfo | null>(DEMO_USER_INFO);
 
@@ -218,6 +219,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     authHeader: null,
     isConnected$,
     lastConnectionResult$,
+    compatibilityWarning$,
     sessions$,
     userInfo$,
 
