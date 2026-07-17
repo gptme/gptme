@@ -74,10 +74,12 @@ typecheck: ## Run mypy type checking
 
 typecheck-coverage: ## Run mypy type checking with type coverage report (XML for CI + text imprecision summary)
 	mkdir -p .mypy_coverage_report
-	poetry run mypy ${SRCDIRS} $(if $(EXCLUDES),$(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE))) --cobertura-xml-report .mypy_coverage_report --txt-report .mypy_coverage_report
-	@echo ""
-	@echo "=== Type Coverage Summary ==="
-	@cat .mypy_coverage_report/index.txt
+	@status=0; \
+	poetry run mypy ${SRCDIRS} $(if $(EXCLUDES),$(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE))) --cobertura-xml-report .mypy_coverage_report --txt-report .mypy_coverage_report || status=$$?; \
+	echo ""; \
+	echo "=== Type Coverage Summary ==="; \
+	cat .mypy_coverage_report/index.txt; \
+	exit $$status
 
 RUFF_ARGS=${SRCDIRS} $(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE))
 
