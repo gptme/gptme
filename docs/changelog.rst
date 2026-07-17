@@ -6,6 +6,7 @@ The changelog is also available in the repository releases <https://github.com/g
 .. toctree::
    :maxdepth: 1
 
+   releases/v0.32.1.md
    releases/v0.32.0.md
    releases/v0.31.0.md
    releases/v0.30.0.md
