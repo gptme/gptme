@@ -29,7 +29,7 @@ if [[ "$PATCH_ONLY" != "true" ]]; then
     # linuxdeploy-plugin-gtk uses plain `ln -s` when creating module links in
     # AppDir/usr/lib. linuxdeploy can populate the same links first, so make
     # only that plugin operation idempotent while preserving normal ln behavior.
-    PATH="$SCRIPT_DIR/appimage-bin:$PATH" NO_STRIP="${NO_STRIP:-true}" npm run tauri -- build "$@"
+    REAL_LN="$(command -v ln)" PATH="$SCRIPT_DIR/appimage-bin:$PATH" NO_STRIP="${NO_STRIP:-true}" npm run tauri -- build "$@"
 fi
 
 APPDIR="$TAURI_DIR/src-tauri/target/release/bundle/appimage/gptme-tauri.AppDir"
