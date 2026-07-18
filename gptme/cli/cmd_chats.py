@@ -308,8 +308,24 @@ def chats_send(id: str, message: tuple[str, ...]):
     default=False,
     help="Output safety analysis as JSON (implies --safety-check, skips export).",
 )
+@click.option(
+    "--judge",
+    is_flag=True,
+    default=False,
+    help=(
+        "Add advisory LLM-as-Judge annotation to safety check (implies --safety-check)."
+        " Uses haiku-4.5 via OpenRouter. Requires OPENROUTER_API_KEY."
+        " Advisory-only — never a gate. Post-cutoff arXiv citations may produce"
+        " false positives; use live-source verification for recent citations."
+    ),
+)
 def chats_export(
-    id: str, fmt: str, output: str | None, safety_check: bool, safety_json: bool
+    id: str,
+    fmt: str,
+    output: str | None,
+    safety_check: bool,
+    safety_json: bool,
+    judge: bool,
 ):
     """Export a conversation to HTML or markdown.
 
@@ -320,6 +336,10 @@ def chats_export(
     for hedging/uncertainty signals and jailbreak bypass indicators before exporting.
     No network calls are made; the check is fully local.
 
+    Use --judge to additionally annotate each segment with an advisory LLM-as-Judge
+    score (haiku-4.5 via OpenRouter). This requires OPENROUTER_API_KEY and makes
+    network calls. The annotation is advisory-only — it is never used as a gate.
+
     Examples:
 
         gptme-util chats export my-conversation
@@ -329,6 +349,8 @@ def chats_export(
         gptme-util chats export my-conversation --safety-check
 
         gptme-util chats export my-conversation --safety-json
+
+        gptme-util chats export my-conversation --judge
     """
     _ensure_tools()
     from ..util.export import export_chat_to_html, export_chat_to_markdown  # fmt: skip
@@ -340,12 +362,13 @@ def chats_export(
 
     log = LogManager.load(logdir)
 
-    if safety_check or safety_json:
+    if safety_check or safety_json or judge:
         import json as _json  # fmt: skip
 
-        from ..util.safety import check_messages  # fmt: skip
+        from ..util.safety import CALIBRATED_JUDGE_MODEL, check_messages  # fmt: skip
 
-        report = check_messages(log.log.messages, source=id)
+        judge_model = CALIBRATED_JUDGE_MODEL if judge else None
+        report = check_messages(log.log.messages, source=id, judge_model=judge_model)
         if safety_json:
             click.echo(_json.dumps(report.to_dict(), indent=2))
             return
