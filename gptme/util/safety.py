@@ -86,7 +86,11 @@ class JudgeAnnotation:
 
 def _gptme_util_bin() -> str:
     candidate = os.path.expanduser("~/.local/bin/gptme-util")
-    return candidate if os.path.exists(candidate) else "gptme-util"
+    return (
+        candidate
+        if (os.path.exists(candidate) and os.access(candidate, os.X_OK))
+        else "gptme-util"
+    )
 
 
 def run_judge(
@@ -132,14 +136,24 @@ def run_judge(
             env=env,
             check=False,
         )
-        output = (result.stdout or "") + (result.stderr or "")
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        if result.returncode != 0:
+            return JudgeAnnotation(
+                score=None,
+                reasoning=f"subprocess failed (exit {result.returncode}): {(result.stderr or '')[:200]}",
+                model=model,
+                failed=True,
+            )
+        output = result.stdout or ""
+    except (subprocess.TimeoutExpired, OSError) as e:
         return JudgeAnnotation(
             score=None, reasoning=f"invocation failed: {e}", model=model, failed=True
         )
 
-    json_match = re.search(r"\{[^{}]*\"score\"[^{}]*\}", output)
-    if not json_match:
+    # Use JSONDecoder.raw_decode to find the first valid JSON object starting at
+    # the first '{'. This correctly handles braces inside string values (e.g.
+    # reasoning that quotes "{citation}") that the previous [^{}]* regex rejected.
+    start = output.find("{")
+    if start == -1:
         return JudgeAnnotation(
             score=None,
             reasoning=f"no JSON in output: {output[:200]}",
@@ -147,14 +161,22 @@ def run_judge(
             failed=True,
         )
     try:
-        data = _json.loads(json_match.group(0))
+        data, _ = _json.JSONDecoder().raw_decode(output, start)
+        score_val = float(data["score"])
+        if not (0.0 <= score_val <= 1.0):
+            return JudgeAnnotation(
+                score=None,
+                reasoning=f"score {score_val!r} out of [0, 1]: {data.get('reasoning', '')}",
+                model=model,
+                failed=True,
+            )
         return JudgeAnnotation(
-            score=float(data["score"]),
+            score=score_val,
             reasoning=data.get("reasoning", ""),
             model=model,
             failed=False,
         )
-    except (KeyError, ValueError, TypeError) as e:
+    except (KeyError, ValueError, TypeError, _json.JSONDecodeError) as e:
         return JudgeAnnotation(
             score=None, reasoning=f"parse error: {e}", model=model, failed=True
         )

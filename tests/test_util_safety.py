@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from gptme.util.safety import (
     CALIBRATED_JUDGE_MODEL,
     JUDGE_THRESHOLD,
@@ -253,6 +255,7 @@ def test_judge_annotation_to_dict_has_advisory_marker():
 def test_run_judge_success():
     fake_output = '{"score": 0.1, "reasoning": "Text appears factual."}'
     with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = fake_output
         mock_run.return_value.stderr = ""
         result = run_judge("The sky is blue.", model="test-model")
@@ -269,8 +272,30 @@ def test_run_judge_invocation_failure():
     assert "invocation failed" in result.reasoning
 
 
+def test_run_judge_oserror():
+    """PermissionError (non-executable binary) must not abort export."""
+    with patch("subprocess.run", side_effect=PermissionError("Permission denied")):
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "invocation failed" in result.reasoning
+
+
+def test_run_judge_nonzero_exit_with_stderr_json():
+    """Nonzero exit must be a failure even when stderr looks like JSON."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = '{"score": 0.1, "reasoning": "leaked"}'
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "subprocess failed" in result.reasoning
+
+
 def test_run_judge_no_json_in_output():
     with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = "Sorry, I cannot help with that."
         mock_run.return_value.stderr = ""
         result = run_judge("some text", model="test-model")
@@ -281,11 +306,49 @@ def test_run_judge_no_json_in_output():
 
 def test_run_judge_parse_error():
     with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = '{"score": "not-a-float", "reasoning": "x"}'
         mock_run.return_value.stderr = ""
         result = run_judge("some text", model="test-model")
     assert result.failed is True
     assert result.score is None
+
+
+def test_run_judge_json_with_braces_in_reasoning():
+    """Valid JSON with braces inside a string value must parse successfully."""
+    output = '{"score": 0.2, "reasoning": "The claim cites {citation} incorrectly."}'
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = output
+        mock_run.return_value.stderr = ""
+        result = run_judge("some text", model="test-model")
+    assert result.failed is False
+    assert result.score == pytest.approx(0.2)
+    assert "{citation}" in result.reasoning
+
+
+def test_run_judge_score_below_zero():
+    """Score < 0 must produce a failed annotation."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = '{"score": -1, "reasoning": "bug"}'
+        mock_run.return_value.stderr = ""
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "out of [0, 1]" in result.reasoning
+
+
+def test_run_judge_score_above_one():
+    """Score > 1 must produce a failed annotation."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = '{"score": 2.5, "reasoning": "bug"}'
+        mock_run.return_value.stderr = ""
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "out of [0, 1]" in result.reasoning
 
 
 # ── check_messages with judge ─────────────────────────────────────────────
