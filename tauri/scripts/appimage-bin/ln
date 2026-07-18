@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REAL_LN="${REAL_LN:-/usr/bin/ln}"
+
+# linuxdeploy-plugin-gtk creates basename-only links after linuxdeploy has
+# already populated AppDir/usr/lib. Re-running the plugin should replace those
+# links rather than fail with "File exists". Keep normal ln semantics elsewhere.
+for arg in "$@"; do
+    if [[ "$arg" == */target/release/bundle/appimage/*.AppDir/usr/lib ]]; then
+        case "$1" in
+            -s | -sv | -vs)
+                exec "$REAL_LN" -f "$@"
+                ;;
+        esac
+    fi
+done
+
+exec "$REAL_LN" "$@"
