@@ -339,6 +339,30 @@ def test_run_judge_score_below_zero():
     assert "out of [0, 1]" in result.reasoning
 
 
+def test_run_judge_score_boolean_false():
+    """Boolean false score must be rejected (float(False)==0.0 would otherwise pass)."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = '{"score": false, "reasoning": "wrong schema"}'
+        mock_run.return_value.stderr = ""
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "boolean" in result.reasoning
+
+
+def test_run_judge_score_boolean_true():
+    """Boolean true score must be rejected (float(True)==1.0 would otherwise pass)."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = '{"score": true, "reasoning": "wrong schema"}'
+        mock_run.return_value.stderr = ""
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "boolean" in result.reasoning
+
+
 def test_run_judge_score_above_one():
     """Score > 1 must produce a failed annotation."""
     with patch("subprocess.run") as mock_run:

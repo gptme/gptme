@@ -162,7 +162,15 @@ def run_judge(
         )
     try:
         data, _ = _json.JSONDecoder().raw_decode(output, start)
-        score_val = float(data["score"])
+        raw_score = data["score"]
+        if isinstance(raw_score, bool):
+            return JudgeAnnotation(
+                score=None,
+                reasoning=f"score is boolean {raw_score!r}, expected float in [0, 1]",
+                model=model,
+                failed=True,
+            )
+        score_val = float(raw_score)
         if not (0.0 <= score_val <= 1.0):
             return JudgeAnnotation(
                 score=None,
