@@ -3826,10 +3826,9 @@ utils = ["numpydoc"]
 name = "lxml"
 version = "6.1.1"
 description = "Powerful and Pythonic XML processing library combining libxml2/libxslt with the ElementTree API."
-optional = true
+optional = false
 python-versions = ">=3.8"
-groups = ["main"]
-markers = "extra == \"docs\" or extra == \"all\""
+groups = ["main", "dev"]
 files = [
     {file = "lxml-6.1.1-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:09dd5b7075dc2f7709654a46543ba1ea3c2e217b2ed8fbd413a8a945a0f40f60"},
     {file = "lxml-6.1.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:f6ac4ef4d82dff54670227a69c67782ae0b811b5cf6b17954f1e8f7502fc0d1d"},
@@ -3966,6 +3965,7 @@ files = [
     {file = "lxml-6.1.1-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:ed21202aec73cda4d55d1ce57b389aadb90ffb044e6cd1080b8347efe1b1ec84"},
     {file = "lxml-6.1.1.tar.gz", hash = "sha256:ba96ae44888e0185281e937633a743ea90d5a196c6000f82565ebb0580012d40"},
 ]
+markers = {main = "extra == \"docs\" or extra == \"all\""}
 
 [package.extras]
 cssselect = ["cssselect (>=0.7)"]
@@ -10411,4 +10411,4 @@ tui = ["textual"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "eefc425aab0e307670d32ce9a0568994d1e673edc131cd2d469b0d089c47015f"
+content-hash = "7a6d19cd73d0f1190e564fbb0d4c497838186919aec8b583b8653664ceb4f90d"

@@ -163,6 +163,7 @@ myst-parser = "*"
 # types
 types-tabulate = "*"
 types-lxml = "*"
+lxml = "*"  # required for mypy --cobertura-xml-report
 
 # needed for typechecking scripts
 tomli = "^2.4.1"
