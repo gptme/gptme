@@ -471,4 +471,134 @@ describe('ConversationList', () => {
       expect(headers[2]).toHaveTextContent('This Week');
     });
   });
+
+  describe('external sessions toggle', () => {
+    const externalSession = {
+      id: 'ext-1',
+      session_id: 'ext-session-1',
+      harness: 'claude-code',
+      session_name: 'My CC Session',
+      project: 'bob',
+      model: 'claude-sonnet-4-6',
+      started_at: '2026-07-19T10:00:00Z',
+      last_activity: '2026-07-19T10:30:00Z',
+      capabilities: [],
+      trajectory_path: '/tmp/traj.jsonl',
+    };
+    const onSelectExternal = jest.fn();
+
+    beforeEach(() => {
+      localStorage.removeItem('gptme:show-external-sessions');
+    });
+
+    it('does not show toggle button when no external sessions are provided', () => {
+      renderWithProviders(
+        <ConversationList {...defaultProps} onSelectExternal={onSelectExternal} />
+      );
+      expect(screen.queryByLabelText('Show external sessions')).not.toBeInTheDocument();
+    });
+
+    it('does not show toggle button when externalSessions is empty', () => {
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          externalSessions={[]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+      expect(screen.queryByLabelText('Show external sessions')).not.toBeInTheDocument();
+    });
+
+    it('shows toggle button when external sessions are available', () => {
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          externalSessions={[externalSession]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+      expect(screen.getByLabelText('Show external sessions')).toBeInTheDocument();
+    });
+
+    it('hides external sessions by default (toggle off)', () => {
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          externalSessions={[externalSession]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+      expect(screen.queryByText('External Sessions')).not.toBeInTheDocument();
+      expect(screen.queryByText('My CC Session')).not.toBeInTheDocument();
+    });
+
+    it('shows external sessions after clicking toggle', () => {
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          externalSessions={[externalSession]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+      fireEvent.click(screen.getByLabelText('Show external sessions'));
+      expect(screen.getByText('External Sessions')).toBeInTheDocument();
+      expect(screen.getByText('My CC Session')).toBeInTheDocument();
+    });
+
+    it('hides external sessions again after toggling twice', () => {
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          externalSessions={[externalSession]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+      const btn = screen.getByLabelText('Show external sessions');
+      fireEvent.click(btn);
+      expect(screen.getByText('My CC Session')).toBeInTheDocument();
+      fireEvent.click(screen.getByLabelText('Hide external sessions'));
+      expect(screen.queryByText('My CC Session')).not.toBeInTheDocument();
+    });
+
+    it('persists toggle state to localStorage', () => {
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          externalSessions={[externalSession]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+      expect(localStorage.getItem('gptme:show-external-sessions')).toBeNull();
+      fireEvent.click(screen.getByLabelText('Show external sessions'));
+      expect(localStorage.getItem('gptme:show-external-sessions')).toBe('true');
+      fireEvent.click(screen.getByLabelText('Hide external sessions'));
+      expect(localStorage.getItem('gptme:show-external-sessions')).toBe('false');
+    });
+
+    it('restores toggle state from localStorage', () => {
+      localStorage.setItem('gptme:show-external-sessions', 'true');
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          externalSessions={[externalSession]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+      expect(screen.getByText('My CC Session')).toBeInTheDocument();
+      expect(screen.getByLabelText('Hide external sessions')).toBeInTheDocument();
+    });
+
+    it('calls onSelectExternal when an external session is clicked', () => {
+      localStorage.setItem('gptme:show-external-sessions', 'true');
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          externalSessions={[externalSession]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+      fireEvent.click(screen.getByText('My CC Session'));
+      expect(onSelectExternal).toHaveBeenCalledWith('ext-1');
+    });
+  });
 });
