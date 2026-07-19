@@ -25,7 +25,6 @@ from typing import (
     get_args,
     get_origin,
 )
-import xml.etree.ElementTree as _ElementTree
 from xml.sax.saxutils import escape as xml_escape
 from xml.sax.saxutils import quoteattr
 
@@ -1015,6 +1014,7 @@ class ToolUse:
     def _iter_from_xml_lxml(cls, content: str) -> Generator[ToolUse, None, None]:
         """lxml-based XML parser: lenient HTML parsing + XPath."""
         try:
+            tree: Any
             # lxml's HTMLParser is lenient with malformed XML/HTML
             parser = _lxml_etree.HTMLParser()
             tree = _lxml_etree.fromstring(content, parser)
