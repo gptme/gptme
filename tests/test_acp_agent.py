@@ -1411,6 +1411,117 @@ class TestCwdSessionId:
         assert all(c in "0123456789abcdef" for c in hash_part)
 
 
+class TestPromptTurnLoop:
+    """Regression tests for complete ACP prompt-turn execution."""
+
+    def test_prompt_continues_after_tool_result(self, monkeypatch):
+        """A tool call must be followed by another model step in the same turn."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        from gptme.message import Message
+
+        agent = GptmeAgent()
+        agent._conn = MagicMock()
+        agent._conn.session_update = AsyncMock()
+        agent._session_commands_advertised.add("s1")
+        agent._session_models["s1"] = "openai/gpt-4o-mini"
+
+        log = _make_mock_log()
+        log.log = []
+        log.workspace = None
+        log.logdir = None
+        agent._registry.create("s1", log=log)
+
+        calls: list[list[Message]] = []
+
+        def fake_step(log, **kwargs):
+            calls.append(list(log))
+            if len(calls) == 1:
+                return iter(
+                    [
+                        Message(
+                            "assistant",
+                            "```save scratch.txt\nhello\n```",
+                        ),
+                        Message("system", "Saved to scratch.txt"),
+                    ]
+                )
+            return iter([Message("assistant", "Done")])
+
+        import importlib
+
+        chat_module = importlib.import_module("gptme.chat")
+        monkeypatch.setattr(chat_module, "step", fake_step)
+
+        result = _run(
+            agent.prompt(
+                prompt=[{"type": "text", "text": "create scratch.txt"}],
+                session_id="s1",
+            )
+        )
+
+        assert result.stop_reason == "end_turn"
+        assert len(calls) == 2
+        assert [message.content for message in calls[1][-2:]] == [
+            "```save scratch.txt\nhello\n```",
+            "Saved to scratch.txt",
+        ]
+        assert [call.args[0].content for call in log.append.call_args_list] == [
+            "create scratch.txt",
+            "```save scratch.txt\nhello\n```",
+            "Saved to scratch.txt",
+            "Done",
+        ]
+
+    def test_prompt_respects_max_steps(self, monkeypatch):
+        """ACP prompt loops must honor the same step cap as interactive chat."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        import importlib
+
+        from gptme.message import Message
+
+        agent = GptmeAgent()
+        agent._conn = MagicMock()
+        agent._conn.session_update = AsyncMock()
+        agent._session_commands_advertised.add("s1")
+        agent._session_models["s1"] = "openai/gpt-4o-mini"
+
+        log = _make_mock_log()
+        log.log = []
+        log.workspace = None
+        log.logdir = None
+        agent._registry.create("s1", log=log)
+
+        calls = 0
+
+        def fake_step(log, **kwargs):
+            nonlocal calls
+            calls += 1
+            return iter(
+                [
+                    Message("assistant", "```save scratch.txt\nhello\n```"),
+                    Message("system", "Saved to scratch.txt"),
+                ]
+            )
+
+        chat_module = importlib.import_module("gptme.chat")
+        monkeypatch.setattr(chat_module, "step", fake_step)
+        monkeypatch.setenv("GPTME_MAX_STEPS", "2")
+
+        result = _run(
+            agent.prompt(
+                prompt=[{"type": "text", "text": "create scratch.txt"}],
+                session_id="s1",
+            )
+        )
+
+        assert result.stop_reason == "end_turn"
+        assert calls == 2
+
+
 class TestPromptErrorHandling:
     """Regression tests for prompt() error-path robustness."""
 
