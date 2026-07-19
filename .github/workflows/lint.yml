@@ -40,8 +40,8 @@ jobs:
     - name: Install dependencies
       run: |
         make build
-        poetry install -E server -E browser -E telemetry -E dspy -E tui -E docs
-        poetry run pip install tomli tomli_w
+        poetry install -E server -E browser -E telemetry -E dspy -E tui
+        poetry run pip install tomli tomli_w lxml
     - name: Typecheck
       run: |
         make typecheck-coverage
