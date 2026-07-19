@@ -37,6 +37,10 @@ try:
 except ImportError:
     _LXML_AVAILABLE = False
 
+_XML_PARSE_ERRORS: tuple[type[Exception], ...] = (_ElementTree.ParseError,)
+if _LXML_AVAILABLE:
+    _XML_PARSE_ERRORS = (_lxml_etree.XMLSyntaxError, _ElementTree.ParseError)
+
 from ..codeblock import Codeblock
 from ..message import Message
 from ..util import clean_example, transform_examples_to_chat_directives
@@ -1071,7 +1075,7 @@ class ToolUse:
                         start=start_pos if start_pos >= 0 else None,
                         _format="xml",
                     )
-        except _lxml_etree.ParseError as e:
+        except _XML_PARSE_ERRORS as e:
             logger.warning(f"Failed to parse XML content: {e}")
             return
 
