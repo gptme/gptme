@@ -3826,7 +3826,7 @@ utils = ["numpydoc"]
 name = "lxml"
 version = "6.1.1"
 description = "Powerful and Pythonic XML processing library combining libxml2/libxslt with the ElementTree API."
-optional = false
+optional = true
 python-versions = ">=3.8"
 groups = ["main", "dev"]
 files = [
@@ -6941,7 +6941,7 @@ diagrams = ["jinja2", "railroad-diagrams"]
 name = "pypdf"
 version = "6.14.2"
 description = "A pure-python PDF library capable of splitting, merging, cropping, and transforming PDF files"
-optional = false
+optional = true
 python-versions = ">=3.9"
 groups = ["main", "dev"]
 files = [

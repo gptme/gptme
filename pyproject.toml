@@ -61,7 +61,7 @@ tiktoken = ">=0.13.0"
 tomlkit = "*"
 typing-extensions = "*"
 platformdirs = "^4.10"
-lxml = {version = "*", optional = true}  # HTML/XML parsing; optional — pure-Python fallback in base.py
+lxml = {version = "*", optional = true}  # HTML/XML parsing; optional — falls back to stdlib xml.etree.ElementTree
 pypdf = {version = ">=6.14.2", optional = true}  # PDF extraction in browser tool (CVE fix: RAM exhaustion + infinite loop)
 requests = "^2.34"  # For HTTP requests in browser tool (PDF detection)
 json-repair = "^0.61.4"
@@ -199,8 +199,8 @@ all = [
     "agent-client-protocol",
     # tui
     "textual",
-    # browser
-    "playwright",
+    # browser (lxml + pypdf are optional soft deps; included in all for full-featured installs)
+    "playwright", "lxml", "pypdf",
     # datascience
     "matplotlib", "pandas", "numpy", # "pillow",
     # tool sounds
