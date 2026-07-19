@@ -61,8 +61,8 @@ tiktoken = ">=0.13.0"
 tomlkit = "*"
 typing-extensions = "*"
 platformdirs = "^4.10"
-lxml = "*"
-pypdf = ">=6.14.2"  # For PDF text extraction in browser tool (CVE fix: RAM exhaustion + infinite loop)
+lxml = {version = "*", optional = true}  # HTML/XML parsing; optional — pure-Python fallback in base.py
+pypdf = {version = ">=6.14.2", optional = true}  # PDF extraction in browser tool (CVE fix: RAM exhaustion + infinite loop)
 requests = "^2.34"  # For HTTP requests in browser tool (PDF detection)
 json-repair = "^0.61.4"
 mcp = "^1.28.1"
@@ -170,6 +170,8 @@ tomli = "^2.4.1"
 [tool.poetry.extras]
 server = ["flask", "flask-cors", "flask-compress", "pydantic", "prometheus-client"]
 browser = ["playwright"]
+docs = ["lxml", "pypdf"]  # enhanced HTML/XML parsing + PDF extraction; not required for basic use
+minimal = []  # no native extensions beyond pydantic-core; works on ARM/musl/Termux/Lambda
 datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
 sounds = ["sounddevice", "scipy"]
 computer = []  # pillow (non-opt); AT-SPI2 accessibility needs system pkg: apt install python3-pyatspi
@@ -187,6 +189,8 @@ dspy = ["dspy", "sentence-transformers"]
 swebench = ["datasets", "swebench"]  # narrow install for the SWE-bench public benchmark lane
 eval = ["dspy", "sentence-transformers", "datasets", "swebench", "terminal-bench"]
 all = [
+    # docs (HTML/XML + PDF)
+    "lxml", "pypdf",
     # server
     "flask", "flask-cors", "flask-compress", "pydantic",
     # acp
