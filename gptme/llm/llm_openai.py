@@ -515,6 +515,17 @@ def init(provider: Provider, config: Config):
         clients[provider] = OpenAI(
             api_key=api_key, base_url="https://api.x.ai/v1", timeout=timeout
         )
+    elif provider == "grok-subscription":
+        # SuperGrok subscription: OAuth token from grok CLI or gptme auth flow.
+        # Uses the same xAI API endpoint as the ``xai`` provider, but with an
+        # OAuth access token instead of an API key.
+        from .llm_grok_subscription import XAI_BASE_URL, get_auth
+
+        auth = get_auth()
+        _init_openai_client(
+            provider, api_key=auth.access_token, base_url=XAI_BASE_URL, timeout=timeout
+        )
+        return  # _init_openai_client already assigned clients[provider]
     elif provider == "groq":
         api_key = _get_provider_api_key(config, provider, "GROQ_API_KEY")
         clients[provider] = OpenAI(

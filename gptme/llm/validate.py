@@ -20,10 +20,11 @@ PROVIDER_DOCS: dict[str, str] = {
     "nvidia": "https://build.nvidia.com/",
     "local": "https://gptme.org/docs/providers.html#local-models",
     "openai-subscription": "https://gptme.org/docs/providers.html#openai-subscription",
+    "grok-subscription": "https://gptme.org/docs/providers.html#grok-subscription",
 }
 
 # Providers that use OAuth instead of API keys
-OAUTH_PROVIDERS: set[str] = {"openai-subscription"}
+OAUTH_PROVIDERS: set[str] = {"openai-subscription", "grok-subscription"}
 
 
 def validate_api_key(

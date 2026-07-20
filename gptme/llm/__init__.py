@@ -95,6 +95,7 @@ PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "gemini": "gemini/gemini-2.0-flash",
     "groq": "groq/llama-3.3-70b-versatile",
     "xai": "xai/grok-3-mini",
+    "grok-subscription": "grok-subscription/grok-4.5",
     "deepseek": "deepseek/deepseek-chat",
     "moonshot": "moonshot/kimi-k2.6",
 }
@@ -1044,6 +1045,15 @@ def list_available_providers() -> list[tuple[Provider, str]]:
     if _token_path.exists() and "openai-subscription" not in seen:
         available.append((cast(Provider, "openai-subscription"), "oauth"))
         seen.add("openai-subscription")
+
+    # Grok subscription: check both gptme-stored tokens and grok CLI auth file
+    _grok_token_path = _config_dir / "gptme" / "oauth" / "grok_subscription.json"
+    _grok_cli_path = Path.home() / ".grok" / "auth.json"
+    if (
+        _grok_token_path.exists() or _grok_cli_path.exists()
+    ) and "grok-subscription" not in seen:
+        available.append((cast(Provider, "grok-subscription"), "oauth"))
+        seen.add("grok-subscription")
 
     # Include plugin providers that have their API key configured
     for plugin_name, env_var in get_plugin_api_keys().items():

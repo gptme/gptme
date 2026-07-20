@@ -2378,6 +2378,11 @@ def _probe_provider(provider_name: str) -> dict:
 
             get_subscription_auth(timeout=_PROVIDER_HEALTH_TIMEOUT)
 
+        elif provider_name == "grok-subscription":
+            from ..llm.llm_grok_subscription import get_auth as get_grok_auth
+
+            get_grok_auth(timeout=_PROVIDER_HEALTH_TIMEOUT)
+
         else:
             # Plugin or unknown provider — key is configured but no live check
             return {"status": "configured", "latency_ms": elapsed_ms(), "error": None}

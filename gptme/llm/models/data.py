@@ -290,6 +290,23 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
         },
     },
     # https://docs.x.ai/docs/models
+    # SuperGrok/SuperGrok-Heavy subscription (grok.com) via xAI API.
+    # Uses OAuth tokens from the grok CLI (~/.grok/auth.json) — $0 marginal.
+    # Prices reflect xAI API-equivalent cost for comparison purposes.
+    # Auth: run `grok login` or `gptme auth grok-subscription`.
+    "grok-subscription": {
+        # grok-4.5 — frontier model available on SuperGrok subscription
+        # https://x.ai/blog/grok-4-5 (500K context, reasoning support)
+        "grok-4.5": {
+            "context": 500_000,
+            "max_output": 128_000,
+            "price_input": 2,
+            "price_output": 6,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "preferred_edit_format": "diff",
+        },
+    },
     "xai": {
         "grok-4-1-fast": {
             "context": 2_000_000,

@@ -7,6 +7,7 @@ Usage:
     gptme-auth logout              # Remove stored gptme credentials
     gptme-auth status              # Show current login status
     gptme-auth openai-subscription # Authenticate for OpenAI subscription
+    gptme-auth grok-subscription   # Authenticate for SuperGrok subscription
 """
 
 import json
@@ -310,6 +311,181 @@ def auth_openai_subscription():
         console.print(f"  Error: {e}")
         logger.debug("Full error:", exc_info=True)
         sys.exit(1)
+
+
+@main.command("grok-subscription")
+def auth_grok_subscription():
+    """Authenticate with xAI using your SuperGrok subscription.
+
+    If you have the grok CLI installed and have run ``grok login``, gptme
+    will automatically reuse those tokens — no extra steps needed.
+
+    If you don't have the grok CLI, this command guides you through the same
+    OAuth flow to obtain tokens stored at ~/.config/gptme/oauth/grok_subscription.json.
+    """
+    from ..llm.llm_grok_subscription import (
+        OAUTH_AUTH_URL,
+        OAUTH_CALLBACK_PORT,
+        OAUTH_CLIENT_ID,
+        OAUTH_SCOPES,
+        OAUTH_TOKEN_URL,
+        _get_grok_cli_auth_path,
+        _load_grok_cli_tokens,
+        _save_tokens,
+    )
+
+    # If grok CLI tokens already exist and are valid, skip the OAuth flow
+    cli_auth = _load_grok_cli_tokens()
+    if cli_auth is not None:
+        import time
+
+        if time.time() < cli_auth.expires_at - 300:
+            console.print("\n[bold]Grok Subscription Authentication[/bold]\n")
+            console.print(
+                f"[green]✓ Found valid grok CLI tokens at {_get_grok_cli_auth_path()}[/green]"
+            )
+            console.print(
+                "\nYou can now use models like: [cyan]grok-subscription/grok-4.5[/cyan]"
+            )
+            return
+
+    # Full OAuth PKCE flow (for users without grok CLI)
+    import base64
+    import hashlib
+    import http.server
+    import secrets
+    import threading
+    import time
+    import webbrowser
+    from urllib.parse import parse_qs, urlencode, urlparse
+
+    console.print("\n[bold]Grok Subscription Authentication[/bold]\n")
+    console.print("This will open your browser to log in with your xAI account.")
+    console.print("Your SuperGrok subscription will be used for API access.\n")
+
+    # PKCE
+    code_verifier = secrets.token_urlsafe(32)
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    state = secrets.token_urlsafe(16)
+
+    callback_url = f"http://localhost:{OAUTH_CALLBACK_PORT}/auth/callback"
+
+    auth_params = {
+        "client_id": OAUTH_CLIENT_ID,
+        "redirect_uri": callback_url,
+        "response_type": "code",
+        "scope": OAUTH_SCOPES,
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    auth_url = f"{OAUTH_AUTH_URL}?{urlencode(auth_params)}"
+
+    # Local callback server
+    result: dict = {}
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            received_state = params.get("state", [None])[0]
+            if received_state != state:
+                result["error"] = "Invalid state (possible CSRF)"
+                self._respond(400, "Security error: invalid state.")
+                return
+            if "code" in params:
+                result["code"] = params["code"][0]
+                self._respond(
+                    200,
+                    "Authentication successful. You can close this window.",
+                )
+            elif "error" in params:
+                result["error"] = params.get("error_description", params["error"])[0]
+                self._respond(400, f"Error: {result['error']}")
+
+        def _respond(self, status, msg):
+            body = f"<html><body><p>{msg}</p></body></html>".encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(body)
+
+    try:
+        server = http.server.HTTPServer(("127.0.0.1", OAUTH_CALLBACK_PORT), _Handler)
+        server.timeout = 120
+    except OSError as e:
+        console.print(
+            f"[red]✗ Could not start callback server on port {OAUTH_CALLBACK_PORT}: {e}[/red]"
+        )
+        sys.exit(1)
+
+    console.print("   Opening browser for xAI authentication...")
+    console.print(f"   If browser doesn't open, visit:\n   {auth_url}")
+
+    def _open():
+        time.sleep(0.5)
+        webbrowser.open(auth_url)
+
+    threading.Thread(target=_open, daemon=True).start()
+    console.print(f"   Waiting for callback on port {OAUTH_CALLBACK_PORT}...")
+
+    try:
+        while "code" not in result and "error" not in result:
+            server.handle_request()
+    finally:
+        server.server_close()
+
+    if "error" in result:
+        console.print(
+            f"\n[red bold]✗ Authentication failed: {result['error']}[/red bold]"
+        )
+        sys.exit(1)
+
+    console.print("   Exchanging authorization code for tokens...")
+    try:
+        token_resp = requests.post(
+            OAUTH_TOKEN_URL,
+            data={
+                "client_id": OAUTH_CLIENT_ID,
+                "grant_type": "authorization_code",
+                "code": result["code"],
+                "redirect_uri": callback_url,
+                "code_verifier": code_verifier,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=30,
+        )
+        if token_resp.status_code != 200:
+            raise ValueError(
+                f"Token exchange failed: {token_resp.status_code} {token_resp.text[:200]}"
+            )
+        tokens = token_resp.json()
+        access_token = tokens.get("access_token")
+        refresh_token = tokens.get("refresh_token")
+        if not access_token:
+            raise ValueError("No access token in response")
+        expires_in = tokens.get("expires_in", 21600)
+
+        from ..llm.llm_grok_subscription import SubscriptionAuth
+
+        auth = SubscriptionAuth(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=time.time() + expires_in,
+        )
+        _save_tokens(auth)
+    except Exception as e:
+        console.print(f"\n[red bold]✗ Token exchange failed: {e}[/red bold]")
+        sys.exit(1)
+
+    console.print("\n[green bold]✓ Authentication successful![/green bold]")
+    console.print(
+        "\nYou can now use models like: [cyan]grok-subscription/grok-4.5[/cyan]"
+    )
 
 
 if __name__ == "__main__":
