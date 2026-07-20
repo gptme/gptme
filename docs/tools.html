@@ -2903,10 +2903,12 @@ Q&amp;A block so it has full context.</p>
 <dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.subagent.</span></span><span class="sig-name descname"><span class="pre">subagent_steer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">agent_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
 <dd><p>Inject a steering message into a running subagent’s conversation.</p>
-<p>The message is queued via the subagent’s logdir prompt-queue and picked up
-on the subagent’s next chat loop iteration, allowing the orchestrator to
-redirect, clarify, or course-correct a subagent mid-run without restarting
-it. Works for thread-mode and subprocess-mode subagents.</p>
+<p>The message is queued via the subagent’s logdir prompt-queue with a
+steer flag.  The subagent’s STEP_PRE checkpoint hook drains steer-flagged
+messages at each step boundary so the very next LLM call in the same
+agentic turn sees the guidance immediately — no need to wait for the
+current tool chain to finish.  Works for thread-mode and subprocess-mode
+subagents.</p>
 <p>This is distinct from <code class="docutils literal notranslate"><span class="pre">subagent_reply()</span></code>, which re-spawns a subagent that
 has <em>already stopped</em> with a <code class="docutils literal notranslate"><span class="pre">clarification_needed</span></code> status. Use this
 function to steer a subagent that is still actively running.</p>
