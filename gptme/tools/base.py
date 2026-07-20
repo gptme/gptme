@@ -1107,9 +1107,10 @@ class ToolUse:
             # Handle Haiku format: <function_calls><invoke name="toolname">...</invoke></function_calls>
             for function_calls in tree.findall(".//function_calls"):
                 for invoke in function_calls.findall(".//invoke"):
-                    tool_name = invoke.get("name")
-                    if not tool_name:
+                    invoke_name = invoke.get("name")
+                    if not invoke_name:
                         continue
+                    tool_name = invoke_name
                     args = [v for k, v in invoke.attrib.items() if k != "name"]
                     tool_content = "".join(invoke.itertext()).strip()
                     start_pos = content.find(f'<invoke name="{tool_name}"')
