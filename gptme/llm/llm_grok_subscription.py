@@ -22,6 +22,7 @@ Usage:
 
 import json
 import logging
+import os
 import time
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -169,40 +170,59 @@ def _write_grok_tokens(auth: GrokAuth) -> None:
 
     Uses the same key that was identified during the most recent _load_grok_tokens
     call so that multi-entry stores are updated correctly.
+
+    Uses an exclusive flock + per-pid temp file + os.replace() so concurrent
+    gptme processes and the grok CLI don't interleave their writes.
     """
+    import fcntl
+
     global _credential_key
     path = _get_grok_auth_path()
+    tmp = path.parent / f"{path.name}.tmp.{os.getpid()}"
     try:
-        raw = json.loads(path.read_text()) if path.exists() else {}
-        # Resolve the target key: prefer the one we previously loaded from,
-        # then the entry containing our client ID, then the first entry, then
-        # the canonical default.
-        default_key = f"{GROK_TOKEN_ENDPOINT}::{GROK_OIDC_CLIENT_ID}"
-        if _credential_key and _credential_key in raw:
-            key = _credential_key
-        elif raw:
-            key = next(
-                (k for k in raw if GROK_OIDC_CLIENT_ID in k),
-                next(iter(raw)),
-            )
-        else:
-            key = default_key
-        entry = raw.get(key, {})
-        entry["key"] = auth.access_token
-        if auth.refresh_token:
-            entry["refresh_token"] = auth.refresh_token
-        from datetime import datetime, timezone
+        # Hold an exclusive lock for the full read-modify-write cycle.
+        # Open with 'a+' so we create the file if absent without truncating.
+        lock_fd = open(path, "a+")
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            lock_fd.seek(0)
+            raw_text = lock_fd.read()
+            raw: dict = json.loads(raw_text) if raw_text.strip() else {}
+            # Resolve the target key: prefer the one we previously loaded from,
+            # then the entry containing our client ID, then the first entry, then
+            # the canonical default.
+            default_key = f"{GROK_TOKEN_ENDPOINT}::{GROK_OIDC_CLIENT_ID}"
+            if _credential_key and _credential_key in raw:
+                key = _credential_key
+            elif raw:
+                key = next(
+                    (k for k in raw if GROK_OIDC_CLIENT_ID in k),
+                    next(iter(raw)),
+                )
+            else:
+                key = default_key
+            entry = raw.get(key, {})
+            entry["key"] = auth.access_token
+            if auth.refresh_token:
+                entry["refresh_token"] = auth.refresh_token
+            from datetime import datetime, timezone
 
-        entry["expires_at"] = datetime.fromtimestamp(
-            auth.expires_at, tz=timezone.utc
-        ).isoformat()
-        raw[key] = entry
-        # Atomic write: write to a temp file and rename
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(raw, indent=2))
-        tmp.rename(path)
+            entry["expires_at"] = datetime.fromtimestamp(
+                auth.expires_at, tz=timezone.utc
+            ).isoformat()
+            raw[key] = entry
+            # Atomic publish: write to per-pid temp then rename under the lock
+            tmp.write_text(json.dumps(raw, indent=2))
+            os.replace(tmp, path)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
     except Exception as e:
         logger.warning("Failed to persist refreshed grok tokens: %s", e)
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def get_auth() -> GrokAuth:
@@ -254,15 +274,66 @@ def _make_headers() -> dict[str, str]:
     }
 
 
-def _messages_to_openai(messages: list[Message]) -> list[dict[str, Any]]:
+def _messages_to_openai(
+    messages: list[Message], tools: list[Any] | None = None
+) -> list[dict[str, Any]]:
     """Convert gptme messages to OpenAI chat completions format.
 
     Handles tool calls (assistant → tool_calls) and tool results (system+call_id
     → role:tool) using the same helpers as the main OpenAI provider.
+    Also expands image file attachments into base64 image_url content parts.
     """
-    from .llm_openai import _handle_tools
+    from .llm_openai import (
+        _handle_tools,
+        _merge_tool_results_with_same_call_id,
+    )
 
-    return list(_handle_tools(msgs2dicts(messages)))
+    raw_dicts = msgs2dicts(messages)
+    if tools:
+        raw_dicts = list(
+            _merge_tool_results_with_same_call_id(_handle_tools(raw_dicts))
+        )
+    else:
+        raw_dicts = list(_handle_tools(raw_dicts))
+
+    result = []
+    for msg in raw_dicts:
+        files = msg.pop("files", None) or []
+        if files:
+            parts: list[dict[str, Any]] = []
+            if msg.get("content"):
+                parts.append({"type": "text", "text": msg["content"]})
+            for f in files:
+                try:
+                    import base64
+                    import mimetypes
+
+                    fpath = Path(f) if isinstance(f, str) else Path(str(f))
+                    mime = mimetypes.guess_type(str(fpath))[0] or "image/png"
+                    if mime.startswith("image/"):
+                        data = base64.b64encode(fpath.read_bytes()).decode()
+                        parts.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{mime};base64,{data}"},
+                            }
+                        )
+                except Exception as exc:
+                    logger.warning("Could not attach file %s: %s", f, exc)
+            if parts:
+                msg = dict(msg)
+                msg["content"] = parts
+        result.append(msg)
+    return result
+
+
+def _tools_to_openai(tools: list[Any], model: str) -> list[dict[str, Any]]:
+    """Convert ToolSpec list to OpenAI-compatible tool schema dicts."""
+    from .llm_openai import _spec2tool
+    from .models import get_model
+
+    model_meta = get_model(f"grok-subscription/{model}")
+    return [dict(_spec2tool(t, model_meta)) for t in tools]
 
 
 def stream(
@@ -273,7 +344,7 @@ def stream(
     **kwargs: Any,
 ) -> Generator[str, None, None]:
     """Stream completion from grok subscription API."""
-    api_messages = _messages_to_openai(messages)
+    api_messages = _messages_to_openai(messages, tools)
     body: dict[str, Any] = {
         "model": model,
         "messages": api_messages,
@@ -281,6 +352,9 @@ def stream(
     }
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
+    if tools:
+        body["tools"] = _tools_to_openai(tools, model)
+        body["tool_choice"] = "auto"
 
     resp = requests.post(
         GROK_SUBSCRIPTION_ENDPOINT,
