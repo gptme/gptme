@@ -805,6 +805,13 @@ def subagent(
                     notify_completion(agent_id, "failure", f"Subprocess failed: {e}")
                 _exec._cleanup_isolation(sa)
             finally:
+                # Mark the prompt queue as closed: the subprocess has exited (or
+                # never started). Any steer attempt after this point would write
+                # to a queue that no process will drain. Set before _sem.release()
+                # so subagent_steer() can detect this via prompt_queue_closed
+                # even during the narrow window between process exit and result
+                # caching.
+                sa.prompt_queue_closed.set()
                 _sem.release()
 
         launcher = threading.Thread(target=_launch_subprocess, daemon=True)
@@ -841,6 +848,11 @@ def subagent(
         # Thread mode: original behavior, gated by the concurrency semaphore.
         # The semaphore is acquired before starting LLM work and released in
         # finally so excess agents queue until a slot opens.
+        #
+        # Pre-create the event so run_subagent captures it directly (no lock+lookup
+        # window between _create_subagent_thread returning and finding sa to set it).
+        _pqc = threading.Event()
+
         def run_subagent():
             # Bind retry generation at thread birth so test-teardown interrupts
             # abort backoffs even for LLM calls that start after teardown.
@@ -875,6 +887,7 @@ def subagent(
                         redact_secrets=redact_secrets,
                         context_window=context_window,
                         parent_messages=parent_messages,
+                        prompt_queue_closed=_pqc,
                     )
                 except Exception as e:
                     # If subagent creation fails, notify with error status
@@ -906,6 +919,8 @@ def subagent(
                 with _subagents_lock:
                     sa = next((s for s in _subagents if s.agent_id == agent_id), None)
                 if sa:
+                    # prompt_queue_closed is already set inside _create_subagent_thread
+                    # (right after chat() returns, before this thread gets the lock).
                     # Use _read_log() instead of status(): the thread is still alive here,
                     # so status() would return "running" and poison the result cache.
                     result = sa._read_log()
@@ -958,6 +973,8 @@ def subagent(
         # Register Subagent BEFORE starting thread to avoid race condition:
         # run_subagent closure looks up agent_id in _subagents, which would
         # return None if the thread runs before _subagents.append(sa).
+        # Pass the pre-created _pqc event so sa.prompt_queue_closed and the event
+        # captured by run_subagent are the same object.
         sa = Subagent(
             agent_id=agent_id,
             prompt=prompt,
@@ -981,6 +998,7 @@ def subagent(
             max_time=max_time,
             context_turns=context_turns,
             parent_logdir=parent_logdir,
+            prompt_queue_closed=_pqc,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -1117,6 +1135,141 @@ def subagent_cancel(agent_id: str) -> str:
     return (
         f"Subagent '{agent_id}' marked as cancelled. "
         "The background thread will stop at its next step boundary."
+    )
+
+
+def subagent_steer(agent_id: str, message: str) -> str:
+    """Inject a steering message into a running subagent's conversation.
+
+    The message is queued via the subagent's logdir prompt-queue and picked up
+    on the subagent's next chat loop iteration, allowing the orchestrator to
+    redirect, clarify, or course-correct a subagent mid-run without restarting
+    it. Works for thread-mode and subprocess-mode subagents.
+
+    This is distinct from ``subagent_reply()``, which re-spawns a subagent that
+    has *already stopped* with a ``clarification_needed`` status. Use this
+    function to steer a subagent that is still actively running.
+
+    Args:
+        agent_id: The running subagent to steer.
+        message: The guidance to inject. This will appear as a user turn in the
+            subagent's conversation on its next loop iteration.
+
+    Returns:
+        A human-readable confirmation message.
+
+    Raises:
+        ValueError: If no subagent with ``agent_id`` is found, or if the
+            subagent has already finished (use ``subagent_reply()`` for
+            clarification-needed subagents).
+        NotImplementedError: If the subagent is running in ACP mode, which
+            does not expose a logdir channel for steering.
+
+    Note:
+        Delivery is **guaranteed for both thread-mode and subprocess-mode**
+        subagents:
+
+        - **Thread mode**: ``prompt_queue_closed`` is a Python event set inside
+          the subagent thread immediately when ``chat()`` returns.
+        - **Subprocess mode**: ``chat()`` writes a ``"prompt-queue-closed"``
+          sentinel file to the logdir in its ``finally`` block — before the
+          process exits — giving a child-side signal that closes the drain
+          boundary precisely.  The parent-side ``prompt_queue_closed`` event
+          (set after ``_monitor_subprocess`` returns) is a second-level catch.
+
+        Any steer attempted after the sentinel/event is set raises
+        ``ValueError``.
+
+    Example::
+
+        subagent("researcher", "Research Python async frameworks")
+        # ... the researcher is going off-track ...
+        subagent_steer("researcher", "Focus only on frameworks with >5k GitHub stars")
+    """
+    from ...prompt_queue import queue_prompt  # fmt: skip
+
+    with _subagents_lock:
+        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+
+    if sa is None:
+        raise ValueError(f"Subagent with ID {agent_id!r} not found.")
+
+    if sa.execution_mode == "acp":
+        raise NotImplementedError(
+            f"Subagent '{agent_id}' is in ACP mode. Steering is not supported "
+            "for ACP subagents — they run in a separate harness with no shared logdir channel."
+        )
+
+    def _queue_is_closed() -> bool:
+        """Return True if the subagent's chat loop has finished draining.
+
+        Both modes: chat.py writes a "prompt-queue-closed" sentinel file to
+        the logdir at the actual drain boundary — right before the ``break``
+        in ``_run_chat_loop`` (non-interactive exit) and right before raising
+        ``SessionCompleteException`` — and again in ``chat()``'s ``finally``
+        block as a safety net.  Checking this file for both thread and
+        subprocess mode closes the race window between ``chat()``'s last
+        drain and ``prompt_queue_closed.set()`` being called.
+
+        Thread mode: the sentinel file is the primary, early signal.
+        ``prompt_queue_closed`` is a Python event set immediately *after*
+        ``chat()`` returns — slightly later than the file, so it is a
+        second-level catch.
+
+        Subprocess mode: the sentinel file is written by the child inside
+        ``chat()``, before the process exits.  ``prompt_queue_closed`` is
+        set by the parent launcher after the process exits — a second-level
+        catch here too.
+
+        Stale-sentinel guard: planner-mode subagents reuse the same logdir
+        across runs (same ``agent_id`` → same ``subagent-{agent_id}``
+        directory).  A sentinel written by a *previous* run persists on
+        disk.  We ignore it by requiring the file's mtime to be no earlier
+        than ``sa.started_at`` (seconds since epoch, set when the Subagent
+        object is created at spawn time).
+        """
+        sentinel = sa.logdir / "prompt-queue-closed"
+        sentinel_is_current = (
+            sentinel.exists() and sentinel.stat().st_mtime >= sa.started_at
+        )
+        return sa.prompt_queue_closed.is_set() or sentinel_is_current
+
+    # Check closed state first: sentinel file is written at the actual drain
+    # boundary for both thread and subprocess modes (see _queue_is_closed).
+    if _queue_is_closed():
+        raise ValueError(
+            f"Subagent '{agent_id}' has closed its prompt queue — "
+            "its chat loop has finished and will not accept new steering messages."
+        )
+
+    pre_status = sa.status().status
+    if pre_status != "running":
+        raise ValueError(
+            f"Subagent '{agent_id}' is not running (status: {pre_status}). "
+            "Only active subagents can be steered. "
+            "For clarification_needed subagents, use subagent_reply() to re-spawn them."
+        )
+
+    queue_prompt(sa.logdir, message)
+
+    # Re-check after queuing: catches the race where the subagent exits between
+    # the initial check and the queue write.
+    if _queue_is_closed():
+        raise ValueError(
+            f"Subagent '{agent_id}' closed its prompt queue while the steering message "
+            "was being queued. The message will not be processed."
+        )
+    post_status = sa.status().status
+    if post_status != "running":
+        raise ValueError(
+            f"Subagent '{agent_id}' exited after steering message was queued. "
+            f"The message may not be processed. Status: {post_status}"
+        )
+
+    logger.info(f"Steering message queued for subagent '{agent_id}': {message[:80]!r}")
+    return (
+        f"Steering message queued for subagent '{agent_id}'. "
+        "It will be injected into the subagent's conversation on its next loop iteration."
     )
 
 

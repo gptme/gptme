@@ -165,6 +165,7 @@ def _create_subagent_thread(
     redact_secrets: bool = True,
     context_window: int | None = None,
     parent_messages: list[Message] | None = None,
+    prompt_queue_closed: threading.Event | None = None,
 ) -> None:
     """Shared function for running subagent threads.
 
@@ -184,6 +185,9 @@ def _create_subagent_thread(
         parent_messages: Recent messages from the parent's conversation to inject as context.
             Formatted as a system message so the subagent understands what the parent has
             been doing without confusing the subagent's own conversation flow.
+        prompt_queue_closed: Optional event to set immediately when chat() returns.
+            Passed by run_subagent() so the event fires before the caller acquires
+            _subagents_lock to find sa — closing the lock+lookup window.
     """
     # Store agent_id in thread-local so the progress tool can identify this subagent
     if agent_id is not None:
@@ -412,19 +416,28 @@ def _create_subagent_thread(
     # calling set_output_format() before the call) is required — chat() itself
     # calls set_output_format(output_format) at its start, which would otherwise
     # immediately override quiet mode back to the default "text".
-    chat(
-        prompt_msgs,
-        initial_msgs,
-        logdir=logdir,
-        workspace=workspace,
-        model=model,
-        stream=False,
-        no_confirm=True,
-        interactive=False,
-        show_hidden=False,
-        tool_format="markdown",
-        output_format="quiet",
-    )
+    try:
+        chat(
+            prompt_msgs,
+            initial_msgs,
+            logdir=logdir,
+            workspace=workspace,
+            model=model,
+            stream=False,
+            no_confirm=True,
+            interactive=False,
+            show_hidden=False,
+            tool_format="markdown",
+            output_format="quiet",
+        )
+    finally:
+        # Signal immediately when chat() returns — before any caller cleanup.
+        # This closes the window between "chat() last drain" and the caller
+        # acquiring _subagents_lock to find `sa`. Any concurrent subagent_steer()
+        # that slips between this set and chat()'s actual last drain is a
+        # sub-microsecond race that requires modifying chat() itself to close.
+        if prompt_queue_closed is not None:
+            prompt_queue_closed.set()
 
 
 def _run_subagent_subprocess(

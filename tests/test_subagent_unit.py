@@ -8,6 +8,7 @@ import importlib
 import json
 import queue
 import threading
+import time
 from pathlib import Path
 from typing import Literal
 from unittest.mock import MagicMock
@@ -18,7 +19,12 @@ import gptme.tools.subagent.api as subagent_api
 import gptme.tools.subagent.execution as subagent_execution
 import gptme.tools.subagent.types as subagent_types
 from gptme.tools.complete import SessionCompleteException
-from gptme.tools.subagent.api import _write_cancel_op, subagent, subagent_cancel
+from gptme.tools.subagent.api import (
+    _write_cancel_op,
+    subagent,
+    subagent_cancel,
+    subagent_steer,
+)
 from gptme.tools.subagent.batch import BatchJob
 from gptme.tools.subagent.control import (
     CONTROL_FILENAME,
@@ -5952,3 +5958,423 @@ class TestCancelCheckpointHook:
         # Original success result must be preserved
         with _subagent_results_lock:
             assert _subagent_results["agent-1"].status == "success"
+
+
+# ---------------------------------------------------------------------------
+# subagent_steer tests
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentSteer:
+    """Tests for subagent_steer() — in-flight orchestrator-to-subagent messaging."""
+
+    _logdir = Path("/tmp/test-steer-log")
+
+    def setup_method(self, tmp_path_factory=None):
+        """Clear global subagent registry and steer queue before each test."""
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
+    def _register(
+        self,
+        agent_id: str,
+        logdir: Path | None = None,
+        execution_mode: Literal["thread", "subprocess", "acp"] = "thread",
+        **kwargs,
+    ) -> Subagent:
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt="test",
+            thread=kwargs.get("thread", mock_thread),
+            logdir=logdir or self._logdir,
+            model=None,
+            execution_mode=execution_mode,
+            process=kwargs.get("process"),
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        return sa
+
+    def test_steer_unknown_raises(self):
+        """subagent_steer raises ValueError when agent_id is unknown."""
+
+        with pytest.raises(ValueError, match="not found"):
+            subagent_steer("nonexistent", "change direction")
+
+    def test_steer_finished_subagent_raises(self):
+        """subagent_steer raises ValueError when the subagent has already finished."""
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = False
+        self._register("done-agent", thread=mock_thread)
+
+        with pytest.raises(ValueError, match="not running"):
+            subagent_steer("done-agent", "too late")
+
+    def test_steer_acp_mode_raises_not_implemented(self):
+        """subagent_steer raises NotImplementedError for ACP-mode subagents."""
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = Subagent(
+            agent_id="acp-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=self._logdir,
+            model=None,
+            execution_mode="acp",
+            use_acp=True,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        with pytest.raises(NotImplementedError, match="ACP mode"):
+            subagent_steer("acp-agent", "steer me")
+
+    def test_steer_writes_to_prompt_queue(self, tmp_path):
+        """subagent_steer queues the message via the file-based prompt queue."""
+        from gptme.prompt_queue import drain_prompt_queue
+
+        logdir = tmp_path / "subagent-steer-test"
+        logdir.mkdir()
+        self._register("running-agent", logdir=logdir)
+
+        result = subagent_steer("running-agent", "Focus on async frameworks only")
+
+        assert "queued" in result.lower()
+
+        # Verify the message was written to the prompt queue file
+        drained = drain_prompt_queue(logdir)
+        assert len(drained) == 1
+        assert "Focus on async frameworks only" in drained[0].content
+
+    def test_steer_multiple_messages_queued_in_order(self, tmp_path):
+        """Multiple steer calls append messages in FIFO order."""
+        from gptme.prompt_queue import drain_prompt_queue
+
+        logdir = tmp_path / "subagent-steer-fifo"
+        logdir.mkdir()
+        self._register("running-agent", logdir=logdir)
+
+        subagent_steer("running-agent", "First instruction")
+        subagent_steer("running-agent", "Second instruction")
+        subagent_steer("running-agent", "Third instruction")
+
+        drained = drain_prompt_queue(logdir)
+        assert len(drained) == 3
+        assert "First instruction" in drained[0].content
+        assert "Second instruction" in drained[1].content
+        assert "Third instruction" in drained[2].content
+
+    def test_steer_subprocess_mode_uses_logdir(self, tmp_path):
+        """subagent_steer works for subprocess-mode subagents via the same logdir channel."""
+        from gptme.prompt_queue import drain_prompt_queue
+
+        logdir = tmp_path / "subagent-subprocess-steer"
+        logdir.mkdir()
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # still running
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = Subagent(
+            agent_id="proc-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="subprocess",
+            process=mock_proc,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        result = subagent_steer("proc-agent", "Change focus to security issues")
+
+        assert "queued" in result.lower()
+        drained = drain_prompt_queue(logdir)
+        assert len(drained) == 1
+        assert "Change focus to security issues" in drained[0].content
+
+    def test_steer_race_condition_finished_after_check(self, tmp_path):
+        """subagent_steer detects when subagent finishes after the initial running check.
+
+        This tests the race condition where:
+        1. is_running() returns True
+        2. The subagent exits
+        3. queue_prompt() writes to a queue no one will drain
+        4. We re-check is_running() and catch the race
+        """
+        logdir = tmp_path / "steer-race-detect"
+        logdir.mkdir()
+        mock_thread = MagicMock(spec=threading.Thread)
+        # side_effect order:
+        #   [pre-check, post-check, interrupt_thread, conftest join, conftest leak-check]
+        # Five calls total:
+        #   1. status() pre-check (inside subagent_steer)
+        #   2. status() post-check (inside subagent_steer, after queue write)
+        #   3. interrupt_thread() — conftest calls interrupt_thread(sa.thread) which
+        #      calls thread.is_alive() internally (retry_abort.py:111)
+        #   4. conftest join loop: thread.is_alive() guard before thread.join()
+        #   5. conftest leak check: thread.is_alive() after join
+        # When side_effect is exhausted it raises StopIteration inside the yield
+        # fixture generator, which Python 3.7+ wraps as RuntimeError — the list
+        # must cover every call.
+        mock_thread.is_alive.side_effect = [True, False, False, False, False]
+        sa = Subagent(
+            agent_id="race-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        with pytest.raises(
+            ValueError, match="exited after steering message was queued"
+        ):
+            subagent_steer("race-agent", "steer me")
+
+    def test_steer_cleanup_window_raises(self, tmp_path):
+        """subagent_steer raises when the subagent is in the cleanup window.
+
+        Thread-mode: the wrapper thread is still alive (is_alive()=True),
+        the result is NOT yet cached (_subagent_results is empty), but chat()
+        has returned and prompt_queue_closed is set. is_running() and status()
+        alone would both falsely report "running" here; prompt_queue_closed
+        catches this gap directly.
+        """
+        logdir = tmp_path / "steer-cleanup-window"
+        logdir.mkdir()
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True  # thread alive (cleanup still running)
+        sa = Subagent(
+            agent_id="cleanup-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        # Simulate run_subagent() having set prompt_queue_closed immediately
+        # after _create_subagent_thread() returned, before _read_log() and
+        # set_subagent_result_if_absent() are called.
+        sa.prompt_queue_closed.set()
+        # Result is NOT cached yet — the cleanup is mid-flight.
+        assert "cleanup-agent" not in _subagent_results
+
+        with pytest.raises(ValueError, match="closed its prompt queue"):
+            subagent_steer("cleanup-agent", "too late")
+
+    def test_steer_subprocess_cleanup_window_raises(self, tmp_path):
+        """subagent_steer raises for subprocess-mode when prompt_queue_closed is set.
+
+        Subprocess mode: process.poll() can still return None while the OS process
+        is exiting its final teardown. prompt_queue_closed is set by _launch_subprocess()
+        in the finally block immediately when the subprocess exits, before result
+        caching completes. This test verifies that the flag catches the cleanup window
+        for subprocess-mode subagents just as it does for thread-mode.
+        """
+        logdir = tmp_path / "steer-subprocess-cleanup"
+        logdir.mkdir()
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # process appears running per poll()
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True  # launcher thread still alive
+        sa = Subagent(
+            agent_id="proc-cleanup-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="subprocess",
+            process=mock_proc,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        # Simulate _launch_subprocess() finally block: subprocess exited,
+        # prompt_queue_closed set before result is cached.
+        sa.prompt_queue_closed.set()
+        assert "proc-cleanup-agent" not in _subagent_results
+
+        with pytest.raises(ValueError, match="closed its prompt queue"):
+            subagent_steer("proc-cleanup-agent", "too late")
+
+    def test_steer_subprocess_sentinel_file_raises(self, tmp_path):
+        """subagent_steer raises for subprocess-mode when the sentinel file exists.
+
+        chat.py writes "prompt-queue-closed" to the logdir at the actual drain
+        boundary — right before `break` in _run_chat_loop (non-interactive path)
+        and right before raising SessionCompleteException — so the window between
+        the final _drain_external_prompt_queue() call and the sentinel becoming
+        visible is just a few bytecode instructions.  The chat() finally block
+        writes it again as a safety net for unexpected exit paths (idempotent).
+
+        The sentinel is a child-side signal: no shared memory needed.
+        """
+        logdir = tmp_path / "steer-subprocess-sentinel"
+        logdir.mkdir()
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # process appears running per poll()
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = Subagent(
+            agent_id="sentinel-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="subprocess",
+            process=mock_proc,
+            started_at=time.time() - 2.0,  # ensure sentinel written next is "current"
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        # Simulate chat.py writing the sentinel in its finally block
+        # (prompt_queue_closed Python event NOT yet set — that happens later
+        # when the parent's launcher finally block runs after process exit).
+        (logdir / "prompt-queue-closed").touch()
+        assert not sa.prompt_queue_closed.is_set()
+
+        with pytest.raises(ValueError, match="closed its prompt queue"):
+            subagent_steer("sentinel-agent", "too late")
+
+    def test_steer_thread_mode_sentinel_file_raises(self, tmp_path):
+        """Thread-mode steer raises when the sentinel file exists but prompt_queue_closed is not set.
+
+        This is the race window Greptile identified: chat() writes the sentinel
+        at the drain boundary (inside _run_chat_loop's non-interactive break),
+        but prompt_queue_closed.set() is called only after chat() returns —
+        a gap where steer could falsely succeed without the file check.
+
+        Verifies that _queue_is_closed() checks the sentinel file for thread mode
+        too, not just subprocess mode.
+        """
+        logdir = tmp_path / "steer-thread-sentinel"
+        logdir.mkdir()
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True  # still "alive" — in cleanup
+        sa = Subagent(
+            agent_id="thread-sentinel-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="thread",
+            started_at=time.time() - 2.0,  # ensure sentinel written next is "current"
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        # Simulate chat.py writing the sentinel at the drain boundary
+        # (prompt_queue_closed NOT yet set — chat() hasn't returned yet).
+        (logdir / "prompt-queue-closed").touch()
+        assert not sa.prompt_queue_closed.is_set()
+        assert sa.execution_mode == "thread"
+
+        with pytest.raises(ValueError, match="closed its prompt queue"):
+            subagent_steer("thread-sentinel-agent", "too late")
+
+    def test_steer_result_cached_still_raises(self, tmp_path):
+        """subagent_steer raises when result is cached (covers the post-cache half of cleanup).
+
+        Thread alive, result already written to _subagent_results but
+        prompt_queue_closed not yet set (extremely narrow gap). status() catches this.
+        """
+        logdir = tmp_path / "steer-cached-not-closed"
+        logdir.mkdir()
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = Subagent(
+            agent_id="cached-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        with _subagent_results_lock:
+            _subagent_results["cached-agent"] = ReturnType("success", "done")
+
+        with pytest.raises(ValueError, match="not running"):
+            subagent_steer("cached-agent", "too late")
+
+    def test_steer_stale_sentinel_from_previous_run_does_not_block(self, tmp_path):
+        """A prompt-queue-closed sentinel from a *previous* run must not block steering.
+
+        Planner-mode subagents reuse the same logdir (same agent_id, same
+        subagent-{agent_id} directory).  When a run exits it writes
+        prompt-queue-closed.  A subsequent run using the same logdir must not
+        be incorrectly blocked by that stale sentinel — only a sentinel written
+        at or after sa.started_at counts as current.
+        """
+        logdir = tmp_path / "steer-stale-sentinel"
+        logdir.mkdir()
+
+        # Simulate a previous run writing the sentinel (stale).
+        sentinel = logdir / "prompt-queue-closed"
+        sentinel.touch()
+        stale_mtime = sentinel.stat().st_mtime
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True  # current run is active
+
+        # started_at is clearly after the stale sentinel — this is a new run.
+        sa = Subagent(
+            agent_id="stale-sentinel-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="thread",
+            started_at=stale_mtime + 1.0,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        assert not sa.prompt_queue_closed.is_set()
+
+        # steer must succeed — the sentinel predates this run.
+        result = subagent_steer("stale-sentinel-agent", "redirect please")
+        assert "stale-sentinel-agent" in result
+
+    def test_steer_current_sentinel_after_reused_logdir_raises(self, tmp_path):
+        """A fresh sentinel written by the *current* run still blocks steering.
+
+        Companion to test_steer_stale_sentinel_from_previous_run_does_not_block:
+        when the sentinel's mtime is >= sa.started_at it belongs to this run
+        and steer must raise.
+        """
+        logdir = tmp_path / "steer-current-sentinel"
+        logdir.mkdir()
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+
+        # Record a "started_at" in the past so the sentinel written next is current.
+        past_start = time.time() - 2.0
+        sa = Subagent(
+            agent_id="current-sentinel-agent",
+            prompt="test",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+            execution_mode="thread",
+            started_at=past_start,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        # Sentinel written after started_at — belongs to the current run.
+        (logdir / "prompt-queue-closed").touch()
+        assert not sa.prompt_queue_closed.is_set()
+
+        with pytest.raises(ValueError, match="closed its prompt queue"):
+            subagent_steer("current-sentinel-agent", "too late")

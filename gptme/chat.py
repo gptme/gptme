@@ -149,6 +149,14 @@ def chat(
         # Note: Confirmation is now handled within ToolUse.execute() using the hook system,
         # so we no longer need to create and pass confirm_func.
 
+        # Clear any stale prompt-queue-closed sentinel from a previous run.
+        # Planner-mode subagents reuse the same logdir (same agent_id); the
+        # sentinel from a prior run would otherwise falsely block steering of
+        # the new run even though subagent_steer()'s started_at guard already
+        # handles this — belt-and-suspenders cleanup at the start of each run.
+        if logdir is not None:
+            (logdir / "prompt-queue-closed").unlink(missing_ok=True)
+
         # Convert prompt_msgs to a queue for unified handling
         prompt_queue = list(prompt_msgs)
 
@@ -175,6 +183,14 @@ def chat(
             for msg in session_end_msgs:
                 manager.append(msg)
     finally:
+        # Safety-net sentinel write.  The primary writes happen inside
+        # _run_chat_loop at the actual break/raise points so the window between
+        # the final _drain_external_prompt_queue() call and the sentinel being
+        # visible is just a few bytecode instructions.  This finally block
+        # catches any exit path we didn't explicitly handle (exceptions, etc.).
+        # touch() is idempotent so double-writing is harmless.
+        if logdir is not None:
+            (logdir / "prompt-queue-closed").touch()
         # Restore the caller's format so nested chat() calls (inline subagents)
         # don't clobber the parent's JSON mode when they exit.
         set_output_format(_prev_output_format)
@@ -222,11 +238,22 @@ def _run_chat_loop(
                         manager, stream, tool_format, model, output_schema
                     )
                 except SessionCompleteException:
+                    # Write sentinel BEFORE draining so there is no window
+                    # where the queue file is gone but the sentinel is not yet
+                    # visible.  A concurrent subagent_steer() in that gap would
+                    # see neither the sentinel nor the closed event, write a
+                    # new queue entry, and falsely report success even though
+                    # the chat loop has no remaining drain point.
+                    # If drain finds more chained prompts we unlink the sentinel
+                    # so the loop stays open for steering.
+                    if logdir is not None:
+                        (logdir / "prompt-queue-closed").touch()
                     _drain_external_prompt_queue(manager, prompt_queue)
                     if not prompt_queue:
-                        # No more prompts, properly exit
                         raise
-                    # More chained prompts remain — continue processing them
+                    # More chained prompts remain — clear sentinel, keep loop alive.
+                    if logdir is not None:
+                        (logdir / "prompt-queue-closed").unlink(missing_ok=True)
                     logger.debug(
                         "complete called but %d chained prompts remain, continuing",
                         len(prompt_queue),
@@ -236,6 +263,24 @@ def _run_chat_loop(
                 # Get user input or exit if non-interactive
                 if not interactive:
                     logger.debug("Non-interactive and exhausted prompts")
+                    # Write sentinel BEFORE the final drain so there is no window
+                    # where a concurrent subagent_steer() can append after the
+                    # top-of-loop drain but before the sentinel is visible. Any
+                    # steer arriving after this touch() sees the sentinel and
+                    # raises ValueError; any steer that arrived before it is
+                    # caught by the drain below.
+                    if logdir is not None:
+                        (logdir / "prompt-queue-closed").touch()
+                    _drain_external_prompt_queue(manager, prompt_queue)
+                    if prompt_queue:
+                        # A steer arrived in the window — keep the loop alive.
+                        if logdir is not None:
+                            (logdir / "prompt-queue-closed").unlink(missing_ok=True)
+                        logger.debug(
+                            "steer arrived at drain boundary, %d prompt(s) queued, continuing",
+                            len(prompt_queue),
+                        )
+                        continue
                     break
 
                 user_input = _get_user_input(manager.log, manager.workspace)
