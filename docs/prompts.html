@@ -782,7 +782,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f73f5d8f9c0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f9137697740&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2171,8 +2171,9 @@ Key features:
 <span class="k">-</span><span class="w"> </span>subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage&#39;s prompt
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 <span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
+<span class="k">-</span><span class="w"> </span>subagent_steer(agent_id, message): Inject a steering message into a RUNNING subagent&#39;s conversation — redirect, clarify, or course-correct mid-run without restarting. Works for thread-mode and subprocess-mode subagents. Distinct from subagent_reply() which only works on finished clarification_needed subagents.
 <span class="k">-</span><span class="w"> </span>subagent_wait_any(agent_ids, timeout): Wait for the first of N subagents to complete — returns (agent_id, result). Useful for race/hedging patterns.
-<span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
+<span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent (for subagents that already stopped with clarification_needed status)
 <span class="k">-</span><span class="w"> </span>Hook-based notifications: Completions (and clarification requests) delivered as system messages
 
 <span class="gu">## Token Budget and Concurrency Control</span>
@@ -2299,6 +2300,7 @@ The following Python functions are available:
 <span class="sb">```txt</span>
 <span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: type | dict | None, use_subprocess: Union[bool, None], use_acp: bool, acp_command: str, profile: Union[str, None], model: Union[str, None], isolated: Union[bool, None], isolation: Union[Literal[&quot;worktree&quot;], None], timeout: int, role: Union[Literal[&quot;general&quot;, &quot;explore&quot;, &quot;implement&quot;, &quot;verify&quot;], None], redact_secrets: bool, context_window: Union[int, None], max_time: Union[float, None], context_turns: Union[int, None], workdir: Union[str, Path, None]): Starts an asynchronous subagent. Returns None immediately.</span>
 <span class="s">subagent_cancel(agent_id: str) -&gt; str: Cancel a running subagent.</span>
+<span class="s">subagent_steer(agent_id: str, message: str) -&gt; str: Inject a steering message into a running subagent&#39;s conversation.</span>
 <span class="s">subagent_list() -&gt; list[dict]: Returns a list of all subagents with their current status.</span>
 <span class="s">subagent_reply(agent_id: str, reply: str): Re-spawn a subagent that requested clarification.</span>
 <span class="s">subagent_status(agent_id: str) -&gt; dict: Returns the status of a subagent.</span>
@@ -2527,6 +2529,17 @@ The following Python functions are available:
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use context_window=0 so the subagent only sees what I explicitly give it in the prompt, with no workspace files or secrets inherited.</span>
 <span class="sb">```ipython</span>
 <span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;verifier&quot;</span><span class="p">,</span> <span class="s2">&quot;Check that the output file has no syntax errors&quot;</span><span class="p">,</span> <span class="n">context_window</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="gu">### Steer a Running Subagent (in-flight course correction)</span>
+
+<span class="k">&gt; </span><span class="ge">User: redirect a running subagent without restarting it</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use subagent_steer() to inject a new instruction into the running subagent&#39;s conversation.</span>
+<span class="sb">```ipython</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span> <span class="s2">&quot;Research Python web frameworks and their performance&quot;</span><span class="p">)</span>
+
+<span class="c1"># ... later, after checking progress ...</span>
+
+<span class="n">subagent_steer</span><span class="p">(</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span> <span class="s2">&quot;Focus only on async frameworks — skip synchronous ones like Flask/Django&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
 
 <span class="gu">## tmux</span>
@@ -2777,7 +2790,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 18186</p>
+<p>Tokens: 18397</p>
 </dd></dl>
 
 <dl class="py function">
