@@ -263,12 +263,24 @@ def _run_chat_loop(
                 # Get user input or exit if non-interactive
                 if not interactive:
                     logger.debug("Non-interactive and exhausted prompts")
-                    # Write the sentinel here, at the actual drain boundary, so
-                    # subprocess-mode subagent_steer() cannot falsely succeed in
-                    # the gap between the final _drain_external_prompt_queue call
-                    # above and the chat() finally block below.
+                    # Write sentinel BEFORE the final drain so there is no window
+                    # where a concurrent subagent_steer() can append after the
+                    # top-of-loop drain but before the sentinel is visible. Any
+                    # steer arriving after this touch() sees the sentinel and
+                    # raises ValueError; any steer that arrived before it is
+                    # caught by the drain below.
                     if logdir is not None:
                         (logdir / "prompt-queue-closed").touch()
+                    _drain_external_prompt_queue(manager, prompt_queue)
+                    if prompt_queue:
+                        # A steer arrived in the window — keep the loop alive.
+                        if logdir is not None:
+                            (logdir / "prompt-queue-closed").unlink(missing_ok=True)
+                        logger.debug(
+                            "steer arrived at drain boundary, %d prompt(s) queued, continuing",
+                            len(prompt_queue),
+                        )
+                        continue
                     break
 
                 user_input = _get_user_input(manager.log, manager.workspace)

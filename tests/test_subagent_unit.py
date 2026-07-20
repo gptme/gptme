@@ -6111,12 +6111,19 @@ class TestSubagentSteer:
         logdir = tmp_path / "steer-race-detect"
         logdir.mkdir()
         mock_thread = MagicMock(spec=threading.Thread)
-        # side_effect order: [pre-check, post-check, conftest teardown]
-        # Three calls total: status() pre-check, status() post-check,
-        # and cleanup_subagents_after fixture calling thread.is_alive() directly.
-        # When side_effect list is exhausted it raises StopIteration (overrides
-        # return_value), so the list must cover all calls.
-        mock_thread.is_alive.side_effect = [True, False, False]
+        # side_effect order:
+        #   [pre-check, post-check, interrupt_thread, conftest join, conftest leak-check]
+        # Five calls total:
+        #   1. status() pre-check (inside subagent_steer)
+        #   2. status() post-check (inside subagent_steer, after queue write)
+        #   3. interrupt_thread() — conftest calls interrupt_thread(sa.thread) which
+        #      calls thread.is_alive() internally (retry_abort.py:111)
+        #   4. conftest join loop: thread.is_alive() guard before thread.join()
+        #   5. conftest leak check: thread.is_alive() after join
+        # When side_effect is exhausted it raises StopIteration inside the yield
+        # fixture generator, which Python 3.7+ wraps as RuntimeError — the list
+        # must cover every call.
+        mock_thread.is_alive.side_effect = [True, False, False, False, False]
         sa = Subagent(
             agent_id="race-agent",
             prompt="test",
