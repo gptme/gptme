@@ -30,7 +30,7 @@ from typing import Any
 
 import requests
 
-from ..message import Message
+from ..message import Message, msgs2dicts
 
 logger = logging.getLogger(__name__)
 
@@ -75,19 +75,31 @@ class GrokAuth:
 
 
 _auth: GrokAuth | None = None
+# Track which key was loaded from the credential store so we write back to the
+# same entry (not just whichever happens to be first in a multi-entry store).
+_credential_key: str | None = None
 
 
 def _load_grok_tokens() -> GrokAuth | None:
     """Load the auth token stored by the grok CLI."""
+    global _credential_key
     path = _get_grok_auth_path()
     if not path.exists():
         return None
     try:
         raw = json.loads(path.read_text())
+        if not raw:
+            return None
         # auth.json maps {issuer::client_id: {...token data...}}
-        entry = next(iter(raw.values())) if raw else None
+        # Prefer the entry whose key contains our known client ID; fall back to first.
+        preferred_key = next(
+            (k for k in raw if GROK_OIDC_CLIENT_ID in k),
+            next(iter(raw)),
+        )
+        entry = raw[preferred_key]
         if not entry or "key" not in entry:
             return None
+        _credential_key = preferred_key
         access_token = entry["key"]
         refresh_token = entry.get("refresh_token")
         expires_at_str = entry.get("expires_at", "")
@@ -153,13 +165,28 @@ def _refresh_access_token(refresh_token: str) -> GrokAuth:
 
 
 def _write_grok_tokens(auth: GrokAuth) -> None:
-    """Persist refreshed tokens back to ~/.grok/auth.json."""
+    """Persist refreshed tokens back to ~/.grok/auth.json.
+
+    Uses the same key that was identified during the most recent _load_grok_tokens
+    call so that multi-entry stores are updated correctly.
+    """
+    global _credential_key
     path = _get_grok_auth_path()
     try:
         raw = json.loads(path.read_text()) if path.exists() else {}
-        key = (
-            next(iter(raw)) if raw else f"{GROK_TOKEN_ENDPOINT}::{GROK_OIDC_CLIENT_ID}"
-        )
+        # Resolve the target key: prefer the one we previously loaded from,
+        # then the entry containing our client ID, then the first entry, then
+        # the canonical default.
+        default_key = f"{GROK_TOKEN_ENDPOINT}::{GROK_OIDC_CLIENT_ID}"
+        if _credential_key and _credential_key in raw:
+            key = _credential_key
+        elif raw:
+            key = next(
+                (k for k in raw if GROK_OIDC_CLIENT_ID in k),
+                next(iter(raw)),
+            )
+        else:
+            key = default_key
         entry = raw.get(key, {})
         entry["key"] = auth.access_token
         if auth.refresh_token:
@@ -170,7 +197,10 @@ def _write_grok_tokens(auth: GrokAuth) -> None:
             auth.expires_at, tz=timezone.utc
         ).isoformat()
         raw[key] = entry
-        path.write_text(json.dumps(raw, indent=2))
+        # Atomic write: write to a temp file and rename
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(raw, indent=2))
+        tmp.rename(path)
     except Exception as e:
         logger.warning("Failed to persist refreshed grok tokens: %s", e)
 
@@ -225,17 +255,14 @@ def _make_headers() -> dict[str, str]:
 
 
 def _messages_to_openai(messages: list[Message]) -> list[dict[str, Any]]:
-    """Convert gptme messages to OpenAI chat completions format."""
-    result = []
-    for msg in messages:
-        role = msg.role
-        if role == "system":
-            result.append({"role": "system", "content": msg.content})
-        elif role == "user":
-            result.append({"role": "user", "content": msg.content})
-        elif role == "assistant":
-            result.append({"role": "assistant", "content": msg.content})
-    return result
+    """Convert gptme messages to OpenAI chat completions format.
+
+    Handles tool calls (assistant → tool_calls) and tool results (system+call_id
+    → role:tool) using the same helpers as the main OpenAI provider.
+    """
+    from .llm_openai import _handle_tools
+
+    return list(_handle_tools(msgs2dicts(messages)))
 
 
 def stream(
