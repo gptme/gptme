@@ -92,10 +92,35 @@ class ExternalSessionProvider:
 
     @property
     def capabilities(self) -> dict[str, bool]:
-        return {
+        caps: dict[str, bool] = {
             "external_session_catalog": True,
             "external_session_transcript": True,
         }
+        try:
+            from gptme_sessions.steer import (
+                inject_message,  # type: ignore[import-not-found]
+            )
+
+            _ = inject_message  # verify importable
+            caps["external_session_steer"] = True
+        except ImportError:
+            pass
+        return caps
+
+    def steer_session(self, trajectory_path: str, message: str) -> bool:
+        """Inject a user message into a running session via gptme_sessions.steer.
+
+        Returns True on success, False if the steer module is unavailable.
+        Raises on other errors (session not found, harness not supported, etc.).
+        """
+        try:
+            from gptme_sessions.steer import (
+                inject_message,  # type: ignore[import-not-found]
+            )
+        except ImportError:
+            return False
+        inject_message(trajectory_path, message)
+        return True
 
     def _discover_paths(self, days: int) -> list[Path]:
         end = datetime.now(timezone.utc).date()
@@ -199,10 +224,26 @@ class CLIExternalSessionProvider:
 
     @property
     def capabilities(self) -> dict[str, bool]:
-        return {
+        caps: dict[str, bool] = {
             "external_session_catalog": True,
             "external_session_transcript": True,
         }
+        if _cli_has_steer_command():
+            caps["external_session_steer"] = True
+        return caps
+
+    def steer_session(self, trajectory_path: str, message: str) -> bool:
+        """Inject a user message into a running session via the gptme-sessions CLI.
+
+        Returns True on success, False if the steer subcommand is unavailable.
+        Raises on other errors (non-zero exit after args are validated, timeout).
+        """
+        if not _cli_has_steer_command():
+            return False
+        output = self._run_cli(
+            ["steer", trajectory_path, "--message", message, "--json"], timeout=30
+        )
+        return output is not None
 
     def _run_cli(self, args: list[str], timeout: int = 60) -> str | None:
         """Run a gptme-sessions CLI command and return stdout, or None on failure."""
@@ -344,6 +385,22 @@ def _cli_has_transcript_command() -> bool:
     try:
         result = subprocess.run(
             ["gptme-sessions", "transcript", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
+@functools.lru_cache(maxsize=1)
+def _cli_has_steer_command() -> bool:
+    """Check if the installed gptme-sessions CLI has the ``steer`` subcommand."""
+    try:
+        result = subprocess.run(
+            ["gptme-sessions", "steer", "--help"],
             capture_output=True,
             text=True,
             timeout=10,

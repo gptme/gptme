@@ -770,6 +770,133 @@ def test_v2_external_session_not_found(
     assert "not found" in data["error"].lower()
 
 
+# ---------------------------------------------------------------------------
+# steer_inject endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class _FakeSteerableSessionProvider(_FakeExternalSessionProvider):
+    """Provider variant that supports steer_inject on session abc123."""
+
+    def __init__(self) -> None:
+        self.steered_messages: list[str] = []
+        self._steer_ok = True
+
+    def get_session(self, external_id: str, days: int = 30) -> dict[str, Any] | None:
+        if external_id != "abc123":
+            return None
+        return {
+            "id": "abc123",
+            "transcript": {
+                "session_id": "session-1",
+                "harness": "claude-code",
+                "capabilities": ["steer_inject"],
+                "trajectory_path": "/tmp/session.jsonl",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        }
+
+    def steer_session(self, trajectory_path: str, message: str) -> bool:
+        if not self._steer_ok:
+            return False
+        self.steered_messages.append(message)
+        return True
+
+
+@pytest.fixture
+def fake_steerable_provider(monkeypatch):
+    provider = _FakeSteerableSessionProvider()
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_external_session_provider", lambda: provider
+    )
+    return provider
+
+
+def test_v2_steer_external_session_ok(client: FlaskClient, fake_steerable_provider):
+    """Steer endpoint returns 200 and records the injected message."""
+    response = client.post(
+        "/api/v2/external-sessions/abc123/steer",
+        json={"message": "hello from user"},
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert data["status"] == "ok"
+    assert fake_steerable_provider.steered_messages == ["hello from user"]
+
+
+def test_v2_steer_external_session_missing_message(
+    client: FlaskClient, fake_steerable_provider
+):
+    """Steer endpoint returns 400 when message is missing or blank."""
+    response = client.post("/api/v2/external-sessions/abc123/steer", json={})
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "message" in data["error"]
+
+    response2 = client.post(
+        "/api/v2/external-sessions/abc123/steer", json={"message": "   "}
+    )
+    assert response2.status_code == 400
+
+
+def test_v2_steer_external_session_not_found(
+    client: FlaskClient, fake_steerable_provider
+):
+    """Steer endpoint returns 404 when the session doesn't exist."""
+    response = client.post(
+        "/api/v2/external-sessions/does-not-exist/steer",
+        json={"message": "hi"},
+    )
+    assert response.status_code == 404
+    data = response.get_json()
+    assert data is not None
+    assert "not found" in data["error"].lower()
+
+
+def test_v2_steer_external_session_no_capability(
+    client: FlaskClient, fake_external_session_provider
+):
+    """Steer endpoint returns 422 when session lacks steer_inject capability."""
+    # fake_external_session_provider returns a session with only ["view_transcript"]
+    response = client.post(
+        "/api/v2/external-sessions/abc123/steer",
+        json={"message": "hi"},
+    )
+    assert response.status_code == 422
+    data = response.get_json()
+    assert data is not None
+    assert "steer_inject" in data["error"]
+
+
+def test_v2_steer_external_session_unavailable(client: FlaskClient, monkeypatch):
+    """Steer endpoint returns 503 when provider is not configured."""
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_external_session_provider", lambda: None
+    )
+    response = client.post(
+        "/api/v2/external-sessions/abc123/steer",
+        json={"message": "hi"},
+    )
+    assert response.status_code == 503
+
+
+def test_v2_steer_external_session_not_implemented(
+    client: FlaskClient, fake_steerable_provider
+):
+    """Steer endpoint returns 501 when provider.steer_session returns False."""
+    fake_steerable_provider._steer_ok = False
+    response = client.post(
+        "/api/v2/external-sessions/abc123/steer",
+        json={"message": "hi"},
+    )
+    assert response.status_code == 501
+    data = response.get_json()
+    assert data is not None
+    assert "501" in str(response.status_code)
+
+
 def test_external_session_provider_get_session_searches_beyond_list_limit():
     """Test session lookup scans all discovered sessions instead of a capped list."""
     from gptme.server.external_sessions import (

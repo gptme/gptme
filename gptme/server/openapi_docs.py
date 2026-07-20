@@ -417,6 +417,12 @@ class ExternalSessionResponse(BaseModel):
     )
 
 
+class ExternalSessionSteerResponse(BaseModel):
+    """Response for a successful steer_inject operation."""
+
+    status: str = Field(..., description="Always 'ok' on success")
+
+
 class SessionResponse(BaseModel):
     """Session information response."""
 

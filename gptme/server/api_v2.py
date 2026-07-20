@@ -100,6 +100,7 @@ from .openapi_docs import (
     ErrorResponse,
     ExternalSessionListResponse,
     ExternalSessionResponse,
+    ExternalSessionSteerResponse,
     MessageCreateRequest,
     SessionResponse,
     StatusResponse,
@@ -1092,6 +1093,93 @@ def api_external_session(external_session_id: str):
             {"error": f"External session not found: {external_session_id}"}
         ), 404
     return flask.jsonify(session)
+
+
+@v2_api.route(
+    "/api/v2/external-sessions/<string:external_session_id>/steer", methods=["POST"]
+)
+@require_auth
+@api_doc_simple(
+    responses={
+        200: ExternalSessionSteerResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        422: ErrorResponse,
+        501: ErrorResponse,
+        503: ErrorResponse,
+    },
+    tags=["external-sessions"],
+    parameters=[
+        {
+            "name": "external_session_id",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Opaque external session identifier",
+        },
+        {
+            "name": "days",
+            "in": "query",
+            "schema": {"type": "integer", "default": 7},
+            "description": "How many recent days of session history to scan",
+        },
+    ],
+)
+def api_steer_external_session(external_session_id: str):
+    """Inject a user message into a running external session (steer_inject).
+
+    Only works for sessions that advertise ``steer_inject`` in their capabilities.
+    Returns 422 if the session does not support steering, 501 if the server-side
+    steer implementation (gptme-sessions steer) is not available.
+    """
+    body = request.get_json(silent=True) or {}
+    message = (body.get("message") or "").strip()
+    if not message:
+        return flask.jsonify({"error": "message is required"}), 400
+
+    try:
+        days = int(request.args.get("days", 7))
+    except (ValueError, TypeError):
+        return flask.jsonify({"error": "days must be an integer"}), 400
+    if days <= 0:
+        return flask.jsonify({"error": "days must be a positive integer"}), 400
+    days = min(days, 365)
+
+    provider = get_external_session_provider()
+    if provider is None:
+        return flask.jsonify({"error": "external session provider unavailable"}), 503
+
+    session = provider.get_session(external_session_id, days=days)
+    if session is None:
+        return flask.jsonify(
+            {"error": f"External session not found: {external_session_id}"}
+        ), 404
+
+    capabilities = session.get("transcript", {}).get("capabilities") or []
+    if "steer_inject" not in capabilities:
+        return flask.jsonify({"error": "session does not support steer_inject"}), 422
+
+    trajectory_path = session.get("transcript", {}).get("trajectory_path")
+    if not trajectory_path:
+        return flask.jsonify({"error": "session has no trajectory_path"}), 500
+
+    try:
+        ok = provider.steer_session(str(trajectory_path), message)
+    except Exception as exc:
+        logger.exception("steer_session failed for %s", external_session_id)
+        return flask.jsonify({"error": f"steer_session error: {exc}"}), 500
+
+    if not ok:
+        return flask.jsonify(
+            {
+                "error": (
+                    "steer_inject not available — upgrade gptme-sessions "
+                    "to a version that includes the 'steer' subcommand"
+                )
+            }
+        ), 501
+
+    return flask.jsonify({"status": "ok"})
 
 
 @v2_api.route("/api/v2/conversations")
