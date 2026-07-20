@@ -54,7 +54,7 @@ python = "^3.10"
 click = "^8.4"
 click-default-group = "^1.2.4"
 python-dotenv = "^1.2.2"
-rich = "^14.2"
+rich = "^15.0"
 tabulate = "*"
 pick = {version = "^2.6.0", markers = "sys_platform != 'win32'"}
 tiktoken = ">=0.13.0"
