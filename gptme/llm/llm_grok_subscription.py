@@ -101,21 +101,18 @@ def _load_grok_cli_tokens() -> SubscriptionAuth | None:
     try:
         data = json.loads(grok_path.read_text())
 
-        # Look for our known key first, then fall back to any auth.x.ai entry
+        # Only accept the entry for our exact OAuth client ID.
+        # Falling back to any auth.x.ai key risks using credentials from a
+        # different client or account, leading to auth failures or identity
+        # confusion. Users must re-authenticate if only a different client's
+        # credentials are present.
         entry = data.get(GROK_AUTH_KEY)
         if entry is None:
-            for key, val in data.items():
-                if "auth.x.ai" in key and isinstance(val, dict):
-                    logger.warning(
-                        "Expected key %r not found in grok auth file; "
-                        "falling back to %r — token may belong to a different client",
-                        GROK_AUTH_KEY,
-                        key,
-                    )
-                    entry = val
-                    break
-
-        if entry is None:
+            logger.warning(
+                "Expected grok auth key %r not found; "
+                "run 'grok login' or 'gptme auth grok-subscription' to authenticate",
+                GROK_AUTH_KEY,
+            )
             return None
 
         access_token = entry.get("key")
