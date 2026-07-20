@@ -673,6 +673,15 @@ Run 'gptme-util --help' for all utility commands."""
     envvar="GPTME_INJECTION_HYGIENE",
     help="Prompt injection hygiene for tool outputs: off (disabled), warn (flag suspicious content), block (redact HIGH-severity patterns). Overrides GPTME_INJECTION_HYGIENE env var.",
 )
+@click.option(
+    "--manifest-dir",
+    "manifest_dir",
+    default=None,
+    type=click.Path(file_okay=False, path_type=Path),
+    envvar="GPTME_MANIFEST_DIR",
+    help="Write a JSON record before and after each tool call to this directory. "
+    "Records can be committed alongside session artifacts for tool-call-level attribution.",
+)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -706,6 +715,7 @@ def main(
     no_workspace: bool,
     output_schema: str | None,
     injection_hygiene: str | None,
+    manifest_dir: Path | None,
 ):
     """Main entrypoint for the CLI."""
 
@@ -745,6 +755,12 @@ def main(
         plugin = f"gptme-{prompts[0]}"
         if plugin_path := shutil.which(plugin):
             sys.exit(subprocess.call([plugin_path, *prompts[1:]]))
+
+    # Register manifest hooks early so they are in the registry before any tool call.
+    if manifest_dir is not None:
+        from ..hooks.manifest import register_manifest_hooks  # fmt: skip
+
+        register_manifest_hooks(manifest_dir)
 
     # Defense-in-depth: handle empty/whitespace names in case Click bypasses convert()
     # (observed to occur in some Click versions when --name "" is passed)
