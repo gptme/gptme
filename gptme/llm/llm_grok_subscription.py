@@ -93,6 +93,8 @@ def _load_grok_cli_tokens() -> SubscriptionAuth | None:
 
     The grok CLI stores tokens as a dict keyed by "{issuer}::{client_id}".
     Each entry has: key (access token), refresh_token, expires_at (ISO 8601).
+
+    Falls back to any auth.x.ai key if our exact client ID is not found.
     """
     grok_path = _get_grok_cli_auth_path()
     if not grok_path.exists():
@@ -101,12 +103,16 @@ def _load_grok_cli_tokens() -> SubscriptionAuth | None:
     try:
         data = json.loads(grok_path.read_text())
 
-        # Only accept the entry for our exact OAuth client ID.
-        # Falling back to any auth.x.ai key risks using credentials from a
-        # different client or account, leading to auth failures or identity
-        # confusion. Users must re-authenticate if only a different client's
-        # credentials are present.
+        # First try to find the entry for our exact OAuth client ID.
         entry = data.get(GROK_AUTH_KEY)
+
+        # If not found, fall back to any auth.x.ai key
+        if entry is None:
+            for key, value in data.items():
+                if "auth.x.ai" in key:
+                    entry = value
+                    break
+
         if entry is None:
             logger.warning(
                 "Expected grok auth key %r not found; "
