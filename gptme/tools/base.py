@@ -28,7 +28,13 @@ from xml.sax.saxutils import escape as xml_escape
 from xml.sax.saxutils import quoteattr
 
 import json_repair
-from lxml import etree
+
+try:
+    from lxml import etree as _lxml_etree
+
+    _LXML_AVAILABLE = True
+except ImportError:
+    _LXML_AVAILABLE = False
 
 from ..codeblock import Codeblock
 from ..message import Message
@@ -998,10 +1004,17 @@ class ToolUse:
         if not (has_tool_use or has_function_calls):
             return
 
+        if _LXML_AVAILABLE:
+            yield from cls._iter_from_xml_lxml(content)
+        else:
+            yield from cls._iter_from_xml_regex(content)
+
+    @classmethod
+    def _iter_from_xml_lxml(cls, content: str) -> Generator[ToolUse, None, None]:
+        """lxml-based XML parser: lenient HTML parsing + XPath."""
         try:
-            # Parse the content as HTML to be more lenient with malformed XML
-            parser = etree.HTMLParser()
-            tree = etree.fromstring(content, parser)
+            parser = _lxml_etree.HTMLParser()
+            tree = _lxml_etree.fromstring(content, parser)
 
             # Handle gptme format: <tool-use><toolname>...</toolname></tool-use>
             for tooluse in tree.xpath("//tool-use"):
@@ -1050,9 +1063,67 @@ class ToolUse:
                         start=start_pos if start_pos >= 0 else None,
                         _format="xml",
                     )
-        except etree.ParseError as e:
+        except _lxml_etree.ParseError as e:
             logger.warning(f"Failed to parse XML content: {e}")
             return
+
+    @classmethod
+    def _iter_from_xml_regex(cls, content: str) -> Generator[ToolUse, None, None]:
+        """Regex-based fallback XML parser (no lxml required).
+
+        Used when lxml is not installed. Handles the standard gptme and Haiku
+        function_calls formats. Content with angle-bracket tokens (e.g. <filename>)
+        is captured as-is, which is actually more faithful than lxml's HTMLParser
+        (which would consume the tag name).
+        """
+        # Format 1: <tool-use><tagname [attrs]>content</tagname></tool-use>
+        _tool_use_re = re.compile(r"<tool-use[^>]*>(.*?)</tool-use>", re.DOTALL)
+        _tool_tag_re = re.compile(r"<([\w-]+)([^>]*)>(.*?)</\1>", re.DOTALL)
+        _args_re = re.compile(r"""args=["']([^"']*)["']""")
+
+        for tool_use_m in _tool_use_re.finditer(content):
+            inner = tool_use_m.group(1)
+            for tag_m in _tool_tag_re.finditer(inner):
+                tool_name = tag_m.group(1)
+                attrs_str = tag_m.group(2)
+                tool_content = tag_m.group(3).strip()
+                args_m = _args_re.search(attrs_str)
+                args = [args_m.group(1)] if args_m else []
+                start_pos = content.find(f"<{tool_name}")
+                yield ToolUse(
+                    tool_name,
+                    args,
+                    tool_content,
+                    start=start_pos if start_pos >= 0 else None,
+                    _format="xml",
+                )
+
+        # Format 2: <function_calls><invoke name="toolname" [attrs]>content</invoke></function_calls>
+        _func_calls_re = re.compile(
+            r"<function_calls[^>]*>(.*?)</function_calls>", re.DOTALL
+        )
+        _invoke_re = re.compile(r"<invoke\s+([^>]*)>(.*?)</invoke>", re.DOTALL)
+        _name_re = re.compile(r"""name=["']([^"']*)["']""")
+
+        for fc_m in _func_calls_re.finditer(content):
+            inner = fc_m.group(1)
+            for invoke_m in _invoke_re.finditer(inner):
+                attrs_str = invoke_m.group(1)
+                tool_content = invoke_m.group(2).strip()
+                name_m = _name_re.search(attrs_str)
+                if not name_m:
+                    continue
+                tool_name = name_m.group(1)
+                args_m = _args_re.search(attrs_str)
+                args = [args_m.group(1)] if args_m else []
+                start_pos = content.find(f'<invoke name="{tool_name}"')
+                yield ToolUse(
+                    tool_name,
+                    args,
+                    tool_content,
+                    start=start_pos if start_pos >= 0 else None,
+                    _format="xml",
+                )
 
     def to_output(self, tool_format: ToolFormat = "markdown") -> str:
         if tool_format == "markdown":
