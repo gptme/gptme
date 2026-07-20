@@ -50,13 +50,22 @@ def _prompt_queue_lock(logdir: Path):
                 fcntl.flock(fd, fcntl.LOCK_UN)
 
 
-def queue_prompt(logdir: Path, content: str) -> None:
-    """Append a prompt to a conversation queue."""
+def queue_prompt(logdir: Path, content: str, *, steer: bool = False) -> None:
+    """Append a prompt to a conversation queue.
+
+    Args:
+        steer: Mark as a steering message for mid-turn injection via the STEP_PRE
+            hook.  Regular (non-steer) prompts are drained between turns; steer
+            prompts are drained at each STEP_PRE checkpoint so the next LLM call
+            in the same turn sees them immediately.
+    """
     queue_path = get_prompt_queue_path(logdir)
-    record = {
+    record: dict = {
         "content": content,
         "queued_at": datetime.now(timezone.utc).isoformat(),
     }
+    if steer:
+        record["steer"] = True
 
     with _prompt_queue_lock(logdir), queue_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
@@ -93,6 +102,12 @@ def drain_prompt_queue(logdir: Path, max_items: int | None = None) -> list[Messa
                 logger.warning("Skipping malformed queued prompt in %s", queue_path)
                 continue
 
+            # Steer-flagged records are reserved for mid-turn draining via the
+            # STEP_PRE checkpoint hook (drain_steer_prompts).  Leave them on disk.
+            if record.get("steer"):
+                remaining.append(line)
+                continue
+
             content = str(record.get("content", "")).strip()
             if not content:
                 logger.warning("Skipping empty queued prompt in %s", queue_path)
@@ -106,3 +121,48 @@ def drain_prompt_queue(logdir: Path, max_items: int | None = None) -> list[Messa
             queue_path.unlink(missing_ok=True)
 
         return drained
+
+
+def drain_steer_prompts(logdir: Path) -> list[Message]:
+    """Drain only steer-flagged prompts from the queue (mid-turn injection).
+
+    Regular (non-steer) prompts remain on disk for between-turn draining by
+    ``drain_prompt_queue``.  Steer prompts written by ``subagent_steer()`` are
+    picked up here at each STEP_PRE checkpoint so the next LLM generation in
+    the same agentic turn sees the orchestrator's guidance immediately.
+    """
+    queue_path = get_prompt_queue_path(logdir)
+    if not queue_path.exists():
+        return []
+
+    with _prompt_queue_lock(logdir):
+        if not queue_path.exists():
+            return []
+
+        lines = queue_path.read_text(encoding="utf-8").splitlines()
+        steer_msgs: list[Message] = []
+        remaining: list[str] = []
+
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                logger.warning("Skipping malformed queued prompt in %s", queue_path)
+                remaining.append(line)
+                continue
+
+            if record.get("steer"):
+                content = str(record.get("content", "")).strip()
+                if content:
+                    steer_msgs.append(Message("user", content, quiet=True))
+            else:
+                remaining.append(line)
+
+        if remaining:
+            queue_path.write_text("\n".join(remaining) + "\n", encoding="utf-8")
+        else:
+            queue_path.unlink(missing_ok=True)
+
+        return steer_msgs

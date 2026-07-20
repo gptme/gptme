@@ -1141,10 +1141,12 @@ def subagent_cancel(agent_id: str) -> str:
 def subagent_steer(agent_id: str, message: str) -> str:
     """Inject a steering message into a running subagent's conversation.
 
-    The message is queued via the subagent's logdir prompt-queue and picked up
-    on the subagent's next chat loop iteration, allowing the orchestrator to
-    redirect, clarify, or course-correct a subagent mid-run without restarting
-    it. Works for thread-mode and subprocess-mode subagents.
+    The message is queued via the subagent's logdir prompt-queue with a
+    steer flag.  The subagent's STEP_PRE checkpoint hook drains steer-flagged
+    messages at each step boundary so the very next LLM call in the same
+    agentic turn sees the guidance immediately — no need to wait for the
+    current tool chain to finish.  Works for thread-mode and subprocess-mode
+    subagents.
 
     This is distinct from ``subagent_reply()``, which re-spawns a subagent that
     has *already stopped* with a ``clarification_needed`` status. Use this
@@ -1250,7 +1252,7 @@ def subagent_steer(agent_id: str, message: str) -> str:
             "For clarification_needed subagents, use subagent_reply() to re-spawn them."
         )
 
-    queue_prompt(sa.logdir, message)
+    queue_prompt(sa.logdir, message, steer=True)
 
     # Re-check after queuing: catches the race where the subagent exits between
     # the initial check and the queue write.
@@ -1269,7 +1271,8 @@ def subagent_steer(agent_id: str, message: str) -> str:
     logger.info(f"Steering message queued for subagent '{agent_id}': {message[:80]!r}")
     return (
         f"Steering message queued for subagent '{agent_id}'. "
-        "It will be injected into the subagent's conversation on its next loop iteration."
+        "It will be injected at the subagent's next STEP_PRE checkpoint "
+        "(before the next LLM call in the current agentic turn)."
     )
 
 
