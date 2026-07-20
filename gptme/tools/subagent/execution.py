@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Literal
 
 from ...llm.retry_abort import bind_thread_generation, release_thread
 from ...message import Message
+from ...prompt_queue import drain_steer_prompts
 from .. import clear_tools, get_tools, load_tool, set_tools
 from .._allowlist import (
     is_hint_pattern,
@@ -438,6 +439,20 @@ def _create_subagent_thread(
         # sub-microsecond race that requires modifying chat() itself to close.
         if prompt_queue_closed is not None:
             prompt_queue_closed.set()
+        # Drain any steer messages that arrived after the last STEP_PRE fired but
+        # before chat() returned. These were not deliverable mid-turn; warn so
+        # the orchestrator knows the guidance was not seen.
+        try:
+            stranded = drain_steer_prompts(logdir)
+            if stranded:
+                logger.warning(
+                    "Subagent exited with %d stranded steer message(s) never "
+                    "delivered (arrived after final STEP_PRE checkpoint): %s",
+                    len(stranded),
+                    [m.content[:60] for m in stranded],
+                )
+        except Exception:
+            pass
 
 
 def _run_subagent_subprocess(

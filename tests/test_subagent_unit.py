@@ -6036,8 +6036,8 @@ class TestSubagentSteer:
             subagent_steer("acp-agent", "steer me")
 
     def test_steer_writes_to_prompt_queue(self, tmp_path):
-        """subagent_steer queues the message via the file-based prompt queue."""
-        from gptme.prompt_queue import drain_prompt_queue
+        """subagent_steer queues the message as a steer-flagged record."""
+        from gptme.prompt_queue import drain_prompt_queue, drain_steer_prompts
 
         logdir = tmp_path / "subagent-steer-test"
         logdir.mkdir()
@@ -6047,14 +6047,18 @@ class TestSubagentSteer:
 
         assert "queued" in result.lower()
 
-        # Verify the message was written to the prompt queue file
-        drained = drain_prompt_queue(logdir)
+        # Steer messages are steer-flagged and NOT visible to drain_prompt_queue
+        # (which drains between-turn prompts).
+        assert drain_prompt_queue(logdir) == []
+
+        # drain_steer_prompts sees them for mid-turn injection.
+        drained = drain_steer_prompts(logdir)
         assert len(drained) == 1
         assert "Focus on async frameworks only" in drained[0].content
 
     def test_steer_multiple_messages_queued_in_order(self, tmp_path):
         """Multiple steer calls append messages in FIFO order."""
-        from gptme.prompt_queue import drain_prompt_queue
+        from gptme.prompt_queue import drain_steer_prompts
 
         logdir = tmp_path / "subagent-steer-fifo"
         logdir.mkdir()
@@ -6064,7 +6068,7 @@ class TestSubagentSteer:
         subagent_steer("running-agent", "Second instruction")
         subagent_steer("running-agent", "Third instruction")
 
-        drained = drain_prompt_queue(logdir)
+        drained = drain_steer_prompts(logdir)
         assert len(drained) == 3
         assert "First instruction" in drained[0].content
         assert "Second instruction" in drained[1].content
@@ -6072,7 +6076,7 @@ class TestSubagentSteer:
 
     def test_steer_subprocess_mode_uses_logdir(self, tmp_path):
         """subagent_steer works for subprocess-mode subagents via the same logdir channel."""
-        from gptme.prompt_queue import drain_prompt_queue
+        from gptme.prompt_queue import drain_steer_prompts
 
         logdir = tmp_path / "subagent-subprocess-steer"
         logdir.mkdir()
@@ -6095,7 +6099,7 @@ class TestSubagentSteer:
         result = subagent_steer("proc-agent", "Change focus to security issues")
 
         assert "queued" in result.lower()
-        drained = drain_prompt_queue(logdir)
+        drained = drain_steer_prompts(logdir)
         assert len(drained) == 1
         assert "Change focus to security issues" in drained[0].content
 
@@ -6378,3 +6382,170 @@ class TestSubagentSteer:
 
         with pytest.raises(ValueError, match="closed its prompt queue"):
             subagent_steer("current-sentinel-agent", "too late")
+
+
+# ---------------------------------------------------------------------------
+# Mid-turn steer injection via _subagent_control_hook (STEP_PRE)
+# ---------------------------------------------------------------------------
+
+
+class TestMidTurnSteerInjection:
+    """Tests for mid-turn steer message injection via _subagent_control_hook."""
+
+    def setup_method(self):
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
+    def _make_manager(self, logdir):
+        m = MagicMock()
+        m.logdir = logdir
+        return m
+
+    def test_steer_flag_marks_record(self, tmp_path):
+        """queue_prompt(steer=True) adds steer=true to the JSON record."""
+        import json
+
+        from gptme.prompt_queue import QUEUE_FILENAME, queue_prompt
+
+        logdir = tmp_path / "steer-flag-mark"
+        logdir.mkdir()
+        queue_prompt(logdir, "redirect", steer=True)
+
+        lines = (logdir / QUEUE_FILENAME).read_text().splitlines()
+        record = json.loads(lines[0])
+        assert record["steer"] is True
+        assert record["content"] == "redirect"
+
+    def test_regular_prompt_has_no_steer_flag(self, tmp_path):
+        """queue_prompt() without steer= does not write a steer field."""
+        import json
+
+        from gptme.prompt_queue import QUEUE_FILENAME, queue_prompt
+
+        logdir = tmp_path / "no-steer-flag"
+        logdir.mkdir()
+        queue_prompt(logdir, "regular message")
+
+        lines = (logdir / QUEUE_FILENAME).read_text().splitlines()
+        record = json.loads(lines[0])
+        assert "steer" not in record
+
+    def test_drain_steer_prompts_leaves_regular_messages(self, tmp_path):
+        """drain_steer_prompts leaves non-steer records for drain_prompt_queue."""
+        from gptme.prompt_queue import (
+            drain_prompt_queue,
+            drain_steer_prompts,
+            queue_prompt,
+        )
+
+        logdir = tmp_path / "steer-leaves-regular"
+        logdir.mkdir()
+        queue_prompt(logdir, "regular turn", steer=False)
+        queue_prompt(logdir, "steer guidance", steer=True)
+
+        steer_msgs = drain_steer_prompts(logdir)
+        assert len(steer_msgs) == 1
+        assert "steer guidance" in steer_msgs[0].content
+
+        regular_msgs = drain_prompt_queue(logdir)
+        assert len(regular_msgs) == 1
+        assert "regular turn" in regular_msgs[0].content
+
+    def test_drain_prompt_queue_leaves_steer_messages(self, tmp_path):
+        """drain_prompt_queue leaves steer-flagged records for mid-turn draining."""
+        from gptme.prompt_queue import (
+            drain_prompt_queue,
+            drain_steer_prompts,
+            queue_prompt,
+        )
+
+        logdir = tmp_path / "regular-leaves-steer"
+        logdir.mkdir()
+        queue_prompt(logdir, "steer guidance", steer=True)
+        queue_prompt(logdir, "regular turn", steer=False)
+
+        # drain_prompt_queue must skip steer records
+        regular_msgs = drain_prompt_queue(logdir)
+        assert len(regular_msgs) == 1
+        assert "regular turn" in regular_msgs[0].content
+
+        # steer record is still on disk
+        steer_msgs = drain_steer_prompts(logdir)
+        assert len(steer_msgs) == 1
+        assert "steer guidance" in steer_msgs[0].content
+
+    def test_control_hook_injects_steer_as_user_message(self, tmp_path):
+        """_subagent_control_hook yields steer messages as user messages mid-turn."""
+        from gptme.prompt_queue import queue_prompt
+
+        logdir = tmp_path / "hook-steer-inject"
+        logdir.mkdir()
+        queue_prompt(logdir, "Focus only on async frameworks", steer=True)
+
+        manager = self._make_manager(logdir)
+        msgs = list(_subagent_control_hook(manager))
+
+        assert len(msgs) == 1
+        assert msgs[0].role == "user"
+        assert "Focus only on async frameworks" in msgs[0].content
+
+    def test_control_hook_injects_multiple_steer_messages_in_order(self, tmp_path):
+        """Multiple steer messages are injected in FIFO order."""
+        from gptme.prompt_queue import queue_prompt
+
+        logdir = tmp_path / "hook-steer-fifo"
+        logdir.mkdir()
+        queue_prompt(logdir, "First guidance", steer=True)
+        queue_prompt(logdir, "Second guidance", steer=True)
+
+        manager = self._make_manager(logdir)
+        msgs = list(_subagent_control_hook(manager))
+
+        assert len(msgs) == 2
+        assert "First guidance" in msgs[0].content
+        assert "Second guidance" in msgs[1].content
+
+    def test_control_hook_noop_when_no_steer_and_no_cancel(self, tmp_path):
+        """Hook is inert when there is no control file and no steer queue."""
+        logdir = tmp_path / "hook-noop"
+        logdir.mkdir()
+
+        manager = self._make_manager(logdir)
+        msgs = list(_subagent_control_hook(manager))
+        assert msgs == []
+
+    def test_control_hook_cancel_wins_over_pending_steer(self, tmp_path):
+        """When there is both a cancel op and a steer message, cancel takes priority."""
+        from gptme.prompt_queue import drain_steer_prompts, queue_prompt
+        from gptme.tools.subagent.control import append_control_op
+
+        logdir = tmp_path / "hook-cancel-over-steer"
+        logdir.mkdir()
+        queue_prompt(logdir, "Do this instead", steer=True)
+        append_control_op(logdir, "cancel", agent_id="test-agent")
+
+        manager = self._make_manager(logdir)
+
+        with pytest.raises(SessionCompleteException):
+            list(_subagent_control_hook(manager))
+
+        # Steer message was not consumed — still on disk after cancel
+        # (no point injecting guidance when the agent is stopping)
+        steer_msgs = drain_steer_prompts(logdir)
+        assert len(steer_msgs) == 1
+
+    def test_control_hook_regular_prompt_not_injected_mid_turn(self, tmp_path):
+        """Regular (non-steer) queued prompts are NOT injected mid-turn by the hook."""
+        from gptme.prompt_queue import queue_prompt
+
+        logdir = tmp_path / "hook-no-regular-inject"
+        logdir.mkdir()
+        queue_prompt(logdir, "Between-turn prompt", steer=False)
+
+        manager = self._make_manager(logdir)
+        msgs = list(_subagent_control_hook(manager))
+
+        # Hook must not consume non-steer messages
+        assert msgs == []

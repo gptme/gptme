@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from ...hooks.types import StopPropagation
 from ...message import Message
+from ...prompt_queue import QUEUE_FILENAME, drain_steer_prompts
 from .control import CONTROL_FILENAME, drain_control_ops
 from .types import (
     ReturnType,
@@ -36,21 +37,34 @@ logger = logging.getLogger(__name__)
 
 
 def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, None]:
-    """Stop a child conversation when its parent writes a cancel operation."""
+    """Apply cancel and steer operations at each STEP_PRE boundary.
+
+    Cancel: reads ``logdir/control.jsonl`` for a ``{"op": "cancel"}`` record
+    written by ``subagent_cancel()``.  On cancel, appends a note, marks the
+    result as *cancelled* (first-writer-wins), and raises
+    ``SessionCompleteException`` so ``chat()`` exits cleanly.
+
+    Steer: drains steer-flagged messages from the prompt queue (written by
+    ``subagent_steer()`` with ``steer=True``) and yields them as user messages
+    so the very next LLM call in the same turn sees the orchestrator's guidance
+    without waiting for the current agentic turn to finish.
+
+    Fast paths (one ``stat()`` per step each) keep overhead negligible for
+    normal conversations that have neither a control file nor a steer queue.
+    """
     # Search by logdir, not logdir.name: thread subagent logdirs have a random suffix
     # (subagent-{agent_id}-{suffix}), so logdir.name != agent_id for thread mode.
     with _subagents_lock:
         sa = next((s for s in _subagents if s.logdir == manager.logdir), None)
     agent_id = sa.agent_id if sa is not None else manager.logdir.name
 
-    # Check in-memory fallback first: set by subagent_cancel() when the control-file
-    # write fails with OSError, so the thread is still stopped at its next checkpoint.
+    # ── Cancel check ─────────────────────────────────────────────────────────
+    # Check in-memory fallback first: set by subagent_cancel() when the
+    # control-file write fails with OSError.
     in_memory_cancel = sa is not None and sa.cancel_event.is_set()
 
-    if not in_memory_cancel:
-        if not (manager.logdir / CONTROL_FILENAME).exists():
-            return
-
+    has_cancel = in_memory_cancel
+    if not in_memory_cancel and (manager.logdir / CONTROL_FILENAME).exists():
         try:
             operations = drain_control_ops(manager.logdir)
         except OSError:
@@ -61,28 +75,41 @@ def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, No
                 manager.logdir,
             )
             operations = [{"op": "cancel", "agent_id": agent_id}]
-        if not any(operation.get("op") == "cancel" for operation in operations):
-            return
 
-        for operation in operations:
-            candidate_agent_id = operation.get("agent_id")
-            if operation.get("op") == "cancel" and isinstance(candidate_agent_id, str):
-                agent_id = candidate_agent_id
-                break
+        if any(operation.get("op") == "cancel" for operation in operations):
+            has_cancel = True
+            for operation in operations:
+                candidate_agent_id = operation.get("agent_id")
+                if operation.get("op") == "cancel" and isinstance(
+                    candidate_agent_id, str
+                ):
+                    agent_id = candidate_agent_id
+                    break
 
-    manager.append(
-        Message(
-            "system",
-            "Subagent cancellation requested by orchestrator; ending at this step boundary.",
+    if has_cancel:
+        manager.append(
+            Message(
+                "system",
+                "Subagent cancellation requested by orchestrator; ending at this step boundary.",
+            )
         )
-    )
-    set_subagent_result_if_absent(
-        agent_id, ReturnType("cancelled", "Cancelled by orchestrator")
-    )
-    from ..complete import SessionCompleteException
+        set_subagent_result_if_absent(
+            agent_id, ReturnType("cancelled", "Cancelled by orchestrator")
+        )
+        from ..complete import SessionCompleteException
 
-    raise SessionCompleteException("Subagent cancelled by orchestrator")
-    yield from ()
+        raise SessionCompleteException("Subagent cancelled by orchestrator")
+
+    # ── Steer check ───────────────────────────────────────────────────────────
+    # Drain steer-flagged messages mid-turn so the next LLM step sees them
+    # immediately, without waiting for the agentic turn to finish naturally.
+    # Regular (non-steer) queued prompts remain on disk for between-turn draining.
+    if (manager.logdir / QUEUE_FILENAME).exists():
+        for msg in drain_steer_prompts(manager.logdir):
+            logger.debug(
+                "Mid-turn steer injection for %s: %r", agent_id, msg.content[:80]
+            )
+            yield msg
 
 
 # Python built-in types that are valid as values in a {field_name: python_type} mapping.
