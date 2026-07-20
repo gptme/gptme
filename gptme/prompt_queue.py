@@ -104,7 +104,8 @@ def drain_prompt_queue(logdir: Path, max_items: int | None = None) -> list[Messa
 
             # Steer-flagged records are reserved for mid-turn draining via the
             # STEP_PRE checkpoint hook (drain_steer_prompts).  Leave them on disk.
-            if record.get("steer"):
+            # Use `is True` to guard against non-boolean truthy values (e.g. "false").
+            if record.get("steer") is True:
                 remaining.append(line)
                 continue
 
@@ -153,7 +154,7 @@ def drain_steer_prompts(logdir: Path) -> list[Message]:
                 remaining.append(line)
                 continue
 
-            if record.get("steer"):
+            if record.get("steer") is True:
                 content = str(record.get("content", "")).strip()
                 if content:
                     steer_msgs.append(Message("user", content, quiet=True))

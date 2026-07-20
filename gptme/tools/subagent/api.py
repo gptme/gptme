@@ -812,6 +812,23 @@ def subagent(
                 # even during the narrow window between process exit and result
                 # caching.
                 sa.prompt_queue_closed.set()
+                # Drain any steer messages that arrived after the last STEP_PRE fired
+                # but before the subprocess exited. They were not deliverable mid-turn;
+                # warn so the orchestrator knows the guidance was not seen.
+                try:
+                    from ...prompt_queue import drain_steer_prompts  # fmt: skip
+
+                    stranded = drain_steer_prompts(sa.logdir)
+                    if stranded:
+                        logger.warning(
+                            "Subagent '%s' exited with %d stranded steer message(s) "
+                            "never delivered (arrived after final STEP_PRE checkpoint): %s",
+                            agent_id,
+                            len(stranded),
+                            [m.content[:60] for m in stranded],
+                        )
+                except Exception:
+                    pass
                 _sem.release()
 
         launcher = threading.Thread(target=_launch_subprocess, daemon=True)
