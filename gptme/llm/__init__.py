@@ -445,7 +445,22 @@ def _chat_complete(
             via_gptme=True,
         )
 
-    # Providers with native constrained decoding support
+    # grok-subscription: refresh the cached OpenAI client if the token is
+    # about to expire before delegating to the shared OpenAI chat path.
+    # This mirrors the same guard in _stream() so non-streaming requests
+    # don't keep sending an expired token and receiving 401 responses.
+    if provider == "grok-subscription":
+        from .llm_grok_subscription import XAI_BASE_URL, get_auth
+        from .llm_openai import _init_openai_client
+
+        try:
+            auth = get_auth()
+            _init_openai_client(
+                "grok-subscription", api_key=auth.access_token, base_url=XAI_BASE_URL
+            )
+        except Exception:
+            pass  # let chat_openai surface the auth error naturally
+
     # Custom providers and plugin providers are OpenAI-compatible, route through OpenAI path
     if (
         provider in PROVIDERS_OPENAI

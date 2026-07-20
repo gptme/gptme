@@ -91,13 +91,13 @@ def test_load_grok_cli_tokens_valid(tmp_path):
     assert auth.expires_at > time.time()
 
 
-def test_load_grok_cli_tokens_fallback_any_auth_x_ai_key(tmp_path):
-    """Any key containing 'auth.x.ai' is accepted as a fallback."""
+def test_load_grok_cli_tokens_fallback_variant_issuer(tmp_path):
+    """A key with our client ID but a variant issuer URL is accepted as a fallback."""
     auth_file = tmp_path / "auth.json"
     auth_file.write_text(
         json.dumps(
             {
-                "https://auth.x.ai::different-client-id": {
+                f"https://auth2.x.ai::{OAUTH_CLIENT_ID}": {
                     "key": "fallback-token",
                     "refresh_token": "fallback-refresh",
                     "expires_at": "2099-01-01T00:00:00.000000000Z",
@@ -112,6 +112,28 @@ def test_load_grok_cli_tokens_fallback_any_auth_x_ai_key(tmp_path):
         auth = _load_grok_cli_tokens()
     assert auth is not None
     assert auth.access_token == "fallback-token"
+
+
+def test_load_grok_cli_tokens_fallback_rejects_different_client(tmp_path):
+    """A key with a different client ID is rejected even if it contains auth.x.ai."""
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(
+        json.dumps(
+            {
+                "https://auth.x.ai::different-client-id": {
+                    "key": "wrong-token",
+                    "refresh_token": "wrong-refresh",
+                    "expires_at": "2099-01-01T00:00:00.000000000Z",
+                }
+            }
+        )
+    )
+    with patch(
+        "gptme.llm.llm_grok_subscription._get_grok_cli_auth_path",
+        return_value=auth_file,
+    ):
+        auth = _load_grok_cli_tokens()
+    assert auth is None
 
 
 # ── _save_tokens / _load_stored_tokens ──────────────────────────────────────

@@ -98,7 +98,9 @@ def _load_grok_cli_tokens() -> SubscriptionAuth | None:
     The grok CLI stores tokens as a dict keyed by "{issuer}::{client_id}".
     Each entry has: key (access token), refresh_token, expires_at (ISO 8601).
 
-    Falls back to any auth.x.ai key if our exact client ID is not found.
+    Falls back to any key that contains our exact client ID, so variant issuer
+    URL formats are handled while ensuring we never use a token belonging to a
+    different OAuth client or account.
     """
     grok_path = _get_grok_cli_auth_path()
     if not grok_path.exists():
@@ -110,11 +112,15 @@ def _load_grok_cli_tokens() -> SubscriptionAuth | None:
         # First try to find the entry for our exact OAuth client ID.
         entry = data.get(GROK_AUTH_KEY)
 
-        # If not found, fall back to any auth.x.ai key
+        # Fall back to any key that embeds our exact client ID.
+        # We check the client ID (not the issuer URL) so we only accept tokens
+        # issued for this application, preventing use of tokens from unrelated
+        # OAuth clients that happen to share the same issuer domain.
         if entry is None:
             for key, value in data.items():
-                if "auth.x.ai" in key:
+                if OAUTH_CLIENT_ID in key:
                     entry = value
+                    logger.debug("Using alternate grok auth key %r", key)
                     break
 
         if entry is None:
