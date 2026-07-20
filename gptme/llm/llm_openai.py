@@ -1725,6 +1725,7 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
         "openrouter",
         "deepseek",
         "local",
+        "grok-subscription",
     ] or is_custom_provider(model.model.split("/")[0]):
         all_required = all(p.required for p in spec.parameters)
         supports_strict = model.supports_strict_tools and all_required

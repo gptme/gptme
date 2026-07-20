@@ -171,22 +171,24 @@ def _write_grok_tokens(auth: GrokAuth) -> None:
     Uses the same key that was identified during the most recent _load_grok_tokens
     call so that multi-entry stores are updated correctly.
 
-    Uses an exclusive flock + per-pid temp file + os.replace() so concurrent
-    gptme processes and the grok CLI don't interleave their writes.
+    Uses an exclusive flock on a separate .lock file (never replaced) + per-pid
+    temp file + os.replace() so concurrent gptme processes and the grok CLI don't
+    interleave their writes.  Locking auth.json directly is unsafe because
+    os.replace() swaps in a new inode, releasing the lock from under waiters.
     """
     import fcntl
 
     global _credential_key
     path = _get_grok_auth_path()
+    lock_path = path.parent / (path.name + ".lock")
     tmp = path.parent / f"{path.name}.tmp.{os.getpid()}"
     try:
-        # Hold an exclusive lock for the full read-modify-write cycle.
-        # Open with 'a+' so we create the file if absent without truncating.
-        lock_fd = open(path, "a+")
+        # Hold an exclusive lock on a dedicated .lock file that is never replaced.
+        # This keeps the flock valid across the os.replace() call below.
+        lock_fd = open(lock_path, "a")
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            lock_fd.seek(0)
-            raw_text = lock_fd.read()
+            raw_text = path.read_text() if path.exists() else ""
             raw: dict = json.loads(raw_text) if raw_text.strip() else {}
             # Resolve the target key: prefer the one we previously loaded from,
             # then the entry containing our client ID, then the first entry, then
@@ -211,7 +213,9 @@ def _write_grok_tokens(auth: GrokAuth) -> None:
                 auth.expires_at, tz=timezone.utc
             ).isoformat()
             raw[key] = entry
-            # Atomic publish: write to per-pid temp then rename under the lock
+            # Atomic publish under the still-held lock: write to per-pid temp
+            # then rename into place.  The lock_path inode (not auth.json) stays
+            # constant, so the flock remains valid across the replace.
             tmp.write_text(json.dumps(raw, indent=2))
             os.replace(tmp, path)
         finally:
@@ -390,6 +394,13 @@ def stream(
         content = delta.get("content")
         if content:
             yield content
+        # Forward streamed native tool calls in gptme's @name(id): args format
+        for tool_call in delta.get("tool_calls", []):
+            func = tool_call.get("function", {})
+            if func.get("name"):
+                yield f"\n@{func['name']}({tool_call.get('id', '')}): "
+            if func.get("arguments"):
+                yield func["arguments"]
 
 
 def chat(
