@@ -171,29 +171,51 @@ def _save_tokens(auth: SubscriptionAuth) -> None:
 
 
 def _update_grok_cli_tokens(auth: SubscriptionAuth) -> None:
-    """Write refreshed tokens back to grok CLI auth file to keep them in sync."""
+    """Write refreshed tokens back to grok CLI auth file to keep them in sync.
+
+    Uses a separate .lock file as the flock target so the lock inode stays
+    constant across os.replace() calls (locking auth.json directly is unsafe
+    because os.replace() swaps the inode, releasing concurrent flocks).
+    """
+    import fcntl
+
     grok_path = _get_grok_cli_auth_path()
     if not grok_path.exists():
         return
 
+    lock_path = grok_path.parent / (grok_path.name + ".lock")
+    tmp_path = grok_path.parent / f"{grok_path.name}.tmp.{os.getpid()}"
     try:
-        data = json.loads(grok_path.read_text())
-        if GROK_AUTH_KEY not in data:
-            return
+        lock_fd = open(lock_path, "a")
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            if not grok_path.exists():
+                return
+            data = json.loads(grok_path.read_text())
+            if GROK_AUTH_KEY not in data:
+                return
 
-        from datetime import datetime, timezone
+            from datetime import datetime, timezone
 
-        dt = datetime.fromtimestamp(auth.expires_at, tz=timezone.utc)
-        entry = data[GROK_AUTH_KEY]
-        entry["key"] = auth.access_token
-        entry["expires_at"] = dt.strftime("%Y-%m-%dT%H:%M:%S.%f000Z")
-        if auth.refresh_token:
-            entry["refresh_token"] = auth.refresh_token
+            dt = datetime.fromtimestamp(auth.expires_at, tz=timezone.utc)
+            entry = data[GROK_AUTH_KEY]
+            entry["key"] = auth.access_token
+            entry["expires_at"] = dt.strftime("%Y-%m-%dT%H:%M:%S.%f000Z")
+            if auth.refresh_token:
+                entry["refresh_token"] = auth.refresh_token
 
-        grok_path.write_text(json.dumps(data, indent=2))
-        logger.debug("Updated grok CLI auth file with refreshed tokens")
+            tmp_path.write_text(json.dumps(data, indent=2))
+            os.replace(tmp_path, grok_path)
+            logger.debug("Updated grok CLI auth file with refreshed tokens")
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
     except Exception as e:
         logger.debug(f"Failed to update grok CLI auth file: {e}")
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def _refresh_access_token(
