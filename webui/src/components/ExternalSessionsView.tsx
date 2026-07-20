@@ -384,7 +384,11 @@ export const ExternalSessionsView: FC = () => {
       {/* Detail panel */}
       {selectedId && (
         <div className="flex-1 overflow-hidden">
-          <SessionDetail sessionId={selectedId} onClose={() => setSelectedId(null)} />
+          <SessionDetail
+            key={selectedId}
+            sessionId={selectedId}
+            onClose={() => setSelectedId(null)}
+          />
         </div>
       )}
     </div>
