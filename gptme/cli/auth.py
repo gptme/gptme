@@ -7,6 +7,7 @@ Usage:
     gptme-auth logout              # Remove stored gptme credentials
     gptme-auth status              # Show current login status
     gptme-auth openai-subscription # Authenticate for OpenAI subscription
+    gptme-auth grok-subscription   # Check SuperGrok subscription auth status
 """
 
 import json
@@ -309,6 +310,41 @@ def auth_openai_subscription():
         console.print("\n[red bold]✗ Authentication failed[/red bold]")
         console.print(f"  Error: {e}")
         logger.debug("Full error:", exc_info=True)
+        sys.exit(1)
+
+
+@main.command("grok-subscription")
+def auth_grok_subscription():
+    """Check authentication status for your SuperGrok subscription.
+
+    This provider reuses the credentials stored by the grok CLI.
+    Run `grok auth login` first if you haven't authenticated yet.
+    """
+    from pathlib import Path
+
+    grok_auth_path = Path.home() / ".grok" / "auth.json"
+    if not grok_auth_path.exists():
+        console.print("\n[red bold]✗ No grok CLI credentials found[/red bold]")
+        console.print(
+            "  Please install the grok CLI and run: [cyan]grok auth login[/cyan]"
+        )
+        console.print("  Install from: https://x.ai/grok")
+        sys.exit(1)
+
+    try:
+        from ..llm.llm_grok_subscription import get_auth
+
+        auth = get_auth()
+        import time
+
+        remaining_min = (auth.expires_at - time.time()) / 60
+        console.print("\n[green bold]✓ Grok subscription authenticated[/green bold]")
+        console.print(f"  Token expires in: {remaining_min:.0f} minutes")
+        console.print("\nYou can now use: [cyan]grok-subscription/grok-4.5[/cyan]")
+    except Exception as e:
+        console.print("\n[red bold]✗ Authentication check failed[/red bold]")
+        console.print(f"  Error: {e}")
+        console.print("  Try running: [cyan]grok auth login[/cyan]")
         sys.exit(1)
 
 

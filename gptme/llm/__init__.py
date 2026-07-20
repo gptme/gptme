@@ -117,6 +117,7 @@ PROVIDER_API_KEYS: dict[str, str] = {
 
 # Track subscription provider initialization
 _subscription_initialized = False
+_grok_subscription_initialized = False
 
 
 # PEP 562 lazy attribute resolution for provider-specific functions.
@@ -134,6 +135,9 @@ _LAZY_PROVIDER_ATTRS = {
     "chat_subscription": (".llm_openai_subscription", "chat"),
     "stream_subscription": (".llm_openai_subscription", "stream"),
     "init_subscription": (".llm_openai_subscription", "init"),
+    "chat_grok_subscription": (".llm_grok_subscription", "chat"),
+    "stream_grok_subscription": (".llm_grok_subscription", "stream"),
+    "init_grok_subscription": (".llm_grok_subscription", "init"),
 }
 
 
@@ -155,7 +159,7 @@ def init_llm(provider: Provider):
     Args:
         provider: Provider name (built-in or custom)
     """
-    global _subscription_initialized
+    global _subscription_initialized, _grok_subscription_initialized
     config = get_config()
 
     # Provider modules are imported lazily per-branch: each pulls in its SDK
@@ -190,6 +194,10 @@ def init_llm(provider: Provider):
         from .llm_openai_subscription import init as init_subscription
 
         _subscription_initialized = init_subscription(config)
+    elif provider == "grok-subscription" and not _grok_subscription_initialized:
+        from .llm_grok_subscription import init as init_grok_subscription
+
+        _grok_subscription_initialized = init_grok_subscription(config)
     elif (
         plugin := get_provider_plugin(str(provider))
     ) is not None and not has_openai_client(provider):
@@ -481,6 +489,13 @@ def _chat_complete(
             messages, _get_base_model(model), tools, max_tokens=max_tokens
         )
         return content, {"model": model}
+    if provider == "grok-subscription":
+        from .llm_grok_subscription import chat as chat_grok_subscription
+
+        content = chat_grok_subscription(
+            messages, _get_base_model(model), tools, max_tokens=max_tokens
+        )
+        return content, {"model": model}
     if provider == "mock":
         from .llm_mock import chat as chat_mock
 
@@ -620,6 +635,13 @@ def _stream(
         from .llm_openai_subscription import stream as stream_subscription
 
         gen = stream_subscription(
+            messages, _get_base_model(model), tools, max_tokens=max_tokens
+        )
+        return _StreamWithMetadata(gen, model)
+    if provider == "grok-subscription":
+        from .llm_grok_subscription import stream as stream_grok_subscription
+
+        gen = stream_grok_subscription(
             messages, _get_base_model(model), tools, max_tokens=max_tokens
         )
         return _StreamWithMetadata(gen, model)
@@ -1044,6 +1066,12 @@ def list_available_providers() -> list[tuple[Provider, str]]:
     if _token_path.exists() and "openai-subscription" not in seen:
         available.append((cast(Provider, "openai-subscription"), "oauth"))
         seen.add("openai-subscription")
+
+    # grok-subscription: uses tokens from the grok CLI (~/.grok/auth.json)
+    _grok_auth_path = Path.home() / ".grok" / "auth.json"
+    if _grok_auth_path.exists() and "grok-subscription" not in seen:
+        available.append((cast(Provider, "grok-subscription"), "grok-cli"))
+        seen.add("grok-subscription")
 
     # Include plugin providers that have their API key configured
     for plugin_name, env_var in get_plugin_api_keys().items():

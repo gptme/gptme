@@ -352,6 +352,21 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "preferred_edit_format": "whole",
         },
     },
+    # SuperGrok subscription via the grok CLI proxy (cli-chat-proxy.grok.com)
+    # Uses the same token stored by `grok auth login`. Price listed as $0
+    # (subscription-backed; no per-token charge beyond the subscription fee).
+    "grok-subscription": {
+        "grok-4.5": {
+            "context": 500_000,
+            "max_output": 100_000,
+            "price_input": 0,
+            "price_output": 0,
+            "supports_reasoning": True,
+            "supports_vision": True,
+            "preferred_edit_format": "diff",
+            "default_tool_format": "tool",
+        },
+    },
     "openrouter": {
         "qwen/qwen3-max": {
             "context": 256_000,

@@ -51,6 +51,7 @@ MODEL_ALIASES: dict[str, dict[str, str]] = {
 BuiltinProvider = Literal[
     "openai",
     "openai-subscription",
+    "grok-subscription",
     "anthropic",
     "azure",
     "openrouter",
