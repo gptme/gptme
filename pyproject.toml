@@ -191,8 +191,6 @@ dspy = ["dspy", "sentence-transformers"]
 swebench = ["datasets", "swebench"]  # narrow install for the SWE-bench public benchmark lane
 eval = ["dspy", "sentence-transformers", "datasets", "swebench", "terminal-bench"]
 all = [
-    # docs (HTML/XML + PDF)
-    "lxml", "pypdf",
     # server
     "flask", "flask-cors", "flask-compress", "pydantic",
     # acp
