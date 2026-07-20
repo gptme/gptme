@@ -368,6 +368,7 @@ def _init_openai_client(
     api_key: str,
     base_url: str | None = None,
     timeout: float | _UnsetTimeout | NotGiven | None = None,
+    default_headers: dict[str, str] | None = None,
 ) -> None:
     """Internal helper to create and register an OpenAI client for a provider.
 
@@ -404,6 +405,7 @@ def _init_openai_client(
             api_key=api_key,
             base_url=base_url or None,
             timeout=timeout,
+            **({"default_headers": default_headers} if default_headers else {}),
         )
 
 
@@ -517,13 +519,18 @@ def init(provider: Provider, config: Config):
         )
     elif provider == "grok-subscription":
         # SuperGrok subscription: OAuth token from grok CLI or gptme auth flow.
-        # Uses the same xAI API endpoint as the ``xai`` provider, but with an
-        # OAuth access token instead of an API key.
-        from .llm_grok_subscription import XAI_BASE_URL, get_auth
+        # Routes through the grok-build subscription proxy (cli-chat-proxy.grok.com)
+        # which requires the api:access scope in the JWT — same endpoint used by
+        # other SuperGrok harnesses (openclaw, pi, etc.).
+        from .llm_grok_subscription import GROK_CLIENT_VERSION, GROK_PROXY_URL, get_auth
 
         auth = get_auth()
         _init_openai_client(
-            provider, api_key=auth.access_token, base_url=XAI_BASE_URL, timeout=timeout
+            provider,
+            api_key=auth.access_token,
+            base_url=GROK_PROXY_URL,
+            default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
+            timeout=timeout,
         )
         return  # _init_openai_client already assigned clients[provider]
     elif provider == "groq":

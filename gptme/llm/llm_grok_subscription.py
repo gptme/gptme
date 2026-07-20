@@ -1,11 +1,13 @@
 """Grok Subscription Provider.
 
 Enables use of SuperGrok/SuperGrok-Heavy subscriptions with gptme through
-xAI's OpenAI-compatible API, using OAuth tokens from the grok CLI.
+the grok-build CLI proxy, using OAuth tokens from the grok CLI.
 
 The grok CLI (https://grok.com) stores OAuth tokens at ~/.grok/auth.json.
-This provider reads those tokens and uses them to authenticate with
-xAI's API (api.x.ai), which accepts the same JWT access tokens.
+This provider reads those tokens and authenticates with the grok-build
+subscription proxy (cli-chat-proxy.grok.com), which is the same endpoint
+used by other SuperGrok harnesses (e.g. openclaw, pi). The access token
+scope ``api:access`` explicitly authorizes this endpoint.
 
 Prerequisite: Install and authenticate the grok CLI first:
     1. Install: download from https://grok.com/download or ``pip install grok-cli``
@@ -19,7 +21,7 @@ NOTICE: For personal development use with your own SuperGrok subscription.
 For production or multi-user applications, use the xAI Platform API (``xai``
 provider) with an API key from console.x.ai.
 
-Endpoint: https://api.x.ai/v1 (OpenAI-compatible Chat Completions)
+Endpoint: https://cli-chat-proxy.grok.com/v1 (subscription proxy, OpenAI-compatible)
 """
 
 import json
@@ -44,8 +46,11 @@ OAUTH_CALLBACK_PORT = (
 )
 OAUTH_SCOPES = "openid profile email offline_access grok-cli:access api:access"
 
-# xAI API base URL (OpenAI-compatible)
-XAI_BASE_URL = "https://api.x.ai/v1"
+# Subscription proxy endpoint (used by SuperGrok harnesses; requires api:access scope)
+GROK_PROXY_URL = "https://cli-chat-proxy.grok.com/v1"
+
+# Minimum grok CLI version accepted by the proxy; passed via x-grok-client-version header
+GROK_CLIENT_VERSION = "0.1.202"
 
 # grok CLI auth storage key format: "{issuer}::{client_id}"
 GROK_AUTH_KEY = f"{OAUTH_ISSUER}::{OAUTH_CLIENT_ID}"
@@ -308,7 +313,8 @@ def get_auth(timeout: float | tuple[float, float] = 30) -> SubscriptionAuth:
                     _init_openai_client(
                         "grok-subscription",
                         api_key=_auth.access_token,
-                        base_url=XAI_BASE_URL,
+                        base_url=GROK_PROXY_URL,
+                        default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
                     )
                 except Exception:
                     pass  # client may not be set up yet; init() will handle it
@@ -379,7 +385,8 @@ def init(config: Any) -> bool:
         _init_openai_client(
             "grok-subscription",
             api_key=_auth.access_token,
-            base_url=XAI_BASE_URL,
+            base_url=GROK_PROXY_URL,
+            default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
         )
         logger.info("Grok subscription provider initialized with stored tokens")
     else:

@@ -332,7 +332,8 @@ def test_init_registers_openai_client(tmp_path):
     call_args = mock_init.call_args
     assert call_args.args[0] == "grok-subscription"
     assert call_args.kwargs["api_key"] == "cli-access-token"
-    assert "api.x.ai" in call_args.kwargs["base_url"]
+    assert "cli-chat-proxy.grok.com" in call_args.kwargs["base_url"]
+    assert call_args.kwargs.get("default_headers", {}).get("x-grok-client-version")
 
     mod._auth = None
 

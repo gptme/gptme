@@ -450,13 +450,16 @@ def _chat_complete(
     # This mirrors the same guard in _stream() so non-streaming requests
     # don't keep sending an expired token and receiving 401 responses.
     if provider == "grok-subscription":
-        from .llm_grok_subscription import XAI_BASE_URL, get_auth
+        from .llm_grok_subscription import GROK_CLIENT_VERSION, GROK_PROXY_URL, get_auth
         from .llm_openai import _init_openai_client
 
         try:
             auth = get_auth()
             _init_openai_client(
-                "grok-subscription", api_key=auth.access_token, base_url=XAI_BASE_URL
+                "grok-subscription",
+                api_key=auth.access_token,
+                base_url=GROK_PROXY_URL,
+                default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
             )
         except Exception:
             pass  # let chat_openai surface the auth error naturally
@@ -601,13 +604,16 @@ def _stream(
     # Without this, a long-running CLI or server reuses a stale client and
     # receives 401 responses until the process is restarted.
     if provider == "grok-subscription":
-        from .llm_grok_subscription import XAI_BASE_URL, get_auth
+        from .llm_grok_subscription import GROK_CLIENT_VERSION, GROK_PROXY_URL, get_auth
         from .llm_openai import _init_openai_client
 
         try:
             auth = get_auth()
             _init_openai_client(
-                "grok-subscription", api_key=auth.access_token, base_url=XAI_BASE_URL
+                "grok-subscription",
+                api_key=auth.access_token,
+                base_url=GROK_PROXY_URL,
+                default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
             )
         except Exception:
             pass  # let stream_openai surface the auth error naturally
