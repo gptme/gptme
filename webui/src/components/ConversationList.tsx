@@ -52,6 +52,24 @@ function writeSortPreference(value: SortBy): void {
   }
 }
 
+const SHOW_EXTERNAL_KEY = 'gptme:show-external-sessions';
+
+function readShowExternal(): boolean {
+  try {
+    return localStorage.getItem(SHOW_EXTERNAL_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writeShowExternal(value: boolean): void {
+  try {
+    localStorage.setItem(SHOW_EXTERNAL_KEY, value ? 'true' : 'false');
+  } catch {
+    // Silently ignore storage errors
+  }
+}
+
 interface Props {
   conversations: ConversationSummary[];
   onSelect: (id: string, serverId?: string) => void;
@@ -97,6 +115,13 @@ export const ConversationList: FC<Props> = ({
   const handleSortChange = (value: SortBy) => {
     setSortBy(value);
     writeSortPreference(value);
+  };
+
+  const [showExternal, setShowExternal] = useState(readShowExternal);
+  const handleToggleExternal = () => {
+    const next = !showExternal;
+    writeShowExternal(next);
+    setShowExternal(next);
   };
 
   // Separately track local star state for optimistic UI updates.
@@ -387,35 +412,60 @@ export const ConversationList: FC<Props> = ({
               </Button>
             )}
           </div>
-          {/* Star filter toggle + sort control */}
-          {realConversations.length > 0 && (
+          {/* Star filter toggle + sort control + external sessions toggle */}
+          {(realConversations.length > 0 ||
+            (onSelectExternal && externalSessions && externalSessions.length > 0)) && (
             <div className="flex items-center justify-between px-1 pt-1">
-              <button
-                aria-label={showStarredOnly ? 'Show all conversations' : 'Show starred only'}
-                aria-pressed={showStarredOnly}
-                className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors ${
-                  showStarredOnly
-                    ? 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                onClick={() => setShowStarredOnly((v) => !v)}
-              >
-                <Star className="h-3 w-3" fill={showStarredOnly ? 'currentColor' : 'none'} />
-                {showStarredOnly ? 'Starred' : 'All'}
-              </button>
-              <button
-                aria-label={`Sort conversations: ${sortBy === 'recent' ? 'Recent' : sortBy === 'longest' ? 'Longest' : 'A-Z'} (click to cycle)`}
-                className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                onClick={() => {
-                  const next: SortBy =
-                    sortBy === 'recent' ? 'longest' : sortBy === 'longest' ? 'alpha' : 'recent';
-                  handleSortChange(next);
-                }}
-                title={`Sort: ${sortBy === 'recent' ? 'Recent' : sortBy === 'longest' ? 'Longest' : 'A-Z'} (click to cycle)`}
-              >
-                <ArrowUpDown className="h-3 w-3" />
-                {sortBy === 'recent' ? 'Recent' : sortBy === 'longest' ? 'Longest' : 'A-Z'}
-              </button>
+              {realConversations.length > 0 ? (
+                <button
+                  aria-label={showStarredOnly ? 'Show all conversations' : 'Show starred only'}
+                  aria-pressed={showStarredOnly}
+                  className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors ${
+                    showStarredOnly
+                      ? 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  onClick={() => setShowStarredOnly((v) => !v)}
+                >
+                  <Star className="h-3 w-3" fill={showStarredOnly ? 'currentColor' : 'none'} />
+                  {showStarredOnly ? 'Starred' : 'All'}
+                </button>
+              ) : (
+                <div />
+              )}
+              <div className="flex items-center gap-1">
+                {realConversations.length > 0 && (
+                  <button
+                    aria-label={`Sort conversations: ${sortBy === 'recent' ? 'Recent' : sortBy === 'longest' ? 'Longest' : 'A-Z'} (click to cycle)`}
+                    className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                    onClick={() => {
+                      const next: SortBy =
+                        sortBy === 'recent' ? 'longest' : sortBy === 'longest' ? 'alpha' : 'recent';
+                      handleSortChange(next);
+                    }}
+                    title={`Sort: ${sortBy === 'recent' ? 'Recent' : sortBy === 'longest' ? 'Longest' : 'A-Z'} (click to cycle)`}
+                  >
+                    <ArrowUpDown className="h-3 w-3" />
+                    {sortBy === 'recent' ? 'Recent' : sortBy === 'longest' ? 'Longest' : 'A-Z'}
+                  </button>
+                )}
+                {onSelectExternal && externalSessions && externalSessions.length > 0 && (
+                  <button
+                    aria-label={showExternal ? 'Hide external sessions' : 'Show external sessions'}
+                    aria-pressed={showExternal}
+                    className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors ${
+                      showExternal
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                    onClick={handleToggleExternal}
+                    title="Toggle external sessions (Claude Code, Codex, etc.)"
+                  >
+                    <Layers className="h-3 w-3" />
+                    Ext
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -603,8 +653,8 @@ export const ConversationList: FC<Props> = ({
         </div>
       )}
 
-      {/* External sessions section — compact view of cross-harness sessions */}
-      {externalSessions && externalSessions.length > 0 && onSelectExternal && (
+      {/* External sessions section — compact view of cross-harness sessions (toggle-gated, off by default) */}
+      {showExternal && externalSessions && externalSessions.length > 0 && onSelectExternal && (
         <div>
           <div className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-muted-foreground">
             <Layers className="h-3 w-3" />
