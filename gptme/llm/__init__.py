@@ -95,6 +95,7 @@ PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "gemini": "gemini/gemini-2.0-flash",
     "groq": "groq/llama-3.3-70b-versatile",
     "xai": "xai/grok-3-mini",
+    "grok-subscription": "grok-subscription/grok-4.5",
     "deepseek": "deepseek/deepseek-chat",
     "moonshot": "moonshot/kimi-k2.6",
 }
@@ -444,7 +445,25 @@ def _chat_complete(
             via_gptme=True,
         )
 
-    # Providers with native constrained decoding support
+    # grok-subscription: refresh the cached OpenAI client if the token is
+    # about to expire before delegating to the shared OpenAI chat path.
+    # This mirrors the same guard in _stream() so non-streaming requests
+    # don't keep sending an expired token and receiving 401 responses.
+    if provider == "grok-subscription":
+        from .llm_grok_subscription import GROK_CLIENT_VERSION, GROK_PROXY_URL, get_auth
+        from .llm_openai import _init_openai_client
+
+        try:
+            auth = get_auth()
+            _init_openai_client(
+                "grok-subscription",
+                api_key=auth.access_token,
+                base_url=GROK_PROXY_URL,
+                default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
+            )
+        except Exception:
+            pass  # let chat_openai surface the auth error naturally
+
     # Custom providers and plugin providers are OpenAI-compatible, route through OpenAI path
     if (
         provider in PROVIDERS_OPENAI
@@ -579,6 +598,25 @@ def _stream(
             via_gptme=True,
         )
         return _StreamWithMetadata(gen, model, partial=gptme_partial)
+
+    # grok-subscription: refresh the cached OpenAI client if the token is
+    # about to expire before delegating to the shared OpenAI stream path.
+    # Without this, a long-running CLI or server reuses a stale client and
+    # receives 401 responses until the process is restarted.
+    if provider == "grok-subscription":
+        from .llm_grok_subscription import GROK_CLIENT_VERSION, GROK_PROXY_URL, get_auth
+        from .llm_openai import _init_openai_client
+
+        try:
+            auth = get_auth()
+            _init_openai_client(
+                "grok-subscription",
+                api_key=auth.access_token,
+                base_url=GROK_PROXY_URL,
+                default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
+            )
+        except Exception:
+            pass  # let stream_openai surface the auth error naturally
 
     # Custom providers and plugin providers are OpenAI-compatible, route through OpenAI path
     if (
@@ -1044,6 +1082,15 @@ def list_available_providers() -> list[tuple[Provider, str]]:
     if _token_path.exists() and "openai-subscription" not in seen:
         available.append((cast(Provider, "openai-subscription"), "oauth"))
         seen.add("openai-subscription")
+
+    # Grok subscription: check both gptme-stored tokens and grok CLI auth file
+    _grok_token_path = _config_dir / "gptme" / "oauth" / "grok_subscription.json"
+    _grok_cli_path = Path.home() / ".grok" / "auth.json"
+    if (
+        _grok_token_path.exists() or _grok_cli_path.exists()
+    ) and "grok-subscription" not in seen:
+        available.append((cast(Provider, "grok-subscription"), "oauth"))
+        seen.add("grok-subscription")
 
     # Include plugin providers that have their API key configured
     for plugin_name, env_var in get_plugin_api_keys().items():
