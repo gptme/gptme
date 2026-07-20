@@ -659,7 +659,7 @@ def main(
         default_models.extend(
             [
                 "openrouter/meta-llama/llama-3.1-70b-instruct@xml",
-                # "openrouter/meta-llama/llama-3.1-405b-instruct",
+                # "openrouter/meta-llama/llama-3.3-70b-instruct",
             ]
         )
     if config.get_env("GEMINI_API_KEY"):

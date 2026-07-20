@@ -90,7 +90,7 @@ def _drain_toolbreak_stream(stream: "_StreamWithMetadata") -> None:
 PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "anthropic/claude-haiku-4-5",
     "openai": "openai/gpt-4o-mini",
-    "openrouter": "openrouter/anthropic/claude-haiku-4-5",
+    "openrouter": "openrouter/anthropic/claude-haiku-4.5",
     "requesty": "requesty/openai/gpt-4o-mini",
     "gemini": "gemini/gemini-2.0-flash",
     "groq": "groq/llama-3.3-70b-versatile",
