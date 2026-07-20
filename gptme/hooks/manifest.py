@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -44,6 +45,10 @@ def register_manifest_hooks(manifest_dir: Path) -> None:
     tool-call granularity.
     """
     manifest_dir.mkdir(parents=True, exist_ok=True)
+    # Resolve session_id once at registration time so all records in this session share
+    # the same identifier. Fallback generates a unique id per registration to avoid
+    # overwriting files from other anonymous sessions in the same manifest-dir.
+    session_id = os.environ.get("GPTME_SESSION_ID") or f"anon-{uuid.uuid4().hex[:8]}"
     # Mutable counter captured by both closures so pre and post share the same seq.
     seq: list[int] = [0]
 
@@ -54,7 +59,6 @@ def register_manifest_hooks(manifest_dir: Path) -> None:
             yield from ()
             return
         seq[0] += 1
-        session_id = os.environ.get("GPTME_SESSION_ID", "unknown")
         model = os.environ.get("GPTME_MODEL", os.environ.get("CC_MODEL", "unknown"))
         args_str = json.dumps(data.tool_use.args, default=str)
         record: dict = {
@@ -81,7 +85,6 @@ def register_manifest_hooks(manifest_dir: Path) -> None:
         if data.tool_use is None:
             yield from ()
             return
-        session_id = os.environ.get("GPTME_SESSION_ID", "unknown")
         model = os.environ.get("GPTME_MODEL", os.environ.get("CC_MODEL", "unknown"))
         result_text = "\n".join(
             m.content
