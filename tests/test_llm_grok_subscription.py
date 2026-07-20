@@ -61,8 +61,9 @@ def test_parse_expires_at_iso_z():
 
 
 def test_parse_expires_at_invalid_falls_back():
+    # Invalid expiry should return 0 (already expired) to force immediate refresh
     ts = _parse_expires_at("not-a-date")
-    assert ts > time.time()
+    assert ts == 0.0
 
 
 # ── _load_grok_cli_tokens ────────────────────────────────────────────────────

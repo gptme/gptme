@@ -433,8 +433,14 @@ def auth_grok_subscription():
     threading.Thread(target=_open, daemon=True).start()
     console.print(f"   Waiting for callback on port {OAUTH_CALLBACK_PORT}...")
 
+    _auth_deadline = time.time() + 300  # 5-minute overall timeout
     try:
         while "code" not in result and "error" not in result:
+            if time.time() > _auth_deadline:
+                console.print(
+                    "\n[red bold]✗ Authentication timed out after 5 minutes.[/red bold]"
+                )
+                sys.exit(1)
             server.handle_request()
     finally:
         server.server_close()

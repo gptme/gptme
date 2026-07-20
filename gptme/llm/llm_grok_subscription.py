@@ -85,7 +85,7 @@ def _parse_expires_at(expires_at_str: str) -> float:
         dt = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
         return dt.timestamp()
     except (ValueError, AttributeError):
-        return time.time() + 21600  # default 6h
+        return 0.0  # treat unparseable expiry as already-expired to force refresh
 
 
 def _load_grok_cli_tokens() -> SubscriptionAuth | None:
@@ -106,6 +106,12 @@ def _load_grok_cli_tokens() -> SubscriptionAuth | None:
         if entry is None:
             for key, val in data.items():
                 if "auth.x.ai" in key and isinstance(val, dict):
+                    logger.warning(
+                        "Expected key %r not found in grok auth file; "
+                        "falling back to %r — token may belong to a different client",
+                        GROK_AUTH_KEY,
+                        key,
+                    )
                     entry = val
                     break
 
@@ -260,6 +266,17 @@ def get_auth(timeout: float | tuple[float, float] = 30) -> SubscriptionAuth:
                 if is_cli:
                     _update_grok_cli_tokens(new_auth)
                 _auth = new_auth
+                # Re-initialize the cached OpenAI client so it uses the new token
+                try:
+                    from .llm_openai import _init_openai_client
+
+                    _init_openai_client(
+                        "grok-subscription",
+                        api_key=_auth.access_token,
+                        base_url=XAI_BASE_URL,
+                    )
+                except Exception:
+                    pass  # client may not be set up yet; init() will handle it
                 return _auth
             except Exception as e:
                 logger.warning(f"Token refresh failed ({source_name}): {e}")
