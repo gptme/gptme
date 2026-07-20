@@ -80,9 +80,13 @@ _auth: SubscriptionAuth | None = None
 def _parse_expires_at(expires_at_str: str) -> float:
     """Parse ISO 8601 expiry string to Unix timestamp."""
     try:
+        import re
         from datetime import datetime
 
-        dt = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
+        # Python's fromisoformat supports up to 6 decimal places (microseconds).
+        # Grok CLI stores nanoseconds (9 digits) — truncate the excess.
+        normalized = re.sub(r"(\.\d{6})\d+", r"\1", expires_at_str)
+        dt = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
         return dt.timestamp()
     except (ValueError, AttributeError):
         return 0.0  # treat unparseable expiry as already-expired to force refresh

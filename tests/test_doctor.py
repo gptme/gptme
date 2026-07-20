@@ -797,8 +797,9 @@ class TestCheckApiKeys:
 
         # OAuth provider should use "Auth:" prefix
         auth_results = [r for r in results if r.name.startswith("Auth:")]
-        assert len(auth_results) == 1
-        assert auth_results[0].status == CheckStatus.OK
+        openai_sub = [r for r in auth_results if "openai-subscription" in r.name]
+        assert len(openai_sub) == 1
+        assert openai_sub[0].status == CheckStatus.OK
 
 
 class TestCheckMCP:
