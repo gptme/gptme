@@ -1,10 +1,18 @@
 """Tests for gptme.util.safety — local heuristic deceptive content detector."""
 
+from unittest.mock import patch
+
+import pytest
+
 from gptme.util.safety import (
+    CALIBRATED_JUDGE_MODEL,
+    JUDGE_THRESHOLD,
+    JudgeAnnotation,
     SafetyReport,
     SegmentScore,
     check_messages,
     check_text,
+    run_judge,
 )
 
 
@@ -201,3 +209,231 @@ def test_report_high_overall_risk_flag():
     )
     report.segments.append(seg)
     assert "HIGH_OVERALL_RISK" in report.flags or "CRITICAL_SEGMENT" in report.flags
+
+
+# ── JudgeAnnotation ────────────────────────────────────────────────────────
+
+
+def test_judge_annotation_constants():
+    assert CALIBRATED_JUDGE_MODEL == "openrouter/anthropic/claude-haiku-4-5"
+    assert JUDGE_THRESHOLD == 0.5
+
+
+def test_judge_annotation_label_clean():
+    ann = JudgeAnnotation(score=0.2, reasoning="looks clean", model="test-model")
+    label = ann.label()
+    assert "score=0.200" in label
+    assert "ok" in label
+    assert not ann.failed
+
+
+def test_judge_annotation_label_high():
+    ann = JudgeAnnotation(score=0.8, reasoning="suspicious", model="test-model")
+    label = ann.label()
+    assert "HIGH" in label
+
+
+def test_judge_annotation_label_failed():
+    ann = JudgeAnnotation(
+        score=None, reasoning="timeout", model="test-model", failed=True
+    )
+    label = ann.label()
+    assert "failed" in label.lower()
+
+
+def test_judge_annotation_to_dict_has_advisory_marker():
+    ann = JudgeAnnotation(score=0.3, reasoning="ok", model="test-model")
+    d = ann.to_dict()
+    assert d["advisory"] is True
+    assert d["score"] == 0.3
+    assert d["failed"] is False
+
+
+# ── run_judge (mocked subprocess) ────────────────────────────────────────
+
+
+def test_run_judge_success():
+    fake_output = '{"score": 0.1, "reasoning": "Text appears factual."}'
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = fake_output
+        mock_run.return_value.stderr = ""
+        result = run_judge("The sky is blue.", model="test-model")
+    assert result.failed is False
+    assert result.score == 0.1
+    assert "factual" in result.reasoning
+
+
+def test_run_judge_invocation_failure():
+    with patch("subprocess.run", side_effect=FileNotFoundError("gptme-util not found")):
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "invocation failed" in result.reasoning
+
+
+def test_run_judge_oserror():
+    """PermissionError (non-executable binary) must not abort export."""
+    with patch("subprocess.run", side_effect=PermissionError("Permission denied")):
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "invocation failed" in result.reasoning
+
+
+def test_run_judge_nonzero_exit_with_stderr_json():
+    """Nonzero exit must be a failure even when stderr looks like JSON."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = '{"score": 0.1, "reasoning": "leaked"}'
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "subprocess failed" in result.reasoning
+
+
+def test_run_judge_no_json_in_output():
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "Sorry, I cannot help with that."
+        mock_run.return_value.stderr = ""
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "no JSON" in result.reasoning
+
+
+def test_run_judge_parse_error():
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = '{"score": "not-a-float", "reasoning": "x"}'
+        mock_run.return_value.stderr = ""
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+
+
+def test_run_judge_json_with_braces_in_reasoning():
+    """Valid JSON with braces inside a string value must parse successfully."""
+    output = '{"score": 0.2, "reasoning": "The claim cites {citation} incorrectly."}'
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = output
+        mock_run.return_value.stderr = ""
+        result = run_judge("some text", model="test-model")
+    assert result.failed is False
+    assert result.score == pytest.approx(0.2)
+    assert "{citation}" in result.reasoning
+
+
+def test_run_judge_score_below_zero():
+    """Score < 0 must produce a failed annotation."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = '{"score": -1, "reasoning": "bug"}'
+        mock_run.return_value.stderr = ""
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "out of [0, 1]" in result.reasoning
+
+
+def test_run_judge_score_boolean_false():
+    """Boolean false score must be rejected (float(False)==0.0 would otherwise pass)."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = '{"score": false, "reasoning": "wrong schema"}'
+        mock_run.return_value.stderr = ""
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "boolean" in result.reasoning
+
+
+def test_run_judge_score_boolean_true():
+    """Boolean true score must be rejected (float(True)==1.0 would otherwise pass)."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = '{"score": true, "reasoning": "wrong schema"}'
+        mock_run.return_value.stderr = ""
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "boolean" in result.reasoning
+
+
+def test_run_judge_score_above_one():
+    """Score > 1 must produce a failed annotation."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = '{"score": 2.5, "reasoning": "bug"}'
+        mock_run.return_value.stderr = ""
+        result = run_judge("some text", model="test-model")
+    assert result.failed is True
+    assert result.score is None
+    assert "out of [0, 1]" in result.reasoning
+
+
+# ── check_messages with judge ─────────────────────────────────────────────
+
+
+def test_check_messages_with_judge_annotates_segments():
+    msgs = [_Msg("assistant", "The answer is 42.")]
+    fake_ann = JudgeAnnotation(score=0.05, reasoning="clean", model="test-model")
+    with patch("gptme.util.safety.run_judge", return_value=fake_ann):
+        report = check_messages(msgs, source="test", judge_model="test-model")
+    assert report.segments[0].judge_annotation is not None
+    assert report.segments[0].judge_annotation.score == 0.05
+    assert "JUDGE_FAILURES" not in report.flags
+
+
+def test_check_messages_judge_failures_flag():
+    msgs = [_Msg("assistant", "The answer is 42."), _Msg("assistant", "Right.")]
+    failed_ann = JudgeAnnotation(
+        score=None, reasoning="timeout", model="m", failed=True
+    )
+    with patch("gptme.util.safety.run_judge", return_value=failed_ann):
+        report = check_messages(msgs, source="test", judge_model="test-model")
+    assert "JUDGE_FAILURES" in report.flags
+
+
+def test_check_messages_no_judge_by_default():
+    msgs = [_Msg("assistant", "The answer is 42.")]
+    with patch("gptme.util.safety.run_judge") as mock_judge:
+        report = check_messages(msgs, source="test")
+    mock_judge.assert_not_called()
+    assert report.segments[0].judge_annotation is None
+
+
+def test_check_messages_judge_in_to_dict():
+    msgs = [_Msg("assistant", "Some text.")]
+    fake_ann = JudgeAnnotation(score=0.3, reasoning="ok", model="test-model")
+    with patch("gptme.util.safety.run_judge", return_value=fake_ann):
+        report = check_messages(msgs, source="test", judge_model="test-model")
+    d = report.to_dict()
+    seg_d = d["segments"][0]
+    assert "judge" in seg_d
+    assert seg_d["judge"]["advisory"] is True
+    assert seg_d["judge"]["score"] == 0.3
+
+
+def test_check_messages_judge_in_to_text():
+    msgs = [_Msg("assistant", "I think this might be a hallucination.")]
+    fake_ann = JudgeAnnotation(
+        score=0.7, reasoning="suspicious claim detected", model="test-model"
+    )
+    with patch("gptme.util.safety.run_judge", return_value=fake_ann):
+        report = check_messages(msgs, source="test", judge_model="test-model")
+    text = report.to_text()
+    assert "[advisory]" in text
+    assert "suspicious claim" in text
+
+
+def test_check_text_with_judge():
+    fake_ann = JudgeAnnotation(score=0.1, reasoning="clean", model="test-model")
+    with patch("gptme.util.safety.run_judge", return_value=fake_ann):
+        report = check_text(
+            "The cat sat on the mat.", source="t", judge_model="test-model"
+        )
+    assert report.segments[0].judge_annotation is not None
