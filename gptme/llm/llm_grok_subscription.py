@@ -267,6 +267,134 @@ def _refresh_access_token(
     return auth
 
 
+def oauth_authenticate() -> SubscriptionAuth:
+    """Authenticate via xAI OAuth PKCE flow and return tokens.
+
+    If valid grok CLI tokens already exist (~/.grok/auth.json), they are
+    returned immediately without opening a browser.  Otherwise, the xAI
+    PKCE flow opens the user's browser and waits for the OAuth callback on
+    localhost:{OAUTH_CALLBACK_PORT}.
+    """
+    import base64
+    import hashlib
+    import http.server
+    import secrets
+    import threading
+    import time
+    import webbrowser
+    from urllib.parse import parse_qs, urlencode, urlparse
+
+    cli_auth = _load_grok_cli_tokens()
+    if cli_auth is not None and time.time() < cli_auth.expires_at - 300:
+        return cli_auth
+
+    code_verifier = secrets.token_urlsafe(32)
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    state = secrets.token_urlsafe(16)
+    callback_url = f"http://localhost:{OAUTH_CALLBACK_PORT}/auth/callback"
+
+    auth_params = {
+        "client_id": OAUTH_CLIENT_ID,
+        "redirect_uri": callback_url,
+        "response_type": "code",
+        "scope": OAUTH_SCOPES,
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    auth_url = f"{OAUTH_AUTH_URL}?{urlencode(auth_params)}"
+
+    result: dict = {}
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            received_state = params.get("state", [None])[0]
+            if received_state != state:
+                result["error"] = "Invalid state (possible CSRF)"
+                self._respond(400, "Security error: invalid state.")
+                return
+            if "code" in params:
+                result["code"] = params["code"][0]
+                self._respond(
+                    200, "Authentication successful. You can close this window."
+                )
+            elif "error" in params:
+                result["error"] = params.get("error_description", params["error"])[0]
+                self._respond(400, f"Error: {result['error']}")
+
+        def _respond(self, status: int, msg: str) -> None:
+            body = f"<html><body><p>{msg}</p></body></html>".encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(body)
+
+    try:
+        server = http.server.HTTPServer(("127.0.0.1", OAUTH_CALLBACK_PORT), _Handler)
+        server.timeout = 120
+    except OSError as e:
+        raise RuntimeError(
+            f"Could not start callback server on port {OAUTH_CALLBACK_PORT}: {e}"
+        ) from e
+
+    logger.info("Opening browser for xAI authentication (url: %s)", auth_url)
+
+    def _open() -> None:
+        time.sleep(0.5)
+        webbrowser.open(auth_url)
+
+    threading.Thread(target=_open, daemon=True).start()
+
+    deadline = time.time() + 300
+    try:
+        while "code" not in result and "error" not in result:
+            if time.time() > deadline:
+                raise TimeoutError("xAI authentication timed out after 5 minutes.")
+            server.handle_request()
+    finally:
+        server.server_close()
+
+    if "error" in result:
+        raise RuntimeError(f"xAI authentication failed: {result['error']}")
+
+    token_resp = requests.post(
+        OAUTH_TOKEN_URL,
+        data={
+            "client_id": OAUTH_CLIENT_ID,
+            "grant_type": "authorization_code",
+            "code": result["code"],
+            "redirect_uri": callback_url,
+            "code_verifier": code_verifier,
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=30,
+    )
+    if token_resp.status_code != 200:
+        raise RuntimeError(
+            f"Token exchange failed: {token_resp.status_code} {token_resp.text[:200]}"
+        )
+    tokens = token_resp.json()
+    access_token = tokens.get("access_token")
+    if not access_token:
+        raise RuntimeError("No access token in xAI response")
+    refresh_token = tokens.get("refresh_token")
+    expires_in = tokens.get("expires_in", 21600)
+
+    auth = SubscriptionAuth(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=time.time() + expires_in,
+    )
+    _save_tokens(auth)
+    return auth
+
+
 def get_auth(timeout: float | tuple[float, float] = 30) -> SubscriptionAuth:
     """Get a valid access token, loading or refreshing as needed.
 

@@ -791,10 +791,11 @@ def _choose_first_run_auth() -> str:
     console.print(
         "[bold]How would you like to connect?[/bold]\n"
         "  1. ChatGPT Plus/Pro subscription [dim](browser sign-in, no API key)[/dim]\n"
-        "  2. Provider API key [dim](OpenAI, Anthropic, OpenRouter, Gemini)[/dim]\n"
-        "  3. Custom OpenAI-compatible provider"
+        "  2. Grok SuperGrok subscription [dim](browser sign-in, no API key)[/dim]\n"
+        "  3. Provider API key [dim](OpenAI, Anthropic, OpenRouter, Gemini)[/dim]\n"
+        "  4. Custom OpenAI-compatible provider"
     )
-    return Prompt.ask("Connection", choices=["1", "2", "3"], default="1")
+    return Prompt.ask("Connection", choices=["1", "2", "3", "4"], default="1")
 
 
 def _show_api_key_sources() -> None:  # pragma: no cover
@@ -827,6 +828,24 @@ def _setup_openai_subscription() -> tuple[str, str]:
     return provider, "oauth"
 
 
+def _setup_grok_subscription() -> tuple[str, str]:
+    """Authenticate a Grok SuperGrok subscription and persist it as the default."""
+    from ..llm.llm_grok_subscription import oauth_authenticate
+
+    console.print(
+        "\n[bold]Opening your browser for Grok sign-in...[/bold]\n"
+        "[dim]This uses your existing SuperGrok subscription; no API key is needed.[/dim]\n"
+        "[dim]If you already have the grok CLI installed and ran 'grok login', "
+        "tokens are reused automatically.[/dim]"
+    )
+    oauth_authenticate()
+    provider = "grok-subscription"
+    model = f"{provider}/{get_recommended_model('grok-subscription')}"
+    set_config_value("models.default", model)
+    console.print(f"[green]✅ Grok subscription connected ({model})[/green]")
+    return provider, "oauth"
+
+
 def ask_for_api_key():  # pragma: no cover
     """Interactively configure subscription, API-key, or custom provider auth."""
     console.print(
@@ -840,7 +859,9 @@ def ask_for_api_key():  # pragma: no cover
     choice = _choose_first_run_auth()
     if choice == "1":
         return _setup_openai_subscription()
-    if choice == "3":
+    if choice == "2":
+        return _setup_grok_subscription()
+    if choice == "4":
         return _setup_custom_provider()
 
     _show_api_key_sources()
