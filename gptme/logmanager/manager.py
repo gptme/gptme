@@ -729,7 +729,76 @@ def prune_ephemeral_messages(msgs: list[Message]) -> list[Message]:
             assistant_turns_after += 1
 
     pruned = list(reversed(kept_reversed))
+
+    # Enforce tool call / tool result atomicity: dropping an assistant message
+    # that contains tool calls must also drop its companion tool results, and
+    # vice versa — otherwise the Responses API returns 400.
+    pruned = _drop_orphaned_tool_pairs(msgs, pruned)
+
     return _merge_consecutive_messages(pruned)
+
+
+def _drop_orphaned_tool_pairs(
+    original: list[Message],
+    pruned: list[Message],
+) -> list[Message]:
+    """Drop messages that form broken tool call / tool result pairs.
+
+    Two directions are handled, iterating until stable:
+
+    Case 1 — orphaned tool result: a system message with call_id whose
+    nearest non-system predecessor in *original* was dropped by the TTL
+    prune.  Keeping it without the function call causes Responses-API 400.
+
+    Case 2 — orphaned function call: an assistant message immediately
+    followed (in *original*) by one or more system messages with call_id,
+    where at least one of those results is missing from *pruned*.  Keeping
+    the function call without all its outputs also triggers 400.
+    """
+    if not any(m.call_id for m in original):
+        return pruned
+
+    orig_idx = {id(m): i for i, m in enumerate(original)}
+    kept_ids = {id(m) for m in pruned}
+
+    changed = True
+    while changed:
+        changed = False
+        to_remove: set[int] = set()
+
+        for msg in pruned:
+            mid = id(msg)
+            if mid not in kept_ids or mid in to_remove:
+                continue
+            idx = orig_idx.get(mid)
+            if idx is None:
+                continue
+
+            if msg.role == "system" and msg.call_id:
+                # Case 1: walk backward to find nearest non-system anchor.
+                for j in range(idx - 1, -1, -1):
+                    if original[j].role != "system":
+                        if id(original[j]) not in kept_ids:
+                            to_remove.add(mid)
+                            changed = True
+                        break
+
+            elif msg.role == "assistant":
+                # Case 2: walk forward to find immediately following tool
+                # results; if any are missing, drop the function call too.
+                for j in range(idx + 1, len(original)):
+                    nxt = original[j]
+                    if nxt.role == "system" and nxt.call_id:
+                        if id(nxt) not in kept_ids:
+                            to_remove.add(mid)
+                            changed = True
+                            break
+                    elif nxt.role != "system":
+                        break
+
+        kept_ids -= to_remove
+
+    return [m for m in pruned if id(m) in kept_ids]
 
 
 def _merge_consecutive_messages(msgs: list[Message]) -> list[Message]:

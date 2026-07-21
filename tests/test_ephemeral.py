@@ -11,12 +11,27 @@ from gptme.message import Message
 
 Role = Literal["system", "user", "assistant"]
 
+_TS = datetime(2025, 1, 1, tzinfo=timezone.utc)
+
 
 def _msg(role: Role, content: str = "hello", ttl: int | None = None) -> Message:
     return Message(
         role,
         content,
-        timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        timestamp=_TS,
+        ephemeral_ttl=ttl,
+    )
+
+
+def _tool_result(
+    call_id: str, content: str = "tool output", ttl: int | None = None
+) -> Message:
+    """Create a system message representing a tool call result."""
+    return Message(
+        "system",
+        content,
+        timestamp=_TS,
+        call_id=call_id,
         ephemeral_ttl=ttl,
     )
 
@@ -247,6 +262,110 @@ def test_ephemeral_cache_boundary_returns_index_before_first_ephemeral():
 def test_ephemeral_cache_boundary_none_when_first_msg_is_ephemeral():
     msgs = [_msg("user", ttl=1), _msg("assistant")]
     assert ephemeral_cache_boundary(msgs) is None
+
+
+# ---------------------------------------------------------------------------
+# Tool call / tool result atomicity (orphan guard)
+# Issue: prune_ephemeral_messages could drop one half of a pair, causing
+# Responses API 400 "No tool output found for function call call_XXX".
+# ---------------------------------------------------------------------------
+
+
+def test_expired_assistant_drops_companion_tool_results():
+    """Case 1: expired assistant message also drops its tool results.
+
+    The assistant message has ephemeral_ttl (e.g. from a thinking block) AND
+    is a function call turn.  When the TTL expires, the tool results must be
+    dropped too — keeping them without their anchor causes 400.
+    """
+    msgs = [
+        _msg("system", "System"),
+        _msg("user", "Q0"),
+        _msg(
+            "assistant", "<think>reasoning</think>", ttl=0
+        ),  # expires after 1 assistant turn
+        _tool_result("call_001", "result data"),
+        _msg("user", "Q1"),
+        _msg("assistant", "A1"),  # 1 turn after → assistant0 expires (TTL=0)
+    ]
+    result = prune_ephemeral_messages(msgs)
+    # Neither the expired assistant nor its tool result should survive
+    assert all(m.call_id is None for m in result), (
+        "tool result should be dropped along with its expired assistant anchor"
+    )
+    assert all("<think>" not in m.content for m in result)
+    _assert_no_consecutive_same_role(result)
+
+
+def test_expired_assistant_drops_multiple_companion_tool_results():
+    """Case 1 with multiple tool results from a single assistant turn."""
+    msgs = [
+        _msg("system", "System"),
+        _msg("user", "Q0"),
+        _msg("assistant", "<think>multi-tool</think>", ttl=0),
+        _tool_result("call_001", "result 1"),
+        _tool_result("call_002", "result 2"),
+        _msg("user", "Q1"),
+        _msg("assistant", "A1"),
+    ]
+    result = prune_ephemeral_messages(msgs)
+    assert all(m.call_id is None for m in result), (
+        "all tool results should be dropped with their expired anchor"
+    )
+    _assert_no_consecutive_same_role(result)
+
+
+def test_dropped_tool_result_drops_companion_function_call():
+    """Case 2: dropped tool result forces its function call to be dropped too.
+
+    If a tool result (system+call_id) has ephemeral_ttl and expires, the
+    companion assistant message (function call) must also be dropped.
+    Keeping a function call without its output causes 400.
+    """
+    msgs = [
+        _msg("system", "System"),
+        _msg("user", "Q0"),
+        _msg("assistant", "function call turn"),  # no TTL on the call itself
+        _tool_result("call_001", "result data", ttl=0),  # result expires
+        _msg("user", "Q1"),
+        _msg("assistant", "A1"),  # 1 turn after → tool result expires (TTL=0)
+    ]
+    result = prune_ephemeral_messages(msgs)
+    assert all(m.call_id is None for m in result), "tool result must be dropped"
+    contents = [m.content for m in result]
+    assert "function call turn" not in contents, (
+        "function call must be dropped when its tool result was dropped"
+    )
+    _assert_no_consecutive_same_role(result)
+
+
+def test_non_tool_call_assistant_not_dropped_by_orphan_guard():
+    """Orphan guard must not affect assistant messages that have no tool calls."""
+    msgs = [
+        _msg("system", "System"),
+        _msg("user", "Q0"),
+        _msg("assistant", "plain response"),
+        _msg("user", "Q1"),
+        _msg("assistant", "A1"),
+    ]
+    result = prune_ephemeral_messages(msgs)
+    assert result == msgs
+
+
+def test_tool_result_without_call_id_not_dropped():
+    """System messages without call_id are not treated as tool results."""
+    msgs = [
+        _msg("system", "System prompt"),
+        _msg("user", "Q0"),
+        _msg("assistant", "A0", ttl=0),
+        _msg("system", "tool output without call_id"),  # no call_id
+        _msg("user", "Q1"),
+        _msg("assistant", "A1"),
+    ]
+    result = prune_ephemeral_messages(msgs)
+    # The system message without call_id should survive (it's not a tool result)
+    contents = [m.content for m in result]
+    assert "tool output without call_id" in contents
 
 
 def test_unmarked_thinking_message_not_pruned_by_default():
