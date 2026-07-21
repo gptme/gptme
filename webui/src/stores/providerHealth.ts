@@ -35,8 +35,7 @@ export const providerHealth$ = observable<{
  * trigger a warning. The badge fires only when nothing is left but errors.
  */
 export function allProvidersDown(data: ProviderHealthResponse | null): boolean {
-  if (!data) return false;
-  const providers = Object.values(data.providers);
+  const providers = Object.values(data?.providers ?? {});
   if (providers.length === 0) return false;
   return providers.every((p) => p.status === 'error');
 }
