@@ -95,6 +95,11 @@ def _print_history(manager: LogManager, limit: int = 50) -> None:
     "messages into the terminal's native scrollback (tmux/terminal scrolling "
     "works normally, like Claude Code).",
 )
+@click.option(
+    "--experimental-jelly-errors",
+    is_flag=True,
+    help="Animate TUI error messages and show recovery hints.",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging.")
 def main(
     name: str,
@@ -105,6 +110,7 @@ def main(
     tool_format: str | None,
     no_confirm: bool,
     inline: bool,
+    experimental_jelly_errors: bool,
     verbose: bool,
 ) -> None:
     """gptme TUI — interactive terminal UI for gptme.
@@ -180,6 +186,7 @@ def main(
         workspace=workspace_path,
         auto_confirm=no_confirm,
         inline=inline,
+        experimental_jelly_errors=experimental_jelly_errors,
     )
     if inline:
         _print_history(manager)

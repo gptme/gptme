@@ -125,6 +125,43 @@ class InfoMessage(Static):
         super().__init__(Text(content), classes="info" + (" error" if error else ""))
 
 
+class BouncingError(Static):
+    """An opt-in error line that briefly draws attention to recovery hints."""
+
+    DEFAULT_CSS = """
+    BouncingError {
+        border-left: tall $error;
+        color: $error;
+        padding: 0 1;
+    }
+    """
+
+    def __init__(self, content: str):
+        super().__init__(Text(content), classes="info error")
+        self.content = content
+
+    def on_mount(self) -> None:
+        self.styles.animate("background", "#ff6600", duration=0.1)
+        self.set_timer(
+            0.1,
+            lambda: self.styles.animate("background", "transparent", duration=0.2),
+        )
+        self.styles.animate("opacity", 0.7, duration=0.06)
+        self.set_timer(
+            0.06,
+            lambda: self.styles.animate("opacity", 1.0, duration=0.18),
+        )
+        self.set_timer(0.3, self._show_recovery)
+
+    def _show_recovery(self) -> None:
+        self.update(
+            Text.from_markup(
+                f"{self.content}\\n[dim]Recovery:[/dim] edit the command and resubmit, "
+                "or retry the action."
+            )
+        )
+
+
 def renderables_for_message(msg: Message, expanded: bool = False) -> list:
     """Rich renderables for a message, for native-scrollback (inline) mode."""
     from rich.markdown import Markdown as RichMarkdown
@@ -417,6 +454,7 @@ class GptmeApp(App):
         workspace: Path | None = None,
         auto_confirm: bool = False,
         inline: bool = False,
+        experimental_jelly_errors: bool = False,
     ):
         super().__init__()
         self.manager = manager
@@ -424,6 +462,7 @@ class GptmeApp(App):
         self.workspace = workspace or manager.workspace
         self.auto_confirm = auto_confirm
         self.inline = inline
+        self.experimental_jelly_errors = experimental_jelly_errors
         self._stream_text = ""
         # Snapshot the caller's context (default model, output format, …) so
         # worker threads see it — gptme stores this state in ContextVars,
@@ -596,7 +635,12 @@ class GptmeApp(App):
         if self.inline:
             self._print_above(Text(text, style="red" if error else "bright_black"))
             return
-        self._mount_in_chat(InfoMessage(text, error=error))
+        widget: Widget
+        if error and self.experimental_jelly_errors:
+            widget = BouncingError(text)
+        else:
+            widget = InfoMessage(text, error=error)
+        self._mount_in_chat(widget)
 
     def _mount_in_chat(self, widget: Widget) -> None:
         chat = self.query_one("#chat", VerticalScroll)
