@@ -494,5 +494,49 @@ def auth_grok_subscription():
     )
 
 
+@main.command("openrouter")
+def auth_openrouter():
+    """Authenticate with OpenRouter via PKCE OAuth and store a permanent API key.
+
+    Opens a browser so you can sign in to openrouter.ai.  After successful
+    sign-in, a permanent API key (``sk-or-v1-…``) is exchanged and saved to
+    the gptme config as ``env.OPENROUTER_API_KEY``.
+
+    You can then use any model on OpenRouter::
+
+        gptme --model openrouter/anthropic/claude-sonnet-4-6 "Hello"
+    """
+    try:
+        from ..llm.llm_openrouter_subscription import oauth_get_api_key
+    except ImportError as exc:
+        console.print(f"[red]✗ Could not import OpenRouter OAuth module: {exc}[/red]")
+        sys.exit(1)
+
+    console.print("\n[bold]OpenRouter Authentication[/bold]\n")
+    console.print("This will open your browser to sign in to openrouter.ai.")
+    console.print(
+        "After sign-in, a permanent API key will be created and saved to your"
+        " gptme config.\n"
+    )
+
+    try:
+        api_key = oauth_get_api_key()
+    except RuntimeError as exc:
+        console.print(f"\n[red bold]✗ Authentication failed: {exc}[/red bold]")
+        sys.exit(1)
+
+    # Persist to config
+    from ..config import set_config_value
+
+    set_config_value("env.OPENROUTER_API_KEY", api_key)
+
+    console.print("\n[green bold]✓ Authentication successful![/green bold]")
+    console.print(f"  API key saved to config (key: {api_key[:16]}…)")
+    console.print(
+        "\nYou can now use any OpenRouter model, for example:\n"
+        "  [cyan]gptme --model openrouter/anthropic/claude-sonnet-4-6 'Hello'[/cyan]"
+    )
+
+
 if __name__ == "__main__":
     main()
