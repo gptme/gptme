@@ -1086,8 +1086,10 @@ class GptmeAgent:
         # the exception handler (including early import/setup failures).
         batch_buffer: list[str] = []
         try:
-            # Import chat step
+            # Import chat step and lifecycle-hook helpers
             from ..chat import step as chat_step
+            from ..hooks.registry import HookType, trigger_hook
+            from ..message import Message as _RuntimeMessage
 
             # Run gptme chat step in executor to not block event loop
             loop = asyncio.get_running_loop()
@@ -1163,8 +1165,13 @@ class GptmeAgent:
                 ) and (now - last_attempt[0]) >= FLUSH_INTERVAL:
                     _flush_batch()
 
-            def run_chat_turn() -> list[Message]:
-                """Run every generation/tool step in one ACP prompt turn."""
+            def run_chat_turn() -> tuple[list[Message], str]:
+                """Run every generation/tool step in one ACP prompt turn.
+
+                Returns (response_msgs, stop_reason) where stop_reason is
+                "end_turn" for normal completion or "max_steps" when the
+                GPTME_MAX_STEPS cap was reached mid-turn.
+                """
                 # The interactive chat loop keeps stepping after a runnable tool
                 # call so the model can inspect its result and finish the turn.
                 # ACP has no outer gptme loop, so reproduce that behavior here.
@@ -1183,6 +1190,14 @@ class GptmeAgent:
 
                 step_count = 0
                 while True:
+                    # Fire STEP_PRE hooks so hook-managed state (working
+                    # directory, injected context) is current before each LLM
+                    # generation.  Matches the behaviour of gptme's interactive
+                    # chat loop in gptme/chat.py.
+                    if pre_msgs := list(trigger_hook(HookType.STEP_PRE, manager=log)):
+                        step_log.extend(pre_msgs)
+                        response_msgs.extend(pre_msgs)
+
                     step_msgs = list(
                         chat_step(
                             log=step_log,
@@ -1203,7 +1218,16 @@ class GptmeAgent:
                             "ACP prompt reached GPTME_MAX_STEPS=%d; ending turn",
                             max_steps,
                         )
-                        break
+                        # Record the cap in the conversation so ACP clients and
+                        # log consumers can distinguish a capped, incomplete turn
+                        # from a normal completion (mirrors gptme/chat.py behaviour).
+                        cap_msg = _RuntimeMessage(
+                            "system",
+                            f"Stopped: reached max steps limit ({max_steps})",
+                        )
+                        step_log.append(cap_msg)
+                        response_msgs.append(cap_msg)
+                        return response_msgs, "max_steps"
 
                     assistant_content = next(
                         (
@@ -1220,12 +1244,14 @@ class GptmeAgent:
                         )
                     ):
                         break
-                return response_msgs
+                return response_msgs, "end_turn"
 
             # Copy context to propagate ContextVars (model, config, tools, etc.)
             # to the executor thread — run_in_executor doesn't do this by default
             ctx = contextvars.copy_context()
-            response_msgs = await loop.run_in_executor(None, ctx.run, run_chat_turn)
+            response_msgs, chat_stop_reason = await loop.run_in_executor(
+                None, ctx.run, run_chat_turn
+            )
 
             # Final flush: send any remaining buffered tokens
             if batch_buffer and self._conn:
@@ -1266,7 +1292,7 @@ class GptmeAgent:
                     log.append(response_msg)
 
             _PromptResponse = _check_acp_import(PromptResponse, "PromptResponse")
-            return _PromptResponse(stop_reason="end_turn")
+            return _PromptResponse(stop_reason=chat_stop_reason)
 
         except Exception as e:
             logger.exception("Error processing prompt: %s", e)
