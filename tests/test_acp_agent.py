@@ -1518,7 +1518,7 @@ class TestPromptTurnLoop:
             )
         )
 
-        assert result.stop_reason == "max_steps"
+        assert result.stop_reason == "max_turn_requests"
         assert calls == 2
 
 

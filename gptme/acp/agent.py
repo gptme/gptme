@@ -1169,7 +1169,7 @@ class GptmeAgent:
                 """Run every generation/tool step in one ACP prompt turn.
 
                 Returns (response_msgs, stop_reason) where stop_reason is
-                "end_turn" for normal completion or "max_steps" when the
+                "end_turn" for normal completion or "max_turn_requests" when the
                 GPTME_MAX_STEPS cap was reached mid-turn.
                 """
                 # The interactive chat loop keeps stepping after a runnable tool
@@ -1227,7 +1227,12 @@ class GptmeAgent:
                         )
                         step_log.append(cap_msg)
                         response_msgs.append(cap_msg)
-                        return response_msgs, "max_steps"
+                        # Use "max_turn_requests" — the ACP protocol's stop reason
+                        # for a turn cut short by a per-turn request/step cap.
+                        # "max_steps" is not a valid ACP PromptResponse stop_reason;
+                        # passing it triggers a Pydantic ValidationError caught by the
+                        # exception handler, which then returns stop_reason="cancelled".
+                        return response_msgs, "max_turn_requests"
 
                     assistant_content = next(
                         (
