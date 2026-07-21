@@ -111,8 +111,15 @@ async def test_experimental_jelly_errors_show_recovery_hints(tmp_path):
     app = GptmeApp(make_manager(tmp_path), experimental_jelly_errors=True)
     async with app.run_test() as pilot:
         app._show_info("Command failed", error=True)
-        await pilot.pause(0.35)
-        error = app.query_one(BouncingError)
+        # Poll until the recovery hint appears (callback fires after ~0.3s).
+        # A fixed wait races on busy runners; polling converges faster and reliably.
+        for _ in range(40):
+            await pilot.pause(0.025)
+            error = app.query_one(BouncingError)
+            if "Recovery:" in str(error.render()):
+                break
+        else:
+            pytest.fail("Recovery hint did not appear within 1s")
         rendered = error.render()
         assert "Recovery:" in str(rendered)
         assert "retry" in str(rendered)

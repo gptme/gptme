@@ -16,6 +16,7 @@ import threading
 from pathlib import Path
 from typing import IO, cast
 
+from rich.markup import escape as markup_escape
 from rich.syntax import Syntax
 from rich.text import Text
 from textual import events
@@ -138,7 +139,7 @@ class BouncingError(Static):
 
     def __init__(self, content: str):
         super().__init__(Text(content), classes="info error")
-        self.content = content
+        self.error_text = content
 
     def on_mount(self) -> None:
         self.styles.animate("background", "#ff6600", duration=0.1)
@@ -156,7 +157,7 @@ class BouncingError(Static):
     def _show_recovery(self) -> None:
         self.update(
             Text.from_markup(
-                f"{self.content}\\n[dim]Recovery:[/dim] edit the command and resubmit, "
+                f"{markup_escape(self.error_text)}\\n[dim]Recovery:[/dim] edit the command and resubmit, "
                 "or retry the action."
             )
         )
