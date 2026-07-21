@@ -863,7 +863,7 @@ def _setup_openrouter_oauth() -> tuple[str, str]:  # pragma: no cover
         console.print(f"[red]❌ OpenRouter OAuth failed: {exc}[/red]")
         raise
 
-    set_config_value("env.OPENROUTER_API_KEY", api_key)
+    set_config_value("env.OPENROUTER_API_KEY", api_key, local=True)
     provider = "openrouter"
     model = f"{provider}/{get_recommended_model('openrouter')}"
     set_config_value("models.default", model)

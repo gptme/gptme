@@ -123,17 +123,19 @@ def oauth_get_api_key() -> str:
             f"Could not start OAuth callback server on port {OAUTH_CALLBACK_PORT}: {exc}"
         ) from exc
 
-    server_thread = threading.Thread(target=server.handle_request, daemon=True)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
 
     webbrowser.open(auth_url)
 
     # Wait up to 5 minutes for the user to complete the browser flow
     if not _done.wait(timeout=300):
+        server.shutdown()
         server.server_close()
         raise RuntimeError(
             "OpenRouter OAuth timed out (no browser callback after 5 minutes)."
         )
+    server.shutdown()
     server.server_close()
 
     if "error" in _result:

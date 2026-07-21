@@ -528,7 +528,7 @@ def auth_openrouter():
     # Persist to config
     from ..config import set_config_value
 
-    set_config_value("env.OPENROUTER_API_KEY", api_key)
+    set_config_value("env.OPENROUTER_API_KEY", api_key, local=True)
 
     console.print("\n[green bold]✓ Authentication successful![/green bold]")
     console.print(f"  API key saved to config (key: {api_key[:16]}…)")
