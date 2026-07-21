@@ -53,7 +53,7 @@ DEFAULT_CONTEXT_FILES = [
     "docker-compose.y*ml",
 ]
 
-PromptType = Literal["full", "short"]
+PromptType = Literal["full", "short", "full-noexamples"]
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +116,7 @@ def _build_core_prompt_sections(
     tools: list[ToolSpec],
     workspace: Path | None,
     include_tools: bool,
+    include_examples: bool,
     is_selective: bool,
 ) -> list[tuple[str, list[Message]]]:
     """Build named core prompt sections in display order."""
@@ -140,7 +141,14 @@ def _build_core_prompt_sections(
         if include_tools:
             add(
                 "prompt_tools",
-                list(prompt_tools(tools=tools, tool_format=tool_format, model=model)),
+                list(
+                    prompt_tools(
+                        tools=tools,
+                        tool_format=tool_format,
+                        model=model,
+                        examples=include_examples,
+                    )
+                ),
             )
         if interactive:
             add("prompt_user", list(prompt_user(tool_format=tool_format)))
@@ -191,7 +199,14 @@ def _build_core_prompt_sections(
     if include_tools:
         add(
             "prompt_tools",
-            list(prompt_tools(tools=tools, tool_format=tool_format, model=model)),
+            list(
+                prompt_tools(
+                    tools=tools,
+                    tool_format=tool_format,
+                    model=model,
+                    examples=include_examples,
+                )
+            ),
         )
     return sections
 
@@ -208,6 +223,7 @@ def _build_prompt_sections(
     context_mode: ContextMode | None,
     context_include: list[str] | None,
     include_user_context: bool,
+    include_examples: bool,
     initial_prompt: str | None,
 ) -> tuple[
     list[tuple[str, list[Message]]],
@@ -245,6 +261,7 @@ def _build_prompt_sections(
         tools=tools,
         workspace=workspace,
         include_tools=include_tools,
+        include_examples=include_examples,
         is_selective=is_selective,
     )
 
@@ -346,9 +363,13 @@ def get_prompt_stats(
     context_mode: ContextMode | None = None,
     context_include: list[str] | None = None,
     include_user_context: bool = True,
+    include_examples: bool = True,
     initial_prompt: str | None = None,
 ) -> PromptStats:
     """Return token statistics for each startup prompt section."""
+    if prompt == "full-noexamples":
+        prompt = "full"
+        include_examples = False
     core_sections, cacheable_sections, dynamic_sections = _build_prompt_sections(
         tools=tools,
         tool_format=tool_format,
@@ -360,6 +381,7 @@ def get_prompt_stats(
         context_mode=context_mode,
         context_include=context_include,
         include_user_context=include_user_context,
+        include_examples=include_examples,
         initial_prompt=initial_prompt,
     )
 
@@ -456,6 +478,7 @@ def get_prompt(
     context_mode: ContextMode | None = None,
     context_include: list[str] | None = None,
     include_user_context: bool = True,
+    include_examples: bool = True,
     initial_prompt: str | None = None,
 ) -> list[Message]:
     """
@@ -503,11 +526,17 @@ def get_prompt(
         context_include: Components to include in selective mode
         include_user_context: Whether to include user-level prompt files and
             agent instruction files from ~/.config/gptme
+        include_examples: Whether to include tool usage examples in the system
+            prompt. Defaults to True. Also set to False automatically when
+            ``prompt == "full-noexamples"``.
         initial_prompt: First user prompt, exported to context commands as
             ``GPTME_PROMPT_INITIAL``.
 
     Returns a list of messages: [core_system_prompt, workspace_prompt, ...].
     """
+    if prompt == "full-noexamples":
+        prompt = "full"
+        include_examples = False
     core_sections, cacheable_sections, dynamic_sections = _build_prompt_sections(
         tools=tools,
         tool_format=tool_format,
@@ -519,6 +548,7 @@ def get_prompt(
         context_mode=context_mode,
         context_include=context_include,
         include_user_context=include_user_context,
+        include_examples=include_examples,
         initial_prompt=initial_prompt,
     )
 

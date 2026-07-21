@@ -321,8 +321,11 @@ def _create_subagent_thread(
                 "only agent identity and tools will be included",
                 context_include,
             )
+        include_examples = not bool(os.environ.get("GPTME_NO_EXAMPLES"))
         initial_msgs = list(prompt_gptme(False, None, agent_name=None)) + list(
-            prompt_tools(tools=available_tools, tool_format="markdown")
+            prompt_tools(
+                tools=available_tools, tool_format="markdown", examples=include_examples
+            )
         )
     elif context_mode == "selective":
         # Selective context — build from specified components.
@@ -330,6 +333,7 @@ def _create_subagent_thread(
         # controls the context set explicitly via context_include instead.
         from ...prompts import prompt_gptme, prompt_tools
 
+        include_examples = not bool(os.environ.get("GPTME_NO_EXAMPLES"))
         initial_msgs = []
 
         # Type narrowing: context_include validated as not None by caller
@@ -340,12 +344,22 @@ def _create_subagent_thread(
             initial_msgs.extend(list(prompt_gptme(False, None, agent_name=None)))
         if "tools" in context_include:
             initial_msgs.extend(
-                list(prompt_tools(tools=available_tools, tool_format="markdown"))
+                list(
+                    prompt_tools(
+                        tools=available_tools,
+                        tool_format="markdown",
+                        examples=include_examples,
+                    )
+                )
             )
     else:  # "full" mode (default)
         # Full context (using profile-filtered tools)
+        include_examples = not bool(os.environ.get("GPTME_NO_EXAMPLES"))
         initial_msgs = get_prompt(
-            available_tools, interactive=False, workspace=workspace
+            available_tools,
+            interactive=False,
+            workspace=workspace,
+            include_examples=include_examples,
         )
         # Truncate workspace context if a positive window is specified.
         # Base messages (agent identity + tools) do NOT count against the
