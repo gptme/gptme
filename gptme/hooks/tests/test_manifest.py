@@ -29,6 +29,27 @@ def _run_hook(registry: HookRegistry, hook_type: HookType, data: object) -> list
     return list(registry.trigger(hook_type, data))
 
 
+def _record(
+    *,
+    session_id: str = "sess",
+    sequence: int = 1,
+    phase: str = "pre",
+    prev_hash: str | None = None,
+) -> dict:
+    """Build a self-consistent manifest record for verifier tests."""
+    record = {
+        "session_id": session_id,
+        "model": "unknown",
+        "sequence": sequence,
+        "tool": "shell",
+        "timestamp": "2020-01-01T00:00:00+00:00",
+        "phase": phase,
+        "prev_hash": prev_hash,
+    }
+    record["hash"] = _record_content_hash(record)
+    return record
+
+
 def _run_tool_call(
     registry: HookRegistry,
     seq: int,
@@ -265,6 +286,41 @@ class TestManifestTamperDetection:
         errors = verify_manifest_chain(manifest_dir)
         assert errors == []
 
+    def test_malformed_json_returns_read_error(self, manifest_dir: Path) -> None:
+        """Malformed JSON is reported rather than escaping as an exception."""
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "bad-0001-shell-pre.json").write_text("{")
+
+        errors = verify_manifest_chain(manifest_dir)
+
+        assert len(errors) == 1
+        assert errors[0].startswith("Failed to read bad-0001-shell-pre.json:")
+
+    def test_post_without_pre_is_detected_and_its_hash_is_checked(
+        self, manifest_dir: Path
+    ) -> None:
+        """A post-only record is both structurally invalid and hash-checked."""
+        manifest_dir.mkdir(parents=True)
+        post = _record(sequence=1, phase="post")
+        post["tool"] = "tampered"
+        (manifest_dir / "sess-0001-shell-post.json").write_text(json.dumps(post))
+
+        errors = verify_manifest_chain(manifest_dir)
+
+        assert any("missing pre record" in error for error in errors)
+        assert any("hash mismatch" in error for error in errors)
+
+    def test_missing_hash_is_reported(self, manifest_dir: Path) -> None:
+        """A record without its self-hash is rejected explicitly."""
+        manifest_dir.mkdir(parents=True)
+        pre = _record()
+        pre.pop("hash")
+        (manifest_dir / "sess-0001-shell-pre.json").write_text(json.dumps(pre))
+
+        errors = verify_manifest_chain(manifest_dir)
+
+        assert any("missing hash field" in error for error in errors)
+
     def test_missing_post_record_detected(
         self, manifest_dir: Path, registry: HookRegistry
     ) -> None:
@@ -293,6 +349,31 @@ class TestManifestVerifierRobustness:
         assert len(errors) == 2
         assert all("expected JSON object" in e for e in errors)
 
+    @pytest.mark.parametrize(
+        ("record_update", "expected_error"),
+        [
+            ({"session_id": ""}, "invalid session_id"),
+            ({"sequence": True}, "invalid sequence number"),
+            ({"phase": "middle"}, "invalid phase"),
+        ],
+    )
+    def test_invalid_record_identity_fields_are_rejected(
+        self,
+        manifest_dir: Path,
+        record_update: dict,
+        expected_error: str,
+    ) -> None:
+        """Identity fields must be typed and constrained before chain grouping."""
+        manifest_dir.mkdir(parents=True)
+        record = _record()
+        record.update(record_update)
+        (manifest_dir / "bad.json").write_text(json.dumps(record))
+
+        errors = verify_manifest_chain(manifest_dir)
+
+        assert len(errors) == 1
+        assert expected_error in errors[0]
+
     def test_non_positive_sequence_rejected(self, manifest_dir: Path) -> None:
         """Records with zero or negative sequence numbers are rejected."""
         manifest_dir.mkdir(parents=True, exist_ok=True)
@@ -312,30 +393,72 @@ class TestManifestVerifierRobustness:
         assert len(errors) == 2
         assert all("invalid sequence number" in e for e in errors)
 
-    def test_duplicate_sequence_reported(
-        self, manifest_dir: Path, registry: HookRegistry
+    def test_multiple_sessions_are_verified_independently(
+        self, manifest_dir: Path
     ) -> None:
-        """Two sessions sharing a manifest dir produce duplicate-sequence errors."""
-        _run_tool_call(registry, 1)
-
-        # Inject a second pre-record with the same seq=1 from a different session.
-        dup: dict = {
-            "session_id": "other-session",
-            "model": "unknown",
-            "sequence": 1,
-            "tool": "shell",
-            "args_hash": "sha256:aabbccdd",
-            "timestamp": "2020-01-01T00:00:00+00:00",
-            "phase": "pre",
-            "prev_hash": None,
-            "hash": "sha256:deadbeef",
-        }
-        (manifest_dir / "other-session-0001-shell-pre.json").write_text(
-            json.dumps(dup, indent=2)
-        )
+        """A shared directory may contain multiple independent session chains."""
+        manifest_dir.mkdir(parents=True)
+        for session_id in ("first", "second"):
+            pre = _record(session_id=session_id)
+            post = _record(
+                session_id=session_id,
+                phase="post",
+                prev_hash=pre["hash"],
+            )
+            (manifest_dir / f"{session_id}-0001-shell-pre.json").write_text(
+                json.dumps(pre)
+            )
+            (manifest_dir / f"{session_id}-0001-shell-post.json").write_text(
+                json.dumps(post)
+            )
 
         errors = verify_manifest_chain(manifest_dir)
-        assert any("duplicate" in e and "1" in e for e in errors)
+
+        assert errors == []
+
+    def test_duplicate_sequence_within_session_is_reported(
+        self, manifest_dir: Path
+    ) -> None:
+        """Two pre records for one session and sequence cannot hide each other."""
+        manifest_dir.mkdir(parents=True)
+        first = _record()
+        second = _record()
+        second["tool"] = "read"
+        second["hash"] = _record_content_hash(second)
+        (manifest_dir / "sess-0001-shell-pre.json").write_text(json.dumps(first))
+        (manifest_dir / "sess-0001-read-pre.json").write_text(json.dumps(second))
+
+        errors = verify_manifest_chain(manifest_dir)
+
+        assert any("duplicate pre sequence 1" in error for error in errors)
+
+    def test_sequence_gap_is_reported_compactly(self, manifest_dir: Path) -> None:
+        """A small sequence gap has an explicit bounded error."""
+        manifest_dir.mkdir(parents=True)
+        for sequence in (1, 3):
+            pre = _record(sequence=sequence)
+            (manifest_dir / f"sess-{sequence:04d}-shell-pre.json").write_text(
+                json.dumps(pre)
+            )
+
+        errors = verify_manifest_chain(manifest_dir)
+
+        assert any(
+            "sequence 2: missing pre and post records" in error for error in errors
+        )
+
+    def test_sequence_gap_range_is_reported_compactly(self, manifest_dir: Path) -> None:
+        """A wide sequence gap becomes one bounded range error."""
+        manifest_dir.mkdir(parents=True)
+        for sequence in (1, 5):
+            pre = _record(sequence=sequence)
+            (manifest_dir / f"sess-{sequence:04d}-shell-pre.json").write_text(
+                json.dumps(pre)
+            )
+
+        errors = verify_manifest_chain(manifest_dir)
+
+        assert any("sequences 2–4: missing (3 tool calls)" in error for error in errors)
 
     def test_large_sequence_does_not_exhaust_resources(
         self, manifest_dir: Path

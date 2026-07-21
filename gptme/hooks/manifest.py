@@ -150,126 +150,125 @@ def register_manifest_hooks(manifest_dir: Path) -> None:
     logger.debug("Manifest hooks registered, writing to %s", manifest_dir)
 
 
-def verify_manifest_chain(manifest_dir: Path) -> list[str]:
-    """Verify the hash-linked chain of manifest records in *manifest_dir*.
-
-    Returns a list of error strings (empty list = chain is intact).
-    Each error describes a specific integrity violation.
-
-    Checks performed:
-    1. Every record's ``hash`` matches its own content.
-    2. Every record's ``prev_hash`` matches the ``hash`` of the preceding
-       record (in (pre → post → pre → post) order).
-    3. The chain is contiguous (no gaps in sequence numbers).
-    """
+def _verify_session_chain(
+    session_id: str,
+    entries: list[tuple[Path, dict[str, Any]]],
+) -> list[str]:
+    """Verify one session's ordered pre/post record chain."""
     errors: list[str] = []
-
-    # Collect and sort records by (sequence, phase).
-    pre_files = sorted(manifest_dir.glob("*-pre.json"))
-    post_files = sorted(manifest_dir.glob("*-post.json"))
-
-    if not pre_files and not post_files:
-        return []  # empty directory, nothing to verify
-
-    # Interleave pre and post records in chain order.
     records: list[dict[str, Any]] = []
-    pre_by_seq: dict[int, dict[str, Any]] = {}
-    post_by_seq: dict[int, dict[str, Any]] = {}
+    pre_by_seq: dict[int, tuple[Path, dict[str, Any]]] = {}
+    post_by_seq: dict[int, tuple[Path, dict[str, Any]]] = {}
 
-    def _load_records(
-        files: list,
-        by_seq: dict[int, dict[str, Any]],
-        kind: str,
-    ) -> None:
-        for fpath in files:
-            try:
-                rec = json.loads(fpath.read_text())
-            except (json.JSONDecodeError, OSError) as e:
-                errors.append(f"Failed to read {fpath.name}: {e}")
-                continue
-            if not isinstance(rec, dict):
-                errors.append(
-                    f"{fpath.name}: expected JSON object, got {type(rec).__name__}"
-                )
-                continue
-            seq = rec.get("sequence")
-            if not isinstance(seq, int) or seq <= 0:
-                errors.append(f"{fpath.name}: missing or invalid sequence number")
-                continue
-            if seq in by_seq:
-                errors.append(
-                    f"{fpath.name}: duplicate {kind} sequence {seq} "
-                    f"(collides with another session or forged record)"
-                )
-            # Last writer wins so the chain attempt is at least deterministic.
-            by_seq[seq] = rec
+    for fpath, record in entries:
+        sequence = record["sequence"]
+        phase = record["phase"]
+        by_seq = pre_by_seq if phase == "pre" else post_by_seq
+        if sequence in by_seq:
+            errors.append(
+                f"{fpath.name}: duplicate {phase} sequence {sequence} "
+                f"for session {session_id}"
+            )
+        else:
+            by_seq[sequence] = (fpath, record)
 
-    _load_records(pre_files, pre_by_seq, "pre")
-    _load_records(post_files, post_by_seq, "post")
-
-    # Build ordered chain: pre(1) → post(1) → pre(2) → post(2) → …
-    # Iterate all_seqs directly rather than range(1, max+1) to avoid DoS from
-    # a crafted record with a very large sequence number.
-    all_seqs = sorted(set(pre_by_seq.keys()) | set(post_by_seq.keys()))
-    if not all_seqs:
-        return errors
-
-    prev_seq_num = 0
-    for seq_num in all_seqs:
-        if seq_num > prev_seq_num + 1:
-            gap_start, gap_end = prev_seq_num + 1, seq_num - 1
+    all_sequences = sorted(set(pre_by_seq) | set(post_by_seq))
+    previous_sequence = 0
+    for sequence in all_sequences:
+        if sequence > previous_sequence + 1:
+            gap_start, gap_end = previous_sequence + 1, sequence - 1
             if gap_start == gap_end:
-                errors.append(f"Sequence {gap_start}: missing pre and post records")
+                errors.append(
+                    f"Session {session_id} sequence {gap_start}: "
+                    "missing pre and post records"
+                )
             else:
                 errors.append(
-                    f"Sequences {gap_start}–{gap_end}: missing "
-                    f"({gap_end - gap_start + 1} records)"
+                    f"Session {session_id} sequences {gap_start}–{gap_end}: "
+                    f"missing ({gap_end - gap_start + 1} tool calls)"
                 )
-        prev_seq_num = seq_num
+        previous_sequence = sequence
 
-        pre = pre_by_seq.get(seq_num)
-        post = post_by_seq.get(seq_num)
-        if pre is None:
-            errors.append(f"Sequence {seq_num}: missing pre record")
-            continue
-        if post is None:
-            errors.append(f"Sequence {seq_num}: missing post record")
-        records.append(pre)
-        if post is not None:
-            records.append(post)
-
-    # Check 1: each record's hash matches its content.
-    for rec in records:
-        stored_hash = rec.get("hash")
-        if not stored_hash:
+        pre_entry = pre_by_seq.get(sequence)
+        post_entry = post_by_seq.get(sequence)
+        if pre_entry is None:
             errors.append(
-                f"{rec.get('phase', '?')} seq={rec.get('sequence', '?')}: missing hash field"
+                f"Session {session_id} sequence {sequence}: missing pre record"
             )
-            continue
-        computed = _record_content_hash(rec)
-        if stored_hash != computed:
-            errors.append(
-                f"{rec['phase']} seq={rec['sequence']}: hash mismatch "
-                f"(stored={stored_hash[:20]}…, computed={computed[:20]}…)"
-            )
-
-    # Check 2: prev_hash links.
-    for i, rec in enumerate(records):
-        expected_prev: str | None = None
-        if i == 0:
-            # Genesis pre-record.
-            expected_prev = None
         else:
-            expected_prev = records[i - 1].get("hash")
-
-        actual_prev = rec.get("prev_hash")
-        if actual_prev != expected_prev:
-            phase = rec.get("phase", "?")
-            seq = rec.get("sequence", "?")
+            records.append(pre_entry[1])
+        if post_entry is None:
             errors.append(
-                f"{phase} seq={seq}: prev_hash mismatch "
-                f"(got={str(actual_prev)[:20]}…, "
-                f"expected={str(expected_prev)[:20]}…)"
+                f"Session {session_id} sequence {sequence}: missing post record"
             )
+        else:
+            records.append(post_entry[1])
+
+    for record in records:
+        stored_hash = record.get("hash")
+        if not isinstance(stored_hash, str) or not stored_hash:
+            errors.append(
+                f"{record['phase']} seq={record['sequence']}: missing hash field"
+            )
+            continue
+        computed_hash = _record_content_hash(record)
+        if stored_hash != computed_hash:
+            errors.append(
+                f"{record['phase']} seq={record['sequence']}: hash mismatch "
+                f"(stored={stored_hash[:20]}…, computed={computed_hash[:20]}…)"
+            )
+
+    for index, record in enumerate(records):
+        expected_previous = None if index == 0 else records[index - 1].get("hash")
+        actual_previous = record.get("prev_hash")
+        if actual_previous != expected_previous:
+            errors.append(
+                f"{record['phase']} seq={record['sequence']}: prev_hash mismatch "
+                f"(got={str(actual_previous)[:20]}…, "
+                f"expected={str(expected_previous)[:20]}…)"
+            )
+
+    return errors
+
+
+def verify_manifest_chain(manifest_dir: Path) -> list[str]:
+    """Verify every session's hash-linked manifest chain in *manifest_dir*.
+
+    Returns a list of integrity errors (empty means every discovered chain is
+    intact). A manifest directory may be reused by multiple sessions; each
+    ``session_id`` starts an independent chain at sequence 1.
+    """
+    errors: list[str] = []
+    sessions: dict[str, list[tuple[Path, dict[str, Any]]]] = {}
+
+    for fpath in sorted(manifest_dir.glob("*.json")):
+        try:
+            record = json.loads(fpath.read_text())
+        except (json.JSONDecodeError, OSError) as error:
+            errors.append(f"Failed to read {fpath.name}: {error}")
+            continue
+        if not isinstance(record, dict):
+            errors.append(
+                f"{fpath.name}: expected JSON object, got {type(record).__name__}"
+            )
+            continue
+
+        session_id = record.get("session_id")
+        if not isinstance(session_id, str) or not session_id:
+            errors.append(f"{fpath.name}: missing or invalid session_id")
+            continue
+        sequence = record.get("sequence")
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence <= 0:
+            errors.append(f"{fpath.name}: missing or invalid sequence number")
+            continue
+        phase = record.get("phase")
+        if phase not in ("pre", "post"):
+            errors.append(f"{fpath.name}: missing or invalid phase")
+            continue
+
+        sessions.setdefault(session_id, []).append((fpath, record))
+
+    for session_id, entries in sorted(sessions.items()):
+        errors.extend(_verify_session_chain(session_id, entries))
 
     return errors
