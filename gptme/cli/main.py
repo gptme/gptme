@@ -523,7 +523,7 @@ Run 'gptme-util --help' for all utility commands."""
     "--system",
     "prompt_system",
     default=None,
-    help="System prompt [full|short|<custom>]. Defaults to 'full', or the value of `system` in gptme.toml [prompt] if set.",
+    help="System prompt [full|full-noexamples|short|<custom>]. Defaults to 'full', or the value of `system` in gptme.toml [prompt] if set. 'full-noexamples' omits tool examples (~40% token reduction).",
 )
 @click.option(
     "-t",
@@ -1305,8 +1305,16 @@ def main(
             _cleanup_aborted_new_logdir(logdir, preexisting=logdir_preexisting)
             raise click.UsageError(f"--model: {e}") from e
 
+    if prompt_system == "full-noexamples":
+        os.environ["GPTME_NO_EXAMPLES"] = "1"
+
     if is_existing_conversation:
         logger.debug("Existing conversation found, skipping initial prompt generation")
+        if prompt_system == "full-noexamples":
+            logger.warning(
+                "--system full-noexamples has no effect when resuming an existing conversation; "
+                "the persisted system prompt is kept unchanged"
+            )
         initial_msgs = []
     else:
         # Infer context mode: --context-include / --no-workspace both imply selective mode
