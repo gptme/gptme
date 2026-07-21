@@ -445,7 +445,11 @@ class TestTmuxInlineMode:
         tui.wait_ready()
         tui.send("hello inline")
         tui.send_key("Enter")
-        pane = tui.wait_for("Echo: hello inline")
+        tui.wait_for("Echo: hello inline")
+        # Wait for both the echo AND the input prompt to be visible together —
+        # captures taken the moment "Echo:" appears can race before the prompt
+        # re-renders, causing ValueError from str.index().
+        pane = tui.wait_for("Type a message")
         assert_no_escape_garbage(pane)
         # transcript lines are plain terminal output (native scrollback), so
         # they appear above the live region which contains the input
