@@ -1316,7 +1316,7 @@ class TestInitModelInteractive:
     @patch("gptme.init.get_model")
     @patch("gptme.init.init_llm")
     @patch("gptme.init.get_recommended_model", return_value="gpt-5")
-    @patch("gptme.init.ask_for_api_key", return_value=("openai/gpt-5", "sk-key"))
+    @patch("gptme.init.ask_for_api_key", return_value=("openai", "sk-key"))
     @patch("gptme.init.guess_provider_from_config", return_value=None)
     @patch("gptme.init.is_custom_provider", return_value=False)
     @patch("gptme.init.get_config")
@@ -1347,6 +1347,47 @@ class TestInitModelInteractive:
         init_model(model=None, interactive=True)
 
         mock_ask.assert_called_once()
+
+    @patch("gptme.init.set_default_model")
+    @patch("gptme.init.get_model")
+    @patch("gptme.init.init_llm")
+    @patch("gptme.init.get_recommended_model", return_value="gpt-5.6-sol")
+    @patch(
+        "gptme.init.ask_for_api_key",
+        return_value=("openai-subscription", "oauth"),
+    )
+    @patch("gptme.init.guess_provider_from_config", return_value=None)
+    @patch("gptme.init.is_custom_provider", return_value=False)
+    @patch("gptme.init.get_config")
+    @patch("gptme.init.console")
+    def test_interactive_accepts_subscription_auth(
+        self,
+        mock_console,
+        mock_config_fn,
+        mock_custom,
+        mock_guess,
+        mock_ask,
+        mock_recommend,
+        mock_init_llm,
+        mock_get_model,
+        mock_set_default,
+        dummy_model_meta,
+    ):
+        """First-run subscription auth should select its recommended model."""
+        from gptme.init import init_model
+
+        config = MagicMock()
+        config.user.models.default = None
+        config.chat = MagicMock(model=None)
+        config.get_env.return_value = None
+        mock_config_fn.return_value = config
+        mock_get_model.return_value = dummy_model_meta
+
+        init_model(model=None, interactive=True)
+
+        mock_ask.assert_called_once()
+        mock_recommend.assert_called_once_with("openai-subscription")
+        mock_init_llm.assert_called_once_with("openai-subscription")
 
     @patch("gptme.init.set_default_model")
     @patch("gptme.init.get_model")

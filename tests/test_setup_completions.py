@@ -1,6 +1,13 @@
-"""Tests for bash/zsh shell completion generation in setup."""
+"""Tests for setup helpers."""
 
-from gptme.cli.setup import _generate_click_completion
+from unittest.mock import MagicMock
+
+from gptme.cli.setup import (
+    _choose_first_run_auth,
+    _generate_click_completion,
+    _setup_grok_subscription,
+    _setup_openai_subscription,
+)
 
 
 def test_generate_bash_completion():
@@ -35,3 +42,52 @@ def test_generate_fish_completion():
     assert script is not None
     assert "_GPTME_COMPLETE" in script
     assert "gptme" in script
+
+
+def test_choose_first_run_auth_defaults_to_subscription(monkeypatch):
+    prompt = MagicMock(return_value="1")
+    monkeypatch.setattr("gptme.cli.setup.Prompt.ask", prompt)
+
+    assert _choose_first_run_auth() == "1"
+    assert prompt.call_args.kwargs["default"] == "1"
+    assert "4" in prompt.call_args.kwargs["choices"]
+
+
+def test_setup_openai_subscription_persists_default_model(monkeypatch):
+    authenticate = MagicMock()
+    set_value = MagicMock()
+    monkeypatch.setattr(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate", authenticate
+    )
+    monkeypatch.setattr("gptme.cli.setup.set_config_value", set_value)
+    monkeypatch.setattr(
+        "gptme.cli.setup.get_recommended_model", lambda _provider: "gpt-5.6-sol"
+    )
+
+    provider, credential = _setup_openai_subscription()
+
+    authenticate.assert_called_once_with()
+    set_value.assert_called_once_with(
+        "models.default", "openai-subscription/gpt-5.6-sol"
+    )
+    assert provider == "openai-subscription"
+    assert credential == "oauth"
+
+
+def test_setup_grok_subscription_persists_default_model(monkeypatch):
+    authenticate = MagicMock()
+    set_value = MagicMock()
+    monkeypatch.setattr(
+        "gptme.llm.llm_grok_subscription.oauth_authenticate", authenticate
+    )
+    monkeypatch.setattr("gptme.cli.setup.set_config_value", set_value)
+    monkeypatch.setattr(
+        "gptme.cli.setup.get_recommended_model", lambda _provider: "grok-4.5"
+    )
+
+    provider, credential = _setup_grok_subscription()
+
+    authenticate.assert_called_once_with()
+    set_value.assert_called_once_with("models.default", "grok-subscription/grok-4.5")
+    assert provider == "grok-subscription"
+    assert credential == "oauth"
