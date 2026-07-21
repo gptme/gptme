@@ -699,7 +699,7 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-system">
 <span class="sig-name descname"><span class="pre">--system</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;prompt_system&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-system" title="Link to this definition">#</a></dt>
-<dd><p>System prompt [full|short|&lt;custom&gt;]. Defaults to ‘full’, or the value of <cite>system</cite> in gptme.toml [prompt] if set.</p>
+<dd><p>System prompt [full|full-noexamples|short|&lt;custom&gt;]. Defaults to ‘full’, or the value of <cite>system</cite> in gptme.toml [prompt] if set. ‘full-noexamples’ omits tool examples (~40% token reduction).</p>
 </dd></dl>
 
 <dl class="std option">
