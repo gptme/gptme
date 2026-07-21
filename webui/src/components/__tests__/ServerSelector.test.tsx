@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { isDefaultPreset } from '../ServerSelector';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { ServerConfig, ServerRegistry } from '@/types/servers';
@@ -250,18 +251,39 @@ describe('ServerSelector in embedded (hosted) mode', () => {
 });
 
 describe('ServerSelector in non-embedded mode', () => {
-  it('renders normally (shows Local server)', () => {
+  beforeEach(() => {
     mockIsEmbedded = false;
     mockRegistry = {
       servers: [LOCAL_PRESET],
       activeServerId: 'local',
       connectedServerIds: ['local'],
     };
+  });
+
+  it('renders normally (shows Local server)', () => {
     const { container } = render(
       <TooltipProvider>
         <ServerSelector />
       </TooltipProvider>
     );
     expect(container.firstChild).not.toBeNull();
+  });
+
+  it('focuses and marks the server URL invalid when submitted empty', async () => {
+    const user = userEvent.setup();
+    render(
+      <TooltipProvider>
+        <ServerSelector />
+      </TooltipProvider>
+    );
+
+    await user.click(screen.getByText('Local'));
+    await user.click(await screen.findByRole('button', { name: 'Add server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add & Connect' }));
+
+    const urlInput = screen.getByRole('textbox', { name: 'Server URL' });
+    await waitFor(() => expect(urlInput).toHaveFocus());
+    expect(urlInput).toHaveAttribute('aria-invalid', 'true');
+    expect(urlInput).toHaveAccessibleDescription('Server URL is required');
   });
 });

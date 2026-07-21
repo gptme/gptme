@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { FC } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -83,6 +83,8 @@ export const ServerConfiguration: FC = () => {
   const registry = use$(serverRegistry$);
 
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [urlError, setUrlError] = useState<string | null>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
   const [editingServerId, setEditingServerId] = useState<string | null>(null);
   const [formState, setFormState] = useState<ServerFormState>(emptyForm);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -147,18 +149,23 @@ export const ServerConfiguration: FC = () => {
   const handleOpenAdd = () => {
     setEditingServerId(null);
     setFormState(emptyForm);
+    setUrlError(null);
     setEditDialogOpen(true);
   };
 
   const handleOpenEdit = (server: ServerConfig) => {
     setEditingServerId(server.id);
     setFormState(serverToForm(server));
+    setUrlError(null);
     setEditDialogOpen(true);
   };
 
   const handleSave = async () => {
     if (!formState.baseUrl.trim()) {
-      toast.error('Server URL is required');
+      const message = 'Server URL is required';
+      setUrlError(message);
+      urlInputRef.current?.focus();
+      toast.error(message);
       return;
     }
 
@@ -484,11 +491,22 @@ export const ServerConfiguration: FC = () => {
             <div className="space-y-2">
               <Label htmlFor="edit-server-url">Server URL</Label>
               <Input
+                ref={urlInputRef}
                 id="edit-server-url"
                 value={formState.baseUrl}
-                onChange={(e) => setFormState((prev) => ({ ...prev, baseUrl: e.target.value }))}
+                onChange={(e) => {
+                  setFormState((prev) => ({ ...prev, baseUrl: e.target.value }));
+                  if (e.target.value.trim()) setUrlError(null);
+                }}
                 placeholder="http://127.0.0.1:5700"
+                aria-invalid={urlError ? true : undefined}
+                aria-describedby={urlError ? 'edit-server-url-error' : undefined}
               />
+              {urlError && (
+                <p id="edit-server-url-error" className="text-sm text-destructive">
+                  {urlError}
+                </p>
+              )}
             </div>
             <div className="flex items-center space-x-2">
               <Checkbox
