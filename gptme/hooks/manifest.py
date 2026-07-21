@@ -50,13 +50,21 @@ def _record_content_hash(record: dict[str, Any]) -> str:
     return _sha256_hex(canonical)
 
 
-def _write_record(manifest_dir: Path, fname: str, record: dict[str, Any]) -> None:
-    """Compute the record hash, inject it, and write the JSON file."""
+def _write_record(manifest_dir: Path, fname: str, record: dict[str, Any]) -> bool:
+    """Compute the record hash, inject it, and write the JSON file.
+
+    Returns True on success, False if the write failed.  Callers must only
+    advance the chain-tail (``prev_hash``) when True is returned so that a
+    transient write failure does not leave subsequent records linking to a
+    file that was never persisted.
+    """
     record["hash"] = _record_content_hash(record)
     try:
         (manifest_dir / fname).write_text(json.dumps(record, indent=2))
+        return True
     except OSError as e:
         logger.warning("manifest write failed for %s: %s", fname, e)
+        return False
 
 
 def register_manifest_hooks(manifest_dir: Path) -> None:
@@ -105,9 +113,9 @@ def register_manifest_hooks(manifest_dir: Path) -> None:
         if data.tool_use.content:
             record["content_hash"] = _sha256_hex(data.tool_use.content)
         fname = f"{session_id}-{seq[0]:04d}-{data.tool_use.tool}-pre.json"
-        _write_record(manifest_dir, fname, record)
-        # The pre-record is now the chain tail until its post counterpart is written.
-        prev_hash[0] = record["hash"]
+        if _write_record(manifest_dir, fname, record):
+            # Only advance the chain tail when the file was actually persisted.
+            prev_hash[0] = record["hash"]
         yield from ()
 
     def _post(
@@ -133,9 +141,8 @@ def register_manifest_hooks(manifest_dir: Path) -> None:
             "prev_hash": prev_hash[0],  # links to the pre-record just written
         }
         fname = f"{session_id}-{seq[0]:04d}-{data.tool_use.tool}-post.json"
-        _write_record(manifest_dir, fname, record)
-        # The post-record replaces the pre-record as the chain tail.
-        prev_hash[0] = record["hash"]
+        if _write_record(manifest_dir, fname, record):
+            prev_hash[0] = record["hash"]
         yield from ()
 
     register_hook("manifest.pre", HookType.TOOL_EXECUTE_PRE, _pre, priority=0)
@@ -169,36 +176,57 @@ def verify_manifest_chain(manifest_dir: Path) -> list[str]:
     pre_by_seq: dict[int, dict[str, Any]] = {}
     post_by_seq: dict[int, dict[str, Any]] = {}
 
-    for fpath in pre_files:
-        try:
-            rec = json.loads(fpath.read_text())
-        except (json.JSONDecodeError, OSError) as e:
-            errors.append(f"Failed to read {fpath.name}: {e}")
-            continue
-        seq = rec.get("sequence")
-        if not isinstance(seq, int):
-            errors.append(f"{fpath.name}: missing or invalid sequence number")
-            continue
-        pre_by_seq[seq] = rec
+    def _load_records(
+        files: list,
+        by_seq: dict[int, dict[str, Any]],
+        kind: str,
+    ) -> None:
+        for fpath in files:
+            try:
+                rec = json.loads(fpath.read_text())
+            except (json.JSONDecodeError, OSError) as e:
+                errors.append(f"Failed to read {fpath.name}: {e}")
+                continue
+            if not isinstance(rec, dict):
+                errors.append(
+                    f"{fpath.name}: expected JSON object, got {type(rec).__name__}"
+                )
+                continue
+            seq = rec.get("sequence")
+            if not isinstance(seq, int) or seq <= 0:
+                errors.append(f"{fpath.name}: missing or invalid sequence number")
+                continue
+            if seq in by_seq:
+                errors.append(
+                    f"{fpath.name}: duplicate {kind} sequence {seq} "
+                    f"(collides with another session or forged record)"
+                )
+            # Last writer wins so the chain attempt is at least deterministic.
+            by_seq[seq] = rec
 
-    for fpath in post_files:
-        try:
-            rec = json.loads(fpath.read_text())
-        except (json.JSONDecodeError, OSError) as e:
-            errors.append(f"Failed to read {fpath.name}: {e}")
-            continue
-        seq = rec.get("sequence")
-        if not isinstance(seq, int):
-            errors.append(f"{fpath.name}: missing or invalid sequence number")
-            continue
-        post_by_seq[seq] = rec
+    _load_records(pre_files, pre_by_seq, "pre")
+    _load_records(post_files, post_by_seq, "post")
 
     # Build ordered chain: pre(1) → post(1) → pre(2) → post(2) → …
+    # Iterate all_seqs directly rather than range(1, max+1) to avoid DoS from
+    # a crafted record with a very large sequence number.
     all_seqs = sorted(set(pre_by_seq.keys()) | set(post_by_seq.keys()))
     if not all_seqs:
         return errors
 
-    for seq_num in range(1, all_seqs[-1] + 1):
+    prev_seq_num = 0
+    for seq_num in all_seqs:
+        if seq_num > prev_seq_num + 1:
+            gap_start, gap_end = prev_seq_num + 1, seq_num - 1
+            if gap_start == gap_end:
+                errors.append(f"Sequence {gap_start}: missing pre and post records")
+            else:
+                errors.append(
+                    f"Sequences {gap_start}–{gap_end}: missing "
+                    f"({gap_end - gap_start + 1} records)"
+                )
+        prev_seq_num = seq_num
+
         pre = pre_by_seq.get(seq_num)
         post = post_by_seq.get(seq_num)
         if pre is None:

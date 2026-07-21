@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -276,3 +278,127 @@ class TestManifestTamperDetection:
 
         errors = verify_manifest_chain(manifest_dir)
         assert any("missing post record" in e and "2" in e for e in errors)
+
+
+class TestManifestVerifierRobustness:
+    """Regression tests for verifier edge-cases (Greptile P1/P2 findings)."""
+
+    def test_non_object_json_does_not_crash(self, manifest_dir: Path) -> None:
+        """A file containing valid but non-object JSON returns an error, not AttributeError."""
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        (manifest_dir / "bad-0001-shell-pre.json").write_text(json.dumps([]))
+        (manifest_dir / "bad-0001-shell-post.json").write_text(json.dumps("text"))
+
+        errors = verify_manifest_chain(manifest_dir)
+        assert len(errors) == 2
+        assert all("expected JSON object" in e for e in errors)
+
+    def test_non_positive_sequence_rejected(self, manifest_dir: Path) -> None:
+        """Records with zero or negative sequence numbers are rejected."""
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        for seq_val, fname in [
+            (0, "sess-0000-shell-pre.json"),
+            (-1, "sess--001-shell-pre.json"),
+        ]:
+            rec = {
+                "session_id": "sess",
+                "sequence": seq_val,
+                "tool": "shell",
+                "phase": "pre",
+            }
+            (manifest_dir / fname).write_text(json.dumps(rec))
+
+        errors = verify_manifest_chain(manifest_dir)
+        assert len(errors) == 2
+        assert all("invalid sequence number" in e for e in errors)
+
+    def test_duplicate_sequence_reported(
+        self, manifest_dir: Path, registry: HookRegistry
+    ) -> None:
+        """Two sessions sharing a manifest dir produce duplicate-sequence errors."""
+        _run_tool_call(registry, 1)
+
+        # Inject a second pre-record with the same seq=1 from a different session.
+        dup: dict = {
+            "session_id": "other-session",
+            "model": "unknown",
+            "sequence": 1,
+            "tool": "shell",
+            "args_hash": "sha256:aabbccdd",
+            "timestamp": "2020-01-01T00:00:00+00:00",
+            "phase": "pre",
+            "prev_hash": None,
+            "hash": "sha256:deadbeef",
+        }
+        (manifest_dir / "other-session-0001-shell-pre.json").write_text(
+            json.dumps(dup, indent=2)
+        )
+
+        errors = verify_manifest_chain(manifest_dir)
+        assert any("duplicate" in e and "1" in e for e in errors)
+
+    def test_large_sequence_does_not_exhaust_resources(
+        self, manifest_dir: Path
+    ) -> None:
+        """A crafted record with a huge sequence number completes fast."""
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        # Sequence 1 (valid) plus a forged record with a huge sequence.
+        for seq_val, fname in [
+            (1, "sess-0001-shell-pre.json"),
+            (10_000_000, "evil-9999-shell-pre.json"),
+        ]:
+            rec = {
+                "session_id": "sess",
+                "sequence": seq_val,
+                "tool": "shell",
+                "phase": "pre",
+                "prev_hash": None,
+                "hash": "sha256:aabbccdd",
+            }
+            (manifest_dir / fname).write_text(json.dumps(rec))
+
+        t0 = time.monotonic()
+        errors = verify_manifest_chain(manifest_dir)
+        elapsed = time.monotonic() - t0
+        assert elapsed < 1.0, f"verify took {elapsed:.2f}s — range-loop DoS likely"
+        assert len(errors) > 0  # gap and missing-post errors expected
+
+    def test_failed_write_does_not_advance_chain_tail(
+        self, manifest_dir: Path, registry: HookRegistry
+    ) -> None:
+        """If a write fails the chain tail is not advanced, so the next record links correctly."""
+        import gptme.hooks.manifest as _mod
+
+        _run_tool_call(registry, 1)
+
+        # Capture what prev_hash[0] looks like after a clean write.
+        post_files = sorted(manifest_dir.glob("*-post.json"))
+        post_rec = json.loads(post_files[0].read_text())
+        expected_tail_hash = post_rec["hash"]
+
+        # Simulate a failed pre-write for tool call 2 (OSError on the pre record).
+        original = _mod._write_record
+
+        calls: list[bool] = []
+
+        def _failing_once(mdir, fname, record):
+            if fname.endswith("-pre.json") and len(calls) == 0:
+                calls.append(False)
+                # Update hash on record (as original would) but return False.
+                record["hash"] = _mod._record_content_hash(record)
+                return False
+            return original(mdir, fname, record)
+
+        with patch.object(_mod, "_write_record", side_effect=_failing_once):
+            _run_tool_call(registry, 2)
+
+        # The post-record of call 2 should link to the tail after call 1's post,
+        # NOT to the hash of the failed pre-record that was never written.
+        post_files2 = sorted(manifest_dir.glob("*-post.json"))
+        # There should only be the post from call 1 (call 2's pre failed, so
+        # prev_hash for the post will still be the tail from call 1).
+        post2 = json.loads(post_files2[-1].read_text())
+        # The post-record's prev_hash must not be None (it links to the last
+        # successful write, which is post of call 1).
+        assert post2.get("sequence") == 2
+        assert post2["prev_hash"] == expected_tail_hash
