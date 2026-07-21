@@ -17,7 +17,7 @@ from ..config import config_path, get_config, save_provider_config, set_config_v
 from ..config.models import ProviderConfig
 from ..config.user import get_user_config_paths
 from ..llm import get_model_from_api_key, list_available_providers
-from ..llm.models import PROVIDERS, get_default_model
+from ..llm.models import PROVIDERS, get_default_model, get_recommended_model
 from ..util import console, path_with_tilde
 
 
@@ -786,8 +786,49 @@ def _setup_custom_provider() -> tuple[str, str]:  # pragma: no cover
     return name, api_key
 
 
+def _choose_first_run_auth() -> str:
+    """Ask which authentication path a first-run user wants."""
+    console.print(
+        "[bold]How would you like to connect?[/bold]\n"
+        "  1. ChatGPT Plus/Pro subscription [dim](browser sign-in, no API key)[/dim]\n"
+        "  2. Provider API key [dim](OpenAI, Anthropic, OpenRouter, Gemini)[/dim]\n"
+        "  3. Custom OpenAI-compatible provider"
+    )
+    return Prompt.ask("Connection", choices=["1", "2", "3"], default="1")
+
+
+def _show_api_key_sources() -> None:  # pragma: no cover
+    """Show links for supported API-key providers."""
+    providers_table = Table(title="🔑 Get API Keys", show_header=True, box=None)
+    providers_table.add_column("Provider", style="cyan")
+    providers_table.add_column("URL", style="blue")
+    providers_table.add_row("OpenAI", "https://platform.openai.com/account/api-keys")
+    providers_table.add_row("Anthropic", "https://console.anthropic.com/settings/keys")
+    providers_table.add_row("OpenRouter", "https://openrouter.ai/settings/keys")
+    providers_table.add_row("Gemini", "https://aistudio.google.com/app/apikey")
+    console.print()
+    console.print(providers_table)
+    console.print()
+
+
+def _setup_openai_subscription() -> tuple[str, str]:
+    """Authenticate a ChatGPT subscription and persist it as the default."""
+    from ..llm.llm_openai_subscription import oauth_authenticate
+
+    console.print(
+        "\n[bold]Opening your browser for ChatGPT sign-in...[/bold]\n"
+        "[dim]This uses your existing Plus/Pro subscription; no API key is needed.[/dim]"
+    )
+    oauth_authenticate()
+    provider = "openai-subscription"
+    model = f"{provider}/{get_recommended_model('openai-subscription')}"
+    set_config_value("models.default", model)
+    console.print(f"[green]✅ ChatGPT subscription connected ({model})[/green]")
+    return provider, "oauth"
+
+
 def ask_for_api_key():  # pragma: no cover
-    """Interactively ask user for an API key or configure a custom provider."""
+    """Interactively configure subscription, API-key, or custom provider auth."""
     console.print(
         Panel.fit(
             Text("🔑 Provider Setup", style="bold green"),
@@ -796,25 +837,13 @@ def ask_for_api_key():  # pragma: no cover
         )
     )
 
-    # Create a nice table with provider links
-    providers_table = Table(title="🔑 Get API Keys", show_header=True, box=None)
-    providers_table.add_column("Provider", style="cyan")
-    providers_table.add_column("URL", style="blue")
-
-    providers_table.add_row("OpenAI", "https://platform.openai.com/account/api-keys")
-    providers_table.add_row("Anthropic", "https://console.anthropic.com/settings/keys")
-    providers_table.add_row("OpenRouter", "https://openrouter.ai/settings/keys")
-    providers_table.add_row("Gemini", "https://aistudio.google.com/app/apikey")
-
-    console.print()
-    console.print(providers_table)
-    console.print()
-
-    if Confirm.ask(
-        "Set up a custom OpenAI-compatible provider instead?", default=False
-    ):
+    choice = _choose_first_run_auth()
+    if choice == "1":
+        return _setup_openai_subscription()
+    if choice == "3":
         return _setup_custom_provider()
 
+    _show_api_key_sources()
     # Save to config
     api_key, provider, env_var = _prompt_api_key()
     set_config_value(f"env.{env_var}", api_key)
