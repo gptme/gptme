@@ -4,6 +4,15 @@ from ..llm_anthropic_models_deprecated import ANTHROPIC_MODELS_DEPRECATED
 from ..llm_openai_models import OPENAI_MODELS, OPENAI_SUBSCRIPTION_MODELS
 from .types import PROVIDERS, Provider, _ModelDictMeta
 
+
+def _mark_subscription(models: dict[str, _ModelDictMeta]) -> dict[str, _ModelDictMeta]:
+    """Mark all models in a dict as subscription-priced (zero marginal USD cost)."""
+    return {
+        name: {**props, "pricing_type": "subscription"}
+        for name, props in models.items()
+    }
+
+
 # TODO: can we get this from the API?
 MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     "openai": OPENAI_MODELS,
@@ -11,10 +20,12 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     # Uses the Responses API (not Chat Completions). Per-model specs from
     # llm_openai_models.py; prices reflect API-equivalent cost for comparison.
     # Reasoning level suffix (e.g., :high) is stripped at lookup time in get_model()
-    "openai-subscription": {
-        model: {**props, "default_tool_format": "tool"}
-        for model, props in OPENAI_SUBSCRIPTION_MODELS.items()
-    },
+    "openai-subscription": _mark_subscription(
+        {
+            model: {**props, "default_tool_format": "tool"}
+            for model, props in OPENAI_SUBSCRIPTION_MODELS.items()
+        }
+    ),
     # https://docs.anthropic.com/en/docs/about-claude/models
     # Active models here; deprecated models in llm_anthropic_models_deprecated.py
     "anthropic": {
@@ -294,19 +305,21 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     # Uses OAuth tokens from the grok CLI (~/.grok/auth.json) — $0 marginal.
     # Prices reflect xAI API-equivalent cost for comparison purposes.
     # Auth: run `grok login` or `gptme auth grok-subscription`.
-    "grok-subscription": {
-        # grok-4.5 — frontier model available on SuperGrok subscription
-        # https://x.ai/blog/grok-4-5 (500K context, reasoning support)
-        "grok-4.5": {
-            "context": 500_000,
-            "max_output": 128_000,
-            "price_input": 2,
-            "price_output": 6,
-            "supports_vision": True,
-            "supports_reasoning": True,
-            "preferred_edit_format": "diff",
-        },
-    },
+    "grok-subscription": _mark_subscription(
+        {
+            # grok-4.5 — frontier model available on SuperGrok subscription
+            # https://x.ai/blog/grok-4-5 (500K context, reasoning support)
+            "grok-4.5": {
+                "context": 500_000,
+                "max_output": 128_000,
+                "price_input": 2,
+                "price_output": 6,
+                "supports_vision": True,
+                "supports_reasoning": True,
+                "preferred_edit_format": "diff",
+            },
+        }
+    ),
     "xai": {
         "grok-4-1-fast": {
             "context": 2_000_000,

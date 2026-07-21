@@ -65,6 +65,7 @@ class StepCost:
     cache_creation_tokens: int
     cost: float
     model: str | None = None
+    pricing_type: str = "per_token"
 
 
 @dataclass
@@ -257,6 +258,8 @@ def gather_per_step_costs(messages: list[Message]) -> list[StepCost]:
     Returns one StepCost per assistant message that carries metadata.
     Steps are 1-based (first assistant message = step 1).
     """
+    from ..llm.models import get_model  # lazy import to avoid circular dep
+
     steps: list[StepCost] = []
     step_idx = 0
 
@@ -272,6 +275,14 @@ def gather_per_step_costs(messages: list[Message]) -> list[StepCost]:
             # Only include steps that have some token data
             if input_tokens > 0 or output_tokens > 0 or cache_read > 0:
                 step_idx += 1
+                model_name = msg.metadata.get("model")
+                pricing_type = "per_token"
+                if model_name:
+                    try:
+                        meta = get_model(model_name)
+                        pricing_type = meta.pricing_type
+                    except Exception:
+                        pass
                 steps.append(
                     StepCost(
                         step_index=step_idx,
@@ -280,7 +291,8 @@ def gather_per_step_costs(messages: list[Message]) -> list[StepCost]:
                         cache_read_tokens=cache_read,
                         cache_creation_tokens=cache_create,
                         cost=cost,
-                        model=msg.metadata.get("model"),
+                        model=model_name,
+                        pricing_type=pricing_type,
                     )
                 )
 
@@ -424,6 +436,11 @@ def display_costs(
                 step.input_tokens + step.cache_read_tokens + step.cache_creation_tokens
             )
             model_short = _short_model_name(step.model) if step.model else ""
+            cost_str = (
+                "subscription"
+                if step.pricing_type == "subscription"
+                else _format_cost(step.cost).rjust(9)
+            )
             console.log(
                 "  "
                 + str(step.step_index).rjust(4)
@@ -438,7 +455,7 @@ def display_costs(
                 + "  "
                 + f"{step.cache_creation_tokens:,}".rjust(8)
                 + "  "
-                + _format_cost(step.cost).rjust(9)
+                + cost_str.rjust(9)
                 + "  "
                 + model_short
             )
