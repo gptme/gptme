@@ -635,6 +635,7 @@ def test_models_list_json_suppresses_provider_noise(mocker):
                 knowledge_cutoff=None,
                 deprecated=False,
                 preferred_edit_format=None,
+                pricing_type="per_token",
             )
         ]
 
@@ -675,6 +676,7 @@ def test_models_list_json_available_keeps_plugin_models(mocker):
                 knowledge_cutoff=None,
                 deprecated=False,
                 preferred_edit_format=None,
+                pricing_type="per_token",
             )
         ],
     )

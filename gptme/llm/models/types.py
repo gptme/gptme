@@ -152,6 +152,11 @@ class ModelMeta:
     # See gptme/gptme#2362.
     preferred_edit_format: Literal["diff", "whole"] | None = None
 
+    # How this model is priced: "per_token" for standard API billing,
+    # "subscription" for flat-rate plans (e.g. openai-subscription, grok-subscription).
+    # Subscription models preserve token counts but have zero marginal USD cost.
+    pricing_type: Literal["per_token", "subscription"] = "per_token"
+
     @property
     def full(self) -> str:
         # For unknown providers (including custom providers), the model field
@@ -250,3 +255,6 @@ class _ModelDictMeta(TypedDict):
 
     # preferred edit format for this model
     preferred_edit_format: NotRequired[Literal["diff", "whole"]]
+
+    # pricing model for this model
+    pricing_type: NotRequired[Literal["per_token", "subscription"]]

@@ -34,6 +34,8 @@ def model_to_dict(model: ModelMeta) -> dict[str, Any]:
     if model.price_input or model.price_output:
         d["price_input"] = model.price_input
         d["price_output"] = model.price_output
+    if model.pricing_type != "per_token":
+        d["pricing_type"] = model.pricing_type
     if model.knowledge_cutoff:
         d["knowledge_cutoff"] = model.knowledge_cutoff.isoformat()
     if model.deprecated:
