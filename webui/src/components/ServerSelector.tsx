@@ -75,6 +75,8 @@ export const ServerSelector: FC = () => {
   const isAutoConnecting = use$(isAutoConnecting$);
 
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [urlError, setUrlError] = useState<string | null>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
   const [formState, setFormState] = useState({
     name: '',
     baseUrl: '',
@@ -185,7 +187,10 @@ export const ServerSelector: FC = () => {
 
   const handleAdd = async () => {
     if (!formState.baseUrl.trim()) {
-      toast.error('Server URL is required');
+      const message = 'Server URL is required';
+      setUrlError(message);
+      urlInputRef.current?.focus();
+      toast.error(message);
       return;
     }
 
@@ -263,7 +268,11 @@ export const ServerSelector: FC = () => {
                     variant="ghost"
                     size="icon"
                     className="h-6 w-6"
-                    onClick={() => setAddDialogOpen(true)}
+                    aria-label="Add server"
+                    onClick={() => {
+                      setUrlError(null);
+                      setAddDialogOpen(true);
+                    }}
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </Button>
@@ -415,11 +424,22 @@ export const ServerSelector: FC = () => {
             <div className="space-y-2">
               <Label htmlFor="server-url">Server URL</Label>
               <Input
+                ref={urlInputRef}
                 id="server-url"
                 value={formState.baseUrl}
-                onChange={(e) => setFormState((prev) => ({ ...prev, baseUrl: e.target.value }))}
+                onChange={(e) => {
+                  setFormState((prev) => ({ ...prev, baseUrl: e.target.value }));
+                  if (e.target.value.trim()) setUrlError(null);
+                }}
                 placeholder="http://127.0.0.1:5700"
+                aria-invalid={urlError ? true : undefined}
+                aria-describedby={urlError ? 'server-url-error' : undefined}
               />
+              {urlError && (
+                <p id="server-url-error" className="text-sm text-destructive">
+                  {urlError}
+                </p>
+              )}
             </div>
             <div className="flex items-center space-x-2">
               <Checkbox
