@@ -4,6 +4,7 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/componen
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { WelcomeView } from '@/components/WelcomeView';
 import { ConversationContent } from '@/components/ConversationContent';
+import { ExternalSessionDetail } from '@/components/ExternalSessionDetail';
 import { SplitConversationView } from '@/components/SplitConversationView';
 import { TaskDetails } from '@/components/TaskDetails';
 import { RightSidebar } from '@/components/RightSidebar';
@@ -54,6 +55,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   const stepParam = searchParams.get('step');
   const serverParam = searchParams.get('server');
   const splitParam = searchParams.get('split');
+  const externalParam = searchParams.get('external');
   const splitIds = useMemo((): [string, string] | null => {
     if (!splitParam) return null;
     const ids = splitParam.split(',').filter(Boolean).slice(0, 2);
@@ -583,6 +585,15 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
       return null;
     }
 
+    // External session selected from sidebar — show transcript inline in the native chat layout
+    if (externalParam) {
+      return (
+        <div className="h-full overflow-hidden">
+          <ExternalSessionDetail key={externalParam} sessionId={externalParam} />
+        </div>
+      );
+    }
+
     return (
       <div className="flex h-full flex-1 items-center justify-center">
         <WelcomeView />
@@ -608,6 +619,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
               <UnifiedSidebar
                 conversations={allConversations}
                 selectedConversationId$={selectedConversation$}
+                selectedExternalId={externalParam ?? undefined}
                 onSelectConversation={(id, serverId) => {
                   handleSelectConversation(id, serverId);
                   leftSidebarVisible$.set(false);
@@ -728,6 +740,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
             <UnifiedSidebar
               conversations={allConversations}
               selectedConversationId$={selectedConversation$}
+              selectedExternalId={externalParam ?? undefined}
               onSelectConversation={handleSelectConversation}
               conversationsLoading={isLoading}
               conversationsFetching={isFetching}
