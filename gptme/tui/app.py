@@ -296,6 +296,16 @@ class ChatInput(TextArea):
                         self._history_edits.get(new_idx, self._history[-(new_idx + 1)])
                     )
                 return
+        if event.key == "alt+left":
+            event.stop()
+            event.prevent_default()
+            self.action_cursor_word_left()
+            return
+        if event.key == "alt+right":
+            event.stop()
+            event.prevent_default()
+            self.action_cursor_word_right()
+            return
         await super()._on_key(event)
 
     def _set_text(self, text: str) -> None:
