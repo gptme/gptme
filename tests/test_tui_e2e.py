@@ -288,6 +288,16 @@ class TmuxTUI:
         )
         return result.stdout
 
+    def capture_scrollback(self, lines: int = 1000) -> str:
+        """Capture pane content including scrollback history."""
+        result = subprocess.run(
+            ["tmux", "capture-pane", "-t", self.session, "-p", "-S", f"-{lines}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout
+
     def wait_for(self, needle: str, timeout: float = 30.0) -> str:
         deadline = time.monotonic() + timeout
         content = ""
@@ -446,14 +456,21 @@ class TestTmuxInlineMode:
         tui.send("hello inline")
         tui.send_key("Enter")
         tui.wait_for("Echo: hello inline")
-        # Wait for both the echo AND the input prompt to be visible together —
-        # captures taken the moment "Echo:" appears can race before the prompt
-        # re-renders, causing ValueError from str.index().
-        pane = tui.wait_for("Type a message")
+        # Wait for the input prompt to confirm rendering is complete.
+        tui.wait_for("Type a message")
+        # In --inline mode the response is emitted to native scrollback (above
+        # the live input region). tmux capture-pane without -S only shows the
+        # current 30-line visible screen, so "Echo: hello inline" can scroll
+        # above that window by the time the prompt re-appears, causing
+        # ValueError from str.index(). Use a scrollback-aware capture so both
+        # strings are always in the same snapshot.
+        pane = tui.capture_scrollback()
         assert_no_escape_garbage(pane)
-        # transcript lines are plain terminal output (native scrollback), so
-        # they appear above the live region which contains the input
-        assert pane.index("Echo: hello inline") < pane.index("Type a message")
+        # transcript lines are in scrollback (lower index) above the live
+        # input region which contains the prompt (higher index). Use rindex so
+        # we compare against the re-rendered prompt AFTER the echo, not the
+        # initial startup prompt that appears earlier in the scrollback.
+        assert pane.index("Echo: hello inline") < pane.rindex("Type a message")
 
     def test_inline_tool_flow(self, tmux_tui, tmp_path):
         marker = tmp_path / "inline_marker"
