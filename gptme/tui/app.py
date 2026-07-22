@@ -108,7 +108,7 @@ class StreamingMessage(Vertical):
     def __init__(self) -> None:
         super().__init__(classes="message assistant streaming")
         self._buffer = ""
-        self._body = Static(Text(""))
+        self._body = Static(Text("Generating…", style="dim italic"))
 
     def compose(self) -> ComposeResult:
         yield Static(Text("Assistant"), classes="role")
@@ -901,6 +901,13 @@ class GptmeApp(App):
 
     def _begin_stream(self) -> None:
         self._set_state("generating")
+        if self.inline:
+            self.query_one("#live", Static).update(
+                Text("Generating…", style="dim italic")
+            )
+        elif self._stream_widget is None:
+            self._stream_widget = StreamingMessage()
+            self._mount_in_chat(self._stream_widget)
 
     def _on_stream_token(self, token: str) -> None:
         if self.inline:
