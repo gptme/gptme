@@ -8,8 +8,6 @@ output is rendered in collapsible sections for a compact view.
 
 import contextlib
 import contextvars
-import datetime
-import fcntl
 import io
 import logging
 import os.path
@@ -44,6 +42,7 @@ from ..tools import ToolFormat, ToolUse
 from ..tools.base import ToolUse as ToolUseType
 from ..tools.complete import SessionCompleteException
 from ..util.context import include_paths
+from ..util.history import append_history, load_history
 from ..util.tokens import len_tokens
 
 logger = logging.getLogger(__name__)
@@ -223,40 +222,13 @@ def complete_input(text: str) -> list[str]:
 
 
 def _load_pt_history(path: Path) -> list[str]:
-    """Read a prompt-toolkit FileHistory file; return entries oldest-first."""
-    if not path.exists():
-        return []
-    entries: list[str] = []
-    current: list[str] = []
-    try:
-        with path.open() as f:
-            for raw in f:
-                line = raw.rstrip("\n")
-                if line.startswith("+"):
-                    current.append(line[1:])
-                elif not line.strip():
-                    if current:
-                        entries.append("\n".join(reversed(current)))
-                        current = []
-        if current:
-            entries.append("\n".join(reversed(current)))
-    except OSError:
-        pass
-    return entries
+    """Read a prompt-toolkit history file; return entries oldest-first."""
+    return load_history(path)
 
 
 def _append_pt_history(path: Path, text: str) -> None:
-    """Append one entry to a prompt-toolkit FileHistory file (atomic, concurrency-safe)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    entry = f"\n# {datetime.datetime.now(datetime.timezone.utc)}\n"
-    for line in text.split("\n"):
-        entry += f"+{line}\n"
-    with path.open("a") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
-        try:
-            f.write(entry)
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
+    """Append one entry under the lock shared with the CLI."""
+    append_history(path, text)
 
 
 class ChatInput(TextArea):

@@ -14,7 +14,6 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import Completer, Completion, PathCompleter
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import ANSI, HTML, to_formatted_text
-from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.lexers import PygmentsLexer
@@ -26,6 +25,7 @@ from pygments.token import Name, Text
 from rich.console import Console
 
 from ..dirs import get_pt_history_file
+from .history import LockedFileHistory
 
 # Make cache management functions available at module level
 __all__ = ["clear_path_cache", "check_cwd", "is_valid_path", "PathLexer"]
@@ -453,7 +453,7 @@ def get_prompt_session() -> PromptSession:
         history_path = get_pt_history_file()
         if not history_path.parent.exists():
             history_path.parent.mkdir(parents=True, exist_ok=True)
-        history = FileHistory(str(history_path))
+        history = LockedFileHistory(history_path)
         completer = GptmeCompleter()
 
         kb = KeyBindings()

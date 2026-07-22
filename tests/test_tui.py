@@ -281,29 +281,36 @@ def test_pt_history_write_error_is_isolated(tmp_path, monkeypatch):
     assert chat_input._history == ["hello"]
 
 
-def test_pt_history_concurrent_appends(tmp_path):
-    """Concurrent appends from multiple writers must not interleave entries."""
+def test_pt_history_concurrent_tui_and_cli_appends(tmp_path):
+    """TUI and CLI writers share one lock and cannot interleave entries."""
     import threading
 
+    from gptme.util.history import LockedFileHistory
+
     hist_file = tmp_path / "history.pt"
-    entries = [f"entry-{i}" for i in range(20)]
+    entries = [f"entry-{i}\nline-{i}" for i in range(20)]
     errors: list[Exception] = []
 
-    def writer(text: str) -> None:
+    def writer(index: int, text: str) -> None:
         try:
-            _append_pt_history(hist_file, text)
+            if index % 2:
+                _append_pt_history(hist_file, text)
+            else:
+                LockedFileHistory(hist_file).append_string(text)
         except Exception as e:
             errors.append(e)
 
-    threads = [threading.Thread(target=writer, args=(e,)) for e in entries]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    threads = [
+        threading.Thread(target=writer, args=(i, entry))
+        for i, entry in enumerate(entries)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
     assert not errors
     loaded = _load_pt_history(hist_file)
-    # Every entry must appear exactly once, with no corruption (no partial merges)
     assert sorted(loaded) == sorted(entries)
 
 
