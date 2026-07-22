@@ -60,19 +60,19 @@ pick = {version = "^2.6.0", markers = "sys_platform != 'win32'"}
 tiktoken = ">=0.13.0"
 tomlkit = "*"
 typing-extensions = "*"
-platformdirs = "^4.10"
+platformdirs = "^4.11"
 lxml = {version = "*", optional = true}  # HTML/XML parsing; optional — falls back to stdlib xml.etree.ElementTree
 pypdf = {version = ">=6.14.2", optional = true}  # PDF extraction in browser tool (CVE fix: RAM exhaustion + infinite loop)
 requests = "^2.34"  # For HTTP requests in browser tool (PDF detection)
-json-repair = "^0.61.4"
+json-repair = "^0.61.7"
 mcp = "^1.28.1"
 questionary = "^2.1.1"
 python-dateutil = "^2.9.0.post0"
 pyyaml = "^6.0.3"
 
 # providers
-openai = "^2.45"
-anthropic = "^0.116"
+openai = "^2.46"
+anthropic = "^0.117"
 
 # tools
 ipython = "^8.39.0"
@@ -157,7 +157,7 @@ sphinx-autobuild = "^2024.10.3"
 sphinx-llms-txt = "^0.7.1"
 sphinxcontrib-programoutput = "*"
 sphinxcontrib-asciinema = "*"
-sphinxcontrib-mermaid = "^2.0.3"
+sphinxcontrib-mermaid = "^2.1.0"
 myst-parser = "*"
 
 # types
