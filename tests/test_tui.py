@@ -261,6 +261,52 @@ def test_pt_history_missing_file(tmp_path):
     assert _load_pt_history(tmp_path / "no-such-file.pt") == []
 
 
+def test_pt_history_write_error_is_isolated(tmp_path, monkeypatch):
+    """A write failure in _append_pt_history must not propagate out of _push_history."""
+    import gptme.tui.app as tui_app
+
+    hist_file = tmp_path / "history.pt"
+    # Route ChatInput init to the empty tmp file
+    monkeypatch.setattr(tui_app, "get_pt_history_file", lambda: hist_file)
+    # Simulate a read-only filesystem for all subsequent writes
+    monkeypatch.setattr(
+        tui_app,
+        "_append_pt_history",
+        lambda *_: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    # _push_history must swallow the error; the in-memory history still grows
+    chat_input = ChatInput()
+    chat_input._push_history("hello")  # must not raise
+    assert chat_input._history == ["hello"]
+
+
+def test_pt_history_concurrent_appends(tmp_path):
+    """Concurrent appends from multiple writers must not interleave entries."""
+    import threading
+
+    hist_file = tmp_path / "history.pt"
+    entries = [f"entry-{i}" for i in range(20)]
+    errors: list[Exception] = []
+
+    def writer(text: str) -> None:
+        try:
+            _append_pt_history(hist_file, text)
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=writer, args=(e,)) for e in entries]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    loaded = _load_pt_history(hist_file)
+    # Every entry must appear exactly once, with no corruption (no partial merges)
+    assert sorted(loaded) == sorted(entries)
+
+
 @pytest.mark.asyncio
 async def test_history_persists_across_sessions(tmp_path, monkeypatch):
     """TUI history is written to and read from the shared pt history file."""

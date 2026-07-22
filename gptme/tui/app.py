@@ -9,6 +9,7 @@ output is rendered in collapsible sections for a compact view.
 import contextlib
 import contextvars
 import datetime
+import fcntl
 import io
 import logging
 import os.path
@@ -245,12 +246,17 @@ def _load_pt_history(path: Path) -> list[str]:
 
 
 def _append_pt_history(path: Path, text: str) -> None:
-    """Append one entry to a prompt-toolkit FileHistory file."""
+    """Append one entry to a prompt-toolkit FileHistory file (atomic, concurrency-safe)."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    entry = f"\n# {datetime.datetime.now(datetime.timezone.utc)}\n"
+    for line in text.split("\n"):
+        entry += f"+{line}\n"
     with path.open("a") as f:
-        f.write(f"\n# {datetime.datetime.now(datetime.timezone.utc)}\n")
-        for line in text.split("\n"):
-            f.write(f"+{line}\n")
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            f.write(entry)
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 class ChatInput(TextArea):
@@ -277,7 +283,12 @@ class ChatInput(TextArea):
         """Record a submitted entry and persist it to the shared history file."""
         if text and (not self._history or self._history[-1] != text):
             self._history.append(text)
-            _append_pt_history(self._history_file, text)
+            try:
+                _append_pt_history(self._history_file, text)
+            except OSError as e:
+                logger.warning(
+                    "failed to persist history to %s: %s", self._history_file, e
+                )
         self._history_idx = -1
         self._history_saved = ""
         self._history_edits.clear()
