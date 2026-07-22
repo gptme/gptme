@@ -792,10 +792,12 @@ def _choose_first_run_auth() -> str:
         "[bold]How would you like to connect?[/bold]\n"
         "  1. ChatGPT Plus/Pro subscription [dim](browser sign-in, no API key)[/dim]\n"
         "  2. Grok SuperGrok subscription [dim](browser sign-in, no API key)[/dim]\n"
-        "  3. Provider API key [dim](OpenAI, Anthropic, OpenRouter, Gemini)[/dim]\n"
-        "  4. Custom OpenAI-compatible provider"
+        "  3. OpenRouter [dim](browser sign-in, access 300+ models, no API key required)[/dim]\n"
+        "  4. gptme.ai [dim](device sign-in, hosted service)[/dim]\n"
+        "  5. Provider API key [dim](OpenAI, Anthropic, OpenRouter, Gemini)[/dim]\n"
+        "  6. Custom OpenAI-compatible provider"
     )
-    return Prompt.ask("Connection", choices=["1", "2", "3", "4"], default="1")
+    return Prompt.ask("Connection", choices=["1", "2", "3", "4", "5", "6"], default="1")
 
 
 def _show_api_key_sources() -> None:  # pragma: no cover
@@ -846,6 +848,46 @@ def _setup_grok_subscription() -> tuple[str, str]:
     return provider, "oauth"
 
 
+def _setup_openrouter_oauth() -> tuple[str, str]:  # pragma: no cover
+    """Authenticate via OpenRouter OAuth and persist the API key as the default."""
+    from ..llm.llm_openrouter_subscription import oauth_get_api_key
+
+    console.print(
+        "\n[bold]Opening your browser for OpenRouter sign-in...[/bold]\n"
+        "[dim]OpenRouter gives access to 300+ models (GPT, Claude, Gemini, …).[/dim]\n"
+        "[dim]The sign-in returns a permanent API key — no subscription required.[/dim]"
+    )
+    try:
+        api_key = oauth_get_api_key()
+    except RuntimeError as exc:
+        console.print(f"[red]❌ OpenRouter OAuth failed: {exc}[/red]")
+        raise
+
+    set_config_value("env.OPENROUTER_API_KEY", api_key, local=True)
+    provider = "openrouter"
+    model = f"{provider}/{get_recommended_model('openrouter')}"
+    set_config_value("models.default", model)
+    console.print(f"[green]✅ OpenRouter connected ({model})[/green]")
+    return provider, api_key
+
+
+def _setup_gptme_ai() -> tuple[str, str]:  # pragma: no cover
+    """Authenticate via gptme.ai device flow and persist the token as default."""
+    from ..llm.llm_gptme import DEFAULT_SERVICE_URL, device_flow_authenticate
+
+    console.print(
+        "\n[bold]Starting gptme.ai device sign-in...[/bold]\n"
+        "[dim]You'll be given a short code to enter on gptme.ai in your browser.[/dim]\n"
+        "[dim]Works in SSH/headless environments — no browser redirect needed.[/dim]"
+    )
+    device_flow_authenticate(server_url=DEFAULT_SERVICE_URL)
+    provider = "gptme"
+    model = f"{provider}/{get_recommended_model('gptme')}"
+    set_config_value("models.default", model)
+    console.print(f"[green]✅ gptme.ai connected ({model})[/green]")
+    return provider, "device-flow"
+
+
 def ask_for_api_key():  # pragma: no cover
     """Interactively configure subscription, API-key, or custom provider auth."""
     console.print(
@@ -861,7 +903,11 @@ def ask_for_api_key():  # pragma: no cover
         return _setup_openai_subscription()
     if choice == "2":
         return _setup_grok_subscription()
+    if choice == "3":
+        return _setup_openrouter_oauth()
     if choice == "4":
+        return _setup_gptme_ai()
+    if choice == "6":
         return _setup_custom_provider()
 
     _show_api_key_sources()
