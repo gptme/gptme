@@ -541,8 +541,10 @@ describe('ConversationList', () => {
         />
       );
       fireEvent.click(screen.getByLabelText('Show external sessions'));
-      expect(screen.getByText('External Sessions')).toBeInTheDocument();
+      // External sessions are mixed inline with native conversations in the recent view —
+      // no separate "External Sessions" header; items appear with harness badge in date groups.
       expect(screen.getByText('My CC Session')).toBeInTheDocument();
+      expect(screen.getByText('CC')).toBeInTheDocument(); // harness badge
     });
 
     it('hides external sessions again after toggling twice', () => {
@@ -599,6 +601,72 @@ describe('ConversationList', () => {
       );
       fireEvent.click(screen.getByText('My CC Session'));
       expect(onSelectExternal).toHaveBeenCalledWith('ext-1');
+    });
+
+    it('external sessions appear mixed inline with native conversations in the date-grouped view', () => {
+      // Native conversation modified more recently than the external session
+      const recentNative = createConversation({
+        id: 'native-recent',
+        name: 'Recent Native',
+        modified: Date.now() / 1000,
+      });
+      // External session modified 1 hour ago
+      const olderExternal = {
+        ...externalSession,
+        last_activity: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      };
+      localStorage.setItem('gptme:show-external-sessions', 'true');
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          conversations={[recentNative]}
+          externalSessions={[olderExternal]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+      // Both appear — no separate "External Sessions" header in the recent/default view
+      expect(screen.getByText('Recent Native')).toBeInTheDocument();
+      expect(screen.getByText('My CC Session')).toBeInTheDocument();
+      expect(screen.queryByText('External Sessions')).not.toBeInTheDocument();
+      // Harness badge is present
+      expect(screen.getByText('CC')).toBeInTheDocument();
+    });
+
+    it('shows undated external sessions without a January 1970 group', () => {
+      localStorage.setItem('gptme:show-external-sessions', 'true');
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          conversations={[]}
+          externalSessions={[{ ...externalSession, started_at: null, last_activity: null }]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+
+      expect(screen.getByText('My CC Session')).toBeInTheDocument();
+      expect(screen.getByText('External Sessions — Unknown date')).toBeInTheDocument();
+      expect(screen.queryByText(/January 1970/)).not.toBeInTheDocument();
+    });
+
+    it.each([
+      { state: 'loading', props: { isLoading: true } },
+      {
+        state: 'failed',
+        props: { isError: true, error: new Error('Native request failed') },
+      },
+    ])('keeps external sessions visible while native conversations are $state', ({ props }) => {
+      localStorage.setItem('gptme:show-external-sessions', 'true');
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          conversations={[]}
+          {...props}
+          externalSessions={[externalSession]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+
+      expect(screen.getByText('My CC Session')).toBeInTheDocument();
     });
   });
 });

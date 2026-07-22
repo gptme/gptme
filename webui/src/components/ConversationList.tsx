@@ -380,6 +380,37 @@ export const ConversationList: FC<Props> = ({
           return getConversationName(a).localeCompare(getConversationName(b));
         });
 
+  // Cap external sessions merged into the timeline to avoid unbounded rendering.
+  const MAX_EXTERNAL_INLINE = 50;
+
+  // External sessions without a usable timestamp cannot be placed honestly in a date group.
+  // Keep them in an undated section instead of manufacturing a January 1970 group.
+  const externalAsSummaries: ConversationSummary[] =
+    showExternal && externalSessions && onSelectExternal
+      ? externalSessions.slice(0, MAX_EXTERNAL_INLINE).map((item) => {
+          const modifiedMs = Date.parse(item.last_activity ?? item.started_at ?? '');
+          const modified = Number.isFinite(modifiedMs) && modifiedMs > 0 ? modifiedMs / 1000 : 0;
+          const label = HARNESS_LABELS[item.harness] ?? item.harness;
+          const name = item.session_name ?? item.session_id.slice(0, 8);
+          return {
+            id: `ext:${item.id}`,
+            name,
+            modified,
+            _externalSession: { id: item.id, harness: item.harness, label },
+          } satisfies ConversationSummary;
+        })
+      : [];
+  const datedExternalSummaries = externalAsSummaries.filter((conv) => conv.modified > 0);
+  const undatedExternalSummaries = externalAsSummaries.filter((conv) => conv.modified === 0);
+
+  // For 'recent': merge and re-sort so dated external sessions appear in the right timeline position.
+  const sortedConversationsWithExternal =
+    sortBy === 'recent' && datedExternalSummaries.length > 0
+      ? [...sortedRealConversations, ...datedExternalSummaries].sort(
+          (a, b) => b.modified - a.modified
+        )
+      : sortedRealConversations;
+
   return (
     <div
       ref={scrollContainerRef}
@@ -508,12 +539,11 @@ export const ConversationList: FC<Props> = ({
         </div>
       )}
 
-      {/* Render real conversations: grouped by date for 'recent', flat list for other sorts */}
-      {!isLoading &&
-        !isError &&
-        sortBy === 'recent' &&
+      {/* Render conversations: grouped by date for 'recent' (native + external merged), flat list for other sorts.
+          External sessions render independently of the native loading/error state. */}
+      {sortBy === 'recent' &&
         groupByDate<ConversationSummary>(
-          sortedRealConversations,
+          isLoading || isError ? datedExternalSummaries : sortedConversationsWithExternal,
           (c) => c.created ?? c.modified
         ).map(({ group, items }) => (
           <div key={group}>
@@ -524,30 +554,57 @@ export const ConversationList: FC<Props> = ({
               {group}
             </div>
             <div className="space-y-2 px-2">
-              {items.map((conv) => (
-                <ConversationItem
-                  key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
-                  conv={conv}
-                  showLabel={showServerLabels}
-                  selectedId$={selectedId$}
-                  onSelect={onSelect}
-                  renamingId={renamingId}
-                  renameValue={renameValue}
-                  setRenameValue={setRenameValue}
-                  onRenameSubmit={handleRenameSubmit}
-                  onRenameCancel={handleRenameCancel}
-                  setDeleteTarget={setDeleteTarget}
-                  getIsStarred={getIsStarred}
-                  toggleStar={toggleStar}
-                  onExportMarkdown={handleExportMarkdown}
-                  onExportJSON={handleExportJSON}
-                  onStartRename={handleStartRename}
-                  demoIds={demoIds}
-                  normalizedFilter={normalizedFilter}
-                  onOpenInSplitView={onOpenInSplitView}
-                  setOptimisticStars={setOptimisticStars}
-                />
-              ))}
+              {items.map((conv) => {
+                const ext = conv._externalSession;
+                if (ext) {
+                  // External session: compact badge row, no context menu
+                  const isExtSelected = selectedExternalId === ext.id;
+                  return (
+                    <button
+                      key={conv.id}
+                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50 ${
+                        isExtSelected ? 'bg-accent ring-1 ring-primary' : ''
+                      }`}
+                      aria-pressed={isExtSelected}
+                      onClick={() => onSelectExternal!(ext.id)}
+                    >
+                      <Badge variant="secondary" className="h-4 flex-shrink-0 px-1.5 text-[10px]">
+                        {ext.label}
+                      </Badge>
+                      <span className="min-w-0 flex-1 truncate text-xs">{conv.name}</span>
+                      {conv.modified > 0 && (
+                        <span className="flex-shrink-0 text-[10px] text-muted-foreground">
+                          {getRelativeTimeString(new Date(conv.modified * 1000))}
+                        </span>
+                      )}
+                    </button>
+                  );
+                }
+                return (
+                  <ConversationItem
+                    key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
+                    conv={conv}
+                    showLabel={showServerLabels}
+                    selectedId$={selectedId$}
+                    onSelect={onSelect}
+                    renamingId={renamingId}
+                    renameValue={renameValue}
+                    setRenameValue={setRenameValue}
+                    onRenameSubmit={handleRenameSubmit}
+                    onRenameCancel={handleRenameCancel}
+                    setDeleteTarget={setDeleteTarget}
+                    getIsStarred={getIsStarred}
+                    toggleStar={toggleStar}
+                    onExportMarkdown={handleExportMarkdown}
+                    onExportJSON={handleExportJSON}
+                    onStartRename={handleStartRename}
+                    demoIds={demoIds}
+                    normalizedFilter={normalizedFilter}
+                    onOpenInSplitView={onOpenInSplitView}
+                    setOptimisticStars={setOptimisticStars}
+                  />
+                );
+              })}
             </div>
           </div>
         ))}
@@ -655,47 +712,46 @@ export const ConversationList: FC<Props> = ({
         </div>
       )}
 
-      {/* External sessions section — compact view of cross-harness sessions (toggle-gated, off by default) */}
-      {showExternal && externalSessions && externalSessions.length > 0 && onSelectExternal && (
-        <div>
-          <div className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-muted-foreground">
-            <Layers className="h-3 w-3" />
-            External Sessions
+      {/* Non-recency sorts cannot rank external sessions alongside native conversations. Undated
+          sessions also live here in the recent view because they have no honest timeline position. */}
+      {((sortBy !== 'recent' && externalAsSummaries.length > 0) ||
+        (sortBy === 'recent' && undatedExternalSummaries.length > 0)) &&
+        onSelectExternal && (
+          <div>
+            <div className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-muted-foreground">
+              <Layers className="h-3 w-3" />
+              {sortBy === 'recent' ? 'External Sessions — Unknown date' : 'External Sessions'}
+            </div>
+            <div className="space-y-1 px-2">
+              {(sortBy === 'recent' ? undatedExternalSummaries : externalAsSummaries).map(
+                (conv) => {
+                  const ext = conv._externalSession!;
+                  const isExtSelected = selectedExternalId === ext.id;
+                  return (
+                    <button
+                      key={conv.id}
+                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50 ${
+                        isExtSelected ? 'bg-accent ring-1 ring-primary' : ''
+                      }`}
+                      aria-pressed={isExtSelected}
+                      onClick={() => onSelectExternal(ext.id)}
+                    >
+                      <Badge variant="secondary" className="h-4 flex-shrink-0 px-1.5 text-[10px]">
+                        {ext.label}
+                      </Badge>
+                      <span className="min-w-0 flex-1 truncate text-xs">{conv.name}</span>
+                      {conv.modified > 0 && (
+                        <span className="flex-shrink-0 text-[10px] text-muted-foreground">
+                          {getRelativeTimeString(new Date(conv.modified * 1000))}
+                        </span>
+                      )}
+                    </button>
+                  );
+                }
+              )}
+            </div>
           </div>
-          <div className="space-y-1 px-2">
-            {externalSessions.slice(0, 10).map((session) => {
-              const displayName = session.session_name ?? session.session_id.slice(0, 8);
-              const harnessLabel = HARNESS_LABELS[session.harness] ?? session.harness;
-              const timeStr = session.last_activity
-                ? getRelativeTimeString(new Date(session.last_activity))
-                : session.started_at
-                  ? getRelativeTimeString(new Date(session.started_at))
-                  : null;
-              const isSelected = selectedExternalId === session.id;
-              return (
-                <button
-                  key={session.id}
-                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50 ${
-                    isSelected ? 'bg-accent ring-1 ring-primary' : ''
-                  }`}
-                  aria-pressed={isSelected}
-                  onClick={() => onSelectExternal(session.id)}
-                >
-                  <Badge variant="secondary" className="h-4 flex-shrink-0 px-1.5 text-[10px]">
-                    {harnessLabel}
-                  </Badge>
-                  <span className="min-w-0 flex-1 truncate text-xs">{displayName}</span>
-                  {timeStr && (
-                    <span className="flex-shrink-0 text-[10px] text-muted-foreground">
-                      {timeStr}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+        )}
 
       {/* Delete confirmation dialog */}
       {deleteTarget && (
