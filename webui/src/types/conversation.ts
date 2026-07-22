@@ -66,6 +66,12 @@ export interface ConversationSummary {
   description?: string | null;
   tags?: string[];
   pinned_order?: number | null;
+  // Client-only: set when this entry is an external session merged into the list
+  _externalSession?: {
+    id: string; // original external session id (for API calls and selection)
+    harness: string;
+    label: string;
+  };
 }
 
 export interface GenerateCallbacks {
