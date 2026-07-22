@@ -212,3 +212,34 @@ async def test_history_preserves_edits_while_browsing(tmp_path):
         assert inp.text == "draft prompt"
         await pilot.press("up")
         assert inp.text == "edited previous prompt"
+
+
+@pytest.mark.asyncio
+async def test_word_navigation(tmp_path):
+    """Alt+Left/Right navigate by word boundary in the input."""
+    # "hello world foo": h=0 e=1 l=2 l=3 o=4 ' '=5 w=6 ... d=10 ' '=11 f=12 o=13 o=14
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        inp = app.query_one("#input", ChatInput)
+        inp.focus()
+        inp.text = "hello world foo"
+        inp.move_cursor(inp.document.end)  # column 15
+        await pilot.pause()
+
+        await pilot.press("alt+left")
+        await pilot.pause()
+        _, col = inp.cursor_location
+        assert col == 12, f"expected col 12 (start of 'foo'), got {col}"
+
+        await pilot.press("alt+left")
+        await pilot.pause()
+        _, col = inp.cursor_location
+        assert col == 6, f"expected col 6 (start of 'world'), got {col}"
+
+        # from col 0, word-right jumps to end of 'hello' (col 5)
+        inp.move_cursor((0, 0))
+        await pilot.pause()
+        await pilot.press("alt+right")
+        await pilot.pause()
+        _, col = inp.cursor_location
+        assert col == 5, f"expected col 5 (end of 'hello'), got {col}"
