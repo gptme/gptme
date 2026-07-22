@@ -10,6 +10,7 @@ from gptme.logmanager import LogManager
 from gptme.message import Message
 from gptme.tui.app import (
     AssistantMessage,
+    BouncingError,
     ChatInput,
     GptmeApp,
     InfoMessage,
@@ -103,6 +104,35 @@ async def test_slash_command_help(tmp_path):
         await pilot.pause()
         infos = list(app.query(InfoMessage))
         assert infos, "expected /help output to be shown"
+
+
+@pytest.mark.asyncio
+async def test_experimental_jelly_errors_show_recovery_hints(tmp_path):
+    app = GptmeApp(make_manager(tmp_path), experimental_jelly_errors=True)
+    async with app.run_test() as pilot:
+        app._show_info("Command failed", error=True)
+        # Poll until the recovery hint appears (callback fires after ~0.3s).
+        # A fixed wait races on busy runners; polling converges faster and reliably.
+        for _ in range(40):
+            await pilot.pause(0.025)
+            error = app.query_one(BouncingError)
+            if "Recovery:" in str(error.render()):
+                break
+        else:
+            pytest.fail("Recovery hint did not appear within 1s")
+        rendered = error.render()
+        assert "Recovery:" in str(rendered)
+        assert "retry" in str(rendered)
+
+
+@pytest.mark.asyncio
+async def test_jelly_errors_are_disabled_by_default(tmp_path):
+    app = GptmeApp(make_manager(tmp_path))
+    async with app.run_test() as pilot:
+        app._show_info("Command failed", error=True)
+        await pilot.pause()
+        assert not app.query(BouncingError)
+        assert app.query_one(InfoMessage).has_class("error")
 
 
 @pytest.mark.asyncio
