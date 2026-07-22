@@ -15,6 +15,13 @@ const mockUseQuery = jest.fn();
 
 jest.mock('@tanstack/react-query', () => ({
   useQuery: (...args: unknown[]) => mockUseQuery(...args),
+  useMutation: jest.fn(() => ({
+    mutate: jest.fn(),
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+    error: null,
+  })),
 }));
 
 jest.mock('@legendapp/state/react', () => ({

@@ -406,6 +406,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     createAgent: async () => notImpl('createAgent'),
     deleteSession: async () => {},
     getExternalSession: async () => notImpl('getExternalSession'),
+    steerExternalSession: async () => notImpl('steerExternalSession'),
   };
 
   return client;

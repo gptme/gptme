@@ -1709,6 +1709,14 @@ export class ApiClient {
     return await this.fetchJson<ExternalSessionDetail>(url);
   }
 
+  async steerExternalSession(id: string, message: string): Promise<void> {
+    const url = `${this.baseUrl}/api/v2/external-sessions/${id}/steer`;
+    await this.fetchJson<{ status: string }>(url, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    });
+  }
+
   async getSessions(): Promise<ActiveSession[]> {
     const url = `${this.baseUrl}/api/v2/sessions`;
     return await this.fetchJson<ActiveSession[]>(url);
