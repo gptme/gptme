@@ -85,6 +85,7 @@ interface Props {
   onOpenInSplitView?: (conversationId: string) => void;
   externalSessions?: ExternalSessionCatalogItem[];
   onSelectExternal?: (id: string) => void;
+  selectedExternalId?: string;
 }
 
 export const ConversationList: FC<Props> = ({
@@ -102,6 +103,7 @@ export const ConversationList: FC<Props> = ({
   onOpenInSplitView,
   externalSessions,
   onSelectExternal,
+  selectedExternalId,
 }) => {
   const { api, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
@@ -669,10 +671,14 @@ export const ConversationList: FC<Props> = ({
                 : session.started_at
                   ? getRelativeTimeString(new Date(session.started_at))
                   : null;
+              const isSelected = selectedExternalId === session.id;
               return (
                 <button
                   key={session.id}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50"
+                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50 ${
+                    isSelected ? 'bg-accent ring-1 ring-primary' : ''
+                  }`}
+                  aria-pressed={isSelected}
                   onClick={() => onSelectExternal(session.id)}
                 >
                   <Badge variant="secondary" className="h-4 flex-shrink-0 px-1.5 text-[10px]">
