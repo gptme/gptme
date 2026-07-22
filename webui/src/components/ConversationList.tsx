@@ -383,34 +383,32 @@ export const ConversationList: FC<Props> = ({
   // Cap external sessions merged into the timeline to avoid unbounded rendering.
   const MAX_EXTERNAL_INLINE = 50;
 
-  // For 'recent' view: merge external sessions into the native list (true unified timeline).
-  // External sessions are adapted to ConversationSummary shape and interleaved by modified time.
-  // Sessions with no parseable timestamp are excluded from the merged view (no meaningful sort key).
-  // For non-recency sorts, external sessions appear in a separate section (no message count to sort by).
+  // External sessions without a usable timestamp cannot be placed honestly in a date group.
+  // Keep them in an undated section instead of manufacturing a January 1970 group.
   const externalAsSummaries: ConversationSummary[] =
     showExternal && externalSessions && onSelectExternal
-      ? externalSessions.slice(0, MAX_EXTERNAL_INLINE).flatMap((item) => {
+      ? externalSessions.slice(0, MAX_EXTERNAL_INLINE).map((item) => {
           const modifiedMs = Date.parse(item.last_activity ?? item.started_at ?? '');
-          // Skip sessions with no parseable timestamp — placing them at epoch (Jan 1970) is misleading.
-          if (!Number.isFinite(modifiedMs) || modifiedMs <= 0) return [];
-          const modified = modifiedMs / 1000;
+          const modified = Number.isFinite(modifiedMs) && modifiedMs > 0 ? modifiedMs / 1000 : 0;
           const label = HARNESS_LABELS[item.harness] ?? item.harness;
           const name = item.session_name ?? item.session_id.slice(0, 8);
-          return [
-            {
-              id: `ext:${item.id}`,
-              name,
-              modified,
-              _externalSession: { id: item.id, harness: item.harness, label },
-            } satisfies ConversationSummary,
-          ];
+          return {
+            id: `ext:${item.id}`,
+            name,
+            modified,
+            _externalSession: { id: item.id, harness: item.harness, label },
+          } satisfies ConversationSummary;
         })
       : [];
+  const datedExternalSummaries = externalAsSummaries.filter((conv) => conv.modified > 0);
+  const undatedExternalSummaries = externalAsSummaries.filter((conv) => conv.modified === 0);
 
-  // For 'recent': merge and re-sort so external sessions appear in the right timeline position.
+  // For 'recent': merge and re-sort so dated external sessions appear in the right timeline position.
   const sortedConversationsWithExternal =
-    sortBy === 'recent' && externalAsSummaries.length > 0
-      ? [...sortedRealConversations, ...externalAsSummaries].sort((a, b) => b.modified - a.modified)
+    sortBy === 'recent' && datedExternalSummaries.length > 0
+      ? [...sortedRealConversations, ...datedExternalSummaries].sort(
+          (a, b) => b.modified - a.modified
+        )
       : sortedRealConversations;
 
   return (
@@ -543,11 +541,9 @@ export const ConversationList: FC<Props> = ({
 
       {/* Render conversations: grouped by date for 'recent' (native + external merged), flat list for other sorts.
           External sessions render independently of the native loading/error state. */}
-      {(!isLoading || externalAsSummaries.length > 0) &&
-        !isError &&
-        sortBy === 'recent' &&
+      {sortBy === 'recent' &&
         groupByDate<ConversationSummary>(
-          sortedConversationsWithExternal,
+          isLoading || isError ? datedExternalSummaries : sortedConversationsWithExternal,
           (c) => c.created ?? c.modified
         ).map(({ group, items }) => (
           <div key={group}>
@@ -716,44 +712,43 @@ export const ConversationList: FC<Props> = ({
         </div>
       )}
 
-      {/* For non-recency sorts: external sessions can't be ranked by message count or alpha among
-          native conversations, so show them in a labeled group at the bottom.
-          For 'recent' sort, external sessions are merged inline above (true unified timeline). */}
-      {!isLoading &&
-        !isError &&
-        sortBy !== 'recent' &&
-        externalAsSummaries.length > 0 &&
+      {/* Non-recency sorts cannot rank external sessions alongside native conversations. Undated
+          sessions also live here in the recent view because they have no honest timeline position. */}
+      {((sortBy !== 'recent' && externalAsSummaries.length > 0) ||
+        (sortBy === 'recent' && undatedExternalSummaries.length > 0)) &&
         onSelectExternal && (
           <div>
             <div className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-muted-foreground">
               <Layers className="h-3 w-3" />
-              External Sessions
+              {sortBy === 'recent' ? 'External Sessions — Unknown date' : 'External Sessions'}
             </div>
             <div className="space-y-1 px-2">
-              {externalAsSummaries.map((conv) => {
-                const ext = conv._externalSession!;
-                const isExtSelected = selectedExternalId === ext.id;
-                return (
-                  <button
-                    key={conv.id}
-                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50 ${
-                      isExtSelected ? 'bg-accent ring-1 ring-primary' : ''
-                    }`}
-                    aria-pressed={isExtSelected}
-                    onClick={() => onSelectExternal(ext.id)}
-                  >
-                    <Badge variant="secondary" className="h-4 flex-shrink-0 px-1.5 text-[10px]">
-                      {ext.label}
-                    </Badge>
-                    <span className="min-w-0 flex-1 truncate text-xs">{conv.name}</span>
-                    {conv.modified > 0 && (
-                      <span className="flex-shrink-0 text-[10px] text-muted-foreground">
-                        {getRelativeTimeString(new Date(conv.modified * 1000))}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+              {(sortBy === 'recent' ? undatedExternalSummaries : externalAsSummaries).map(
+                (conv) => {
+                  const ext = conv._externalSession!;
+                  const isExtSelected = selectedExternalId === ext.id;
+                  return (
+                    <button
+                      key={conv.id}
+                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/50 ${
+                        isExtSelected ? 'bg-accent ring-1 ring-primary' : ''
+                      }`}
+                      aria-pressed={isExtSelected}
+                      onClick={() => onSelectExternal(ext.id)}
+                    >
+                      <Badge variant="secondary" className="h-4 flex-shrink-0 px-1.5 text-[10px]">
+                        {ext.label}
+                      </Badge>
+                      <span className="min-w-0 flex-1 truncate text-xs">{conv.name}</span>
+                      {conv.modified > 0 && (
+                        <span className="flex-shrink-0 text-[10px] text-muted-foreground">
+                          {getRelativeTimeString(new Date(conv.modified * 1000))}
+                        </span>
+                      )}
+                    </button>
+                  );
+                }
+              )}
             </div>
           </div>
         )}

@@ -631,5 +631,42 @@ describe('ConversationList', () => {
       // Harness badge is present
       expect(screen.getByText('CC')).toBeInTheDocument();
     });
+
+    it('shows undated external sessions without a January 1970 group', () => {
+      localStorage.setItem('gptme:show-external-sessions', 'true');
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          conversations={[]}
+          externalSessions={[{ ...externalSession, started_at: null, last_activity: null }]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+
+      expect(screen.getByText('My CC Session')).toBeInTheDocument();
+      expect(screen.getByText('External Sessions — Unknown date')).toBeInTheDocument();
+      expect(screen.queryByText(/January 1970/)).not.toBeInTheDocument();
+    });
+
+    it.each([
+      { state: 'loading', props: { isLoading: true } },
+      {
+        state: 'failed',
+        props: { isError: true, error: new Error('Native request failed') },
+      },
+    ])('keeps external sessions visible while native conversations are $state', ({ props }) => {
+      localStorage.setItem('gptme:show-external-sessions', 'true');
+      renderWithProviders(
+        <ConversationList
+          {...defaultProps}
+          conversations={[]}
+          {...props}
+          externalSessions={[externalSession]}
+          onSelectExternal={onSelectExternal}
+        />
+      );
+
+      expect(screen.getByText('My CC Session')).toBeInTheDocument();
+    });
   });
 });
