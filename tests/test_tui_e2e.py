@@ -467,8 +467,10 @@ class TestTmuxInlineMode:
         pane = tui.capture_scrollback()
         assert_no_escape_garbage(pane)
         # transcript lines are in scrollback (lower index) above the live
-        # input region which contains the prompt (higher index)
-        assert pane.index("Echo: hello inline") < pane.index("Type a message")
+        # input region which contains the prompt (higher index). Use rindex so
+        # we compare against the re-rendered prompt AFTER the echo, not the
+        # initial startup prompt that appears earlier in the scrollback.
+        assert pane.index("Echo: hello inline") < pane.rindex("Type a message")
 
     def test_inline_tool_flow(self, tmux_tui, tmp_path):
         marker = tmp_path / "inline_marker"
