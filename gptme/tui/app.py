@@ -221,7 +221,7 @@ def complete_input(text: str) -> list[str]:
 
 class ChatInput(TextArea):
     """Multi-line input: Enter submits, Alt+Enter/Ctrl+J inserts a newline,
-    Tab completes slash-commands."""
+    Tab completes slash-commands, Up/Down navigates history."""
 
     class Submitted(TextualMessage):
         def __init__(self, value: str) -> None:
@@ -233,6 +233,16 @@ class ChatInput(TextArea):
         self._tab_candidates: list[str] = []
         self._tab_index = -1
         self._tab_last = ""
+        self._history: list[str] = []
+        self._history_idx = -1  # -1 = not browsing; 0 = most recent
+        self._history_saved = ""  # text buffered when browsing started
+
+    def _push_history(self, text: str) -> None:
+        """Record a submitted entry; skip duplicates of the last item."""
+        if text and (not self._history or self._history[-1] != text):
+            self._history.append(text)
+        self._history_idx = -1
+        self._history_saved = ""
 
     async def _on_key(self, event: events.Key) -> None:
         if event.key == "enter":
@@ -251,6 +261,33 @@ class ChatInput(TextArea):
             event.prevent_default()
             self._cycle_completion()
             return
+        if event.key == "up":
+            row, _ = self.cursor_location
+            if row == 0 and self._history:
+                event.stop()
+                event.prevent_default()
+                if self._history_idx == -1:
+                    self._history_saved = self.text
+                new_idx = self._history_idx + 1
+                if new_idx < len(self._history):
+                    self._history_idx = new_idx
+                    self._set_text(self._history[-(new_idx + 1)])
+                return
+        if event.key == "down":
+            lines = self.text.split("\n")
+            row, _ = self.cursor_location
+            if row == len(lines) - 1 and self._history_idx >= 0:
+                event.stop()
+                event.prevent_default()
+                new_idx = self._history_idx - 1
+                if new_idx < 0:
+                    self._history_idx = -1
+                    self._set_text(self._history_saved)
+                    self._history_saved = ""
+                else:
+                    self._history_idx = new_idx
+                    self._set_text(self._history[-(new_idx + 1)])
+                return
         await super()._on_key(event)
 
     def _set_text(self, text: str) -> None:
@@ -386,6 +423,9 @@ class GptmeApp(App):
         padding: 0;
         background: transparent;
     }
+    .message Static {
+        background: transparent;
+    }
     .message MarkdownFence {
         margin: 0;
     }
@@ -417,8 +457,10 @@ class GptmeApp(App):
         height: 1;
         margin-top: 1;
         padding: 0 1;
-        background: $surface;
         color: $text-muted;
+    }
+    Screen:inline #status {
+        margin-top: 0;
     }
     ConfirmScreen {
         align: center middle;
@@ -545,6 +587,9 @@ class GptmeApp(App):
         if not self.inline:
             # inline mode prints history to the terminal before the app starts
             self._render_history()
+            # prevent the chat scroll area from stealing focus; input is always
+            # the active widget for keyboard input
+            self.query_one("#chat", VerticalScroll).can_focus = False
         self.query_one("#input", ChatInput).focus()
         self._update_status()
         # watchdog: tools can reset the tty at any point during execution
@@ -691,7 +736,10 @@ class GptmeApp(App):
 
     def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         text = event.value.strip()
-        self.query_one("#input", ChatInput).text = ""
+        chat_input = self.query_one("#input", ChatInput)
+        chat_input.text = ""
+        if text:
+            chat_input._push_history(text)
         logger.debug(
             "input submitted: %r (generating=%s, queue=%d)",
             text[:80],
