@@ -503,6 +503,7 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-login">login</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-logout">logout</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-openai-subscription">openai-subscription</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-openrouter">openrouter</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-status">status</a></li>
 </ul>
 </li>
@@ -1203,6 +1204,21 @@ After successful login, tokens are stored locally for future use.</p>
 </pre></div>
 </div>
 </section>
+<section id="gptme-auth-openrouter">
+<h3>openrouter<a class="headerlink" href="#gptme-auth-openrouter" title="Link to this heading">#</a></h3>
+<p>Authenticate with OpenRouter via PKCE OAuth and store a permanent API key.</p>
+<p>Opens a browser so you can sign in to openrouter.ai.  After successful
+sign-in, a permanent API key (<code class="docutils literal notranslate"><span class="pre">sk-or-v1-…</span></code>) is exchanged and saved to
+the gptme config as <code class="docutils literal notranslate"><span class="pre">env.OPENROUTER_API_KEY</span></code>.</p>
+<p>You can then use any model on OpenRouter:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span> <span class="o">--</span><span class="n">model</span> <span class="n">openrouter</span><span class="o">/</span><span class="n">anthropic</span><span class="o">/</span><span class="n">claude</span><span class="o">-</span><span class="n">sonnet</span><span class="o">-</span><span class="mi">4</span><span class="o">-</span><span class="mi">6</span> <span class="s2">&quot;Hello&quot;</span>
+</pre></div>
+</div>
+<p class="rubric">Usage</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span>openrouter<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+</section>
 <section id="gptme-auth-status">
 <h3>status<a class="headerlink" href="#gptme-auth-status" title="Link to this heading">#</a></h3>
 <p>Show current login status for gptme cloud.</p>
@@ -1887,6 +1903,7 @@ Use –all to include unavailable tools as well.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-login">login</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-logout">logout</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-openai-subscription">openai-subscription</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-openrouter">openrouter</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-status">status</a></li>
 </ul>
 </li>
