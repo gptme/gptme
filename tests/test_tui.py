@@ -194,3 +194,21 @@ async def test_tab_completes_command(tmp_path):
         assert inp.text.startswith("/model")
         # tab must not switch focus away from the input
         assert app.focused is inp
+
+
+@pytest.mark.asyncio
+async def test_history_preserves_edits_while_browsing(tmp_path):
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        inp = app.query_one("#input", ChatInput)
+        inp._push_history("previous prompt")
+        inp._set_text("draft prompt")
+
+        await pilot.press("up")
+        assert inp.text == "previous prompt"
+        inp._set_text("edited previous prompt")
+
+        await pilot.press("down")
+        assert inp.text == "draft prompt"
+        await pilot.press("up")
+        assert inp.text == "edited previous prompt"

@@ -236,6 +236,7 @@ class ChatInput(TextArea):
         self._history: list[str] = []
         self._history_idx = -1  # -1 = not browsing; 0 = most recent
         self._history_saved = ""  # text buffered when browsing started
+        self._history_edits: dict[int, str] = {}
 
     def _push_history(self, text: str) -> None:
         """Record a submitted entry; skip duplicates of the last item."""
@@ -243,6 +244,7 @@ class ChatInput(TextArea):
             self._history.append(text)
         self._history_idx = -1
         self._history_saved = ""
+        self._history_edits.clear()
 
     async def _on_key(self, event: events.Key) -> None:
         if event.key == "enter":
@@ -268,10 +270,14 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 if self._history_idx == -1:
                     self._history_saved = self.text
+                else:
+                    self._history_edits[self._history_idx] = self.text
                 new_idx = self._history_idx + 1
                 if new_idx < len(self._history):
                     self._history_idx = new_idx
-                    self._set_text(self._history[-(new_idx + 1)])
+                    self._set_text(
+                        self._history_edits.get(new_idx, self._history[-(new_idx + 1)])
+                    )
                 return
         if event.key == "down":
             lines = self.text.split("\n")
@@ -279,14 +285,16 @@ class ChatInput(TextArea):
             if row == len(lines) - 1 and self._history_idx >= 0:
                 event.stop()
                 event.prevent_default()
+                self._history_edits[self._history_idx] = self.text
                 new_idx = self._history_idx - 1
                 if new_idx < 0:
                     self._history_idx = -1
                     self._set_text(self._history_saved)
-                    self._history_saved = ""
                 else:
                     self._history_idx = new_idx
-                    self._set_text(self._history[-(new_idx + 1)])
+                    self._set_text(
+                        self._history_edits.get(new_idx, self._history[-(new_idx + 1)])
+                    )
                 return
         await super()._on_key(event)
 
