@@ -380,22 +380,30 @@ export const ConversationList: FC<Props> = ({
           return getConversationName(a).localeCompare(getConversationName(b));
         });
 
+  // Cap external sessions merged into the timeline to avoid unbounded rendering.
+  const MAX_EXTERNAL_INLINE = 50;
+
   // For 'recent' view: merge external sessions into the native list (true unified timeline).
   // External sessions are adapted to ConversationSummary shape and interleaved by modified time.
+  // Sessions with no parseable timestamp are excluded from the merged view (no meaningful sort key).
   // For non-recency sorts, external sessions appear in a separate section (no message count to sort by).
   const externalAsSummaries: ConversationSummary[] =
     showExternal && externalSessions && onSelectExternal
-      ? externalSessions.map((item) => {
-          const modifiedMs = Date.parse(item.last_activity ?? item.started_at ?? '0');
-          const modified = Number.isFinite(modifiedMs) && modifiedMs > 0 ? modifiedMs / 1000 : 0;
+      ? externalSessions.slice(0, MAX_EXTERNAL_INLINE).flatMap((item) => {
+          const modifiedMs = Date.parse(item.last_activity ?? item.started_at ?? '');
+          // Skip sessions with no parseable timestamp — placing them at epoch (Jan 1970) is misleading.
+          if (!Number.isFinite(modifiedMs) || modifiedMs <= 0) return [];
+          const modified = modifiedMs / 1000;
           const label = HARNESS_LABELS[item.harness] ?? item.harness;
           const name = item.session_name ?? item.session_id.slice(0, 8);
-          return {
-            id: `ext:${item.id}`,
-            name,
-            modified,
-            _externalSession: { id: item.id, harness: item.harness, label },
-          } satisfies ConversationSummary;
+          return [
+            {
+              id: `ext:${item.id}`,
+              name,
+              modified,
+              _externalSession: { id: item.id, harness: item.harness, label },
+            } satisfies ConversationSummary,
+          ];
         })
       : [];
 
@@ -533,8 +541,9 @@ export const ConversationList: FC<Props> = ({
         </div>
       )}
 
-      {/* Render conversations: grouped by date for 'recent' (native + external merged), flat list for other sorts */}
-      {!isLoading &&
+      {/* Render conversations: grouped by date for 'recent' (native + external merged), flat list for other sorts.
+          External sessions render independently of the native loading/error state. */}
+      {(!isLoading || externalAsSummaries.length > 0) &&
         !isError &&
         sortBy === 'recent' &&
         groupByDate<ConversationSummary>(
