@@ -286,6 +286,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
       const newParams = new URLSearchParams(searchParams);
       newParams.delete('split');
+      newParams.delete('external');
       if (serverId) {
         newParams.set('server', serverId);
       } else {
