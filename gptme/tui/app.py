@@ -8,6 +8,7 @@ output is rendered in collapsible sections for a compact view.
 
 import contextlib
 import contextvars
+import datetime
 import io
 import logging
 import os.path
@@ -31,6 +32,7 @@ from textual.worker import Worker, WorkerState
 
 from ..chat import step
 from ..constants import DECLINED_CONTENT, INTERRUPT_CONTENT
+from ..dirs import get_pt_history_file
 from ..hooks import HookType, register_hook, unregister_hook
 from ..hooks.cli_confirm import _get_lang_for_tool
 from ..hooks.confirm import ConfirmationResult
@@ -219,6 +221,38 @@ def complete_input(text: str) -> list[str]:
         return []
 
 
+def _load_pt_history(path: Path) -> list[str]:
+    """Read a prompt-toolkit FileHistory file; return entries oldest-first."""
+    if not path.exists():
+        return []
+    entries: list[str] = []
+    current: list[str] = []
+    try:
+        with path.open() as f:
+            for raw in f:
+                line = raw.rstrip("\n")
+                if line.startswith("+"):
+                    current.append(line[1:])
+                elif not line.strip():
+                    if current:
+                        entries.append("\n".join(reversed(current)))
+                        current = []
+        if current:
+            entries.append("\n".join(reversed(current)))
+    except OSError:
+        pass
+    return entries
+
+
+def _append_pt_history(path: Path, text: str) -> None:
+    """Append one entry to a prompt-toolkit FileHistory file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(f"\n# {datetime.datetime.now(datetime.timezone.utc)}\n")
+        for line in text.split("\n"):
+            f.write(f"+{line}\n")
+
+
 class ChatInput(TextArea):
     """Multi-line input: Enter submits, Alt+Enter/Ctrl+J inserts a newline,
     Tab completes slash-commands, Up/Down navigates history."""
@@ -233,15 +267,17 @@ class ChatInput(TextArea):
         self._tab_candidates: list[str] = []
         self._tab_index = -1
         self._tab_last = ""
-        self._history: list[str] = []
+        self._history_file = get_pt_history_file()
+        self._history: list[str] = _load_pt_history(self._history_file)
         self._history_idx = -1  # -1 = not browsing; 0 = most recent
         self._history_saved = ""  # text buffered when browsing started
         self._history_edits: dict[int, str] = {}
 
     def _push_history(self, text: str) -> None:
-        """Record a submitted entry; skip duplicates of the last item."""
+        """Record a submitted entry and persist it to the shared history file."""
         if text and (not self._history or self._history[-1] != text):
             self._history.append(text)
+            _append_pt_history(self._history_file, text)
         self._history_idx = -1
         self._history_saved = ""
         self._history_edits.clear()

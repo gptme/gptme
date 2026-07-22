@@ -16,6 +16,8 @@ from gptme.tui.app import (
     InfoMessage,
     SystemMessage,
     UserMessage,
+    _append_pt_history,
+    _load_pt_history,
     _summarize,
 )
 
@@ -243,3 +245,45 @@ async def test_word_navigation(tmp_path):
         await pilot.pause()
         _, col = inp.cursor_location
         assert col == 5, f"expected col 5 (end of 'hello'), got {col}"
+
+
+def test_pt_history_roundtrip(tmp_path):
+    """_append_pt_history / _load_pt_history are inverse operations."""
+    hist_file = tmp_path / "history.pt"
+    _append_pt_history(hist_file, "first entry")
+    _append_pt_history(hist_file, "second entry")
+    entries = _load_pt_history(hist_file)
+    assert entries == ["first entry", "second entry"]
+
+
+def test_pt_history_missing_file(tmp_path):
+    """Loading a non-existent file returns an empty list."""
+    assert _load_pt_history(tmp_path / "no-such-file.pt") == []
+
+
+@pytest.mark.asyncio
+async def test_history_persists_across_sessions(tmp_path, monkeypatch):
+    """TUI history is written to and read from the shared pt history file."""
+    hist_file = tmp_path / "history.pt"
+
+    # Seed the history file with one pre-existing entry (simulates a prior CLI run)
+    _append_pt_history(hist_file, "prior cli entry")
+
+    # Patch get_pt_history_file so both sessions use the same tmp file
+    import gptme.tui.app as tui_app
+
+    monkeypatch.setattr(tui_app, "get_pt_history_file", lambda: hist_file)
+
+    # First TUI session: should load the prior entry and add a new one
+    app1 = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app1.run_test():
+        inp1 = app1.query_one("#input", ChatInput)
+        assert inp1._history == ["prior cli entry"]
+        inp1._push_history("tui entry one")
+        assert inp1._history == ["prior cli entry", "tui entry one"]
+
+    # Second TUI session: should see both entries from file
+    app2 = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app2.run_test():
+        inp2 = app2.query_one("#input", ChatInput)
+        assert inp2._history == ["prior cli entry", "tui entry one"]
