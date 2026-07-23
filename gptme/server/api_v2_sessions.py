@@ -62,6 +62,18 @@ from .session_step import (  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
+# After terminal SSE events, pad the response to exceed typical proxy response
+# buffers (~4 KB for Traefik). X-Accel-Buffering:no is nginx-specific and not
+# recognised by Traefik or other ingresses, so small payloads can sit in the
+# proxy buffer for 5+ seconds until an idle flush timer fires — causing the
+# visible delay between the last rendered token and the Stop→Submit transition.
+# SSE comment lines (starting with ":") are ignored by browsers.
+_PROXY_FLUSH_PAD = ": " + " " * 4094 + "\n\n"
+
+# Event types that signal the end of a generation turn and require immediate
+# delivery to the browser (Stop→Submit transition, error display, etc.).
+_TERMINAL_EVENT_TYPES = frozenset({"generation_complete", "error", "interrupted"})
+
 
 def _get_request_json_object() -> dict | tuple[flask.Response, int]:
     """Return request JSON as an object or a 400 error response.
@@ -232,9 +244,21 @@ def api_conversation_events(conversation_id: str):
                 # Check if there are new events
                 if last_event_index < (new_index := session.events_count):
                     # Send any new events
+                    has_terminal = False
                     for event in session.get_events_since(last_event_index):
                         yield f"data: {flask.json.dumps(event)}\n\n"
+                        if (
+                            isinstance(event, dict)
+                            and event.get("type") in _TERMINAL_EVENT_TYPES
+                        ):
+                            has_terminal = True
                     last_event_index = new_index
+                    # Pad to flush proxy response buffers after terminal events.
+                    # Without this, Traefik (and other non-nginx proxies) may
+                    # hold the small payload in their internal buffer for several
+                    # seconds before forwarding to the browser.
+                    if has_terminal:
+                        yield _PROXY_FLUSH_PAD
 
                 # Wait a bit before checking again
                 yield f"data: {flask.json.dumps({'type': 'ping'})}\n\n"
@@ -268,6 +292,8 @@ def api_conversation_events(conversation_id: str):
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",  # Disable buffering in nginx
+            # Traefik does not recognise X-Accel-Buffering; the padding below
+            # is the server-side complement that flushes proxy response buffers.
         },
     )
 
