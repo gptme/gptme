@@ -83,8 +83,9 @@ function getSettings(): {
 function toSpokenText(markdown: string): string {
   return (
     markdown
-      // Remove thinking blocks entirely (model reasoning, not output)
-      .replace(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/g, '')
+      // Remove complete or interrupted thinking blocks entirely (model reasoning, not output).
+      // An interrupted generation can persist without a closing tag, so strip to EOF too.
+      .replace(/<think(?:ing)?>[\s\S]*?(?:<\/think(?:ing)?>|$)/g, '')
       // Remove XML-format tool calls: <tool-use>...</tool-use> (ToolUse._to_xml)
       .replace(/<tool-use>[\s\S]*?<\/tool-use>/g, '')
       // Remove @tool-format calls: @name: {json} or @name(id): {json} (ToolUse._to_toolcall)

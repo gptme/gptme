@@ -75,6 +75,34 @@ describe('toSpokenText (via speakTextNow)', () => {
     expect(speak).not.toHaveBeenCalled();
   });
 
+  it('does not speak an interrupted thinking block without a closing tag', async () => {
+    const speak = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel: jest.fn() },
+      configurable: true,
+    });
+
+    const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+    speakTextNow('<think>unfinished private reasoning because generation was interrupted');
+    await flushPromises();
+
+    expect(speak).not.toHaveBeenCalled();
+  });
+
+  it('preserves the answer before an interrupted thinking block', async () => {
+    const speak = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel: jest.fn() },
+      configurable: true,
+    });
+
+    const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+    speakTextNow('The visible answer. <thinking>unfinished private reasoning');
+    await flushPromises();
+
+    expect(speak).toHaveBeenCalledWith(expect.objectContaining({ text: 'The visible answer.' }));
+  });
+
   it('strips tool-use blocks instead of announcing code placeholders', async () => {
     const speak = jest.fn();
     Object.defineProperty(window, 'speechSynthesis', {
