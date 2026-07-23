@@ -180,6 +180,19 @@ def main():
     ),
 )
 @click.option(
+    "--allowed-hosts",
+    default=None,
+    envvar="GPTME_SERVER_ALLOWED_HOSTS",
+    help=(
+        "Comma-separated hostnames to accept in the Host header, in addition "
+        "to the built-in localhost/127.0.0.1/[::1] allow-list. Only relevant "
+        "for unauthenticated loopback binds, where the server validates the "
+        "Host header to block DNS-rebinding attacks. Set this if you proxy the "
+        "local server behind a hostname (e.g. 'gptme.local'). Can also be set "
+        "via the GPTME_SERVER_ALLOWED_HOSTS environment variable."
+    ),
+)
+@click.option(
     "--webui-dir",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
     default=None,
@@ -231,6 +244,7 @@ def serve(
     port: int,
     tools: str | None,
     cors_origin: str | None,
+    allowed_hosts: str | None,
     webui_dir: Path | None,
     exit_on_parent_death: bool,
     watch_pid: int | None,
@@ -301,6 +315,9 @@ def serve(
         host=host,
         webui_dir=webui_dir,
         default_profile=default_profile,
+        allowed_hosts=[h.strip() for h in allowed_hosts.split(",") if h.strip()]
+        if allowed_hosts
+        else None,
     )
 
     # Route SIGTERM through the same clean-shutdown path as Ctrl+C so the

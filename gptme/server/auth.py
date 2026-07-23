@@ -26,6 +26,18 @@ _server_token: str | None = None
 # Auth state (disabled for local-only binding)
 _auth_enabled: bool = True
 
+# Host-header validation state (DNS-rebinding hardening).
+# Only enforced when auth is disabled for a loopback bind: a malicious page
+# whose hostname re-resolves to 127.0.0.1 becomes same-origin with the local
+# server and bypasses CORS entirely, gaining full unauthenticated API access
+# (which includes shell execution via the agent). Validating the Host header
+# blocks that vector without affecting legitimate localhost/127.0.0.1 clients.
+_host_validation_enabled: bool = False
+_allowed_hosts: set[str] = set()
+
+# Hostnames always allowed for loopback binds (any port).
+_DEFAULT_ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
 # Cookie configuration
 AUTH_COOKIE_NAME = "gptme_auth"
 AUTH_COOKIE_MAX_AGE = 86400  # 24 hours
@@ -53,6 +65,118 @@ def is_local_host(host: str) -> bool:
         True if host is localhost or 127.0.0.1, False otherwise.
     """
     return host in ("127.0.0.1", "localhost", "::1")
+
+
+def _extract_hostname(host_header: str) -> str:
+    """Extract the hostname part (without port) from a Host header value.
+
+    Handles IPv6 literals in brackets (``[::1]`` / ``[::1]:5700``) as well as
+    plain hostnames and IPv4 addresses with an optional ``:port`` suffix.
+
+    Args:
+        host_header: The raw Host header value (may include a port).
+
+    Returns:
+        The hostname portion, lowercased, with any port and IPv6 brackets
+        stripped.
+    """
+    value = host_header.strip()
+    if value.startswith("["):
+        # IPv6 literal: "[::1]" or "[::1]:5700"
+        end = value.find("]")
+        if end != -1:
+            return value[1:end].lower()
+        return value.lower()
+    # Plain hostname or IPv4, optionally "host:port"
+    if ":" in value:
+        value = value.rsplit(":", 1)[0]
+    return value.lower()
+
+
+def init_host_validation(
+    host: str = "127.0.0.1", allowed_hosts: list[str] | None = None
+) -> None:
+    """Configure Host-header validation for DNS-rebinding hardening.
+
+    Must be called after :func:`init_auth` (it reads ``_auth_enabled``).
+
+    Validation is only enabled when auth is disabled for a loopback bind — the
+    one case where a DNS-rebinding page can reach the API without credentials.
+    It is skipped when:
+
+    - Auth is enabled (network bind): the bearer token already gates access.
+    - ``GPTME_DISABLE_AUTH`` is explicitly set and no ``--allowed-hosts`` was
+      given: the operator owns security here (e.g. gptme-cloud pods bind
+      ``0.0.0.0`` behind an authenticated ingress). We must not break those
+      setups. If the operator *does* pass ``--allowed-hosts``, we honor it and
+      enforce the check against the given hosts.
+
+    Args:
+        host: The host the server is binding to. A concrete (non-wildcard)
+            bind host is added to the allow-list so proxied setups work.
+        allowed_hosts: Extra hostnames to allow (from ``--allowed-hosts``), for
+            users who proxy their local server behind a hostname.
+    """
+    global _host_validation_enabled, _allowed_hosts
+
+    extra = {h.strip().lower() for h in (allowed_hosts or []) if h.strip()}
+
+    # Auth enabled → bearer token gates access, no Host check needed.
+    if _auth_enabled:
+        _host_validation_enabled = False
+        _allowed_hosts = set()
+        return
+
+    # Auth explicitly disabled via env (operator owns security). Skip the check
+    # unless they opted into an explicit allow-list.
+    disabled_via_env = os.environ.get("GPTME_DISABLE_AUTH", "").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+    if disabled_via_env and not extra:
+        _host_validation_enabled = False
+        _allowed_hosts = set()
+        return
+
+    # Auth disabled for a loopback bind (the DNS-rebinding vector), or
+    # GPTME_DISABLE_AUTH with an explicit allow-list. Enforce Host validation.
+    allowed = set(_DEFAULT_ALLOWED_HOSTS)
+    if host and host not in ("0.0.0.0", "::"):
+        allowed.add(host.lower())
+    allowed |= extra
+    _allowed_hosts = allowed
+    _host_validation_enabled = True
+
+
+def validate_host():
+    """Flask ``before_request`` hook enforcing Host-header validation.
+
+    Returns a 403 JSON response for a disallowed Host, or ``None`` to let the
+    request proceed. A no-op when validation is disabled (see
+    :func:`init_host_validation`).
+    """
+    if not _host_validation_enabled:
+        return None
+
+    hostname = _extract_hostname(request.host or "")
+    if hostname in _allowed_hosts:
+        return None
+
+    logger.warning("Rejected request with disallowed Host header: %r", request.host)
+    return (
+        jsonify(
+            {
+                "error": (
+                    f"Host '{request.host}' is not allowed. The local gptme-server "
+                    "validates the Host header to block DNS-rebinding attacks. "
+                    "If this host is legitimate (e.g. a reverse proxy), allow it "
+                    f"with: gptme-server serve --allowed-hosts {hostname}"
+                )
+            }
+        ),
+        403,
+    )
 
 
 def get_server_token() -> str | None:
