@@ -60,6 +60,9 @@ test: ## Run tests
 		$(if $(SLOW), --timeout 60 --retries 2 --retry-delay 5, --timeout 10 -m "not slow and not eval") \
 		$(if $(PROFILE), --profile-svg)
 
+update-tui-snapshots: ## Regenerate TUI visual regression baselines
+	poetry run pytest tests/test_tui_visual.py --snapshot-update -v
+
 test-api: ## Run only API-dependent tests (requires_api marker)
 	poetry run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
 		--cov=gptme --cov-report=xml --cov-report=term-missing --cov-report=html --junitxml=junit.xml \

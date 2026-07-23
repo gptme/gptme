@@ -106,6 +106,15 @@ def _check_anthropic_quota_exhausted() -> bool:
         return False
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--snapshot-update",
+        action="store_true",
+        default=False,
+        help="Overwrite TUI visual snapshots with current renders.",
+    )
+
+
 def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line(
