@@ -349,6 +349,116 @@ parent context smaller:
        "Open localhost:5173, capture a screenshot, and report UI issues",
    )
 
+Security
+--------
+
+This section describes the security model of gptme-server and the threat vectors it is designed (and not designed) to address.
+
+.. _server:auth-model:
+
+Authentication Model
+~~~~~~~~~~~~~~~~~~~~
+
+gptme-server uses a tiered authentication model based on the bind address:
+
+- **Loopback bind** (``127.0.0.1`` / ``localhost`` / ``::1``, the default):
+  Bearer auth is **disabled** — a random token is generated on startup but
+  the server does not require it for API access. The assumption is that any
+  process on the same machine is the legitimate user.
+
+- **Network bind** (``0.0.0.0`` or an external IP): Bearer auth is
+  **enabled** and required for capability-bearing API requests (conversation
+  endpoints, tool execution, config writes). A small set of public routes
+  remain unauthenticated: the API root (``/api/v2``), version info
+  (``/api/v2/version``), config metadata (``/api/v2/config``), Prometheus
+  metrics (``/api/v0/metrics``), and the API documentation at
+  ``/api/docs/``. Set ``GPTME_SERVER_TOKEN``
+  to a fixed value; if unset the server generates one and prints it at
+  startup.
+
+- ``GPTME_DISABLE_AUTH`` overrides both: disables bearer checks entirely
+  regardless of bind address. Use only behind an authenticated ingress.
+
+.. warning::
+
+   An authorized API client (anyone who can reach the server with a valid
+   token, or the local user on a loopback bind) can execute arbitrary shell
+   commands through the agent. There is no additional sandboxing at the
+   API layer. The security boundary is **access to the server**, not any
+   individual endpoint.
+
+.. _server:threat-model:
+
+Threat Model
+~~~~~~~~~~~~
+
+The server is hardened against two classes of browser-originating attack that
+apply to the default unauthenticated loopback setup:
+
+**1. Cross-Site Request Forgery (CSRF)**
+
+A malicious web page cannot send credentialed cross-origin JSON requests
+to the local server because the browser's CORS preflight blocks them: the
+server does not return ``Access-Control-Allow-Origin`` headers for arbitrary
+origins (only for the configured ``--cors-origin``). Plain forms can POST
+without CORS, but cannot set ``Content-Type: application/json``, so the
+server rejects them as malformed.
+
+**2. DNS Rebinding**
+
+A malicious site can re-resolve its hostname to ``127.0.0.1`` after the
+page loads. That makes the browser consider it *same-origin* with the local
+server, bypassing CORS entirely. The direct mitigation is **Host-header
+validation** (see the note in the :ref:`gptme-webui <server:gptme-webui>`
+section): the server rejects requests whose ``Host`` does not match
+``localhost``, ``127.0.0.1``, ``::1``, the configured bind address, or any
+explicitly allowed hostname (``--allowed-hosts``).
+
+**What is NOT in scope:**
+
+- *An authorized client redirecting the agent to sensitive files:* An
+  authorized API client can already run ``cat /etc/passwd`` through the
+  agent. Restricting which directories the agent *starts* in adds no
+  security boundary — the agent can navigate anywhere from there.
+
+- *Protecting one user from another on a shared server:* gptme-server is
+  single-user by design. Multi-user setups must gate access at the network
+  or OS level.
+
+.. _server:workspace-patch:
+
+Workspace PATCH Semantics
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Conversations have a *workspace* — the directory the agent treats as its
+working directory. The API exposes two operations that touch workspace:
+
+- **PUT** ``/api/v2/conversations/<id>`` (create): accepts any
+  ``workspace`` the client supplies, including paths outside the
+  conversation's log directory. Rationale: an authorized client can already
+  run arbitrary shell commands; workspace containment at creation adds no
+  security boundary. Cloud pods and the workspace picker both rely on this
+  to set a custom workspace on create.
+
+- **PATCH** ``/api/v2/conversations/<id>/config`` (update): accepts the
+  **round-trip of the already-persisted workspace** (the webui settings
+  dialog sends the full config including workspace on every save), but
+  **rejects any change that redirects the workspace outside the
+  conversation's log directory**. Rationale: silently redirecting an
+  existing agent's workspace mid-conversation to an arbitrary path is
+  plausibly a confused-deputy attack vector and is never needed for
+  legitimate updates. If the workspace must change, delete and recreate the
+  conversation.
+
+  .. warning::
+
+     Deleting a conversation is **destructive**: its persisted message history
+     is permanently removed. Export or back up conversation logs before
+     deleting if you need to preserve them.
+
+This creates an intentional asymmetry — create-any, re-target-never — to
+minimize confused-deputy risk without breaking legitimate workflows.
+
 REST API
 --------
 
