@@ -320,7 +320,8 @@ class ChatInput(TextArea):
         self._history: list[str] = _load_pt_history(self._history_file)
         self._history_idx = -1  # -1 = not browsing; 0 = most recent
         self._history_saved = ""  # text buffered when browsing started
-        self._history_edits: dict[int, str] = {}
+        self._history_edits: dict[str, str] = {}
+        self._history_filter: list[str] = []  # prefix-filtered view; empty = unfiltered
 
     def _push_history(self, text: str) -> None:
         """Record a submitted entry and persist it to the shared history file."""
@@ -335,6 +336,7 @@ class ChatInput(TextArea):
         self._history_idx = -1
         self._history_saved = ""
         self._history_edits.clear()
+        self._history_filter = []
 
     def _clear_completions(self) -> None:
         """Clear tab completion state and hide the overlay."""
@@ -370,16 +372,25 @@ class ChatInput(TextArea):
             if row == 0 and self._history:
                 event.stop()
                 event.prevent_default()
+                history = self._history_filter or self._history
                 if self._history_idx == -1:
                     self._history_saved = self.text
-                else:
-                    self._history_edits[self._history_idx] = self.text
-                new_idx = self._history_idx + 1
-                if new_idx < len(self._history):
-                    self._history_idx = new_idx
-                    self._set_text(
-                        self._history_edits.get(new_idx, self._history[-(new_idx + 1)])
+                    # Build prefix-filtered view on first Up press
+                    prefix = self.text
+                    self._history_filter = (
+                        [e for e in self._history if e.startswith(prefix)]
+                        if prefix
+                        else []
                     )
+                    history = self._history_filter or self._history
+                else:
+                    orig = history[-(self._history_idx + 1)]
+                    self._history_edits[orig] = self.text
+                new_idx = self._history_idx + 1
+                if new_idx < len(history):
+                    self._history_idx = new_idx
+                    orig = history[-(new_idx + 1)]
+                    self._set_text(self._history_edits.get(orig, orig))
                 return
         if event.key == "down":
             lines = self.text.split("\n")
@@ -387,16 +398,18 @@ class ChatInput(TextArea):
             if row == len(lines) - 1 and self._history_idx >= 0:
                 event.stop()
                 event.prevent_default()
-                self._history_edits[self._history_idx] = self.text
+                history = self._history_filter or self._history
+                orig = history[-(self._history_idx + 1)]
+                self._history_edits[orig] = self.text
                 new_idx = self._history_idx - 1
                 if new_idx < 0:
                     self._history_idx = -1
+                    self._history_filter = []
                     self._set_text(self._history_saved)
                 else:
                     self._history_idx = new_idx
-                    self._set_text(
-                        self._history_edits.get(new_idx, self._history[-(new_idx + 1)])
-                    )
+                    orig = history[-(new_idx + 1)]
+                    self._set_text(self._history_edits.get(orig, orig))
                 return
         if event.key == "alt+left":
             event.stop()
@@ -710,7 +723,7 @@ class GptmeApp(App):
             yield Static(id="live")
             yield ChatInput(id="input")
             yield Static(
-                Text("Type a message… (Enter to send, Alt+Enter for newline)"),
+                Text("Type a message… (Enter to send, Ctrl+J / Alt+Enter for newline)"),
                 id="input-hint",
             )
             yield Static(id="status")
@@ -720,7 +733,7 @@ class GptmeApp(App):
             yield Static("", id="completions")
             yield ChatInput(id="input")
             yield Static(
-                Text("Type a message… (Enter to send, Alt+Enter for newline)"),
+                Text("Type a message… (Enter to send, Ctrl+J / Alt+Enter for newline)"),
                 id="input-hint",
             )
             yield Static(id="status")
