@@ -843,9 +843,12 @@ class GptmeApp(App):
             w.display = False
             return
         max_visible = 8
-        start = min(
-            max(0, event.selected - max_visible // 2),
-            len(candidates) - max_visible,
+        start = max(
+            0,
+            min(
+                event.selected - max_visible // 2,
+                len(candidates) - max_visible,
+            ),
         )
         visible = candidates[start : start + max_visible]
         t = Text()

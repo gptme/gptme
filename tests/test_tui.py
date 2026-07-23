@@ -555,6 +555,25 @@ async def test_tab_completion_overlay_keeps_selected_candidate_visible(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_tab_completion_overlay_shows_marker_on_short_list(tmp_path):
+    """Short lists (fewer than max_visible) must show the selection marker."""
+    from textual.widgets import Static
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    candidates = [f"/cmd-{i}" for i in range(3)]
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Select the last candidate (index 2) — previously start went negative
+        app.post_message(ChatInput.CompletionsChanged(candidates, 2))
+        await pilot.pause()
+
+        overlay = app.query_one("#completions", Static)
+        rendered = str(overlay.render())
+        assert overlay.display, "overlay should be visible"
+        assert "▶ /cmd-2" in rendered, "selection marker must appear on short list"
+
+
+@pytest.mark.asyncio
 async def test_tab_cycles_and_overlay_updates(tmp_path):
     """Repeated Tab presses cycle through candidates and update the overlay selection."""
     from textual.widgets import Static
