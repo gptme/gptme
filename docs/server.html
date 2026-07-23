@@ -500,6 +500,12 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-computer-use-advanced">Local Computer Use (Advanced)</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#security">Security</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#authentication-model">Authentication Model</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#threat-model">Threat Model</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace-patch-semantics">Workspace PATCH Semantics</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rest-api">REST API</a></li>
 </ul>
             </nav>
@@ -820,6 +826,100 @@ parent context smaller:</p>
 </div>
 </section>
 </section>
+<section id="security">
+<h2>Security<a class="headerlink" href="#security" title="Link to this heading">#</a></h2>
+<p>This section describes the security model of gptme-server and the threat vectors it is designed (and not designed) to address.</p>
+<section id="authentication-model">
+<span id="server-auth-model"></span><h3>Authentication Model<a class="headerlink" href="#authentication-model" title="Link to this heading">#</a></h3>
+<p>gptme-server uses a tiered authentication model based on the bind address:</p>
+<ul class="simple">
+<li><p><strong>Loopback bind</strong> (<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> / <code class="docutils literal notranslate"><span class="pre">localhost</span></code> / <code class="docutils literal notranslate"><span class="pre">::1</span></code>, the default):
+Bearer auth is <strong>disabled</strong> — a random token is generated on startup but
+the server does not require it for API access. The assumption is that any
+process on the same machine is the legitimate user.</p></li>
+<li><p><strong>Network bind</strong> (<code class="docutils literal notranslate"><span class="pre">0.0.0.0</span></code> or an external IP): Bearer auth is
+<strong>enabled</strong> and required for capability-bearing API requests (conversation
+endpoints, tool execution, config writes). A small set of public routes
+remain unauthenticated: the API root (<code class="docutils literal notranslate"><span class="pre">/api/v2</span></code>), version info
+(<code class="docutils literal notranslate"><span class="pre">/api/v2/version</span></code>), config metadata (<code class="docutils literal notranslate"><span class="pre">/api/v2/config</span></code>), Prometheus
+metrics (<code class="docutils literal notranslate"><span class="pre">/api/v0/metrics</span></code>), and the API documentation at
+<code class="docutils literal notranslate"><span class="pre">/api/docs/</span></code>. Set <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_TOKEN</span></code>
+to a fixed value; if unset the server generates one and prints it at
+startup.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_DISABLE_AUTH</span></code> overrides both: disables bearer checks entirely
+regardless of bind address. Use only behind an authenticated ingress.</p></li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>An authorized API client (anyone who can reach the server with a valid
+token, or the local user on a loopback bind) can execute arbitrary shell
+commands through the agent. There is no additional sandboxing at the
+API layer. The security boundary is <strong>access to the server</strong>, not any
+individual endpoint.</p>
+</div>
+</section>
+<section id="threat-model">
+<span id="server-threat-model"></span><h3>Threat Model<a class="headerlink" href="#threat-model" title="Link to this heading">#</a></h3>
+<p>The server is hardened against two classes of browser-originating attack that
+apply to the default unauthenticated loopback setup:</p>
+<p><strong>1. Cross-Site Request Forgery (CSRF)</strong></p>
+<p>A malicious web page cannot send credentialed cross-origin JSON requests
+to the local server because the browser’s CORS preflight blocks them: the
+server does not return <code class="docutils literal notranslate"><span class="pre">Access-Control-Allow-Origin</span></code> headers for arbitrary
+origins (only for the configured <code class="docutils literal notranslate"><span class="pre">--cors-origin</span></code>). Plain forms can POST
+without CORS, but cannot set <code class="docutils literal notranslate"><span class="pre">Content-Type:</span> <span class="pre">application/json</span></code>, so the
+server rejects them as malformed.</p>
+<p><strong>2. DNS Rebinding</strong></p>
+<p>A malicious site can re-resolve its hostname to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> after the
+page loads. That makes the browser consider it <em>same-origin</em> with the local
+server, bypassing CORS entirely. The direct mitigation is <strong>Host-header
+validation</strong> (see the note in the <a class="reference internal" href="#server-gptme-webui"><span class="std std-ref">gptme-webui</span></a>
+section): the server rejects requests whose <code class="docutils literal notranslate"><span class="pre">Host</span></code> does not match
+<code class="docutils literal notranslate"><span class="pre">localhost</span></code>, <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>, <code class="docutils literal notranslate"><span class="pre">::1</span></code>, the configured bind address, or any
+explicitly allowed hostname (<code class="docutils literal notranslate"><span class="pre">--allowed-hosts</span></code>).</p>
+<p><strong>What is NOT in scope:</strong></p>
+<ul class="simple">
+<li><p><em>An authorized client redirecting the agent to sensitive files:</em> An
+authorized API client can already run <code class="docutils literal notranslate"><span class="pre">cat</span> <span class="pre">/etc/passwd</span></code> through the
+agent. Restricting which directories the agent <em>starts</em> in adds no
+security boundary — the agent can navigate anywhere from there.</p></li>
+<li><p><em>Protecting one user from another on a shared server:</em> gptme-server is
+single-user by design. Multi-user setups must gate access at the network
+or OS level.</p></li>
+</ul>
+</section>
+<section id="workspace-patch-semantics">
+<span id="server-workspace-patch"></span><h3>Workspace PATCH Semantics<a class="headerlink" href="#workspace-patch-semantics" title="Link to this heading">#</a></h3>
+<p>Conversations have a <em>workspace</em> — the directory the agent treats as its
+working directory. The API exposes two operations that touch workspace:</p>
+<ul>
+<li><p><strong>PUT</strong> <code class="docutils literal notranslate"><span class="pre">/api/v2/conversations/&lt;id&gt;</span></code> (create): accepts any
+<code class="docutils literal notranslate"><span class="pre">workspace</span></code> the client supplies, including paths outside the
+conversation’s log directory. Rationale: an authorized client can already
+run arbitrary shell commands; workspace containment at creation adds no
+security boundary. Cloud pods and the workspace picker both rely on this
+to set a custom workspace on create.</p></li>
+<li><p><strong>PATCH</strong> <code class="docutils literal notranslate"><span class="pre">/api/v2/conversations/&lt;id&gt;/config</span></code> (update): accepts the
+<strong>round-trip of the already-persisted workspace</strong> (the webui settings
+dialog sends the full config including workspace on every save), but
+<strong>rejects any change that redirects the workspace outside the
+conversation’s log directory</strong>. Rationale: silently redirecting an
+existing agent’s workspace mid-conversation to an arbitrary path is
+plausibly a confused-deputy attack vector and is never needed for
+legitimate updates. If the workspace must change, delete and recreate the
+conversation.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Deleting a conversation is <strong>destructive</strong>: its persisted message history
+is permanently removed. Export or back up conversation logs before
+deleting if you need to preserve them.</p>
+</div>
+</li>
+</ul>
+<p>This creates an intentional asymmetry — create-any, re-target-never — to
+minimize confused-deputy risk without breaking legitimate workflows.</p>
+</section>
+</section>
 <section id="rest-api">
 <h2>REST API<a class="headerlink" href="#rest-api" title="Link to this heading">#</a></h2>
 <p>gptme-server provides a REST API for programmatic access to gptme functionality. This enables integration with custom applications and automation workflows.</p>
@@ -884,6 +984,12 @@ parent context smaller:</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-web-ui">Basic Web UI</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer-use-interface">Computer Use Interface</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-computer-use-advanced">Local Computer Use (Advanced)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#security">Security</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#authentication-model">Authentication Model</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#threat-model">Threat Model</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace-patch-semantics">Workspace PATCH Semantics</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rest-api">REST API</a></li>
