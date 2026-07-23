@@ -1123,6 +1123,36 @@ class TestElicitRespondEndpoint:
 class TestEventsEndpoint:
     """Test GET /api/v2/conversations/<id>/events validation."""
 
+    def test_generation_complete_emits_proxy_flush_padding(
+        self, conv, client: FlaskClient
+    ):
+        """A completion event is followed by a wire-level 4 KB SSE comment."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+
+        response = client.get(
+            f"/api/v2/conversations/{conv['conversation_id']}/events"
+            f"?session_id={conv['session_id']}",
+            buffered=False,
+        )
+        stream = iter(response.response)
+        try:
+            next(stream)  # connected
+            next(stream)  # initial ping
+            next(stream)  # loop ping before the generator blocks
+
+            SessionManager.add_event(
+                conv["conversation_id"], {"type": "generation_complete"}
+            )
+
+            assert b'"type": "generation_complete"' in next(stream)
+            padding = next(stream)
+            assert padding.startswith(b": ")
+            assert padding.endswith(b"\n\n")
+            assert len(padding) >= 4000
+        finally:
+            response.close()
+
     def test_invalid_session_id_returns_404(self, conv, client: FlaskClient):
         """Events with nonexistent session_id returns 404."""
         response = client.get(
