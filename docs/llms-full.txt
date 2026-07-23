@@ -6305,6 +6305,21 @@ To use the server with a locally hosted gptme-webui, configure the CORS origin w
     ``http://localhost:5701``) avoids the prompt entirely, since that is a
     local-to-local request.
 
+.. note::
+
+    **Host-header validation (DNS-rebinding protection).**
+    On loopback binds the server runs without an auth token, so it validates
+    the request ``Host`` header to block DNS-rebinding attacks (a malicious page
+    whose hostname re-resolves to ``127.0.0.1`` would otherwise become
+    same-origin with your local server and gain full unauthenticated API
+    access, including shell execution via the agent). ``localhost``,
+    ``127.0.0.1`` and ``[::1]`` (any port) are always allowed. If you proxy the
+    local server behind a hostname, allow it with
+    ``gptme-server serve --allowed-hosts gptme.local`` (comma-separated, or via
+    ``GPTME_SERVER_ALLOWED_HOSTS``). Validation is skipped when auth is enabled
+    (network binds) or explicitly disabled with ``GPTME_DISABLE_AUTH`` — those
+    operators own their own access control (e.g. an authenticated ingress).
+
 Self-Hosting with Docker Compose
 --------------------------------
 

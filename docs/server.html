@@ -564,6 +564,21 @@ server. Serving the web UI from a local origin (for example
 <code class="docutils literal notranslate"><span class="pre">http://localhost:5701</span></code>) avoids the prompt entirely, since that is a
 local-to-local request.</p>
 </div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Host-header validation (DNS-rebinding protection).</strong>
+On loopback binds the server runs without an auth token, so it validates
+the request <code class="docutils literal notranslate"><span class="pre">Host</span></code> header to block DNS-rebinding attacks (a malicious page
+whose hostname re-resolves to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> would otherwise become
+same-origin with your local server and gain full unauthenticated API
+access, including shell execution via the agent). <code class="docutils literal notranslate"><span class="pre">localhost</span></code>,
+<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> and <code class="docutils literal notranslate"><span class="pre">[::1]</span></code> (any port) are always allowed. If you proxy the
+local server behind a hostname, allow it with
+<code class="docutils literal notranslate"><span class="pre">gptme-server</span> <span class="pre">serve</span> <span class="pre">--allowed-hosts</span> <span class="pre">gptme.local</span></code> (comma-separated, or via
+<code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_ALLOWED_HOSTS</span></code>). Validation is skipped when auth is enabled
+(network binds) or explicitly disabled with <code class="docutils literal notranslate"><span class="pre">GPTME_DISABLE_AUTH</span></code> — those
+operators own their own access control (e.g. an authenticated ingress).</p>
+</div>
 </section>
 <section id="self-hosting-with-docker-compose">
 <h2>Self-Hosting with Docker Compose<a class="headerlink" href="#self-hosting-with-docker-compose" title="Link to this heading">#</a></h2>
