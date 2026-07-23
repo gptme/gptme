@@ -2750,7 +2750,6 @@ class TestWorkdir:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xdist_group("max_time_watchdog")
 class TestMaxTimeWatchdog:
     """Tests for max_time auto-cancel watchdog in subagent()."""
 
