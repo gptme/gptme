@@ -679,17 +679,19 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                 ? ` — ${disconnectedDesc}`
                 : ' — browsing demo data. Connect a server to start a real conversation.'}
           </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 shrink-0 gap-1.5 text-xs text-amber-700 hover:bg-amber-500/20 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
-            onClick={() => void handleRetryConnection()}
-            disabled={isRetryingConnection}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isRetryingConnection ? 'animate-spin' : ''}`} />
-            {isRetryingConnection ? 'Retrying…' : 'Retry'}
-          </Button>
+          {!serverNotFound && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 gap-1.5 text-xs text-amber-700 hover:bg-amber-500/20 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+              onClick={() => void handleRetryConnection()}
+              disabled={isRetryingConnection}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isRetryingConnection ? 'animate-spin' : ''}`} />
+              {isRetryingConnection ? 'Retrying…' : 'Retry'}
+            </Button>
+          )}
         </div>
       )}
 

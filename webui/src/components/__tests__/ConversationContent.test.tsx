@@ -340,6 +340,11 @@ describe('server disconnected banner — removed server', () => {
     expect(screen.getByText(/no longer registered/i)).toBeInTheDocument();
   });
 
+  it('hides Retry button when server is no longer in registry', () => {
+    render(<ConversationContent conversationId="demo/test" serverId="removed-server" />);
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+  });
+
   it('does not show removed-server banner in intentional demo mode', () => {
     mockIsDemoMode.mockReturnValue(true);
     render(<ConversationContent conversationId="demo/test" serverId="removed-server" />);
