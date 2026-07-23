@@ -173,18 +173,3 @@ class TestHostValidation:
         app = _make_app(host="127.0.0.1")
         resp = _api_get(app, "localhost.evil.com")
         assert resp.status_code == 403
-
-    def test_specific_ip_auth_disabled_rejects_rebind_host(self, monkeypatch):
-        """Specific network IP + GPTME_DISABLE_AUTH: Host validation is the only
-        DNS-rebinding defence, so it must still be active."""
-        monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
-        app = _make_app(host="192.168.1.100")
-        resp = _api_get(app, "evil.example.com")
-        assert resp.status_code == 403
-
-    def test_specific_ip_auth_disabled_allows_bind_host(self, monkeypatch):
-        """The bind IP itself is a valid Host header value when auth is off."""
-        monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
-        app = _make_app(host="192.168.1.100")
-        resp = _api_get(app, "192.168.1.100")
-        assert resp.status_code != 403

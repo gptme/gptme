@@ -169,12 +169,7 @@ def create_app(
             )
 
     # Initialize auth (defaults to local-only, no auth required)
-    from .auth import (  # fmt: skip
-        init_auth,
-        init_host_validation,
-        is_auth_enabled,
-        validate_host_header,
-    )
+    from .auth import init_auth, init_host_validation, validate_host_header  # fmt: skip
 
     init_auth(host=host, display=False)
 
@@ -184,9 +179,7 @@ def create_app(
     # 127.0.0.1 and becomes same-origin with the local server, skipping
     # preflight entirely.  Checking the Host header stops this because the
     # rebinding page still sends its original domain name as Host.
-    # Pass auth_enabled so validation is still active when auth is explicitly
-    # disabled on a specific network IP (GPTME_DISABLE_AUTH + non-wildcard host).
-    init_host_validation(bind_host=host, auth_enabled=is_auth_enabled())
+    init_host_validation(bind_host=host)
 
     @app.before_request
     def _check_host():
