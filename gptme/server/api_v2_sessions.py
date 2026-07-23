@@ -232,9 +232,22 @@ def api_conversation_events(conversation_id: str):
                 # Check if there are new events
                 if last_event_index < (new_index := session.events_count):
                     # Send any new events
+                    generation_complete = False
                     for event in session.get_events_since(last_event_index):
                         yield f"data: {flask.json.dumps(event)}\n\n"
+                        if (
+                            isinstance(event, dict)
+                            and event.get("type") == "generation_complete"
+                        ):
+                            generation_complete = True
                     last_event_index = new_index
+                    if generation_complete:
+                        # Reverse proxies (nginx, Traefik) buffer small SSE chunks until the
+                        # buffer fills (~4 KB) or an idle timeout fires (~5s). generation_complete
+                        # + ping together are only ~200 bytes, so without this padding the client
+                        # sees a 5s+ delay before the Stop→Submit state change. A single large SSE
+                        # comment forces an immediate buffer flush.
+                        yield f": {'x' * 4000}\n\n"
 
                 # Wait a bit before checking again
                 yield f"data: {flask.json.dumps({'type': 'ping'})}\n\n"
