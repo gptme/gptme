@@ -105,6 +105,32 @@ test.describe('Conversation Flow', () => {
   });
 });
 
+test.describe('Conversation Creation', () => {
+  test('should create a new conversation when submitting a message', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    // Type a message in the chat input and submit with Enter
+    const input = page.getByTestId('chat-input');
+    await expect(input).toBeVisible({ timeout: 10000 });
+    await input.fill('Hello from the e2e test');
+    await input.press('Enter');
+
+    // Server-side creation must succeed and navigate to the new conversation.
+    // Regression guard: the server once rejected every webui create with
+    // "workspace escapes conversation logdir" because the webui sends an
+    // explicit workspace ('.') with each create request.
+    await page.waitForURL(/\/chat\/chat-/, { timeout: 15000 });
+
+    // The submitted message should be rendered in the conversation
+    await expect(page.getByText('Hello from the e2e test')).toBeVisible({ timeout: 10000 });
+
+    // No creation-failure toast (generation itself may fail without API keys;
+    // this test only covers conversation creation)
+    await expect(page.getByText(/Failed to (create|start) conversation/)).not.toBeVisible();
+  });
+});
+
 test.describe('Split View', () => {
   test('should render split panes when ?split= param is present', async ({ page }) => {
     // Navigate with the split parameter using two demo conversation IDs
