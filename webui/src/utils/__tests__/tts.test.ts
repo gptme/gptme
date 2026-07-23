@@ -102,6 +102,66 @@ describe('toSpokenText (via speakTextNow)', () => {
 
     expect(speak).not.toHaveBeenCalled();
   });
+
+  it('strips xml-format tool calls before speaking', async () => {
+    const speak = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel: jest.fn() },
+      configurable: true,
+    });
+
+    const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+    speakTextNow('I will run it.\n<tool-use>\n<shell>\nls -la\n</shell>\n</tool-use>\nDone.');
+    await flushPromises();
+
+    expect(speak).toHaveBeenCalledWith(expect.objectContaining({ text: 'I will run it. Done.' }));
+  });
+
+  it('does not speak if content is only an xml tool-use block', async () => {
+    const speak = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel: jest.fn() },
+      configurable: true,
+    });
+
+    const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+    speakTextNow('<tool-use>\n<shell>\nls -la\n</shell>\n</tool-use>');
+    await flushPromises();
+
+    expect(speak).not.toHaveBeenCalled();
+  });
+
+  it('strips @tool-format calls before speaking', async () => {
+    const speak = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel: jest.fn() },
+      configurable: true,
+    });
+
+    const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+    speakTextNow('Running it now.\n@shell: {\n  "command": "ls -la"\n}\nAll done.');
+    await flushPromises();
+
+    expect(speak).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Running it now. All done.' })
+    );
+  });
+
+  it('strips @tool-format calls with call id before speaking', async () => {
+    const speak = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel: jest.fn() },
+      configurable: true,
+    });
+
+    const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+    speakTextNow('Running it now.\n@shell(abc123): {\n  "command": "ls"\n}\nAll done.');
+    await flushPromises();
+
+    expect(speak).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Running it now. All done.' })
+    );
+  });
 });
 
 describe('tts fallback chain', () => {
