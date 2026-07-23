@@ -52,6 +52,7 @@ def create_app(
     host: str = "127.0.0.1",
     webui_dir: str | Path | None = None,
     default_profile: str | None = None,
+    allowed_hosts: list[str] | None = None,
 ) -> flask.Flask:
     """Create the Flask app.
 
@@ -60,6 +61,10 @@ def create_app(
             A comma-separated string allows multiple origins, e.g.
             "tauri://localhost,http://tauri.localhost". Whitespace around
             entries is ignored.
+        allowed_hosts: Extra hostnames to accept in the Host header when Host
+            validation is active (loopback binds without auth). Adds to the
+            built-in localhost/127.0.0.1/[::1] allow-list, for users who proxy
+            the local server behind a hostname. See init_host_validation.
         webui_dir: Optional directory containing a web UI build (e.g. the
             modern React webui's ``dist/``) to serve instead of the bundled
             legacy UI. Falls back to the ``GPTME_WEBUI_DIR`` environment
@@ -169,9 +174,15 @@ def create_app(
             )
 
     # Initialize auth (defaults to local-only, no auth required)
-    from .auth import init_auth  # fmt: skip
+    from .auth import init_auth, init_host_validation, validate_host  # fmt: skip
 
     init_auth(host=host, display=False)
+
+    # Configure and register Host-header validation (DNS-rebinding hardening).
+    # Enforced only for unauthenticated loopback binds; see init_host_validation.
+    # Registered as a before_request hook so it runs ahead of any route/auth.
+    init_host_validation(host=host, allowed_hosts=allowed_hosts)
+    app.before_request(validate_host)
 
     # Register Prometheus metrics middleware and /api/v0/metrics endpoint
     from .metrics import init_metrics  # fmt: skip
