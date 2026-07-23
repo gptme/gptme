@@ -106,13 +106,24 @@ test.describe('Conversation Flow', () => {
 });
 
 test.describe('Conversation Creation', () => {
+  // Set E2E_SKIP_CREATE_CONVERSATION=1 to skip when testing against a server
+  // known to reject webui creates (e.g. releases with the #2943 regression).
+  test.skip(
+    process.env.E2E_SKIP_CREATE_CONVERSATION === '1',
+    'server under test has the workspace-containment create regression (fixed by #3319)'
+  );
+
   test('should create a new conversation when submitting a message', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
-    // Type a message in the chat input and submit with Enter
+    // Type a message in the chat input and submit with Enter.
+    // The input stays disabled until the app connects to the server — if this
+    // times out, the webui never connected (check the server's --cors-origin
+    // matches the Playwright origin exactly; localhost != 127.0.0.1).
     const input = page.getByTestId('chat-input');
     await expect(input).toBeVisible({ timeout: 10000 });
+    await expect(input).toBeEnabled({ timeout: 15000 });
     await input.fill('Hello from the e2e test');
     await input.press('Enter');
 

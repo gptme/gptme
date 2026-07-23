@@ -118,7 +118,11 @@ jobs:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy-ci-key' }}
         MODEL: anthropic/claude-3-5-haiku-latest
       run: |
-        gptme-server --cors-origin="http://localhost:5701" &
+        # Playwright serves the webui at http://127.0.0.1:5701 — the CORS origin
+        # must match that exact origin (localhost != 127.0.0.1 for CORS); with a
+        # mismatched origin the webui silently runs offline against demo data
+        # and no e2e test exercises the server at all.
+        gptme-server --cors-origin="http://127.0.0.1:5701,http://localhost:5701" &
         echo $! > /tmp/gptme-server.pid
         sleep 3
 
@@ -128,6 +132,10 @@ jobs:
     - name: Run e2e tests (stable)
       id: e2e-stable
       continue-on-error: true
+      env:
+        # Latest PyPI release still has the workspace-containment create
+        # regression (#2943, fixed by #3319). Remove after the next release.
+        E2E_SKIP_CREATE_CONVERSATION: '1'
       run: npm run test:e2e
 
     - name: Upload stable test results
@@ -145,17 +153,22 @@ jobs:
         kill "$(cat /tmp/gptme-server.pid)" 2>/dev/null || true
         sleep 2
 
-    # ── dev pass (git master) ─────────────────────────────────────────────────
-    - name: Install dev gptme (git master)
+    # ── dev pass (this checkout) ──────────────────────────────────────────────
+    # Install from the PR/branch checkout, NOT git master: the e2e run must
+    # exercise the server code under review, otherwise server-side regressions
+    # (like the #2943 create breakage) can never be caught pre-merge.
+    - name: Install dev gptme (this checkout)
       working-directory: .
-      run: pip install --force-reinstall 'gptme[server] @ git+https://github.com/gptme/gptme.git'
+      run: |
+        pip uninstall -y gptme
+        pip install '.[server]'
 
     - name: Start server (dev)
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy-ci-key' }}
         MODEL: anthropic/claude-3-5-haiku-latest
       run: |
-        gptme-server --cors-origin="http://localhost:5701" &
+        gptme-server --cors-origin="http://127.0.0.1:5701,http://localhost:5701" &
         echo $! > /tmp/gptme-server.pid
         sleep 3
 
