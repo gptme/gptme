@@ -255,6 +255,15 @@ class ChatInput(TextArea):
             super().__init__()
             self.value = value
 
+    class CompletionsChanged(TextualMessage):
+        """Posted when the tab-completion candidate list changes.
+        candidates=[] means hide the overlay."""
+
+        def __init__(self, candidates: list[str], selected: int) -> None:
+            super().__init__()
+            self.candidates = candidates
+            self.selected = selected
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._tab_candidates: list[str] = []
@@ -280,15 +289,24 @@ class ChatInput(TextArea):
         self._history_saved = ""
         self._history_edits.clear()
 
+    def _clear_completions(self) -> None:
+        """Clear tab completion state and hide the overlay."""
+        if self._tab_candidates:
+            self._tab_candidates = []
+            self._tab_index = -1
+            self.post_message(self.CompletionsChanged([], -1))
+
     async def _on_key(self, event: events.Key) -> None:
         if event.key == "enter":
             event.stop()
             event.prevent_default()
+            self._clear_completions()
             self.post_message(self.Submitted(self.text))
             return
         if event.key in ("alt+enter", "shift+enter", "ctrl+j"):
             event.stop()
             event.prevent_default()
+            self._clear_completions()
             self.insert("\n")
             return
         if event.key == "tab":
@@ -297,6 +315,9 @@ class ChatInput(TextArea):
             event.prevent_default()
             self._cycle_completion()
             return
+        # Any non-Tab key dismisses the completion overlay
+        if self._tab_candidates:
+            self._clear_completions()
         if event.key == "up":
             row, _ = self.cursor_location
             if row == 0 and self._history:
@@ -369,6 +390,13 @@ class ChatInput(TextArea):
                 self._tab_index = 0
                 self._set_text(candidates[0])
         self._tab_last = self.text
+        # Notify the app to show/update the completion overlay
+        if len(self._tab_candidates) > 1:
+            self.post_message(
+                self.CompletionsChanged(self._tab_candidates, self._tab_index)
+            )
+        else:
+            self.post_message(self.CompletionsChanged([], -1))
 
 
 class ConfirmScreen(ModalScreen[ConfirmationResult]):
@@ -538,6 +566,15 @@ class GptmeApp(App):
     #confirm-help {
         color: $text-muted;
     }
+    #completions {
+        display: none;
+        height: auto;
+        max-height: 10;
+        margin: 0 1;
+        padding: 0 1;
+        background: $surface;
+        border: round $primary;
+    }
     """
 
     BINDINGS = [
@@ -604,6 +641,7 @@ class GptmeApp(App):
             return
         yield VerticalScroll(id="chat")
         with Vertical(id="bottom"):
+            yield Static("", id="completions")
             yield ChatInput(id="input")
             yield Static(
                 Text("Type a message… (Enter to send, Alt+Enter for newline)"),
@@ -791,6 +829,26 @@ class GptmeApp(App):
         self._update_status()
 
     # -------------------------------------------------------------- input
+
+    def on_chat_input_completions_changed(
+        self, event: ChatInput.CompletionsChanged
+    ) -> None:
+        """Show or hide the tab-completion overlay above the input."""
+        try:
+            w = self.query_one("#completions", Static)
+        except Exception:
+            return
+        candidates = event.candidates
+        if len(candidates) <= 1:
+            w.display = False
+            return
+        t = Text()
+        for i, c in enumerate(candidates):
+            prefix = "▶ " if i == event.selected else "  "
+            style = "bold" if i == event.selected else "dim"
+            t.append(f"{prefix}{c}\n", style=style)
+        w.update(t)
+        w.display = True
 
     def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         text = event.value.strip()
