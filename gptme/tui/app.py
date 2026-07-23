@@ -13,11 +13,16 @@ import logging
 import os.path
 import re
 import sys
+import termios
 import threading
 from pathlib import Path
 from typing import IO, cast
 
+from rich.console import Console as RichConsole
+from rich.control import Control
+from rich.markdown import Markdown as RichMarkdown
 from rich.markup import escape as markup_escape
+from rich.padding import Padding
 from rich.syntax import Syntax
 from rich.text import Text
 from textual import events
@@ -28,10 +33,16 @@ from textual.filter import ANSIToTruecolor
 from textual.message import Message as TextualMessage
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Collapsible, Markdown, Static, TextArea
+from textual.widgets import (
+    Collapsible,
+    Markdown,
+    Static,
+    TextArea,
+)
 from textual.worker import Worker, WorkerState
 
 from ..chat import step
+from ..commands import execute_cmd, get_command_completer, get_user_commands
 from ..constants import DECLINED_CONTENT, INTERRUPT_CONTENT
 from ..dirs import get_pt_history_file
 from ..hooks import HookType, register_hook, unregister_hook
@@ -43,6 +54,7 @@ from ..message import Message
 from ..tools import ToolFormat, ToolUse
 from ..tools.base import ToolUse as ToolUseType
 from ..tools.complete import SessionCompleteException
+from ..util.content import is_message_command
 from ..util.context import include_paths
 from ..util.history import append_history, load_history
 from ..util.tokens import len_tokens
@@ -229,8 +241,6 @@ class BouncingError(Static):
 
 def renderables_for_message(msg: Message, expanded: bool = False) -> list:
     """Rich renderables for a message, for native-scrollback (inline) mode."""
-    from rich.markdown import Markdown as RichMarkdown
-    from rich.padding import Padding
 
     content = msg.content.strip()
     if msg.role == "user":
@@ -255,7 +265,6 @@ def renderables_for_message(msg: Message, expanded: bool = False) -> list:
 
 def complete_input(text: str) -> list[str]:
     """Full-line completion candidates, reusing the CLI command completers."""
-    from ..commands import get_command_completer, get_user_commands
 
     if not text.startswith("/"):
         return []
@@ -558,10 +567,10 @@ class GptmeApp(App):
     }
     .thinking-block CollapsibleTitle {
         color: $text-muted;
-        text-style: italic;
     }
     .thinking-block Markdown {
         color: $text-muted;
+        margin-bottom: 1;
     }
     /* compact markdown: the widget defaults add blank lines around
        codeblocks (MarkdownFence margin 1 0) and after the last block */
@@ -574,7 +583,6 @@ class GptmeApp(App):
     }
     .message > .progress-placeholder {
         color: $text-muted;
-        text-style: italic;
     }
     .message MarkdownFence {
         margin: 0;
@@ -602,7 +610,7 @@ class GptmeApp(App):
     }
     #input-hint {
         height: 1;
-        margin: 0 1;
+        margin: 0 3;
         color: $text-muted;
         background: ansi_default;
     }
@@ -740,8 +748,6 @@ class GptmeApp(App):
         # the terminal to cooked/echo mode — which would otherwise echo
         # mouse-tracking reports as garbage input.
         try:
-            import termios
-
             self._term_attrs = termios.tcgetattr(sys.__stdin__.fileno())  # type: ignore[union-attr]
         except Exception:
             self._term_attrs = None
@@ -814,8 +820,6 @@ class GptmeApp(App):
         driver = self._driver
         if driver is None:
             return
-        from rich.console import Console as RichConsole
-        from rich.control import Control
 
         buf = io.StringIO()
         console = RichConsole(
@@ -878,8 +882,6 @@ class GptmeApp(App):
         if self._term_attrs is None:
             return
         with contextlib.suppress(Exception):
-            import termios
-
             fd = sys.__stdin__.fileno()  # type: ignore[union-attr]
             if termios.tcgetattr(fd) != self._term_attrs:
                 termios.tcsetattr(fd, termios.TCSANOW, self._term_attrs)
@@ -952,7 +954,6 @@ class GptmeApp(App):
             if not self.generating and self._can_resume():
                 self._start_generation()
             return
-        from ..util.content import is_message_command
 
         if is_message_command(text):
             # a real /command; paths like /tmp/foo.md fall through to _submit,
@@ -981,7 +982,6 @@ class GptmeApp(App):
 
     def _handle_command(self, text: str) -> None:
         """Run a slash-command through the CLI command registry."""
-        from ..commands import execute_cmd
 
         cmd = text.split()[0].lstrip("/")
         if cmd in ("quit", "q"):  # TUI-local alias for /exit
@@ -1159,14 +1159,14 @@ class GptmeApp(App):
         if self.inline and not self._stream_text:
             label = "Thinking…" if is_thinking else "Generating…"
             with contextlib.suppress(Exception):
-                self.query_one("#live", Static).update(Text(label, style="italic"))
+                self.query_one("#live", Static).update(Text(label, style="dim"))
 
     def _begin_stream(self) -> None:
         # A new model step starts only after the previous tool batch finished.
         self._clear_tool_placeholder()
         self._set_state("generating")
         if self.inline:
-            self.query_one("#live", Static).update(Text("Generating…", style="italic"))
+            self.query_one("#live", Static).update(Text("Generating…", style="dim"))
         elif self._stream_widget is None:
             self._stream_widget = StreamingMessage()
             self._mount_in_chat(self._stream_widget)
@@ -1199,9 +1199,7 @@ class GptmeApp(App):
 
     def _show_tool_placeholder(self) -> None:
         if self.inline:
-            self.query_one("#live", Static).update(
-                Text("Running tool…", style="italic")
-            )
+            self.query_one("#live", Static).update(Text("Running tool…", style="dim"))
             return
         if self._tool_placeholder is not None:
             return
