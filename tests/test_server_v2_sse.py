@@ -1,7 +1,6 @@
 """Tests for the Server-Sent Events (SSE) stream functionality in the V2 API."""
 
 import threading
-import time
 import unittest.mock
 
 import pytest
@@ -105,21 +104,24 @@ def test_generation_complete_before_auto_naming(
 
     mock_stream = mock_generation(["Hello!"])
     generation_complete_gate = threading.Event()
+    auto_name_finished = threading.Event()
 
     def gated_auto_name(*args, **kwargs):
         # If called BEFORE generation_complete: blocks here until gate opens,
         # preventing generation_complete from being emitted → wait_for_event
         # times out → assertion fails.
         # If called AFTER generation_complete (correct): gate already open → immediate return.
-        generation_complete_gate.wait(timeout=6)
-        return
+        try:
+            generation_complete_gate.wait(timeout=6)
+        finally:
+            auto_name_finished.set()
 
     with (
         unittest.mock.patch("gptme.server.session_step._stream", mock_stream),
         unittest.mock.patch(
             "gptme.server.session_step._try_auto_name_and_notify",
             side_effect=gated_auto_name,
-        ),
+        ) as auto_name_mock,
     ):
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
@@ -132,6 +134,7 @@ def test_generation_complete_before_auto_naming(
         )
         generation_complete_gate.set()
 
-        # Let the gated auto-naming call finish inside the mock context
-        # before the patch is reverted, so the real function is not called.
-        time.sleep(0.3)
+        # Keep the patch installed until the background step reaches and exits
+        # auto-naming. This avoids racing patch teardown against a slow worker.
+        assert auto_name_finished.wait(timeout=2), "auto-naming did not finish"
+        auto_name_mock.assert_called_once()
