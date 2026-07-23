@@ -438,6 +438,7 @@ class GptmeApp(App):
     }
     #chat {
         padding: 0 1;
+        background: ansi_default;
     }
     .message {
         height: auto;
@@ -503,22 +504,26 @@ class GptmeApp(App):
     #bottom {
         dock: bottom;
         height: auto;
+        background: ansi_default;
     }
     #input {
         margin: 1 1 0 1;
         height: auto;
         max-height: 10;
+        background: ansi_default;
     }
     #input-hint {
         height: 1;
         margin: 0 1;
         color: $text-muted;
+        background: ansi_default;
     }
     #status {
         height: 1;
         margin-top: 1;
         padding: 0 1;
         color: $text-muted;
+        background: ansi_default;
     }
     Screen:inline #status {
         margin-top: 0;
@@ -560,9 +565,7 @@ class GptmeApp(App):
         inline: bool = False,
         experimental_jelly_errors: bool = False,
     ):
-        # Preserve the configured Textual theme's colors while allowing explicit
-        # ANSI defaults to pass through as the terminal's native colors.
-        super().__init__(ansi_color=True)
+        super().__init__()
         self.manager = manager
         self.tool_format: ToolFormat = tool_format
         self.workspace = workspace or manager.workspace

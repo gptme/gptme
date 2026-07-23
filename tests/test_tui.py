@@ -36,14 +36,14 @@ def test_summarize():
 
 
 @pytest.mark.asyncio
-async def test_inline_screen_uses_ansi_default_background(tmp_path):
-    """Both app modes use the terminal background without sharing inline sizing."""
+async def test_active_surfaces_use_ansi_default_background(tmp_path):
+    """Both app modes use the terminal background without changing the palette."""
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
     async with app.run_test() as pilot:
         await pilot.pause()
         expected = Color(0, 0, 0, ansi=-1)
         assert app.theme == "textual-dark"
-        assert app.native_ansi_color
+        assert not app.native_ansi_color
         assert app.get_css_variables()["primary"] == "#0178D4"
         assert app.screen.styles.background == expected
         assert app.query_one("#live", Static).styles.background == expected
@@ -54,6 +54,8 @@ async def test_inline_screen_uses_ansi_default_background(tmp_path):
         assert app.screen.styles.background == expected
         assert app.screen.styles.height is None
         assert app.screen.styles.max_height is None
+        for selector in ("#chat", "#bottom", "#input", "#input-hint", "#status"):
+            assert app.query_one(selector).styles.background == expected
 
 
 @pytest.mark.asyncio
