@@ -23,6 +23,7 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
+from textual.filter import ANSIToTruecolor
 from textual.message import Message as TextualMessage
 from textual.screen import ModalScreen
 from textual.widget import Widget
@@ -451,6 +452,9 @@ class GptmeApp(App):
     TITLE = "gptme"
 
     CSS = """
+    Screen {
+        background: ansi_default;
+    }
     Screen:inline {
         height: auto;
         max-height: 40%;
@@ -459,9 +463,11 @@ class GptmeApp(App):
         height: auto;
         max-height: 8;
         margin: 0 1;
+        background: ansi_default;
     }
     #chat {
         padding: 0 1;
+        background: ansi_default;
     }
     .message {
         height: auto;
@@ -527,22 +533,26 @@ class GptmeApp(App):
     #bottom {
         dock: bottom;
         height: auto;
+        background: ansi_default;
     }
     #input {
         margin: 1 1 0 1;
         height: auto;
         max-height: 10;
+        background: ansi_default;
     }
     #input-hint {
         height: 1;
         margin: 0 1;
         color: $text-muted;
+        background: ansi_default;
     }
     #status {
         height: 1;
         margin-top: 1;
         padding: 0 1;
         color: $text-muted;
+        background: ansi_default;
     }
     Screen:inline #status {
         margin-top: 0;
@@ -594,6 +604,13 @@ class GptmeApp(App):
         experimental_jelly_errors: bool = False,
     ):
         super().__init__()
+        # Keep Textual's truecolor theme, but preserve ANSI default through the
+        # final output filter so terminal foreground/background remain native.
+        self._filters = [
+            filter_
+            for filter_ in self._filters
+            if not isinstance(filter_, ANSIToTruecolor)
+        ]
         self.manager = manager
         self.tool_format: ToolFormat = tool_format
         self.workspace = workspace or manager.workspace

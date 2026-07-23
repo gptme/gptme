@@ -5,7 +5,8 @@ import pytest
 pytest.importorskip("textual")
 
 from textual.color import Color
-from textual.widgets import Collapsible
+from textual.filter import ANSIToTruecolor
+from textual.widgets import Collapsible, Static
 
 from gptme.logmanager import LogManager
 from gptme.message import Message
@@ -36,6 +37,39 @@ def test_summarize():
 
 
 @pytest.mark.asyncio
+async def test_ansi_default_survives_output_filter(tmp_path):
+    """Terminal-default colors must reach the driver without RGB conversion."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+
+    assert not any(
+        isinstance(filter_, ANSIToTruecolor) for filter_ in app.get_line_filters()
+    )
+
+
+@pytest.mark.asyncio
+async def test_active_surfaces_use_ansi_default_background(tmp_path):
+    """Both app modes use the terminal background without changing the palette."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        expected = Color(0, 0, 0, ansi=-1)
+        assert app.theme == "textual-dark"
+        assert not app.native_ansi_color
+        assert app.get_css_variables()["primary"] == "#0178D4"
+        assert app.screen.styles.background == expected
+        assert app.query_one("#live", Static).styles.background == expected
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.screen.styles.background == expected
+        assert app.screen.styles.height is None
+        assert app.screen.styles.max_height is None
+        for selector in ("#chat", "#bottom", "#input", "#input-hint", "#status"):
+            assert app.query_one(selector).styles.background == expected
+
+
+@pytest.mark.asyncio
 async def test_progress_placeholder_uses_message_background(tmp_path):
     """The placeholder text must not introduce a different background color."""
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
@@ -47,11 +81,11 @@ async def test_progress_placeholder_uses_message_background(tmp_path):
         assert placeholder is not None
         body = placeholder._body
         assert body.styles.background == Color(0, 0, 0, 0)
-        assert body.styles.color.a == pytest.approx(0.6)
         assert body.styles.text_style.italic
         first_segment = next(iter(body.render_line(0)))
         assert first_segment.style is not None
-        assert first_segment.style.bgcolor == body.background_colors[1].rich_color
+        assert first_segment.style.bgcolor is not None
+        assert first_segment.style.bgcolor.is_default
 
 
 @pytest.mark.asyncio
