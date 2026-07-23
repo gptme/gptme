@@ -4,6 +4,7 @@ import pytest
 
 pytest.importorskip("textual")
 
+from textual.color import Color
 from textual.widgets import Collapsible
 
 from gptme.logmanager import LogManager
@@ -15,6 +16,7 @@ from gptme.tui.app import (
     GptmeApp,
     InfoMessage,
     SystemMessage,
+    ToolPlaceholder,
     UserMessage,
     _append_pt_history,
     _load_pt_history,
@@ -31,6 +33,25 @@ def test_summarize():
     assert _summarize("```stdout\nfoo\n```").startswith("stdout")
     long = "x" * 200
     assert len(_summarize(long)) < 100
+
+
+@pytest.mark.asyncio
+async def test_progress_placeholder_uses_message_background(tmp_path):
+    """The placeholder text must not introduce a different background color."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        app._begin_stream()
+        await pilot.pause()
+
+        placeholder = app._stream_widget
+        assert placeholder is not None
+        body = placeholder._body
+        assert body.styles.background == Color(0, 0, 0, 0)
+        assert body.styles.color.a == pytest.approx(0.6)
+        assert body.styles.text_style.italic
+        first_segment = next(iter(body.render_line(0)))
+        assert first_segment.style is not None
+        assert first_segment.style.bgcolor == body.background_colors[1].rich_color
 
 
 @pytest.mark.asyncio
@@ -340,3 +361,85 @@ async def test_history_persists_across_sessions(tmp_path, monkeypatch):
     async with app2.run_test():
         inp2 = app2.query_one("#input", ChatInput)
         assert inp2._history == ["prior cli entry", "tui entry one"]
+
+
+SHELL_TOOL_MSG = "Running a command\n\n```shell\necho hello\n```"
+TWO_SHELL_TOOLS_MSG = (
+    "Running two commands\n\n```shell\necho first\n```\n\n```shell\necho second\n```"
+)
+
+
+@pytest.mark.asyncio
+async def test_tool_placeholder_show_and_clear(tmp_path):
+    """ToolPlaceholder appears after an assistant message with tool calls and disappears on tool output."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 0
+
+        # Assistant message containing a shell tool call → placeholder shown
+        app._on_step_message(Message("assistant", SHELL_TOOL_MSG))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 1
+
+        # Tool output arrives while the batch is still active.
+        app._on_step_message(Message("system", "```stdout\nhello\n```"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 1
+
+        # Starting the next model step marks the tool batch complete.
+        app._begin_stream()
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_placeholder_not_shown_for_tool_free_response(tmp_path):
+    """ToolPlaceholder must NOT appear for assistant messages without tool calls."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Plain text reply — no tool call content
+        app._on_step_message(Message("assistant", "Just a plain text reply"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_placeholder_persists_across_multiple_tools(tmp_path):
+    """ToolPlaceholder must stay visible until ALL tool outputs from one assistant message arrive."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # Assistant message with two shell calls → placeholder appears
+        app._on_step_message(Message("assistant", TWO_SHELL_TOOLS_MSG))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 1
+
+        # First tool output → placeholder must stay (one more tool pending)
+        app._on_step_message(Message("system", "```stdout\nfirst\n```"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 1, "placeholder cleared too early"
+
+        # A hook can emit extra system messages for one tool. These must not
+        # consume the later tool's pending state.
+        app._on_step_message(Message("system", "Hook note after first tool"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 1
+
+        # The indicator remains after the last result until execution leaves
+        # the tool batch and starts the next model step.
+        app._on_step_message(Message("system", "```stdout\nsecond\n```"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 1
+
+        app._begin_stream()
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 0
