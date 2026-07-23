@@ -74,6 +74,34 @@ describe('toSpokenText (via speakTextNow)', () => {
 
     expect(speak).not.toHaveBeenCalled();
   });
+
+  it('strips tool-use blocks instead of announcing code placeholders', async () => {
+    const speak = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel: jest.fn() },
+      configurable: true,
+    });
+
+    const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+    speakTextNow('I will check.\n```shell\nls -la\n```\nDone.');
+    await flushPromises();
+
+    expect(speak).toHaveBeenCalledWith(expect.objectContaining({ text: 'I will check. Done.' }));
+  });
+
+  it('does not speak if content is only a tool-use block', async () => {
+    const speak = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel: jest.fn() },
+      configurable: true,
+    });
+
+    const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+    speakTextNow('```shell\nls -la\n```');
+    await flushPromises();
+
+    expect(speak).not.toHaveBeenCalled();
+  });
 });
 
 describe('tts fallback chain', () => {

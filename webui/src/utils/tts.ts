@@ -67,14 +67,21 @@ function getSettings(): {
   return { ttsEnabled: false, ttsServerUrl: '', ttsProvider: 'auto', ttsAuthToken: '' };
 }
 
-/** Strip markdown so the spoken text sounds natural. */
+/**
+ * Strip non-spoken assistant internals and Markdown for TTS.
+ *
+ * Keep this aligned with gptme-tts's Python `clean_for_speech()` in
+ * `plugins/gptme-tts/src/gptme_tts/tts.py` (gptme-contrib): both reasoning and
+ * tool-use are implementation details and must never be spoken.
+ */
 function toSpokenText(markdown: string): string {
   return (
     markdown
       // Remove thinking blocks entirely (model reasoning, not output)
       .replace(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/g, '')
-      // Remove fenced code blocks entirely
-      .replace(/```[\s\S]*?```/g, '[code block]')
+      // As in clean_for_speech(), every fenced block is non-spoken. In assistant
+      // messages these include gptme's Markdown-format tool calls.
+      .replace(/```[\s\S]*?```/g, '')
       // Remove inline code
       .replace(/`[^`]+`/g, '[code]')
       // Remove bold/italic markers
