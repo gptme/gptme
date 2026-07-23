@@ -37,13 +37,20 @@ def test_summarize():
 
 @pytest.mark.asyncio
 async def test_inline_screen_uses_ansi_default_background(tmp_path):
-    """The inline screen and live preview must use the terminal background."""
+    """Both app modes use the terminal background without sharing inline sizing."""
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
     async with app.run_test() as pilot:
         await pilot.pause()
         expected = Color(0, 0, 0, ansi=-1)
         assert app.screen.styles.background == expected
         assert app.query_one("#live", Static).styles.background == expected
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.screen.styles.background == expected
+        assert app.screen.styles.height is None
+        assert app.screen.styles.max_height is None
 
 
 @pytest.mark.asyncio

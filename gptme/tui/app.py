@@ -424,9 +424,11 @@ class GptmeApp(App):
 
     CSS = """
     Screen {
+        background: ansi_default;
+    }
+    Screen:inline {
         height: auto;
         max-height: 40%;
-        background: ansi_default;
     }
     #live {
         height: auto;
