@@ -38,6 +38,29 @@ def _normalize_svg(svg: str) -> str:
     # Remove whitespace between tags, but preserve content within text elements.
     svg = re.sub(r">\s+<", "><", svg)  # Remove whitespace between tags
     svg = re.sub(r">\s*\n\s*", ">", svg)  # Remove newlines/indentation between tags
+    # Normalize the status bar text wherever it appears.
+    # It shows "MODEL | Xk/Yk (Z%) | status" — the "Xk/Yk" token is distinctive.
+    # In full mode it sits at line-23; in inline mode it sits at line-7.
+    # Replace textLength + content so model-name-length differences don't cause
+    # mismatches across environments.
+    svg = re.sub(
+        r'textLength="[\d.]+" clip-path="url\(#terminal-HASH-line-\d+\)">[^<]*&#160;\|&#160;\d+k/\d+k[^<]*</text>',
+        'textLength="0" clip-path="url(#terminal-HASH-line-STATUS)">STATUS_BAR</text>',
+        svg,
+    )
+    # Normalize status bar background rects (widths are proportional to model name length).
+    # Full mode:   status bar at line-23, y≈562.7
+    # Inline mode: status bar at line-7,  y≈172.3
+    svg = re.sub(
+        r'<rect fill="#121212" x="[\d.]+" y="562\.7" width="[\d.]+"',
+        '<rect fill="#121212" x="0" y="562.7" width="0"',
+        svg,
+    )
+    svg = re.sub(
+        r'<rect fill="#121212" x="[\d.]+" y="172\.3" width="[\d.]+"',
+        '<rect fill="#121212" x="0" y="172.3" width="0"',
+        svg,
+    )
     return svg
 
 
