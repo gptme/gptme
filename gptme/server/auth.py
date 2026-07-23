@@ -54,6 +54,11 @@ AUTH_COOKIE_MAX_AGE = 86400  # 24 hours
 auth_api = flask.Blueprint("auth_api", __name__)
 
 
+def is_auth_enabled() -> bool:
+    """Return True if bearer-token authentication is currently active."""
+    return _auth_enabled
+
+
 def generate_token() -> str:
     """Generate a cryptographically secure random token.
 
@@ -78,6 +83,10 @@ def is_local_host(host: str) -> bool:
 # Loopback hostnames that are always safe as Host header values.
 _LOOPBACK_HOST_NAMES = frozenset({"localhost", "127.0.0.1", "[::1]", "::1"})
 
+# Wildcard bind addresses that listen on all interfaces.
+# For these, valid client hostnames cannot be enumerated at startup.
+_WILDCARD_BINDS = frozenset({"0.0.0.0", "::", "*"})
+
 
 def _parse_host_header(host_header: str) -> str:
     """Return the hostname portion of a Host header, stripping the port.
@@ -96,27 +105,61 @@ def _parse_host_header(host_header: str) -> str:
 def init_host_validation(
     bind_host: str,
     extra_allowed_hosts: list[str] | None = None,
+    auth_enabled: bool = True,
 ) -> None:
     """Configure Host-header validation for DNS-rebinding protection.
 
-    Host validation is needed when authentication is disabled for a loopback
-    bind.  Network binds require bearer authentication instead, and may be
-    reached through arbitrary LAN addresses, container hostnames, or proxies
-    that cannot be inferred from the wildcard bind address.
+    Host validation is needed when authentication is disabled.  Authenticated
+    network binds are protected by bearer tokens and may be reached via
+    arbitrary LAN addresses or container hostnames that cannot be inferred at
+    startup, so validation is skipped for those.
+
+    When auth is explicitly disabled on a specific network IP (not a wildcard
+    like 0.0.0.0), Host validation is the only DNS-rebinding defence and is
+    enabled for that IP.
 
     Args:
         bind_host: The address the server listens on (e.g. "127.0.0.1").
-        extra_allowed_hosts: Additional hostnames to accept for a loopback
-            bind (e.g. a custom local proxy hostname).
+        extra_allowed_hosts: Additional hostnames to accept.
+        auth_enabled: Whether bearer-token auth is active.  Pass the result
+            of ``is_auth_enabled()`` after calling ``init_auth()``.
     """
     global _host_validation_enabled, _allowed_hosts
 
     if not is_local_host(bind_host):
-        _allowed_hosts = frozenset()
-        _host_validation_enabled = False
-        logger.debug(
-            "Host validation disabled for authenticated network bind %s", bind_host
-        )
+        if auth_enabled:
+            # Auth protects network binds; host validation not needed.
+            _allowed_hosts = frozenset()
+            _host_validation_enabled = False
+            logger.debug(
+                "Host validation disabled for authenticated network bind %s", bind_host
+            )
+        elif bind_host in _WILDCARD_BINDS:
+            # Wildcard bind with auth disabled: cannot enumerate the set of
+            # valid client hostnames, so host validation is not possible.
+            # Rely on external auth (e.g. k8s ingress) in this configuration.
+            _allowed_hosts = frozenset()
+            _host_validation_enabled = False
+            logger.warning(
+                "⚠️  GPTME_DISABLE_AUTH on a wildcard bind (%s) provides no "
+                "DNS-rebinding protection.  Only use this behind external auth "
+                "(e.g. a k8s ingress controller).",
+                bind_host,
+            )
+        else:
+            # Specific network IP with auth disabled: enable Host validation
+            # against the bind address.  This blocks DNS-rebinding pages that
+            # send their own domain as the Host header.
+            allowed: set[str] = {bind_host}
+            if extra_allowed_hosts:
+                allowed.update(extra_allowed_hosts)
+            _allowed_hosts = frozenset(allowed)
+            _host_validation_enabled = True
+            logger.debug(
+                "Host validation enabled for auth-disabled bind %s; allowed: %s",
+                bind_host,
+                _allowed_hosts,
+            )
         return
 
     allowed = set(_LOOPBACK_HOST_NAMES)
