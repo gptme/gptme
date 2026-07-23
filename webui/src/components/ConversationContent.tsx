@@ -65,9 +65,11 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const prevConversationIdRef = useRef<string | null>(null);
   const paneRef = useRef<HTMLElement>(null);
 
-  const { api, connectionConfig, isConnected$, connect } = useApi();
-  const isConnected = use$(isConnected$);
-  const lastConnectionResult = use$(api.lastConnectionResult$);
+  const { api, connectionConfig, connect, getClient } = useApi();
+  // Use the conversation's server client when serverId is provided, not the primary.
+  const serverClient = serverId ? getClient(serverId) : api;
+  const isConnected = use$(serverClient.isConnected$);
+  const lastConnectionResult = use$(serverClient.lastConnectionResult$);
   const [isRetryingConnection, setIsRetryingConnection] = useState(false);
   const hasSession$ = useObservable<boolean>(false);
   const { defaultModel } = useModels();
@@ -573,9 +575,14 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const handleRetryConnection = async () => {
     setIsRetryingConnection(true);
     try {
-      await connect();
+      if (serverId) {
+        // Retry the conversation's specific server, not the primary.
+        await serverClient.checkConnection();
+      } else {
+        await connect();
+      }
     } catch {
-      // connect() shows toast on failure; swallow to avoid double-toast
+      // connect()/checkConnection() shows toast on failure; swallow to avoid double-toast
     } finally {
       setIsRetryingConnection(false);
     }

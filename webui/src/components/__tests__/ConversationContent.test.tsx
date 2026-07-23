@@ -14,6 +14,7 @@ import { ConversationContent } from '../ConversationContent';
 
 const mockNavigate = jest.fn();
 const mockConnect = jest.fn();
+const mockCheckConnection = jest.fn().mockResolvedValue(true);
 const mockIsDemoMode = jest.fn(() => false);
 const mockIsLikelyChromeCorsPna = jest.fn((_url: string) => false);
 
@@ -25,6 +26,16 @@ const lastConnectionResult$ = observable<null | {
   message: string;
 }>(null);
 const sessions$ = observable(new Map<string, string>());
+
+// Secondary server observables for serverId tests
+const secondaryIsConnected$ = observable(true);
+const secondaryLastConnectionResult$ = observable<null | {
+  ok: false;
+  url: string;
+  reason: 'network' | 'http_error' | 'parse_error' | 'timeout' | 'cors';
+  message: string;
+}>(null);
+const secondaryCheckConnection = jest.fn().mockResolvedValue(true);
 
 // Minimal ConversationState observable for the component to reach the banner
 function makeConversationState() {
@@ -97,9 +108,25 @@ jest.mock('@/contexts/ApiContext', () => ({
       cancelPendingRequests: jest.fn(),
       getConversation: jest.fn(),
       getConversations: jest.fn(),
+      checkConnection: mockCheckConnection,
     },
     isConnected$,
     connect: mockConnect,
+    getClient: (serverId?: string) => {
+      if (serverId === 'secondary-server') {
+        return {
+          isConnected$: secondaryIsConnected$,
+          lastConnectionResult$: secondaryLastConnectionResult$,
+          checkConnection: secondaryCheckConnection,
+        };
+      }
+      // Unknown server ID falls back to primary (matches ApiContext behavior)
+      return {
+        isConnected$,
+        lastConnectionResult$,
+        checkConnection: mockCheckConnection,
+      };
+    },
     connectionConfig: {
       baseUrl: 'http://localhost:5700',
       authToken: null,
@@ -234,5 +261,39 @@ describe('server disconnected banner', () => {
     const btn = screen.getByRole('button', { name: /retry/i });
     btn.click();
     expect(mockConnect).toHaveBeenCalled();
+  });
+});
+
+describe('server disconnected banner — serverId (secondary server)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsDemoMode.mockReturnValue(false);
+    // Primary is always connected in these tests
+    isConnected$.set(true);
+    lastConnectionResult$.set(null);
+    // Secondary starts connected
+    secondaryIsConnected$.set(true);
+    secondaryLastConnectionResult$.set(null);
+  });
+
+  it('is hidden when the secondary server is connected (primary irrelevant)', () => {
+    secondaryIsConnected$.set(true);
+    render(<ConversationContent conversationId="demo/test" serverId="secondary-server" />);
+    expect(screen.queryByText(/server not connected/i)).toBeNull();
+  });
+
+  it('shows when the secondary server is disconnected, even if primary is connected', () => {
+    secondaryIsConnected$.set(false);
+    render(<ConversationContent conversationId="demo/test" serverId="secondary-server" />);
+    expect(screen.getByText(/server not connected/i)).toBeInTheDocument();
+  });
+
+  it('Retry calls checkConnection() on the secondary server, not connect()', async () => {
+    secondaryIsConnected$.set(false);
+    render(<ConversationContent conversationId="demo/test" serverId="secondary-server" />);
+    const btn = screen.getByRole('button', { name: /retry/i });
+    btn.click();
+    expect(secondaryCheckConnection).toHaveBeenCalled();
+    expect(mockConnect).not.toHaveBeenCalled();
   });
 });
