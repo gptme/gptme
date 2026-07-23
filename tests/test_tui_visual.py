@@ -89,7 +89,10 @@ def _normalize_svg(svg: str) -> str:
     # Strip trailing whitespace per line (pre-commit hooks enforce this on the
     # committed baselines, so we must match that format when comparing).
     lines = [line.rstrip() for line in svg.splitlines()]
-    return "\n".join(lines).strip()
+    # Committed text files end in a newline after format/pre-commit cleanup.
+    # Preserve that convention in generated snapshots so an ordinary checkout
+    # compares equal to a freshly exported SVG.
+    return "\n".join(lines).strip() + "\n"
 
 
 def _assert_svg_matches_snapshot(
@@ -159,6 +162,12 @@ def _assert_svg_matches_snapshot(
 @pytest.fixture()
 def snapshot_update(request) -> bool:
     return bool(request.config.getoption("--snapshot-update", default=False))
+
+
+def test_normalize_svg_uses_committed_file_newline() -> None:
+    """Normalized output matches the trailing-newline convention in git."""
+    assert _normalize_svg("<svg>\n</svg>\n") == "<svg>\n</svg>\n"
+    assert _normalize_svg("<svg>\n</svg>") == "<svg>\n</svg>\n"
 
 
 # ---------------------------------------------------------------------------
