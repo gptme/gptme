@@ -11,6 +11,7 @@ import contextvars
 import io
 import logging
 import os.path
+import re
 import sys
 import threading
 from pathlib import Path
@@ -64,6 +65,32 @@ def _summarize(content: str, maxlen: int = 80) -> str:
     return f"{first} ({n} line{'s' if n != 1 else ''})"
 
 
+_THINK_RE = re.compile(r"<think(?:ing)?>(.*?)</think(?:ing)?>", re.DOTALL)
+_THINK_SIG_RE = re.compile(r"<!--\s*think-sig:.*?-->\s*", re.DOTALL)
+
+
+def _split_thinking(content: str) -> list[tuple[bool, str]]:
+    """Split message content into (is_thinking, text) segments.
+
+    Detects <think>/<thinking> blocks and separates them from normal content
+    so the TUI can render them in collapsible sections.
+    """
+    segments: list[tuple[bool, str]] = []
+    last_end = 0
+    for m in _THINK_RE.finditer(content):
+        before = content[last_end : m.start()]
+        if before.strip():
+            segments.append((False, before))
+        inner = _THINK_SIG_RE.sub("", m.group(1)).strip()
+        if inner:
+            segments.append((True, inner))
+        last_end = m.end()
+    tail = content[last_end:]
+    if tail.strip():
+        segments.append((False, tail))
+    return segments
+
+
 class UserMessage(Vertical):
     """A user message, rendered with a distinct border."""
 
@@ -86,7 +113,20 @@ class AssistantMessage(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static(Text("Assistant"), classes="role")
-        yield Markdown(self.content)
+        segments = _split_thinking(self.content)
+        if not any(is_think for is_think, _ in segments):
+            yield Markdown(self.content)
+        else:
+            for is_think, text in segments:
+                if is_think:
+                    yield Collapsible(
+                        Markdown(text),
+                        title="Thinking",
+                        collapsed=True,
+                        classes="thinking-block",
+                    )
+                elif text.strip():
+                    yield Markdown(text)
 
 
 class SystemMessage(Vertical):
@@ -119,6 +159,12 @@ class StreamingMessage(Vertical):
     def append_token(self, token: str) -> None:
         self._buffer += token
         self._body.update(Text(self._buffer))
+
+    def set_thinking(self, is_thinking: bool) -> None:
+        """Update the placeholder when the model transitions in/out of thinking."""
+        if not self._buffer:
+            label = "Thinking…" if is_thinking else "Generating…"
+            self._body.update(Text(label))
 
 
 class ToolPlaceholder(Vertical):
@@ -497,6 +543,19 @@ class GptmeApp(App):
         border: none;
         padding: 0;
         background: transparent;
+    }
+    .thinking-block {
+        border: none;
+        padding: 0;
+        background: transparent;
+        color: $text-muted;
+    }
+    .thinking-block CollapsibleTitle {
+        color: $text-muted;
+        text-style: italic;
+    }
+    .thinking-block Markdown {
+        color: $text-muted;
     }
     /* compact markdown: the widget defaults add blank lines around
        codeblocks (MarkdownFence margin 1 0) and after the last block */
@@ -1017,6 +1076,7 @@ class GptmeApp(App):
                         workspace=self.workspace,
                         logdir=manager.logdir,
                         on_token=self._on_token,
+                        on_thinking=self._on_thinking,
                     ):
                         # each yield may follow a tool execution that reset
                         # the tty (e.g. ipython init) — reassert raw mode
@@ -1071,6 +1131,18 @@ class GptmeApp(App):
         if self._interrupt_event.is_set():
             raise KeyboardInterrupt
         self.call_from_thread(self._on_stream_token, token)
+
+    def _on_thinking(self, is_thinking: bool) -> None:
+        # called from the worker thread when thinking state changes
+        self.call_from_thread(self._set_stream_thinking, is_thinking)
+
+    def _set_stream_thinking(self, is_thinking: bool) -> None:
+        if self._stream_widget is not None:
+            self._stream_widget.set_thinking(is_thinking)
+        if self.inline:
+            label = "Thinking…" if is_thinking else "Generating…"
+            with contextlib.suppress(Exception):
+                self.query_one("#live", Static).update(Text(label, style="italic"))
 
     def _begin_stream(self) -> None:
         # A new model step starts only after the previous tool batch finished.
