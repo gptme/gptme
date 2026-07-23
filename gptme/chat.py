@@ -579,6 +579,7 @@ def step(
     model: str | None = None,
     output_schema: type | None = None,
     on_token: Callable[[str], None] | None = None,
+    on_thinking: Callable[[bool], None] | None = None,
     logdir: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Runs a single pass of the chat - generates response and executes tools."""
@@ -613,6 +614,7 @@ def step(
                 workspace,
                 output_schema,
                 on_token=on_token,
+                on_thinking=on_thinking,
             )
             if get_config().get_env_bool("GPTME_COSTS"):
                 log_costs(msgs + [msg_response])

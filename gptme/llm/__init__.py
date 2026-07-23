@@ -283,6 +283,7 @@ def reply(
     workspace: Path | None = None,
     output_schema: type | None = None,
     on_token: Callable[[str], None] | None = None,
+    on_thinking: Callable[[bool], None] | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
@@ -330,6 +331,7 @@ def reply(
             agent_name=agent_name,
             output_schema=output_schema,
             on_token=on_token,
+            on_thinking=on_thinking,
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
@@ -692,6 +694,7 @@ def _reply_stream(
     agent_name: str | None = None,
     output_schema: type | None = None,
     on_token: Callable[[str], None] | None = None,
+    on_thinking: Callable[[bool], None] | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
@@ -801,6 +804,8 @@ def _reply_stream(
                     if display_enabled:
                         rprint(f"[dim]{last_line}[/dim]", end="")
                     are_thinking = True
+                    if on_thinking is not None:
+                        on_thinking(True)
                 # Check for closing tag
                 elif last_line == "</think>" or last_line == "</thinking>":
                     # Chars were buffered in think_display_buffer, not printed;
@@ -809,6 +814,8 @@ def _reply_stream(
                     if display_enabled:
                         rprint(f"[dim]{last_line}[/dim]", end="")
                     are_thinking = False
+                    if on_thinking is not None:
+                        on_thinking(False)
                     in_think_sig = False
                     just_closed_thinking = True
                 # Suppress Anthropic think-sig comment from display.

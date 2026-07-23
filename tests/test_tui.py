@@ -16,11 +16,13 @@ from gptme.tui.app import (
     ChatInput,
     GptmeApp,
     InfoMessage,
+    StreamingMessage,
     SystemMessage,
     ToolPlaceholder,
     UserMessage,
     _append_pt_history,
     _load_pt_history,
+    _split_thinking,
     _summarize,
 )
 
@@ -640,3 +642,123 @@ async def test_tab_cycles_and_overlay_updates(tmp_path):
             await pilot.pause()
             assert inp._tab_index != first_idx or inp._tab_index == 0
             assert overlay.display
+
+
+# ─────────────────────────────────────────────────────────
+# Thinking block display
+# ─────────────────────────────────────────────────────────
+
+
+def test_split_thinking_no_blocks():
+    """Content with no thinking tags is returned as a single non-thinking segment."""
+    result = _split_thinking("Hello, world!")
+    assert result == [(False, "Hello, world!")]
+
+
+def test_split_thinking_think_tag():
+    """<think> blocks are extracted as thinking segments."""
+    content = "<think>\nstep 1\n</think>\nAnswer: 42"
+    result = _split_thinking(content)
+    assert any(is_think and "step 1" in text for is_think, text in result)
+    assert any(not is_think and "Answer: 42" in text for is_think, text in result)
+
+
+def test_split_thinking_thinking_tag():
+    """<thinking> blocks (the long-form tag) are also extracted."""
+    content = "<thinking>\nplan here\n</thinking>\nresult"
+    result = _split_thinking(content)
+    assert any(is_think and "plan here" in text for is_think, text in result)
+    assert any(not is_think and "result" in text for is_think, text in result)
+
+
+def test_split_thinking_strips_think_sig():
+    """Anthropic think-sig HTML comments are stripped from thinking content."""
+    content = "<think>\n<!-- think-sig: abc123 -->\nreal thoughts\n</think>\nok"
+    result = _split_thinking(content)
+    thinking_texts = [text for is_think, text in result if is_think]
+    assert thinking_texts
+    assert all("think-sig" not in t for t in thinking_texts)
+    assert any("real thoughts" in t for t in thinking_texts)
+
+
+def test_split_thinking_only_block():
+    """A message that is entirely thinking returns only the thinking segment."""
+    content = "<think>\ninner\n</think>"
+    result = _split_thinking(content)
+    assert len(result) == 1
+    assert result[0][0] is True
+    assert "inner" in result[0][1]
+
+
+@pytest.mark.asyncio
+async def test_assistant_message_renders_thinking_as_collapsible(tmp_path):
+    """AssistantMessage with <think> block renders a Collapsible for the thinking."""
+    content = "<think>\nstep-by-step reasoning\n</think>\nFinal answer."
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        msg_widget = AssistantMessage(content)
+        await app.mount(msg_widget)
+        await pilot.pause()
+        collapsibles = msg_widget.query(Collapsible)
+        assert len(collapsibles) > 0, "Expected at least one Collapsible for thinking"
+        thinking_collapsible = collapsibles.first()
+        assert thinking_collapsible.collapsed, (
+            "Thinking block should be collapsed by default"
+        )
+
+
+@pytest.mark.asyncio
+async def test_assistant_message_no_collapsible_without_thinking(tmp_path):
+    """AssistantMessage without thinking tags renders no Collapsible."""
+    content = "Plain assistant reply."
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        msg_widget = AssistantMessage(content)
+        await app.mount(msg_widget)
+        await pilot.pause()
+        collapsibles = msg_widget.query(Collapsible)
+        assert len(collapsibles) == 0, "No Collapsible expected for plain content"
+
+
+@pytest.mark.asyncio
+async def test_inline_thinking_transition_preserves_streamed_content(tmp_path):
+    """A later thinking transition must not replace inline response text."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
+    async with app.run_test() as pilot:
+        app._begin_stream()
+        app._on_stream_token("partial response")
+        await pilot.pause()
+
+        live = app.query_one("#live")
+        assert "partial response" in str(live.render())
+
+        app._set_stream_thinking(True)
+        await pilot.pause()
+        assert "partial response" in str(live.render())
+        assert "Thinking" not in str(live.render())
+
+
+def test_streaming_message_set_thinking_updates_placeholder():
+    """set_thinking calls update with 'Thinking…' / 'Generating…' while buffer is empty."""
+    from unittest.mock import patch
+
+    msg = StreamingMessage()
+    with patch.object(msg._body, "update") as mock_update:
+        msg.set_thinking(True)
+        msg.set_thinking(False)
+    assert mock_update.call_count == 2
+    thinking_label = mock_update.call_args_list[0][0][0]
+    generating_label = mock_update.call_args_list[1][0][0]
+    assert "Thinking" in str(thinking_label)
+    assert "Generating" in str(generating_label)
+
+
+def test_streaming_message_set_thinking_ignored_after_tokens():
+    """set_thinking is a no-op once real tokens have arrived."""
+    from unittest.mock import patch
+
+    msg = StreamingMessage()
+    msg._buffer = "partial response"
+    with patch.object(msg._body, "update") as mock_update:
+        msg.set_thinking(True)
+    mock_update.assert_not_called()
