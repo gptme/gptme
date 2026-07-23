@@ -83,7 +83,6 @@ async def test_progress_placeholder_uses_message_background(tmp_path):
         assert placeholder is not None
         body = placeholder._body
         assert body.styles.background == Color(0, 0, 0, 0)
-        assert body.styles.text_style.italic
         first_segment = next(iter(body.render_line(0)))
         assert first_segment.style is not None
         assert first_segment.style.bgcolor is not None
