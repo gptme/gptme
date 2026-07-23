@@ -38,10 +38,9 @@ def create_conversation(client: FlaskClient, config: ChatConfig | None = None):
 
     if config:
         config_dict = config.to_dict()
-        # Strip workspace from the serialized config: the server security check
-        # rejects external workspace paths (path traversal fix). Tests that pass
-        # a config only care about model/tools/system_prompt, not the workspace;
-        # the server will apply the safe @log default.
+        # Strip workspace from the serialized config: tests that pass a config
+        # only care about model/tools/system_prompt, not the workspace; let the
+        # server apply the isolated @log default instead of the test-runner cwd.
         config_dict.get("chat", {}).pop("workspace", None)
         json["config"] = config_dict
 
@@ -1640,12 +1639,12 @@ def test_v2_create_conversation_default_system_prompt(
     )
 
     convname = f"test-server-v2-{random.randint(0, 1000000)}"
-    # Use the default @log workspace (workspace containment requires workspace
-    # to be inside the conversation logdir; external paths like tmp_path are
-    # rejected since the security fix for path traversal via config).
+    # Explicit external workspace: creation accepts client-supplied workspace
+    # overrides (the webui workspace picker relies on this).
     response = client.put(
         f"/api/v2/conversations/{convname}",
         json={
+            "config": {"chat": {"workspace": str(tmp_path)}},
             "messages": [
                 {
                     "role": "user",
@@ -1657,14 +1656,6 @@ def test_v2_create_conversation_default_system_prompt(
     )
     assert response.status_code == 200
     conversation_id = response.get_json()["conversation_id"]
-
-    # Fetch the config to learn the actual resolved workspace path (@log -> logdir/workspace)
-    config_resp = client.get(f"/api/v2/conversations/{conversation_id}/config")
-    assert config_resp.status_code == 200
-    from gptme.config.chat import ChatConfig  # fmt: skip
-
-    conv_config = ChatConfig.from_dict(config_resp.get_json())
-    actual_workspace = conv_config.workspace
 
     response = client.get(f"/api/v2/conversations/{conversation_id}")
     assert response.status_code == 200
@@ -1686,7 +1677,7 @@ def test_v2_create_conversation_default_system_prompt(
         tool_format="markdown",
         model=None,
         prompt="full",
-        workspace=actual_workspace,
+        workspace=tmp_path,
     )
     assert data["log"][0]["content"] == prompt_msgs[0].content
 
@@ -2081,7 +2072,7 @@ def test_v2_chat_config_update_works(client: FlaskClient):
 
     input_config.model = "openai/gpt-4o-mini"
     updated_config_dict = input_config.to_dict()
-    # Strip workspace: server security check rejects external paths (path traversal fix).
+    # Strip workspace: PATCH still enforces workspace containment (unlike create).
     updated_config_dict.get("chat", {}).pop("workspace", None)
     response = client.patch(
         f"/api/v2/conversations/{conversation_id}/config", json=updated_config_dict

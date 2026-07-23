@@ -1655,7 +1655,16 @@ def api_conversation_put(conversation_id: str):
     config_dict["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
     # Server sessions default to an isolated per-conversation workspace so they
     # don't inherit the server process's cwd.  Clients can override by passing an
-    # explicit workspace in the request config.
+    # explicit workspace in the request config (e.g. the webui workspace picker,
+    # which sends "." or an absolute path for every new conversation).
+    #
+    # No containment check here: an authorized API client can already run
+    # arbitrary shell commands through the agent, so restricting the workspace
+    # at creation adds no security boundary — it only broke webui conversation
+    # creation. Network binds require bearer auth and browsers can't send
+    # cross-origin JSON PUTs without an explicit --cors-origin opt-in.
+    # Workspace changes on *existing* conversations remain contained (see the
+    # config PATCH handler).
     config_dict.setdefault("chat", {})
     if not isinstance(config_dict["chat"], dict):
         return flask.jsonify({"error": "'config.chat' must be an object"}), 400
@@ -1664,12 +1673,6 @@ def api_conversation_put(conversation_id: str):
         request_config = ChatConfig.from_dict(config_dict, create_workspace=False)
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
-
-    # Enforce workspace containment: server clients must not direct the agent
-    # outside the conversation's logdir (path traversal / SSRF via workspace).
-    # Resolve logdir to handle symlinks (e.g. macOS /tmp -> /private/tmp).
-    if not request_config.workspace.is_relative_to(logdir.resolve()):
-        return flask.jsonify({"error": "workspace escapes conversation logdir"}), 400
 
     # Create the log directory atomically to avoid TOCTOU race
     try:
@@ -2700,16 +2703,22 @@ def api_conversation_config_patch(conversation_id: str):
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
-    # Enforce workspace containment: server clients must not direct the agent
-    # outside the conversation's logdir (path traversal / SSRF via workspace).
+    # Enforce workspace containment: a PATCH must not *redirect* the agent of
+    # an existing conversation outside the conversation's logdir.
     # Only enforce when workspace was explicitly provided — when absent, from_dict
     # infers it from the existing logdir/workspace symlink (which may legitimately
     # point outside logdir for CLI-created conversations).
+    # A round-trip of the already-persisted workspace is also allowed: the webui
+    # settings dialog echoes the full config (including workspace) on every
+    # save, and conversations legitimately have external workspaces (created
+    # via the CLI, or via PUT with an explicit workspace).
     if workspace_in_patch:
-        if not request_config.workspace.is_relative_to(logdir.resolve()):
-            return flask.jsonify(
-                {"error": "workspace escapes conversation logdir"}
-            ), 400
+        existing_workspace = ChatConfig.from_logdir(logdir).workspace
+        if request_config.workspace != existing_workspace:
+            if not request_config.workspace.is_relative_to(logdir.resolve()):
+                return flask.jsonify(
+                    {"error": "workspace escapes conversation logdir"}
+                ), 400
 
     try:
         chat_config = ChatConfig.load_or_create(logdir, request_config).save()

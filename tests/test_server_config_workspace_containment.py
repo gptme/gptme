@@ -1,10 +1,12 @@
-"""Tests for workspace path containment in server config endpoints.
+"""Tests for workspace handling in server config endpoints.
 
-Covers the security fix for path traversal via client-supplied workspace in:
-- PUT /api/v2/conversations/<id>  (create conversation with config)
-- PATCH /api/v2/conversations/<id>/config  (update conversation config)
-
-Any workspace that escapes the conversation's logdir must be rejected with 400.
+- PUT /api/v2/conversations/<id> (create) accepts an explicit client-supplied
+  workspace: this is the documented override used by the webui workspace
+  picker (which sends "." or an absolute path for every new conversation).
+  An authorized API client can already run arbitrary shell commands through
+  the agent, so containment at creation adds no security boundary.
+- PATCH /api/v2/conversations/<id>/config (update) remains contained: a
+  workspace that escapes the conversation's logdir is rejected with 400.
 """
 
 import shutil
@@ -26,8 +28,8 @@ def _conv_id() -> str:
     return f"test-ws-containment-{uuid4().hex[:8]}"
 
 
-class TestPutWorkspaceContainment:
-    """PUT /api/v2/conversations/<id> must reject workspaces outside logdir."""
+class TestPutWorkspaceOverride:
+    """PUT /api/v2/conversations/<id> must accept explicit workspace overrides."""
 
     def test_default_atlog_workspace_is_accepted(self, client: FlaskClient):
         """No explicit workspace (defaults to @log) must succeed."""
@@ -45,51 +47,29 @@ class TestPutWorkspaceContainment:
         )
         assert resp.status_code == 200
 
-    def test_absolute_escape_is_rejected(self, client: FlaskClient):
-        """workspace pointing outside logdir (absolute path) must be 400."""
+    def test_explicit_external_workspace_is_accepted(
+        self, client: FlaskClient, tmp_path: Path
+    ):
+        """An explicit absolute workspace outside the logdir must succeed
+        and be reflected in the conversation config (webui workspace picker)."""
+        cid = _conv_id()
         resp = client.put(
-            f"/api/v2/conversations/{_conv_id()}",
-            json={"prompt": "none", "config": {"chat": {"workspace": "/etc"}}},
+            f"/api/v2/conversations/{cid}",
+            json={"prompt": "none", "config": {"chat": {"workspace": str(tmp_path)}}},
         )
-        assert resp.status_code == 400
-        data = resp.get_json()
-        assert "workspace" in data["error"].lower()
+        assert resp.status_code == 200
 
-    def test_absolute_tmp_escape_is_rejected(self, client: FlaskClient):
-        """workspace pointing to /tmp (outside logdir) must be 400."""
-        resp = client.put(
-            f"/api/v2/conversations/{_conv_id()}",
-            json={"prompt": "none", "config": {"chat": {"workspace": "/tmp/evil"}}},
-        )
-        assert resp.status_code == 400
+        config = client.get(f"/api/v2/conversations/{cid}/config").get_json()
+        assert Path(config["chat"]["workspace"]).resolve() == tmp_path.resolve()
 
-    def test_relative_escape_via_cwd_is_rejected(self, client: FlaskClient):
-        """Relative workspace that resolves outside logdir must be 400.
-
-        A bare relative path like '.' resolves to CWD (the server process
-        directory), which is almost certainly outside the logdir.
-        """
+    def test_relative_dot_workspace_is_accepted(self, client: FlaskClient):
+        """workspace='.' (sent by the webui for every new conversation by
+        default) resolves against the server cwd and must succeed."""
         resp = client.put(
             f"/api/v2/conversations/{_conv_id()}",
             json={"prompt": "none", "config": {"chat": {"workspace": "."}}},
         )
-        # The CWD of the test process is not within the logdir, so this should 400.
-        # (If by some coincidence CWD is a subdirectory of logdir, the test would
-        # incorrectly pass, but that cannot happen in practice.)
-        assert resp.status_code == 400
-
-    def test_no_conversation_created_on_escape(self, client: FlaskClient):
-        """Rejected workspace must not create the conversation (no side effects)."""
-        cid = _conv_id()
-        resp = client.put(
-            f"/api/v2/conversations/{cid}",
-            json={"prompt": "none", "config": {"chat": {"workspace": "/etc"}}},
-        )
-        assert resp.status_code == 400
-
-        # The conversation must not exist after the failed PUT
-        check = client.get(f"/api/v2/conversations/{cid}")
-        assert check.status_code == 404
+        assert resp.status_code == 200
 
 
 class TestPatchWorkspaceContainment:
@@ -139,6 +119,51 @@ class TestPatchWorkspaceContainment:
         resp = client.patch(
             f"/api/v2/conversations/{cid}/config",
             json={"chat": {"workspace": "."}},
+        )
+        assert resp.status_code == 400
+
+    def test_roundtrip_of_persisted_external_workspace_is_accepted(
+        self, client: FlaskClient, tmp_path: Path
+    ):
+        """PATCH echoing the already-persisted external workspace must succeed.
+
+        The webui settings dialog sends the full config (including the
+        unchanged workspace) on every save; conversations legitimately have
+        external workspaces (CLI-created, or PUT with explicit workspace).
+        Only *redirecting* the workspace outside logdir is rejected."""
+        cid = _conv_id()
+        resp = client.put(
+            f"/api/v2/conversations/{cid}",
+            json={"prompt": "none", "config": {"chat": {"workspace": str(tmp_path)}}},
+        )
+        assert resp.status_code == 200
+
+        # Settings save round-trips the persisted workspace alongside the change
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"workspace": str(tmp_path), "model": "gpt-4"}},
+        )
+        assert resp.status_code == 200, resp.get_json()
+
+        config = client.get(f"/api/v2/conversations/{cid}/config").get_json()
+        assert config["chat"]["model"] == "gpt-4"
+
+    def test_changing_to_different_external_workspace_is_rejected(
+        self, client: FlaskClient, tmp_path: Path
+    ):
+        """PATCH *changing* the workspace to a different external path must be 400."""
+        cid = _conv_id()
+        resp = client.put(
+            f"/api/v2/conversations/{cid}",
+            json={"prompt": "none", "config": {"chat": {"workspace": str(tmp_path)}}},
+        )
+        assert resp.status_code == 200
+
+        other = tmp_path.parent / f"{tmp_path.name}-other"
+        other.mkdir(exist_ok=True)
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"workspace": str(other)}},
         )
         assert resp.status_code == 400
 

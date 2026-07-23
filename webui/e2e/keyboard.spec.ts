@@ -19,8 +19,10 @@ test.describe('Keyboard Navigation', () => {
   });
 
   test('shortcuts dialog: ? opens, Esc closes', async ({ page }) => {
-    // Click body to ensure focus is not in an input before pressing ?
-    await page.locator('body').click();
+    // The chat input autofocuses once the app connects to the server — blur
+    // it so '?' opens the dialog instead of typing into the input. (A bare
+    // body click is not enough to move focus away.)
+    await page.getByTestId('chat-input').blur();
 
     const dialog = page.getByRole('dialog', { name: /keyboard shortcuts/i });
     await expect(dialog).not.toBeVisible();
@@ -50,8 +52,10 @@ test.describe('Keyboard Navigation', () => {
   });
 
   test('focus trap: Tab stays inside an open dialog', async ({ page }) => {
-    // Open the shortcuts dialog (Radix UI Dialog traps focus)
-    await page.locator('body').click();
+    // Open the shortcuts dialog (Radix UI Dialog traps focus).
+    // Blur the (auto-focused, enabled-when-connected) chat input first so
+    // '?' reaches the global shortcut handler.
+    await page.getByTestId('chat-input').blur();
     await page.keyboard.press('?');
 
     const dialog = page.getByRole('dialog', { name: /keyboard shortcuts/i });
