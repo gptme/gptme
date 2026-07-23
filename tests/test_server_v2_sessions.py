@@ -1147,6 +1147,7 @@ class TestEventsEndpoint:
 
             assert b'"type": "generation_complete"' in next(stream)
             padding = next(stream)
+            assert isinstance(padding, bytes)
             assert padding.startswith(b": ")
             assert padding.endswith(b"\n\n")
             assert len(padding) >= 4000
