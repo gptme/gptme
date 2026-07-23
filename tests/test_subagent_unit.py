@@ -2750,6 +2750,7 @@ class TestWorkdir:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.xdist_group("max_time_watchdog")
 class TestMaxTimeWatchdog:
     """Tests for max_time auto-cancel watchdog in subagent()."""
 
@@ -3037,13 +3038,20 @@ class TestMaxTimeWatchdog:
 
         subagent("watchdog-test", "do something", max_time=42.0)
 
-        # Wait for the thread to complete
+        # Wait for the thread to complete — join inside the patch window so the mock
+        # is still active when the thread resolves _create_subagent_thread.
+        # Do NOT remove the subagent from _subagents here: cleanup_subagents_after
+        # (conftest autouse) is the authoritative cleanup path.  Removing it early
+        # lets a still-alive thread escape tracking and race the next test's setup
+        # with lazy-import sys.modules mutations ("dictionary changed size" flake).
         with _subagents_lock:
             sa = next((s for s in _subagents if s.agent_id == "watchdog-test"), None)
         if sa and sa.thread:
             sa.thread.join(timeout=5)
-        with _subagents_lock:
-            _subagents[:] = [s for s in _subagents if s.agent_id != "watchdog-test"]
+            assert not sa.thread.is_alive(), (
+                "run_subagent thread must finish inside the mock window; "
+                "if still alive it will leak past teardown and race the next test's setup"
+            )
 
         assert 42.0 in timers_started, f"Expected 42.0s timer; got {timers_started}"
 
@@ -3088,12 +3096,16 @@ class TestMaxTimeWatchdog:
 
         subagent("no-watchdog-test", "do something")  # max_time=None (default)
 
+        # Same as above: join inside the patch window, but let cleanup_subagents_after
+        # own the _subagents removal to prevent untracked-thread leaks.
         with _subagents_lock:
             sa = next((s for s in _subagents if s.agent_id == "no-watchdog-test"), None)
         if sa and sa.thread:
             sa.thread.join(timeout=5)
-        with _subagents_lock:
-            _subagents[:] = [s for s in _subagents if s.agent_id != "no-watchdog-test"]
+            assert not sa.thread.is_alive(), (
+                "run_subagent thread must finish inside the mock window; "
+                "if still alive it will leak past teardown and race the next test's setup"
+            )
 
         assert len(timers_started) == 0, f"No timer expected; got {timers_started}"
 
