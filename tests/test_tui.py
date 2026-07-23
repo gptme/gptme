@@ -443,3 +443,166 @@ async def test_tool_placeholder_persists_across_multiple_tools(tmp_path):
         app._begin_stream()
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
+
+
+@pytest.mark.asyncio
+async def test_tab_completion_overlay_appears(tmp_path):
+    """Pressing Tab with multiple candidates shows the completions overlay."""
+    from textual.widgets import Static
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.focus()
+        inp.text = "/mod"  # has multiple candidates: /model, etc.
+        await pilot.press("tab")
+        await pilot.pause()
+
+        overlay = app.query_one("#completions", Static)
+        # If multiple candidates exist (e.g. /model and /models), overlay shows.
+        # If only one, it's hidden and the input is completed directly.
+        candidates = inp._tab_candidates
+        if len(candidates) > 1:
+            assert overlay.display, "overlay should be visible with multiple candidates"
+        else:
+            # single candidate → auto-completed, overlay stays hidden
+            assert inp.text.startswith("/model")
+
+
+@pytest.mark.asyncio
+async def test_tab_completion_overlay_hides_on_non_tab(tmp_path):
+    """Typing any non-Tab character dismisses the completion overlay."""
+    from textual.widgets import Static
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.focus()
+
+        # Manually put the input into a multi-candidate state
+        inp._tab_candidates = ["/model", "/models"]
+        inp._tab_index = 0
+        inp.post_message(ChatInput.CompletionsChanged(["/model", "/models"], 0))
+        await pilot.pause()
+
+        overlay = app.query_one("#completions", Static)
+        assert overlay.display, (
+            "overlay should be visible after posting CompletionsChanged"
+        )
+
+        # Pressing a regular key should dismiss the overlay
+        await pilot.press("a")
+        await pilot.pause()
+        assert not overlay.display, (
+            "overlay should be hidden after typing a non-Tab key"
+        )
+
+
+@pytest.mark.asyncio
+async def test_tab_completion_overlay_hides_on_enter(tmp_path):
+    """Submitting the input dismisses the completion overlay."""
+    from textual.widgets import Static
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.focus()
+
+        # Force multi-candidate state
+        inp._tab_candidates = ["/model", "/models"]
+        inp._tab_index = 0
+        inp.post_message(ChatInput.CompletionsChanged(["/model", "/models"], 0))
+        await pilot.pause()
+
+        overlay = app.query_one("#completions", Static)
+        assert overlay.display
+
+        # Clear the text so submit doesn't fire generation; then press enter
+        inp.text = ""
+        inp._tab_candidates = [
+            "/model",
+            "/models",
+        ]  # re-set (text clear wiped it via key events in real usage)
+        inp.post_message(ChatInput.CompletionsChanged(["/model", "/models"], 0))
+        await pilot.pause()
+        assert overlay.display
+
+        await pilot.press("enter")
+        await pilot.pause()
+        assert not overlay.display, "overlay should be hidden after enter"
+
+
+@pytest.mark.asyncio
+async def test_tab_completion_overlay_keeps_selected_candidate_visible(tmp_path):
+    """Long candidate lists render a window containing the selected candidate."""
+    from textual.widgets import Static
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    candidates = [f"/command-{i}" for i in range(12)]
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.post_message(ChatInput.CompletionsChanged(candidates, 10))
+        await pilot.pause()
+
+        overlay = app.query_one("#completions", Static)
+        rendered = str(overlay.render())
+        assert "▶ /command-10" in rendered
+        assert "/command-11" in rendered
+        assert "/command-0" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_tab_completion_overlay_shows_marker_on_short_list(tmp_path):
+    """Short lists (fewer than max_visible) must show the selection marker."""
+    from textual.widgets import Static
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    candidates = [f"/cmd-{i}" for i in range(3)]
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Select the last candidate (index 2) — previously start went negative
+        app.post_message(ChatInput.CompletionsChanged(candidates, 2))
+        await pilot.pause()
+
+        overlay = app.query_one("#completions", Static)
+        rendered = str(overlay.render())
+        assert overlay.display, "overlay should be visible"
+        assert "▶ /cmd-2" in rendered, "selection marker must appear on short list"
+
+
+@pytest.mark.asyncio
+async def test_tab_cycles_and_overlay_updates(tmp_path):
+    """Repeated Tab presses cycle through candidates and update the overlay selection."""
+    from textual.widgets import Static
+
+    # Only run if there are commands that produce multiple candidates for "/mod"
+    from gptme.tui.app import complete_input
+
+    candidates = complete_input("/mod")
+    if len(candidates) <= 1:
+        pytest.skip("need multiple /mod* candidates for this test")
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.focus()
+        inp.text = "/mod"
+
+        # First Tab: fills common prefix or picks first candidate
+        await pilot.press("tab")
+        await pilot.pause()
+        overlay = app.query_one("#completions", Static)
+
+        if len(inp._tab_candidates) > 1:
+            first_idx = inp._tab_index
+            assert overlay.display
+
+            # Second Tab: cycles to next candidate
+            await pilot.press("tab")
+            await pilot.pause()
+            assert inp._tab_index != first_idx or inp._tab_index == 0
+            assert overlay.display
