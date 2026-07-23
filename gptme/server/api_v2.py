@@ -1655,7 +1655,16 @@ def api_conversation_put(conversation_id: str):
     config_dict["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
     # Server sessions default to an isolated per-conversation workspace so they
     # don't inherit the server process's cwd.  Clients can override by passing an
-    # explicit workspace in the request config.
+    # explicit workspace in the request config (e.g. the webui workspace picker,
+    # which sends "." or an absolute path for every new conversation).
+    #
+    # No containment check here: an authorized API client can already run
+    # arbitrary shell commands through the agent, so restricting the workspace
+    # at creation adds no security boundary — it only broke webui conversation
+    # creation. Network binds require bearer auth and browsers can't send
+    # cross-origin JSON PUTs without an explicit --cors-origin opt-in.
+    # Workspace changes on *existing* conversations remain contained (see the
+    # config PATCH handler).
     config_dict.setdefault("chat", {})
     if not isinstance(config_dict["chat"], dict):
         return flask.jsonify({"error": "'config.chat' must be an object"}), 400
@@ -1664,12 +1673,6 @@ def api_conversation_put(conversation_id: str):
         request_config = ChatConfig.from_dict(config_dict, create_workspace=False)
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
-
-    # Enforce workspace containment: server clients must not direct the agent
-    # outside the conversation's logdir (path traversal / SSRF via workspace).
-    # Resolve logdir to handle symlinks (e.g. macOS /tmp -> /private/tmp).
-    if not request_config.workspace.is_relative_to(logdir.resolve()):
-        return flask.jsonify({"error": "workspace escapes conversation logdir"}), 400
 
     # Create the log directory atomically to avoid TOCTOU race
     try:
