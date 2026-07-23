@@ -574,6 +574,7 @@ class GptmeApp(App):
         self._quitting = False
         self._stream_widget: StreamingMessage | None = None
         self._tool_placeholder: ToolPlaceholder | None = None
+        self._pending_tool_count: int = 0
         self._outputs_expanded = False
         self._stdio_sink: IO[str] | None = None
         self._real_stdout: IO[str] | None = None
@@ -1061,12 +1062,19 @@ class GptmeApp(App):
             # replace the live stream view with the final rendering
             self._clear_stream_view()
         if msg.role == "system":
-            # tool output arriving: remove the "Running tool…" placeholder
-            self._clear_tool_placeholder()
+            # one tool finished: decrement counter; clear placeholder only when all done
+            self._pending_tool_count = max(0, self._pending_tool_count - 1)
+            if self._pending_tool_count == 0:
+                self._clear_tool_placeholder()
         self._show_message(msg)
         if msg.role == "assistant":
-            self._set_state("executing tools")
-            self._show_tool_placeholder()
+            runnable = [
+                t for t in ToolUse.iter_from_content(msg.content) if t.is_runnable
+            ]
+            self._pending_tool_count = len(runnable)
+            if self._pending_tool_count > 0:
+                self._set_state("executing tools")
+                self._show_tool_placeholder()
         self._update_status()
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
@@ -1081,6 +1089,7 @@ class GptmeApp(App):
 
     def _generation_done(self) -> None:
         self.generating = False
+        self._pending_tool_count = 0
         # stream may have ended without a final message (interrupt mid-stream)
         self._clear_stream_view()
         self._clear_tool_placeholder()

@@ -343,20 +343,67 @@ async def test_history_persists_across_sessions(tmp_path, monkeypatch):
         assert inp2._history == ["prior cli entry", "tui entry one"]
 
 
+SHELL_TOOL_MSG = "Running a command\n\n```shell\necho hello\n```"
+TWO_SHELL_TOOLS_MSG = (
+    "Running two commands\n\n```shell\necho first\n```\n\n```shell\necho second\n```"
+)
+
+
 @pytest.mark.asyncio
 async def test_tool_placeholder_show_and_clear(tmp_path):
-    """ToolPlaceholder appears after an assistant message and disappears on tool output."""
+    """ToolPlaceholder appears after an assistant message with tool calls and disappears on tool output."""
+    from gptme.tools import init_tools
+
+    init_tools()
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
 
-        # Simulate assistant message arriving (triggers placeholder)
-        app._on_step_message(Message("assistant", "I will run a tool"))
+        # Assistant message containing a shell tool call → placeholder shown
+        app._on_step_message(Message("assistant", SHELL_TOOL_MSG))
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 1
 
-        # Simulate tool output arriving (clears placeholder)
-        app._on_step_message(Message("system", "```stdout\ntool done\n```"))
+        # Tool output arriving → placeholder cleared
+        app._on_step_message(Message("system", "```stdout\nhello\n```"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_placeholder_not_shown_for_tool_free_response(tmp_path):
+    """ToolPlaceholder must NOT appear for assistant messages without tool calls."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Plain text reply — no tool call content
+        app._on_step_message(Message("assistant", "Just a plain text reply"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_placeholder_persists_across_multiple_tools(tmp_path):
+    """ToolPlaceholder must stay visible until ALL tool outputs from one assistant message arrive."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # Assistant message with two shell calls → placeholder appears
+        app._on_step_message(Message("assistant", TWO_SHELL_TOOLS_MSG))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 1
+
+        # First tool output → placeholder must stay (one more tool pending)
+        app._on_step_message(Message("system", "```stdout\nfirst\n```"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 1, "placeholder cleared too early"
+
+        # Second tool output → now placeholder is cleared
+        app._on_step_message(Message("system", "```stdout\nsecond\n```"))
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
