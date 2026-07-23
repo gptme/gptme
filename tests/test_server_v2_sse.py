@@ -1,5 +1,9 @@
 """Tests for the Server-Sent Events (SSE) stream functionality in the V2 API."""
 
+import threading
+import time
+import unittest.mock
+
 import pytest
 import requests
 
@@ -76,3 +80,58 @@ def test_event_stream_with_generation(event_listener, wait_for_event):
     assistant_messages = [m for m in messages if m["role"] == "assistant"]
     assert len(assistant_messages) == 1
     assert len(assistant_messages[0]["content"]) > 0
+
+
+@pytest.mark.timeout(10)
+def test_generation_complete_before_auto_naming(
+    setup_conversation, event_listener, mock_generation, wait_for_event
+):
+    """generation_complete must be emitted before _try_auto_name_and_notify runs.
+
+    Regression test for #2081: auto-naming was called synchronously BEFORE
+    generation_complete, blocking SSE delivery for 4+ seconds (LLM naming call).
+
+    This test uses a deadlock to detect the regression:
+    - The auto-naming mock blocks until generation_complete is received by the SSE client.
+    - If auto-naming runs BEFORE generation_complete (the regression): deadlock → timeout → FAIL.
+    - If auto-naming runs AFTER generation_complete (correct order): gate opens → PASS.
+    """
+    port, conversation_id, session_id = setup_conversation
+
+    requests.post(
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Hello"},
+    )
+
+    mock_stream = mock_generation(["Hello!"])
+    generation_complete_gate = threading.Event()
+
+    def gated_auto_name(*args, **kwargs):
+        # If called BEFORE generation_complete: blocks here until gate opens,
+        # preventing generation_complete from being emitted → wait_for_event
+        # times out → assertion fails.
+        # If called AFTER generation_complete (correct): gate already open → immediate return.
+        generation_complete_gate.wait(timeout=6)
+        return
+
+    with (
+        unittest.mock.patch("gptme.server.session_step._stream", mock_stream),
+        unittest.mock.patch(
+            "gptme.server.session_step._try_auto_name_and_notify",
+            side_effect=gated_auto_name,
+        ),
+    ):
+        requests.post(
+            f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+            json={"session_id": session_id, "model": "openai/mock-model"},
+        )
+
+        assert wait_for_event(event_listener, "generation_complete", timeout=5), (
+            "generation_complete not received within 5s — "
+            "_try_auto_name_and_notify may be blocking it (regression of #2081)"
+        )
+        generation_complete_gate.set()
+
+        # Let the gated auto-naming call finish inside the mock context
+        # before the patch is reverted, so the real function is not called.
+        time.sleep(0.3)
