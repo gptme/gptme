@@ -426,11 +426,13 @@ class GptmeApp(App):
     Screen:inline {
         height: auto;
         max-height: 40%;
+        background: ansi_default;
     }
     #live {
         height: auto;
         max-height: 8;
         margin: 0 1;
+        background: ansi_default;
     }
     #chat {
         padding: 0 1;

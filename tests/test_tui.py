@@ -5,7 +5,7 @@ import pytest
 pytest.importorskip("textual")
 
 from textual.color import Color
-from textual.widgets import Collapsible
+from textual.widgets import Collapsible, Static
 
 from gptme.logmanager import LogManager
 from gptme.message import Message
@@ -33,6 +33,25 @@ def test_summarize():
     assert _summarize("```stdout\nfoo\n```").startswith("stdout")
     long = "x" * 200
     assert len(_summarize(long)) < 100
+
+
+@pytest.mark.asyncio
+async def test_live_widget_uses_ansi_default_background(tmp_path):
+    """#live must use ansi_default background so inline mode matches terminal native bg.
+
+    In inline mode, finalized messages go to the terminal scrollback via _print_above()
+    which has no explicit background (terminal native). The #live streaming area must
+    match; otherwise a gray Textual theme background appears during generation but
+    vanishes when the message finalizes — the bug Erik reported on #3321.
+    """
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        live = app.query_one("#live", Static)
+        # ansi_default is Color(0, 0, 0, ansi=-1) — not the theme's $background
+        assert live.styles.background == Color(0, 0, 0, ansi=-1), (
+            f"#live has themed background {live.styles.background!r}, expected ansi_default"
+        )
 
 
 @pytest.mark.asyncio
