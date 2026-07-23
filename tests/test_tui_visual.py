@@ -32,6 +32,22 @@ from gptme.message import Message
 from gptme.tui.app import GptmeApp
 
 # ---------------------------------------------------------------------------
+# Force a fixed, offline model so the TUI status bar renders identically on
+# every host (CI has no API keys; local envs may have different providers).
+# This overrides the autouse `init_` fixture from conftest.py.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def init_(monkeypatch):
+    monkeypatch.setenv("MODEL", "local/test")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:666")
+    from gptme.init import init
+
+    init("local/test", interactive=False, tool_allowlist=None, tool_format="markdown")
+
+
+# ---------------------------------------------------------------------------
 # Infrastructure
 # ---------------------------------------------------------------------------
 
@@ -58,7 +74,10 @@ def _normalize_svg(svg: str) -> str:
     # color moved.  Replace it with a fixed placeholder so palette-identical
     # renders compare equal regardless of Rich version.
     svg = re.sub(r"terminal-\d+", "terminal-HASH", svg)
-    return svg.strip()
+    # Strip trailing whitespace per line (pre-commit hooks enforce this on the
+    # committed baselines, so we must match that format when comparing).
+    lines = [line.rstrip() for line in svg.splitlines()]
+    return "\n".join(lines).strip()
 
 
 def _assert_svg_matches_snapshot(
