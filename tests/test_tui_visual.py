@@ -108,10 +108,17 @@ def _assert_svg_matches_snapshot(
     baseline_path = SNAPSHOT_DIR / f"{name}.svg"
     artifacts_dir = SNAPSHOT_DIR / "actual"
 
-    if update or not baseline_path.exists():
+    if update:
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
         baseline_path.write_text(normalized, encoding="utf-8")
         return
+
+    if not baseline_path.exists():
+        pytest.fail(
+            f"Baseline snapshot {name!r} not found at {baseline_path}.\n"
+            "Run with --snapshot-update to create it:\n"
+            "    pytest tests/test_tui_visual.py --snapshot-update"
+        )
 
     stored = baseline_path.read_text(encoding="utf-8")
     if normalized == stored:
