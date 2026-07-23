@@ -99,6 +99,14 @@ class TestAllowedHostsExtension:
         client = _client(allowed_hosts=["gptme.local"])
         assert _get(client, "attacker.example.com").status_code == 403
 
+    def test_configured_fqdn_with_trailing_dot_matches(self):
+        # An operator configuring the absolute-DNS form must match both the bare
+        # and trailing-dot Host header forms (regression: #3324 Greptile P1).
+        client = _client(allowed_hosts=["gptme.local."])
+        assert _get(client, "gptme.local").status_code == 200
+        assert _get(client, "gptme.local.").status_code == 200
+        assert _get(client, "gptme.local.:8080").status_code == 200
+
 
 class TestConfiguredBindHost:
     """A concrete (non-wildcard) bind host is added to the allow-list."""

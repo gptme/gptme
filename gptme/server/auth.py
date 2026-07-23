@@ -92,9 +92,18 @@ def _extract_hostname(host_header: str) -> str:
     elif ":" in value:
         # Plain hostname or IPv4, optionally "host:port"
         value = value.rsplit(":", 1)[0]
-    # Normalize the absolute-DNS trailing dot (e.g. "localhost." -> "localhost").
-    value = value.removesuffix(".")
-    return value.lower()
+    return _normalize_allowed_host(value)
+
+
+def _normalize_allowed_host(name: str) -> str:
+    """Normalize a hostname for allow-list comparison.
+
+    Lowercases and strips a trailing absolute-DNS root dot so that both parsed
+    Host headers and configured allow-list entries use the same canonical form
+    (e.g. a configured ``gptme.local.`` matches an incoming ``Host: gptme.local``
+    and vice versa).
+    """
+    return name.strip().removesuffix(".").lower()
 
 
 def init_host_validation(
@@ -123,7 +132,7 @@ def init_host_validation(
     """
     global _host_validation_enabled, _allowed_hosts
 
-    extra = {h.strip().lower() for h in (allowed_hosts or []) if h.strip()}
+    extra = {_normalize_allowed_host(h) for h in (allowed_hosts or []) if h.strip()}
 
     # Auth enabled → bearer token gates access, no Host check needed.
     if _auth_enabled:
@@ -147,7 +156,7 @@ def init_host_validation(
     # GPTME_DISABLE_AUTH with an explicit allow-list. Enforce Host validation.
     allowed = set(_DEFAULT_ALLOWED_HOSTS)
     if host and host not in ("0.0.0.0", "::"):
-        allowed.add(host.lower())
+        allowed.add(_normalize_allowed_host(host))
     allowed |= extra
     _allowed_hosts = allowed
     _host_validation_enabled = True
