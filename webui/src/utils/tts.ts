@@ -71,6 +71,8 @@ function getSettings(): {
 function toSpokenText(markdown: string): string {
   return (
     markdown
+      // Remove thinking blocks entirely (model reasoning, not output)
+      .replace(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/g, '')
       // Remove fenced code blocks entirely
       .replace(/```[\s\S]*?```/g, '[code block]')
       // Remove inline code

@@ -1,5 +1,81 @@
 import { speakTextNow, stopSpeaking } from '../tts';
 
+describe('toSpokenText (via speakTextNow)', () => {
+  const originalFetch = global.fetch;
+  const originalSpeechSynthesis = window.speechSynthesis;
+  const originalSpeechSynthesisUtterance = global.SpeechSynthesisUtterance;
+
+  beforeEach(() => {
+    localStorage.clear();
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    global.SpeechSynthesisUtterance = jest.fn().mockImplementation((text: string) => ({
+      text,
+      rate: 1,
+    })) as unknown as typeof SpeechSynthesisUtterance;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      clone: () => ({
+        json: async () => ({ error: 'OPENROUTER_API_KEY not configured.' }),
+      }),
+    } as Response);
+  });
+
+  afterEach(() => {
+    stopSpeaking();
+    global.fetch = originalFetch;
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: originalSpeechSynthesis,
+      configurable: true,
+    });
+    global.SpeechSynthesisUtterance = originalSpeechSynthesisUtterance;
+    jest.restoreAllMocks();
+  });
+
+  it('strips <thinking> blocks before speaking', async () => {
+    const speak = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel: jest.fn() },
+      configurable: true,
+    });
+
+    const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+    speakTextNow('<thinking>internal reasoning here</thinking>The actual answer.');
+    await flushPromises();
+
+    expect(speak).toHaveBeenCalledWith(expect.objectContaining({ text: 'The actual answer.' }));
+  });
+
+  it('strips <think> short-form blocks before speaking', async () => {
+    const speak = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel: jest.fn() },
+      configurable: true,
+    });
+
+    const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+    speakTextNow('<think>step 1, step 2</think>Here is the result.');
+    await flushPromises();
+
+    expect(speak).toHaveBeenCalledWith(expect.objectContaining({ text: 'Here is the result.' }));
+  });
+
+  it('does not speak if content is only thinking', async () => {
+    const speak = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel: jest.fn() },
+      configurable: true,
+    });
+
+    const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+    speakTextNow('<thinking>just reasoning, nothing else</thinking>');
+    await flushPromises();
+
+    expect(speak).not.toHaveBeenCalled();
+  });
+});
+
 describe('tts fallback chain', () => {
   const originalFetch = global.fetch;
   const originalAudio = global.Audio;
