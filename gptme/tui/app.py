@@ -320,7 +320,7 @@ class ChatInput(TextArea):
         self._history: list[str] = _load_pt_history(self._history_file)
         self._history_idx = -1  # -1 = not browsing; 0 = most recent
         self._history_saved = ""  # text buffered when browsing started
-        self._history_edits: dict[int, str] = {}
+        self._history_edits: dict[str, str] = {}
         self._history_filter: list[str] = []  # prefix-filtered view; empty = unfiltered
 
     def _push_history(self, text: str) -> None:
@@ -372,6 +372,7 @@ class ChatInput(TextArea):
             if row == 0 and self._history:
                 event.stop()
                 event.prevent_default()
+                history = self._history_filter or self._history
                 if self._history_idx == -1:
                     self._history_saved = self.text
                     # Build prefix-filtered view on first Up press
@@ -381,15 +382,15 @@ class ChatInput(TextArea):
                         if prefix
                         else []
                     )
+                    history = self._history_filter or self._history
                 else:
-                    self._history_edits[self._history_idx] = self.text
-                history = self._history_filter or self._history
+                    orig = history[-(self._history_idx + 1)]
+                    self._history_edits[orig] = self.text
                 new_idx = self._history_idx + 1
                 if new_idx < len(history):
                     self._history_idx = new_idx
-                    self._set_text(
-                        self._history_edits.get(new_idx, history[-(new_idx + 1)])
-                    )
+                    orig = history[-(new_idx + 1)]
+                    self._set_text(self._history_edits.get(orig, orig))
                 return
         if event.key == "down":
             lines = self.text.split("\n")
@@ -397,7 +398,9 @@ class ChatInput(TextArea):
             if row == len(lines) - 1 and self._history_idx >= 0:
                 event.stop()
                 event.prevent_default()
-                self._history_edits[self._history_idx] = self.text
+                history = self._history_filter or self._history
+                orig = history[-(self._history_idx + 1)]
+                self._history_edits[orig] = self.text
                 new_idx = self._history_idx - 1
                 if new_idx < 0:
                     self._history_idx = -1
@@ -405,10 +408,8 @@ class ChatInput(TextArea):
                     self._set_text(self._history_saved)
                 else:
                     self._history_idx = new_idx
-                    history = self._history_filter or self._history
-                    self._set_text(
-                        self._history_edits.get(new_idx, history[-(new_idx + 1)])
-                    )
+                    orig = history[-(new_idx + 1)]
+                    self._set_text(self._history_edits.get(orig, orig))
                 return
         if event.key == "alt+left":
             event.stop()

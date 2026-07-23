@@ -313,6 +313,36 @@ async def test_history_prefix_search(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_history_prefix_search_no_edit_leak(tmp_path):
+    """Edits made during one prefix search must not appear in a subsequent search."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        inp = app.query_one("#input", ChatInput)
+        inp._history = []
+        inp._push_history("docker ps")
+        inp._push_history("git status")
+
+        # First search: prefix "git"
+        inp._set_text("git")
+        await pilot.press("up")
+        assert inp.text.startswith("git")
+
+        # Edit the found entry in-place
+        inp._set_text("git status --short")
+
+        # Navigate back to the original input
+        await pilot.press("down")
+        assert inp.text == "git"
+
+        # Second search: prefix "docker" — must NOT show the edited git entry
+        inp._set_text("docker")
+        await pilot.press("up")
+        assert inp.text == "docker ps", (
+            f"edit from previous search leaked into new search: got {inp.text!r}"
+        )
+
+
+@pytest.mark.asyncio
 async def test_word_navigation(tmp_path):
     """Alt+Left/Right navigate by word boundary in the input."""
     # "hello world foo": h=0 e=1 l=2 l=3 o=4 ' '=5 w=6 ... d=10 ' '=11 f=12 o=13 o=14
