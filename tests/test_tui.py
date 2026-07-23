@@ -274,6 +274,45 @@ async def test_history_preserves_edits_while_browsing(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_history_prefix_search(tmp_path):
+    """Up with a partial prefix only shows matching history entries."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        inp = app.query_one("#input", ChatInput)
+        # Seed exactly two git-prefixed and one non-matching entry
+        inp._history = []
+        inp._push_history("git status")
+        inp._push_history("ls -la")
+        inp._push_history("git commit -m 'fix'")
+
+        # type a prefix and press Up — only git-prefixed entries should appear
+        inp._set_text("git")
+        await pilot.press("up")
+        assert inp.text.startswith("git"), (
+            f"expected git-prefixed entry, got {inp.text!r}"
+        )
+        first_match = inp.text
+
+        await pilot.press("up")
+        assert inp.text.startswith("git"), (
+            f"expected git-prefixed entry, got {inp.text!r}"
+        )
+        second_match = inp.text
+
+        # The two matches must be different entries
+        assert first_match != second_match
+
+        # pressing Up past the last match doesn't change the text
+        await pilot.press("up")
+        assert inp.text == second_match
+
+        # Down navigates back; final Down restores the original partial text
+        await pilot.press("down")
+        await pilot.press("down")
+        assert inp.text == "git"
+
+
+@pytest.mark.asyncio
 async def test_word_navigation(tmp_path):
     """Alt+Left/Right navigate by word boundary in the input."""
     # "hello world foo": h=0 e=1 l=2 l=3 o=4 ' '=5 w=6 ... d=10 ' '=11 f=12 o=13 o=14
