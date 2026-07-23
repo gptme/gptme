@@ -1139,7 +1139,7 @@ class GptmeApp(App):
     def _set_stream_thinking(self, is_thinking: bool) -> None:
         if self._stream_widget is not None:
             self._stream_widget.set_thinking(is_thinking)
-        if self.inline:
+        if self.inline and not self._stream_text:
             label = "Thinking…" if is_thinking else "Generating…"
             with contextlib.suppress(Exception):
                 self.query_one("#live", Static).update(Text(label, style="italic"))

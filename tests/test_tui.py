@@ -686,6 +686,24 @@ async def test_assistant_message_no_collapsible_without_thinking(tmp_path):
         assert len(collapsibles) == 0, "No Collapsible expected for plain content"
 
 
+@pytest.mark.asyncio
+async def test_inline_thinking_transition_preserves_streamed_content(tmp_path):
+    """A later thinking transition must not replace inline response text."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
+    async with app.run_test() as pilot:
+        app._begin_stream()
+        app._on_stream_token("partial response")
+        await pilot.pause()
+
+        live = app.query_one("#live")
+        assert "partial response" in str(live.render())
+
+        app._set_stream_thinking(True)
+        await pilot.pause()
+        assert "partial response" in str(live.render())
+        assert "Thinking" not in str(live.render())
+
+
 def test_streaming_message_set_thinking_updates_placeholder():
     """set_thinking calls update with 'Thinking…' / 'Generating…' while buffer is empty."""
     from unittest.mock import patch
