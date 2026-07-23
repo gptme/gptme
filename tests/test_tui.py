@@ -16,6 +16,8 @@ from gptme.tui.app import (
     InfoMessage,
     SystemMessage,
     UserMessage,
+    _append_pt_history,
+    _load_pt_history,
     _summarize,
 )
 
@@ -243,3 +245,98 @@ async def test_word_navigation(tmp_path):
         await pilot.pause()
         _, col = inp.cursor_location
         assert col == 5, f"expected col 5 (end of 'hello'), got {col}"
+
+
+def test_pt_history_roundtrip(tmp_path):
+    """_append_pt_history / _load_pt_history are inverse operations."""
+    hist_file = tmp_path / "history.pt"
+    _append_pt_history(hist_file, "first entry")
+    _append_pt_history(hist_file, "second entry")
+    entries = _load_pt_history(hist_file)
+    assert entries == ["first entry", "second entry"]
+
+
+def test_pt_history_missing_file(tmp_path):
+    """Loading a non-existent file returns an empty list."""
+    assert _load_pt_history(tmp_path / "no-such-file.pt") == []
+
+
+def test_pt_history_write_error_is_isolated(tmp_path, monkeypatch):
+    """A write failure in _append_pt_history must not propagate out of _push_history."""
+    import gptme.tui.app as tui_app
+
+    hist_file = tmp_path / "history.pt"
+    # Route ChatInput init to the empty tmp file
+    monkeypatch.setattr(tui_app, "get_pt_history_file", lambda: hist_file)
+    # Simulate a read-only filesystem for all subsequent writes
+    monkeypatch.setattr(
+        tui_app,
+        "_append_pt_history",
+        lambda *_: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    # _push_history must swallow the error; the in-memory history still grows
+    chat_input = ChatInput()
+    chat_input._push_history("hello")  # must not raise
+    assert chat_input._history == ["hello"]
+
+
+def test_pt_history_concurrent_tui_and_cli_appends(tmp_path):
+    """TUI and CLI writers share one lock and cannot interleave entries."""
+    import threading
+
+    from gptme.util.history import LockedFileHistory
+
+    hist_file = tmp_path / "history.pt"
+    entries = [f"entry-{i}\nline-{i}" for i in range(20)]
+    errors: list[Exception] = []
+
+    def writer(index: int, text: str) -> None:
+        try:
+            if index % 2:
+                _append_pt_history(hist_file, text)
+            else:
+                LockedFileHistory(hist_file).append_string(text)
+        except Exception as e:
+            errors.append(e)
+
+    threads = [
+        threading.Thread(target=writer, args=(i, entry))
+        for i, entry in enumerate(entries)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    loaded = _load_pt_history(hist_file)
+    assert sorted(loaded) == sorted(entries)
+
+
+@pytest.mark.asyncio
+async def test_history_persists_across_sessions(tmp_path, monkeypatch):
+    """TUI history is written to and read from the shared pt history file."""
+    hist_file = tmp_path / "history.pt"
+
+    # Seed the history file with one pre-existing entry (simulates a prior CLI run)
+    _append_pt_history(hist_file, "prior cli entry")
+
+    # Patch get_pt_history_file so both sessions use the same tmp file
+    import gptme.tui.app as tui_app
+
+    monkeypatch.setattr(tui_app, "get_pt_history_file", lambda: hist_file)
+
+    # First TUI session: should load the prior entry and add a new one
+    app1 = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app1.run_test():
+        inp1 = app1.query_one("#input", ChatInput)
+        assert inp1._history == ["prior cli entry"]
+        inp1._push_history("tui entry one")
+        assert inp1._history == ["prior cli entry", "tui entry one"]
+
+    # Second TUI session: should see both entries from file
+    app2 = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app2.run_test():
+        inp2 = app2.query_one("#input", ChatInput)
+        assert inp2._history == ["prior cli entry", "tui entry one"]
