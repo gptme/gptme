@@ -112,6 +112,14 @@ jobs:
         MODEL: local/test
       run: make test SLOW=true
 
+    - name: Upload visual snapshot diffs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: tui-visual-snapshot-diffs
+        path: tests/snapshots/*.actual.svg
+        if-no-files-found: ignore
+
     - name: Upload coverage reports to Codecov
       if: ${{ !cancelled() }}
       uses: codecov/codecov-action@v7
