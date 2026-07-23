@@ -367,7 +367,11 @@ gptme-server uses a tiered authentication model based on the bind address:
   process on the same machine is the legitimate user.
 
 - **Network bind** (``0.0.0.0`` or an external IP): Bearer auth is
-  **enabled** and required for every API request. Set ``GPTME_SERVER_TOKEN``
+  **enabled** and required for capability-bearing API requests (conversation
+  endpoints, tool execution, config writes). A small set of public routes —
+  version info (``/api/v2/version``), config metadata (``/api/v2/config``),
+  Prometheus metrics (``/api/v0/metrics``), and the API documentation at
+  ``/api/docs/`` — remain unauthenticated. Set ``GPTME_SERVER_TOKEN``
   to a fixed value; if unset the server generates one and prints it at
   startup.
 
@@ -444,6 +448,12 @@ working directory. The API exposes two operations that touch workspace:
   plausibly a confused-deputy attack vector and is never needed for
   legitimate updates. If the workspace must change, delete and recreate the
   conversation.
+
+  .. warning::
+
+     Deleting a conversation is **destructive**: its persisted message history
+     is permanently removed. Export or back up conversation logs before
+     deleting if you need to preserve them.
 
 This creates an intentional asymmetry — create-any, re-target-never — to
 minimize confused-deputy risk without breaking legitimate workflows.
