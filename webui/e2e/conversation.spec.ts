@@ -1,6 +1,18 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Connecting', () => {
+  test('connects to the API server (hard requirement)', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    // The chat input only becomes enabled once the app has a live server
+    // connection. If this fails, the suite is running offline against demo
+    // data and NO other test is exercising the API server — fix the server
+    // or the --cors-origin (must exactly match the Playwright origin;
+    // localhost != 127.0.0.1) rather than softening this assertion.
+    await expect(page.getByTestId('chat-input')).toBeEnabled({ timeout: 20000 });
+  });
+
   test('should connect and list conversations', async ({ page }) => {
     // Go to the app
     await page.goto('/');
@@ -123,7 +135,7 @@ test.describe('Conversation Creation', () => {
     // matches the Playwright origin exactly; localhost != 127.0.0.1).
     const input = page.getByTestId('chat-input');
     await expect(input).toBeVisible({ timeout: 10000 });
-    await expect(input).toBeEnabled({ timeout: 15000 });
+    await expect(input).toBeEnabled({ timeout: 20000 });
     await input.fill('Hello from the e2e test');
     await input.press('Enter');
 
