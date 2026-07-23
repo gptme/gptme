@@ -5,6 +5,7 @@ import pytest
 pytest.importorskip("textual")
 
 from textual.color import Color
+from textual.filter import ANSIToTruecolor
 from textual.widgets import Collapsible, Static
 
 from gptme.logmanager import LogManager
@@ -33,6 +34,16 @@ def test_summarize():
     assert _summarize("```stdout\nfoo\n```").startswith("stdout")
     long = "x" * 200
     assert len(_summarize(long)) < 100
+
+
+@pytest.mark.asyncio
+async def test_ansi_default_survives_output_filter(tmp_path):
+    """Terminal-default colors must reach the driver without RGB conversion."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+
+    assert not any(
+        isinstance(filter_, ANSIToTruecolor) for filter_ in app.get_line_filters()
+    )
 
 
 @pytest.mark.asyncio

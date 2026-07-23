@@ -23,6 +23,7 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
+from textual.filter import ANSIToTruecolor
 from textual.message import Message as TextualMessage
 from textual.screen import ModalScreen
 from textual.widget import Widget
@@ -566,6 +567,13 @@ class GptmeApp(App):
         experimental_jelly_errors: bool = False,
     ):
         super().__init__()
+        # Keep Textual's truecolor theme, but preserve ANSI default through the
+        # final output filter so terminal foreground/background remain native.
+        self._filters = [
+            filter_
+            for filter_ in self._filters
+            if not isinstance(filter_, ANSIToTruecolor)
+        ]
         self.manager = manager
         self.tool_format: ToolFormat = tool_format
         self.workspace = workspace or manager.workspace
