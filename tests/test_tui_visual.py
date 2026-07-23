@@ -134,19 +134,6 @@ def snapshot_update(request):
 # ── tests ─────────────────────────────────────────────────────────────────────
 
 
-# These three tests document the correct behavior: no mid-gray ($panel/#262626) should
-# appear in the content area.  They currently fail on master because the fix (native_ansi_color=True
-# on ActiveOutput) has not landed yet — see gptme#3334.  Mark xfail so CI stays green; remove
-# the markers once #3334 (or equivalent) merges.
-_GRAY_BUG_XFAIL = pytest.mark.xfail(
-    strict=False,
-    reason="Content-area gray background still present on master (#262626 from Textual $panel). "
-    "Will pass once native_ansi_color fix in #3334 is merged.",
-    run=True,
-)
-
-
-@_GRAY_BUG_XFAIL
 @pytest.mark.asyncio
 async def test_idle_state_no_gray_background(tmp_path):
     """Idle TUI must not render any mid-gray content-area background (regression #3334)."""
@@ -157,7 +144,6 @@ async def test_idle_state_no_gray_background(tmp_path):
     _check_no_gray_rects(svg, "idle state")
 
 
-@_GRAY_BUG_XFAIL
 @pytest.mark.asyncio
 async def test_stream_state_no_gray_background(tmp_path):
     """Streaming state must not render a gray active-output strip (regression #3334)."""
@@ -170,7 +156,6 @@ async def test_stream_state_no_gray_background(tmp_path):
     _check_no_gray_rects(svg, "streaming state")
 
 
-@_GRAY_BUG_XFAIL
 @pytest.mark.asyncio
 async def test_inline_mode_no_gray_background(tmp_path):
     """Inline mode must not render any mid-gray content-area background."""
