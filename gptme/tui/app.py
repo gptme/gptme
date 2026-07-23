@@ -842,8 +842,14 @@ class GptmeApp(App):
         if len(candidates) <= 1:
             w.display = False
             return
+        max_visible = 8
+        start = min(
+            max(0, event.selected - max_visible // 2),
+            len(candidates) - max_visible,
+        )
+        visible = candidates[start : start + max_visible]
         t = Text()
-        for i, c in enumerate(candidates):
+        for i, c in enumerate(visible, start=start):
             prefix = "▶ " if i == event.selected else "  "
             style = "bold" if i == event.selected else "dim"
             t.append(f"{prefix}{c}\n", style=style)

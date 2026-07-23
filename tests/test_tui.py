@@ -536,6 +536,25 @@ async def test_tab_completion_overlay_hides_on_enter(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_tab_completion_overlay_keeps_selected_candidate_visible(tmp_path):
+    """Long candidate lists render a window containing the selected candidate."""
+    from textual.widgets import Static
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    candidates = [f"/command-{i}" for i in range(12)]
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.post_message(ChatInput.CompletionsChanged(candidates, 10))
+        await pilot.pause()
+
+        overlay = app.query_one("#completions", Static)
+        rendered = str(overlay.render())
+        assert "▶ /command-10" in rendered
+        assert "/command-11" in rendered
+        assert "/command-0" not in rendered
+
+
+@pytest.mark.asyncio
 async def test_tab_cycles_and_overlay_updates(tmp_path):
     """Repeated Tab presses cycle through candidates and update the overlay selection."""
     from textual.widgets import Static
