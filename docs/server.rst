@@ -368,10 +368,11 @@ gptme-server uses a tiered authentication model based on the bind address:
 
 - **Network bind** (``0.0.0.0`` or an external IP): Bearer auth is
   **enabled** and required for capability-bearing API requests (conversation
-  endpoints, tool execution, config writes). A small set of public routes —
-  version info (``/api/v2/version``), config metadata (``/api/v2/config``),
-  Prometheus metrics (``/api/v0/metrics``), and the API documentation at
-  ``/api/docs/`` — remain unauthenticated. Set ``GPTME_SERVER_TOKEN``
+  endpoints, tool execution, config writes). A small set of public routes
+  remain unauthenticated: the API root (``/api/v2``), version info
+  (``/api/v2/version``), config metadata (``/api/v2/config``), Prometheus
+  metrics (``/api/v0/metrics``), and the API documentation at
+  ``/api/docs/``. Set ``GPTME_SERVER_TOKEN``
   to a fixed value; if unset the server generates one and prints it at
   startup.
 
