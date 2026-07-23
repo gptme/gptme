@@ -122,6 +122,51 @@ class TestPatchWorkspaceContainment:
         )
         assert resp.status_code == 400
 
+    def test_roundtrip_of_persisted_external_workspace_is_accepted(
+        self, client: FlaskClient, tmp_path: Path
+    ):
+        """PATCH echoing the already-persisted external workspace must succeed.
+
+        The webui settings dialog sends the full config (including the
+        unchanged workspace) on every save; conversations legitimately have
+        external workspaces (CLI-created, or PUT with explicit workspace).
+        Only *redirecting* the workspace outside logdir is rejected."""
+        cid = _conv_id()
+        resp = client.put(
+            f"/api/v2/conversations/{cid}",
+            json={"prompt": "none", "config": {"chat": {"workspace": str(tmp_path)}}},
+        )
+        assert resp.status_code == 200
+
+        # Settings save round-trips the persisted workspace alongside the change
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"workspace": str(tmp_path), "model": "gpt-4"}},
+        )
+        assert resp.status_code == 200, resp.get_json()
+
+        config = client.get(f"/api/v2/conversations/{cid}/config").get_json()
+        assert config["chat"]["model"] == "gpt-4"
+
+    def test_changing_to_different_external_workspace_is_rejected(
+        self, client: FlaskClient, tmp_path: Path
+    ):
+        """PATCH *changing* the workspace to a different external path must be 400."""
+        cid = _conv_id()
+        resp = client.put(
+            f"/api/v2/conversations/{cid}",
+            json={"prompt": "none", "config": {"chat": {"workspace": str(tmp_path)}}},
+        )
+        assert resp.status_code == 200
+
+        other = tmp_path.parent / f"{tmp_path.name}-other"
+        other.mkdir(exist_ok=True)
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"workspace": str(other)}},
+        )
+        assert resp.status_code == 400
+
     def test_no_config_change_on_escape_patch(self, client: FlaskClient):
         """A rejected workspace PATCH must not modify the existing config."""
         cid = self._create_conv(client)
