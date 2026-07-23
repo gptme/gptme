@@ -8,6 +8,22 @@ Supports three authentication methods (checked in order):
 1. Authorization header (preferred for normal API calls)
 2. HttpOnly cookie (preferred for SSE/EventSource connections)
 3. Query parameter (deprecated, kept for backward compatibility)
+
+DNS-rebinding protection
+------------------------
+When the server binds to loopback (auth disabled), CORS preflights block
+cross-origin requests from regular websites — but DNS rebinding bypasses
+CORS entirely: a malicious page rebinds its domain to 127.0.0.1, becoming
+same-origin with the local server without a preflight.
+
+The direct fix is Host-header validation: every request must carry a Host
+header whose hostname is a known-safe loopback name or the configured bind
+host.  A rebinding attacker retains the original DNS name as its Host header
+(e.g. ``evil.com``), so this rejects it before any endpoint logic runs.
+
+Call ``init_host_validation(host, allowed_hosts)`` at startup to activate.
+The check applies to the ``/api/`` prefix only, so the static webui continues
+to load even if validation is misconfigured.
 """
 
 import logging
@@ -25,6 +41,10 @@ _server_token: str | None = None
 
 # Auth state (disabled for local-only binding)
 _auth_enabled: bool = True
+
+# Host validation state
+_host_validation_enabled: bool = False
+_allowed_hosts: frozenset[str] = frozenset()
 
 # Cookie configuration
 AUTH_COOKIE_NAME = "gptme_auth"
@@ -53,6 +73,85 @@ def is_local_host(host: str) -> bool:
         True if host is localhost or 127.0.0.1, False otherwise.
     """
     return host in ("127.0.0.1", "localhost", "::1")
+
+
+# Loopback hostnames that are always safe as Host header values.
+_LOOPBACK_HOST_NAMES = frozenset({"localhost", "127.0.0.1", "[::1]", "::1"})
+
+
+def _parse_host_header(host_header: str) -> str:
+    """Return the hostname portion of a Host header, stripping the port.
+
+    RFC 7230 §5.4: Host = uri-host [ ":" port ]
+    IPv6 literals are bracketed: [::1]:5700 → [::1].
+    """
+    if host_header.startswith("["):
+        # IPv6 literal — find the closing bracket
+        bracket = host_header.find("]")
+        return host_header[: bracket + 1] if bracket != -1 else host_header
+    # Strip optional port from plain hostname or IPv4
+    return host_header.rsplit(":", 1)[0]
+
+
+def init_host_validation(
+    bind_host: str,
+    extra_allowed_hosts: list[str] | None = None,
+) -> None:
+    """Activate Host-header validation for DNS-rebinding protection.
+
+    Should be called once at server startup, after ``init_auth``.  When
+    ``bind_host`` is a loopback address (auth disabled), this guard prevents
+    a DNS-rebound page from accessing the API by rejecting requests whose
+    Host header is not in the allow-list.
+
+    When auth is enabled (non-loopback bind) the bearer-token check already
+    authenticates the caller; Host validation is still applied for defence in
+    depth but is less critical.
+
+    Args:
+        bind_host: The address the server listens on (e.g. "127.0.0.1").
+        extra_allowed_hosts: Additional hostnames to accept (e.g. a custom
+            domain that proxies to the local server).
+    """
+    global _host_validation_enabled, _allowed_hosts
+
+    allowed = set(_LOOPBACK_HOST_NAMES)
+    if bind_host:
+        allowed.add(bind_host)
+    if extra_allowed_hosts:
+        allowed.update(extra_allowed_hosts)
+
+    _allowed_hosts = frozenset(allowed)
+    _host_validation_enabled = True
+    logger.debug("Host validation enabled; allowed hosts: %s", _allowed_hosts)
+
+
+def validate_host_header() -> "flask.Response | None":
+    """Check the Host header of the current request.
+
+    Returns a 403 response if the header is absent or its hostname is not in
+    the allow-list, else ``None`` (request is allowed to proceed).
+
+    Call from a ``before_request`` hook scoped to API routes.
+    """
+    if not _host_validation_enabled:
+        return None
+
+    host_header = request.headers.get("Host", "")
+    if not host_header:
+        logger.warning("Rejected request: missing Host header")
+        return jsonify({"error": "Missing Host header"}), 403
+
+    hostname = _parse_host_header(host_header)
+    if hostname not in _allowed_hosts:
+        logger.warning(
+            "Rejected request: Host %r not in allowed list %s",
+            hostname,
+            _allowed_hosts,
+        )
+        return jsonify({"error": "Host header rejected"}), 403
+
+    return None
 
 
 def get_server_token() -> str | None:

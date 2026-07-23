@@ -169,9 +169,22 @@ def create_app(
             )
 
     # Initialize auth (defaults to local-only, no auth required)
-    from .auth import init_auth  # fmt: skip
+    from .auth import init_auth, init_host_validation, validate_host_header  # fmt: skip
 
     init_auth(host=host, display=False)
+
+    # DNS-rebinding protection: validate Host header on all /api/ requests.
+    # CORS preflights block cross-origin requests from normal websites, but
+    # DNS rebinding bypasses CORS: the attacker page rebinds its domain to
+    # 127.0.0.1 and becomes same-origin with the local server, skipping
+    # preflight entirely.  Checking the Host header stops this because the
+    # rebinding page still sends its original domain name as Host.
+    init_host_validation(bind_host=host)
+
+    @app.before_request
+    def _check_host():
+        if flask.request.path.startswith("/api/"):
+            return validate_host_header()
 
     # Register Prometheus metrics middleware and /api/v0/metrics endpoint
     from .metrics import init_metrics  # fmt: skip
