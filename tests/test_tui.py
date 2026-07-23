@@ -365,8 +365,13 @@ async def test_tool_placeholder_show_and_clear(tmp_path):
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 1
 
-        # Tool output arriving → placeholder cleared
+        # Tool output arrives while the batch is still active.
         app._on_step_message(Message("system", "```stdout\nhello\n```"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 1
+
+        # Starting the next model step marks the tool batch complete.
+        app._begin_stream()
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
 
@@ -403,7 +408,18 @@ async def test_tool_placeholder_persists_across_multiple_tools(tmp_path):
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 1, "placeholder cleared too early"
 
-        # Second tool output → now placeholder is cleared
+        # A hook can emit extra system messages for one tool. These must not
+        # consume the later tool's pending state.
+        app._on_step_message(Message("system", "Hook note after first tool"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 1
+
+        # The indicator remains after the last result until execution leaves
+        # the tool batch and starts the next model step.
         app._on_step_message(Message("system", "```stdout\nsecond\n```"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 1
+
+        app._begin_stream()
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
