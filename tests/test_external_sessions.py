@@ -423,3 +423,182 @@ class TestGetProviderNeitherAvailable:
             assert result is None
         finally:
             get_external_session_provider.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# Catalog/detail ID consistency + own-logs filtering (regressions)
+# ---------------------------------------------------------------------------
+
+
+def _cli_responses(discover_json: dict, transcript_json: dict):
+    """Build a _run_cli mock serving discover + transcript subcommands."""
+
+    def run_cli(args, timeout=60):
+        if args[0] == "discover":
+            return json.dumps(discover_json)
+        if args[0] == "transcript":
+            return json.dumps(transcript_json)
+        return None
+
+    return run_cli
+
+
+class TestCLIProviderIdConsistency:
+    """Listed session IDs must be fetchable via get_session.
+
+    Regression: list ids were derived from the transcript's trajectory_path
+    (which may be symlink-resolved, e.g. ~/.claude -> ~/dotfiles/home/.claude)
+    while get_session hashed the discover path — every listed session 404'd
+    on detail lookup.
+    """
+
+    def test_list_id_matches_get_id_when_transcript_path_differs(self, monkeypatch):
+        provider = CLIExternalSessionProvider()
+        discover = {
+            "sessions": [
+                {"path": "/tmp/proj/cc-session.jsonl", "harness": "claude-code"}
+            ]
+        }
+        transcript = {
+            # Reported path differs from the discovered path (symlinks resolved)
+            "trajectory_path": "/private/tmp/proj/cc-session.jsonl",
+            "session_id": "sess-cc",
+            "harness": "claude-code",
+        }
+        monkeypatch.setattr(provider, "_run_cli", _cli_responses(discover, transcript))
+        monkeypatch.setattr(
+            "gptme.server.external_sessions._own_logs_dir", lambda: None
+        )
+
+        items = provider.list_sessions()
+        assert len(items) == 1
+        item = items[0]
+        assert item.id == _make_external_session_id("/tmp/proj/cc-session.jsonl")
+        assert item.trajectory_path == "/tmp/proj/cc-session.jsonl"
+
+        detail = provider.get_session(item.id)
+        assert detail is not None
+        assert detail["id"] == item.id
+        assert detail["transcript"]["trajectory_path"] == item.trajectory_path
+
+
+class TestCLIProviderOwnLogsFilter:
+    """gptme sessions under this server's own logs dir are native conversations
+    and must not be listed again as external (they duplicate every chat)."""
+
+    def test_own_logs_sessions_excluded(self, monkeypatch, tmp_path: Path):
+        own_logs = tmp_path / "logs"
+        native = own_logs / "2026-07-23-native-convo"
+        native.mkdir(parents=True)
+        (native / "conversation.jsonl").write_text("{}\n")
+
+        external_dir = tmp_path / "other-host-logs" / "2026-07-22-remote-convo"
+        external_dir.mkdir(parents=True)
+        (external_dir / "conversation.jsonl").write_text("{}\n")
+
+        provider = CLIExternalSessionProvider()
+        discover = {
+            "sessions": [
+                {"path": str(native), "harness": "gptme"},
+                {"path": str(external_dir), "harness": "gptme"},
+            ]
+        }
+        monkeypatch.setattr(
+            provider, "_run_cli", _cli_responses(discover, {"sessions": []})
+        )
+        monkeypatch.setattr(
+            "gptme.server.external_sessions._own_logs_dir",
+            lambda: own_logs.resolve(),
+        )
+
+        sessions = provider._discover_paths(days=30)
+        paths = [s["path"] for s in sessions]
+        assert str(native) not in paths
+        assert str(native / "conversation.jsonl") not in paths
+        # The non-native gptme session dir is normalized to its jsonl file
+        assert paths == [str(external_dir / "conversation.jsonl")]
+
+
+class TestCLIProviderGptmeDirNormalization:
+    """gptme discovery yields session *dirs*; the transcript subcommand only
+    accepts files. Dirs must be normalized to conversation.jsonl (or dropped),
+    not passed through to fail with a CLI usage error."""
+
+    def test_dir_without_jsonl_dropped(self, monkeypatch, tmp_path: Path):
+        empty_dir = tmp_path / "2026-07-04-jumping-funny-jellyfish"
+        empty_dir.mkdir()
+
+        provider = CLIExternalSessionProvider()
+        discover = {"sessions": [{"path": str(empty_dir), "harness": "gptme"}]}
+        monkeypatch.setattr(
+            provider, "_run_cli", _cli_responses(discover, {"sessions": []})
+        )
+        monkeypatch.setattr(
+            "gptme.server.external_sessions._own_logs_dir", lambda: None
+        )
+
+        assert provider._discover_paths(days=30) == []
+
+
+class TestPythonProviderIdConsistency:
+    """Same list/get ID consistency for the gptme_sessions-backed provider."""
+
+    def _make_provider(self, jsonl: Path, transcript: dict):
+        from gptme.server.external_sessions import ExternalSessionProvider
+
+        class _Transcript:
+            def __init__(self, d: dict):
+                self._d = d
+
+            def to_dict(self) -> dict:
+                return dict(self._d)
+
+        provider = ExternalSessionProvider.__new__(ExternalSessionProvider)
+        provider._discover_gptme_sessions = lambda start, end: []
+        provider._discover_cc_sessions = lambda start, end: [jsonl]
+        provider._discover_codex_sessions = lambda start, end: []
+        provider._discover_copilot_sessions = lambda start, end: []
+        provider._read_transcript = lambda path: _Transcript(transcript)
+        return provider
+
+    def test_list_id_matches_get_id(self, monkeypatch, tmp_path: Path):
+        jsonl = tmp_path / "cc-session.jsonl"
+        jsonl.write_text("{}\n")
+        transcript = {
+            "trajectory_path": "/some/other/normalization.jsonl",
+            "session_id": "sess-py",
+            "harness": "claude-code",
+        }
+        provider = self._make_provider(jsonl, transcript)
+        monkeypatch.setattr(
+            "gptme.server.external_sessions._own_logs_dir", lambda: None
+        )
+
+        items = provider.list_sessions()
+        assert len(items) == 1
+        item = items[0]
+        assert item.id == _make_external_session_id(str(jsonl.resolve()))
+
+        detail = provider.get_session(item.id)
+        assert detail is not None
+        assert detail["id"] == item.id
+
+    def test_own_logs_gptme_sessions_excluded(self, monkeypatch, tmp_path: Path):
+        own_logs = tmp_path / "logs"
+        native = own_logs / "2026-07-23-native-convo"
+        native.mkdir(parents=True)
+        (native / "conversation.jsonl").write_text("{}\n")
+
+        from gptme.server.external_sessions import ExternalSessionProvider
+
+        provider = ExternalSessionProvider.__new__(ExternalSessionProvider)
+        provider._discover_gptme_sessions = lambda start, end: [native]
+        provider._discover_cc_sessions = lambda start, end: []
+        provider._discover_codex_sessions = lambda start, end: []
+        provider._discover_copilot_sessions = lambda start, end: []
+        monkeypatch.setattr(
+            "gptme.server.external_sessions._own_logs_dir",
+            lambda: own_logs.resolve(),
+        )
+
+        assert provider._discover_paths(days=30) == []

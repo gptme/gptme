@@ -30,7 +30,7 @@ interface NavItem {
   id: string;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  section: 'chat' | 'tasks' | 'history' | 'agents' | 'workspaces' | 'external-sessions';
+  section: 'chat' | 'tasks' | 'history' | 'agents' | 'workspaces' | 'external-sessions' | 'admin';
 }
 
 interface Props {
@@ -114,6 +114,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
     { id: 'tasks', icon: Kanban, label: 'Tasks', section: 'tasks' },
     { id: 'history', icon: History, label: 'History', section: 'history' },
     { id: 'external-sessions', icon: Layers, label: 'External', section: 'external-sessions' },
+    { id: 'admin', icon: Shield, label: 'Admin', section: 'admin' },
   ];
 
   return (
@@ -171,22 +172,6 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
         })}
 
         {/* Search */}
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={currentSection === 'admin' ? 'secondary' : 'ghost'}
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => handleNavigateToSection('admin')}
-              >
-                <Shield className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">Admin</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
