@@ -42,8 +42,9 @@ async def test_inline_screen_uses_ansi_default_background(tmp_path):
     async with app.run_test() as pilot:
         await pilot.pause()
         expected = Color(0, 0, 0, ansi=-1)
-        assert app.theme == "ansi-dark"
+        assert app.theme == "textual-dark"
         assert app.native_ansi_color
+        assert app.get_css_variables()["primary"] == "#0178D4"
         assert app.screen.styles.background == expected
         assert app.query_one("#live", Static).styles.background == expected
 
@@ -70,8 +71,6 @@ async def test_progress_placeholder_uses_message_background(tmp_path):
         assert body.styles.text_style.italic
         first_segment = next(iter(body.render_line(0)))
         assert first_segment.style is not None
-        assert first_segment.style.color is not None
-        assert first_segment.style.color.is_default
         assert first_segment.style.bgcolor is not None
         assert first_segment.style.bgcolor.is_default
 

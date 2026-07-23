@@ -560,11 +560,9 @@ class GptmeApp(App):
         inline: bool = False,
         experimental_jelly_errors: bool = False,
     ):
-        super().__init__()
-        # The TUI intentionally follows the terminal's foreground/background.
-        # Textual's default theme resolves ANSI "default" to its own palette,
-        # which produces a different background from finalized Rich output.
-        self.theme = "ansi-dark"
+        # Preserve the configured Textual theme's colors while allowing explicit
+        # ANSI defaults to pass through as the terminal's native colors.
+        super().__init__(ansi_color=True)
         self.manager = manager
         self.tool_format: ToolFormat = tool_format
         self.workspace = workspace or manager.workspace
