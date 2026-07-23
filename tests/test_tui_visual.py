@@ -31,8 +31,14 @@ def make_manager(tmp_path):
 
 
 def _normalize_svg(svg: str) -> str:
-    """Replace the run-specific hash in CSS class names for stable comparison."""
-    return re.sub(r"terminal-\d{6,}", "terminal-HASH", svg)
+    """Replace the run-specific hash and minify SVG for stable comparison."""
+    svg = re.sub(r"terminal-\d{6,}", "terminal-HASH", svg)
+    # Minify the SVG by removing non-essential whitespace to handle formatting
+    # differences between Textual versions or export variations.
+    # Remove whitespace between tags, but preserve content within text elements.
+    svg = re.sub(r">\s+<", "><", svg)  # Remove whitespace between tags
+    svg = re.sub(r">\s*\n\s*", ">", svg)  # Remove newlines/indentation between tags
+    return svg
 
 
 def _rect_fills(svg: str) -> list[str]:
