@@ -23,6 +23,8 @@ import { useModels } from '@/hooks/useModels';
 import { chatRoute } from '@/utils/routes';
 import { AlertTriangle, ArrowDown, ChevronUp, RefreshCw, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { isDemoMode } from '@/utils/connectionConfig';
+import { isLikelyChromeCorsPna } from '@/utils/api';
 
 interface Props {
   conversationId: string;
@@ -63,7 +65,10 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const prevConversationIdRef = useRef<string | null>(null);
   const paneRef = useRef<HTMLElement>(null);
 
-  const { api, connectionConfig } = useApi();
+  const { api, connectionConfig, isConnected$, connect } = useApi();
+  const isConnected = use$(isConnected$);
+  const lastConnectionResult = use$(api.lastConnectionResult$);
+  const [isRetryingConnection, setIsRetryingConnection] = useState(false);
   const hasSession$ = useObservable<boolean>(false);
   const { defaultModel } = useModels();
 
@@ -544,6 +549,38 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const showConnectionBanner =
     !isReadOnly && (connectionStatus === 'reconnecting' || connectionStatus === 'disconnected');
 
+  // Top-of-view banner when the API server itself is unreachable (not in intentional demo mode).
+  // This is distinct from the SSE-level reconnect banner above which fires after a successful
+  // connection drops mid-session. This fires on load when the server was never reachable.
+  const showServerDisconnectedBanner = !isConnected && !isDemoMode();
+
+  // Classify failure reason to give actionable guidance (mirrors WelcomeView logic).
+  const disconnectedDesc = (() => {
+    if (!lastConnectionResult || lastConnectionResult.ok) return null;
+    const { reason, url } = lastConnectionResult;
+    if (reason === 'cors') {
+      return isLikelyChromeCorsPna(url)
+        ? 'Chrome blocked this connection (Local Network Access). Allow the permission prompt, then retry.'
+        : `The server rejected cross-origin requests from this page. Restart it with --cors-origin='${window.location.origin}' to allow this page.`;
+    }
+    if (reason === 'network')
+      return 'Cannot reach the server — check that it is running and the URL is correct.';
+    if (reason === 'timeout')
+      return 'Connection timed out. The server may be starting up — retry in a moment.';
+    return null;
+  })();
+
+  const handleRetryConnection = async () => {
+    setIsRetryingConnection(true);
+    try {
+      await connect();
+    } catch {
+      // connect() shows toast on failure; swallow to avoid double-toast
+    } finally {
+      setIsRetryingConnection(false);
+    }
+  };
+
   // Live countdown timer — decrements every second while reconnecting
   const [reconnectRetrySeconds, setReconnectRetrySeconds] = useState<number | null>(null);
   useEffect(() => {
@@ -618,6 +655,30 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
           ) : null
         }
       </Memo>
+
+      {showServerDisconnectedBanner && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm">
+          <WifiOff className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span className="min-w-0 flex-1 text-amber-800 dark:text-amber-200">
+            <span className="font-medium">Server not connected</span>
+            {disconnectedDesc
+              ? ` — ${disconnectedDesc}`
+              : ' — browsing demo data. Connect a server to start a real conversation.'}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 gap-1.5 text-xs text-amber-700 hover:bg-amber-500/20 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+            onClick={() => void handleRetryConnection()}
+            disabled={isRetryingConnection}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isRetryingConnection ? 'animate-spin' : ''}`} />
+            {isRetryingConnection ? 'Retrying…' : 'Retry'}
+          </Button>
+        </div>
+      )}
+
       <div
         className="flex-1 overflow-y-auto"
         ref={scrollContainerRef}
