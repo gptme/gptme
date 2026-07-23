@@ -110,7 +110,7 @@ class StreamingMessage(Vertical):
     def __init__(self) -> None:
         super().__init__(classes="message assistant streaming")
         self._buffer = ""
-        self._body = Static(Text("Generating…", style="dim italic"))
+        self._body = Static(Text("Generating…"), classes="progress-placeholder")
 
     def compose(self) -> ComposeResult:
         yield Static(Text("Assistant"), classes="role")
@@ -126,14 +126,14 @@ class ToolPlaceholder(Vertical):
 
     def __init__(self) -> None:
         super().__init__(classes="message system tool-placeholder")
-        self._body = Static(Text("Running tool…", style="dim italic"))
+        self._body = Static(Text("Running tool…"), classes="progress-placeholder")
 
     def compose(self) -> ComposeResult:
         yield Static(Text("Tool"), classes="role")
         yield self._body
 
     def set_tool(self, tool_name: str) -> None:
-        self._body.update(Text(f"Running {tool_name}…", style="dim italic"))
+        self._body.update(Text(f"Running {tool_name}…"))
 
 
 class InfoMessage(Static):
@@ -478,6 +478,10 @@ class GptmeApp(App):
     }
     .message Static {
         background: transparent;
+    }
+    .message > .progress-placeholder {
+        color: $text-muted;
+        text-style: italic;
     }
     .message MarkdownFence {
         margin: 0;
@@ -1006,9 +1010,7 @@ class GptmeApp(App):
         self._clear_tool_placeholder()
         self._set_state("generating")
         if self.inline:
-            self.query_one("#live", Static).update(
-                Text("Generating…", style="dim italic")
-            )
+            self.query_one("#live", Static).update(Text("Generating…", style="italic"))
         elif self._stream_widget is None:
             self._stream_widget = StreamingMessage()
             self._mount_in_chat(self._stream_widget)
@@ -1042,7 +1044,7 @@ class GptmeApp(App):
     def _show_tool_placeholder(self) -> None:
         if self.inline:
             self.query_one("#live", Static).update(
-                Text("Running tool…", style="dim italic")
+                Text("Running tool…", style="italic")
             )
             return
         if self._tool_placeholder is not None:

@@ -4,6 +4,7 @@ import pytest
 
 pytest.importorskip("textual")
 
+from textual.color import Color
 from textual.widgets import Collapsible
 
 from gptme.logmanager import LogManager
@@ -32,6 +33,25 @@ def test_summarize():
     assert _summarize("```stdout\nfoo\n```").startswith("stdout")
     long = "x" * 200
     assert len(_summarize(long)) < 100
+
+
+@pytest.mark.asyncio
+async def test_progress_placeholder_uses_message_background(tmp_path):
+    """The placeholder text must not introduce a different background color."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        app._begin_stream()
+        await pilot.pause()
+
+        placeholder = app._stream_widget
+        assert placeholder is not None
+        body = placeholder._body
+        assert body.styles.background == Color(0, 0, 0, 0)
+        assert body.styles.color.a == pytest.approx(0.6)
+        assert body.styles.text_style.italic
+        first_segment = next(iter(body.render_line(0)))
+        assert first_segment.style is not None
+        assert first_segment.style.bgcolor == body.background_colors[1].rich_color
 
 
 @pytest.mark.asyncio
