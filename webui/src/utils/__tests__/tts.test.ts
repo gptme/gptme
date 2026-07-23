@@ -83,7 +83,9 @@ describe('toSpokenText (via speakTextNow)', () => {
     });
 
     const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
-    speakTextNow('<think>unfinished private reasoning because generation was interrupted');
+    speakTextNow(
+      '<think>unfinished private reasoning because generation was interrupted [INTERRUPTED]'
+    );
     await flushPromises();
 
     expect(speak).not.toHaveBeenCalled();
@@ -97,10 +99,26 @@ describe('toSpokenText (via speakTextNow)', () => {
     });
 
     const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
-    speakTextNow('The visible answer. <thinking>unfinished private reasoning');
+    speakTextNow('The visible answer. <thinking>unfinished private reasoning [INTERRUPTED]');
     await flushPromises();
 
     expect(speak).toHaveBeenCalledWith(expect.objectContaining({ text: 'The visible answer.' }));
+  });
+
+  it('preserves a literal unclosed thinking-tag example', async () => {
+    const speak = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel: jest.fn() },
+      configurable: true,
+    });
+
+    const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+    speakTextNow('Use the literal <think> tag to start a reasoning block.');
+    await flushPromises();
+
+    expect(speak).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Use the literal <think> tag to start a reasoning block.' })
+    );
   });
 
   it('strips tool-use blocks instead of announcing code placeholders', async () => {
