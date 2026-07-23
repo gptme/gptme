@@ -60,6 +60,12 @@ class TestLoopbackAllowed:
         resp = _get(_client(), "[::1]:5700")
         assert resp.status_code == 200
 
+    def test_trailing_dot_localhost_allowed(self):
+        # "localhost." is the valid absolute-DNS root form and resolves to the
+        # loopback host; it must be accepted (regression: #3324 Greptile P1).
+        assert _get(_client(), "localhost.").status_code == 200
+        assert _get(_client(), "localhost.:5700").status_code == 200
+
 
 class TestRebindingRejected:
     """A Host that isn't on the allow-list is rejected with a clear 403."""
@@ -152,6 +158,9 @@ class TestHostnameExtraction:
             ("[::1]", "::1"),
             ("[::1]:5700", "::1"),
             ("Example.COM:80", "example.com"),
+            ("localhost.", "localhost"),
+            ("localhost.:5700", "localhost"),
+            ("127.0.0.1.", "127.0.0.1"),
         ],
     )
     def test_extract_hostname(self, raw, expected):

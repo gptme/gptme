@@ -71,25 +71,29 @@ def _extract_hostname(host_header: str) -> str:
     """Extract the hostname part (without port) from a Host header value.
 
     Handles IPv6 literals in brackets (``[::1]`` / ``[::1]:5700``) as well as
-    plain hostnames and IPv4 addresses with an optional ``:port`` suffix.
+    plain hostnames and IPv4 addresses with an optional ``:port`` suffix. A
+    trailing dot (the absolute-DNS root form, e.g. ``localhost.``) is stripped
+    so that fully-qualified equivalents of an allowed host still match.
 
     Args:
         host_header: The raw Host header value (may include a port).
 
     Returns:
-        The hostname portion, lowercased, with any port and IPv6 brackets
-        stripped.
+        The hostname portion, lowercased, with any port, IPv6 brackets, and a
+        trailing root dot stripped.
     """
     value = host_header.strip()
     if value.startswith("["):
         # IPv6 literal: "[::1]" or "[::1]:5700"
         end = value.find("]")
         if end != -1:
-            return value[1:end].lower()
-        return value.lower()
-    # Plain hostname or IPv4, optionally "host:port"
-    if ":" in value:
+            value = value[1:end]
+        # else: malformed (no closing bracket) — fall through with raw value
+    elif ":" in value:
+        # Plain hostname or IPv4, optionally "host:port"
         value = value.rsplit(":", 1)[0]
+    # Normalize the absolute-DNS trailing dot (e.g. "localhost." -> "localhost").
+    value = value.removesuffix(".")
     return value.lower()
 
 
