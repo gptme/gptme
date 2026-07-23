@@ -111,7 +111,7 @@ def _snapshot_check(name: str, svg: str, *, update: bool) -> None:
         )
 
     baseline = path.read_text(encoding="utf-8")
-    if normalized != baseline:
+    if normalized.rstrip("\n") != baseline.rstrip("\n"):
         actual_path = path.with_suffix(".actual.svg")
         actual_path.write_text(normalized, encoding="utf-8")
         pytest.fail(
