@@ -173,7 +173,7 @@
 </text><text class="terminal-HASH-r5" x="12.2" y="654.4" textLength="12.2" clip-path="url(#terminal-HASH-line-26)">▊</text><text class="terminal-HASH-r2" x="24.4" y="654.4" textLength="1171.2" clip-path="url(#terminal-HASH-line-26)">▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁</text><text class="terminal-HASH-r2" x="1195.6" y="654.4" textLength="12.2" clip-path="url(#terminal-HASH-line-26)">▎</text><text class="terminal-HASH-r1" x="1220" y="654.4" textLength="12.2" clip-path="url(#terminal-HASH-line-26)">
 </text><text class="terminal-HASH-r7" x="12.2" y="678.8" textLength="658.8" clip-path="url(#terminal-HASH-line-27)">Type&#160;a&#160;message…&#160;(Enter&#160;to&#160;send,&#160;Alt+Enter&#160;for&#160;newline)</text><text class="terminal-HASH-r1" x="1220" y="678.8" textLength="12.2" clip-path="url(#terminal-HASH-line-27)">
 </text><text class="terminal-HASH-r1" x="1220" y="703.2" textLength="12.2" clip-path="url(#terminal-HASH-line-28)">
-</text><text class="terminal-HASH-r7" x="12.2" y="727.6" textLength="463.6" clip-path="url(#terminal-HASH-line-29)">local/test&#160;|&#160;0k/128k&#160;(0%)&#160;|&#160;generating</text>
+</text><text class="terminal-HASH-r7" x="12.2" y="727.6" textLength="0" clip-path="url(#terminal-HASH-line-29)">STATUS_BAR</text>
     </g>
     </g>
 </svg>

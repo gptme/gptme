@@ -74,6 +74,18 @@ def _normalize_svg(svg: str) -> str:
     # color moved.  Replace it with a fixed placeholder so palette-identical
     # renders compare equal regardless of Rich version.
     svg = re.sub(r"terminal-\d+", "terminal-HASH", svg)
+    # The TUI status bar (bottom line) shows dynamic state: model name, token
+    # counts, and the current state label.  Token counts vary between test runs
+    # depending on how many tools were initialised before the test.  Replace
+    # the status-bar text element — including its variable textLength attribute
+    # and text content — with fixed placeholders so tests that run after other
+    # test files see the same SVG.
+    # Pattern: <text … textLength="NNN.N" …>…model… | state</text>
+    svg = re.sub(
+        r'(<text\b[^>]*?\b)textLength="[\d.]+"([^>]*>)[^<]*(idle|generating|streaming|interrupt)[^<]*(</text>)',
+        r'\1textLength="0"\2STATUS_BAR\4',
+        svg,
+    )
     # Strip trailing whitespace per line (pre-commit hooks enforce this on the
     # committed baselines, so we must match that format when comparing).
     lines = [line.rstrip() for line in svg.splitlines()]
