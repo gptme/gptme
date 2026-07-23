@@ -77,6 +77,22 @@ function makeConversationState() {
 
 const mockConversation$ = makeConversationState();
 
+// Allow tests to control which server IDs are "registered" in the server registry.
+const mockGetClientForServer = jest.fn((serverId?: string) => {
+  if (serverId === 'secondary-server') {
+    return {
+      isConnected$: secondaryIsConnected$,
+      lastConnectionResult$: secondaryLastConnectionResult$,
+      checkConnection: secondaryCheckConnection,
+    };
+  }
+  return null; // unregistered / removed server
+});
+
+jest.mock('@/stores/serverClients', () => ({
+  getClientForServer: (serverId?: string) => mockGetClientForServer(serverId),
+}));
+
 jest.mock('@/utils/api', () => ({
   isLikelyChromeCorsPna: (url: string) => mockIsLikelyChromeCorsPna(url),
 }));
@@ -295,5 +311,38 @@ describe('server disconnected banner — serverId (secondary server)', () => {
     btn.click();
     expect(secondaryCheckConnection).toHaveBeenCalled();
     expect(mockConnect).not.toHaveBeenCalled();
+  });
+});
+
+describe('server disconnected banner — removed server', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsDemoMode.mockReturnValue(false);
+    // Primary is connected
+    isConnected$.set(true);
+    lastConnectionResult$.set(null);
+    // Simulate a removed server: getClientForServer returns null for 'removed-server'
+    mockGetClientForServer.mockImplementation((serverId?: string) => {
+      if (serverId === 'secondary-server') {
+        return {
+          isConnected$: secondaryIsConnected$,
+          lastConnectionResult$: secondaryLastConnectionResult$,
+          checkConnection: secondaryCheckConnection,
+        };
+      }
+      return null;
+    });
+  });
+
+  it('shows banner when serverId refers to a server no longer in the registry', () => {
+    render(<ConversationContent conversationId="demo/test" serverId="removed-server" />);
+    expect(screen.getByText(/server not connected/i)).toBeInTheDocument();
+    expect(screen.getByText(/no longer registered/i)).toBeInTheDocument();
+  });
+
+  it('does not show removed-server banner in intentional demo mode', () => {
+    mockIsDemoMode.mockReturnValue(true);
+    render(<ConversationContent conversationId="demo/test" serverId="removed-server" />);
+    expect(screen.queryByText(/server not connected/i)).toBeNull();
   });
 });

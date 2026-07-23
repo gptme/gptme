@@ -25,6 +25,7 @@ import { AlertTriangle, ArrowDown, ChevronUp, RefreshCw, WifiOff } from 'lucide-
 import { Button } from '@/components/ui/button';
 import { isDemoMode } from '@/utils/connectionConfig';
 import { isLikelyChromeCorsPna } from '@/utils/api';
+import { getClientForServer } from '@/stores/serverClients';
 
 interface Props {
   conversationId: string;
@@ -66,6 +67,10 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const paneRef = useRef<HTMLElement>(null);
 
   const { api, connectionConfig, connect, getClient } = useApi();
+  // When a conversation's server is removed from the registry, getClient(serverId) silently
+  // falls back to the primary client. Detect this so the banner can report "server not found"
+  // instead of showing the wrong server's connection status.
+  const serverNotFound = !!serverId && !getClientForServer(serverId);
   // Use the conversation's server client when serverId is provided, not the primary.
   const serverClient = serverId ? getClient(serverId) : api;
   const isConnected = use$(serverClient.isConnected$);
@@ -554,7 +559,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // Top-of-view banner when the API server itself is unreachable (not in intentional demo mode).
   // This is distinct from the SSE-level reconnect banner above which fires after a successful
   // connection drops mid-session. This fires on load when the server was never reachable.
-  const showServerDisconnectedBanner = !isConnected && !isDemoMode();
+  const showServerDisconnectedBanner = (serverNotFound || !isConnected) && !isDemoMode();
 
   // Classify failure reason to give actionable guidance (mirrors WelcomeView logic).
   const disconnectedDesc = (() => {
@@ -668,9 +673,11 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
           <WifiOff className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <span className="min-w-0 flex-1 text-amber-800 dark:text-amber-200">
             <span className="font-medium">Server not connected</span>
-            {disconnectedDesc
-              ? ` — ${disconnectedDesc}`
-              : ' — browsing demo data. Connect a server to start a real conversation.'}
+            {serverNotFound
+              ? ' — the server for this conversation is no longer registered. Add it again in settings to reconnect.'
+              : disconnectedDesc
+                ? ` — ${disconnectedDesc}`
+                : ' — browsing demo data. Connect a server to start a real conversation.'}
           </span>
           <Button
             type="button"
