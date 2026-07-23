@@ -67,12 +67,35 @@ function getSettings(): {
   return { ttsEnabled: false, ttsServerUrl: '', ttsProvider: 'auto', ttsAuthToken: '' };
 }
 
-/** Strip markdown so the spoken text sounds natural. */
+/**
+ * Strip non-spoken assistant internals and Markdown for TTS.
+ *
+ * Keep this aligned with gptme-tts's Python `clean_for_speech()` in
+ * `plugins/gptme-tts/src/gptme_tts/tts.py` (gptme-contrib): both reasoning and
+ * tool-use are implementation details and must never be spoken.
+ *
+ * gptme supports three tool-call formats (see gptme/tools/base.py ToolFormat):
+ *   - markdown: ```lang content ``` (ToolUse._to_markdown)
+ *   - xml:      <tool-use><name>content</name></tool-use> (ToolUse._to_xml)
+ *   - tool:     @name: {json} or @name(id): {json} (ToolUse._to_toolcall)
+ * All three are non-spoken implementation details.
+ */
 function toSpokenText(markdown: string): string {
   return (
     markdown
-      // Remove fenced code blocks entirely
-      .replace(/```[\s\S]*?```/g, '[code block]')
+      // Remove complete thinking blocks entirely (model reasoning, not output).
+      .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/g, '')
+      // Server-interrupted generations are persisted with this suffix. It lets us
+      // distinguish a real unclosed reasoning block from a literal tag example.
+      .replace(/<think(?:ing)?>[\s\S]*? \[INTERRUPTED\]$/g, '')
+      // Remove XML-format tool calls: <tool-use>...</tool-use> (ToolUse._to_xml)
+      .replace(/<tool-use>[\s\S]*?<\/tool-use>/g, '')
+      // Remove @tool-format calls: @name: {json} or @name(id): {json} (ToolUse._to_toolcall)
+      // JSON body ends with \n} (indent=2) or {} (empty); ^ anchors to line start.
+      .replace(/^@[\w.]+(?:\([^)]*\))?: (?:\{\}|\{[\s\S]*?\n\})/gm, '')
+      // As in clean_for_speech(), every fenced block is non-spoken. In assistant
+      // messages these include gptme's Markdown-format tool calls.
+      .replace(/```[\s\S]*?```/g, '')
       // Remove inline code
       .replace(/`[^`]+`/g, '[code]')
       // Remove bold/italic markers
