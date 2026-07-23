@@ -3,12 +3,19 @@ jest.mock('@/utils/connectionConfig', () => ({
   getApiBaseUrl: jest.fn(() => 'http://127.0.0.1:5700'),
   CLOUD_BASE_URL: 'https://gptme.ai',
 }));
-jest.mock('@/stores/conversations', () => ({}));
+jest.mock('@/stores/conversations', () => ({
+  initConversation: jest.fn(),
+  setMaxTokens: jest.fn(),
+  setTemperature: jest.fn(),
+  setTopP: jest.fn(),
+}));
 jest.mock('@/stores/servers', () => ({
   serverRegistry$: { get: jest.fn(() => ({ servers: [], activeServerId: null })) },
   getActiveServer: jest.fn(),
   getPrimaryClient: jest.fn(),
 }));
+
+import * as conversationsStore from '@/stores/conversations';
 
 import {
   ApiClient,
@@ -750,5 +757,115 @@ describe('getApiErrorPresentation', () => {
       title: 'Authentication failed',
       description: 'Invalid or expired token.',
     });
+  });
+});
+
+describe('createConversationWithPlaceholder workspace defaults', () => {
+  const originalFetch = global.fetch;
+  const originalCrypto = global.crypto;
+
+  beforeEach(() => {
+    Object.defineProperty(global, 'crypto', {
+      value: { ...originalCrypto, randomUUID: jest.fn(() => 'test-client-id') },
+      configurable: true,
+    });
+    (conversationsStore.initConversation as jest.Mock).mockClear();
+    (conversationsStore.setMaxTokens as jest.Mock).mockClear();
+    (conversationsStore.setTemperature as jest.Mock).mockClear();
+    (conversationsStore.setTopP as jest.Mock).mockClear();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    Object.defineProperty(global, 'crypto', { value: originalCrypto, configurable: true });
+    jest.restoreAllMocks();
+  });
+
+  it('omits workspace from server request when workspace is "." (lets server use @log default)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', session_id: 'session-1' }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await client.createConversationWithPlaceholder('hello', { workspace: '.' });
+
+    const request = (global.fetch as jest.Mock).mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(request.body as string);
+    // workspace: '.' must NOT be forwarded — server's @log default should apply
+    expect(body.config?.chat?.workspace).toBeUndefined();
+  });
+
+  it('omits workspace from server request when workspace is not provided', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', session_id: 'session-1' }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await client.createConversationWithPlaceholder('hello');
+
+    const request = (global.fetch as jest.Mock).mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(request.body as string);
+    expect(body.config?.chat?.workspace).toBeUndefined();
+  });
+
+  it('uses @log as the placeholder workspace when no explicit workspace is given', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', session_id: 'session-1' }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await client.createConversationWithPlaceholder('hello', { workspace: '.' });
+
+    const [, initData] = (conversationsStore.initConversation as jest.Mock).mock.calls[0];
+    expect(initData.workspace).toBe('@log');
+  });
+
+  it('forwards an explicit custom workspace to the server', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', session_id: 'session-1' }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await client.createConversationWithPlaceholder('hello', {
+      workspace: '/workspace/project',
+    });
+
+    const request = (global.fetch as jest.Mock).mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(request.body as string);
+    expect(body.config?.chat?.workspace).toBe('/workspace/project');
+  });
+
+  it('uses the custom workspace in the placeholder too', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', session_id: 'session-1' }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await client.createConversationWithPlaceholder('hello', {
+      workspace: '/home/user/project',
+    });
+
+    const [, initData] = (conversationsStore.initConversation as jest.Mock).mock.calls[0];
+    expect(initData.workspace).toBe('/home/user/project');
   });
 });
