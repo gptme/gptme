@@ -97,27 +97,30 @@ def init_host_validation(
     bind_host: str,
     extra_allowed_hosts: list[str] | None = None,
 ) -> None:
-    """Activate Host-header validation for DNS-rebinding protection.
+    """Configure Host-header validation for DNS-rebinding protection.
 
-    Should be called once at server startup, after ``init_auth``.  When
-    ``bind_host`` is a loopback address (auth disabled), this guard prevents
-    a DNS-rebound page from accessing the API by rejecting requests whose
-    Host header is not in the allow-list.
-
-    When auth is enabled (non-loopback bind) the bearer-token check already
-    authenticates the caller; Host validation is still applied for defence in
-    depth but is less critical.
+    Host validation is needed when authentication is disabled for a loopback
+    bind.  Network binds require bearer authentication instead, and may be
+    reached through arbitrary LAN addresses, container hostnames, or proxies
+    that cannot be inferred from the wildcard bind address.
 
     Args:
         bind_host: The address the server listens on (e.g. "127.0.0.1").
-        extra_allowed_hosts: Additional hostnames to accept (e.g. a custom
-            domain that proxies to the local server).
+        extra_allowed_hosts: Additional hostnames to accept for a loopback
+            bind (e.g. a custom local proxy hostname).
     """
     global _host_validation_enabled, _allowed_hosts
 
+    if not is_local_host(bind_host):
+        _allowed_hosts = frozenset()
+        _host_validation_enabled = False
+        logger.debug(
+            "Host validation disabled for authenticated network bind %s", bind_host
+        )
+        return
+
     allowed = set(_LOOPBACK_HOST_NAMES)
-    if bind_host:
-        allowed.add(bind_host)
+    allowed.add(bind_host)
     if extra_allowed_hosts:
         allowed.update(extra_allowed_hosts)
 
@@ -126,7 +129,7 @@ def init_host_validation(
     logger.debug("Host validation enabled; allowed hosts: %s", _allowed_hosts)
 
 
-def validate_host_header() -> "flask.Response | None":
+def validate_host_header() -> "tuple[flask.Response, int] | None":
     """Check the Host header of the current request.
 
     Returns a 403 response if the header is absent or its hostname is not in

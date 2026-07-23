@@ -161,10 +161,11 @@ class TestHostValidation:
         # Static routes return 200 for index.html regardless of Host
         assert resp.status_code == 200
 
-    def test_custom_bind_host_allowed(self):
-        """When the server binds to a custom address, that address is allowed."""
+    @pytest.mark.parametrize("host_header", ["192.168.1.42", "gptme.local"])
+    def test_network_bind_allows_real_destination_hosts(self, host_header):
+        """Authenticated wildcard binds may be reached through many hostnames."""
         app = _make_app(host="0.0.0.0")
-        resp = _api_get(app, "0.0.0.0")
+        resp = _api_get(app, host_header)
         assert resp.status_code != 403
 
     def test_subdomain_of_loopback_not_allowed(self):
