@@ -121,6 +121,21 @@ class StreamingMessage(Vertical):
         self._body.update(Text(self._buffer))
 
 
+class ToolPlaceholder(Vertical):
+    """Transient widget shown in the chat while a tool is running."""
+
+    def __init__(self) -> None:
+        super().__init__(classes="message system tool-placeholder")
+        self._body = Static(Text("Running tool…", style="dim italic"))
+
+    def compose(self) -> ComposeResult:
+        yield Static(Text("Tool"), classes="role")
+        yield self._body
+
+    def set_tool(self, tool_name: str) -> None:
+        self._body.update(Text(f"Running {tool_name}…", style="dim italic"))
+
+
 class InfoMessage(Static):
     """Dim informational line (help text, errors, hints)."""
 
@@ -423,6 +438,7 @@ class GptmeApp(App):
     .message {
         height: auto;
         margin: 1 0 0 0;
+        background: transparent;
     }
     .message > .role {
         color: $text-muted;
@@ -557,6 +573,7 @@ class GptmeApp(App):
         self._interrupt_event = threading.Event()
         self._quitting = False
         self._stream_widget: StreamingMessage | None = None
+        self._tool_placeholder: ToolPlaceholder | None = None
         self._outputs_expanded = False
         self._stdio_sink: IO[str] | None = None
         self._real_stdout: IO[str] | None = None
@@ -1020,13 +1037,36 @@ class GptmeApp(App):
             self._stream_widget.remove()
             self._stream_widget = None
 
+    def _show_tool_placeholder(self) -> None:
+        if self.inline:
+            self.query_one("#live", Static).update(
+                Text("Running tool…", style="dim italic")
+            )
+            return
+        if self._tool_placeholder is not None:
+            return
+        self._tool_placeholder = ToolPlaceholder()
+        self._mount_in_chat(self._tool_placeholder)
+
+    def _clear_tool_placeholder(self) -> None:
+        if self.inline:
+            self.query_one("#live", Static).update("")
+            return
+        if self._tool_placeholder is not None:
+            self._tool_placeholder.remove()
+            self._tool_placeholder = None
+
     def _on_step_message(self, msg: Message) -> None:
         if msg.role == "assistant":
             # replace the live stream view with the final rendering
             self._clear_stream_view()
+        if msg.role == "system":
+            # tool output arriving: remove the "Running tool…" placeholder
+            self._clear_tool_placeholder()
         self._show_message(msg)
         if msg.role == "assistant":
             self._set_state("executing tools")
+            self._show_tool_placeholder()
         self._update_status()
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
@@ -1043,6 +1083,7 @@ class GptmeApp(App):
         self.generating = False
         # stream may have ended without a final message (interrupt mid-stream)
         self._clear_stream_view()
+        self._clear_tool_placeholder()
         if self._interrupt_event.is_set() and self.prompt_queue:
             # user interrupted: hand queued text back instead of auto-submitting
             text = "\n".join(self.prompt_queue)

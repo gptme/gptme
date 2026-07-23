@@ -15,6 +15,7 @@ from gptme.tui.app import (
     GptmeApp,
     InfoMessage,
     SystemMessage,
+    ToolPlaceholder,
     UserMessage,
     _append_pt_history,
     _load_pt_history,
@@ -340,3 +341,22 @@ async def test_history_persists_across_sessions(tmp_path, monkeypatch):
     async with app2.run_test():
         inp2 = app2.query_one("#input", ChatInput)
         assert inp2._history == ["prior cli entry", "tui entry one"]
+
+
+@pytest.mark.asyncio
+async def test_tool_placeholder_show_and_clear(tmp_path):
+    """ToolPlaceholder appears after an assistant message and disappears on tool output."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 0
+
+        # Simulate assistant message arriving (triggers placeholder)
+        app._on_step_message(Message("assistant", "I will run a tool"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 1
+
+        # Simulate tool output arriving (clears placeholder)
+        app._on_step_message(Message("system", "```stdout\ntool done\n```"))
+        await pilot.pause()
+        assert len(app.query(ToolPlaceholder)) == 0
