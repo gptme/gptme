@@ -507,3 +507,74 @@ def test_is_interactive_mode():
     # (This test runs outside the normal CLI context)
     result = _is_interactive_mode()
     assert isinstance(result, bool)
+
+
+def test_extract_urls_basic():
+    """Test that extract_urls finds HTTP/HTTPS URLs in content."""
+    from gptme.util.context import extract_urls
+
+    content = "Check out https://example.com and http://foo.bar/baz for details."
+    urls = extract_urls(content)
+    assert "https://example.com" in urls
+    assert "http://foo.bar/baz" in urls
+
+
+def test_extract_urls_ignores_code_blocks():
+    """URLs inside code blocks should not be extracted."""
+    from gptme.util.context import extract_urls
+
+    content = (
+        "```\nhttps://inside.codeblock.com\n```\nBut https://outside.com is found."
+    )
+    urls = extract_urls(content)
+    assert "https://inside.codeblock.com" not in urls
+    assert "https://outside.com" in urls
+
+
+def test_extract_urls_empty():
+    from gptme.util.context import extract_urls
+
+    assert extract_urls("no urls here") == []
+    assert extract_urls("") == []
+
+
+def test_include_paths_pre_confirmed_urls_allows(tmp_path, monkeypatch):
+    """pre_confirmed_urls lets the caller pre-approve specific URLs."""
+    from unittest.mock import patch
+
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    msg = Message("user", "See https://example.com for details")
+    fake_content = "Example page content"
+
+    with (
+        patch("gptme.util.context._resource_to_codeblock", return_value=fake_content),
+        patch("gptme.util.context.use_fresh_context", return_value=False),
+    ):
+        result = include_paths(
+            msg, tmp_path, pre_confirmed_urls=["https://example.com"]
+        )
+
+    # URL was pre-confirmed, so content should be attached
+    assert fake_content in result.content
+
+
+def test_include_paths_pre_confirmed_urls_empty_skips_all(tmp_path, monkeypatch):
+    """pre_confirmed_urls=[] skips all URL fetching without calling _confirm_urls."""
+    from unittest.mock import patch
+
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    msg = Message("user", "See https://example.com for details")
+
+    with patch("gptme.util.context._confirm_urls") as mock_confirm:
+        result = include_paths(msg, tmp_path, pre_confirmed_urls=[])
+
+    # _confirm_urls should NOT be called — caller already decided
+    mock_confirm.assert_not_called()
+    # URL should not be fetched — result content is unchanged (just the original text)
+    assert result.content == msg.content

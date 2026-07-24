@@ -59,7 +59,7 @@ from ..tools import ToolFormat, ToolUse
 from ..tools.base import ToolUse as ToolUseType
 from ..tools.complete import SessionCompleteException
 from ..util.content import is_message_command
-from ..util.context import include_paths
+from ..util.context import extract_urls, include_paths
 from ..util.history import append_history, load_history
 from ..util.tokens import len_tokens
 
@@ -518,6 +518,41 @@ class ConfirmScreen(ModalScreen[ConfirmationResult]):
         self.dismiss(ConfirmationResult.confirm())
 
 
+class UrlConfirmScreen(ModalScreen):
+    """Modal asking the user to confirm fetching URLs found in their message."""
+
+    BINDINGS = [
+        Binding("y,enter", "confirm", "Fetch URL(s)"),
+        Binding("n,escape", "skip", "Skip"),
+    ]
+
+    def __init__(self, urls: list[str]) -> None:
+        super().__init__()
+        self.urls = urls
+
+    def compose(self) -> ComposeResult:
+        title = "Fetch URL?" if len(self.urls) == 1 else f"Fetch {len(self.urls)} URLs?"
+        body = (
+            "\n".join(self.urls)
+            if len(self.urls) == 1
+            else "\n".join(f"{i + 1}. {url}" for i, url in enumerate(self.urls))
+        )
+        with Vertical(id="confirm-dialog"):
+            yield Static(Text(title, style="bold"), id="confirm-title")
+            with VerticalScroll(id="confirm-preview"):
+                yield Static(body)
+            yield Static(
+                Text("[y/enter] fetch   [n/esc] skip"),
+                id="confirm-help",
+            )
+
+    def action_confirm(self) -> None:
+        self.dismiss(self.urls)
+
+    def action_skip(self) -> None:
+        self.dismiss([])
+
+
 class GptmeApp(App):
     """gptme TUI: streaming chat with live input, queueing and collapsible output."""
 
@@ -954,7 +989,7 @@ class GptmeApp(App):
         w.update(t)
         w.display = True
 
-    def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
+    async def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         text = event.value.strip()
         chat_input = self.query_one("#input", ChatInput)
         chat_input.text = ""
@@ -987,7 +1022,7 @@ class GptmeApp(App):
                 self._mount_in_chat(widget)
             self._update_status()
         else:
-            self._submit(text)
+            await self._submit(text)
 
     def _can_resume(self) -> bool:
         last = next((m for m in reversed(self.manager.log) if not m.hide), None)
@@ -1067,9 +1102,15 @@ class GptmeApp(App):
         chat.remove_children()
         self._render_history()
 
-    def _submit(self, text: str) -> None:
+    async def _submit(self, text: str) -> None:
         msg = Message("user", text, quiet=True)
-        msg = include_paths(msg, self.workspace)
+        # Confirm before fetching any URLs, matching CLI behavior (TUI can't
+        # use prompt_toolkit's sync dialog inside the running event loop).
+        pre_confirmed_urls: list[str] | None = None
+        urls = extract_urls(text)
+        if urls:
+            pre_confirmed_urls = await self.push_screen_wait(UrlConfirmScreen(urls))
+        msg = include_paths(msg, self.workspace, pre_confirmed_urls=pre_confirmed_urls)
         self.manager.append(msg)
         self._show_message(msg)
         self._start_generation()
@@ -1249,7 +1290,7 @@ class GptmeApp(App):
             self._show_tool_placeholder()
         self._update_status()
 
-    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+    async def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.worker.group != "generation":
             return
         if event.state in (
@@ -1257,9 +1298,9 @@ class GptmeApp(App):
             WorkerState.ERROR,
             WorkerState.CANCELLED,
         ):
-            self._generation_done()
+            await self._generation_done()
 
-    def _generation_done(self) -> None:
+    async def _generation_done(self) -> None:
         self.generating = False
         # stream may have ended without a final message (interrupt mid-stream)
         self._clear_stream_view()
@@ -1277,7 +1318,7 @@ class GptmeApp(App):
             if self._queued_widgets:
                 self._queued_widgets.pop(0).remove()
             self._set_state("idle")
-            self._submit(text)
+            await self._submit(text)
             return
         self._set_state("idle")
 
