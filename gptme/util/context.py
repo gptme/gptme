@@ -35,11 +35,25 @@ logger = logging.getLogger(__name__)
 
 
 def _is_interactive_mode() -> bool:
-    """Check if we're in interactive CLI mode.
+    """Check if we're in interactive CLI mode where prompt_toolkit prompts are safe.
 
-    Returns True if the cli_confirm hook is registered, indicating
-    interactive mode with confirmation enabled.
+    Returns True if the cli_confirm hook is registered AND we're not inside a
+    running async event loop (e.g. Textual TUI). Calling prompt_toolkit's sync
+    PromptSession.prompt() from inside a running event loop causes
+    ``RuntimeWarning: coroutine 'Application.run_async' was never awaited``
+    and crashes the TUI when the user submits a message containing a URL.
     """
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+        # Inside a running event loop (e.g. Textual TUI) — prompt_toolkit's
+        # sync prompt() cannot safely run here; treat as non-interactive so
+        # URLs are included without prompting instead of crashing.
+        return False
+    except RuntimeError:
+        pass  # No running loop — safe to use prompt_toolkit
+
     try:
         from ..hooks import HookType, get_hooks
 

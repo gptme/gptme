@@ -142,6 +142,32 @@ def test_include_paths_not_disabled_by_falsy_env_var(tmp_path, monkeypatch, fals
     assert "content-should-appear" in result.content
 
 
+def test_is_interactive_mode_false_inside_async_loop():
+    """_is_interactive_mode() must return False inside a running event loop.
+
+    Calling prompt_toolkit's sync PromptSession.prompt() from within an async
+    event loop (e.g. Textual TUI) crashes with:
+        RuntimeWarning: coroutine 'Application.run_async' was never awaited
+    The fix: detect the running loop and return False so URL confirmation is
+    skipped instead of attempting a blocking prompt_toolkit call.
+    """
+    import asyncio
+
+    from gptme.util.context import _is_interactive_mode
+
+    result = None
+
+    async def _check():
+        nonlocal result
+        result = _is_interactive_mode()
+
+    asyncio.run(_check())
+    assert result is False, (
+        "_is_interactive_mode() must return False inside a running event loop "
+        "to prevent prompt_toolkit crashes in the Textual TUI"
+    )
+
+
 def test_include_paths_skips_system_messages():
     """Test that include_paths skips role=system messages (tool output) entirely."""
     from gptme.message import Message
