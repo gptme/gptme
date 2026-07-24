@@ -795,6 +795,21 @@ def test_split_multiline_tool_calls():
     assert language == "python"
 
 
+def test_split_tool_calls_indented_prose():
+    """Tool calls followed by indented prose are still recognized."""
+    content = (
+        '@ipython(call-1): {\n  "code": "x = 1"\n}\n'
+        "  This prose is indented.\n"
+        "Unindented continuation."
+    )
+
+    segments = _split_tool_calls(content)
+
+    assert segments[0][0] is True, "first segment should be a tool call"
+    assert "x = 1" in segments[0][1]
+    assert not segments[1][0], "second segment should be prose"
+
+
 @pytest.mark.asyncio
 async def test_assistant_message_no_collapsible_without_thinking(tmp_path):
     """AssistantMessage without thinking tags renders no Collapsible."""
