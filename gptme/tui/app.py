@@ -86,8 +86,13 @@ def _summarize(content: str, maxlen: int = 80) -> str:
 _THINK_RE = re.compile(r"<think(?:ing)?>(.*?)</think(?:ing)?>", re.DOTALL)
 _THINK_SIG_RE = re.compile(r"<!--\s*think-sig:.*?-->\s*", re.DOTALL)
 
-# Matches the `tool` format: @tool_name(call_id): {...json...} on a single line
-_TOOL_CALL_RE = re.compile(r"^(@(\w+)\([^)]*\)):\s*(\{[^\n]+\})", re.MULTILINE)
+# Matches the `tool` format: @tool_name(call_id): {...json...}. Calls end at
+# the next tool-call header, unindented prose, or the end of the message. JSON
+# string braces are handled by parsing the captured body below.
+_TOOL_CALL_RE = re.compile(
+    r"^(@(\w+)\([^)]*\)):\s*(\{.*?\})(?=\n@\w+\([^)]*\):|\n(?!\s)|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
 
 
 def _split_thinking(content: str) -> list[tuple[bool, str]]:

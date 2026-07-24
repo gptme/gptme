@@ -480,6 +480,7 @@ def get_prompt(
     include_user_context: bool = True,
     include_examples: bool = True,
     initial_prompt: str | None = None,
+    prompt_generation: str | None = None,
 ) -> list[Message]:
     """
     Get the initial system prompt.
@@ -531,6 +532,9 @@ def get_prompt(
             ``prompt == "full-noexamples"``.
         initial_prompt: First user prompt, exported to context commands as
             ``GPTME_PROMPT_INITIAL``.
+        prompt_generation: Optional unique marker for generated prompt messages.
+            Provider context can omit superseded generations without rewriting
+            the append-only log.
 
     Returns a list of messages: [core_system_prompt, workspace_prompt, ...].
     """
@@ -571,9 +575,18 @@ def get_prompt(
     for _, msgs in dynamic_sections:
         result.extend(msgs)
 
-    # Set hide=True, pinned=True for all messages
+    # Replacement prompts carry a generation marker. Startup prompts created by
+    # older gptme versions remain unmarked, so the first replacement can retire
+    # them using its insertion point (see prepare_messages()).
     for i, msg in enumerate(result):
-        result[i] = msg.replace(hide=True, pinned=True)
+        metadata = dict(msg.metadata) if msg.metadata else {}
+        if prompt_generation is not None:
+            metadata["prompt_generation"] = prompt_generation
+        result[i] = msg.replace(
+            hide=True,
+            pinned=True,
+            metadata=metadata or None,
+        )
 
     return result
 

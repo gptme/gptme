@@ -846,6 +846,49 @@ def ephemeral_cache_boundary(
     return first_ephemeral_idx - 1
 
 
+def _active_prompt_generation(msgs: list[Message]) -> list[Message]:
+    """Move the newest generated prompt to the front of provider context.
+
+    Runtime configuration changes append a marked prompt generation. Older
+    generated prompts remain on disk for auditability, while the provider gets
+    only the newest generation followed by intact conversation history. The
+    unmarked contiguous pinned-system prefix is the legacy startup prompt.
+    """
+    latest = next(
+        (
+            msg.metadata["prompt_generation"]
+            for msg in reversed(msgs)
+            if msg.metadata and "prompt_generation" in msg.metadata
+        ),
+        None,
+    )
+    if latest is None:
+        return msgs
+
+    legacy_prompt_ids: set[int] = set()
+    for msg in msgs:
+        if (
+            msg.role != "system"
+            or not msg.pinned
+            or (msg.metadata and "prompt_generation" in msg.metadata)
+        ):
+            break
+        legacy_prompt_ids.add(id(msg))
+
+    active = [
+        msg
+        for msg in msgs
+        if msg.metadata and msg.metadata.get("prompt_generation") == latest
+    ]
+    history = [
+        msg
+        for msg in msgs
+        if id(msg) not in legacy_prompt_ids
+        and not (msg.metadata and "prompt_generation" in msg.metadata)
+    ]
+    return active + history
+
+
 def prepare_messages(
     msgs: list[Message],
     workspace: Path | None = None,
@@ -859,6 +902,10 @@ def prepare_messages(
     """
 
     from gptme.llm.models import get_default_model  # fmt: skip
+
+    # A runtime model/tool change appends a replacement generated prompt. Keep
+    # the historical prompts on disk, but only send the newest generation.
+    msgs = _active_prompt_generation(msgs)
 
     # Enrich with enabled context enhancements (RAG, fresh context)
     msgs = enrich_messages_with_context(msgs, workspace)

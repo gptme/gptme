@@ -9,7 +9,10 @@ from gptme.logmanager import (
     check_for_modifications,
     conversation_name_error,
 )
-from gptme.logmanager.manager import _merge_consecutive_messages
+from gptme.logmanager.manager import (
+    _active_prompt_generation,
+    _merge_consecutive_messages,
+)
 from gptme.message import Message
 from gptme.tools import init_tools
 
@@ -18,6 +21,76 @@ from gptme.tools import init_tools
 def _init_tools():
     """Ensure tools are loaded for check_for_modifications tests."""
     init_tools(allowlist=["save", "patch", "append"])
+
+
+def test_active_prompt_generation_preserves_conversation_history():
+    """A replacement retires generated prompts, never user/assistant history."""
+    old_prompt = Message("system", "old prompt", pinned=True, hide=True)
+    user = Message("user", "question")
+    assistant = Message("assistant", "answer")
+    runtime = Message("system", "tool output")
+    replacement = Message(
+        "system",
+        "new prompt",
+        pinned=True,
+        hide=True,
+        metadata={"prompt_generation": "one"},
+    )
+    user_after = Message("user", "next question")
+
+    result = _active_prompt_generation(
+        [old_prompt, user, assistant, runtime, replacement, user_after]
+    )
+
+    assert result == [replacement, user, assistant, runtime, user_after]
+
+
+def test_active_prompt_generation_preserves_later_pinned_system_messages():
+    runtime_prompt = Message(
+        "system",
+        "runtime instruction",
+        pinned=True,
+        hide=True,
+    )
+    replacement = Message(
+        "system",
+        "complete replacement",
+        pinned=True,
+        hide=True,
+        metadata={"prompt_generation": "replacement"},
+    )
+    user = Message("user", "history")
+
+    result = _active_prompt_generation(
+        [
+            Message("system", "old core", pinned=True),
+            user,
+            runtime_prompt,
+            replacement,
+        ]
+    )
+
+    assert result == [replacement, user, runtime_prompt]
+
+
+def test_active_prompt_generation_keeps_only_newest_replacement():
+    generation_one = Message(
+        "system",
+        "generation one",
+        pinned=True,
+        metadata={"prompt_generation": "z-first"},
+    )
+    generation_two = Message(
+        "system",
+        "generation two",
+        pinned=True,
+        metadata={"prompt_generation": "a-second"},
+    )
+    user = Message("user", "history")
+
+    result = _active_prompt_generation([generation_one, user, generation_two])
+
+    assert result == [generation_two, user]
 
 
 def test_log_repr():

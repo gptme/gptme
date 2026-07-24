@@ -3,8 +3,17 @@ LLM-related commands: model, tools, context, tokens.
 """
 
 from collections import defaultdict
+from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from .base import CommandContext, command
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from ..config import ChatConfig
+    from ..message import Message
+    from ..tools import ToolFormat
 
 
 def _complete_model(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
@@ -58,30 +67,65 @@ def _complete_model(partial: str, _prev_args: list[str]) -> list[tuple[str, str]
     return unique_completions[:30]  # Limit to 30 completions
 
 
+def _replacement_prompt(
+    chat_config: "ChatConfig",
+    *,
+    model: str,
+    tool_format: "ToolFormat",
+) -> list["Message"]:
+    """Generate a replacement startup prompt after runtime configuration changes."""
+    from ..config import get_project_config  # fmt: skip
+    from ..prompts import get_prompt  # fmt: skip
+    from ..tools import get_tools  # fmt: skip
+
+    project_config = get_project_config(chat_config.workspace)
+    prompt = (project_config.system if project_config else None) or "full"
+    if chat_config.system_prompt:
+        prompt = chat_config.system_prompt
+    return get_prompt(
+        get_tools(),
+        prompt=prompt,
+        interactive=chat_config.interactive,
+        tool_format=tool_format,
+        model=model,
+        workspace=chat_config.workspace,
+        agent_path=chat_config.agent,
+        prompt_generation=uuid4().hex,
+    )
+
+
 @command("model", completer=_complete_model)
-def cmd_model(ctx: CommandContext) -> None:
+def cmd_model(ctx: CommandContext) -> "Generator[Message, None, None]":
     """Show or switch the current model."""
     from ..config import ChatConfig  # fmt: skip
     from ..llm.models import (  # fmt: skip
         get_default_model,
         set_default_model,
     )
+    from ..tools.base import get_tool_format, set_tool_format  # fmt: skip
 
     if ctx.args:
         new_model = ctx.args[0]
         set_default_model(new_model)
-        # Persist the model change to config so it survives restart/resume
+        model_meta = get_default_model()
+        assert model_meta is not None
+        new_tool_format = model_meta.default_tool_format or get_tool_format()
+
+        # Persist all dependent runtime state before appending a replacement
+        # generated prompt. Historical prompts remain in the append-only log;
+        # prepare_messages() only sends the newest generation to providers.
         chat_config = ChatConfig.from_logdir(ctx.manager.logdir)
         chat_config.model = new_model
+        chat_config.tool_format = new_tool_format
         chat_config.save()
+        set_tool_format(new_tool_format)
+        yield from _replacement_prompt(
+            chat_config,
+            model=model_meta.full,
+            tool_format=new_tool_format,
+        )
         print(f"Set model to {new_model}")
-        # Auto-update tool format when the new model prefers a different one
-        model_meta = get_default_model()
-        if model_meta and model_meta.default_tool_format:
-            from ..tools.base import set_tool_format  # fmt: skip
-
-            set_tool_format(model_meta.default_tool_format)
-            print(f"Switched tool format to '{model_meta.default_tool_format}'")
+        print(f"Switched tool format to '{new_tool_format}'")
     else:
         model = get_default_model()
         if not model:
@@ -142,7 +186,8 @@ def cmd_tools(ctx: CommandContext):
         /tools --all        Show all available tools including unloaded
         /tools load <name>  Load a tool into the current conversation
     """
-    from ..message import Message  # fmt: skip
+    from ..config import ChatConfig  # fmt: skip
+    from ..llm.models import get_default_model  # fmt: skip
     from ..tools import get_available_tools, get_tool, get_tools, load_tool  # fmt: skip
     from ..tools.base import get_tool_format  # fmt: skip
     from ..util.tool_format import format_tool_info, format_tools_list  # fmt: skip
@@ -170,12 +215,19 @@ def cmd_tools(ctx: CommandContext):
 
         print(f"Tool '{new_tool.name}' loaded successfully.")
 
-        # Build a system message with the tool's instructions
+        # The tool overview is part of the generated startup prompt. Replace the
+        # full generation so the provider sees one authoritative tool set.
         tool_format = get_tool_format()
-        prompt = new_tool.get_tool_prompt(examples=True, tool_format=tool_format)
-        yield Message(
-            "system",
-            f"The following tool has been loaded and is now available:\n{prompt}\n",
+        chat_config = ChatConfig.from_logdir(ctx.manager.logdir)
+        chat_config.tools = [tool.name for tool in get_tools()]
+        chat_config.save()
+        model = get_default_model()
+        if model is None:
+            raise ValueError("No model configured")
+        yield from _replacement_prompt(
+            chat_config,
+            model=model.full,
+            tool_format=tool_format,
         )
         return
 

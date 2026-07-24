@@ -23,7 +23,9 @@ from gptme.tui.app import (
     _append_pt_history,
     _load_pt_history,
     _split_thinking,
+    _split_tool_calls,
     _summarize,
+    _tool_call_renderable,
 )
 
 
@@ -773,6 +775,24 @@ async def test_assistant_message_renders_thinking_as_collapsible(tmp_path):
         assert thinking_collapsible.collapsed, (
             "Thinking block should be collapsed by default"
         )
+
+
+def test_split_multiline_tool_calls():
+    """Indented JSON calls are split without consuming adjacent prose/calls."""
+    content = (
+        "Before\n"
+        '@ipython(call-1): {\n  "code": "print(1)\\nprint(2)"\n}\n'
+        '@shell(call-2): {"command": "pwd"}\n'
+        "After"
+    )
+
+    segments = _split_tool_calls(content)
+
+    assert [is_tool for is_tool, _ in segments] == [False, True, True, False]
+    title, code, language = _tool_call_renderable(segments[1][1])
+    assert title.startswith("▶ ipython: print(1)")
+    assert code == "print(1)\nprint(2)"
+    assert language == "python"
 
 
 @pytest.mark.asyncio
