@@ -94,6 +94,12 @@ _TOOL_CALL_RE = re.compile(
     re.MULTILINE | re.DOTALL,
 )
 
+# Matches XML tool-call blocks (<tool-use>...</tool-use> or <function_calls>...</function_calls>).
+_XML_TOOLUSE_RE = re.compile(
+    r"(<tool-use>.*?</tool-use>|<function_calls>.*?</function_calls>)",
+    re.DOTALL | re.IGNORECASE,
+)
+
 
 def _split_thinking(content: str) -> list[tuple[bool, str]]:
     """Split message content into (is_thinking, text) segments.
@@ -160,6 +166,109 @@ def _tool_call_renderable(call_text: str) -> tuple[str, str, str]:
     return title, code, lang
 
 
+def _split_markdown_tool_calls(content: str) -> list[tuple[bool, str]]:
+    """Split content into (is_tool, segment) pairs for markdown-format tool codeblocks.
+
+    Uses Codeblock.iter_from_markdown to find tool codeblocks (identified by their
+    language tag) and splits the raw content at those boundaries so they can be
+    rendered as collapsible sections instead of inline code fences.
+    """
+    from ..codeblock import Codeblock
+    from ..tools.base import ToolUse as _ToolUse
+
+    # Collect (start_line, codeblock) pairs for tool-call codeblocks.
+    tool_blocks: list[tuple[int, Codeblock]] = [
+        (cb.start, cb)
+        for cb in Codeblock.iter_from_markdown(content)
+        if cb.start is not None and _ToolUse._from_codeblock(cb) is not None
+    ]
+
+    if not tool_blocks:
+        return [(False, content)]
+
+    lines = content.split("\n")
+    segments: list[tuple[bool, str]] = []
+    prose_lines: list[str] = []
+    i = 0
+    # Build a dict for O(1) lookup by start line
+    blocks_by_line = dict(tool_blocks)
+
+    while i < len(lines):
+        cb = blocks_by_line.get(i)
+        if cb is not None:
+            if prose_lines:
+                prose = "\n".join(prose_lines).strip()
+                if prose:
+                    segments.append((False, prose))
+                prose_lines = []
+            cb_text = f"{cb.fence}{cb.lang}\n{cb.content}\n{cb.fence}"
+            segments.append((True, cb_text))
+            # Skip: 1 opening-fence line + N content lines + 1 closing-fence line
+            n_content = len(cb.content.splitlines()) if cb.content else 0
+            i += 2 + n_content
+        else:
+            prose_lines.append(lines[i])
+            i += 1
+
+    if prose_lines:
+        prose = "\n".join(prose_lines).strip()
+        if prose:
+            segments.append((False, prose))
+
+    return segments or [(False, content)]
+
+
+def _split_xml_tool_calls(content: str) -> list[tuple[bool, str]]:
+    """Split content into (is_tool, segment) pairs for XML-format tool-call blocks."""
+    segments: list[tuple[bool, str]] = []
+    last_end = 0
+    for m in _XML_TOOLUSE_RE.finditer(content):
+        before = content[last_end : m.start()]
+        if before.strip():
+            segments.append((False, before))
+        segments.append((True, m.group(0)))
+        last_end = m.end()
+    tail = content[last_end:]
+    if tail.strip():
+        segments.append((False, tail))
+    return segments or [(False, content)]
+
+
+def _markdown_tool_renderable(segment: str) -> tuple[str, str, str]:
+    """Parse a markdown tool codeblock into (title, code, lang) for a Collapsible."""
+    from ..codeblock import Codeblock
+
+    cb = Codeblock.from_markdown(segment)
+    code = cb.content.strip()
+    tool_name = cb.lang.split()[0] if cb.lang else "tool"
+    first_line = code.split("\n")[0].strip()
+    if len(first_line) > 55:
+        first_line = first_line[:54] + "…"
+    suffix = "…" if ("\n" in code or len(code) > 60) else ""
+    title = f"▶ {tool_name}: {first_line}{suffix}" if first_line else f"▶ {tool_name}"
+    lang = "python" if tool_name in ("ipython", "python") else "bash"
+    return title, code, lang
+
+
+def _xml_tool_renderable(segment: str) -> tuple[str, str, str]:
+    """Parse an XML tool-call block into (title, code, lang) for a Collapsible."""
+    from ..tools.base import ToolUse as _ToolUse
+
+    tool_uses = list(_ToolUse._iter_from_xml(segment))
+    if not tool_uses:
+        return "▶ tool", segment, "xml"
+    tu = tool_uses[0]
+    tool_name = tu.tool
+    code = (tu.content or "").strip()
+    first_line = code.split("\n")[0].strip()
+    if len(first_line) > 55:
+        first_line = first_line[:54] + "…"
+    suffix = "…" if ("\n" in code or len(code) > 60) else ""
+    title = f"▶ {tool_name}: {first_line}{suffix}" if first_line else f"▶ {tool_name}"
+    lang = "python" if tool_name in ("ipython", "python") else "bash"
+    return title, code, lang
+
+
 class UserMessage(Vertical):
     """A user message, rendered with a distinct border."""
 
@@ -184,13 +293,20 @@ class AssistantMessage(Vertical):
         yield Static(Text("Assistant"), classes="role")
         think_segs = _split_thinking(self.content)
         has_thinking = any(is_think for is_think, _ in think_segs)
+
+        def _has_tool_calls(text: str) -> bool:
+            if _TOOL_CALL_RE.search(text) or _XML_TOOLUSE_RE.search(text):
+                return True
+            return any(is_tool for is_tool, _ in _split_markdown_tool_calls(text))
+
         has_tool_calls = any(
-            not is_think and bool(_TOOL_CALL_RE.search(text))
-            for is_think, text in think_segs
+            not is_think and _has_tool_calls(text) for is_think, text in think_segs
         )
+
         if not has_thinking and not has_tool_calls:
             yield Markdown(self.content)
             return
+
         for is_think, text in think_segs:
             if is_think:
                 yield Collapsible(
@@ -199,10 +315,34 @@ class AssistantMessage(Vertical):
                     collapsed=True,
                     classes="thinking-block",
                 )
-            else:
+            elif _TOOL_CALL_RE.search(text):
                 for is_tool, seg in _split_tool_calls(text):
                     if is_tool:
                         title, code, lang = _tool_call_renderable(seg)
+                        yield Collapsible(
+                            Static(Syntax(code, lang, theme="ansi_dark")),
+                            title=title,
+                            collapsed=True,
+                            classes="tool-call-block",
+                        )
+                    elif seg.strip():
+                        yield Markdown(seg)
+            elif _XML_TOOLUSE_RE.search(text):
+                for is_tool, seg in _split_xml_tool_calls(text):
+                    if is_tool:
+                        title, code, lang = _xml_tool_renderable(seg)
+                        yield Collapsible(
+                            Static(Syntax(code, lang, theme="ansi_dark")),
+                            title=title,
+                            collapsed=True,
+                            classes="tool-call-block",
+                        )
+                    elif seg.strip():
+                        yield Markdown(seg)
+            else:
+                for is_tool, seg in _split_markdown_tool_calls(text):
+                    if is_tool:
+                        title, code, lang = _markdown_tool_renderable(seg)
                         yield Collapsible(
                             Static(Syntax(code, lang, theme="ansi_dark")),
                             title=title,
