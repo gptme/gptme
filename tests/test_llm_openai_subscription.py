@@ -26,10 +26,14 @@ class _FakeSSEStreamResponse:
         self.status_code = 200
         self.text = ""
         self._events = events
+        self.closed = False
 
     def iter_lines(self) -> Iterator[bytes]:
         for event in self._events:
             yield f"data: {json.dumps(event)}".encode()
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def _run_stream(events: list[dict[str, Any]]) -> str:
@@ -346,10 +350,14 @@ class _TimeoutThenEventsResponse:
     def __init__(self) -> None:
         self.status_code = 200
         self.text = ""
+        self.closed = False
 
     def iter_lines(self) -> Iterator[bytes]:
         raise requests.exceptions.ReadTimeout("read timeout=600")
         yield b""  # pragma: no cover — makes this a generator
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _EventThenTimeoutResponse:
@@ -358,10 +366,14 @@ class _EventThenTimeoutResponse:
     def __init__(self) -> None:
         self.status_code = 200
         self.text = ""
+        self.closed = False
 
     def iter_lines(self) -> Iterator[bytes]:
         yield f"data: {json.dumps({'type': 'response.output_text.delta', 'delta': 'partial'})}".encode()
         raise requests.exceptions.ReadTimeout("read timeout=600")
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def test_stream_retries_idle_timeout_before_first_event():
@@ -511,3 +523,65 @@ def test_stream_captures_usage_without_cache_fields():
     assert usage.get("output_tokens") == 75
     assert "cache_read_tokens" not in usage
     assert "cache_creation_tokens" not in usage
+
+
+def test_stream_closes_response_after_done_event():
+    """response.close() must be called when the done event is received.
+
+    Regression test for SIGSEGV (status=139) on interpreter teardown: a
+    streaming requests.Response keeps its SSL socket open until explicitly
+    closed.  If we return from _sse_events() without calling close(), the
+    socket lingers in urllib3's pool and can SIGSEGV when _ssl is finalized
+    during Python shutdown before the pool is torn down.
+    """
+    auth = _make_auth()
+    response = _FakeSSEStreamResponse(
+        [
+            {"type": "response.output_text.delta", "delta": "Hi."},
+            {"type": "response.done"},
+        ]
+    )
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch("gptme.llm.llm_openai_subscription.requests.post", return_value=response),
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.4"
+            )
+        )
+
+    assert response.closed, "response.close() must be called after the done event"
+
+
+def test_stream_closes_response_on_retry():
+    """The old response must be closed before opening the retry request.
+
+    Without this, the abandoned SSL socket lingers until interpreter teardown,
+    which can SIGSEGV when _ssl is finalized before urllib3 pools are GC'd.
+    """
+    auth = _make_auth()
+    timed_out = _TimeoutThenEventsResponse()
+    ok = _FakeSSEStreamResponse(
+        [
+            {"type": "response.output_text.delta", "delta": "Done."},
+            {"type": "response.done"},
+        ]
+    )
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            side_effect=[timed_out, ok],
+        ),
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert timed_out.closed, "timed-out response must be closed before retry"
+    assert ok.closed, "final response must be closed after done event"

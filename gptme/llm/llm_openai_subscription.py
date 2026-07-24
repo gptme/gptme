@@ -592,35 +592,46 @@ def stream(
         attempts = 0
         yielded_any = False
         response = _open_response()
-        while True:
-            try:
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    data = _parse_sse_response(line)
-                    if data is None:
-                        continue
-                    if data.get("done"):
-                        return
-                    yielded_any = True
-                    yield data
-                return
-            except (
-                requests.exceptions.Timeout,
-                requests.exceptions.ConnectionError,
-                requests.exceptions.ChunkedEncodingError,
-            ) as e:
-                if yielded_any or attempts >= max_stream_retries:
-                    raise
-                attempts += 1
-                logger.warning(
-                    "Subscription stream idle/dropped before first event (%s); "
-                    "retrying (%d/%d)",
-                    e,
-                    attempts,
-                    max_stream_retries,
-                )
-                response = _open_response()
+        try:
+            while True:
+                try:
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        data = _parse_sse_response(line)
+                        if data is None:
+                            continue
+                        if data.get("done"):
+                            return
+                        yielded_any = True
+                        yield data
+                    return
+                except (
+                    requests.exceptions.Timeout,
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.ChunkedEncodingError,
+                ) as e:
+                    # Close before rebinding so the abandoned SSL socket is
+                    # released immediately rather than at interpreter teardown.
+                    response.close()
+                    if yielded_any or attempts >= max_stream_retries:
+                        raise
+                    attempts += 1
+                    logger.warning(
+                        "Subscription stream idle/dropped before first event (%s); "
+                        "retrying (%d/%d)",
+                        e,
+                        attempts,
+                        max_stream_retries,
+                    )
+                    response = _open_response()
+        finally:
+            # Runs on every exit path: normal return, exception, or GeneratorExit
+            # when _stream_responses_events breaks early on response.done.
+            # Without this the streaming SSL socket lingers until interpreter
+            # teardown and can SIGSEGV when _ssl is finalized out-of-order
+            # (status=139, recurring in PM canary with gpt-5.6-sol).
+            response.close()
 
     _usage_holder: list[Any] = []
 
