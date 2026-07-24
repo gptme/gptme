@@ -57,6 +57,7 @@ from ..logmanager import LogManager
 from ..message import Message
 from ..tools import ToolFormat, ToolUse
 from ..tools.base import ToolUse as ToolUseType
+from ..tools.base import get_tool_format
 from ..tools.complete import SessionCompleteException
 from ..util.content import is_message_command
 from ..util.context import include_paths
@@ -85,6 +86,9 @@ def _summarize(content: str, maxlen: int = 80) -> str:
 _THINK_RE = re.compile(r"<think(?:ing)?>(.*?)</think(?:ing)?>", re.DOTALL)
 _THINK_SIG_RE = re.compile(r"<!--\s*think-sig:.*?-->\s*", re.DOTALL)
 
+# Matches the `tool` format: @tool_name(call_id): {...json...} on a single line
+_TOOL_CALL_RE = re.compile(r"^(@(\w+)\([^)]*\)):\s*(\{[^\n]+\})", re.MULTILINE)
+
 
 def _split_thinking(content: str) -> list[tuple[bool, str]]:
     """Split message content into (is_thinking, text) segments.
@@ -106,6 +110,49 @@ def _split_thinking(content: str) -> list[tuple[bool, str]]:
     if tail.strip():
         segments.append((False, tail))
     return segments
+
+
+def _split_tool_calls(text: str) -> list[tuple[bool, str]]:
+    """Split a text block into (is_toolcall, segment) pairs.
+
+    Detects ``@tool_name(call_id): {...}`` lines emitted by the ``tool``
+    format so they can be rendered as collapsible blocks instead of raw JSON.
+    """
+    segments: list[tuple[bool, str]] = []
+    last_end = 0
+    for m in _TOOL_CALL_RE.finditer(text):
+        before = text[last_end : m.start()]
+        if before.strip():
+            segments.append((False, before))
+        segments.append((True, m.group(0)))
+        last_end = m.end()
+    tail = text[last_end:]
+    if tail.strip():
+        segments.append((False, tail))
+    return segments or [(False, text)]
+
+
+def _tool_call_renderable(call_text: str) -> tuple[str, str, str]:
+    """Parse a tool-format line into (title, code, lang) for a Collapsible."""
+    import json  # local import — json not used elsewhere in this module
+
+    m = _TOOL_CALL_RE.match(call_text.strip())
+    if not m:
+        return call_text, call_text, "text"
+    tool_name = m.group(2)
+    json_body = m.group(3)
+    try:
+        args = json.loads(json_body)
+        code: str = args.get("code") or args.get("command") or json_body
+    except Exception:
+        code = json_body
+    first_line = code.split("\n")[0].strip()
+    if len(first_line) > 55:
+        first_line = first_line[:54] + "…"
+    suffix = "…" if ("\n" in code or len(code) > 60) else ""
+    title = f"▶ {tool_name}: {first_line}{suffix}" if first_line else f"▶ {tool_name}"
+    lang = "python" if tool_name in ("ipython", "python") else "bash"
+    return title, code, lang
 
 
 class UserMessage(Vertical):
@@ -130,20 +177,35 @@ class AssistantMessage(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static(Text("Assistant"), classes="role")
-        segments = _split_thinking(self.content)
-        if not any(is_think for is_think, _ in segments):
+        think_segs = _split_thinking(self.content)
+        has_thinking = any(is_think for is_think, _ in think_segs)
+        has_tool_calls = any(
+            not is_think and bool(_TOOL_CALL_RE.search(text))
+            for is_think, text in think_segs
+        )
+        if not has_thinking and not has_tool_calls:
             yield Markdown(self.content)
-        else:
-            for is_think, text in segments:
-                if is_think:
-                    yield Collapsible(
-                        Markdown(text),
-                        title="Thinking",
-                        collapsed=True,
-                        classes="thinking-block",
-                    )
-                elif text.strip():
-                    yield Markdown(text)
+            return
+        for is_think, text in think_segs:
+            if is_think:
+                yield Collapsible(
+                    Markdown(text),
+                    title="Thinking",
+                    collapsed=True,
+                    classes="thinking-block",
+                )
+            else:
+                for is_tool, seg in _split_tool_calls(text):
+                    if is_tool:
+                        title, code, lang = _tool_call_renderable(seg)
+                        yield Collapsible(
+                            Static(Syntax(code, lang, theme="ansi_dark")),
+                            title=title,
+                            collapsed=True,
+                            classes="tool-call-block",
+                        )
+                    elif seg.strip():
+                        yield Markdown(seg)
 
 
 class SystemMessage(Vertical):
@@ -1049,6 +1111,8 @@ class GptmeApp(App):
             sys.stdin = real_stdin
 
         self._model = self._chat_ctx.run(get_default_model)
+        # Sync tool format — /model may have called set_tool_format()
+        self.tool_format = get_tool_format()
         if self.manager.log.messages != before:
             # command changed the log (undo, appended messages, …): re-render
             self._rebuild_chat()

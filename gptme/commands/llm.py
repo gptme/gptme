@@ -75,6 +75,13 @@ def cmd_model(ctx: CommandContext) -> None:
         chat_config.model = new_model
         chat_config.save()
         print(f"Set model to {new_model}")
+        # Auto-update tool format when the new model prefers a different one
+        model_meta = get_default_model()
+        if model_meta and model_meta.default_tool_format:
+            from ..tools.base import set_tool_format  # fmt: skip
+
+            set_tool_format(model_meta.default_tool_format)
+            print(f"Switched tool format to '{model_meta.default_tool_format}'")
     else:
         model = get_default_model()
         if not model:
