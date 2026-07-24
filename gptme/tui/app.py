@@ -13,7 +13,11 @@ import logging
 import os.path
 import re
 import sys
-import termios
+
+try:
+    import termios
+except ImportError:
+    termios = None  # type: ignore[assignment]
 import threading
 from pathlib import Path
 from typing import IO, cast
