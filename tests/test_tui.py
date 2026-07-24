@@ -21,8 +21,10 @@ from gptme.tui.app import (
     ToolPlaceholder,
     UserMessage,
     _append_pt_history,
+    _has_tool_calls,
     _load_pt_history,
     _markdown_tool_renderable,
+    _split_all_tool_calls,
     _split_markdown_tool_calls,
     _split_thinking,
     _split_tool_calls,
@@ -1063,4 +1065,117 @@ def test_renderables_for_message_inline_multiple_xml_invokes():
     panels = [r for r in renderables if isinstance(r, Panel)]
     assert len(panels) == 2, (
         f"expected 2 Panels for 2-invoke XML block, got {len(panels)}"
+    )
+
+
+# --- _split_all_tool_calls / mixed-format tests ---
+
+
+def test_split_all_tool_calls_pure_tool_format():
+    """@tool-only segment returns (True, 'tool', seg) for the tool call."""
+    content = '@shell(abc): {"command": "ls"}'
+    result = _split_all_tool_calls(content)
+    tool_segs = [(fmt, seg) for is_t, fmt, seg in result if is_t]
+    assert len(tool_segs) == 1
+    assert tool_segs[0][0] == "tool"
+
+
+def test_split_all_tool_calls_pure_xml():
+    """XML-only segment returns (True, 'xml', seg)."""
+    content = (
+        '<function_calls>\n<invoke name="shell">\nls\n</invoke>\n</function_calls>'
+    )
+    result = _split_all_tool_calls(content)
+    tool_segs = [(fmt, seg) for is_t, fmt, seg in result if is_t]
+    assert len(tool_segs) == 1
+    assert tool_segs[0][0] == "xml"
+
+
+def test_split_all_tool_calls_pure_markdown():
+    """Markdown codeblock tool call returns (True, 'markdown', seg)."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    content = "```ipython\nprint(1)\n```"
+    result = _split_all_tool_calls(content)
+    tool_segs = [(fmt, seg) for is_t, fmt, seg in result if is_t]
+    assert len(tool_segs) == 1, f"expected 1 tool seg, got: {result}"
+    assert tool_segs[0][0] == "markdown"
+
+
+def test_split_all_tool_calls_mixed_tool_and_xml():
+    """A segment with both @tool and XML tool calls detects both."""
+    content = (
+        '@shell(abc): {"command": "ls"}\n'
+        "Some prose.\n"
+        '<function_calls>\n<invoke name="ipython">\nprint(1)\n</invoke>\n</function_calls>'
+    )
+    result = _split_all_tool_calls(content)
+    formats = [fmt for is_t, fmt, _ in result if is_t]
+    assert "tool" in formats, "expected @tool format to be detected"
+    assert "xml" in formats, "expected XML format to be detected in prose segment"
+
+
+def test_split_all_tool_calls_mixed_xml_and_markdown():
+    """A segment with both XML and markdown tool calls detects both."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    content = (
+        '<function_calls>\n<invoke name="shell">\nls\n</invoke>\n</function_calls>\n'
+        "Some prose.\n"
+        "```ipython\nprint(2)\n```"
+    )
+    result = _split_all_tool_calls(content)
+    formats = [fmt for is_t, fmt, _ in result if is_t]
+    assert "xml" in formats, "expected XML format to be detected"
+    assert "markdown" in formats, "expected markdown format to be detected in prose"
+
+
+def test_has_tool_calls_detects_all_formats():
+    """_has_tool_calls returns True for each of the three formats."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    assert _has_tool_calls('@shell(x): {"command": "ls"}')
+    assert _has_tool_calls(
+        '<function_calls>\n<invoke name="shell">\nls\n</invoke>\n</function_calls>'
+    )
+    assert _has_tool_calls("```ipython\nprint(1)\n```")
+    assert not _has_tool_calls("Just plain prose with no tool calls.")
+
+
+@pytest.mark.asyncio
+async def test_assistant_message_mixed_tool_and_xml(tmp_path):
+    """AssistantMessage renders both @tool and XML tool calls as Collapsibles."""
+    content = (
+        '@shell(abc): {"command": "ls"}\n'
+        "Some text.\n"
+        '<function_calls>\n<invoke name="ipython">\nprint(1)\n</invoke>\n</function_calls>'
+    )
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        widget = AssistantMessage(content)
+        await app.mount(widget)
+        await pilot.pause()
+        collapsibles = widget.query(Collapsible)
+        assert len(collapsibles) >= 2, (
+            f"expected ≥2 Collapsibles for mixed @tool+XML content, got {len(collapsibles)}"
+        )
+
+
+def test_renderables_for_message_mixed_formats():
+    """renderables_for_message emits Panels for both @tool and XML tool calls."""
+    from rich.panel import Panel
+
+    content = (
+        '@shell(abc): {"command": "ls"}\n'
+        "Some prose.\n"
+        '<function_calls>\n<invoke name="ipython">\nprint(1)\n</invoke>\n</function_calls>'
+    )
+    msg = Message("assistant", content)
+    renderables = renderables_for_message(msg)
+    panels = [r for r in renderables if isinstance(r, Panel)]
+    assert len(panels) >= 2, (
+        f"expected ≥2 Panels for mixed @tool+XML content, got {len(panels)}"
     )

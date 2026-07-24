@@ -274,6 +274,39 @@ def _xml_tool_renderables(segment: str) -> list[tuple[str, str, str]]:
     return result
 
 
+def _split_all_tool_calls(text: str) -> list[tuple[bool, str, str]]:
+    """Split *text* on all three tool-call formats in priority order.
+
+    Returns ``(is_tool, fmt, segment)`` triples where ``fmt`` is ``"tool"``,
+    ``"xml"``, ``"markdown"``, or ``"prose"``.  Non-tool prose from each
+    parser is fed into the next parser, so mixed-format segments are handled
+    correctly: e.g. a segment that contains both ``@tool`` calls and XML
+    ``<function_calls>`` blocks renders all of them as collapsibles.
+    """
+    out: list[tuple[bool, str, str]] = []
+    for is_t, seg1 in _split_tool_calls(text):
+        if is_t:
+            out.append((True, "tool", seg1))
+        else:
+            for is_x, seg2 in _split_xml_tool_calls(seg1):
+                if is_x:
+                    out.append((True, "xml", seg2))
+                else:
+                    for is_m, seg3 in _split_markdown_tool_calls(seg2):
+                        if is_m:
+                            out.append((True, "markdown", seg3))
+                        elif seg3.strip():
+                            out.append((False, "prose", seg3))
+    return out or [(False, "prose", text)]
+
+
+def _has_tool_calls(text: str) -> bool:
+    """Return True if *text* contains any tool call in any supported format."""
+    if _TOOL_CALL_RE.search(text) or _XML_TOOLUSE_RE.search(text):
+        return True
+    return any(is_tool for is_tool, _ in _split_markdown_tool_calls(text))
+
+
 class UserMessage(Vertical):
     """A user message, rendered with a distinct border."""
 
@@ -298,12 +331,6 @@ class AssistantMessage(Vertical):
         yield Static(Text("Assistant"), classes="role")
         think_segs = _split_thinking(self.content)
         has_thinking = any(is_think for is_think, _ in think_segs)
-
-        def _has_tool_calls(text: str) -> bool:
-            if _TOOL_CALL_RE.search(text) or _XML_TOOLUSE_RE.search(text):
-                return True
-            return any(is_tool for is_tool, _ in _split_markdown_tool_calls(text))
-
         has_tool_calls = any(
             not is_think and _has_tool_calls(text) for is_think, text in think_segs
         )
@@ -320,9 +347,11 @@ class AssistantMessage(Vertical):
                     collapsed=True,
                     classes="thinking-block",
                 )
-            elif _TOOL_CALL_RE.search(text):
-                for is_tool, seg in _split_tool_calls(text):
-                    if is_tool:
+            else:
+                for is_tool, fmt, seg in _split_all_tool_calls(text):
+                    if not is_tool:
+                        yield Markdown(seg)
+                    elif fmt == "tool":
                         title, code, lang = _tool_call_renderable(seg)
                         yield Collapsible(
                             Static(Syntax(code, lang, theme="ansi_dark")),
@@ -330,11 +359,7 @@ class AssistantMessage(Vertical):
                             collapsed=True,
                             classes="tool-call-block",
                         )
-                    elif seg.strip():
-                        yield Markdown(seg)
-            elif _XML_TOOLUSE_RE.search(text):
-                for is_tool, seg in _split_xml_tool_calls(text):
-                    if is_tool:
+                    elif fmt == "xml":
                         for title, code, lang in _xml_tool_renderables(seg):
                             yield Collapsible(
                                 Static(Syntax(code, lang, theme="ansi_dark")),
@@ -342,11 +367,7 @@ class AssistantMessage(Vertical):
                                 collapsed=True,
                                 classes="tool-call-block",
                             )
-                    elif seg.strip():
-                        yield Markdown(seg)
-            else:
-                for is_tool, seg in _split_markdown_tool_calls(text):
-                    if is_tool:
+                    else:  # markdown
                         title, code, lang = _markdown_tool_renderable(seg)
                         yield Collapsible(
                             Static(Syntax(code, lang, theme="ansi_dark")),
@@ -354,8 +375,6 @@ class AssistantMessage(Vertical):
                             collapsed=True,
                             classes="tool-call-block",
                         )
-                    elif seg.strip():
-                        yield Markdown(seg)
 
 
 class SystemMessage(Vertical):
@@ -468,16 +487,8 @@ def renderables_for_message(msg: Message, expanded: bool = False) -> list:
     if msg.role == "assistant":
         items: list = [Text("Assistant", style="bold blue")]
         think_segs = _split_thinking(content)
-
-        def _has_tool(t: str) -> bool:
-            return bool(
-                _TOOL_CALL_RE.search(t)
-                or _XML_TOOLUSE_RE.search(t)
-                or any(is_tool for is_tool, _ in _split_markdown_tool_calls(t))
-            )
-
         has_tool_calls = any(
-            not is_think and _has_tool(t) for is_think, t in think_segs
+            not is_think and _has_tool_calls(t) for is_think, t in think_segs
         )
         has_thinking = any(is_think for is_think, _ in think_segs)
 
@@ -489,9 +500,11 @@ def renderables_for_message(msg: Message, expanded: bool = False) -> list:
                     items.append(
                         Panel(RichMarkdown(text), title="Thinking", expand=False)
                     )
-                elif _TOOL_CALL_RE.search(text):
-                    for is_tool, seg in _split_tool_calls(text):
-                        if is_tool:
+                else:
+                    for is_tool, fmt, seg in _split_all_tool_calls(text):
+                        if not is_tool:
+                            items.append(Padding(RichMarkdown(seg), (0, 0, 0, 2)))
+                        elif fmt == "tool":
                             title, code, lang = _tool_call_renderable(seg)
                             items.append(
                                 Panel(
@@ -500,11 +513,7 @@ def renderables_for_message(msg: Message, expanded: bool = False) -> list:
                                     expand=False,
                                 )
                             )
-                        elif seg.strip():
-                            items.append(Padding(RichMarkdown(seg), (0, 0, 0, 2)))
-                elif _XML_TOOLUSE_RE.search(text):
-                    for is_tool, seg in _split_xml_tool_calls(text):
-                        if is_tool:
+                        elif fmt == "xml":
                             for title, code, lang in _xml_tool_renderables(seg):
                                 items.append(
                                     Panel(
@@ -513,11 +522,7 @@ def renderables_for_message(msg: Message, expanded: bool = False) -> list:
                                         expand=False,
                                     )
                                 )
-                        elif seg.strip():
-                            items.append(Padding(RichMarkdown(seg), (0, 0, 0, 2)))
-                else:
-                    for is_tool, seg in _split_markdown_tool_calls(text):
-                        if is_tool:
+                        else:  # markdown
                             title, code, lang = _markdown_tool_renderable(seg)
                             items.append(
                                 Panel(
@@ -526,8 +531,6 @@ def renderables_for_message(msg: Message, expanded: bool = False) -> list:
                                     expand=False,
                                 )
                             )
-                        elif seg.strip():
-                            items.append(Padding(RichMarkdown(seg), (0, 0, 0, 2)))
         items.append(Text())
         return items
     # system/tool output: compact summary line, optionally expanded
