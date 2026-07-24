@@ -23,6 +23,7 @@ from gptme.util.gh import (
     parse_github_url,
     search_github_issues,
     search_github_prs,
+    transform_github_url,
 )
 
 
@@ -54,6 +55,44 @@ def test_parse_github_url_invalid():
     """Test parsing non-GitHub URLs."""
     assert parse_github_url("https://example.com") is None
     assert parse_github_url("https://github.com/owner") is None
+
+
+# --- Tests for transform_github_url ---
+
+
+def test_transform_github_url_branch():
+    assert (
+        transform_github_url("https://github.com/o/r/blob/main/src/app.py")
+        == "https://github.com/o/r/raw/main/src/app.py"
+    )
+
+
+def test_transform_github_url_keeps_tags_and_shas_intact():
+    """A tag or commit SHA must be left as the ref.
+
+    Prefixing ``refs/heads/`` only resolves for branches; on a tag or a SHA
+    the raw endpoint 404s. GitHub permalinks are SHA-based, so this is the
+    common case.
+    """
+    assert (
+        transform_github_url("https://github.com/o/r/blob/v2.31.0/README.md")
+        == "https://github.com/o/r/raw/v2.31.0/README.md"
+    )
+    sha = "a" * 40
+    assert (
+        transform_github_url(f"https://github.com/o/r/blob/{sha}/f.txt")
+        == f"https://github.com/o/r/raw/{sha}/f.txt"
+    )
+
+
+def test_transform_github_url_leaves_other_urls_unchanged():
+    assert (
+        transform_github_url("https://github.com/o/r/pull/42")
+        == "https://github.com/o/r/pull/42"
+    )
+    assert transform_github_url("https://example.com/x/blob/y") == (
+        "https://example.com/x/blob/y"
+    )
 
 
 # --- Tests for parse_github_ref ---

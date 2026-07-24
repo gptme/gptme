@@ -292,12 +292,17 @@ def transform_github_url(url: str) -> str:
     Transform GitHub blob URLs to raw URLs to get file content without UI.
 
     Transforms:
-    https://github.com/{owner}/{repo}/blob/{branch}/{path}
+    https://github.com/{owner}/{repo}/blob/{ref}/{path}
     to:
-    https://github.com/{owner}/{repo}/raw/refs/heads/{branch}/{path}
+    https://github.com/{owner}/{repo}/raw/{ref}/{path}
+
+    ``ref`` may be a branch, a tag, or a commit SHA. The raw endpoint resolves
+    all three, so the ref is kept as-is; forcing ``refs/heads/`` in front of it
+    only works for branches and 404s on tags and SHAs (GitHub permalinks are
+    SHA-based, so those are common).
     """
     if "/blob/" in url and "github.com" in url:
-        return url.replace("/blob/", "/raw/refs/heads/")
+        return url.replace("/blob/", "/raw/")
     return url
 
 
