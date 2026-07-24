@@ -507,3 +507,27 @@ def test_is_interactive_mode():
     # (This test runs outside the normal CLI context)
     result = _is_interactive_mode()
     assert isinstance(result, bool)
+
+
+def test_is_interactive_mode_false_inside_event_loop():
+    """_is_interactive_mode() must return False inside a running asyncio loop.
+
+    This is the root cause of the TUI crash: the TUI's Textual event loop is
+    already running when include_paths() is called, so prompt_toolkit's sync
+    Application.run() would crash with
+    'RuntimeWarning: coroutine Application.run_async was never awaited'.
+    Returning False makes include_paths() skip the interactive URL-confirm
+    prompt and fetch URLs automatically instead.
+    """
+    import asyncio
+
+    from gptme.util.context import _is_interactive_mode
+
+    async def _check():
+        return _is_interactive_mode()
+
+    result = asyncio.run(_check())
+    assert result is False, (
+        "_is_interactive_mode() must return False inside a running event loop "
+        "to avoid crashing the Textual TUI"
+    )

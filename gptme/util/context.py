@@ -38,8 +38,20 @@ def _is_interactive_mode() -> bool:
     """Check if we're in interactive CLI mode.
 
     Returns True if the cli_confirm hook is registered, indicating
-    interactive mode with confirmation enabled.
+    interactive mode with confirmation enabled. Returns False if called
+    from inside a running asyncio event loop (e.g. the Textual TUI),
+    because prompt_toolkit's sync prompts crash in that context.
     """
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+        # Inside a running event loop (e.g. Textual TUI); prompt_toolkit
+        # sync Application.run() is not safe here.
+        return False
+    except RuntimeError:
+        pass  # No running loop — safe for interactive prompts
+
     try:
         from ..hooks import HookType, get_hooks
 
