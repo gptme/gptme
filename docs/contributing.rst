@@ -6,6 +6,10 @@ We welcome contributions to the project. Here is some information to get you sta
 .. note::
     This document is a work in progress. PRs are welcome.
 
+Looking to **add a new LLM provider**? See :doc:`provider-integration` for the
+dedicated guide covering plugin packages, custom provider configs, and built-in
+provider PRs.
+
 Install
 -------
 

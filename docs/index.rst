@@ -36,6 +36,8 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    tui
    config
    providers
+   providers-custom
+   provider-integration
    model-routing
    security
 
