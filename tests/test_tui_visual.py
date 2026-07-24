@@ -95,6 +95,35 @@ def _check_no_gray_rects(svg: str, label: str) -> None:
     )
 
 
+def _italic_cell_classes(svg: str) -> list[str]:
+    """Return terminal cell CSS class names that apply italic font-style.
+
+    Textual encodes per-cell styling as ``.terminal-HASH-rN { fill: #color }``
+    rules in the SVG ``<style>`` block.  Italic text adds ``font-style: italic``
+    to those rules.  The ``@font-face`` declarations also contain ``font-style``
+    descriptors (``normal`` / ``bold``) but never ``italic``, so a match here
+    always indicates actual italic content styling.
+    """
+    style_match = re.search(r"<style>(.*?)</style>", svg, re.DOTALL)
+    if not style_match:
+        return []
+    return re.findall(
+        r"(\.terminal-[^{]+)\{[^}]*font-style:\s*italic[^}]*\}",
+        style_match.group(1),
+    )
+
+
+def _check_no_italic_text(svg: str, label: str) -> None:
+    """Fail if any terminal cell class applies italic font-style (regression #3340)."""
+    italic_classes = _italic_cell_classes(svg)
+    assert not italic_classes, (
+        f"{label}: italic font-style detected on terminal cell class(es) in SVG: "
+        f"{italic_classes!r}. This may be a regression of the italic "
+        "CollapsibleTitle bug (see gptme#3340). Check that 'text-style: italic' "
+        "is not applied to content-area elements in app.tcss / GptmeApp CSS."
+    )
+
+
 def _snapshot_check(name: str, svg: str, *, update: bool) -> None:
     path = SNAPSHOT_DIR / f"{name}.svg"
     normalized = _normalize_svg(svg)
@@ -142,6 +171,7 @@ async def test_idle_state_no_gray_background(tmp_path):
         await pilot.pause()
         svg = app.export_screenshot()
     _check_no_gray_rects(svg, "idle state")
+    _check_no_italic_text(svg, "idle state")
 
 
 @pytest.mark.asyncio
@@ -154,6 +184,7 @@ async def test_stream_state_no_gray_background(tmp_path):
         await pilot.pause()
         svg = app.export_screenshot()
     _check_no_gray_rects(svg, "streaming state")
+    _check_no_italic_text(svg, "streaming state")
 
 
 @pytest.mark.asyncio
@@ -164,6 +195,7 @@ async def test_inline_mode_no_gray_background(tmp_path):
         await pilot.pause()
         svg = app.export_screenshot()
     _check_no_gray_rects(svg, "inline mode")
+    _check_no_italic_text(svg, "inline mode")
 
 
 @pytest.mark.asyncio
