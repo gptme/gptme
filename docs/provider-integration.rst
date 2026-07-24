@@ -121,7 +121,7 @@ Required ProviderPlugin fields
 +------------------+----------+-------------------------------------------------------+
 | ``models``       | No       | List of ``ModelMeta`` objects (empty = 128k fallback) |
 +------------------+----------+-------------------------------------------------------+
-| ``init``         | No       | ``(Config) -> None`` — custom auth, must register     |
+| ``init``         | No       | ``(Config) -> None`` - custom auth, must register     |
 |                  |          | an OpenAI client before returning                     |
 +------------------+----------+-------------------------------------------------------+
 
@@ -138,7 +138,7 @@ gptme uses them to route requests correctly and render UI hints.
 +---------------------------------------+----------+---------------------------------------------+
 | Field                                 | Default  | When to set ``True``                        |
 +=======================================+==========+=============================================+
-| ``context``                           | —        | **Required.** Max context window (tokens)   |
+| ``context``                           | -        | **Required.** Max context window (tokens)   |
 +---------------------------------------+----------+---------------------------------------------+
 | ``max_output``                        | ``None`` | Max tokens the model returns (if capped)    |
 +---------------------------------------+----------+---------------------------------------------+
