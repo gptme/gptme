@@ -206,7 +206,18 @@ def _split_markdown_tool_calls(content: str) -> list[tuple[bool, str]]:
             segments.append((True, cb_text))
             # Skip: 1 opening-fence line + N content lines + 1 closing-fence line
             n_content = len(cb.content.splitlines()) if cb.content else 0
-            i += 2 + n_content
+            closing_line_idx = i + 1 + n_content
+            # When the closing fence is also an adjacent opening fence (e.g. ``````lang),
+            # _extract_codeblocks normalizes it in-place and keeps start_line pointing at
+            # that same raw line. Don't advance past it so the next block can be matched.
+            adjacent_opening = (
+                closing_line_idx < len(lines)
+                and lines[closing_line_idx].startswith(cb.fence)
+                and bool(
+                    re.match(r"^`{3,}\S", lines[closing_line_idx][len(cb.fence) :])
+                )
+            )
+            i = closing_line_idx if adjacent_opening else closing_line_idx + 1
         else:
             prose_lines.append(lines[i])
             i += 1

@@ -964,6 +964,23 @@ def test_split_markdown_tool_calls_preserves_prose():
     assert any("After" in s for s in prose_segs)
 
 
+def test_split_markdown_tool_calls_adjacent_fences():
+    """Adjacent close+open fences (``````lang) yield two separate tool segments."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    # Model emits closing fence immediately followed by opening fence on same line:
+    # ``````shell instead of ```\n```shell
+    content = "```shell\necho hello\n``````shell\necho world\n```"
+    segments = _split_markdown_tool_calls(content)
+    tool_segs = [seg for is_tool, seg in segments if is_tool]
+    assert len(tool_segs) == 2, (
+        f"expected 2 tool segments but got {len(tool_segs)}: {segments}"
+    )
+    assert any("echo hello" in seg for seg in tool_segs)
+    assert any("echo world" in seg for seg in tool_segs)
+
+
 def test_markdown_tool_renderable_extracts_name_and_code():
     """_markdown_tool_renderable returns a collapsible-ready (title, code, lang) tuple."""
     from gptme.tools import init_tools
