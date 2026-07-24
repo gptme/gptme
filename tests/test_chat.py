@@ -143,29 +143,23 @@ def test_include_paths_not_disabled_by_falsy_env_var(tmp_path, monkeypatch, fals
 
 
 def test_is_interactive_mode_false_inside_async_loop():
-    """_is_interactive_mode() must return False inside a running event loop.
-
-    Calling prompt_toolkit's sync PromptSession.prompt() from within an async
-    event loop (e.g. Textual TUI) crashes with:
-        RuntimeWarning: coroutine 'Application.run_async' was never awaited
-    The fix: detect the running loop and return False so URL confirmation is
-    skipped instead of attempting a blocking prompt_toolkit call.
-    """
+    """A running event loop must override the registered interactive CLI hook."""
     import asyncio
 
+    from gptme.hooks import HookType, register_hook, unregister_hook
+    from gptme.hooks.cli_confirm import cli_confirm_hook
     from gptme.util.context import _is_interactive_mode
 
-    result = None
+    register_hook("cli_confirm", HookType.TOOL_CONFIRM, cli_confirm_hook)
+    try:
+        assert _is_interactive_mode() is True
 
-    async def _check():
-        nonlocal result
-        result = _is_interactive_mode()
+        async def _check():
+            assert _is_interactive_mode() is False
 
-    asyncio.run(_check())
-    assert result is False, (
-        "_is_interactive_mode() must return False inside a running event loop "
-        "to prevent prompt_toolkit crashes in the Textual TUI"
-    )
+        asyncio.run(_check())
+    finally:
+        unregister_hook("cli_confirm", HookType.TOOL_CONFIRM)
 
 
 def test_include_paths_skips_system_messages():
