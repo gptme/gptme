@@ -19,6 +19,7 @@ import pytest
 pytest.importorskip("textual")
 
 from gptme.logmanager import LogManager
+from gptme.message import Message
 from gptme.tui.app import GptmeApp
 
 SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
@@ -196,6 +197,27 @@ async def test_inline_mode_no_gray_background(tmp_path):
         svg = app.export_screenshot()
     _check_no_gray_rects(svg, "inline mode")
     _check_no_italic_text(svg, "inline mode")
+
+
+@pytest.mark.asyncio
+async def test_thinking_title_no_italic_text(tmp_path):
+    """Thinking-block title must not render italic text (regression #3340)."""
+    manager = LogManager(
+        [
+            Message(
+                "assistant",
+                "<think>step-by-step reasoning</think>\n\nFinal answer.",
+            )
+        ],
+        logdir=tmp_path / "conv",
+        lock=False,
+    )
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test(size=TERM_SIZE) as pilot:
+        await pilot.pause()
+        svg = app.export_screenshot()
+    assert "Thinking" in svg
+    _check_no_italic_text(svg, "thinking-block title")
 
 
 @pytest.mark.asyncio
