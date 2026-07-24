@@ -339,8 +339,17 @@ Streaming
 ~~~~~~~~~~
 
 All built-in gptme providers stream by default.  If your endpoint does not
-support streaming, set ``supports_streaming=False`` in ``ModelMeta`` and
-ensure your ``init`` disables it in the client config.
+support streaming, set ``supports_streaming=False`` in ``ModelMeta`` — this
+disables streaming-related UI hints and capability checks.
+
+.. note::
+
+   gptme's OpenAI-compatible request path currently sends ``stream=True``
+   regardless of the ``supports_streaming`` flag.  If your endpoint rejects
+   streaming requests, configure a proxy layer that converts streaming calls
+   to blocking responses, or `open an issue
+   <https://github.com/gptme/gptme/issues>`_ to add native non-streaming
+   support.
 
 Vision inputs
 ~~~~~~~~~~~~~~

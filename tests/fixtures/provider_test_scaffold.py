@@ -67,7 +67,13 @@ PROVIDER = ProviderPlugin(
 
 
 def _make_entry_point(plugin: ProviderPlugin) -> MagicMock:
-    """Return a mock entry point that loads *plugin*."""
+    """Return a mock entry point that loads *plugin*.
+
+    Note: this validates the in-memory plugin wiring only. It does NOT verify
+    that the entry-point name or import target declared in your pyproject.toml
+    match the installed package. Test that separately by installing the package
+    and running ``importlib.metadata.entry_points(group="gptme.providers")``.
+    """
     ep = MagicMock(spec=importlib.metadata.EntryPoint)
     ep.name = plugin.name
     ep.load.return_value = plugin
@@ -254,6 +260,7 @@ class TestRequestRouting:
 # ── 6. Live smoke test (skipped unless --live flag / env var set) ─────────────
 
 
+@pytest.mark.requires_api
 @pytest.mark.skipif(
     not __import__("os").getenv(API_KEY_ENV),
     reason=f"{API_KEY_ENV} env var not set — skipping live API test",
