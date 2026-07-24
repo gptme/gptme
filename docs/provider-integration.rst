@@ -156,7 +156,7 @@ gptme uses them to route requests correctly and render UI hints.
 +---------------------------------------+----------+---------------------------------------------+
 | ``pricing_type``                      | per_token| ``"subscription"`` for flat-rate plans      |
 +---------------------------------------+----------+---------------------------------------------+
-| ``price_input`` / ``price_output``    | 0        | USD per 1M tokens (0 = free/subscription)  |
+| ``price_input`` / ``price_output``    | 0        | USD per 1M tokens (0 = free/subscription)   |
 +---------------------------------------+----------+---------------------------------------------+
 
 
