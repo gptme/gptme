@@ -13,12 +13,12 @@ Then replace:
 All tests here run *without* hitting the real API — they mock the OpenAI client
 layer.  Before publishing, also run a live smoke test::
 
-    ACME_API_KEY="sk-..." pytest tests/ -m live -v
+    ACME_API_KEY="sk-..." GPTME_RUN_LIVE_TESTS=1 pytest tests/ -m live -v
 
 Usage with pytest::
 
     pytest tests/test_my_provider.py -v
-    pytest tests/test_my_provider.py -m live -v   # requires real API key
+    GPTME_RUN_LIVE_TESTS=1 pytest tests/test_my_provider.py -m live -v   # requires real API key
 """
 
 from __future__ import annotations
@@ -260,19 +260,22 @@ class TestRequestRouting:
 # ── 6. Live smoke test (skipped unless --live flag / env var set) ─────────────
 
 
-@pytest.mark.requires_api
+@pytest.mark.live
 @pytest.mark.skipif(
-    not __import__("os").getenv(API_KEY_ENV),
-    reason=f"{API_KEY_ENV} env var not set — skipping live API test",
+    not (
+        __import__("os").getenv(API_KEY_ENV)
+        and __import__("os").getenv("GPTME_RUN_LIVE_TESTS")
+    ),
+    reason=f"Set {API_KEY_ENV} and GPTME_RUN_LIVE_TESTS=1 to run live API tests",
 )
 class TestLiveAPI:
     """Optional smoke test that hits the real API.
 
-    Run with::
+    Requires BOTH the API key AND explicit opt-in to avoid unexpected charges::
 
-        {API_KEY_ENV}="sk-..." pytest tests/ -v
+        {API_KEY_ENV}="sk-..." GPTME_RUN_LIVE_TESTS=1 pytest tests/ -m live -v
 
-    These tests are skipped automatically when the env var is absent.
+    These tests are skipped automatically unless both env vars are set.
     """
 
     def test_live_completion(self):

@@ -206,11 +206,12 @@ Run with:
     pytest tests/test_my_provider.py -v
 
 All tests in the scaffold run **without** hitting the real API — they mock the
-OpenAI client layer.  Before publishing, also run a live smoke test:
+OpenAI client layer.  Before publishing, also run a live smoke test.  Two env
+vars are required to prevent accidental API charges:
 
 .. code-block:: bash
 
-    ACME_API_KEY="sk-..." gptme 'say "hello" and nothing else' -m acme/turbo-v1
+    ACME_API_KEY="sk-..." GPTME_RUN_LIVE_TESTS=1 pytest tests/ -m live -v
 
 
 Unified Plugin System
@@ -338,18 +339,23 @@ startup and blocks all requests to your provider.
 Streaming
 ~~~~~~~~~~
 
-All built-in gptme providers stream by default.  If your endpoint does not
-support streaming, set ``supports_streaming=False`` in ``ModelMeta`` — this
-disables streaming-related UI hints and capability checks.
+All built-in gptme providers stream by default.  The ``supports_streaming``
+field in ``ModelMeta`` is a **metadata-only** flag — it affects UI hints and
+capability-check display, but does **not** change how the underlying OpenAI
+client path issues requests.  The transport currently sends ``stream=True``
+unconditionally.
 
-.. note::
+If your endpoint does not support streaming and rejects ``stream=True``:
 
-   gptme's OpenAI-compatible request path currently sends ``stream=True``
-   regardless of the ``supports_streaming`` flag.  If your endpoint rejects
-   streaming requests, configure a proxy layer that converts streaming calls
-   to blocking responses, or `open an issue
-   <https://github.com/gptme/gptme/issues>`_ to add native non-streaming
-   support.
+- Configure a proxy layer (e.g. Nginx, Caddy, or LiteLLM) that converts
+  streaming calls to blocking responses; or
+
+- `Open an issue <https://github.com/gptme/gptme/issues>`_ to request native
+  non-streaming support.
+
+Setting ``supports_streaming=False`` in ``ModelMeta`` documents the limitation
+and suppresses misleading UI streaming indicators, but will not prevent the
+``stream=True`` parameter from being sent to your endpoint.
 
 Vision inputs
 ~~~~~~~~~~~~~~
