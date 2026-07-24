@@ -27,6 +27,7 @@ from rich.control import Control
 from rich.markdown import Markdown as RichMarkdown
 from rich.markup import escape as markup_escape
 from rich.padding import Padding
+from rich.panel import Panel as RichPanel
 from rich.syntax import Syntax
 from rich.text import Text
 from textual import events
@@ -92,6 +93,23 @@ _THINK_SIG_RE = re.compile(r"<!--\s*think-sig:.*?-->\s*", re.DOTALL)
 _TOOL_CALL_RE = re.compile(
     r"^(@(\w+)\([^)]*\)):\s*(\{.*?\})(?=\n@\w+\([^)]*\):|\n|\Z)",
     re.MULTILINE | re.DOTALL,
+)
+
+# Matches markdown code fences: ```lang_tag\ncontent\n```.
+# Backreference \1 ensures the closing fence has the same backtick-count as
+# the opening fence (CommonMark variable-length fence support).
+_MD_FENCE_RE = re.compile(
+    r"^(`{3,})(\w[^\n]*)?\n([\s\S]*?)\n\1[ \t]*$",
+    re.MULTILINE,
+)
+
+# Matches XML-format tool calls emitted by gptme's `xml` ToolFormat:
+#   <tool-use><tool_name [args]>content</tool_name></tool-use>
+_XML_TOOL_RE = re.compile(r"<tool-use>[\s\S]*?</tool-use>")
+
+# Extracts the inner tool element from an XML tool-use block.
+_XML_INNER_RE = re.compile(
+    r"<tool-use>\s*<(\w+)(?:\s[^>]*)?>(?:\s*)([\s\S]*?)\s*</\1>\s*</tool-use>"
 )
 
 
@@ -160,6 +178,137 @@ def _tool_call_renderable(call_text: str) -> tuple[str, str, str]:
     return title, code, lang
 
 
+def _split_markdown_tool_calls(text: str) -> list[tuple[bool, str]]:
+    """Split a text block into (is_toolcall, segment) pairs for the markdown tool format.
+
+    Detects ``\\`\\`\\`tool_name\\ncontent\\n\\`\\`\\``` fences where the language tag
+    matches a known gptme tool, so they can be rendered as collapsible blocks.
+    """
+    from ..tools import get_tool_for_langtag
+
+    segments: list[tuple[bool, str]] = []
+    last_end = 0
+    for m in _MD_FENCE_RE.finditer(text):
+        lang = (m.group(2) or "").strip()
+        if not lang or not get_tool_for_langtag(lang):
+            continue  # not a known tool — leave as prose
+        before = text[last_end : m.start()]
+        if before.strip():
+            segments.append((False, before))
+        segments.append((True, m.group(0)))
+        last_end = m.end()
+    tail = text[last_end:]
+    if tail.strip():
+        segments.append((False, tail))
+    return segments or [(False, text)]
+
+
+def _split_xml_tool_calls(text: str) -> list[tuple[bool, str]]:
+    """Split a text block into (is_toolcall, segment) pairs for the xml tool format.
+
+    Detects ``<tool-use>...</tool-use>`` blocks emitted by gptme's XML ToolFormat.
+    """
+    segments: list[tuple[bool, str]] = []
+    last_end = 0
+    for m in _XML_TOOL_RE.finditer(text):
+        before = text[last_end : m.start()]
+        if before.strip():
+            segments.append((False, before))
+        segments.append((True, m.group(0)))
+        last_end = m.end()
+    tail = text[last_end:]
+    if tail.strip():
+        segments.append((False, tail))
+    return segments or [(False, text)]
+
+
+def _tool_call_renderable_from_markdown(call_text: str) -> tuple[str, str, str]:
+    """Parse a markdown-format tool call into (title, code, lang) for a Collapsible."""
+    m = _MD_FENCE_RE.search(call_text)
+    if not m:
+        return call_text, call_text, "text"
+    lang_tag = (m.group(2) or "").strip()
+    tool_name = lang_tag.split()[0] if lang_tag else "tool"
+    code = (m.group(3) or "").strip()
+    first_line = code.split("\n")[0].strip()
+    if len(first_line) > 55:
+        first_line = first_line[:54] + "…"
+    suffix = "…" if "\n" in code or len(code) > 60 else ""
+    title = f"▶ {tool_name}: {first_line}{suffix}" if first_line else f"▶ {tool_name}"
+    lang = "python" if tool_name in ("ipython", "python") else "bash"
+    return title, code, lang
+
+
+def _tool_call_renderable_from_xml(call_text: str) -> tuple[str, str, str]:
+    """Parse an XML-format tool call into (title, code, lang) for a Collapsible."""
+    m = _XML_INNER_RE.search(call_text)
+    if not m:
+        return call_text, call_text, "text"
+    tool_name = m.group(1)
+    code = m.group(2).strip()
+    first_line = code.split("\n")[0].strip()
+    if len(first_line) > 55:
+        first_line = first_line[:54] + "…"
+    suffix = "…" if "\n" in code or len(code) > 60 else ""
+    title = f"▶ {tool_name}: {first_line}{suffix}" if first_line else f"▶ {tool_name}"
+    lang = "python" if tool_name in ("ipython", "python") else "bash"
+    return title, code, lang
+
+
+def _tool_call_widgets(text: str):
+    """Yield TUI widgets for a text segment, rendering tool calls as Collapsibles.
+
+    Tries tool → xml → markdown formats in order.  Prose sections in between
+    tool calls are yielded as ``Markdown`` widgets.
+    """
+    # tool format: @tool_name(call_id): {json}
+    if _TOOL_CALL_RE.search(text):
+        for is_tool, seg in _split_tool_calls(text):
+            if is_tool:
+                title, code, lang = _tool_call_renderable(seg)
+                yield Collapsible(
+                    Static(Syntax(code, lang, theme="ansi_dark")),
+                    title=title,
+                    collapsed=True,
+                    classes="tool-call-block",
+                )
+            elif seg.strip():
+                yield Markdown(seg)
+        return
+    # xml format: <tool-use>...<tool_name>content</tool_name>...</tool-use>
+    if _XML_TOOL_RE.search(text):
+        for is_tool, seg in _split_xml_tool_calls(text):
+            if is_tool:
+                title, code, lang = _tool_call_renderable_from_xml(seg)
+                yield Collapsible(
+                    Static(Syntax(code, lang, theme="ansi_dark")),
+                    title=title,
+                    collapsed=True,
+                    classes="tool-call-block",
+                )
+            elif seg.strip():
+                yield Markdown(seg)
+        return
+    # markdown format: ```tool_name\ncontent\n```
+    md_segs = _split_markdown_tool_calls(text)
+    if any(is_tool for is_tool, _ in md_segs):
+        for is_tool, seg in md_segs:
+            if is_tool:
+                title, code, lang = _tool_call_renderable_from_markdown(seg)
+                yield Collapsible(
+                    Static(Syntax(code, lang, theme="ansi_dark")),
+                    title=title,
+                    collapsed=True,
+                    classes="tool-call-block",
+                )
+            elif seg.strip():
+                yield Markdown(seg)
+        return
+    # no tool calls — plain markdown
+    if text.strip():
+        yield Markdown(text)
+
+
 class UserMessage(Vertical):
     """A user message, rendered with a distinct border."""
 
@@ -185,7 +334,12 @@ class AssistantMessage(Vertical):
         think_segs = _split_thinking(self.content)
         has_thinking = any(is_think for is_think, _ in think_segs)
         has_tool_calls = any(
-            not is_think and bool(_TOOL_CALL_RE.search(text))
+            not is_think
+            and (
+                bool(_TOOL_CALL_RE.search(text))
+                or bool(_XML_TOOL_RE.search(text))
+                or any(is_tool for is_tool, _ in _split_markdown_tool_calls(text))
+            )
             for is_think, text in think_segs
         )
         if not has_thinking and not has_tool_calls:
@@ -200,17 +354,7 @@ class AssistantMessage(Vertical):
                     classes="thinking-block",
                 )
             else:
-                for is_tool, seg in _split_tool_calls(text):
-                    if is_tool:
-                        title, code, lang = _tool_call_renderable(seg)
-                        yield Collapsible(
-                            Static(Syntax(code, lang, theme="ansi_dark")),
-                            title=title,
-                            collapsed=True,
-                            classes="tool-call-block",
-                        )
-                    elif seg.strip():
-                        yield Markdown(seg)
+                yield from _tool_call_widgets(text)
 
 
 class SystemMessage(Vertical):
@@ -310,6 +454,47 @@ class BouncingError(Static):
         )
 
 
+def _rich_assistant_renderables(content: str) -> list:
+    """Return Rich renderables for assistant content, detecting all three tool formats.
+
+    All three gptme tool formats are detected automatically regardless of the
+    current session's ``tool_format`` setting, so stored messages always render
+    with appropriate syntax highlighting:
+
+    - ``tool`` format  : ``@tool_name(call_id): {json}``
+    - ``xml`` format   : ``<tool-use><tool_name>…</tool_name></tool-use>``
+    - ``markdown`` format: ```` ```tool_name\\n…\\n``` ```` (handled by RichMarkdown)
+    """
+    # tool format: @tool_name(call_id): {json}
+    if _TOOL_CALL_RE.search(content):
+        result: list = []
+        for is_tool, seg in _split_tool_calls(content):
+            if is_tool:
+                title, code, lang = _tool_call_renderable(seg)
+                result.append(
+                    RichPanel(Syntax(code, lang, theme="ansi_dark"), title=title)
+                )
+            elif seg.strip():
+                result.append(RichMarkdown(seg))
+        return result or [RichMarkdown(content)]
+
+    # xml format: <tool-use>...</tool-use>
+    if _XML_TOOL_RE.search(content):
+        result = []
+        for is_tool, seg in _split_xml_tool_calls(content):
+            if is_tool:
+                title, code, lang = _tool_call_renderable_from_xml(seg)
+                result.append(
+                    RichPanel(Syntax(code, lang, theme="ansi_dark"), title=title)
+                )
+            elif seg.strip():
+                result.append(RichMarkdown(seg))
+        return result or [RichMarkdown(content)]
+
+    # markdown format: RichMarkdown renders code fences with syntax highlighting natively
+    return [RichMarkdown(content)]
+
+
 def renderables_for_message(msg: Message, expanded: bool = False) -> list:
     """Rich renderables for a message, for native-scrollback (inline) mode."""
 
@@ -321,9 +506,10 @@ def renderables_for_message(msg: Message, expanded: bool = False) -> list:
             Text(),
         ]
     if msg.role == "assistant":
+        parts = _rich_assistant_renderables(content)
         return [
             Text("Assistant", style="bold blue"),
-            Padding(RichMarkdown(content), (0, 0, 0, 2)),
+            *[Padding(r, (0, 0, 0, 2)) for r in parts],
             Text(),
         ]
     # system/tool output: compact summary line, optionally expanded

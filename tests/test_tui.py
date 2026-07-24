@@ -22,10 +22,16 @@ from gptme.tui.app import (
     UserMessage,
     _append_pt_history,
     _load_pt_history,
+    _rich_assistant_renderables,
+    _split_markdown_tool_calls,
     _split_thinking,
     _split_tool_calls,
+    _split_xml_tool_calls,
     _summarize,
     _tool_call_renderable,
+    _tool_call_renderable_from_markdown,
+    _tool_call_renderable_from_xml,
+    renderables_for_message,
 )
 
 
@@ -808,6 +814,184 @@ def test_split_tool_calls_indented_prose():
     assert segments[0][0] is True, "first segment should be a tool call"
     assert "x = 1" in segments[0][1]
     assert not segments[1][0], "second segment should be prose"
+
+
+@pytest.fixture(scope="module")
+def tools_init():
+    """Initialize gptme tools so that get_tool_for_langtag() works in unit tests."""
+    from gptme.tools import init_tools
+
+    init_tools()
+
+
+def test_split_markdown_tool_calls_basic(tools_init):
+    """Markdown code fence for a known tool is flagged as a tool call."""
+    content = "Before\n```ipython\nprint(1)\n```\nAfter"
+    segments = _split_markdown_tool_calls(content)
+    assert any(is_tool for is_tool, _ in segments), "expected at least one tool segment"
+    tool_segs = [(is_tool, s) for is_tool, s in segments if is_tool]
+    assert len(tool_segs) == 1
+    assert "print(1)" in tool_segs[0][1]
+
+
+def test_split_markdown_tool_calls_ignores_non_tool_blocks(tools_init):
+    """Code fences with non-tool languages (e.g. `python`) are not tool segments."""
+    # 'python' is a tool in gptme, but a bare 'txt' block is not
+    content = "```txt\nhello\n```"
+    segments = _split_markdown_tool_calls(content)
+    assert not any(is_tool for is_tool, _ in segments)
+
+
+def test_split_markdown_tool_calls_multiple(tools_init):
+    """Multiple tool fences in one message all become tool segments."""
+    content = "Intro\n```shell\nls\n```\nMiddle\n```ipython\nx = 1\n```\nEnd"
+    segments = _split_markdown_tool_calls(content)
+    tool_segs = [s for is_tool, s in segments if is_tool]
+    # shell and ipython are both known tools; bash is NOT a block_type in default init
+    assert len(tool_segs) >= 1
+    assert any("x = 1" in s for s in tool_segs)
+
+
+def test_tool_call_renderable_from_markdown_ipython():
+    """Markdown ipython fence is rendered as collapsed python block."""
+    call_text = "```ipython\nprint(1)\nprint(2)\n```"
+    title, code, lang = _tool_call_renderable_from_markdown(call_text)
+    assert title.startswith("▶ ipython: print(1)")
+    assert code == "print(1)\nprint(2)"
+    assert lang == "python"
+
+
+def test_tool_call_renderable_from_markdown_shell():
+    """Markdown shell fence is rendered with lang=bash (syntax highlight)."""
+    call_text = "```shell\nls -la\n```"
+    title, code, lang = _tool_call_renderable_from_markdown(call_text)
+    assert "shell" in title
+    assert lang == "bash"  # shell tool highlighted as bash
+
+
+def test_split_xml_tool_calls_basic():
+    """XML tool-use blocks are flagged as tool calls."""
+    content = "Before\n<tool-use>\n<ipython>\nprint(1)\n</ipython>\n</tool-use>\nAfter"
+    segments = _split_xml_tool_calls(content)
+    tool_segs = [s for is_tool, s in segments if is_tool]
+    assert len(tool_segs) == 1
+    assert "ipython" in tool_segs[0]
+    prose_segs = [s for is_tool, s in segments if not is_tool]
+    assert any("Before" in s for s in prose_segs)
+    assert any("After" in s for s in prose_segs)
+
+
+def test_split_xml_tool_calls_no_match():
+    """Text without XML tool-use blocks returns a single prose segment."""
+    content = "Plain text without tool calls."
+    segments = _split_xml_tool_calls(content)
+    assert len(segments) == 1
+    assert not segments[0][0]
+
+
+def test_tool_call_renderable_from_xml_ipython():
+    """XML ipython tool-use renders as a collapsed python block."""
+    call_text = "<tool-use>\n<ipython>\nprint(1)\nprint(2)\n</ipython>\n</tool-use>"
+    title, code, lang = _tool_call_renderable_from_xml(call_text)
+    assert title.startswith("▶ ipython: print(1)")
+    assert "print(1)" in code
+    assert lang == "python"
+
+
+def test_tool_call_renderable_from_xml_bash():
+    """XML bash tool-use renders with lang=bash."""
+    call_text = "<tool-use>\n<bash>\nls -la\n</bash>\n</tool-use>"
+    title, code, lang = _tool_call_renderable_from_xml(call_text)
+    assert "bash" in title
+    assert lang == "bash"
+
+
+@pytest.mark.asyncio
+async def test_assistant_message_renders_markdown_tool_calls_as_collapsible(
+    tmp_path, tools_init
+):
+    """AssistantMessage renders markdown-format tool calls as Collapsible blocks."""
+    content = "Here is some code:\n```ipython\nprint('hello')\n```\nDone."
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        msg_widget = AssistantMessage(content)
+        await app.mount(msg_widget)
+        await pilot.pause()
+        collapsibles = list(msg_widget.query(Collapsible))
+        assert len(collapsibles) >= 1, (
+            "expected a Collapsible for the ipython tool call"
+        )
+        assert collapsibles[0].collapsed
+
+
+@pytest.mark.asyncio
+async def test_assistant_message_renders_xml_tool_calls_as_collapsible(tmp_path):
+    """AssistantMessage renders xml-format tool calls as Collapsible blocks."""
+    content = (
+        "Running:\n"
+        "<tool-use>\n<ipython>\nprint('hi')\n</ipython>\n</tool-use>\n"
+        "Result follows."
+    )
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        msg_widget = AssistantMessage(content)
+        await app.mount(msg_widget)
+        await pilot.pause()
+        collapsibles = list(msg_widget.query(Collapsible))
+        assert len(collapsibles) >= 1, "expected a Collapsible for the xml tool call"
+        assert collapsibles[0].collapsed
+
+
+def test_rich_assistant_renderables_plain():
+    """Plain markdown content returns a single RichMarkdown renderable."""
+    from rich.markdown import Markdown as RichMarkdown
+
+    content = "Just some plain text."
+    renderables = _rich_assistant_renderables(content)
+    assert len(renderables) == 1
+    assert isinstance(renderables[0], RichMarkdown)
+
+
+def test_rich_assistant_renderables_tool_format():
+    """tool-format @tool(id): {json} yields a RichPanel renderable."""
+    from rich.panel import Panel as RichPanel
+
+    content = '@ipython(c1): {"code": "print(1)"}'
+    renderables = _rich_assistant_renderables(content)
+    assert any(isinstance(r, RichPanel) for r in renderables)
+
+
+def test_rich_assistant_renderables_xml_format():
+    """xml-format <tool-use>...</tool-use> yields a RichPanel renderable."""
+    from rich.panel import Panel as RichPanel
+
+    content = "<tool-use>\n<bash>\nls -la\n</bash>\n</tool-use>"
+    renderables = _rich_assistant_renderables(content)
+    assert any(isinstance(r, RichPanel) for r in renderables)
+
+
+def test_renderables_for_message_assistant_tool_format():
+    """renderables_for_message wraps tool-format panels in Padding for the assistant role."""
+    from rich.padding import Padding
+    from rich.panel import Panel as RichPanel
+
+    content = '@bash(c1): {"command": "ls"}'
+    msg = Message("assistant", content)
+    renderables = renderables_for_message(msg)
+    panels = [r.renderable for r in renderables if isinstance(r, Padding)]
+    assert any(isinstance(p, RichPanel) for p in panels), "expected a padded RichPanel"
+
+
+def test_renderables_for_message_assistant_xml_format():
+    """renderables_for_message wraps xml-format panels in Padding for the assistant role."""
+    from rich.padding import Padding
+    from rich.panel import Panel as RichPanel
+
+    content = "<tool-use>\n<ipython>\nprint('x')\n</ipython>\n</tool-use>"
+    msg = Message("assistant", content)
+    renderables = renderables_for_message(msg)
+    panels = [r.renderable for r in renderables if isinstance(r, Padding)]
+    assert any(isinstance(p, RichPanel) for p in panels), "expected a padded RichPanel"
 
 
 @pytest.mark.asyncio
