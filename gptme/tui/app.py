@@ -27,6 +27,7 @@ from rich.control import Control
 from rich.markdown import Markdown as RichMarkdown
 from rich.markup import escape as markup_escape
 from rich.padding import Padding
+from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 from textual import events
@@ -250,23 +251,27 @@ def _markdown_tool_renderable(segment: str) -> tuple[str, str, str]:
     return title, code, lang
 
 
-def _xml_tool_renderable(segment: str) -> tuple[str, str, str]:
-    """Parse an XML tool-call block into (title, code, lang) for a Collapsible."""
+def _xml_tool_renderables(segment: str) -> list[tuple[str, str, str]]:
+    """Parse an XML tool-call block into (title, code, lang) tuples, one per invoke."""
     from ..tools.base import ToolUse as _ToolUse
 
     tool_uses = list(_ToolUse._iter_from_xml(segment))
     if not tool_uses:
-        return "▶ tool", segment, "xml"
-    tu = tool_uses[0]
-    tool_name = tu.tool
-    code = (tu.content or "").strip()
-    first_line = code.split("\n")[0].strip()
-    if len(first_line) > 55:
-        first_line = first_line[:54] + "…"
-    suffix = "…" if ("\n" in code or len(code) > 60) else ""
-    title = f"▶ {tool_name}: {first_line}{suffix}" if first_line else f"▶ {tool_name}"
-    lang = "python" if tool_name in ("ipython", "python") else "bash"
-    return title, code, lang
+        return [("▶ tool", segment, "xml")]
+    result = []
+    for tu in tool_uses:
+        tool_name = tu.tool
+        code = (tu.content or "").strip()
+        first_line = code.split("\n")[0].strip()
+        if len(first_line) > 55:
+            first_line = first_line[:54] + "…"
+        suffix = "…" if ("\n" in code or len(code) > 60) else ""
+        title = (
+            f"▶ {tool_name}: {first_line}{suffix}" if first_line else f"▶ {tool_name}"
+        )
+        lang = "python" if tool_name in ("ipython", "python") else "bash"
+        result.append((title, code, lang))
+    return result
 
 
 class UserMessage(Vertical):
@@ -330,13 +335,13 @@ class AssistantMessage(Vertical):
             elif _XML_TOOLUSE_RE.search(text):
                 for is_tool, seg in _split_xml_tool_calls(text):
                     if is_tool:
-                        title, code, lang = _xml_tool_renderable(seg)
-                        yield Collapsible(
-                            Static(Syntax(code, lang, theme="ansi_dark")),
-                            title=title,
-                            collapsed=True,
-                            classes="tool-call-block",
-                        )
+                        for title, code, lang in _xml_tool_renderables(seg):
+                            yield Collapsible(
+                                Static(Syntax(code, lang, theme="ansi_dark")),
+                                title=title,
+                                collapsed=True,
+                                classes="tool-call-block",
+                            )
                     elif seg.strip():
                         yield Markdown(seg)
             else:
@@ -461,11 +466,70 @@ def renderables_for_message(msg: Message, expanded: bool = False) -> list:
             Text(),
         ]
     if msg.role == "assistant":
-        return [
-            Text("Assistant", style="bold blue"),
-            Padding(RichMarkdown(content), (0, 0, 0, 2)),
-            Text(),
-        ]
+        items: list = [Text("Assistant", style="bold blue")]
+        think_segs = _split_thinking(content)
+
+        def _has_tool(t: str) -> bool:
+            return bool(
+                _TOOL_CALL_RE.search(t)
+                or _XML_TOOLUSE_RE.search(t)
+                or any(is_tool for is_tool, _ in _split_markdown_tool_calls(t))
+            )
+
+        has_tool_calls = any(
+            not is_think and _has_tool(t) for is_think, t in think_segs
+        )
+        has_thinking = any(is_think for is_think, _ in think_segs)
+
+        if not has_tool_calls and not has_thinking:
+            items.append(Padding(RichMarkdown(content), (0, 0, 0, 2)))
+        else:
+            for is_think, text in think_segs:
+                if is_think:
+                    items.append(
+                        Panel(RichMarkdown(text), title="Thinking", expand=False)
+                    )
+                elif _TOOL_CALL_RE.search(text):
+                    for is_tool, seg in _split_tool_calls(text):
+                        if is_tool:
+                            title, code, lang = _tool_call_renderable(seg)
+                            items.append(
+                                Panel(
+                                    Syntax(code, lang, theme="ansi_dark"),
+                                    title=title,
+                                    expand=False,
+                                )
+                            )
+                        elif seg.strip():
+                            items.append(Padding(RichMarkdown(seg), (0, 0, 0, 2)))
+                elif _XML_TOOLUSE_RE.search(text):
+                    for is_tool, seg in _split_xml_tool_calls(text):
+                        if is_tool:
+                            for title, code, lang in _xml_tool_renderables(seg):
+                                items.append(
+                                    Panel(
+                                        Syntax(code, lang, theme="ansi_dark"),
+                                        title=title,
+                                        expand=False,
+                                    )
+                                )
+                        elif seg.strip():
+                            items.append(Padding(RichMarkdown(seg), (0, 0, 0, 2)))
+                else:
+                    for is_tool, seg in _split_markdown_tool_calls(text):
+                        if is_tool:
+                            title, code, lang = _markdown_tool_renderable(seg)
+                            items.append(
+                                Panel(
+                                    Syntax(code, lang, theme="ansi_dark"),
+                                    title=title,
+                                    expand=False,
+                                )
+                            )
+                        elif seg.strip():
+                            items.append(Padding(RichMarkdown(seg), (0, 0, 0, 2)))
+        items.append(Text())
+        return items
     # system/tool output: compact summary line, optionally expanded
     renderables: list = [Text(f"▶ {_summarize(content)}", style="dim")]
     if expanded:

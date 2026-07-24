@@ -29,7 +29,8 @@ from gptme.tui.app import (
     _split_xml_tool_calls,
     _summarize,
     _tool_call_renderable,
-    _xml_tool_renderable,
+    _xml_tool_renderables,
+    renderables_for_message,
 )
 
 
@@ -904,13 +905,30 @@ def test_split_xml_tool_calls_no_xml():
     assert segments == [(False, content)]
 
 
-def test_xml_tool_renderable_extracts_name_and_code():
-    """_xml_tool_renderable extracts the tool name and code for display."""
+def test_xml_tool_renderables_single():
+    """_xml_tool_renderables extracts tool name and code from a single-invoke block."""
     segment = "<tool-use>\n<ipython>\nprint('hello')\n</ipython>\n</tool-use>"
-    title, code, lang = _xml_tool_renderable(segment)
+    renderables = _xml_tool_renderables(segment)
+    assert len(renderables) == 1
+    title, code, lang = renderables[0]
     assert "ipython" in title
     assert "print" in code
     assert lang == "python"
+
+
+def test_xml_tool_renderables_multiple_invokes():
+    """_xml_tool_renderables emits one tuple per <invoke> in a <function_calls> block."""
+    segment = (
+        "<function_calls>\n"
+        '<invoke name="shell">\nls /tmp\n</invoke>\n'
+        '<invoke name="ipython">\nprint(42)\n</invoke>\n'
+        "</function_calls>"
+    )
+    renderables = _xml_tool_renderables(segment)
+    assert len(renderables) == 2, f"expected 2 renderables, got {len(renderables)}"
+    titles = [t for t, _, _ in renderables]
+    assert any("shell" in t for t in titles)
+    assert any("ipython" in t for t in titles)
 
 
 def test_split_markdown_tool_calls_no_tools():
@@ -991,3 +1009,58 @@ async def test_assistant_message_renders_markdown_tool_call_as_collapsible(tmp_p
         assert any("ipython" in (t or "") for t in titles), (
             f"Expected 'ipython' in a collapsible title, got: {titles}"
         )
+
+
+# Inline mode (renderables_for_message) format detection
+# ────────────────────────────────────────────────────────
+
+
+def test_renderables_for_message_inline_xml_tool_call():
+    """renderables_for_message renders XML tool calls as Rich Panels, not raw text."""
+    from rich.panel import Panel
+
+    content = "Let me run it.\n<tool-use>\n<ipython>\nprint(1)\n</ipython>\n</tool-use>"
+    msg = Message("assistant", content)
+    renderables = renderables_for_message(msg)
+    panels = [r for r in renderables if isinstance(r, Panel)]
+    assert panels, "expected at least one Panel for XML tool call in inline mode"
+    titles = [p.title for p in panels]
+    assert any("ipython" in str(t) for t in titles), (
+        f"Expected 'ipython' in a Panel title, got: {titles}"
+    )
+
+
+def test_renderables_for_message_inline_markdown_tool_call():
+    """renderables_for_message renders markdown tool calls as Rich Panels."""
+    from rich.panel import Panel
+
+    from gptme.tools import init_tools
+
+    init_tools()
+    content = "Running:\n\n```ipython\nprint('hello')\n```\n\nDone."
+    msg = Message("assistant", content)
+    renderables = renderables_for_message(msg)
+    panels = [r for r in renderables if isinstance(r, Panel)]
+    assert panels, "expected at least one Panel for markdown tool call in inline mode"
+    titles = [p.title for p in panels]
+    assert any("ipython" in str(t) for t in titles), (
+        f"Expected 'ipython' in a Panel title, got: {titles}"
+    )
+
+
+def test_renderables_for_message_inline_multiple_xml_invokes():
+    """renderables_for_message emits one Panel per invoke in a multi-invoke XML block."""
+    from rich.panel import Panel
+
+    content = (
+        "<function_calls>\n"
+        '<invoke name="shell">\nls\n</invoke>\n'
+        '<invoke name="ipython">\nprint(2)\n</invoke>\n'
+        "</function_calls>"
+    )
+    msg = Message("assistant", content)
+    renderables = renderables_for_message(msg)
+    panels = [r for r in renderables if isinstance(r, Panel)]
+    assert len(panels) == 2, (
+        f"expected 2 Panels for 2-invoke XML block, got {len(panels)}"
+    )
