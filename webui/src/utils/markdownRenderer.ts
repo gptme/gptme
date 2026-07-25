@@ -241,7 +241,10 @@ export function customRenderer(
         // fires before add_text for explicitly-tagged fences.
         if (useReactTabbed && data.placeholder) {
           const langFromInfo = data.lang ? data.lang.split('.').pop() : undefined;
-          if (!isMarkdownOrHtml(langFromInfo)) {
+          // Normalize 'result' alias — highlightCode maps it to 'markdown', so
+          // treat it as markdown here too to preserve TabbedCodeBlock rendering.
+          const normalizedLang = langFromInfo === 'result' ? 'markdown' : langFromInfo;
+          if (!isMarkdownOrHtml(normalizedLang)) {
             data.placeholder = null;
           }
         }
