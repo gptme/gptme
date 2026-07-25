@@ -26,8 +26,11 @@ import pytest
 
 from gptme.message import Message
 from gptme.tools.complete import (
+    _TASK_COMPLETE_MSG,
+    _VERIFY_FAILED_MARKER,
     SessionCompleteException,
     _classify_stuck_reason,
+    _get_verify_cmd,
     auto_reply_hook,
     complete_hook,
     execute_complete,
@@ -256,6 +259,164 @@ class TestCompleteHook:
         gen = complete_hook(messages)
         results = list(gen)
         assert results == []
+
+
+# ── TestCompleteHookVerification ──────────────────────────────────────────
+
+
+class TestCompleteHookVerification:
+    """Tests for the completion verification feature in complete_hook.
+
+    When ``GPTME_VERIFY_COMPLETION`` is set, the hook runs that command before
+    allowing the session to close.  On failure the agent gets another turn;
+    after ``GPTME_VERIFY_COMPLETION_MAX_RETRIES`` failures the hook closes
+    the session anyway.
+    """
+
+    _COMPLETE_MSG = [
+        _user("finish up"),
+        _assistant("All done.\n```complete\n```"),
+    ]
+
+    def _msgs_with_prior_attempts(self, n: int) -> list[Message]:
+        """Build a message list with n prior complete-attempt system messages."""
+        msgs = list(self._COMPLETE_MSG)
+        msgs.extend(_system(_TASK_COMPLETE_MSG) for _ in range(n))
+        return msgs
+
+    # ── no verify command configured ──────────────────────────────────────
+
+    def test_no_verify_cmd_raises_as_normal(self, monkeypatch):
+        """Without a verify command the hook raises SessionCompleteException as usual."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        with pytest.raises(SessionCompleteException):
+            list(complete_hook(self._COMPLETE_MSG))
+
+    # ── verify command succeeds ────────────────────────────────────────────
+
+    def test_verify_success_closes_session(self, monkeypatch, tmp_path):
+        """When the verify command exits 0 the session closes normally."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "true")
+        with pytest.raises(SessionCompleteException):
+            list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+
+    # ── verify command fails ───────────────────────────────────────────────
+
+    def test_verify_failure_yields_message(self, monkeypatch, tmp_path):
+        """When the verify command fails the hook yields a system message instead of raising."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "false")  # always exits 1
+        results = list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+        assert len(results) == 1
+        msg = results[0]
+        assert isinstance(msg, Message)
+        assert msg.role == "system"
+        assert _VERIFY_FAILED_MARKER in msg.content
+
+    def test_verify_failure_does_not_raise(self, monkeypatch, tmp_path):
+        """A failing verify command must NOT raise SessionCompleteException."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "false")
+        try:
+            list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+        except SessionCompleteException:
+            pytest.fail(
+                "complete_hook raised SessionCompleteException on verify failure"
+            )
+
+    def test_verify_failure_message_contains_exit_code(self, monkeypatch, tmp_path):
+        """Failure message includes the non-zero exit code."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "exit 42")
+        results = list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert "42" in results[0].content
+
+    def test_verify_failure_message_contains_command(self, monkeypatch, tmp_path):
+        """Failure message includes the verify command that was run."""
+        cmd = "exit 1"
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", cmd)
+        results = list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert cmd in results[0].content
+
+    def test_verify_failure_message_contains_output(self, monkeypatch, tmp_path):
+        """Failure message includes the command's output."""
+        monkeypatch.setenv(
+            "GPTME_VERIFY_COMPLETION", "echo 'test suite FAILED'; exit 1"
+        )
+        results = list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert "test suite FAILED" in results[0].content
+
+    # ── retry limit ───────────────────────────────────────────────────────
+
+    def test_closes_after_max_retries(self, monkeypatch, tmp_path):
+        """After GPTME_VERIFY_COMPLETION_MAX_RETRIES failures the session closes anyway."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "false")
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_MAX_RETRIES", "2")
+        # 2 prior attempts already logged as system messages
+        msgs = self._msgs_with_prior_attempts(2)
+        with pytest.raises(SessionCompleteException):
+            list(complete_hook(msgs, workspace=tmp_path))
+
+    def test_still_verifies_below_max_retries(self, monkeypatch, tmp_path):
+        """Still runs verification when prior attempts < max_retries."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "false")
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_MAX_RETRIES", "3")
+        msgs = self._msgs_with_prior_attempts(2)  # below limit
+        results = list(complete_hook(msgs, workspace=tmp_path))
+        # Should yield a failure message, not raise
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert _VERIFY_FAILED_MARKER in results[0].content
+
+    # ── workspace script ──────────────────────────────────────────────────
+
+    def test_workspace_script_used_when_no_env(self, monkeypatch, tmp_path):
+        """Uses .gptme/verify-completion.sh if present and no env var set."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text("#!/bin/sh\nexit 1\n")
+        script.chmod(0o755)
+
+        results = list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert _VERIFY_FAILED_MARKER in results[0].content
+
+    def test_no_workspace_script_if_not_executable(self, monkeypatch, tmp_path):
+        """Non-executable .gptme/verify-completion.sh is ignored."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text("#!/bin/sh\nexit 1\n")
+        script.chmod(0o644)  # not executable
+
+        with pytest.raises(SessionCompleteException):
+            list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+
+    # ── _get_verify_cmd ────────────────────────────────────────────────────
+
+    def test_get_verify_cmd_env(self, monkeypatch, tmp_path):
+        """_get_verify_cmd returns env var value when set."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "pytest tests/")
+        assert _get_verify_cmd(tmp_path) == "pytest tests/"
+
+    def test_get_verify_cmd_none_without_config(self, monkeypatch, tmp_path):
+        """_get_verify_cmd returns None when neither env var nor script is present."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        assert _get_verify_cmd(tmp_path) is None
+
+    def test_get_verify_cmd_env_takes_precedence(self, monkeypatch, tmp_path):
+        """Env var takes precedence over workspace script."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "pytest")
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text("#!/bin/sh\necho hi\n")
+        script.chmod(0o755)
+        assert _get_verify_cmd(tmp_path) == "pytest"
 
 
 # ── TestAutoReplyHook ─────────────────────────────────────────────────────

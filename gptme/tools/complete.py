@@ -3,7 +3,9 @@
 import logging
 import os
 import re
+import subprocess
 from collections.abc import Generator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..hooks import HookType, StopPropagation
@@ -15,6 +17,45 @@ if TYPE_CHECKING:
     from ..logmanager import LogManager
 
 logger = logging.getLogger(__name__)
+
+# Marker text used in system messages when verification fails; counted to track retries.
+_VERIFY_FAILED_MARKER = "Completion verification failed"
+_TASK_COMPLETE_MSG = "Task complete. Autonomous session finished."
+_DEFAULT_MAX_RETRIES = 3
+_DEFAULT_VERIFY_TIMEOUT = 60
+
+
+def _get_verify_cmd(workspace: Path | None) -> str | None:
+    """Return the completion verification command, or None if not configured.
+
+    Checks, in order:
+    1. ``GPTME_VERIFY_COMPLETION`` environment variable
+    2. Executable file at ``<workspace>/.gptme/verify-completion.sh``
+    """
+    cmd = os.environ.get("GPTME_VERIFY_COMPLETION")
+    if cmd:
+        return cmd
+    if workspace is not None:
+        script = workspace / ".gptme" / "verify-completion.sh"
+        if script.is_file() and os.access(script, os.X_OK):
+            return str(script)
+    return None
+
+
+def _run_verify_cmd(
+    cmd: str, workspace: Path | None
+) -> "subprocess.CompletedProcess[str]":
+    """Run the verification command and return the result."""
+    timeout = _env_int("GPTME_VERIFY_COMPLETION_TIMEOUT", _DEFAULT_VERIFY_TIMEOUT)
+    return subprocess.run(
+        cmd,
+        shell=True,
+        capture_output=True,
+        text=True,
+        cwd=workspace,
+        timeout=timeout,
+        check=False,
+    )
 
 
 class SessionCompleteException(Exception):
@@ -29,13 +70,14 @@ def execute_complete(
     """Signal that the autonomous session is complete and ready to exit."""
     return Message(
         "system",
-        "Task complete. Autonomous session finished.",
+        _TASK_COMPLETE_MSG,
         quiet=False,
     )
 
 
 def complete_hook(
     messages: list[Message],
+    workspace: Path | None = None,
     **kwargs,
 ) -> Generator[Message | StopPropagation, None, None]:
     """
@@ -44,9 +86,16 @@ def complete_hook(
     Runs at GENERATION_PRE (before generating response) to stop the session
     immediately after complete tool is called.
 
+    If ``GPTME_VERIFY_COMPLETION`` is set (or a ``.gptme/verify-completion.sh``
+    script exists in the workspace), that command is run before the session is
+    allowed to close.  On failure the agent receives one more turn to fix the
+    issue; it can retry up to ``GPTME_VERIFY_COMPLETION_MAX_RETRIES`` times
+    (default 3) before the hook gives up and closes the session anyway.
+
     Args:
         messages: List of conversation messages
-        **kwargs: Additional arguments (workspace, manager - currently unused)
+        workspace: Path to the workspace directory (passed via kwargs at dispatch)
+        **kwargs: Additional arguments (manager etc. — currently unused)
 
     Note: GENERATION_PRE hooks are called with messages as first positional arg,
     not manager as the Protocol suggests. This is a known type safety issue.
@@ -92,6 +141,62 @@ def complete_hook(
     tool_uses = list(ToolUse.iter_from_content(last_assistant_msg.content))
     for tool_use in tool_uses:
         if tool_use.tool == "complete":
+            # Run completion verification if configured
+            verify_cmd = _get_verify_cmd(workspace)
+            if verify_cmd:
+                max_retries = _env_int(
+                    "GPTME_VERIFY_COMPLETION_MAX_RETRIES", _DEFAULT_MAX_RETRIES
+                )
+                # Count prior complete-call attempts via durable "Task complete"
+                # system messages — each failed verification leaves one in the log.
+                prior_attempts = sum(
+                    1
+                    for m in messages
+                    if m.role == "system" and _TASK_COMPLETE_MSG in (m.content or "")
+                )
+                if prior_attempts < max_retries:
+                    try:
+                        result = _run_verify_cmd(verify_cmd, workspace)
+                    except subprocess.TimeoutExpired:
+                        timeout = _env_int(
+                            "GPTME_VERIFY_COMPLETION_TIMEOUT", _DEFAULT_VERIFY_TIMEOUT
+                        )
+                        logger.warning(
+                            "Verification command timed out after %ds: %s",
+                            timeout,
+                            verify_cmd,
+                        )
+                        yield Message(
+                            "system",
+                            f"{_VERIFY_FAILED_MARKER}: command timed out after {timeout}s.\n"
+                            f"Command: `{verify_cmd}`\n\n"
+                            f"Please fix the issue and call complete again.",
+                            quiet=False,
+                        )
+                        return
+                    if result.returncode != 0:
+                        output = (result.stdout + result.stderr).strip()
+                        logger.warning(
+                            "Completion verification failed (exit %d): %s",
+                            result.returncode,
+                            verify_cmd,
+                        )
+                        yield Message(
+                            "system",
+                            f"{_VERIFY_FAILED_MARKER}: exit code {result.returncode}.\n"
+                            f"Command: `{verify_cmd}`\n"
+                            f"Output:\n{output}\n\n"
+                            f"Please fix the issue and call complete again.",
+                            quiet=False,
+                        )
+                        return  # Don't raise — agent gets another turn
+                    logger.info("Completion verification passed: %s", verify_cmd)
+                else:
+                    logger.warning(
+                        "Verification failed %d time(s); proceeding with session close anyway.",
+                        prior_attempts,
+                    )
+
             logger.info("Complete tool call detected, stopping session immediately")
             raise SessionCompleteException("Session completed via complete tool")
 
