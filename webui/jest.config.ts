@@ -4,6 +4,7 @@ export default {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     '\\.(css|less|sass|scss)$': 'identity-obj-proxy',
+    '^@google/model-viewer$': '<rootDir>/src/__mocks__/@google/model-viewer.ts',
   },
   transform: {
     '^.+\\.(ts|tsx|js|jsx)$': [
