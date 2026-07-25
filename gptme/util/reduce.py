@@ -463,6 +463,72 @@ def proactive_summarize_log(
     return result
 
 
+def _drop_orphaned_tool_pairs(
+    original: list[Message],
+    pruned: list[Message],
+) -> list[Message]:
+    """Drop messages that form broken tool call / tool result pairs.
+
+    Two directions are handled, iterating until stable:
+
+    Case 1 — orphaned tool result: a system message with call_id whose
+    nearest non-system predecessor in *original* was dropped.  Keeping
+    it without the function call causes Responses-API 400.
+
+    Case 2 — orphaned function call: an assistant message immediately
+    followed (in *original*) by one or more system messages with call_id,
+    where at least one of those results is missing from *pruned*.  Keeping
+    the function call without all its outputs also triggers 400.
+
+    Used both by ``limit_log`` (context-limit truncation) and
+    ``prune_ephemeral_messages`` (TTL-based pruning) in logmanager.
+    """
+    if not any(m.call_id for m in original):
+        return pruned
+
+    orig_idx = {id(m): i for i, m in enumerate(original)}
+    kept_ids = {id(m) for m in pruned}
+
+    changed = True
+    while changed:
+        changed = False
+        to_remove: set[int] = set()
+
+        for msg in pruned:
+            mid = id(msg)
+            if mid not in kept_ids or mid in to_remove:
+                continue
+            idx = orig_idx.get(mid)
+            if idx is None:
+                continue
+
+            if msg.role == "system" and msg.call_id:
+                # Case 1: walk backward to find nearest non-system anchor.
+                for j in range(idx - 1, -1, -1):
+                    if original[j].role != "system":
+                        if id(original[j]) not in kept_ids:
+                            to_remove.add(mid)
+                            changed = True
+                        break
+
+            elif msg.role == "assistant":
+                # Case 2: walk forward to find immediately following tool
+                # results; if any are missing, drop the function call too.
+                for j in range(idx + 1, len(original)):
+                    nxt = original[j]
+                    if nxt.role == "system" and nxt.call_id:
+                        if id(nxt) not in kept_ids:
+                            to_remove.add(mid)
+                            changed = True
+                            break
+                    elif nxt.role != "system":
+                        break
+
+        kept_ids -= to_remove
+
+    return [m for m in pruned if id(m) in kept_ids]
+
+
 def limit_log(log: list[Message]) -> list[Message]:
     """
     Picks messages until the total number of tokens exceeds limit,
@@ -493,11 +559,10 @@ def limit_log(log: list[Message]) -> list[Message]:
 
     result = initial_system_msgs + list(reversed(msgs))
 
-    # Ensure tool_use/tool_result atomicity: if a non-initial system message's
-    # immediate predecessor in the original log was dropped by the context limit,
-    # drop the system message too. System messages that follow a dropped message
-    # are almost certainly orphaned tool results — keeping them without their
-    # tool-use anchor produces an incoherent log.
+    # Pass 1 — drop non-call_id system messages whose anchor was removed.
+    # These are gptme-native tool results (markdown format, no call_id).
+    # System messages that follow a dropped non-system message are orphaned
+    # tool results; keeping them without their anchor produces an incoherent log.
     result_id_set = {id(m) for m in result}
     log_by_id = {id(m): i for i, m in enumerate(log)}
     initial_id_set = {id(m) for m in initial_system_msgs}
@@ -508,16 +573,19 @@ def limit_log(log: list[Message]) -> list[Message]:
         idx = log_by_id.get(id(msg))
         if idx is None or idx == 0:
             return False
-        # Walk backward through the original log to find the nearest
-        # non-system anchor message. System messages are tool results;
-        # their anchor is the assistant (or user) message that produced
-        # them. If that anchor was dropped by the context limit, this
-        # result is orphaned.
         for j in range(idx - 1, -1, -1):
             if log[j].role != "system":
                 return id(log[j]) not in result_id_set
-        # No non-system predecessor found — shouldn't happen for a
-        # non-initial system message, but treat as not orphaned.
         return False
 
-    return [m for m in result if not _is_orphaned(m)]
+    result = [m for m in result if not _is_orphaned(m)]
+
+    # Pass 2 — enforce Responses-API call_id atomicity.
+    # _is_orphaned above catches orphaned tool *results* (Case 1), but misses
+    # the inverse: an assistant message that kept some call_id results but
+    # lost others.  The API rejects any function_call without all its
+    # matching function_call_outputs.  _drop_orphaned_tool_pairs handles
+    # both directions (and is idempotent with pass 1 for call_id messages).
+    result = _drop_orphaned_tool_pairs(log, result)
+
+    return result

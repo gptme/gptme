@@ -385,6 +385,64 @@ def test_limit_log_cascading_orphans():
         )
 
 
+def test_limit_log_partial_call_id_results_dropped():
+    """limit_log must drop assistant when only SOME of its call_id results survive.
+
+    Scenario (Responses-API format):
+    - assistant has 2 function calls: call_id_A and call_id_B
+    - context limit causes the OLDER tool result (call_id_A) to be the
+      message that pushed the budget over, so it gets popped
+    - call_id_B result AND the assistant both survive the initial cut
+    - _is_orphaned misses this: call_id_B's anchor (assistant) is still present
+    - Without the fix: API receives function_call(A)+function_call(B) but only
+      function_call_output(B) → 400 "No tool output found for call_A"
+    - With the fix: _drop_orphaned_tool_pairs detects that assistant has a
+      call_id_A result missing from the result → drops assistant + remaining result
+
+    This reproduces the gptme-gpt-5.5 44% infra-failure-rate root cause
+    (session 96d3, 2026-07-17).
+    """
+    from gptme.llm.models.resolution import _default_model_var
+
+    original_model = _default_model_var.get()
+    try:
+        # Context=11: fits system prompt (2 tok) + call_B result (1 tok)
+        # + assistant (7 tok) = 10 tok; adding call_A result (1 tok) = 11 => over.
+        # So the oldest message in msgs (call_A result, added last in reverse) is popped.
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=11)
+        set_default_model(tiny_model)
+
+        # Assistant message with @tool(call_id): format (Responses API)
+        # Two function calls with distinct call_ids.
+        assistant_content = "@shell(call_A): {}\n@shell(call_B): {}"
+        msgs = [
+            Message("system", "system prompt"),  # 2 tok — initial, always kept
+            Message("assistant", assistant_content),  # ~7 tok — tool use with 2 calls
+            Message("system", "result_A", call_id="call_A"),  # 1 tok — result for A
+            Message("system", "result_B", call_id="call_B"),  # 1 tok — result for B
+        ]
+
+        result = limit_log(msgs)
+
+        result_contents = [m.content for m in result]
+        # Neither partial result should survive without the assistant.
+        # The assistant must also be absent (it has an incomplete pair).
+        assert "result_A" not in result_contents, (
+            "Orphaned call_id_A result should be dropped"
+        )
+        assert "result_B" not in result_contents, (
+            "call_id_B result must be dropped too — its assistant was dropped"
+        )
+        assert assistant_content not in result_contents, (
+            "Assistant with incomplete call_id pair must be dropped"
+        )
+        assert any(m.content == "system prompt" for m in result)
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+
+
 # ---------------------------------------------------------------------------
 # Tests for proactive_summarize_log
 # ---------------------------------------------------------------------------
