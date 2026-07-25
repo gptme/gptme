@@ -1,7 +1,7 @@
 Custom and Local Providers
 ==========================
 
-This page covers **Ollama**, **vLLM**, and any other
+This page covers **Ollama**, **LM Studio**, **vLLM**, and any other
 OpenAI-compatible server — plus how to declare a reusable
 ``[[providers]]`` block in your config so gptme can find them by name.
 
@@ -67,6 +67,67 @@ Then: ``gptme 'hello' -m ollama/llama3.2:3b``
 
    Models under ~7B parameters rarely follow gptme's tool protocol reliably.
    For agent-style work, prefer at least ``llama3.1:8b`` or ``mistral:7b-instruct``.
+
+**Verify tool use is working:**
+
+After setup, run a real tool call to confirm the full stack works (not just text):
+
+.. code-block:: sh
+
+    OPENAI_BASE_URL="http://127.0.0.1:11434/v1" \
+      gptme 'list the files in the current directory' -m local/llama3.1:8b
+
+If gptme runs a shell command and shows real filenames, tool calling works. If the
+model just *describes* what it would do without executing anything, the model is
+too small or not following the tool protocol — try a larger or more capable model.
+
+LM Studio (local)
+-----------------
+
+`LM Studio <https://lmstudio.ai/>`_ is a desktop app for running models locally.
+It exposes an OpenAI-compatible server that gptme connects to directly.
+
+**Quick start:**
+
+1. Download `LM Studio <https://lmstudio.ai/>`_ and open it
+
+2. In the **Models** tab, download a 7B+ instruction model
+   (e.g. *Llama 3.1 8B Instruct Q4_K_M* — a good balance of speed and tool use)
+
+3. Open the **Local Server** tab (``↔`` icon), load the model, and click **Start Server**
+
+.. code-block:: sh
+
+    # Default server address — no API key required
+    OPENAI_BASE_URL="http://localhost:1234/v1" gptme 'hello' -m local/lmstudio
+
+**Named provider config** (``~/.config/gptme/config.toml``):
+
+.. code-block:: toml
+
+    [[providers]]
+    name = "lmstudio"
+    base_url = "http://localhost:1234/v1"
+
+Then: ``gptme 'hello' -m lmstudio``
+
+.. note::
+
+   LM Studio's server exposes whichever model is currently loaded. The gptme model
+   name does not need to match exactly — ``local/lmstudio`` or ``lmstudio`` acts
+   as an alias for whatever model is active in the server tab.
+
+**Common errors:**
+
++-----------------------------+----------------------------------+------------------------------------------+
+| Error                       | Cause                            | Fix                                      |
++=============================+==================================+==========================================+
+| Connection refused :1234    | Server not started               | Open LM Studio → Local Server → Start   |
++-----------------------------+----------------------------------+------------------------------------------+
+| Empty or broken responses   | No model loaded in server tab    | Load a model before starting the server  |
++-----------------------------+----------------------------------+------------------------------------------+
+| Tool use fails or loops     | Model too small for tool format  | Use a 7B+ instruction-tuned model        |
++-----------------------------+----------------------------------+------------------------------------------+
 
 vLLM and OpenAI-compatible servers
 -----------------------------------
