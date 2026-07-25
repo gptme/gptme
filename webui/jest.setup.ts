@@ -18,6 +18,16 @@ if (typeof structuredClone === 'undefined') {
   global.structuredClone = <T>(val: T): T => JSON.parse(JSON.stringify(val));
 }
 
+// Polyfill URL.createObjectURL/revokeObjectURL for jsdom — it doesn't implement
+// the Blob URL API, but components that preview blobs (e.g. FilePreview) call
+// revokeObjectURL in cleanup effects.
+if (typeof URL.createObjectURL === 'undefined') {
+  URL.createObjectURL = jest.fn(() => 'blob:mock-url');
+}
+if (typeof URL.revokeObjectURL === 'undefined') {
+  URL.revokeObjectURL = jest.fn();
+}
+
 // Shim Vite import.meta.env for Jest.
 // connectionConfig.ts and SetupWizard.tsx wrap import.meta.env accesses in
 // Function() and fall back to process.env when that throws.
