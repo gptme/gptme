@@ -490,6 +490,37 @@ class TestCompleteHookVerification:
         ):
             list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
 
+    # ── denylist (gptme#3358 Greptile P1 — workspace scripts bypass denylisting) ──
+
+    def test_workspace_script_with_denylisted_cmd_is_blocked(
+        self, monkeypatch, tmp_path
+    ):
+        """A workspace script containing a denylisted command is blocked without running."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        marker = tmp_path / "ran"
+        # `rm -rf /` is in the shell denylist; the script must not execute at all.
+        script.write_text(f"#!/bin/sh\nrm -rf /\ntouch {marker}\n")
+        script.chmod(0o755)
+
+        # Confirmation returns CONFIRM so the gate doesn't block — the denylist
+        # check (applied AFTER confirmation) must block the execution instead.
+        _confirmed = ConfirmationResult.confirm()
+        with (
+            patch("gptme.tools.complete.get_confirmation", return_value=_confirmed),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+        assert not marker.exists(), "denylisted workspace script must NOT have run"
+
+    def test_env_var_verify_cmd_not_gated_by_denylist(self, monkeypatch, tmp_path):
+        """The operator-configured env var command is NOT subject to the denylist check."""
+        # env var is explicitly operator-configured, so it's trusted (no denylist gate).
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "true")
+        with pytest.raises(SessionCompleteException):
+            list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+
     # ── retry limit off-by-one (gptme#3358 Greptile review) ────────────────
 
     def test_verify_runs_on_every_attempt_up_to_max_retries(
@@ -518,6 +549,38 @@ class TestCompleteHookVerification:
         # The 4th call (after 3 prior _TASK_COMPLETE_MSG markers) gives up.
         with pytest.raises(SessionCompleteException):
             list(complete_hook(messages, workspace=tmp_path))
+
+    def test_historical_completions_dont_consume_retries(self, monkeypatch, tmp_path):
+        """_TASK_COMPLETE_MSG from a prior (resumed) session does not inflate prior_attempts.
+
+        When a conversation log is resumed after an earlier successful completion,
+        the old _TASK_COMPLETE_MSG must NOT count toward the current retry budget.
+        The episode-scoped counter stops at the episode boundary (the new user message
+        that started the current session's work).
+        """
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "false")
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_MAX_RETRIES", "3")
+
+        # Simulated resumed conversation:
+        #   old session: user → asst(complete) → sys(TASK_COMPLETE)  [historical]
+        #   new session: user → asst(complete) → sys(TASK_COMPLETE)  [current attempt]
+        msgs = [
+            _user("old task done"),
+            _assistant("Old session.\n```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),  # historical — must NOT count as prior attempt
+            _user("new task"),  # episode boundary separates old from new
+            _assistant("New work done.\n```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),  # current attempt's own marker
+        ]
+        # prior_attempts must be 0 (only the current episode), not 1 (all-time),
+        # so with max_retries=3 the hook yields a failure message, not raises.
+        results = list(complete_hook(msgs, workspace=tmp_path))
+        assert len(results) == 1, (
+            "historical completion should not exhaust retries; expected verify-failure msg"
+        )
+        msg = results[0]
+        assert isinstance(msg, Message)
+        assert _VERIFY_FAILED_MARKER in msg.content
 
     # ── timeout ────────────────────────────────────────────────────────────
 
@@ -572,6 +635,53 @@ class TestCompleteHookVerification:
         assert len(taskkill_calls) == 1, "taskkill must be called exactly once"
         assert taskkill_calls[0][:4] == ["taskkill", "/F", "/T", "/PID"]
         assert taskkill_calls[0][4] == str(mock_proc.pid)
+
+    def test_timeout_windows_proc_wait_bounded_when_taskkill_fails(
+        self, monkeypatch, tmp_path
+    ):
+        """On Windows, proc.wait() after a failed taskkill uses a bounded timeout.
+
+        If taskkill is unavailable or denied and the process is still alive,
+        proc.wait() must NOT block indefinitely — it uses timeout=5 and then
+        force-kills the process before re-raising the original TimeoutExpired.
+        """
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_TIMEOUT", "1")
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 42
+        mock_proc.communicate.side_effect = subprocess.TimeoutExpired(
+            cmd="sleep 99", timeout=1
+        )
+        mock_proc.__enter__ = lambda s: mock_proc
+        mock_proc.__exit__ = MagicMock(return_value=False)
+
+        # taskkill fails (raises OSError — suppressed by contextlib.suppress).
+        def failing_taskkill(*args, **kwargs):
+            raise OSError("taskkill not found")
+
+        # proc.wait(timeout=5) times out — process still alive after taskkill fail.
+        wait_timeouts: list[int | None] = []
+
+        def mock_wait(timeout=None):
+            wait_timeouts.append(timeout)
+            if timeout == 5:
+                raise subprocess.TimeoutExpired(cmd="sleep 99", timeout=5)
+            # second wait (after proc.kill()) returns normally
+
+        mock_proc.wait.side_effect = mock_wait
+
+        with (
+            patch("gptme.tools.complete._is_windows", True),
+            patch("gptme.tools.complete.subprocess.Popen", return_value=mock_proc),
+            patch("gptme.tools.complete.subprocess.run", side_effect=failing_taskkill),
+            pytest.raises(subprocess.TimeoutExpired),
+        ):
+            _run_verify_cmd("sleep 99", tmp_path)
+
+        # proc.kill() must have been called as the last-resort cleanup.
+        mock_proc.kill.assert_called_once()
+        # The bounded timeout must have been used (not an infinite proc.wait()).
+        assert 5 in wait_timeouts, "proc.wait(timeout=5) was not called"
 
     # ── _get_verify_cmd ────────────────────────────────────────────────────
 

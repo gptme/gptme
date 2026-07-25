@@ -14,6 +14,7 @@ from ..hooks import HookType, StopPropagation
 from ..hooks.confirm import ConfirmAction, get_confirmation
 from ..message import Message
 from .base import ToolSpec, ToolUse
+from .shell_validation import is_denylisted
 from .todo import get_incomplete_todos_summary, has_incomplete_todos
 
 _is_windows = os.name == "nt"
@@ -85,7 +86,13 @@ def _run_verify_cmd(
             else:
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            proc.wait()
+            # Bound the post-kill wait so a failed cleanup can't block indefinitely.
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    proc.wait(timeout=2)
             raise
         return subprocess.CompletedProcess(
             cmd, proc.returncode, stdout=stdout, stderr=stderr
@@ -219,28 +226,65 @@ def complete_hook(
                             "Session completed via complete tool"
                         )
 
+                if is_workspace_script:
+                    # The workspace-script path calls Popen directly, bypassing
+                    # execute_shell()'s is_denylisted() check. Read the script
+                    # contents and apply the same check so that destructive
+                    # commands inside repo-controlled scripts are blocked even
+                    # in autonomous / auto-confirm modes.
+                    _script_content: str | None = None
+                    try:
+                        _script_content = Path(verify_cmd).read_text()
+                    except OSError:
+                        pass
+                    if _script_content is not None:
+                        _is_denied, _deny_reason, _matched_cmd = is_denylisted(
+                            _script_content
+                        )
+                        if _is_denied:
+                            logger.warning(
+                                "Completion verification script contains a denylisted "
+                                "command (%s: %r); skipping execution: %s",
+                                _deny_reason,
+                                _matched_cmd,
+                                verify_cmd,
+                            )
+                            raise SessionCompleteException(
+                                "Session completed via complete tool"
+                            )
+
                 max_retries = _env_int(
                     "GPTME_VERIFY_COMPLETION_MAX_RETRIES", _DEFAULT_MAX_RETRIES
                 )
-                # Count prior complete-tool calls by looking for _TASK_COMPLETE_MSG
-                # in the log. execute_complete appends this message to the persistent
-                # conversation log on every complete call, so it's always available
-                # here. We subtract 1 to exclude the current attempt's own marker
-                # (already present before GENERATION_PRE fires).
+                # Count prior complete-tool calls in the CURRENT retry episode only.
+                # Walk backwards, counting _TASK_COMPLETE_MSG entries and stopping
+                # at an episode boundary: any user message that is NOT an auto-reply,
+                # or any assistant message that does NOT call the complete tool.
+                # This prevents historical _TASK_COMPLETE_MSG entries from prior
+                # (resumed) sessions consuming the configured retry allowance.
                 #
                 # NOTE: _VERIFY_FAILED_MARKER is NOT suitable here — GENERATION_PRE
                 # hook messages are only added to a generation-time copy of the
-                # message list, never persisted to the log. Counting them would
-                # always yield zero and cause the verifier to retry indefinitely.
-                prior_attempts = (
-                    sum(
-                        1
-                        for m in messages
-                        if m.role == "system"
-                        and _TASK_COMPLETE_MSG in (m.content or "")
-                    )
-                    - 1
-                )
+                # message list, never persisted to the log.
+                _AUTO_REPLY_MARKER = "No tool call detected in last message"
+                _episode_count = 0
+                for _m in reversed(messages):
+                    if _m.role == "system" and _TASK_COMPLETE_MSG in (_m.content or ""):
+                        _episode_count += 1
+                    elif _m.role == "system":
+                        continue  # other system msgs (tool results etc.) — stay in episode
+                    elif _m.role == "assistant":
+                        _uses = list(ToolUse.iter_from_content(_m.content))
+                        if any(u.tool == "complete" for u in _uses):
+                            continue  # complete call — part of this episode
+                        break  # non-complete assistant turn = episode boundary
+                    elif _m.role == "user" and _AUTO_REPLY_MARKER in (_m.content or ""):
+                        continue  # auto-reply between retries — still in episode
+                    else:
+                        break  # real user message = episode boundary
+                # Subtract 1 to exclude the current attempt's own marker
+                # (already present before GENERATION_PRE fires).
+                prior_attempts = max(0, _episode_count - 1)
                 if prior_attempts < max_retries:
                     try:
                         result = _run_verify_cmd(verify_cmd, workspace)
