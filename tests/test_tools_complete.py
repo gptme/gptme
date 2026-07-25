@@ -381,6 +381,34 @@ class TestCompleteHookVerification:
         assert isinstance(results[0], Message)
         assert _VERIFY_FAILED_MARKER in results[0].content
 
+    def test_repair_turn_does_not_reset_retry_count(self, monkeypatch, tmp_path):
+        """A non-complete assistant turn between retries does not reset prior_attempts.
+
+        Scenario: agent calls complete → verification fails → agent makes a repair
+        turn (no complete call) → calls complete again.  The retry counter must
+        still see the first complete call as a prior attempt so the configured
+        limit is respected.
+        """
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "false")
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_MAX_RETRIES", "1")
+
+        # Sequence: user → complete(1st) → TASK_COMPLETE(1st) →
+        #           repair assistant turn → complete(2nd) → TASK_COMPLETE(2nd)
+        msgs = [
+            _user("finish the work"),
+            _assistant("Done.\n```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),  # 1st attempt's marker
+            _assistant("Let me fix the test."),  # repair turn — no complete call
+            _system("(tool result)"),
+            _assistant("Fixed. Completing.\n```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),  # 2nd attempt's marker (current)
+        ]
+        # With max_retries=1 and 1 prior attempt, the hook must close the session
+        # rather than retry.  Before the fix it would reset prior_attempts to 0
+        # at the repair turn and yield another failure message.
+        with pytest.raises(SessionCompleteException):
+            list(complete_hook(msgs, workspace=tmp_path))
+
     # ── workspace script ──────────────────────────────────────────────────
 
     def test_workspace_script_used_when_no_env(self, monkeypatch, tmp_path):
@@ -520,6 +548,32 @@ class TestCompleteHookVerification:
         monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "true")
         with pytest.raises(SessionCompleteException):
             list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+
+    def test_edited_workspace_script_denylisted_cmd_is_blocked(
+        self, monkeypatch, tmp_path
+    ):
+        """An operator-edited workspace command containing a denylisted string is blocked.
+
+        When confirmation editing replaces the script path with a shell command,
+        Path(verify_cmd).read_text() raises OSError.  The fix falls back to
+        checking verify_cmd itself so that destructive edits cannot bypass the
+        denylist by making the path unreadable.
+        """
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text("#!/bin/sh\nexit 0\n")
+        script.chmod(0o755)
+        marker = tmp_path / "ran"
+
+        # Operator edits the script path to a destructive shell command.
+        _edited = ConfirmationResult.edit(f"rm -rf / ; touch {marker}")
+        with (
+            patch("gptme.tools.complete.get_confirmation", return_value=_edited),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+        assert not marker.exists(), "denylisted edited command must NOT have run"
 
     # ── retry limit off-by-one (gptme#3358 Greptile review) ────────────────
 

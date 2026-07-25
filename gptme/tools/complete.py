@@ -60,7 +60,7 @@ def _run_verify_cmd(
     """
     timeout = _env_int("GPTME_VERIFY_COMPLETION_TIMEOUT", _DEFAULT_VERIFY_TIMEOUT)
     popen_kwargs: dict = {} if _is_windows else {"start_new_session": True}
-    with subprocess.Popen(
+    proc = subprocess.Popen(
         cmd,
         shell=True,
         stdout=subprocess.PIPE,
@@ -68,7 +68,8 @@ def _run_verify_cmd(
         text=True,
         cwd=workspace,
         **popen_kwargs,
-    ) as proc:
+    )
+    try:
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -91,12 +92,25 @@ def _run_verify_cmd(
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                with contextlib.suppress(subprocess.TimeoutExpired):
+                try:
                     proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass  # best effort; handled by the finally block
             raise
         return subprocess.CompletedProcess(
             cmd, proc.returncode, stdout=stdout, stderr=stderr
         )
+    finally:
+        # Close any open pipes and reap the process with a hard timeout.
+        # Avoids the Popen context-manager's unbounded proc.wait() in __exit__,
+        # which can hang when Windows cleanup fails and the process survives.
+        for _pipe in (proc.stdout, proc.stderr, proc.stdin):
+            if _pipe is not None:
+                with contextlib.suppress(OSError):
+                    _pipe.close()
+        if proc.returncode is None:
+            with contextlib.suppress(subprocess.TimeoutExpired, OSError):
+                proc.wait(timeout=1)
 
 
 class SessionCompleteException(Exception):
@@ -236,7 +250,10 @@ def complete_hook(
                     try:
                         _script_content = Path(verify_cmd).read_text()
                     except OSError:
-                        pass
+                        # Path read failed — verify_cmd may be an operator-edited
+                        # shell command rather than a file path; denylist-check the
+                        # command string itself so it isn't executed unchecked.
+                        _script_content = verify_cmd
                     if _script_content is not None:
                         _is_denied, _deny_reason, _matched_cmd = is_denylisted(
                             _script_content
@@ -258,8 +275,10 @@ def complete_hook(
                 )
                 # Count prior complete-tool calls in the CURRENT retry episode only.
                 # Walk backwards, counting _TASK_COMPLETE_MSG entries and stopping
-                # at an episode boundary: any user message that is NOT an auto-reply,
-                # or any assistant message that does NOT call the complete tool.
+                # at a real user message (not an auto-reply). ALL assistant turns
+                # (whether they call complete or perform a repair) are part of the
+                # same episode — breaking on repair turns would reset the counter
+                # to zero after every fix attempt, allowing indefinite retries.
                 # This prevents historical _TASK_COMPLETE_MSG entries from prior
                 # (resumed) sessions consuming the configured retry allowance.
                 #
@@ -274,10 +293,7 @@ def complete_hook(
                     elif _m.role == "system":
                         continue  # other system msgs (tool results etc.) — stay in episode
                     elif _m.role == "assistant":
-                        _uses = list(ToolUse.iter_from_content(_m.content))
-                        if any(u.tool == "complete" for u in _uses):
-                            continue  # complete call — part of this episode
-                        break  # non-complete assistant turn = episode boundary
+                        continue  # all assistant turns (complete or repair) stay in episode
                     elif _m.role == "user" and _AUTO_REPLY_MARKER in (_m.content or ""):
                         continue  # auto-reply between retries — still in episode
                     else:
