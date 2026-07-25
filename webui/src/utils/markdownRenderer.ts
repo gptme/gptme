@@ -167,6 +167,19 @@ export function customRenderer(
         console.log('end_token');
       }
 
+      // Run syntax highlight exactly once on the complete code text (O(n) per block).
+      // add_text now accumulates raw text and shows escaped HTML during streaming;
+      // this pass replaces it with properly highlighted HTML at block completion.
+      if (data.code && data.codeText) {
+        const langFromInfo = data.lang ? data.lang.split('.').pop() : undefined;
+        const highlighted = highlightCode(data.codeText, langFromInfo, true);
+        if (highlighted.language) {
+          data.lang = highlighted.language;
+          data.code.setAttribute('class', `hljs language-${highlighted.language}`);
+        }
+        data.code.innerHTML = highlighted.code;
+      }
+
       if (!standardMarkdown) {
         if (useReactTabbed && data.placeholder && data.code && data.lang && data.codeText) {
           const langFromInfo = data.lang ? data.lang.split('.').pop() : undefined;
@@ -218,24 +231,26 @@ export function customRenderer(
       }
 
       if (data.code) {
-        // Highlight code blocks
-        const lang = data.lang;
-        const langFromInfo = lang ? lang.split('.').pop() : undefined;
-        const previousText = data.nodes[data.index].textContent;
-        const newText = previousText + text;
-        const highlighted = highlightCode(newText, langFromInfo, true);
-        // Update the language if it was detected
-        if (highlighted.language) {
-          data.lang = highlighted.language;
-        }
-        data.nodes[data.index].innerHTML = highlighted.code;
+        // Accumulate raw text; full syntax highlight runs once in end_token
+        // (previously re-highlighted the whole block on every token → O(n²))
+        data.codeText += text;
 
-        // Store code text for React tabbed component
-        if (useReactTabbed && data.placeholder && isMarkdownOrHtml(highlighted.language)) {
-          data.codeText += text;
-        } else {
-          data.placeholder = null;
+        // Null the TabbedCodeBlock placeholder early for non-markdown/html blocks
+        // so end_token skips the TabbedCodeBlock path (which has an early return
+        // that would bypass cleanup). Language is known from set_attr(LANG) which
+        // fires before add_text for explicitly-tagged fences.
+        if (useReactTabbed && data.placeholder) {
+          const langFromInfo = data.lang ? data.lang.split('.').pop() : undefined;
+          if (!isMarkdownOrHtml(langFromInfo)) {
+            data.placeholder = null;
+          }
         }
+
+        // Display escaped text incrementally during streaming
+        data.code.innerHTML = data.codeText
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
       } else {
         smd.default_add_text(data, text);
       }

@@ -280,6 +280,10 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // Create a ref for the scroll container
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // Pending rAF handle for scroll-to-bottom — cancelled before re-scheduling so
+  // a burst of log updates queues at most one scroll per animation frame.
+  const scrollRAFRef = useRef<number | null>(null);
+
   // Observable for if the conversation is auto-scrolling
   const isAutoScrolling$ = useObservable(false);
 
@@ -313,10 +317,19 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     });
   }, [isAutoScrolling$]);
 
-  // Auto-scroll when the conversation is updated (e.g., streaming response)
+  // Auto-scroll when the conversation is updated (e.g., streaming response).
+  // Cancel any pending rAF before scheduling a new one so rapid log updates
+  // (one per streaming token) collapse to at most one scroll per animation frame
+  // instead of queuing hundreds of layout-forcing scrollHeight reads.
   useObserveEffect(conversation$?.data.log, () => {
     if (!autoScrollAborted$.get()) {
-      requestAnimationFrame(scrollToBottom);
+      if (scrollRAFRef.current !== null) {
+        cancelAnimationFrame(scrollRAFRef.current);
+      }
+      scrollRAFRef.current = requestAnimationFrame(() => {
+        scrollRAFRef.current = null;
+        scrollToBottom();
+      });
     }
   });
 
