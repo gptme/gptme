@@ -188,7 +188,13 @@ def complete_hook(
                         preview=f"Run workspace completion-verification script `{verify_cmd}`?",
                         workspace=workspace,
                     )
-                    if _confirm_result.action != ConfirmAction.CONFIRM:
+                    if (
+                        _confirm_result.action == ConfirmAction.EDIT
+                        and _confirm_result.edited_content
+                    ):
+                        # Operator edited the command; run the edited version instead.
+                        verify_cmd = _confirm_result.edited_content
+                    elif _confirm_result.action != ConfirmAction.CONFIRM:
                         logger.info(
                             "Completion verification script declined by confirmation gate: %s",
                             verify_cmd,

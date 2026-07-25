@@ -419,6 +419,31 @@ class TestCompleteHookVerification:
             list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
         assert not marker.exists()
 
+    def test_workspace_script_edited_by_confirmation_runs_edited_cmd(
+        self, monkeypatch, tmp_path
+    ):
+        """An EDIT confirmation runs the edited command instead of closing the session."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        original_marker = tmp_path / "original_ran"
+        edited_marker = tmp_path / "edited_ran"
+        script.write_text(f"#!/bin/sh\ntouch {original_marker}\nexit 1\n")
+        script.chmod(0o755)
+        edited_cmd = f"touch {edited_marker}"
+
+        _edited = ConfirmationResult.edit(edited_cmd)
+        with (
+            patch(
+                "gptme.tools.complete.get_confirmation",
+                return_value=_edited,
+            ),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+        assert not original_marker.exists(), "original script must NOT have run"
+        assert edited_marker.exists(), "edited command must have run"
+
     def test_env_var_verify_cmd_not_gated_by_confirmation(self, monkeypatch, tmp_path):
         """The operator-configured env var command runs without a confirmation gate."""
         monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "true")
