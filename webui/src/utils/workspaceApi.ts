@@ -50,11 +50,18 @@ export function useWorkspaceApi() {
         throw new Error(error.error || 'Failed to preview file');
       }
 
-      const contentType = response.headers.get('Content-Type');
-      if (contentType?.startsWith('image/')) {
+      const contentType = response.headers.get('Content-Type') ?? '';
+      if (contentType.startsWith('image/')) {
         return {
           type: 'image',
           content: URL.createObjectURL(await response.blob()),
+        };
+      }
+      if (contentType.startsWith('model/')) {
+        return {
+          type: 'model3d',
+          content: URL.createObjectURL(await response.blob()),
+          mime_type: contentType,
         };
       }
 

@@ -7,6 +7,7 @@ import type { WorkspaceRoot } from '@/stores/workspaceExplorer';
 import { CodeDisplay } from '@/components/CodeDisplay';
 import { Button } from '@/components/ui/button';
 import { MarkdownPreviewTabs } from './MarkdownPreviewTabs';
+import '@google/model-viewer';
 
 // Helper function to check if a file is a markdown file
 function isMarkdownFileType(file: FileType): boolean {
@@ -145,6 +146,30 @@ export function FilePreview({ file, conversationId, root = 'workspace' }: FilePr
           </div>
         </div>
       );
+    case 'model3d': {
+      // glTF/GLB/USDZ get an interactive 3D viewer; OBJ/STL get a download prompt.
+      const isGltfLike = /\.(gltf|glb|usdz)$/i.test(file.name);
+      return (
+        <div className="flex h-full flex-col">
+          <FileHeader file={file} onDownload={handleDownload} downloadError={downloadError} />
+          <div className="flex flex-1 items-center justify-center overflow-hidden">
+            {isGltfLike ? (
+              <model-viewer
+                src={preview.content}
+                camera-controls
+                auto-rotate
+                style={{ width: '100%', height: '100%' }}
+              />
+            ) : (
+              <div className="flex flex-col items-center gap-2 text-center text-muted-foreground">
+                <p>OBJ/STL preview not available inline.</p>
+                <p className="text-sm">Use the download button to open in a local viewer.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
     case 'binary':
       return (
         <div className="flex h-full flex-col">

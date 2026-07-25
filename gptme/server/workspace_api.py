@@ -24,6 +24,15 @@ logger = logging.getLogger(__name__)
 # Maximum bytes returned for text-file preview to avoid OOM on huge files.
 MAX_PREVIEW_BYTES = 10 * 1024 * 1024  # 10 MB
 
+# MIME types for 3D model extensions — Python's mimetypes doesn't know these.
+_MODEL3D_MIME: dict[str, str] = {
+    ".gltf": "model/gltf+json",
+    ".glb": "model/gltf-binary",
+    ".obj": "model/obj",
+    ".stl": "model/stl",
+    ".usdz": "model/vnd.usdz+zip",
+}
+
 workspace_api = flask.Blueprint("workspace_api", __name__)
 
 
@@ -577,6 +586,10 @@ def preview_file(conversation_id: str, filepath: str):
         if mime_type and mime_type.startswith("image/"):
             # Images
             return flask.send_file(path, mimetype=mime_type)
+        # 3D model files — served as raw bytes; frontend creates a blob URL for model-viewer.
+        ext = path.suffix.lower()
+        if ext in _MODEL3D_MIME:
+            return flask.send_file(path, mimetype=_MODEL3D_MIME[ext])
         # Binary files - return only metadata
         return flask.jsonify({"type": "binary", "metadata": wfile.to_dict()})
 

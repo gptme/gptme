@@ -46,12 +46,13 @@ ArtifactKind = Literal[
     "diff",
     "dataset",
     "webapp",
+    "model3d",
     "binary",
     "other",
 ]
 
 # Coarse renderer hint, deliberately smaller than the kind enum.
-PreviewType = Literal["image", "audio", "video", "text", "pdf", "none"]
+PreviewType = Literal["image", "audio", "video", "text", "pdf", "model3d", "none"]
 
 
 class ArtifactSource(BaseModel):
@@ -138,6 +139,12 @@ _EXTENSION_KINDS: dict[str, ArtifactKind] = {
     ".tsv": "dataset",
     ".json": "dataset",
     ".parquet": "dataset",
+    # 3D model formats
+    ".gltf": "model3d",
+    ".glb": "model3d",
+    ".obj": "model3d",
+    ".stl": "model3d",
+    ".usdz": "model3d",
 }
 
 _PREVIEW_FOR_KIND: dict[ArtifactKind, PreviewType] = {
@@ -149,6 +156,7 @@ _PREVIEW_FOR_KIND: dict[ArtifactKind, PreviewType] = {
     "html": "text",
     "diff": "text",
     "dataset": "text",
+    "model3d": "model3d",
 }
 
 

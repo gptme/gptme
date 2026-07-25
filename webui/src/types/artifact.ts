@@ -8,10 +8,11 @@ export type ArtifactKind =
   | 'diff'
   | 'dataset'
   | 'webapp'
+  | 'model3d'
   | 'binary'
   | 'other';
 
-export type ArtifactPreviewType = 'image' | 'audio' | 'video' | 'text' | 'pdf' | 'none';
+export type ArtifactPreviewType = 'image' | 'audio' | 'video' | 'text' | 'pdf' | 'model3d' | 'none';
 
 export interface ArtifactSource {
   type: 'attachment' | 'workspace' | 'external' | 'inline';

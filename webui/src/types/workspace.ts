@@ -22,4 +22,10 @@ export interface ImagePreview {
   content: string; // Blob URL
 }
 
-export type FilePreview = TextPreview | BinaryPreview | ImagePreview;
+export interface Model3DPreview {
+  type: 'model3d';
+  content: string; // Blob URL for model-viewer src
+  mime_type: string;
+}
+
+export type FilePreview = TextPreview | BinaryPreview | ImagePreview | Model3DPreview;
