@@ -278,8 +278,13 @@ def test_keyboard_interrupt_forwards_partial_output(monkeypatch):
 
     output = [r for r in received if r.content == "partial output before interrupt"]
     assert output, "Partial output must be forwarded even when generator is interrupted"
+    assert output[0].call_id is None, (
+        "Partial output must NOT carry call_id — execute_msg's INTERRUPT_CONTENT "
+        "message is the canonical function_call_output; stamping call_id on the "
+        "partial too creates a duplicate function_call_output → Responses API 400."
+    )
 
     interrupt_msgs = [r for r in received if "Interrupted" in r.content]
     assert interrupt_msgs, "INTERRUPT_CONTENT message must follow the partial output"
-    # The interrupt message inherits the tool's call_id so the API gets a paired result.
+    # The interrupt message is the canonical function_call_output for the interrupted call.
     assert interrupt_msgs[0].call_id == call_id
