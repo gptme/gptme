@@ -71,11 +71,17 @@ def _run_verify_cmd(
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            # Kill the entire process group (POSIX) or terminate (Windows) so
+            # Kill the entire process group (POSIX) or process tree (Windows) so
             # descendants (e.g. spawned test workers) don't outlive the timeout.
             if _is_windows:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.terminate()
+                # taskkill /F /T kills the process and all its descendants;
+                # plain proc.terminate() only kills the immediate shell.
+                with contextlib.suppress(OSError, FileNotFoundError):
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                        capture_output=True,
+                        check=False,
+                    )
             else:
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
@@ -194,6 +200,16 @@ def complete_hook(
                     ):
                         # Operator edited the command; run the edited version instead.
                         verify_cmd = _confirm_result.edited_content
+                    elif _confirm_result.action == ConfirmAction.EDIT:
+                        # EDIT with empty content — operator cleared the command,
+                        # treat as skip (close without running verification).
+                        logger.info(
+                            "Completion verification skipped (empty command after edit): %s",
+                            verify_cmd,
+                        )
+                        raise SessionCompleteException(
+                            "Session completed via complete tool"
+                        )
                     elif _confirm_result.action != ConfirmAction.CONFIRM:
                         logger.info(
                             "Completion verification script declined by confirmation gate: %s",

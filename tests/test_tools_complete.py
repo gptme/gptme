@@ -19,6 +19,7 @@ Tests cover:
 - tool spec: registration, hooks, block_types, disabled_by_default
 """
 
+import subprocess
 from typing import Literal
 from unittest.mock import MagicMock, patch
 
@@ -31,6 +32,7 @@ from gptme.tools.complete import (
     SessionCompleteException,
     _classify_stuck_reason,
     _get_verify_cmd,
+    _run_verify_cmd,
     auto_reply_hook,
     complete_hook,
     execute_complete,
@@ -444,6 +446,30 @@ class TestCompleteHookVerification:
         assert not original_marker.exists(), "original script must NOT have run"
         assert edited_marker.exists(), "edited command must have run"
 
+    def test_workspace_script_edit_empty_content_closes_session(
+        self, monkeypatch, tmp_path
+    ):
+        """EDIT confirmation with empty content closes the session without running the script."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        marker = tmp_path / "ran"
+        script.write_text(f"#!/bin/sh\ntouch {marker}\n")
+        script.chmod(0o755)
+
+        _empty_edit = ConfirmationResult.edit("")
+        with (
+            patch(
+                "gptme.tools.complete.get_confirmation",
+                return_value=_empty_edit,
+            ),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+        assert not marker.exists(), (
+            "script must NOT have run when EDIT content is empty"
+        )
+
     def test_env_var_verify_cmd_not_gated_by_confirmation(self, monkeypatch, tmp_path):
         """The operator-configured env var command runs without a confirmation gate."""
         monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "true")
@@ -480,6 +506,60 @@ class TestCompleteHookVerification:
         # The 4th call (after max_retries failures already recorded) gives up.
         with pytest.raises(SessionCompleteException):
             list(complete_hook(messages, workspace=tmp_path))
+
+    # ── timeout ────────────────────────────────────────────────────────────
+
+    def test_verify_timeout_yields_timed_out_message(self, monkeypatch, tmp_path):
+        """A timed-out verifier yields a failure message mentioning the timeout."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "sleep 99")
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_TIMEOUT", "1")
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.communicate.side_effect = subprocess.TimeoutExpired(
+            cmd="sleep 99", timeout=1
+        )
+        mock_proc.__enter__ = lambda s: mock_proc
+        mock_proc.__exit__ = MagicMock(return_value=False)
+
+        with patch("gptme.tools.complete.subprocess.Popen", return_value=mock_proc):
+            results = list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+
+        assert len(results) == 1
+        msg = results[0]
+        assert isinstance(msg, Message)
+        assert _VERIFY_FAILED_MARKER in msg.content
+        assert "timed out" in msg.content
+
+    def test_timeout_on_windows_kills_process_tree(self, monkeypatch, tmp_path):
+        """On Windows a timed-out verifier kills the full process tree via taskkill."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_TIMEOUT", "1")
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 42
+        mock_proc.communicate.side_effect = subprocess.TimeoutExpired(
+            cmd="sleep 99", timeout=1
+        )
+        mock_proc.__enter__ = lambda s: mock_proc
+        mock_proc.__exit__ = MagicMock(return_value=False)
+
+        taskkill_calls: list[list[str]] = []
+
+        def capture_run(args, **kwargs):
+            taskkill_calls.append(list(args))
+            return MagicMock(returncode=0)
+
+        with (
+            patch("gptme.tools.complete._is_windows", True),
+            patch("gptme.tools.complete.subprocess.Popen", return_value=mock_proc),
+            patch("gptme.tools.complete.subprocess.run", side_effect=capture_run),
+            pytest.raises(subprocess.TimeoutExpired),
+        ):
+            _run_verify_cmd("sleep 99", tmp_path)
+
+        assert len(taskkill_calls) == 1, "taskkill must be called exactly once"
+        assert taskkill_calls[0][:4] == ["taskkill", "/F", "/T", "/PID"]
+        assert taskkill_calls[0][4] == str(mock_proc.pid)
 
     # ── _get_verify_cmd ────────────────────────────────────────────────────
 
