@@ -776,37 +776,47 @@ class ToolUse:
                             else cast(Message | None, ex)
                         )
                         if generator_result is not None:
-                            # Buffer the generator so we can identify the last
-                            # message and stamp call_id on it. The Responses API
-                            # expects exactly one function_call_output per call_id;
-                            # stamping only the last message ensures the actual
-                            # tool result (not an earlier warning such as a
-                            # shellcheck notice) becomes the function_call_output.
-                            # Earlier messages pass through without call_id and
-                            # become system context instead.
-                            #
-                            # Catch KeyboardInterrupt so partial output from an
-                            # interrupted shell command is still forwarded and
-                            # on_result_message callbacks are still invoked.
-                            all_result_msgs = []
-                            _ki: KeyboardInterrupt | None = None
-                            try:
+                            if self.call_id:
+                                # Buffer the generator so we can identify the last
+                                # message and stamp call_id on it. The Responses API
+                                # expects exactly one function_call_output per call_id;
+                                # stamping only the last message ensures the actual
+                                # tool result (not an earlier warning such as a
+                                # shellcheck notice) becomes the function_call_output.
+                                # Earlier messages pass through without call_id and
+                                # become system context instead.
+                                #
+                                # Catch KeyboardInterrupt so partial output from an
+                                # interrupted shell command is still forwarded and
+                                # on_result_message callbacks are still invoked.
+                                all_result_msgs: list[Message] = []
+                                _ki: KeyboardInterrupt | None = None
+                                try:
+                                    for msg in generator_result:
+                                        all_result_msgs.append(msg)  # noqa: PERF402
+                                except KeyboardInterrupt as e:
+                                    _ki = e
+                                last_idx = len(all_result_msgs) - 1
+                                for idx, msg in enumerate(all_result_msgs):
+                                    result_msgs.append(msg)
+                                    if on_result_message:
+                                        on_result_message(msg)
+                                    yield (
+                                        msg.replace(call_id=self.call_id)
+                                        if idx == last_idx
+                                        else msg
+                                    )
+                                if _ki is not None:
+                                    raise _ki
+                            else:
+                                # No call_id: stream immediately to preserve
+                                # progressive callback ordering for callers that
+                                # interleave on_result_message with the generator.
                                 for msg in generator_result:
-                                    all_result_msgs.append(msg)  # noqa: PERF402
-                            except KeyboardInterrupt as e:
-                                _ki = e
-                            last_idx = len(all_result_msgs) - 1
-                            for idx, msg in enumerate(all_result_msgs):
-                                result_msgs.append(msg)
-                                if on_result_message:
-                                    on_result_message(msg)
-                                yield (
-                                    msg.replace(call_id=self.call_id)
-                                    if self.call_id and idx == last_idx and _ki is None
-                                    else msg
-                                )
-                            if _ki is not None:
-                                raise _ki
+                                    result_msgs.append(msg)
+                                    if on_result_message:
+                                        on_result_message(msg)
+                                    yield msg
                         elif single_result is not None:
                             result_msgs = [single_result]
                             if on_result_message:
