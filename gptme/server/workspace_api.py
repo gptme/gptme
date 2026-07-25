@@ -317,6 +317,13 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
             # Serve 3D model files as raw bytes so that model-viewer can use
             # the file's natural URL as the base for relative URI resolution
             # (e.g. sibling buffers and textures referenced by .gltf files).
+            # TODO: sibling requests from model-viewer (buffers, textures) are
+            # plain relative-path fetches and do not carry ?root=attachments.
+            # A .gltf stored under the attachments root therefore has working
+            # intra-root relative URIs only when the sibling assets reside at
+            # the same path under the workspace root. Fix: detect/infer the root
+            # from the request path prefix or a signed URL token so sibling
+            # fetches inherit the correct root automatically.
             ext = path.suffix.lower()
             if ext in _MODEL3D_MIME:
                 return flask.send_file(path, mimetype=_MODEL3D_MIME[ext])
