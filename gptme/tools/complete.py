@@ -11,10 +11,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..hooks import HookType, StopPropagation
-from ..hooks.confirm import confirm
+from ..hooks.confirm import ConfirmAction, get_confirmation
 from ..message import Message
 from .base import ToolSpec, ToolUse
 from .todo import get_incomplete_todos_summary, has_incomplete_todos
+
+_is_windows = os.name == "nt"
 
 if TYPE_CHECKING:
     from ..logmanager import LogManager
@@ -56,6 +58,7 @@ def _run_verify_cmd(
     not just the immediate shell.
     """
     timeout = _env_int("GPTME_VERIFY_COMPLETION_TIMEOUT", _DEFAULT_VERIFY_TIMEOUT)
+    popen_kwargs: dict = {} if _is_windows else {"start_new_session": True}
     with subprocess.Popen(
         cmd,
         shell=True,
@@ -63,15 +66,19 @@ def _run_verify_cmd(
         stderr=subprocess.PIPE,
         text=True,
         cwd=workspace,
-        start_new_session=True,
+        **popen_kwargs,
     ) as proc:
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            # Kill the entire process group, not just the shell, so descendants
-            # (e.g. spawned test workers) don't keep running past the timeout.
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            # Kill the entire process group (POSIX) or terminate (Windows) so
+            # descendants (e.g. spawned test workers) don't outlive the timeout.
+            if _is_windows:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.terminate()
+            else:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             proc.wait()
             raise
         return subprocess.CompletedProcess(
@@ -166,17 +173,29 @@ def complete_hook(
             verify_cfg = _get_verify_cmd(workspace)
             if verify_cfg:
                 verify_cmd, is_workspace_script = verify_cfg
-                if is_workspace_script and not confirm(
-                    f"Run workspace completion-verification script `{verify_cmd}`?",
-                    default=True,
-                ):
-                    logger.info(
-                        "Completion verification script declined by confirmation gate: %s",
-                        verify_cmd,
+                if is_workspace_script:
+                    # Use get_confirmation() with an explicit ToolUse so that
+                    # registered CLI / server hooks can prompt the user — calling
+                    # plain confirm() here lacks a tool context (GENERATION_PRE
+                    # hooks run outside of any ToolUse execution), which causes
+                    # get_current_tool_use() to return None and auto-approve
+                    # before any registered hook has a chance to run.
+                    _script_tool_use = ToolUse(
+                        tool="shell", args=None, content=verify_cmd
                     )
-                    raise SessionCompleteException(
-                        "Session completed via complete tool"
+                    _confirm_result = get_confirmation(
+                        tool_use=_script_tool_use,
+                        preview=f"Run workspace completion-verification script `{verify_cmd}`?",
+                        workspace=workspace,
                     )
+                    if _confirm_result.action != ConfirmAction.CONFIRM:
+                        logger.info(
+                            "Completion verification script declined by confirmation gate: %s",
+                            verify_cmd,
+                        )
+                        raise SessionCompleteException(
+                            "Session completed via complete tool"
+                        )
 
                 max_retries = _env_int(
                     "GPTME_VERIFY_COMPLETION_MAX_RETRIES", _DEFAULT_MAX_RETRIES

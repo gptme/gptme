@@ -24,6 +24,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gptme.hooks.confirm import ConfirmationResult
 from gptme.message import Message
 from gptme.tools.complete import (
     _VERIFY_FAILED_MARKER,
@@ -407,8 +408,12 @@ class TestCompleteHookVerification:
         script.write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n")
         script.chmod(0o755)
 
+        _declined = ConfirmationResult.skip("Declined by user")
         with (
-            patch("gptme.tools.complete.confirm", return_value=False),
+            patch(
+                "gptme.tools.complete.get_confirmation",
+                return_value=_declined,
+            ),
             pytest.raises(SessionCompleteException),
         ):
             list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
@@ -419,7 +424,7 @@ class TestCompleteHookVerification:
         monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "true")
         with (
             patch(
-                "gptme.tools.complete.confirm",
+                "gptme.tools.complete.get_confirmation",
                 side_effect=AssertionError("should not be called"),
             ),
             pytest.raises(SessionCompleteException),
