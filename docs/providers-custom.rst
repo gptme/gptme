@@ -115,8 +115,10 @@ Then: ``gptme 'hello' -m lmstudio``
 .. note::
 
    LM Studio's server serves whichever model is currently loaded, regardless of
-   the model name sent in requests. The ``default_model`` value above can be any
-   string — LM Studio ignores it. It is required by gptme's provider resolution.
+   the model name sent in requests. The ``default_model`` value above is a
+   placeholder — LM Studio returns the actual loaded model's identifier in
+   responses, so message metadata reflects the true loaded model name. The value
+   is still required by gptme's provider resolution.
 
 **Common errors:**
 
@@ -130,7 +132,7 @@ Empty or broken responses
 
 Tool use fails or loops
   **Cause:** Model too small for tool format
-  **Fix:** Use a 7B+ instruction-tuned model
+  **Fix:** Use a 7B+ instruction-tuned model; or try a different tool format (``gptme --tool-format xml``)
 
 vLLM and OpenAI-compatible servers
 -----------------------------------
