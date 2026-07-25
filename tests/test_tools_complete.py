@@ -28,6 +28,7 @@ import pytest
 from gptme.hooks.confirm import ConfirmationResult
 from gptme.message import Message
 from gptme.tools.complete import (
+    _TASK_COMPLETE_MSG,
     _VERIFY_FAILED_MARKER,
     SessionCompleteException,
     _classify_stuck_reason,
@@ -278,12 +279,19 @@ class TestCompleteHookVerification:
     _COMPLETE_MSG = [
         _user("finish up"),
         _assistant("All done.\n```complete\n```"),
+        # execute_complete appends this to the persistent log before GENERATION_PRE fires.
+        _system(_TASK_COMPLETE_MSG),
     ]
 
     def _msgs_with_prior_attempts(self, n: int) -> list[Message]:
-        """Build a message list with n prior failed-verification system messages."""
+        """Build a message list simulating n prior failed verification attempts.
+
+        The retry counter tracks _TASK_COMPLETE_MSG occurrences (one per complete
+        call, always persisted by execute_complete). The base list already contains
+        one for the current attempt; add n more to represent prior complete calls.
+        """
         msgs = list(self._COMPLETE_MSG)
-        msgs.extend(_system(f"{_VERIFY_FAILED_MARKER}: exit code 1.") for _ in range(n))
+        msgs.extend(_system(_TASK_COMPLETE_MSG) for _ in range(n))
         return msgs
 
     # ── no verify command configured ──────────────────────────────────────
@@ -357,7 +365,7 @@ class TestCompleteHookVerification:
         """After GPTME_VERIFY_COMPLETION_MAX_RETRIES failures the session closes anyway."""
         monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "false")
         monkeypatch.setenv("GPTME_VERIFY_COMPLETION_MAX_RETRIES", "2")
-        # 2 prior attempts already logged as system messages
+        # 2 prior _TASK_COMPLETE_MSG markers in addition to the current attempt
         msgs = self._msgs_with_prior_attempts(2)
         with pytest.raises(SessionCompleteException):
             list(complete_hook(msgs, workspace=tmp_path))
@@ -501,9 +509,13 @@ class TestCompleteHookVerification:
             msg = results[0]
             assert isinstance(msg, Message)
             assert _VERIFY_FAILED_MARKER in msg.content
-            messages.append(msg)
+            # Simulate the next complete call: execute_complete appends
+            # _TASK_COMPLETE_MSG to the persistent log. The yielded failure
+            # message is NOT persisted (GENERATION_PRE messages are only added
+            # to the generation-time copy of messages, not to the log).
+            messages.append(_system(_TASK_COMPLETE_MSG))
 
-        # The 4th call (after max_retries failures already recorded) gives up.
+        # The 4th call (after 3 prior _TASK_COMPLETE_MSG markers) gives up.
         with pytest.raises(SessionCompleteException):
             list(complete_hook(messages, workspace=tmp_path))
 

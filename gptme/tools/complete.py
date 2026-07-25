@@ -222,17 +222,24 @@ def complete_hook(
                 max_retries = _env_int(
                     "GPTME_VERIFY_COMPLETION_MAX_RETRIES", _DEFAULT_MAX_RETRIES
                 )
-                # Count PRIOR failed-verification system messages already in the
-                # log. Unlike counting _TASK_COMPLETE_MSG (which would include
-                # the current attempt's own message, since execute_complete has
-                # already appended it by the time this hook runs — undercounting
-                # the allowed retries by one), _VERIFY_FAILED_MARKER is only ever
-                # written by a previous run of this hook, so it never includes
-                # the current attempt.
-                prior_attempts = sum(
-                    1
-                    for m in messages
-                    if m.role == "system" and _VERIFY_FAILED_MARKER in (m.content or "")
+                # Count prior complete-tool calls by looking for _TASK_COMPLETE_MSG
+                # in the log. execute_complete appends this message to the persistent
+                # conversation log on every complete call, so it's always available
+                # here. We subtract 1 to exclude the current attempt's own marker
+                # (already present before GENERATION_PRE fires).
+                #
+                # NOTE: _VERIFY_FAILED_MARKER is NOT suitable here — GENERATION_PRE
+                # hook messages are only added to a generation-time copy of the
+                # message list, never persisted to the log. Counting them would
+                # always yield zero and cause the verifier to retry indefinitely.
+                prior_attempts = (
+                    sum(
+                        1
+                        for m in messages
+                        if m.role == "system"
+                        and _TASK_COMPLETE_MSG in (m.content or "")
+                    )
+                    - 1
                 )
                 if prior_attempts < max_retries:
                     try:
