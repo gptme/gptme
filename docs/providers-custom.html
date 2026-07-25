@@ -493,6 +493,7 @@ document.write(`
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ollama-local">Ollama (local)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lm-studio-local">LM Studio (local)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vllm-and-openai-compatible-servers">vLLM and OpenAI-compatible servers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#setting-a-default-model">Setting a default model</a></li>
@@ -511,7 +512,7 @@ document.write(`
                   
   <section id="custom-and-local-providers">
 <h1>Custom and Local Providers<a class="headerlink" href="#custom-and-local-providers" title="Link to this heading">#</a></h1>
-<p>This page covers <strong>Ollama</strong>, <strong>vLLM</strong>, and any other
+<p>This page covers <strong>Ollama</strong>, <strong>LM Studio</strong>, <strong>vLLM</strong>, and any other
 OpenAI-compatible server — plus how to declare a reusable
 <code class="docutils literal notranslate"><span class="pre">[[providers]]</span></code> block in your config so gptme can find them by name.</p>
 <p>For the full list of built-in providers and API keys, see <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a>.</p>
@@ -577,6 +578,58 @@ gptme<span class="w"> </span><span class="s1">&#39;hi&#39;</span><span class="w"
 <p>Models under ~7B parameters rarely follow gptme’s tool protocol reliably.
 For agent-style work, prefer at least <code class="docutils literal notranslate"><span class="pre">llama3.1:8b</span></code> or <code class="docutils literal notranslate"><span class="pre">mistral:7b-instruct</span></code>.</p>
 </div>
+<p><strong>Verify tool use is working:</strong></p>
+<p>After setup, run a real tool call to confirm the full stack works (not just text):</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://127.0.0.1:11434/v1&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>gptme<span class="w"> </span><span class="s1">&#39;list the files in the current directory&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.1:8b
+</pre></div>
+</div>
+<p>If gptme runs a shell command and shows real filenames, tool calling works. If the
+model just <em>describes</em> what it would do without executing anything, the model is
+too small or not following the tool protocol — try a larger or more capable model.</p>
+</section>
+<section id="lm-studio-local">
+<h2>LM Studio (local)<a class="headerlink" href="#lm-studio-local" title="Link to this heading">#</a></h2>
+<p><a class="reference external" href="https://lmstudio.ai/">LM Studio</a> is a desktop app for running models locally.
+It exposes an OpenAI-compatible server that gptme connects to directly.</p>
+<p><strong>Quick start:</strong></p>
+<ol class="arabic simple">
+<li><p>Download <a class="reference external" href="https://lmstudio.ai/">LM Studio</a> and open it</p></li>
+<li><p>In the <strong>Models</strong> tab, download a 7B+ instruction model
+(e.g. <em>Llama 3.1 8B Instruct Q4_K_M</em> — a good balance of speed and tool use)</p></li>
+<li><p>Open the <strong>Local Server</strong> tab (<code class="docutils literal notranslate"><span class="pre">↔</span></code> icon), load the model, and click <strong>Start Server</strong></p></li>
+</ol>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Default server address — no API key required</span>
+<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://localhost:1234/v1&quot;</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/lmstudio
+</pre></div>
+</div>
+<p><strong>Named provider config</strong> (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>):</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;lmstudio&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:1234/v1&quot;</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local-model&quot;</span>
+</pre></div>
+</div>
+<p>Then: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'hello'</span> <span class="pre">-m</span> <span class="pre">lmstudio</span></code></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>LM Studio’s server serves whichever model is currently loaded, regardless of
+the model name sent in requests. The <code class="docutils literal notranslate"><span class="pre">default_model</span></code> value is required by
+gptme’s provider resolution — any string works as a placeholder since LM
+Studio ignores the model name in requests (and echoes it back in responses).</p>
+</div>
+<p><strong>Common errors:</strong></p>
+<dl class="simple">
+<dt>Connection refused :1234</dt><dd><p><strong>Cause:</strong> Server not started
+<strong>Fix:</strong> Open LM Studio → Local Server → Start</p>
+</dd>
+<dt>Empty or broken responses</dt><dd><p><strong>Cause:</strong> No model loaded in server tab
+<strong>Fix:</strong> Load a model before starting the server</p>
+</dd>
+<dt>Tool use fails or loops</dt><dd><p><strong>Cause:</strong> Model too small for tool format
+<strong>Fix:</strong> Use a 7B+ instruction-tuned model; or try a different tool format (<code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--tool-format</span> <span class="pre">xml</span></code>)</p>
+</dd>
+</dl>
 </section>
 <section id="vllm-and-openai-compatible-servers">
 <h2>vLLM and OpenAI-compatible servers<a class="headerlink" href="#vllm-and-openai-compatible-servers" title="Link to this heading">#</a></h2>
@@ -760,6 +813,7 @@ existing configurations.</p>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ollama-local">Ollama (local)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lm-studio-local">LM Studio (local)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vllm-and-openai-compatible-servers">vLLM and OpenAI-compatible servers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#setting-a-default-model">Setting a default model</a></li>
