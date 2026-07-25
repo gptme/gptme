@@ -61,8 +61,15 @@ async def test_acp_agent_e2e_file_edit():
                 "Then read it back to confirm.",
             )
 
-        # Verify the file was actually modified
+        # Verify the file was actually modified with original content preserved and
+        # new line appended (not just that "Goodbye!" appears somewhere).
         content = test_file.read_text()
+        assert "Hello, World!" in content, (
+            f"Expected original 'Hello, World!' to be preserved in file, got: {content!r}"
+        )
         assert "Goodbye!" in content, (
-            f"Expected 'Goodbye!' in file after ACP prompt, got: {content!r}"
+            f"Expected 'Goodbye!' to be appended to file after ACP prompt, got: {content!r}"
+        )
+        assert content.index("Hello") < content.index("Goodbye"), (
+            f"Expected 'Hello, World!' to appear before 'Goodbye!' in: {content!r}"
         )
