@@ -84,13 +84,24 @@ jobs:
         context: .
         push: true
 
+    # Derive OCI labels (created/version/revision/source) for the server image so
+    # downstream consumers (e.g. gptme-cloud's image-bump automation) can read
+    # build metadata directly off the image instead of guessing "unknown".
+    - name: Docker meta (server)
+      id: meta-server
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ env.OWNER_LC }}/gptme-server
+        tags: |
+          type=raw,value=${{ env.DOCKER_EXTRA_TAG }}
+          type=raw,value=${{ env.SANITIZED_REF_NAME }}
+
     # Build and push server image
     - name: Build and push Docker image (server)
       uses: docker/build-push-action@v7
       with:
-        tags: |
-          ghcr.io/${{ env.OWNER_LC }}/gptme-server:${{ env.DOCKER_EXTRA_TAG }}
-          ghcr.io/${{ env.OWNER_LC }}/gptme-server:${{ env.SANITIZED_REF_NAME }}
+        tags: ${{ steps.meta-server.outputs.tags }}
+        labels: ${{ steps.meta-server.outputs.labels }}
         file: ./scripts/Dockerfile.server
         context: .
         build-args: |
