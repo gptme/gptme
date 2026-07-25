@@ -200,7 +200,21 @@ def complete_hook(
             verify_cfg = _get_verify_cmd(workspace)
             if verify_cfg:
                 verify_cmd, is_workspace_script = verify_cfg
+                script_content: str | None = None
                 if is_workspace_script:
+                    # Snapshot the script before confirmation so the content that
+                    # the user approves is exactly what gets validated and run.
+                    try:
+                        script_content = Path(verify_cmd).read_text()
+                    except OSError:
+                        logger.warning(
+                            "Completion verification script could not be read; "
+                            "skipping execution: %s",
+                            verify_cmd,
+                        )
+                        raise SessionCompleteException(
+                            "Session completed via complete tool"
+                        ) from None
                     # Use get_confirmation() with an explicit ToolUse so that
                     # registered CLI / server hooks can prompt the user — calling
                     # plain confirm() here lacks a tool context (GENERATION_PRE
@@ -221,6 +235,7 @@ def complete_hook(
                     ):
                         # Operator edited the command; run the edited version instead.
                         verify_cmd = _confirm_result.edited_content
+                        script_content = verify_cmd
                     elif _confirm_result.action == ConfirmAction.EDIT:
                         # EDIT with empty content — operator cleared the command,
                         # treat as skip (close without running verification).
@@ -241,34 +256,23 @@ def complete_hook(
                         )
 
                 if is_workspace_script:
-                    # The workspace-script path calls Popen directly, bypassing
-                    # execute_shell()'s is_denylisted() check. Read the script
-                    # contents and apply the same check so that destructive
-                    # commands inside repo-controlled scripts are blocked even
-                    # in autonomous / auto-confirm modes.
-                    _script_content: str | None = None
-                    try:
-                        _script_content = Path(verify_cmd).read_text()
-                    except OSError:
-                        # Path read failed — verify_cmd may be an operator-edited
-                        # shell command rather than a file path; denylist-check the
-                        # command string itself so it isn't executed unchecked.
-                        _script_content = verify_cmd
-                    if _script_content is not None:
-                        _is_denied, _deny_reason, _matched_cmd = is_denylisted(
-                            _script_content
+                    # This path bypasses execute_shell()'s denylist check. Validate
+                    # and execute the pre-confirmation snapshot rather than reopening
+                    # a repository-controlled path that may since have changed.
+                    assert script_content is not None
+                    verify_cmd = script_content
+                    _is_denied, _deny_reason, _matched_cmd = is_denylisted(verify_cmd)
+                    if _is_denied:
+                        logger.warning(
+                            "Completion verification script contains a denylisted "
+                            "command (%s: %r); skipping execution: %s",
+                            _deny_reason,
+                            _matched_cmd,
+                            verify_cmd,
                         )
-                        if _is_denied:
-                            logger.warning(
-                                "Completion verification script contains a denylisted "
-                                "command (%s: %r); skipping execution: %s",
-                                _deny_reason,
-                                _matched_cmd,
-                                verify_cmd,
-                            )
-                            raise SessionCompleteException(
-                                "Session completed via complete tool"
-                            )
+                        raise SessionCompleteException(
+                            "Session completed via complete tool"
+                        )
 
                 max_retries = _env_int(
                     "GPTME_VERIFY_COMPLETION_MAX_RETRIES", _DEFAULT_MAX_RETRIES

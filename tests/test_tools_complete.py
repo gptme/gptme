@@ -542,6 +542,32 @@ class TestCompleteHookVerification:
             list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
         assert not marker.exists(), "denylisted workspace script must NOT have run"
 
+    def test_workspace_script_executes_validated_snapshot(self, monkeypatch, tmp_path):
+        """Replacing a confirmed script cannot change what the hook executes."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        original_marker = tmp_path / "original_ran"
+        replacement_marker = tmp_path / "replacement_ran"
+        script.write_text(f"#!/bin/sh\ntouch {original_marker}\n")
+        script.chmod(0o755)
+
+        def replace_after_confirmation(**_kwargs):
+            script.write_text(f"#!/bin/sh\ntouch {replacement_marker}\n")
+            return ConfirmationResult.confirm()
+
+        with (
+            patch(
+                "gptme.tools.complete.get_confirmation",
+                side_effect=replace_after_confirmation,
+            ),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+
+        assert original_marker.exists(), "validated script snapshot must have run"
+        assert not replacement_marker.exists(), "replacement script must NOT have run"
+
     def test_env_var_verify_cmd_not_gated_by_denylist(self, monkeypatch, tmp_path):
         """The operator-configured env var command is NOT subject to the denylist check."""
         # env var is explicitly operator-configured, so it's trusted (no denylist gate).
