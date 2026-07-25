@@ -1,0 +1,1346 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Provider Integration Guide &#8212; gptme</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/sphinx-book-theme.css?v=eba8b062" />
+    <link rel="stylesheet" type="text/css" href="_static/asciinema-player_3.12.1.css" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=3a28e17f" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script src="_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/asciinema-player_3.12.1.js"></script>
+    <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'provider-integration';</script>
+    <link rel="canonical" href="https://gptme.org/docs/provider-integration.html" />
+    <link rel="icon" href="_static/logo.png"/>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Choosing your model" href="model-routing.html" />
+    <link rel="prev" title="Custom and Local Providers" href="providers-custom.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
+    <script>document.write(`<img src="_static/logo.png" class="logo__image only-dark" alt="gptme - Home"/>`);</script>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+ <script>
+ document.write(`
+   <button class="btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="demos.html">Demos</a></li>
+<li class="toctree-l2"><a class="reference internal" href="automation.html">Automation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html">Projects</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="howto/index.html">How-To Guides</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="howto/minimal-context.html">Run gptme with minimal context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/edit-files.html">How to Edit Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/code-review.html">How to Review Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/debug-python.html">How to Debug Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/automate-task.html">How to Automate Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/refactor.html">How to Refactor Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/computer-use.html">How to Automate GUIs with Computer Use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/tts-setup.html">Set Up Text-to-Speech</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Provider Integration Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Extensibility</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="agents.html">Agents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="agent/verifier-profile.html">Verifier Profile</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
+<li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
+<li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="design/hook-based-confirmations.html">Design: Hook-Based Tool Confirmations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design/elicitation.html">Design: Generalized Elicitation</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="misc/acronyms.html">What does “gptme” stand for?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.32.1.html">v0.32.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.32.0.html">v0.32.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.31.0.html">v0.31.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.30.0.html">v0.30.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.29.0.html">v0.29.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.3.html">v0.28.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.2.html">v0.28.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.1.html">v0.28.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.27.0.html">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.22.0.html">v0.22.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.21.0.html">v0.21.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.20.0.html">v0.20.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.19.0.html">v0.19.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.18.0.html">v0.18.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.17.0.html">v0.17.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.16.0.html">v0.16.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.15.0.html">v0.15.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.14.0.html">v0.14.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.13.0.html">v0.13.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.12.0.html">v0.12.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.11.0.html">v0.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.5.html">v0.10.5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.4.html">v0.10.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.3.html">v0.10.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.2.html">v0.10.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.1.html">v0.10.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.0.html">v0.10.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.4.html">v0.9.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.3.html">v0.9.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.2.html">v0.9.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.1.html">v0.9.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.0.html">v0.9.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.1.html">v0.8.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.0.html">v0.8.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.7.0.html">v0.7.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.1.html">v0.6.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.0.html">v0.6.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.5.0.html">v0.5.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.2.html">v0.4.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.1.html">v0.4.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.0.html">v0.4.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.3.html">v0.3.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.2.html">v0.3.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.1.html">v0.3.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.0.html">v0.3.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.2.html">v0.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.1.html">v0.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.1.1.html">v0.1.1</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">External</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference external" href="https://github.com/gptme/gptme">GitHub</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://x.com/gptmeorg">X</a></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/provider-integration.rst" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="_sources/provider-integration.rst" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.rst</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script>
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm pst-navbar-icon search-button search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+  </button>
+`);
+</script>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>Provider Integration Guide</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-the-right-integration-path">Choosing the Right Integration Path</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-custom-provider-config">Option 1: Custom Provider Config</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-provider-plugin-package">Option 2: Provider Plugin Package</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#minimum-working-example">Minimum working example</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#required-providerplugin-fields">Required ProviderPlugin fields</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#modelmeta-capability-fields">ModelMeta capability fields</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-auth-subscription-backed-providers">Custom auth (subscription-backed providers)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#testing-your-plugin">Testing Your Plugin</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#unified-plugin-system">Unified Plugin System</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#package-naming">Package naming</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-3-built-in-provider-pr">Option 3: Built-in Provider PR</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#steps">Steps</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#common-pitfalls">Common Pitfalls</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-ids">Model IDs</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-init-must-register-a-client">Custom <code class="docutils literal notranslate"><span class="pre">init</span></code> must register a client</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#streaming">Streaming</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#vision-inputs">Vision inputs</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related-documentation">Related Documentation</a></li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="provider-integration-guide">
+<h1>Provider Integration Guide<a class="headerlink" href="#provider-integration-guide" title="Link to this heading">#</a></h1>
+<p>This guide explains how to connect a new LLM provider to gptme — whether as a
+standalone pip-installable plugin, a user-level custom provider config, or a
+built-in provider PR.</p>
+<nav class="contents local" id="table-of-contents">
+<p class="topic-title">Table of Contents</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#choosing-the-right-integration-path" id="id2">Choosing the Right Integration Path</a></p></li>
+<li><p><a class="reference internal" href="#option-1-custom-provider-config" id="id3">Option 1: Custom Provider Config</a></p></li>
+<li><p><a class="reference internal" href="#option-2-provider-plugin-package" id="id4">Option 2: Provider Plugin Package</a></p>
+<ul>
+<li><p><a class="reference internal" href="#minimum-working-example" id="id5">Minimum working example</a></p></li>
+<li><p><a class="reference internal" href="#required-providerplugin-fields" id="id6">Required ProviderPlugin fields</a></p></li>
+<li><p><a class="reference internal" href="#modelmeta-capability-fields" id="id7">ModelMeta capability fields</a></p></li>
+<li><p><a class="reference internal" href="#custom-auth-subscription-backed-providers" id="id8">Custom auth (subscription-backed providers)</a></p></li>
+<li><p><a class="reference internal" href="#testing-your-plugin" id="id9">Testing Your Plugin</a></p></li>
+<li><p><a class="reference internal" href="#unified-plugin-system" id="id10">Unified Plugin System</a></p></li>
+<li><p><a class="reference internal" href="#package-naming" id="id11">Package naming</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#option-3-built-in-provider-pr" id="id12">Option 3: Built-in Provider PR</a></p>
+<ul>
+<li><p><a class="reference internal" href="#steps" id="id13">Steps</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#common-pitfalls" id="id14">Common Pitfalls</a></p>
+<ul>
+<li><p><a class="reference internal" href="#model-ids" id="id15">Model IDs</a></p></li>
+<li><p><a class="reference internal" href="#custom-init-must-register-a-client" id="id16">Custom <code class="docutils literal notranslate"><span class="pre">init</span></code> must register a client</a></p></li>
+<li><p><a class="reference internal" href="#streaming" id="id17">Streaming</a></p></li>
+<li><p><a class="reference internal" href="#vision-inputs" id="id18">Vision inputs</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#related-documentation" id="id19">Related Documentation</a></p></li>
+</ul>
+</nav>
+<section id="choosing-the-right-integration-path">
+<h2><a class="toc-backref" href="#id2" role="doc-backlink">Choosing the Right Integration Path</a><a class="headerlink" href="#choosing-the-right-integration-path" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Scenario</p></th>
+<th class="head"><p>Recommended path</p></th>
+<th class="head"><p>Review required?</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Personal/team API endpoint</p></td>
+<td><p><a class="reference internal" href="#custom-provider-config"><span class="std std-ref">Option 1: Custom Provider Config</span></a></p></td>
+<td><p>No</p></td>
+</tr>
+<tr class="row-odd"><td colspan="2"><p>Shareable OpenAI-compatible   | <a class="reference internal" href="#provider-plugin-package"><span class="std std-ref">Option 2: Provider Plugin Package</span></a>
+provider (e.g. MiniMax, Chutes)|</p></td>
+<td><p>Only your package</p></td>
+</tr>
+<tr class="row-even"><td><p>Widely-used provider that
+many gptme users will want</p></td>
+<td><p><a class="reference internal" href="#builtin-provider-pr"><span class="std std-ref">Option 3: Built-in Provider PR</span></a></p></td>
+<td><p>gptme core PR</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Start with a plugin package unless the provider has broad community demand —
+it lets you iterate quickly without waiting for a core PR review.</p>
+</section>
+<section id="option-1-custom-provider-config">
+<span id="custom-provider-config"></span><h2><a class="toc-backref" href="#id3" role="doc-backlink">Option 1: Custom Provider Config</a><a class="headerlink" href="#option-1-custom-provider-config" title="Link to this heading">#</a></h2>
+<p>For a personal or team endpoint (Ollama, vLLM, a private proxy), add a
+<code class="docutils literal notranslate"><span class="pre">[[providers]]</span></code> block to <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;mycompany&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://llm.mycompany.internal/v1&quot;</span>
+<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;MYCOMPANY_API_KEY&quot;</span><span class="w">        </span><span class="c1"># env var holding the key</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;llama3.1-8b&quot;</span>
+</pre></div>
+</div>
+<p>Then use it with <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'hello'</span> <span class="pre">-m</span> <span class="pre">mycompany/llama3.1-8b</span></code>.</p>
+<p>See <a class="reference internal" href="providers-custom.html"><span class="doc">Custom and Local Providers</span></a> for the full config reference.</p>
+</section>
+<section id="option-2-provider-plugin-package">
+<span id="provider-plugin-package"></span><h2><a class="toc-backref" href="#id4" role="doc-backlink">Option 2: Provider Plugin Package</a><a class="headerlink" href="#option-2-provider-plugin-package" title="Link to this heading">#</a></h2>
+<p>A provider plugin is a Python package you publish to PyPI.  Once installed,
+users can use your provider without any config file changes.</p>
+<section id="minimum-working-example">
+<h3><a class="toc-backref" href="#id5" role="doc-backlink">Minimum working example</a><a class="headerlink" href="#minimum-working-example" title="Link to this heading">#</a></h3>
+<p>Create a package (e.g. <code class="docutils literal notranslate"><span class="pre">gptme-provider-acme</span></code>) with a single module:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># src/gptme_provider_acme/__init__.py</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelMeta</span><span class="p">,</span> <span class="n">ProviderPlugin</span>
+
+<span class="n">provider</span> <span class="o">=</span> <span class="n">ProviderPlugin</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;acme&quot;</span><span class="p">,</span>
+    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">&quot;ACME_API_KEY&quot;</span><span class="p">,</span>
+    <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.acme.ai/v1&quot;</span><span class="p">,</span>
+    <span class="n">models</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">ModelMeta</span><span class="p">(</span>
+            <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+            <span class="n">model</span><span class="o">=</span><span class="s2">&quot;acme/turbo-v1&quot;</span><span class="p">,</span>
+            <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">,</span>
+            <span class="n">max_output</span><span class="o">=</span><span class="mi">4_096</span><span class="p">,</span>
+            <span class="n">price_input</span><span class="o">=</span><span class="mf">0.10</span><span class="p">,</span>   <span class="c1"># USD per 1M input tokens</span>
+            <span class="n">price_output</span><span class="o">=</span><span class="mf">0.40</span><span class="p">,</span>  <span class="c1"># USD per 1M output tokens</span>
+            <span class="n">supports_vision</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="n">ModelMeta</span><span class="p">(</span>
+            <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+            <span class="n">model</span><span class="o">=</span><span class="s2">&quot;acme/mini-v1&quot;</span><span class="p">,</span>
+            <span class="n">context</span><span class="o">=</span><span class="mi">32_000</span><span class="p">,</span>
+            <span class="n">max_output</span><span class="o">=</span><span class="mi">2_048</span><span class="p">,</span>
+            <span class="n">price_input</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
+            <span class="n">price_output</span><span class="o">=</span><span class="mf">0.08</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Declare the entry point in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;gptme.providers&quot;</span><span class="k">]</span>
+<span class="n">acme</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gptme_provider_acme:provider&quot;</span>
+</pre></div>
+</div>
+<p>After <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">gptme-provider-acme</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">ACME_API_KEY</span><span class="o">=</span><span class="s2">&quot;sk-...&quot;</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class="w"> </span>-m<span class="w"> </span>acme/turbo-v1
+</pre></div>
+</div>
+</section>
+<section id="required-providerplugin-fields">
+<h3><a class="toc-backref" href="#id6" role="doc-backlink">Required ProviderPlugin fields</a><a class="headerlink" href="#required-providerplugin-fields" title="Link to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Required</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p>Yes</p></td>
+<td><p>Unique provider name used as model prefix</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">api_key_env</span></code></p></td>
+<td><p>Yes</p></td>
+<td><p>Environment variable that holds the API key</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">base_url</span></code></p></td>
+<td><p>Yes</p></td>
+<td><p>Base URL for the OpenAI-compatible endpoint</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">models</span></code></p></td>
+<td><p>No</p></td>
+<td><p>List of <code class="docutils literal notranslate"><span class="pre">ModelMeta</span></code> objects (empty = 128k fallback)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">init</span></code></p></td>
+<td><p>No</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">(Config)</span> <span class="pre">-&gt;</span> <span class="pre">None</span></code> - custom auth, must register
+an OpenAI client before returning</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>If <code class="docutils literal notranslate"><span class="pre">init</span></code> is omitted, gptme auto-initialises an OpenAI client using
+<code class="docutils literal notranslate"><span class="pre">base_url</span></code> and the key from <code class="docutils literal notranslate"><span class="pre">api_key_env</span></code>.</p>
+</section>
+<section id="modelmeta-capability-fields">
+<h3><a class="toc-backref" href="#id7" role="doc-backlink">ModelMeta capability fields</a><a class="headerlink" href="#modelmeta-capability-fields" title="Link to this heading">#</a></h3>
+<p>When declaring models, set these flags to match your provider’s capabilities.
+gptme uses them to route requests correctly and render UI hints.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>When to set <code class="docutils literal notranslate"><span class="pre">True</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">context</span></code></p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p><strong>Required.</strong> Max context window (tokens)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">max_output</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
+<td><p>Max tokens the model returns (if capped)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">supports_vision</span></code></p></td>
+<td><p>False</p></td>
+<td><p>Model accepts image inputs</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">supports_reasoning</span></code></p></td>
+<td><p>False</p></td>
+<td><p>Model has native chain-of-thought reasoning</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">supports_streaming</span></code></p></td>
+<td><p>True</p></td>
+<td><p>Model streams tokens (nearly universal)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">supports_parallel_tool_calls</span></code></p></td>
+<td><p>False</p></td>
+<td><p>Model can emit multiple tool calls at once</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">supports_strict_tools</span></code></p></td>
+<td><p>False</p></td>
+<td><p>Supports OpenAI <code class="docutils literal notranslate"><span class="pre">strict=True</span></code> in schemas</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">supports_responses_api</span></code></p></td>
+<td><p>False</p></td>
+<td><p>Compatible with the OpenAI Responses API</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pricing_type</span></code></p></td>
+<td><p>per_token</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;subscription&quot;</span></code> for flat-rate plans</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">price_input</span></code> / <code class="docutils literal notranslate"><span class="pre">price_output</span></code></p></td>
+<td><p>0</p></td>
+<td><p>USD per 1M tokens (0 = free/subscription)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="custom-auth-subscription-backed-providers">
+<h3><a class="toc-backref" href="#id8" role="doc-backlink">Custom auth (subscription-backed providers)</a><a class="headerlink" href="#custom-auth-subscription-backed-providers" title="Link to this heading">#</a></h3>
+<p>If your provider uses OAuth or a non-API-key auth flow, supply a custom
+<code class="docutils literal notranslate"><span class="pre">init</span></code> function.  It <strong>must</strong> register an OpenAI client before returning:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_init</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
+    <span class="n">token</span> <span class="o">=</span> <span class="n">load_my_token</span><span class="p">()</span>   <span class="c1"># read from ~/.myapp/auth.json, etc.</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.llm_openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">_init_openai_client</span>
+    <span class="n">_init_openai_client</span><span class="p">(</span>
+        <span class="s2">&quot;myprovider&quot;</span><span class="p">,</span>
+        <span class="n">api_key</span><span class="o">=</span><span class="n">token</span><span class="p">,</span>
+        <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.myprovider.ai/v1&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
+<span class="n">provider</span> <span class="o">=</span> <span class="n">ProviderPlugin</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;myprovider&quot;</span><span class="p">,</span>
+    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">&quot;MYPROVIDER_API_KEY&quot;</span><span class="p">,</span>   <span class="c1"># keep as fallback even with custom init</span>
+    <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.myprovider.ai/v1&quot;</span><span class="p">,</span>
+    <span class="n">models</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>
+    <span class="n">init</span><span class="o">=</span><span class="n">_init</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>If <code class="docutils literal notranslate"><span class="pre">init</span></code> runs but does not register a client, gptme raises <code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code>.
+See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_grok_subscription.py</span></code> for a full OAuth PKCE example.</p>
+</section>
+<section id="testing-your-plugin">
+<span id="id1"></span><h3><a class="toc-backref" href="#id9" role="doc-backlink">Testing Your Plugin</a><a class="headerlink" href="#testing-your-plugin" title="Link to this heading">#</a></h3>
+<p>Copy this test scaffold into your package’s <code class="docutils literal notranslate"><span class="pre">tests/</span></code> directory and adapt it:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;Test scaffold for gptme provider plugins.</span>
+
+<span class="sd">Copy this file into your plugin package&#39;s ``tests/`` directory and adapt it:</span>
+
+<span class="sd">    cp provider_test_scaffold.py tests/test_my_provider.py</span>
+
+<span class="sd">Then replace:</span>
+<span class="sd">- ``acme``            → your provider name</span>
+<span class="sd">- ``ACME_API_KEY``    → your API key env var</span>
+<span class="sd">- ``https://api.acme.ai/v1``  → your endpoint</span>
+<span class="sd">- ``acme/turbo-v1``  → your model IDs</span>
+
+<span class="sd">All tests here run *without* hitting the real API — they mock the OpenAI client</span>
+<span class="sd">layer.  Before publishing, also run a live smoke test::</span>
+
+<span class="sd">    ACME_API_KEY=&quot;sk-...&quot; GPTME_RUN_LIVE_TESTS=1 pytest tests/ -m live -v</span>
+
+<span class="sd">Usage with pytest::</span>
+
+<span class="sd">    pytest tests/test_my_provider.py -v</span>
+<span class="sd">    GPTME_RUN_LIVE_TESTS=1 pytest tests/test_my_provider.py -m live -v   # requires real API key</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">importlib.metadata</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">unittest.mock</span><span class="w"> </span><span class="kn">import</span> <span class="n">MagicMock</span><span class="p">,</span> <span class="n">patch</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
+
+<span class="c1"># ── Adapt these to your provider ─────────────────────────────────────────────</span>
+<span class="n">PROVIDER_NAME</span> <span class="o">=</span> <span class="s2">&quot;acme&quot;</span>
+<span class="n">API_KEY_ENV</span> <span class="o">=</span> <span class="s2">&quot;ACME_API_KEY&quot;</span>
+<span class="n">BASE_URL</span> <span class="o">=</span> <span class="s2">&quot;https://api.acme.ai/v1&quot;</span>
+<span class="n">MODEL_IDS</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;acme/turbo-v1&quot;</span><span class="p">,</span> <span class="s2">&quot;acme/mini-v1&quot;</span><span class="p">]</span>
+
+<span class="c1"># Import your plugin&#39;s ProviderPlugin instance here:</span>
+<span class="c1">#   from gptme_provider_acme import provider as PROVIDER</span>
+<span class="c1"># For this scaffold we build a synthetic one so it runs without installation:</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelMeta</span><span class="p">,</span> <span class="n">ProviderPlugin</span>
+
+<span class="n">PROVIDER</span> <span class="o">=</span> <span class="n">ProviderPlugin</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="n">PROVIDER_NAME</span><span class="p">,</span>
+    <span class="n">api_key_env</span><span class="o">=</span><span class="n">API_KEY_ENV</span><span class="p">,</span>
+    <span class="n">base_url</span><span class="o">=</span><span class="n">BASE_URL</span><span class="p">,</span>
+    <span class="n">models</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">ModelMeta</span><span class="p">(</span>
+            <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+            <span class="n">model</span><span class="o">=</span><span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+            <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">,</span>
+            <span class="n">max_output</span><span class="o">=</span><span class="mi">4_096</span><span class="p">,</span>
+            <span class="n">price_input</span><span class="o">=</span><span class="mf">0.10</span><span class="p">,</span>
+            <span class="n">price_output</span><span class="o">=</span><span class="mf">0.40</span><span class="p">,</span>
+            <span class="n">supports_vision</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="n">ModelMeta</span><span class="p">(</span>
+            <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+            <span class="n">model</span><span class="o">=</span><span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+            <span class="n">context</span><span class="o">=</span><span class="mi">32_000</span><span class="p">,</span>
+            <span class="n">max_output</span><span class="o">=</span><span class="mi">2_048</span><span class="p">,</span>
+            <span class="n">price_input</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
+            <span class="n">price_output</span><span class="o">=</span><span class="mf">0.08</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">],</span>
+<span class="p">)</span>
+<span class="c1"># ─────────────────────────────────────────────────────────────────────────────</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_make_entry_point</span><span class="p">(</span><span class="n">plugin</span><span class="p">:</span> <span class="n">ProviderPlugin</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MagicMock</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return a mock entry point that loads *plugin*.</span>
+
+<span class="sd">    Note: this validates the in-memory plugin wiring only. It does NOT verify</span>
+<span class="sd">    that the entry-point name or import target declared in your pyproject.toml</span>
+<span class="sd">    match the installed package. Test that separately by installing the package</span>
+<span class="sd">    and running ``importlib.metadata.entry_points(group=&quot;gptme.providers&quot;)``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">ep</span> <span class="o">=</span> <span class="n">MagicMock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="n">importlib</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">EntryPoint</span><span class="p">)</span>
+    <span class="n">ep</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">plugin</span><span class="o">.</span><span class="n">name</span>
+    <span class="n">ep</span><span class="o">.</span><span class="n">load</span><span class="o">.</span><span class="n">return_value</span> <span class="o">=</span> <span class="n">plugin</span>
+    <span class="k">return</span> <span class="n">ep</span>
+
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span><span class="p">(</span><span class="n">autouse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_reset_plugin_cache</span><span class="p">():</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.provider_plugins</span><span class="w"> </span><span class="kn">import</span> <span class="n">clear_plugin_cache</span>
+
+    <span class="n">clear_plugin_cache</span><span class="p">()</span>
+    <span class="k">yield</span>
+    <span class="n">clear_plugin_cache</span><span class="p">()</span>
+
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">installed_provider</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Patch entry-point discovery so tests see your plugin as if it were installed.&quot;&quot;&quot;</span>
+    <span class="n">ep</span> <span class="o">=</span> <span class="n">_make_entry_point</span><span class="p">(</span><span class="n">PROVIDER</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;importlib.metadata.entry_points&quot;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="p">[</span><span class="n">ep</span><span class="p">]):</span>
+        <span class="k">yield</span> <span class="n">PROVIDER</span>
+
+
+<span class="c1"># ── 1. Plugin metadata ────────────────────────────────────────────────────────</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TestPluginMetadata</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify the ProviderPlugin declaration is correct.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_name</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">PROVIDER_NAME</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_api_key_env</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">api_key_env</span> <span class="o">==</span> <span class="n">API_KEY_ENV</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_base_url</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">base_url</span> <span class="o">==</span> <span class="n">BASE_URL</span>
+        <span class="c1"># Must be a valid URL (no trailing slash is fine; leading scheme required)</span>
+        <span class="k">assert</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">base_url</span><span class="o">.</span><span class="n">startswith</span><span class="p">((</span><span class="s2">&quot;https://&quot;</span><span class="p">,</span> <span class="s2">&quot;http://&quot;</span><span class="p">))</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_models_not_empty</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">PROVIDER</span><span class="o">.</span><span class="n">models</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+            <span class="s2">&quot;Provide at least one ModelMeta so users know what models exist&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_model_ids_fully_qualified</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">models</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">/&quot;</span><span class="p">),</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Model &#39;</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="si">}</span><span class="s2">&#39; must start with &#39;</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">/&#39; &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;(e.g. &#39;</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">/my-model&#39;)&quot;</span>
+            <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_model_context_positive</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">models</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">m</span><span class="o">.</span><span class="n">context</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Model &#39;</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="si">}</span><span class="s2">&#39; context must be &gt; 0&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_pricing_non_negative</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">models</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">m</span><span class="o">.</span><span class="n">price_input</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;price_input for &#39;</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="si">}</span><span class="s2">&#39; must be &gt;= 0&quot;</span>
+            <span class="k">assert</span> <span class="n">m</span><span class="o">.</span><span class="n">price_output</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;price_output for &#39;</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="si">}</span><span class="s2">&#39; must be &gt;= 0&quot;</span>
+
+
+<span class="c1"># ── 2. Plugin discovery ───────────────────────────────────────────────────────</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TestPluginDiscovery</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify gptme can discover and load your plugin.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_discovered_by_name</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">installed_provider</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.provider_plugins</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_provider_plugin</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="n">get_provider_plugin</span><span class="p">(</span><span class="n">PROVIDER_NAME</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">PROVIDER_NAME</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_is_plugin_provider</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">installed_provider</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.provider_plugins</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_plugin_provider</span>
+
+        <span class="k">assert</span> <span class="n">is_plugin_provider</span><span class="p">(</span><span class="n">PROVIDER_NAME</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">True</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_not_mistaken_for_builtin</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">installed_provider</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">PROVIDERS</span>
+
+        <span class="k">assert</span> <span class="n">PROVIDER_NAME</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">PROVIDERS</span><span class="p">,</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;&#39;</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">&#39; is registered as a built-in provider. &quot;</span>
+            <span class="s2">&quot;Plugin providers must use a name not already in PROVIDERS.&quot;</span>
+        <span class="p">)</span>
+
+
+<span class="c1"># ── 3. Model resolution ───────────────────────────────────────────────────────</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TestModelResolution</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify model IDs resolve to the right ModelMeta.&quot;&quot;&quot;</span>
+
+    <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">parametrize</span><span class="p">(</span><span class="s2">&quot;model_id&quot;</span><span class="p">,</span> <span class="n">MODEL_IDS</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_get_model_resolves</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">installed_provider</span><span class="p">,</span> <span class="n">model_id</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models.resolution</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="n">get_model</span><span class="p">(</span><span class="n">model_id</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">model</span> <span class="o">==</span> <span class="n">model_id</span>
+        <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">context</span> <span class="o">&gt;</span> <span class="mi">0</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_unknown_model_falls_back</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">installed_provider</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models.resolution</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="n">get_model</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">/nonexistent-model-xyz&quot;</span><span class="p">)</span>
+        <span class="c1"># Should fall back to 128k default, not raise</span>
+        <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">context</span> <span class="o">==</span> <span class="mi">128_000</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_models_appear_in_listing</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">installed_provider</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models.listing</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model_list</span>
+
+        <span class="n">models</span> <span class="o">=</span> <span class="n">get_model_list</span><span class="p">(</span><span class="n">dynamic_fetch</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="n">listed</span> <span class="o">=</span> <span class="p">[</span><span class="n">m</span><span class="o">.</span><span class="n">model</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">models</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">mid</span> <span class="ow">in</span> <span class="n">MODEL_IDS</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">mid</span> <span class="ow">in</span> <span class="n">listed</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Model &#39;</span><span class="si">{</span><span class="n">mid</span><span class="si">}</span><span class="s2">&#39; not in get_model_list() output&quot;</span>
+
+
+<span class="c1"># ── 4. Request routing ────────────────────────────────────────────────────────</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TestRequestRouting</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify that chat/stream calls are routed to the OpenAI client path.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_chat_routed_through_openai</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">installed_provider</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm</span><span class="w"> </span><span class="kn">import</span> <span class="n">_chat_complete</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
+
+        <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span><span class="n">Message</span><span class="p">(</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;ping&quot;</span><span class="p">)]</span>
+        <span class="n">fake_result</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;pong&quot;</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">]})</span>
+
+        <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;gptme.llm.llm_openai.chat&quot;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="n">fake_result</span><span class="p">)</span> <span class="k">as</span> <span class="n">mock</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">_chat_complete</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="k">assert</span> <span class="n">result</span> <span class="o">==</span> <span class="n">fake_result</span>
+        <span class="n">mock</span><span class="o">.</span><span class="n">assert_called_once</span><span class="p">()</span>
+        <span class="n">call_args</span> <span class="o">=</span> <span class="n">mock</span><span class="o">.</span><span class="n">call_args</span>
+        <span class="k">assert</span> <span class="n">call_args</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_stream_routed_through_openai</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">installed_provider</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm</span><span class="w"> </span><span class="kn">import</span> <span class="n">_stream</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
+
+        <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span><span class="n">Message</span><span class="p">(</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;ping&quot;</span><span class="p">)]</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">_fake_stream</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+            <span class="k">yield</span> <span class="s2">&quot;pong&quot;</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">]}</span>
+
+        <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;gptme.llm.llm_openai.stream&quot;</span><span class="p">,</span> <span class="n">side_effect</span><span class="o">=</span><span class="n">_fake_stream</span><span class="p">)</span> <span class="k">as</span> <span class="n">mock</span><span class="p">:</span>
+            <span class="n">gen</span> <span class="o">=</span> <span class="n">_stream</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="n">chunks</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">gen</span><span class="p">)</span>
+
+        <span class="k">assert</span> <span class="n">chunks</span> <span class="o">==</span> <span class="p">[</span><span class="s2">&quot;pong&quot;</span><span class="p">]</span>
+        <span class="n">mock</span><span class="o">.</span><span class="n">assert_called_once</span><span class="p">()</span>
+
+
+<span class="c1"># ── 5. Init function (only if you supply a custom init) ──────────────────────</span>
+<span class="c1">#</span>
+<span class="c1"># Uncomment and adapt if PROVIDER.init is not None.</span>
+<span class="c1">#</span>
+<span class="c1"># class TestCustomInit:</span>
+<span class="c1">#     def test_init_registers_client(self, installed_provider):</span>
+<span class="c1">#         from gptme.llm import init_llm</span>
+<span class="c1">#         from gptme.llm.models import CustomProvider</span>
+<span class="c1">#</span>
+<span class="c1">#         client_registered = False</span>
+<span class="c1">#</span>
+<span class="c1">#         def _patched_init_openai_client(provider, **kwargs):</span>
+<span class="c1">#             nonlocal client_registered</span>
+<span class="c1">#             client_registered = True</span>
+<span class="c1">#</span>
+<span class="c1">#         with (</span>
+<span class="c1">#             patch(&quot;gptme.llm.llm_openai._init_openai_client&quot;, side_effect=_patched_init_openai_client),</span>
+<span class="c1">#             patch(&quot;gptme.llm.llm_openai.has_client&quot;, side_effect=lambda _: client_registered),</span>
+<span class="c1">#             patch.dict(&quot;os.environ&quot;, {API_KEY_ENV: &quot;test-key&quot;}),</span>
+<span class="c1">#         ):</span>
+<span class="c1">#             init_llm(CustomProvider(PROVIDER_NAME))</span>
+<span class="c1">#</span>
+<span class="c1">#         assert client_registered, &quot;init() must register an OpenAI-compatible client&quot;</span>
+
+
+<span class="c1"># ── 6. Live smoke test (skipped unless --live flag / env var set) ─────────────</span>
+
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">live</span>
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">skipif</span><span class="p">(</span>
+    <span class="ow">not</span> <span class="p">(</span>
+        <span class="nb">__import__</span><span class="p">(</span><span class="s2">&quot;os&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="n">API_KEY_ENV</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">__import__</span><span class="p">(</span><span class="s2">&quot;os&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;GPTME_RUN_LIVE_TESTS&quot;</span><span class="p">)</span>
+    <span class="p">),</span>
+    <span class="n">reason</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Set </span><span class="si">{</span><span class="n">API_KEY_ENV</span><span class="si">}</span><span class="s2"> and GPTME_RUN_LIVE_TESTS=1 to run live API tests&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TestLiveAPI</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional smoke test that hits the real API.</span>
+
+<span class="sd">    Requires BOTH the API key AND explicit opt-in to avoid unexpected charges::</span>
+
+<span class="sd">        {API_KEY_ENV}=&quot;sk-...&quot; GPTME_RUN_LIVE_TESTS=1 pytest tests/ -m live -v</span>
+
+<span class="sd">    These tests are skipped automatically unless both env vars are set.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_live_completion</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;A real completion returns non-empty content.&quot;&quot;&quot;</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">gptme.llm</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">llm</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">CustomProvider</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
+
+        <span class="n">model</span> <span class="o">=</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">llm</span><span class="o">.</span><span class="n">init_llm</span><span class="p">(</span><span class="n">CustomProvider</span><span class="p">(</span><span class="n">PROVIDER_NAME</span><span class="p">))</span>
+        <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span><span class="n">Message</span><span class="p">(</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s1">&#39;Reply with the single word &quot;pong&quot;.&#39;</span><span class="p">)]</span>
+        <span class="c1"># _chat_complete returns (response_str, metadata_dict)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">llm</span><span class="o">.</span><span class="n">_chat_complete</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">str</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="s2">&quot;Expected non-empty response from live API&quot;</span>
+</pre></div>
+</div>
+<p>Run with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pytest<span class="w"> </span>tests/test_my_provider.py<span class="w"> </span>-v
+</pre></div>
+</div>
+<p>All tests in the scaffold run <strong>without</strong> hitting the real API — they mock the
+OpenAI client layer.  Before publishing, also run a live smoke test.  Two env
+vars are required to prevent accidental API charges:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">ACME_API_KEY</span><span class="o">=</span><span class="s2">&quot;sk-...&quot;</span><span class="w"> </span><span class="nv">GPTME_RUN_LIVE_TESTS</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>-m<span class="w"> </span>live<span class="w"> </span>-v
+</pre></div>
+</div>
+</section>
+<section id="unified-plugin-system">
+<h3><a class="toc-backref" href="#id10" role="doc-backlink">Unified Plugin System</a><a class="headerlink" href="#unified-plugin-system" title="Link to this heading">#</a></h3>
+<p>If your package also provides gptme <a class="reference internal" href="tools.html"><span class="doc">tools</span></a>, <a class="reference internal" href="hooks.html"><span class="doc">hooks</span></a>,
+or <a class="reference internal" href="commands.html"><span class="doc">commands</span></a>, register via the unified <code class="docutils literal notranslate"><span class="pre">gptme.plugins</span></code>
+entry-point group instead, which lets a single package provide everything:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># src/gptme_plugin_acme/plugin.py</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.plugins.plugin</span><span class="w"> </span><span class="kn">import</span> <span class="n">GptmePlugin</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.provider</span><span class="w"> </span><span class="kn">import</span> <span class="n">provider</span>
+
+<span class="n">plugin</span> <span class="o">=</span> <span class="n">GptmePlugin</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;acme&quot;</span><span class="p">,</span>
+    <span class="n">provider</span><span class="o">=</span><span class="n">provider</span><span class="p">,</span>      <span class="c1"># the ProviderPlugin from above</span>
+    <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>            <span class="c1"># optional</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;gptme.plugins&quot;</span><span class="k">]</span>
+<span class="n">acme</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gptme_plugin_acme.plugin:plugin&quot;</span>
+</pre></div>
+</div>
+<p>See <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a> for the full unified plugin reference.</p>
+</section>
+<section id="package-naming">
+<h3><a class="toc-backref" href="#id11" role="doc-backlink">Package naming</a><a class="headerlink" href="#package-naming" title="Link to this heading">#</a></h3>
+<p>We recommend the convention:</p>
+<ul class="simple">
+<li><p><strong>Provider only</strong>: <code class="docutils literal notranslate"><span class="pre">gptme-provider-&lt;name&gt;</span></code> (e.g. <code class="docutils literal notranslate"><span class="pre">gptme-provider-minimax</span></code>)</p></li>
+<li><p><strong>Full plugin</strong>: <code class="docutils literal notranslate"><span class="pre">gptme-plugin-&lt;name&gt;</span></code></p></li>
+</ul>
+</section>
+</section>
+<section id="option-3-built-in-provider-pr">
+<span id="builtin-provider-pr"></span><h2><a class="toc-backref" href="#id12" role="doc-backlink">Option 3: Built-in Provider PR</a><a class="headerlink" href="#option-3-built-in-provider-pr" title="Link to this heading">#</a></h2>
+<p>Add the provider to gptme core when:</p>
+<ul class="simple">
+<li><p>It is widely requested by the community (see open issues/discussions)</p></li>
+<li><p>It requires special auth that benefits from gptme’s built-in <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">auth</span></code>
+flow (e.g. OAuth PKCE, subscription tokens)</p></li>
+<li><p>Its model metadata (capabilities, pricing) is stable and publicly documented</p></li>
+</ul>
+<section id="steps">
+<h3><a class="toc-backref" href="#id13" role="doc-backlink">Steps</a><a class="headerlink" href="#steps" title="Link to this heading">#</a></h3>
+<ol class="arabic">
+<li><p><strong>Create</strong> <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_&lt;name&gt;.py</span></code> following the pattern in
+<code class="docutils literal notranslate"><span class="pre">llm_openai.py</span></code> (for standard API keys) or <code class="docutils literal notranslate"><span class="pre">llm_grok_subscription.py</span></code>
+(for OAuth/subscription flows).</p></li>
+<li><p><strong>Register</strong> the provider name in <code class="docutils literal notranslate"><span class="pre">gptme/llm/models/types.py</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">BuiltinProvider</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span>
+    <span class="o">...</span><span class="p">,</span>
+    <span class="s2">&quot;myprovider&quot;</span><span class="p">,</span>   <span class="c1"># ← add here</span>
+<span class="p">]</span>
+</pre></div>
+</div>
+<p>If it uses the OpenAI client path, also add to <code class="docutils literal notranslate"><span class="pre">PROVIDERS_OPENAI</span></code>.</p>
+</li>
+<li><p><strong>Add models</strong> to <code class="docutils literal notranslate"><span class="pre">gptme/llm/models/openai_models.py</span></code> (for OpenAI-compat
+providers) or create a dedicated <code class="docutils literal notranslate"><span class="pre">llm_&lt;name&gt;_models.py</span></code>.</p></li>
+<li><p><strong>Wire init</strong> — in <code class="docutils literal notranslate"><span class="pre">gptme/llm/__init__.py</span></code>, add a branch in <code class="docutils literal notranslate"><span class="pre">init_llm()</span></code>
+to call <code class="docutils literal notranslate"><span class="pre">llm_&lt;name&gt;.init(config)</span></code>.</p></li>
+<li><p><strong>Add auth support</strong> — if the provider needs <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">auth</span> <span class="pre">&lt;name&gt;</span></code>, add a
+branch in <code class="docutils literal notranslate"><span class="pre">gptme/cli/auth.py</span></code>.</p></li>
+<li><p><strong>Write tests</strong> — add <code class="docutils literal notranslate"><span class="pre">tests/test_llm_&lt;name&gt;.py</span></code> covering at minimum:</p>
+<ul class="simple">
+<li><p>Auth/init with a mocked HTTP response</p></li>
+<li><p>Model listing resolves correctly</p></li>
+<li><p>A streaming response produces expected message chunks</p></li>
+</ul>
+</li>
+<li><p><strong>Update docs</strong> — add the provider to <code class="docutils literal notranslate"><span class="pre">docs/providers.rst</span></code>.</p></li>
+<li><p><strong>Open a PR</strong> with the title <code class="docutils literal notranslate"><span class="pre">feat(providers):</span> <span class="pre">add</span> <span class="pre">&lt;name&gt;</span> <span class="pre">provider</span></code>.</p></li>
+</ol>
+<p>Before opening the PR, run:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>typecheck
+make<span class="w"> </span><span class="nb">test</span>
+make<span class="w"> </span>lint
+</pre></div>
+</div>
+</section>
+</section>
+<section id="common-pitfalls">
+<h2><a class="toc-backref" href="#id14" role="doc-backlink">Common Pitfalls</a><a class="headerlink" href="#common-pitfalls" title="Link to this heading">#</a></h2>
+<section id="model-ids">
+<h3><a class="toc-backref" href="#id15" role="doc-backlink">Model IDs</a><a class="headerlink" href="#model-ids" title="Link to this heading">#</a></h3>
+<p>Use the provider-prefixed form in <code class="docutils literal notranslate"><span class="pre">ModelMeta.model</span></code> — not bare model names:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># ✅ Correct</span>
+<span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;acme/turbo-v1&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">)</span>
+
+<span class="c1"># ❌ Wrong — provider prefix missing</span>
+<span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;turbo-v1&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The prefix must match your <code class="docutils literal notranslate"><span class="pre">ProviderPlugin.name</span></code> so that
+<code class="docutils literal notranslate"><span class="pre">get_model(&quot;acme/turbo-v1&quot;)</span></code> can look up the right plugin.</p>
+</section>
+<section id="custom-init-must-register-a-client">
+<h3><a class="toc-backref" href="#id16" role="doc-backlink">Custom <code class="docutils literal notranslate"><span class="pre">init</span></code> must register a client</a><a class="headerlink" href="#custom-init-must-register-a-client" title="Link to this heading">#</a></h3>
+<p>If you provide <code class="docutils literal notranslate"><span class="pre">init</span></code>, it must call <code class="docutils literal notranslate"><span class="pre">_init_openai_client()</span></code> or an
+equivalent before returning.  Failing to do so raises <code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code> at
+startup and blocks all requests to your provider.</p>
+</section>
+<section id="streaming">
+<h3><a class="toc-backref" href="#id17" role="doc-backlink">Streaming</a><a class="headerlink" href="#streaming" title="Link to this heading">#</a></h3>
+<p>All built-in gptme providers stream by default.  The <code class="docutils literal notranslate"><span class="pre">supports_streaming</span></code>
+field in <code class="docutils literal notranslate"><span class="pre">ModelMeta</span></code> is a <strong>metadata-only</strong> flag — it affects UI hints and
+capability-check display, but does <strong>not</strong> change how the underlying OpenAI
+client path issues requests.  The transport currently sends <code class="docutils literal notranslate"><span class="pre">stream=True</span></code>
+unconditionally.</p>
+<p>If your endpoint does not support streaming and rejects <code class="docutils literal notranslate"><span class="pre">stream=True</span></code>:</p>
+<ul class="simple">
+<li><p>Configure a proxy layer (e.g. Nginx, Caddy, or LiteLLM) that converts
+streaming calls to blocking responses; or</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues">Open an issue</a> to request native
+non-streaming support.</p></li>
+</ul>
+<p>Setting <code class="docutils literal notranslate"><span class="pre">supports_streaming=False</span></code> in <code class="docutils literal notranslate"><span class="pre">ModelMeta</span></code> documents the limitation
+and suppresses misleading UI streaming indicators, but will not prevent the
+<code class="docutils literal notranslate"><span class="pre">stream=True</span></code> parameter from being sent to your endpoint.</p>
+</section>
+<section id="vision-inputs">
+<h3><a class="toc-backref" href="#id18" role="doc-backlink">Vision inputs</a><a class="headerlink" href="#vision-inputs" title="Link to this heading">#</a></h3>
+<p>If your provider supports image inputs (<code class="docutils literal notranslate"><span class="pre">supports_vision=True</span></code>), it must
+accept the standard OpenAI <code class="docutils literal notranslate"><span class="pre">image_url</span></code> content-part format — gptme passes
+images through without transcoding.</p>
+</section>
+</section>
+<section id="related-documentation">
+<h2><a class="toc-backref" href="#id19" role="doc-backlink">Related Documentation</a><a class="headerlink" href="#related-documentation" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> — full list of built-in providers and API keys</p></li>
+<li><p><a class="reference internal" href="providers-custom.html"><span class="doc">Custom and Local Providers</span></a> — custom Ollama/vLLM config reference</p></li>
+<li><p><a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a> — unified plugin system (tools + hooks + provider in one package)</p></li>
+<li><p><a class="reference internal" href="contributing.html"><span class="doc">Contributing</span></a> — general contribution guide</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/blob/master/tests/test_provider_plugins.py">Provider Plugin tests</a>
+— reference test suite for the plugin system</p></li>
+</ul>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="providers-custom.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Custom and Local Providers</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="model-routing.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Choosing your model</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-the-right-integration-path">Choosing the Right Integration Path</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-custom-provider-config">Option 1: Custom Provider Config</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-provider-plugin-package">Option 2: Provider Plugin Package</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#minimum-working-example">Minimum working example</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#required-providerplugin-fields">Required ProviderPlugin fields</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#modelmeta-capability-fields">ModelMeta capability fields</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-auth-subscription-backed-providers">Custom auth (subscription-backed providers)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#testing-your-plugin">Testing Your Plugin</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#unified-plugin-system">Unified Plugin System</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#package-naming">Package naming</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-3-built-in-provider-pr">Option 3: Built-in Provider PR</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#steps">Steps</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#common-pitfalls">Common Pitfalls</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-ids">Model IDs</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-init-must-register-a-client">Custom <code class="docutils literal notranslate"><span class="pre">init</span></code> must register a client</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#streaming">Streaming</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#vision-inputs">Vision inputs</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related-documentation">Related Documentation</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Erik Bjäreholt
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2026, Erik Bjäreholt.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>
