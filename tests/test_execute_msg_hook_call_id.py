@@ -245,3 +245,41 @@ def test_warning_before_output_last_gets_call_id(monkeypatch):
     assert out_r.call_id == call_id, (
         f"Actual output must carry call_id='{call_id}', got {out_r.call_id!r}"
     )
+
+
+def test_keyboard_interrupt_forwards_partial_output(monkeypatch):
+    """KeyboardInterrupt during generator buffering must still forward partial output.
+
+    list(generator_result) aborts on KeyboardInterrupt before any messages are
+    forwarded. This test verifies that partial output is still yielded and
+    on_result_message is called even when the generator is interrupted mid-stream.
+    """
+    partial = Message("system", "partial output before interrupt")
+
+    def execute(code, args, kwargs):
+        yield partial
+        raise KeyboardInterrupt
+
+    spec = ToolSpec(
+        name="interrupted", desc="tool that gets interrupted", execute=execute
+    )
+    monkeypatch.setattr(
+        "gptme.tools.get_tool", lambda name: spec if name == "interrupted" else None
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda *a, **kw: [])
+
+    call_id = "call-interrupt-test"
+    invoke_msg = Message("assistant", f'@interrupted({call_id}): {{"text": "test"}}')
+
+    # execute_msg catches KeyboardInterrupt and converts it to INTERRUPT_CONTENT.
+    # With our buffering fix, partial output is forwarded BEFORE the interrupt
+    # message, so both should appear.
+    received = list(execute_msg(invoke_msg))
+
+    output = [r for r in received if r.content == "partial output before interrupt"]
+    assert output, "Partial output must be forwarded even when generator is interrupted"
+
+    interrupt_msgs = [r for r in received if "Interrupted" in r.content]
+    assert interrupt_msgs, "INTERRUPT_CONTENT message must follow the partial output"
+    # The interrupt message inherits the tool's call_id so the API gets a paired result.
+    assert interrupt_msgs[0].call_id == call_id

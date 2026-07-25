@@ -784,7 +784,17 @@ class ToolUse:
                             # shellcheck notice) becomes the function_call_output.
                             # Earlier messages pass through without call_id and
                             # become system context instead.
-                            all_result_msgs = list(generator_result)
+                            #
+                            # Catch KeyboardInterrupt so partial output from an
+                            # interrupted shell command is still forwarded and
+                            # on_result_message callbacks are still invoked.
+                            all_result_msgs = []
+                            _ki: KeyboardInterrupt | None = None
+                            try:
+                                for msg in generator_result:
+                                    all_result_msgs.append(msg)  # noqa: PERF402
+                            except KeyboardInterrupt as e:
+                                _ki = e
                             last_idx = len(all_result_msgs) - 1
                             for idx, msg in enumerate(all_result_msgs):
                                 result_msgs.append(msg)
@@ -795,6 +805,8 @@ class ToolUse:
                                     if self.call_id and idx == last_idx
                                     else msg
                                 )
+                            if _ki is not None:
+                                raise _ki
                         elif single_result is not None:
                             result_msgs = [single_result]
                             if on_result_message:
