@@ -123,11 +123,11 @@ Then: ``gptme 'hello' -m lmstudio``
 +---------------------------+----------------------------------+------------------------------------------+
 | Error                     | Cause                            | Fix                                      |
 +===========================+==================================+==========================================+
-| Connection refused :1234    | Server not started               | Open LM Studio → Local Server → Start   |
+| Connection refused :1234  | Server not started               | Open LM Studio → Local Server → Start   |
 +---------------------------+----------------------------------+------------------------------------------+
-| Empty or broken responses  | No model loaded in server tab    | Load a model before starting the server  |
+| Empty or broken responses | No model loaded in server tab    | Load a model before starting the server  |
 +---------------------------+----------------------------------+------------------------------------------+
-| Tool use fails or loops    | Model too small for tool format  | Use a 7B+ instruction-tuned model        |
+| Tool use fails or loops   | Model too small for tool format  | Use a 7B+ instruction-tuned model        |
 +---------------------------+----------------------------------+------------------------------------------+
 
 vLLM and OpenAI-compatible servers
