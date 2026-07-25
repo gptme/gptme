@@ -1,14 +1,17 @@
 """Complete tool - signals that the autonomous session is finished."""
 
+import contextlib
 import logging
 import os
 import re
+import signal
 import subprocess
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..hooks import HookType, StopPropagation
+from ..hooks.confirm import confirm
 from ..message import Message
 from .base import ToolSpec, ToolUse
 from .todo import get_incomplete_todos_summary, has_incomplete_todos
@@ -25,37 +28,55 @@ _DEFAULT_MAX_RETRIES = 3
 _DEFAULT_VERIFY_TIMEOUT = 60
 
 
-def _get_verify_cmd(workspace: Path | None) -> str | None:
-    """Return the completion verification command, or None if not configured.
+def _get_verify_cmd(workspace: Path | None) -> tuple[str, bool] | None:
+    """Return ``(command, is_workspace_script)``, or None if not configured.
 
     Checks, in order:
-    1. ``GPTME_VERIFY_COMPLETION`` environment variable
-    2. Executable file at ``<workspace>/.gptme/verify-completion.sh``
+    1. ``GPTME_VERIFY_COMPLETION`` environment variable (operator-configured, trusted)
+    2. Executable file at ``<workspace>/.gptme/verify-completion.sh`` (repo-controlled,
+       requires confirmation before running — see caller)
     """
     cmd = os.environ.get("GPTME_VERIFY_COMPLETION")
     if cmd:
-        return cmd
+        return cmd, False
     if workspace is not None:
         script = workspace / ".gptme" / "verify-completion.sh"
         if script.is_file() and os.access(script, os.X_OK):
-            return str(script)
+            return str(script), True
     return None
 
 
 def _run_verify_cmd(
     cmd: str, workspace: Path | None
 ) -> "subprocess.CompletedProcess[str]":
-    """Run the verification command and return the result."""
+    """Run the verification command and return the result.
+
+    Runs in its own process group so that on timeout we can kill the whole
+    process tree (e.g. test runners or build tools that spawn children),
+    not just the immediate shell.
+    """
     timeout = _env_int("GPTME_VERIFY_COMPLETION_TIMEOUT", _DEFAULT_VERIFY_TIMEOUT)
-    return subprocess.run(
+    with subprocess.Popen(
         cmd,
         shell=True,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         cwd=workspace,
-        timeout=timeout,
-        check=False,
-    )
+        start_new_session=True,
+    ) as proc:
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # Kill the entire process group, not just the shell, so descendants
+            # (e.g. spawned test workers) don't keep running past the timeout.
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            proc.wait()
+            raise
+        return subprocess.CompletedProcess(
+            cmd, proc.returncode, stdout=stdout, stderr=stderr
+        )
 
 
 class SessionCompleteException(Exception):
@@ -142,17 +163,35 @@ def complete_hook(
     for tool_use in tool_uses:
         if tool_use.tool == "complete":
             # Run completion verification if configured
-            verify_cmd = _get_verify_cmd(workspace)
-            if verify_cmd:
+            verify_cfg = _get_verify_cmd(workspace)
+            if verify_cfg:
+                verify_cmd, is_workspace_script = verify_cfg
+                if is_workspace_script and not confirm(
+                    f"Run workspace completion-verification script `{verify_cmd}`?",
+                    default=True,
+                ):
+                    logger.info(
+                        "Completion verification script declined by confirmation gate: %s",
+                        verify_cmd,
+                    )
+                    raise SessionCompleteException(
+                        "Session completed via complete tool"
+                    )
+
                 max_retries = _env_int(
                     "GPTME_VERIFY_COMPLETION_MAX_RETRIES", _DEFAULT_MAX_RETRIES
                 )
-                # Count prior complete-call attempts via durable "Task complete"
-                # system messages — each failed verification leaves one in the log.
+                # Count PRIOR failed-verification system messages already in the
+                # log. Unlike counting _TASK_COMPLETE_MSG (which would include
+                # the current attempt's own message, since execute_complete has
+                # already appended it by the time this hook runs — undercounting
+                # the allowed retries by one), _VERIFY_FAILED_MARKER is only ever
+                # written by a previous run of this hook, so it never includes
+                # the current attempt.
                 prior_attempts = sum(
                     1
                     for m in messages
-                    if m.role == "system" and _TASK_COMPLETE_MSG in (m.content or "")
+                    if m.role == "system" and _VERIFY_FAILED_MARKER in (m.content or "")
                 )
                 if prior_attempts < max_retries:
                     try:

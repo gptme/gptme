@@ -26,7 +26,6 @@ import pytest
 
 from gptme.message import Message
 from gptme.tools.complete import (
-    _TASK_COMPLETE_MSG,
     _VERIFY_FAILED_MARKER,
     SessionCompleteException,
     _classify_stuck_reason,
@@ -279,9 +278,9 @@ class TestCompleteHookVerification:
     ]
 
     def _msgs_with_prior_attempts(self, n: int) -> list[Message]:
-        """Build a message list with n prior complete-attempt system messages."""
+        """Build a message list with n prior failed-verification system messages."""
         msgs = list(self._COMPLETE_MSG)
-        msgs.extend(_system(_TASK_COMPLETE_MSG) for _ in range(n))
+        msgs.extend(_system(f"{_VERIFY_FAILED_MARKER}: exit code 1.") for _ in range(n))
         return msgs
 
     # ── no verify command configured ──────────────────────────────────────
@@ -397,12 +396,67 @@ class TestCompleteHookVerification:
         with pytest.raises(SessionCompleteException):
             list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
 
+    def test_workspace_script_declined_by_confirmation_skips_execution(
+        self, monkeypatch, tmp_path
+    ):
+        """A declined confirmation closes the session WITHOUT running the repo-controlled script."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        marker = tmp_path / "ran"
+        script.write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n")
+        script.chmod(0o755)
+
+        with (
+            patch("gptme.tools.complete.confirm", return_value=False),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+        assert not marker.exists()
+
+    def test_env_var_verify_cmd_not_gated_by_confirmation(self, monkeypatch, tmp_path):
+        """The operator-configured env var command runs without a confirmation gate."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "true")
+        with (
+            patch(
+                "gptme.tools.complete.confirm",
+                side_effect=AssertionError("should not be called"),
+            ),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+
+    # ── retry limit off-by-one (gptme#3358 Greptile review) ────────────────
+
+    def test_verify_runs_on_every_attempt_up_to_max_retries(
+        self, monkeypatch, tmp_path
+    ):
+        """Simulates the real flow: the verifier must run on every one of the
+        max_retries attempts, only giving up on the attempt AFTER that."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "false")  # always fails
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_MAX_RETRIES", "3")
+
+        messages = list(self._COMPLETE_MSG)
+        for attempt in range(1, 4):
+            results = list(complete_hook(messages, workspace=tmp_path))
+            assert len(results) == 1, (
+                f"expected a verify-failure message on attempt {attempt}"
+            )
+            msg = results[0]
+            assert isinstance(msg, Message)
+            assert _VERIFY_FAILED_MARKER in msg.content
+            messages.append(msg)
+
+        # The 4th call (after max_retries failures already recorded) gives up.
+        with pytest.raises(SessionCompleteException):
+            list(complete_hook(messages, workspace=tmp_path))
+
     # ── _get_verify_cmd ────────────────────────────────────────────────────
 
     def test_get_verify_cmd_env(self, monkeypatch, tmp_path):
-        """_get_verify_cmd returns env var value when set."""
+        """_get_verify_cmd returns (env var value, False) when set."""
         monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "pytest tests/")
-        assert _get_verify_cmd(tmp_path) == "pytest tests/"
+        assert _get_verify_cmd(tmp_path) == ("pytest tests/", False)
 
     def test_get_verify_cmd_none_without_config(self, monkeypatch, tmp_path):
         """_get_verify_cmd returns None when neither env var nor script is present."""
@@ -416,7 +470,16 @@ class TestCompleteHookVerification:
         script.parent.mkdir(parents=True)
         script.write_text("#!/bin/sh\necho hi\n")
         script.chmod(0o755)
-        assert _get_verify_cmd(tmp_path) == "pytest"
+        assert _get_verify_cmd(tmp_path) == ("pytest", False)
+
+    def test_get_verify_cmd_workspace_script(self, monkeypatch, tmp_path):
+        """_get_verify_cmd returns (script path, True) for a workspace script."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text("#!/bin/sh\necho hi\n")
+        script.chmod(0o755)
+        assert _get_verify_cmd(tmp_path) == (str(script), True)
 
 
 # ── TestAutoReplyHook ─────────────────────────────────────────────────────
