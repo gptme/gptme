@@ -320,6 +320,15 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
             ext = path.suffix.lower()
             if ext in _MODEL3D_MIME:
                 return flask.send_file(path, mimetype=_MODEL3D_MIME[ext])
+            # Also serve images and binary buffers (.bin) as raw bytes.
+            # model-viewer resolves glTF sibling assets (textures, geometry
+            # buffers) via relative URIs against the model's workspace URL,
+            # so they must return bytes here, not JSON metadata.
+            mime = mimetypes.guess_type(path.name)[0]
+            if mime and mime.startswith("image/"):
+                return flask.send_file(path, mimetype=mime)
+            if ext == ".bin":
+                return flask.send_file(path, mimetype="application/octet-stream")
             # Return single file metadata for other files
             return flask.jsonify(WorkspaceFile(path, workspace).to_dict())
         if not path.exists():

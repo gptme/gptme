@@ -367,6 +367,13 @@ def workspace_conv(client: FlaskClient, tmp_path: Path):
     )
     (workspace / "image.png").write_bytes(png_header)
 
+    # Create a minimal GLB file (binary glTF, version 2)
+    # Header: magic 0x46546C67, version 2, length 12 (header only, no chunks)
+    import struct
+
+    glb_header = struct.pack("<III", 0x46546C67, 2, 12)
+    (workspace / "model.glb").write_bytes(glb_header)
+
     # Symlink the workspace directory
     workspace_link = manager.logdir / "workspace"
     _replace_workspace_link(workspace_link, workspace)
@@ -494,6 +501,40 @@ class TestBrowseWorkspaceEndpoint:
         data = response.get_json()
         assert data["name"] == "main.py"
         assert data["path"] == "src/main.py"
+
+    def test_browse_model3d_serves_raw_bytes(self, client: FlaskClient, workspace_conv):
+        """GLB file served as raw bytes from browse endpoint (model-viewer base URL)."""
+        conv_id = workspace_conv["conversation_id"]
+        response = client.get(f"/api/v2/conversations/{conv_id}/workspace/model.glb")
+        assert response.status_code == 200
+        assert response.content_type.startswith("model/gltf-binary")
+        # Raw bytes, not JSON metadata
+        assert response.data[:4] == b"glTF"
+
+    def test_browse_image_serves_raw_bytes(self, client: FlaskClient, workspace_conv):
+        """Image file served as raw bytes from browse endpoint.
+
+        model-viewer resolves glTF texture paths relative to the model's workspace
+        URL, so the browse endpoint must return raw bytes for image files too.
+        """
+        conv_id = workspace_conv["conversation_id"]
+        response = client.get(f"/api/v2/conversations/{conv_id}/workspace/image.png")
+        assert response.status_code == 200
+        assert response.content_type.startswith("image/png")
+        # PNG magic bytes
+        assert response.data[:4] == b"\x89PNG"
+
+    def test_browse_bin_serves_raw_bytes(self, client: FlaskClient, workspace_conv):
+        """Binary buffer (.bin) served as raw bytes from browse endpoint.
+
+        model-viewer resolves glTF geometry buffer paths relative to the model's
+        workspace URL, so the browse endpoint must return raw bytes for .bin files.
+        """
+        conv_id = workspace_conv["conversation_id"]
+        response = client.get(f"/api/v2/conversations/{conv_id}/workspace/binary.bin")
+        assert response.status_code == 200
+        assert response.content_type == "application/octet-stream"
+        assert len(response.data) > 0
 
 
 class TestPreviewFileEndpoint:
