@@ -314,7 +314,13 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
         show_hidden = request.args.get("show_hidden", "").lower() == "true"
 
         if path.is_file():
-            # Return single file metadata
+            # Serve 3D model files as raw bytes so that model-viewer can use
+            # the file's natural URL as the base for relative URI resolution
+            # (e.g. sibling buffers and textures referenced by .gltf files).
+            ext = path.suffix.lower()
+            if ext in _MODEL3D_MIME:
+                return flask.send_file(path, mimetype=_MODEL3D_MIME[ext])
+            # Return single file metadata for other files
             return flask.jsonify(WorkspaceFile(path, workspace).to_dict())
         if not path.exists():
             return flask.jsonify({"error": "File or directory not found"}), 404

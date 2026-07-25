@@ -58,11 +58,11 @@ export function useWorkspaceApi() {
         };
       }
       if (contentType.startsWith('model/')) {
-        return {
-          type: 'model3d',
-          content: URL.createObjectURL(await response.blob()),
-          mime_type: contentType,
-        };
+        // Return the workspace URL directly so model-viewer can use it as the
+        // base for relative URI resolution (sibling buffers/textures in .gltf).
+        // A blob URL removes the directory base, breaking relative references.
+        const workspaceUrl = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${pathSegment}${query}`;
+        return { type: 'model3d', content: workspaceUrl, mime_type: contentType };
       }
 
       return response.json();

@@ -94,6 +94,15 @@ export function FilePreview({ file, conversationId, root = 'workspace' }: FilePr
     loadPreview();
   }, [loadPreview]);
 
+  // Revoke image blob URLs when the preview changes or on unmount.
+  useEffect(() => {
+    return () => {
+      if (preview?.type === 'image') {
+        URL.revokeObjectURL(preview.content);
+      }
+    };
+  }, [preview]);
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">

@@ -24,7 +24,7 @@ export interface ImagePreview {
 
 export interface Model3DPreview {
   type: 'model3d';
-  content: string; // Blob URL for model-viewer src
+  content: string; // workspace URL for model-viewer src (not a blob — preserves relative URI resolution)
   mime_type: string;
 }
 
