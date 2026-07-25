@@ -776,15 +776,18 @@ class ToolUse:
                             else cast(Message | None, ex)
                         )
                         if generator_result is not None:
-                            for msg in generator_result:
+                            for idx, msg in enumerate(generator_result):
                                 result_msgs.append(msg)
                                 if on_result_message:
                                     on_result_message(msg)
-                                # Assign call_id here so only real tool results
-                                # carry it — hook messages yielded later must not.
+                                # Only stamp call_id on the first result — the
+                                # Responses API expects exactly one
+                                # function_call_output per call_id; subsequent
+                                # messages from a multi-message generator must
+                                # not carry it or the API returns 400.
                                 yield (
                                     msg.replace(call_id=self.call_id)
-                                    if self.call_id
+                                    if self.call_id and idx == 0
                                     else msg
                                 )
                         elif single_result is not None:

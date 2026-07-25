@@ -159,3 +159,45 @@ def test_post_hook_exception_error_has_no_call_id(fake_echo_tool, monkeypatch):
         f"got {error_results[0].call_id!r}. "
         "Two call_id-stamped messages for one tool call causes a Responses API 400."
     )
+
+
+def test_multi_message_tool_only_first_gets_call_id(monkeypatch):
+    """Only the first message from a multi-message tool execution may carry call_id.
+
+    ToolUse.execute can yield multiple messages (e.g. a tool that streams
+    progress or returns structured output in chunks). Stamping the same call_id
+    on every yielded message creates one function_call_output per message in the
+    Responses API input — duplicate call_ids → 400 error.
+    """
+    msg1 = Message("system", "output chunk 1")
+    msg2 = Message("system", "output chunk 2")
+    msg3 = Message("system", "output chunk 3")
+
+    def execute(code, args, kwargs):
+        yield msg1
+        yield msg2
+        yield msg3
+
+    spec = ToolSpec(name="multi", desc="multi-output tool for tests", execute=execute)
+    monkeypatch.setattr(
+        "gptme.tools.get_tool", lambda name: spec if name == "multi" else None
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda *a, **kw: [])
+
+    call_id = "call-multi-test"
+    invoke_msg = Message("assistant", f'@multi({call_id}): {{"text": "test"}}')
+    results = list(execute_msg(invoke_msg))
+
+    output_results = [r for r in results if r.content.startswith("output chunk")]
+    assert len(output_results) == 3, (
+        f"Expected 3 output messages, got {len(output_results)}"
+    )
+    assert output_results[0].call_id == call_id, (
+        f"First message must carry call_id='{call_id}', got {output_results[0].call_id!r}"
+    )
+    stamped = [r for r in output_results if r.call_id is not None]
+    assert len(stamped) == 1, (
+        f"Exactly one output message must carry call_id; got {len(stamped)} — "
+        "each stamped message becomes a duplicate function_call_output in the "
+        "Responses API, causing a 400 error."
+    )
