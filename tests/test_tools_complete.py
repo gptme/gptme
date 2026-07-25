@@ -568,6 +568,33 @@ class TestCompleteHookVerification:
         assert original_marker.exists(), "validated script snapshot must have run"
         assert not replacement_marker.exists(), "replacement script must NOT have run"
 
+    def test_workspace_script_snapshot_preserves_shebang_and_file_execution(
+        self, monkeypatch, tmp_path
+    ):
+        """The validated snapshot runs as a script file, not a /bin/sh command string."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        marker = tmp_path / "ran"
+        script.write_text(
+            "#!/bin/bash\n"
+            '[[ -f "$0" ]] || exit 1\n'
+            '[[ "${BASH_SOURCE[0]}" == "$0" ]] || exit 1\n'
+            f"touch {marker}\n"
+        )
+        script.chmod(0o755)
+
+        with (
+            patch(
+                "gptme.tools.complete.get_confirmation",
+                return_value=ConfirmationResult.confirm(),
+            ),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+
+        assert marker.exists(), "snapshot must preserve executable-script semantics"
+
     def test_env_var_verify_cmd_not_gated_by_denylist(self, monkeypatch, tmp_path):
         """The operator-configured env var command is NOT subject to the denylist check."""
         # env var is explicitly operator-configured, so it's trusted (no denylist gate).

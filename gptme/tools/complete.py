@@ -6,6 +6,7 @@ import os
 import re
 import signal
 import subprocess
+import tempfile
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -50,25 +51,56 @@ def _get_verify_cmd(workspace: Path | None) -> tuple[str, bool] | None:
 
 
 def _run_verify_cmd(
-    cmd: str, workspace: Path | None
+    cmd: str,
+    workspace: Path | None,
+    *,
+    script_content: str | None = None,
 ) -> "subprocess.CompletedProcess[str]":
     """Run the verification command and return the result.
 
     Runs in its own process group so that on timeout we can kill the whole
     process tree (e.g. test runners or build tools that spawn children),
-    not just the immediate shell.
+    not just the immediate shell. For a workspace script, ``script_content``
+    is written to a private snapshot and executed as a file so its shebang and
+    ``$0`` semantics are preserved without reopening the repository path.
     """
     timeout = _env_int("GPTME_VERIFY_COMPLETION_TIMEOUT", _DEFAULT_VERIFY_TIMEOUT)
     popen_kwargs: dict = {} if _is_windows else {"start_new_session": True}
-    proc = subprocess.Popen(
-        cmd,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        cwd=workspace,
-        **popen_kwargs,
-    )
+    snapshot_path: str | None = None
+    if script_content is not None:
+        fd, snapshot_path = tempfile.mkstemp(prefix="gptme-verify-", suffix=".sh")
+        try:
+            os.fchmod(fd, 0o700)
+            with os.fdopen(fd, "w") as snapshot:
+                snapshot.write(script_content)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+            with contextlib.suppress(OSError):
+                os.unlink(snapshot_path)
+            raise
+        command: str | list[str] = [snapshot_path]
+        shell = False
+    else:
+        command = cmd
+        shell = True
+
+    try:
+        proc = subprocess.Popen(
+            command,
+            shell=shell,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=workspace,
+            **popen_kwargs,
+        )
+    except BaseException:
+        if snapshot_path is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(snapshot_path)
+        raise
+
     try:
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
@@ -111,6 +143,9 @@ def _run_verify_cmd(
         if proc.returncode is None:
             with contextlib.suppress(subprocess.TimeoutExpired, OSError):
                 proc.wait(timeout=1)
+        if snapshot_path is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(snapshot_path)
 
 
 class SessionCompleteException(Exception):
@@ -233,9 +268,10 @@ def complete_hook(
                         _confirm_result.action == ConfirmAction.EDIT
                         and _confirm_result.edited_content
                     ):
-                        # Operator edited the command; run the edited version instead.
+                        # Operator edited the command rather than approving the
+                        # script snapshot; run it with normal shell semantics.
                         verify_cmd = _confirm_result.edited_content
-                        script_content = verify_cmd
+                        script_content = None
                     elif _confirm_result.action == ConfirmAction.EDIT:
                         # EDIT with empty content — operator cleared the command,
                         # treat as skip (close without running verification).
@@ -257,18 +293,19 @@ def complete_hook(
 
                 if is_workspace_script:
                     # This path bypasses execute_shell()'s denylist check. Validate
-                    # and execute the pre-confirmation snapshot rather than reopening
-                    # a repository-controlled path that may since have changed.
-                    assert script_content is not None
-                    verify_cmd = script_content
-                    _is_denied, _deny_reason, _matched_cmd = is_denylisted(verify_cmd)
+                    # the approved snapshot or edited command without reopening a
+                    # repository-controlled path that may since have changed.
+                    validation_content = script_content or verify_cmd
+                    _is_denied, _deny_reason, _matched_cmd = is_denylisted(
+                        validation_content
+                    )
                     if _is_denied:
                         logger.warning(
                             "Completion verification script contains a denylisted "
                             "command (%s: %r); skipping execution: %s",
                             _deny_reason,
                             _matched_cmd,
-                            verify_cmd,
+                            validation_content,
                         )
                         raise SessionCompleteException(
                             "Session completed via complete tool"
@@ -307,7 +344,13 @@ def complete_hook(
                 prior_attempts = max(0, _episode_count - 1)
                 if prior_attempts < max_retries:
                     try:
-                        result = _run_verify_cmd(verify_cmd, workspace)
+                        result = _run_verify_cmd(
+                            verify_cmd,
+                            workspace,
+                            script_content=script_content
+                            if is_workspace_script
+                            else None,
+                        )
                     except subprocess.TimeoutExpired:
                         timeout = _env_int(
                             "GPTME_VERIFY_COMPLETION_TIMEOUT", _DEFAULT_VERIFY_TIMEOUT
