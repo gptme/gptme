@@ -780,12 +780,22 @@ class ToolUse:
                                 result_msgs.append(msg)
                                 if on_result_message:
                                     on_result_message(msg)
-                                yield msg
+                                # Assign call_id here so only real tool results
+                                # carry it — hook messages yielded later must not.
+                                yield (
+                                    msg.replace(call_id=self.call_id)
+                                    if self.call_id
+                                    else msg
+                                )
                         elif single_result is not None:
                             result_msgs = [single_result]
                             if on_result_message:
                                 on_result_message(single_result)
-                            yield single_result
+                            yield (
+                                single_result.replace(call_id=self.call_id)
+                                if self.call_id
+                                else single_result
+                            )
                     finally:
                         _current_tool_use.reset(token)
 
@@ -835,7 +845,11 @@ class ToolUse:
                     logger.exception(e)
                     if "pytest" in globals():
                         raise e
-                    yield Message("system", f"Error executing tool '{self.tool}': {e}")
+                    yield Message(
+                        "system",
+                        f"Error executing tool '{self.tool}': {e}",
+                        call_id=self.call_id,
+                    )
             else:
                 logger.warning(f"Tool '{self.tool}' is not available for execution.")
 

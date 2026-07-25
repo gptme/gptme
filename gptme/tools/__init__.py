@@ -338,8 +338,7 @@ def execute_msg(
         if runnable:
             with terminal_state_title(f"🛠️ running {tooluse.tool}"):
                 try:
-                    for tool_response in tooluse.execute(log=log, workspace=workspace):
-                        yield tool_response.replace(call_id=tooluse.call_id)
+                    yield from tooluse.execute(log=log, workspace=workspace)
                 except KeyboardInterrupt:
                     clear_interruptible()
                     yield Message(
