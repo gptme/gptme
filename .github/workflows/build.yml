@@ -72,14 +72,24 @@ jobs:
         context: .
         push: false
 
+    # Derive OCI labels for the base image (same pattern as server)
+    - name: Docker meta (base)
+      id: meta-base
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ env.OWNER_LC }}/gptme
+        context: git
+        tags: |
+          type=raw,value=${{ env.DOCKER_EXTRA_TAG }}
+          type=raw,value=${{ env.SANITIZED_REF_NAME }}
+
     # Push base image to registry if on master/tag
     - name: Push Docker image (base)
       uses: docker/build-push-action@v7
       if: env.SHOULD_PUSH == 'true'
       with:
-        tags: |
-          ghcr.io/${{ env.OWNER_LC }}/gptme:${{ env.DOCKER_EXTRA_TAG }}
-          ghcr.io/${{ env.OWNER_LC }}/gptme:${{ env.SANITIZED_REF_NAME }}
+        tags: ${{ steps.meta-base.outputs.tags }}
+        labels: ${{ steps.meta-base.outputs.labels }}
         file: ./scripts/Dockerfile
         context: .
         push: true
@@ -112,13 +122,23 @@ jobs:
           BASE=gptme:latest
         push: ${{ env.SHOULD_PUSH }}
 
+    # Derive OCI labels for the eval image (same pattern as server)
+    - name: Docker meta (eval)
+      id: meta-eval
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ env.OWNER_LC }}/gptme-eval
+        context: git
+        tags: |
+          type=raw,value=${{ env.DOCKER_EXTRA_TAG }}
+          type=raw,value=${{ env.SANITIZED_REF_NAME }}
+
     # Build and push eval image
     - name: Build and push Docker image (eval)
       uses: docker/build-push-action@v7
       with:
-        tags: |
-          ghcr.io/${{ env.OWNER_LC }}/gptme-eval:${{ env.DOCKER_EXTRA_TAG }}
-          ghcr.io/${{ env.OWNER_LC }}/gptme-eval:${{ env.SANITIZED_REF_NAME }}
+        tags: ${{ steps.meta-eval.outputs.tags }}
+        labels: ${{ steps.meta-eval.outputs.labels }}
         file: ./scripts/Dockerfile.eval
         context: .
         push: ${{ env.SHOULD_PUSH }}
