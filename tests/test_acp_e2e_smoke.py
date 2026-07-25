@@ -25,6 +25,7 @@ pytest.importorskip(
 
 
 @pytest.mark.slow
+@pytest.mark.requires_api
 @pytest.mark.asyncio
 async def test_acp_agent_e2e_file_edit():
     """Verify the ACP agent can read a file and modify it via a prompt.
