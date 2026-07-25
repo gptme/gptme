@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useWorkspaceApi } from '@/utils/workspaceApi';
@@ -64,20 +64,41 @@ export function FilePreview({ file, conversationId, root = 'workspace' }: FilePr
   const [error, setError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const activeControllerRef = useRef<AbortController | null>(null);
 
   const { previewFile, downloadFile } = useWorkspaceApi();
 
   const loadPreview = useCallback(async () => {
+    // Abort any in-flight fetch to prevent stale blob URLs being created
+    // after the component unmounts or switches to a different file.
+    activeControllerRef.current?.abort();
+    const controller = new AbortController();
+    activeControllerRef.current = controller;
+
     try {
       setLoading(true);
       setError(null);
       setDownloadError(null);
-      const data = await previewFile(conversationId, file.path, root);
+      const data = await previewFile(conversationId, file.path, root, controller.signal);
+      if (controller.signal.aborted) {
+        // Revoke any blob URL that was created before the abort was detected.
+        if (
+          'content' in data &&
+          typeof data.content === 'string' &&
+          data.content.startsWith('blob:')
+        ) {
+          URL.revokeObjectURL(data.content);
+        }
+        return;
+      }
       setPreview(data);
     } catch (err) {
+      if (controller.signal.aborted) return;
       setError(err instanceof Error ? err.message : 'Failed to load preview');
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
     }
   }, [file.path, conversationId, previewFile, root]);
 
@@ -94,11 +115,23 @@ export function FilePreview({ file, conversationId, root = 'workspace' }: FilePr
     loadPreview();
   }, [loadPreview]);
 
-  // Revoke image blob URLs when the preview changes or on unmount.
+  // Abort any in-flight preview fetch on unmount.
   useEffect(() => {
     return () => {
-      if (preview?.type === 'image') {
-        URL.revokeObjectURL(preview.content);
+      activeControllerRef.current?.abort();
+    };
+  }, []);
+
+  // Revoke blob URLs when the preview changes or on unmount.
+  // Covers images and self-contained model formats (GLB/USDZ) that use blob URLs.
+  // glTF previews use direct workspace URLs, so no revocation is needed there.
+  useEffect(() => {
+    return () => {
+      if (preview && preview.type !== 'binary') {
+        const { content } = preview;
+        if (content.startsWith('blob:')) {
+          URL.revokeObjectURL(content);
+        }
       }
     };
   }, [preview]);

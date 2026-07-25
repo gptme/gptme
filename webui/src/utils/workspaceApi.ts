@@ -33,7 +33,8 @@ export function useWorkspaceApi() {
     async function previewFile(
       conversationId: string,
       path: string,
-      root: WorkspaceRoot = 'workspace'
+      root: WorkspaceRoot = 'workspace',
+      signal?: AbortSignal
     ): Promise<FilePreview> {
       const params = new URLSearchParams();
       if (root !== 'workspace') params.set('root', root);
@@ -43,6 +44,7 @@ export function useWorkspaceApi() {
 
       const response = await fetch(url, {
         headers: api.authHeader ? { Authorization: api.authHeader } : undefined,
+        signal,
       });
 
       if (!response.ok) {
@@ -58,9 +60,24 @@ export function useWorkspaceApi() {
         };
       }
       if (contentType.startsWith('model/')) {
-        // Return the workspace URL directly so model-viewer can use it as the
-        // base for relative URI resolution (sibling buffers/textures in .gltf).
-        // A blob URL removes the directory base, breaking relative references.
+        // GLB and USDZ are self-contained binary formats — no external relative
+        // references. Fetch via the authenticated client and return a blob URL,
+        // exactly as images are handled. This ensures bearer-authenticated
+        // deployments work correctly.
+        const isSelfContained = /\.(glb|usdz)$/i.test(path);
+        if (isSelfContained) {
+          return {
+            type: 'model3d',
+            content: URL.createObjectURL(await response.blob()),
+            mime_type: contentType,
+          };
+        }
+        // glTF (.gltf) files reference sibling buffers and textures via relative
+        // URIs. A blob URL strips the workspace directory as the resolution base,
+        // breaking those references. Return the direct workspace URL instead.
+        // On bearer-authenticated deployments, set an auth cookie via
+        // POST /api/v2/auth/cookie so that model-viewer's sub-requests are
+        // authenticated automatically.
         const workspaceUrl = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${pathSegment}${query}`;
         return { type: 'model3d', content: workspaceUrl, mime_type: contentType };
       }

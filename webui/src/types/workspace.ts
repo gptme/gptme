@@ -24,7 +24,9 @@ export interface ImagePreview {
 
 export interface Model3DPreview {
   type: 'model3d';
-  content: string; // workspace URL for model-viewer src (not a blob — preserves relative URI resolution)
+  // GLB/USDZ: blob URL (authenticated fetch, self-contained binary formats)
+  // glTF: direct workspace URL (preserves relative URI resolution for sibling files)
+  content: string;
   mime_type: string;
 }
 
