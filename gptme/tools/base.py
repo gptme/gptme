@@ -803,7 +803,7 @@ class ToolUse:
                                         on_result_message(msg)
                                     yield (
                                         msg.replace(call_id=self.call_id)
-                                        if idx == last_idx
+                                        if idx == last_idx and _ki is None
                                         else msg
                                     )
                                 if _ki is not None:
