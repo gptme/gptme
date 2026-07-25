@@ -123,3 +123,39 @@ def test_pre_hook_message_does_not_get_call_id(fake_echo_tool, monkeypatch):
     assert pre_hook_results[0].call_id is None, (
         f"Pre-hook message must NOT carry call_id; got {pre_hook_results[0].call_id!r}"
     )
+
+
+def test_post_hook_exception_error_has_no_call_id(fake_echo_tool, monkeypatch):
+    """When a post-hook raises after the real result was yielded, the error must NOT get call_id.
+
+    A real result with call_id is already emitted. If the catch-all exception handler
+    also stamps call_id on the error message, both become function_call_output entries
+    for one tool call — causing a Responses API 400.
+    """
+
+    def fake_trigger(hook_type, data, **kwargs):
+        if hook_type == HookType.TOOL_EXECUTE_POST:
+            raise RuntimeError("post-hook failed")
+        return []
+
+    monkeypatch.setattr("gptme.hooks.trigger_hook", fake_trigger)
+
+    call_id = "call-post-hook-error"
+    msg = Message("assistant", f'@echo({call_id}): {{"text": "hello"}}')
+    results = list(execute_msg(msg))
+
+    # The real result must still carry call_id.
+    real_results = [r for r in results if r.content == "echo: hello"]
+    assert real_results, "Expected the real tool result to be yielded"
+    assert real_results[0].call_id == call_id, (
+        f"Real result must keep call_id='{call_id}', got {real_results[0].call_id!r}"
+    )
+
+    # The error message must NOT carry call_id — the real result already claimed it.
+    error_results = [r for r in results if "Error executing tool" in r.content]
+    assert error_results, "Expected an error message from the failed post-hook"
+    assert error_results[0].call_id is None, (
+        f"Error after real result must NOT carry call_id; "
+        f"got {error_results[0].call_id!r}. "
+        "Two call_id-stamped messages for one tool call causes a Responses API 400."
+    )

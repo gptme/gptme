@@ -733,6 +733,7 @@ class ToolUse:
         def _execute_tool():
             tool = get_tool(self.tool)
             if tool and tool.execute:
+                result_msgs: list[Message] = []
                 try:
                     from ..hooks.types import ToolExecutePreData  # fmt: skip
 
@@ -762,7 +763,6 @@ class ToolUse:
                     # Set context var so tools can access current ToolUse
                     # via get_current_tool_use() or implicitly in get_confirmation()
                     token = _current_tool_use.set(self)
-                    result_msgs: list[Message] = []
                     try:
                         ex = tool.execute(
                             self.content,
@@ -845,10 +845,13 @@ class ToolUse:
                     logger.exception(e)
                     if "pytest" in globals():
                         raise e
+                    # Only attribute the error to this call_id if no real result
+                    # was already emitted — a post-hook exception after yielding a
+                    # result would create a duplicate function_call_output entry.
                     yield Message(
                         "system",
                         f"Error executing tool '{self.tool}': {e}",
-                        call_id=self.call_id,
+                        call_id=self.call_id if not result_msgs else None,
                     )
             else:
                 logger.warning(f"Tool '{self.tool}' is not available for execution.")

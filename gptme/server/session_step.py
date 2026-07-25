@@ -966,14 +966,12 @@ def start_tool_execution(
                 )
                 logger.info(f"Tool execution complete, outputs: {len(tool_outputs)}")
 
-                # Store the tool outputs, propagating call_id to pair results
-                # with the assistant's tool-use block (matches CLI behavior)
+                # Store the tool outputs. call_id is already assigned in
+                # ToolUse.execute() for real results; hook messages intentionally
+                # have no call_id — don't re-stamp here or hook messages become
+                # duplicate function_call_output entries (Responses API 400).
                 for tool_output in tool_outputs:
-                    _append_and_notify(
-                        manager,
-                        session,
-                        tool_output.replace(call_id=tooluse.call_id),
-                    )
+                    _append_and_notify(manager, session, tool_output)
             except Exception as e:
                 logger.exception(f"Error executing tool {tooluse.tool}: {e}")
                 tool_exec.status = ToolStatus.FAILED
