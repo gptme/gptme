@@ -115,10 +115,9 @@ Then: ``gptme 'hello' -m lmstudio``
 .. note::
 
    LM Studio's server serves whichever model is currently loaded, regardless of
-   the model name sent in requests. The ``default_model`` value above is a
-   placeholder — LM Studio returns the actual loaded model's identifier in
-   responses, so message metadata reflects the true loaded model name. The value
-   is still required by gptme's provider resolution.
+   the model name sent in requests. The ``default_model`` value is required by
+   gptme's provider resolution — any string works as a placeholder since LM
+   Studio ignores the model name in requests (and echoes it back in responses).
 
 **Common errors:**
 
