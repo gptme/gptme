@@ -108,14 +108,15 @@ It exposes an OpenAI-compatible server that gptme connects to directly.
     [[providers]]
     name = "lmstudio"
     base_url = "http://localhost:1234/v1"
+    default_model = "local-model"
 
 Then: ``gptme 'hello' -m lmstudio``
 
 .. note::
 
-   LM Studio's server exposes whichever model is currently loaded. The gptme model
-   name does not need to match exactly — ``local/lmstudio`` or ``lmstudio`` acts
-   as an alias for whatever model is active in the server tab.
+   LM Studio's server serves whichever model is currently loaded, regardless of
+   the model name sent in requests. The ``default_model`` value above can be any
+   string — LM Studio ignores it. It is required by gptme's provider resolution.
 
 **Common errors:**
 
