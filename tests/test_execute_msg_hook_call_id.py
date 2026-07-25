@@ -161,13 +161,14 @@ def test_post_hook_exception_error_has_no_call_id(fake_echo_tool, monkeypatch):
     )
 
 
-def test_multi_message_tool_only_first_gets_call_id(monkeypatch):
-    """Only the first message from a multi-message tool execution may carry call_id.
+def test_multi_message_tool_only_last_gets_call_id(monkeypatch):
+    """Only the last message from a multi-message tool execution must carry call_id.
 
-    ToolUse.execute can yield multiple messages (e.g. a tool that streams
-    progress or returns structured output in chunks). Stamping the same call_id
-    on every yielded message creates one function_call_output per message in the
-    Responses API input — duplicate call_ids → 400 error.
+    ToolUse.execute can yield multiple messages (e.g. a shellcheck warning
+    followed by actual command output). Stamping call_id only on the last message
+    ensures the actual tool output — not an earlier notice — becomes the
+    function_call_output in the Responses API. Stamping every message creates
+    one function_call_output per message → duplicate call_ids → 400 error.
     """
     msg1 = Message("system", "output chunk 1")
     msg2 = Message("system", "output chunk 2")
@@ -192,12 +193,55 @@ def test_multi_message_tool_only_first_gets_call_id(monkeypatch):
     assert len(output_results) == 3, (
         f"Expected 3 output messages, got {len(output_results)}"
     )
-    assert output_results[0].call_id == call_id, (
-        f"First message must carry call_id='{call_id}', got {output_results[0].call_id!r}"
+    # Only the last message must carry call_id — it is the actual tool result.
+    assert output_results[-1].call_id == call_id, (
+        f"Last message must carry call_id='{call_id}', got {output_results[-1].call_id!r}"
+    )
+    assert output_results[0].call_id is None, (
+        f"Earlier messages must NOT carry call_id; got {output_results[0].call_id!r} — "
+        "an earlier warning/notice becoming function_call_output pushes the actual "
+        "tool output into system instructions, causing wrong role and precedence."
     )
     stamped = [r for r in output_results if r.call_id is not None]
     assert len(stamped) == 1, (
         f"Exactly one output message must carry call_id; got {len(stamped)} — "
         "each stamped message becomes a duplicate function_call_output in the "
         "Responses API, causing a 400 error."
+    )
+
+
+def test_warning_before_output_last_gets_call_id(monkeypatch):
+    """When a tool yields a warning then actual output, the LAST (actual output) gets call_id.
+
+    Mirrors the shell tool pattern: shellcheck warning first, then command output.
+    The warning must not become function_call_output; the actual result must.
+    """
+    warning = Message("system", "ShellCheck: SC2086 double-quote to prevent globbing")
+    output = Message("system", "stdout: file1.txt file2.txt\nreturncode: 0")
+
+    def execute(code, args, kwargs):
+        yield warning
+        yield output
+
+    spec = ToolSpec(name="shell2", desc="shell-like tool", execute=execute)
+    monkeypatch.setattr(
+        "gptme.tools.get_tool", lambda name: spec if name == "shell2" else None
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda *a, **kw: [])
+
+    call_id = "call-shellcheck-test"
+    invoke_msg = Message("assistant", f'@shell2({call_id}): {{"command": "ls /tmp"}}')
+    results = list(execute_msg(invoke_msg))
+
+    system_results = [r for r in results if r.role == "system"]
+    assert len(system_results) == 2
+
+    warn_r = next(r for r in system_results if "ShellCheck" in r.content)
+    out_r = next(r for r in system_results if "returncode" in r.content)
+
+    assert warn_r.call_id is None, (
+        "Warning must not carry call_id — it must not become function_call_output"
+    )
+    assert out_r.call_id == call_id, (
+        f"Actual output must carry call_id='{call_id}', got {out_r.call_id!r}"
     )

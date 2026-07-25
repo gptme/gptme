@@ -776,18 +776,23 @@ class ToolUse:
                             else cast(Message | None, ex)
                         )
                         if generator_result is not None:
-                            for idx, msg in enumerate(generator_result):
+                            # Buffer the generator so we can identify the last
+                            # message and stamp call_id on it. The Responses API
+                            # expects exactly one function_call_output per call_id;
+                            # stamping only the last message ensures the actual
+                            # tool result (not an earlier warning such as a
+                            # shellcheck notice) becomes the function_call_output.
+                            # Earlier messages pass through without call_id and
+                            # become system context instead.
+                            all_result_msgs = list(generator_result)
+                            last_idx = len(all_result_msgs) - 1
+                            for idx, msg in enumerate(all_result_msgs):
                                 result_msgs.append(msg)
                                 if on_result_message:
                                     on_result_message(msg)
-                                # Only stamp call_id on the first result — the
-                                # Responses API expects exactly one
-                                # function_call_output per call_id; subsequent
-                                # messages from a multi-message generator must
-                                # not carry it or the API returns 400.
                                 yield (
                                     msg.replace(call_id=self.call_id)
-                                    if self.call_id and idx == 0
+                                    if self.call_id and idx == last_idx
                                     else msg
                                 )
                         elif single_result is not None:
