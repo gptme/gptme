@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..message import Message
+from ..sandbox import SandboxConfig, build_env, wrap_shell_cmd
 from ..util import get_installed_programs
 from ..util.ask_execute import execute_with_confirmation
 from ..util.context import md_codeblock
@@ -277,6 +278,26 @@ class ShellSession:
             popen_kwargs = {
                 "start_new_session": True,  # Create new process group for proper signal handling
             }
+
+        # Apply sandbox wrapper if GPTME_SANDBOX is set
+        sandbox = SandboxConfig.from_env(
+            workspace=Path(self._cwd) if self._cwd else None
+        )
+        if sandbox.enabled:
+            available, msg = sandbox.check_available()
+            if available:
+                shell_cmd = wrap_shell_cmd(sandbox, shell_cmd)
+                logger.info("Sandboxed shell: %s", " ".join(shell_cmd))
+            else:
+                logger.warning(
+                    "GPTME_SANDBOX=%s requested but unavailable: %s",
+                    sandbox.backend,
+                    msg,
+                )
+        sandbox_env = build_env(
+            sandbox
+        )  # None if sandbox disabled → inherit os.environ
+
         self.process = subprocess.Popen(
             shell_cmd,
             stdin=subprocess.PIPE,
@@ -285,6 +306,7 @@ class ShellSession:
             bufsize=0,  # Unbuffered
             universal_newlines=True,
             cwd=self._cwd,  # Use explicit workspace dir (thread-safe)
+            env=sandbox_env,  # None → inherit; dict → sanitized env
             **popen_kwargs,
         )
         assert self.process.stdout is not None
