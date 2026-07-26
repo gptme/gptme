@@ -11,6 +11,34 @@ import { observable } from '@legendapp/state';
 import type { Message } from '@/types/conversation';
 import { ConversationContent } from '../ConversationContent';
 
+// Control how many items the virtualizer "renders" (simulates viewport size).
+// Defaults to Infinity so existing tests see all messages (no change in behaviour).
+// Set __virtualWindow to a number in specific tests to verify bounded rendering.
+declare global {
+  var __virtualWindow: number;
+}
+global.__virtualWindow = Infinity;
+
+jest.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: (opts: { count: number }) => {
+    const win = isFinite(global.__virtualWindow) ? global.__virtualWindow : opts.count;
+    const items = Array.from({ length: Math.min(opts.count, win) }, (_, i) => ({
+      index: i,
+      key: i,
+      start: i * 150,
+      size: 150,
+      end: (i + 1) * 150,
+      lane: 0,
+    }));
+    return {
+      getTotalSize: () => opts.count * 150,
+      getVirtualItems: () => items,
+      scrollToIndex: jest.fn(),
+      measureElement: () => {},
+    };
+  },
+}));
+
 const mockBuildStepRoles = jest.fn((_messages: Message[]) => new Map());
 
 jest.mock('@/utils/stepGrouping', () => ({
@@ -407,5 +435,72 @@ describe('server disconnected banner — removed server', () => {
     mockIsDemoMode.mockReturnValue(true);
     render(<ConversationContent conversationId="demo/test" serverId="removed-server" />);
     expect(screen.queryByText(/server not connected/i)).toBeNull();
+  });
+});
+
+describe('virtual message list', () => {
+  beforeEach(() => {
+    mockConversation$.set(makeConversationState().peek());
+    jest.clearAllMocks();
+    mockIsDemoMode.mockReturnValue(false);
+    isConnected$.set(true);
+    lastConnectionResult$.set(null);
+    global.__virtualWindow = Infinity; // reset to "render all" default
+  });
+
+  afterEach(() => {
+    global.__virtualWindow = Infinity;
+  });
+
+  it('renders only a bounded subset of messages when the virtualizer window is smaller than the list', () => {
+    // Simulate a viewport that fits 8 items — the rest stay off-screen (no DOM node).
+    global.__virtualWindow = 8;
+    const many = Array.from({ length: 50 }, (_, i) =>
+      message(i === 0 ? 'user' : 'assistant', `Message ${i}`)
+    );
+    act(() => {
+      mockConversation$.data.log.set(many);
+    });
+    renderComponent();
+
+    const rendered = document.querySelectorAll('[data-message-index]');
+    expect(rendered.length).toBe(8);
+    expect(rendered.length).toBeLessThan(50);
+  });
+
+  it('renders all messages when the list is smaller than the virtualizer window', () => {
+    // With __virtualWindow = Infinity the mock returns all items (min(3, ∞) = 3).
+    const few = [
+      message('user', 'Hello'),
+      message('assistant', 'Hi there'),
+      message('user', 'Thanks'),
+    ];
+    act(() => {
+      mockConversation$.data.log.set(few);
+    });
+    renderComponent();
+
+    const rendered = document.querySelectorAll('[data-message-index]');
+    expect(rendered.length).toBe(3);
+  });
+
+  it('assigns data-index to rendered wrappers (required for ResizeObserver height measurement)', () => {
+    act(() => {
+      mockConversation$.data.log.set([message('user', 'Hello'), message('assistant', 'Hi')]);
+    });
+    renderComponent();
+
+    const items = document.querySelectorAll('[data-index]');
+    expect(items.length).toBeGreaterThan(0);
+    items.forEach((item) => {
+      expect(item.getAttribute('data-index')).not.toBeNull();
+    });
+  });
+
+  it('mounts without errors when there are no messages', () => {
+    act(() => {
+      mockConversation$.data.log.set([]);
+    });
+    expect(() => renderComponent()).not.toThrow();
   });
 });

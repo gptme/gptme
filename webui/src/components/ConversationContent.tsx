@@ -1,5 +1,6 @@
 import type { FC } from 'react';
 import { useRef, useEffect, useCallback, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChatMessage } from './ChatMessage';
@@ -15,8 +16,7 @@ import { InlineToolConfirmation } from './InlineToolConfirmation';
 import { MessageSearchBar } from './MessageSearchBar';
 import { InlineToolExecution, ToolCompletionBadge } from './InlineToolExecution';
 import { OpenConversationPathButton } from './OpenConversationPathButton';
-import { For, Memo, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
-import { getObservableIndex } from '@legendapp/state';
+import { Memo, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
 import { useApi } from '@/contexts/ApiContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useModels } from '@/hooks/useModels';
@@ -304,6 +304,34 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // Create a ref for the scroll container
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // Reactive reads for virtualizer rendering — using use$() so changes trigger
+  // a React re-render and the virtualizer map gets fresh values.
+  const expandedGroups = use$(expandedGroups$);
+  const logOffsetValue = use$(() => conversation$?.logOffset?.get() ?? 0);
+  const stepRolesValue = use$(stepRoles$);
+
+  // Virtualizer: renders only visible messages, dramatically reducing DOM nodes
+  // for long conversations.  estimateSize is a rough average; measureElement
+  // (ResizeObserver-based) corrects actual heights after first render.
+  const virtualizer = useVirtualizer({
+    count: messageCount,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 150,
+    overscan: 5,
+    getItemKey: (index) => {
+      const off = conversation$?.logOffset?.peek() ?? 0;
+      const msg = conversation$?.data.log[index]?.peek();
+      return msg ? `${off + index}-${msg.timestamp}` : `${off + index}`;
+    },
+  });
+
+  // Mutable refs so effects/callbacks always hold the latest virtualizer and
+  // messageCount without stale-closure issues.
+  const virtualizerRef = useRef(virtualizer);
+  const messageCountRef = useRef(messageCount);
+  virtualizerRef.current = virtualizer;
+  messageCountRef.current = messageCount;
+
   // Pending rAF handle for scroll-to-bottom — cancelled before re-scheduling so
   // a burst of log updates queues at most one scroll per animation frame.
   const scrollRAFRef = useRef<number | null>(null);
@@ -332,10 +360,12 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   });
 
   const scrollToBottom = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
+    const count = messageCountRef.current;
+    if (count <= 0) return;
     isAutoScrolling$.set(true);
-    container.scrollTop = container.scrollHeight;
+    // scrollToIndex ensures the last item is actually rendered before measuring,
+    // which is more reliable than container.scrollHeight with virtual lists.
+    virtualizerRef.current.scrollToIndex(count - 1, { align: 'end' });
     requestAnimationFrame(() => {
       isAutoScrolling$.set(false);
     });
@@ -429,20 +459,30 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     ]
   );
 
-  // Search helpers: imperative DOM highlight + scroll, avoids re-rendering all messages
+  // Search helpers: imperative DOM highlight + scroll, avoids re-rendering all messages.
+  // With virtualization the target element may not be in the DOM yet, so we first
+  // scroll the virtualizer to bring it into the rendered range, then query + highlight.
   const highlightSearchMatch = useCallback(
     (msgIndex: number) => {
       clearSearchHighlights();
-      const el = scrollContainerRef.current?.querySelector<HTMLElement>(
-        `[data-message-index="${msgIndex}"]`
-      );
-      if (el) {
-        el.style.outline = '2px solid rgba(234,179,8,0.6)';
-        el.style.outlineOffset = '-2px';
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+      const logOff = conversation$?.logOffset?.get() ?? 0;
+      const localIndex = msgIndex - logOff;
+      // Instant scroll brings the item into the DOM immediately.
+      virtualizerRef.current.scrollToIndex(localIndex, { align: 'center' });
+      // Two rAFs: first lets the virtualizer commit, second lets layout flush.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const el = scrollContainerRef.current?.querySelector<HTMLElement>(
+            `[data-message-index="${msgIndex}"]`
+          );
+          if (el) {
+            el.style.outline = '2px solid rgba(234,179,8,0.6)';
+            el.style.outlineOffset = '-2px';
+          }
+        });
+      });
     },
-    [clearSearchHighlights, scrollContainerRef]
+    [clearSearchHighlights, conversation$]
   );
 
   const computeSearchMatches = useCallback(
@@ -551,16 +591,16 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   }, [pendingToolId, settings.noConfirmMode]);
 
   const handleScrollToBottom = () => {
-    const container = scrollContainerRef.current;
-    if (container) {
+    const count = messageCountRef.current;
+    if (count > 0) {
       isAutoScrolling$.set(true);
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: 'smooth',
-      });
-      container.addEventListener('scrollend', () => isAutoScrolling$.set(false), {
-        once: true,
-      });
+      virtualizerRef.current.scrollToIndex(count - 1, { align: 'end', behavior: 'smooth' });
+      const container = scrollContainerRef.current;
+      if (container) {
+        container.addEventListener('scrollend', () => isAutoScrolling$.set(false), {
+          once: true,
+        });
+      }
     }
     autoScrollAborted$.set(false);
     isScrolledUp$.set(false);
@@ -789,122 +829,175 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
           </div>
         )}
 
-        <For each={conversation$?.data.log ?? []}>
-          {(msg$) => {
-            // index is the LOCAL array position in the current log window.
-            const index = getObservableIndex(msg$);
+        {/* Virtual message list — only visible rows are in the DOM.
+            The outer div establishes the total scroll height; each item is
+            absolutely positioned via transform so the container never reflows. */}
+        <div
+          style={{
+            height: `${virtualizer.getTotalSize()}px`,
+            width: '100%',
+            position: 'relative',
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualItem) => {
+            const index = virtualItem.index;
+            // Guard against count/log getting briefly out of sync.
+            const msg$ = conversation$?.data.log[index];
+            if (!msg$) return null;
+
             // absoluteIndex is the position in the full conversation (server-space).
             // All server-bound operations and index-keyed maps use absoluteIndex.
-            const logOffset = conversation$?.logOffset?.get() ?? 0;
-            const absoluteIndex = logOffset + index;
+            const absoluteIndex = logOffsetValue + index;
 
-            // Hide all system messages before the first non-system message by default
-            const firstNonSystemIndex = firstNonSystemIndex$.get();
+            // Wrapper shared by every case: TanStack Virtual needs data-index on
+            // the element passed to measureElement so it can track heights.
+            const wrapperStyle: React.CSSProperties = {
+              position: 'absolute',
+              top: 0,
+              transform: `translateY(${virtualItem.start}px)`,
+              width: '100%',
+            };
+
+            // Hide all system messages before the first non-system message by default.
+            // Use peek() — reads are not inside a reactive context here; reactivity
+            // is handled by component-level use$() calls (showInitialSystem$, etc.)
+            // that trigger a re-render when settings change.
+            const firstNonSystemIndex = firstNonSystemIndex$.peek();
             const isInitialSystem =
-              msg$.role.get() === 'system' &&
+              msg$.role.peek() === 'system' &&
               (firstNonSystemIndex === -1 || index < firstNonSystemIndex);
-            if (isInitialSystem && !showInitialSystem$.get()) {
-              return <div key={`${absoluteIndex}-${msg$.timestamp.get()}`} />;
+            if (isInitialSystem && !settings.showInitialSystem) {
+              return (
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={virtualizer.measureElement}
+                  style={wrapperStyle}
+                />
+              );
             }
 
             // Hide messages with hide=true (e.g., auto-included lessons)
-            if (msg$.hide?.get() && !showHiddenMessages$.get()) {
-              return <div key={`${absoluteIndex}-${msg$.timestamp.get()}`} />;
+            if (msg$.hide?.peek() && !settings.showHiddenMessages) {
+              return (
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={virtualizer.measureElement}
+                  style={wrapperStyle}
+                />
+              );
             }
 
             // Get the previous and next *visible* messages for chain context
-            // (skip hidden messages so they don't break chain grouping)
-            // prevIdx/nextIdx are LOCAL for array traversal.
+            // (skip hidden messages so they don't break chain grouping).
             let prevIdx = index - 1;
             while (prevIdx >= 0 && isMessageHidden(prevIdx)) prevIdx--;
             const previousMessage$ = prevIdx >= 0 ? conversation$.data.log[prevIdx] : undefined;
 
             let nextIdx = index + 1;
-            while (conversation$.data.log[nextIdx]?.get() && isMessageHidden(nextIdx)) nextIdx++;
-            const nextMessage$ = conversation$.data.log[nextIdx]?.get()
+            while (conversation$.data.log[nextIdx]?.peek() && isMessageHidden(nextIdx)) nextIdx++;
+            const nextMessage$ = conversation$.data.log[nextIdx]?.peek()
               ? conversation$.data.log[nextIdx]
               : undefined;
 
-            // Step grouping: stepRoles$ is keyed by ABSOLUTE index.
-            // Key-level access gives per-row fine-grained reactivity (only this row
-            // re-renders when its role changes, not all rows).
-            const stepRole = stepRoles$[absoluteIndex].get();
+            // stepRolesValue is read via use$() at the component level, so any
+            // structural change that updates stepRoles$ triggers a re-render here.
+            const stepRole = stepRolesValue[absoluteIndex];
 
-            // If this is a grouped message and the group is collapsed, hide it
-            if (stepRole?.type === 'grouped' && !expandedGroups$.get().has(stepRole.groupId)) {
-              return <div key={`${absoluteIndex}-${msg$.timestamp.get()}`} />;
+            // If this is a grouped message and the group is collapsed, render as
+            // a zero-height placeholder so the virtualizer measures it correctly.
+            if (stepRole?.type === 'grouped' && !expandedGroups.has(stepRole.groupId)) {
+              return (
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={virtualizer.measureElement}
+                  style={wrapperStyle}
+                />
+              );
             }
 
             // If this is a group-start, render the summary bar
-            // (when collapsed, replaces the message; when expanded, shown above messages)
+            // (when collapsed, replaces the message; when expanded, shown above it)
             const groupSummary =
               stepRole?.type === 'group-start' ? (
                 <CollapsedStepGroup
                   count={stepRole.count}
                   tools={stepRole.tools}
                   steps={stepRole.steps}
-                  isExpanded={expandedGroups$.get().has(stepRole.groupId)}
+                  isExpanded={expandedGroups.has(stepRole.groupId)}
                   onToggle={() => toggleGroup(stepRole.groupId)}
                 />
               ) : null;
 
-            // When group is collapsed and this is group-start, show only the summary bar
-            if (stepRole?.type === 'group-start' && !expandedGroups$.get().has(stepRole.groupId)) {
-              return <div key={`${absoluteIndex}-${msg$.timestamp.get()}`}>{groupSummary}</div>;
+            if (stepRole?.type === 'group-start' && !expandedGroups.has(stepRole.groupId)) {
+              return (
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={virtualizer.measureElement}
+                  style={wrapperStyle}
+                >
+                  {groupSummary}
+                </div>
+              );
             }
 
-            // Construct agent avatar URL if agent has avatar configured
-            // NOTE: must use .get() to read actual values from Legend State observables
             const baseUrl = connectionConfig.baseUrl.replace(/\/+$/, '');
-            const agentAvatarUrl = conversation$.data.agent?.avatar?.get()
+            const agentAvatarUrl = conversation$.data.agent?.avatar?.peek()
               ? `${baseUrl}/api/v2/conversations/${conversationId}/agent/avatar`
               : undefined;
-            const agentName = conversation$.data.agent?.name?.get();
+            const agentName = conversation$.data.agent?.name?.peek();
 
             return (
               <div
-                key={`${absoluteIndex}-${msg$.timestamp.get()}`}
-                data-message-index={absoluteIndex}
+                key={virtualItem.key}
+                data-index={virtualItem.index}
+                ref={virtualizer.measureElement}
+                style={wrapperStyle}
               >
-                {/* Show summary bar above first message when group is expanded */}
-                {groupSummary}
-                <ChatMessage
-                  message$={msg$}
-                  previousMessage$={previousMessage$}
-                  nextMessage$={nextMessage$}
-                  conversationId={conversationId}
-                  agentAvatarUrl={agentAvatarUrl}
-                  agentName={agentName}
-                  onRetry={isReadOnly ? undefined : retryMessage}
-                  onEdit={isReadOnly ? undefined : editMessage}
-                  onDelete={isReadOnly ? undefined : deleteMessage}
-                  onRerun={isReadOnly ? undefined : rerunFromMessage}
-                  onRegenerate={isReadOnly ? undefined : regenerateMessage}
-                  onFork={isReadOnly ? undefined : handleForkMessage}
-                  messageIndex={absoluteIndex}
-                  hideAvatar={
-                    stepRole?.type === 'group-start' && expandedGroups$.get().has(stepRole.groupId)
-                  }
-                />
-                {/* Branch indicator at fork points */}
-                <Memo>
-                  {() => {
-                    // forkPoints$ is computed from branches and keyed by absolute index.
-                    const forkInfo = forkPoints$.get().get(absoluteIndex);
-                    if (!forkInfo) return null;
-                    return (
-                      <div className="mx-auto max-w-3xl">
-                        <div className="md:px-12">
-                          <BranchIndicator forkInfo={forkInfo} onSwitchBranch={switchBranch} />
+                {/* data-message-index is used by search highlight and branch indicator */}
+                <div data-message-index={absoluteIndex}>
+                  {/* Show summary bar above first message when group is expanded */}
+                  {groupSummary}
+                  <ChatMessage
+                    message$={msg$}
+                    previousMessage$={previousMessage$}
+                    nextMessage$={nextMessage$}
+                    conversationId={conversationId}
+                    agentAvatarUrl={agentAvatarUrl}
+                    agentName={agentName}
+                    onRetry={isReadOnly ? undefined : retryMessage}
+                    onEdit={isReadOnly ? undefined : editMessage}
+                    onDelete={isReadOnly ? undefined : deleteMessage}
+                    onRerun={isReadOnly ? undefined : rerunFromMessage}
+                    onRegenerate={isReadOnly ? undefined : regenerateMessage}
+                    onFork={isReadOnly ? undefined : handleForkMessage}
+                    messageIndex={absoluteIndex}
+                    hideAvatar={
+                      stepRole?.type === 'group-start' && expandedGroups.has(stepRole.groupId)
+                    }
+                  />
+                  {/* Branch indicator at fork points */}
+                  <Memo>
+                    {() => {
+                      const forkInfo = forkPoints$.get().get(absoluteIndex);
+                      if (!forkInfo) return null;
+                      return (
+                        <div className="mx-auto max-w-3xl">
+                          <div className="md:px-12">
+                            <BranchIndicator forkInfo={forkInfo} onSwitchBranch={switchBranch} />
+                          </div>
                         </div>
-                      </div>
-                    );
-                  }}
-                </Memo>
+                      );
+                    }}
+                  </Memo>
+                </div>
               </div>
             );
-          }}
-        </For>
+          })}
+        </div>
 
         {/* Inline Tool Confirmation — hidden when no-confirm mode is active */}
         {!settings.noConfirmMode && (
