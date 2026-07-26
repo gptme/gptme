@@ -174,6 +174,66 @@ function parseStandard(markdown: string) {
   return div;
 }
 
+describe('streaming performance', () => {
+  it('does not rewrite innerHTML on every streaming token inside a code block', () => {
+    // Regression test for gptme/gptme#3362 (O(n²) DOM writes during streaming).
+    // Before the fix: add_text set data.code.innerHTML = fullEscapedText on every token →
+    // O(n) per token, O(n²) total for a code block with n characters.
+    // After the fix: add_text appends a text node (O(1) per token); innerHTML is set
+    // exactly once in end_token when syntax highlighting runs.
+    const div = document.createElement('div');
+    const renderer = customRenderer(div);
+    const parser = smd.parser(renderer);
+
+    let innerHTMLWriteCount = 0;
+    const origDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    Object.defineProperty(Element.prototype, 'innerHTML', {
+      set(value: string) {
+        if (this.tagName === 'CODE') innerHTMLWriteCount++;
+        origDescriptor!.set!.call(this, value);
+      },
+      get() {
+        return origDescriptor!.get!.call(this);
+      },
+      configurable: true,
+    });
+
+    try {
+      // Stream a 300-character code block token by token (simulating LLM streaming)
+      const codeBlock = '```python\n' + 'x = 1\n'.repeat(50) + '```\n';
+      for (const char of codeBlock) {
+        smd.parser_write(parser, char);
+      }
+      smd.parser_end(parser);
+    } finally {
+      Object.defineProperty(Element.prototype, 'innerHTML', origDescriptor!);
+    }
+
+    // With the O(1) fix, innerHTML is written at most twice per code block:
+    // once (optionally) for the inline conversion in end_token, and once for highlighting.
+    // Pre-fix: it was written once per character (300+ times for this block).
+    expect(innerHTMLWriteCount).toBeLessThanOrEqual(3);
+
+    // Verify the final output is still correct
+    const code = div.querySelector('code');
+    expect(code).not.toBeNull();
+    expect(code?.textContent).toContain('x = 1');
+  });
+
+  it('produces correct output when streaming HTML-special characters', () => {
+    // Text nodes auto-escape HTML entities; verify that < > & in code are preserved
+    // correctly as text (not interpreted as HTML tags) after the streaming fix.
+    const markdown = '```python\nif x < 10 and y > 5:\n    print(f"x={x} & y={y}")\n```\n';
+    const div = parse(markdown, true);
+    const code = div.querySelector('code');
+    expect(code).not.toBeNull();
+    // These should appear as plain text (escaped), not raw HTML
+    expect(code?.textContent).toContain('<');
+    expect(code?.textContent).toContain('>');
+    expect(code?.textContent).toContain('&');
+  });
+});
+
 describe('standardMarkdown mode', () => {
   it('renders plain text without chrome', () => {
     const div = parseStandard('Hello world');

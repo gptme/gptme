@@ -118,3 +118,29 @@ test.describe('Performance: sidebar hot-loop prevention', () => {
     expect(elapsed).toBeLessThan(2000);
   });
 });
+
+test.describe('Performance: streaming code block rendering', () => {
+  // Regression suite for gptme/gptme#3362 (second hot path).
+  //
+  // Root cause: markdownRenderer.ts `add_text` rebuilt data.code.innerHTML from
+  // the full accumulated text on every streaming token — O(N) work per token,
+  // O(N²) total. After the fix, a text node is appended per token (O(1)) and
+  // innerHTML is written exactly once in end_token when syntax highlighting runs.
+
+  test('demo conversation with code blocks renders quickly', async ({ page }) => {
+    test.setTimeout(30000);
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText('Introduction to gptme')).toBeVisible({ timeout: 10000 });
+
+    const start = Date.now();
+    await page.getByText('Introduction to gptme').click();
+    await expect(page.getByText(/Hello! I'm gptme/)).toBeVisible({ timeout: 15000 });
+    const elapsed = Date.now() - start;
+
+    // The demo conversation (≈15 messages, multiple code blocks) should render
+    // in under 5 s. The O(n²) DOM write hot path slowed code-heavy conversations
+    // to tens of seconds — 5 s is generous but catches genuine regressions.
+    expect(elapsed).toBeLessThan(5000);
+  });
+});

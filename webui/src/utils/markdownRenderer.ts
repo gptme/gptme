@@ -249,11 +249,11 @@ export function customRenderer(
           }
         }
 
-        // Display escaped text incrementally during streaming
-        data.code.innerHTML = data.codeText
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
+        // Append only the new fragment as a text node (O(1) per token, not O(n)).
+        // Text nodes are never interpreted as HTML — the browser escapes entities
+        // automatically, so no manual .replace() needed. The full block is replaced
+        // with syntax-highlighted HTML once in end_token.
+        data.code.appendChild(document.createTextNode(text));
       } else {
         smd.default_add_text(data, text);
       }
