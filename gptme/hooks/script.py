@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 _WINDOWS_CREATE_NEW_PROCESS_GROUP = 0x00000200
 _MAX_OUTPUT_LOG_BYTES = 4096
+_PROCESS_REAP_TIMEOUT = 5
 _SCRIPT_HOOK_EVENTS = {
     HookType.SESSION_START.value: HookType.SESSION_START,
     HookType.SESSION_END.value: HookType.SESSION_END,
@@ -120,7 +121,14 @@ def _run_script_hook(
                         process.pid,
                     )
                 raise
-            process.wait()
+            try:
+                process.wait(timeout=_PROCESS_REAP_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                logger.error(
+                    "Script hook process %d did not exit within %ds after process-tree kill",
+                    process.pid,
+                    _PROCESS_REAP_TIMEOUT,
+                )
             logger.warning(
                 "Script hook %s timed out after %ds: %s",
                 hook.event,

@@ -289,6 +289,7 @@ def test_script_hook_failure_and_timeout_are_logged(tmp_path, caplog):
     assert "timed out after 4s" in caplog.text
     killpg.assert_called_once_with(202, 9)
     assert timed_out.wait.call_count == 2
+    timed_out.wait.assert_any_call(timeout=5)
 
 
 @pytest.mark.parametrize("taskkill_error", [OSError("missing"), None])
