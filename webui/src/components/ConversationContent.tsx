@@ -227,7 +227,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   }, [settings.showHiddenMessages, showHiddenMessages$]);
 
   // Step grouping: compute roles and track expanded groups
-  const stepRoles$ = useObservable<Map<number, StepRole>>(() => new Map());
+  const stepRoles$ = useObservable<Record<number, StepRole>>({});
   // Must be an observable (not React state) so changes trigger re-renders inside <For>
   const expandedGroups$ = useObservable<Set<number>>(new Set<number>());
 
@@ -254,7 +254,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   useObserveEffect(() => {
     const messages = conversation$?.data.log.get();
     if (!messages?.length) {
-      stepRoles$.set(new Map());
+      stepRoles$.set({});
       return;
     }
 
@@ -274,7 +274,10 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     };
 
     // buildStepRoles emits absolute-indexed keys (localIdx + logOffset).
-    stepRoles$.set(buildStepRoles(messages as Message[], isHidden, logOffset));
+    // Convert to a plain Record so Legend State can do fine-grained key diffing;
+    // rows subscribe to stepRoles$[absoluteIndex] and only re-render on their key changing.
+    const roles = buildStepRoles(messages as Message[], isHidden, logOffset);
+    stepRoles$.set(Object.fromEntries(roles) as Record<number, StepRole>);
   });
 
   // Create a ref for the scroll container
@@ -385,7 +388,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
 
       // stepRoles$ is keyed by ABSOLUTE index.
       const logOffset = conversation$?.logOffset?.get() ?? 0;
-      const stepRole = stepRoles$.get().get(logOffset + idx);
+      const stepRole = stepRoles$[logOffset + idx].get();
       if (
         (stepRole?.type === 'group-start' || stepRole?.type === 'grouped') &&
         !expandedGroups$.get().has(stepRole.groupId)
@@ -802,7 +805,9 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
               : undefined;
 
             // Step grouping: stepRoles$ is keyed by ABSOLUTE index.
-            const stepRole = stepRoles$.get().get(absoluteIndex);
+            // Key-level access gives per-row fine-grained reactivity (only this row
+            // re-renders when its role changes, not all rows).
+            const stepRole = stepRoles$[absoluteIndex].get();
 
             // If this is a grouped message and the group is collapsed, hide it
             if (stepRole?.type === 'grouped' && !expandedGroups$.get().has(stepRole.groupId)) {
