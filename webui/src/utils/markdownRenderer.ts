@@ -249,11 +249,15 @@ export function customRenderer(
           }
         }
 
-        // Append only the new fragment as a text node (O(1) per token, not O(n)).
-        // Text nodes are never interpreted as HTML — the browser escapes entities
-        // automatically, so no manual .replace() needed. The full block is replaced
-        // with syntax-highlighted HTML once in end_token.
-        data.code.appendChild(document.createTextNode(text));
+        // Append to the current text node when possible. This keeps each update O(1)
+        // without retaining one DOM node per streamed fragment until the fence closes.
+        // Text nodes are never interpreted as HTML, so entities remain safe.
+        const lastChild = data.code.lastChild;
+        if (lastChild instanceof Text) {
+          lastChild.appendData(text);
+        } else {
+          data.code.appendChild(document.createTextNode(text));
+        }
       } else {
         smd.default_add_text(data, text);
       }

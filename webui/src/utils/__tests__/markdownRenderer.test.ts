@@ -186,6 +186,19 @@ describe('streaming performance', () => {
     const parser = smd.parser(renderer);
 
     let innerHTMLWriteCount = 0;
+    let maxCodeChildNodes = 0;
+    let codeAppendChildCount = 0;
+    const originalAppendChild = Node.prototype.appendChild;
+    const appendChildSpy = jest.spyOn(Node.prototype, 'appendChild').mockImplementation(function <
+      T extends Node,
+    >(this: Node, node: T): T {
+      const result = Reflect.apply(originalAppendChild, this, [node]) as T;
+      if (this instanceof HTMLElement && this.tagName === 'CODE') {
+        codeAppendChildCount++;
+        maxCodeChildNodes = Math.max(maxCodeChildNodes, this.childNodes.length);
+      }
+      return result;
+    });
     const origDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
     Object.defineProperty(Element.prototype, 'innerHTML', {
       set(value: string) {
@@ -207,7 +220,13 @@ describe('streaming performance', () => {
       smd.parser_end(parser);
     } finally {
       Object.defineProperty(Element.prototype, 'innerHTML', origDescriptor!);
+      appendChildSpy.mockRestore();
     }
+
+    // Streaming coalesces all fragments into one text node instead of retaining a
+    // child per token. Only the first fragment should append a child to the code node.
+    expect(maxCodeChildNodes).toBe(1);
+    expect(codeAppendChildCount).toBe(1);
 
     // With the O(1) fix, innerHTML is written at most twice per code block:
     // once (optionally) for the inline conversion in end_token, and once for highlighting.
