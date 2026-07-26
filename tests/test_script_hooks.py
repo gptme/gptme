@@ -300,7 +300,7 @@ def test_windows_timeout_cleanup_failure_is_not_silenced(
         tmp_path,
     )
     process = MagicMock(pid=202)
-    process.wait.side_effect = subprocess.TimeoutExpired("sleep", 30)
+    process.wait.side_effect = [subprocess.TimeoutExpired("sleep", 30), None]
     taskkill = MagicMock(returncode=1)
     run_result = taskkill_error if taskkill_error is not None else taskkill
 
