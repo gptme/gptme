@@ -592,6 +592,12 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">SESSION_START</span></code>: At session start</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">SESSION_END</span></code>: At session end</p></li>
 </ul>
+<p>Global and project configuration can attach bounded shell commands to these two
+lifecycle events through <code class="docutils literal notranslate"><span class="pre">[[hooks.scripts]]</span></code>. The lists are additive and run
+in descending <code class="docutils literal notranslate"><span class="pre">priority</span></code> order; global hooks win equal-priority ties, then
+declaration order is preserved. See <a class="reference internal" href="config.html#global-config"><span class="std std-ref">Global config</span></a> and
+<a class="reference internal" href="config.html#project-config"><span class="std std-ref">Project config</span></a>. Other hook types carry structured inputs or control-flow
+semantics and are not exposed through the shell adapter.</p>
 </section>
 <section id="generation-hooks">
 <h3>Generation Hooks<a class="headerlink" href="#generation-hooks" title="Link to this heading">#</a></h3>

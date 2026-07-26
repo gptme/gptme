@@ -36,6 +36,13 @@ Here is an example:
     #[prompt.project]
     #myproject = "A description of my project."
 
+    [[hooks.scripts]]
+    # Global hooks run in every project. Higher priorities run first.
+    event = "session.end"
+    command = "~/bin/save-agent-context"
+    timeout = 30
+    priority = 10
+
     [env]
     # Uncomment to use Claude Sonnet 4.6 by default
     #MODEL = "anthropic/claude-sonnet-4-6"
@@ -243,11 +250,35 @@ This file currently supports a few options:
 - ``prompt``, a string that will be included in the system prompt with a ``# Current Project`` header.
 - ``base_prompt``, a string that will be used as the base prompt for the project. This will override the global base prompt ("You are gptme v{__version__}, a general-purpose AI assistant powered by LLMs. [...]"). It can be useful to change the identity of the assistant and override some default behaviors.
 - ``context_cmd``, a command used to generate context to include when constructing the system prompt. The command will be run in the workspace root and should output a string that will be included in the system prompt. Examples can be ``git status -v`` or ``scripts/context.sh``. For new conversations where the first user message is known at context-construction time, it is available in the ``GPTME_PROMPT_INITIAL`` environment variable, enabling query-dependent retrieval without interpolating untrusted prompt text into the shell command. The variable is unset when no initial prompt exists or when it exceeds the safe process-environment size. For example, ``context_cmd = 'my-retriever --query-env GPTME_PROMPT_INITIAL'`` lets a retriever read the query directly from its process environment.
+- ``hooks.scripts``, a list of bounded shell commands attached to lifecycle events.
+  The same entries are supported in global and project configuration; both lists
+  are additive. Hooks run in descending ``priority`` order (default ``0``). At
+  equal priority, global hooks run before project hooks and declaration order is
+  preserved within each list. Script hooks run synchronously so a promised side
+  effect completes before the
+  lifecycle event returns. The initial event allowlist is ``session.start`` and
+  ``session.end``; events with structured inputs or control-flow results are not
+  exposed through this shell adapter. Example:
+
+  .. code-block:: toml
+
+     [[hooks.scripts]]
+     event = "session.end"
+     command = "scripts/save-context.sh"
+     timeout = 30
+     priority = 10
+
+  Commands run in the workspace with ``GPTME_HOOK_EVENT``, ``GPTME_LOGDIR``,
+  ``GPTME_WORKSPACE``, and the current ``GPTME_MODEL`` in their environment.
+  A failure or timeout is logged and does not alter the session result.
+
 - ``settings``, a dictionary of project-local CLI defaults. ``settings.gear`` accepts the same 0-4 autonomy presets as ``gptme --gear`` and overrides the global ``[settings].gear`` default for conversations started in this workspace.
 
   .. warning::
 
-     The command is executed with shell interpretation. Review ``gptme.toml`` before running gptme in untrusted repositories. See :doc:`security` for details.
+     ``context_cmd`` and project ``hooks.scripts`` commands are executed with shell
+     interpretation. Review ``gptme.toml`` before running gptme in untrusted
+     repositories. See :doc:`security` for details.
 
 - ``rag``, a dictionary to configure the RAG tool. See :ref:`rag` for more information.
 - ``plugins``, a dictionary to configure plugins for this project. See :doc:`plugins` for more information. Example:

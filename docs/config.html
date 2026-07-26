@@ -546,6 +546,13 @@ document.write(`
 <span class="c1">#[prompt.project]</span>
 <span class="c1">#myproject = &quot;A description of my project.&quot;</span>
 
+<span class="k">[[hooks.scripts]]</span>
+<span class="c1"># Global hooks run in every project. Higher priorities run first.</span>
+<span class="n">event</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;session.end&quot;</span>
+<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/bin/save-agent-context&quot;</span>
+<span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span>
+<span class="n">priority</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span>
+
 <span class="k">[env]</span>
 <span class="c1"># Uncomment to use Claude Sonnet 4.6 by default</span>
 <span class="c1">#MODEL = &quot;anthropic/claude-sonnet-4-6&quot;</span>
@@ -735,10 +742,32 @@ the <code class="docutils literal notranslate"><span class="pre">local/</span></
 <li><p><code class="docutils literal notranslate"><span class="pre">prompt</span></code>, a string that will be included in the system prompt with a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Current</span> <span class="pre">Project</span></code> header.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">base_prompt</span></code>, a string that will be used as the base prompt for the project. This will override the global base prompt (“You are gptme v{__version__}, a general-purpose AI assistant powered by LLMs. […]”). It can be useful to change the identity of the assistant and override some default behaviors.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">context_cmd</span></code>, a command used to generate context to include when constructing the system prompt. The command will be run in the workspace root and should output a string that will be included in the system prompt. Examples can be <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">status</span> <span class="pre">-v</span></code> or <code class="docutils literal notranslate"><span class="pre">scripts/context.sh</span></code>. For new conversations where the first user message is known at context-construction time, it is available in the <code class="docutils literal notranslate"><span class="pre">GPTME_PROMPT_INITIAL</span></code> environment variable, enabling query-dependent retrieval without interpolating untrusted prompt text into the shell command. The variable is unset when no initial prompt exists or when it exceeds the safe process-environment size. For example, <code class="docutils literal notranslate"><span class="pre">context_cmd</span> <span class="pre">=</span> <span class="pre">'my-retriever</span> <span class="pre">--query-env</span> <span class="pre">GPTME_PROMPT_INITIAL'</span></code> lets a retriever read the query directly from its process environment.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hooks.scripts</span></code>, a list of bounded shell commands attached to lifecycle events.
+The same entries are supported in global and project configuration; both lists
+are additive. Hooks run in descending <code class="docutils literal notranslate"><span class="pre">priority</span></code> order (default <code class="docutils literal notranslate"><span class="pre">0</span></code>). At
+equal priority, global hooks run before project hooks and declaration order is
+preserved within each list. Script hooks run synchronously so a promised side
+effect completes before the
+lifecycle event returns. The initial event allowlist is <code class="docutils literal notranslate"><span class="pre">session.start</span></code> and
+<code class="docutils literal notranslate"><span class="pre">session.end</span></code>; events with structured inputs or control-flow results are not
+exposed through this shell adapter. Example:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[hooks.scripts]]</span>
+<span class="n">event</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;session.end&quot;</span>
+<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;scripts/save-context.sh&quot;</span>
+<span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span>
+<span class="n">priority</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span>
+</pre></div>
+</div>
+<p>Commands run in the workspace with <code class="docutils literal notranslate"><span class="pre">GPTME_HOOK_EVENT</span></code>, <code class="docutils literal notranslate"><span class="pre">GPTME_LOGDIR</span></code>,
+<code class="docutils literal notranslate"><span class="pre">GPTME_WORKSPACE</span></code>, and the current <code class="docutils literal notranslate"><span class="pre">GPTME_MODEL</span></code> in their environment.
+A failure or timeout is logged and does not alter the session result.</p>
+</li>
 <li><p><code class="docutils literal notranslate"><span class="pre">settings</span></code>, a dictionary of project-local CLI defaults. <code class="docutils literal notranslate"><span class="pre">settings.gear</span></code> accepts the same 0-4 autonomy presets as <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--gear</span></code> and overrides the global <code class="docutils literal notranslate"><span class="pre">[settings].gear</span></code> default for conversations started in this workspace.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>The command is executed with shell interpretation. Review <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> before running gptme in untrusted repositories. See <a class="reference internal" href="security.html"><span class="doc">Security Considerations</span></a> for details.</p>
+<p><code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> and project <code class="docutils literal notranslate"><span class="pre">hooks.scripts</span></code> commands are executed with shell
+interpretation. Review <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> before running gptme in untrusted
+repositories. See <a class="reference internal" href="security.html"><span class="doc">Security Considerations</span></a> for details.</p>
 </div>
 </li>
 <li><p><code class="docutils literal notranslate"><span class="pre">rag</span></code>, a dictionary to configure the RAG tool. See <a class="reference internal" href="tools.html#rag"><span class="std std-ref">RAG</span></a> for more information.</p></li>
