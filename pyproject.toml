@@ -71,8 +71,8 @@ python-dateutil = "^2.9.0.post0"
 pyyaml = "^6.0.3"
 
 # providers
-openai = "^2.46"
-anthropic = "^0.117"
+openai = "^2.48"
+anthropic = "^0.120"
 
 # tools
 ipython = "^8.39.0"
@@ -101,7 +101,7 @@ flask = {version = "^3.0", optional=true}
 flask-cors = {version = ">=6.0.5,<7", optional=true}
 flask-compress = {version = ">=1.14", optional=true}
 pydantic = "^2.13.4"
-prometheus-client = {version = ">=0.17", optional=true}
+prometheus-client = {version = ">=0.26.0", optional=true}
 
 # telemetry
 opentelemetry-api = {version = "^1.20.0", optional=true}
@@ -113,7 +113,7 @@ opentelemetry-exporter-prometheus = {version = "^0.55b1", optional=true}
 opentelemetry-instrumentation-anthropic = {version="^0.48.1", optional=true}
 opentelemetry-instrumentation-openai = {version="^0.48.1", optional=true}
 opentelemetry-instrumentation-threading = {version="^0.55b1", optional=true}
-sentence-transformers = {version = "^5.6.0", optional=true}
+sentence-transformers = {version = "^5.6.1", optional=true}
 
 # build
 pyinstaller = {version="^6.21", python=">=3.10,<3.15", optional=true}  # not yet compatible with Python 3.15+
