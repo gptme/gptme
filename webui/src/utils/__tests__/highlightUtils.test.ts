@@ -1,3 +1,4 @@
+import hljs from 'highlight.js';
 import { highlightCode } from '../highlightUtils';
 
 describe('highlightCode', () => {
@@ -25,17 +26,20 @@ describe('highlightCode', () => {
   });
 
   it('maps patch → diff', () => {
-    const result = highlightCode('--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new', 'patch');
+    const patchContent = '<<<<<<< ORIGINAL\nold line\n=======\nnew line\n>>>>>>> UPDATED';
+    const result = highlightCode(patchContent, 'patch');
     expect(result.language).toBe('diff');
   });
 
   it('maps morph → diff', () => {
-    const result = highlightCode('--- a/file\n+++ b/file\n', 'morph');
+    const patchContent = '<<<<<<< ORIGINAL\nold line\n=======\nnew line\n>>>>>>> UPDATED';
+    const result = highlightCode(patchContent, 'morph');
     expect(result.language).toBe('diff');
   });
 
   // gptme tool output tags: must return plain escaped text without auto-detection
   it('returns escaped plain text for stdout without running hljs.highlightAuto', () => {
+    const highlightAutoSpy = jest.spyOn(hljs, 'highlightAuto');
     const output = 'Hello, world!\n<not-html>\n';
     const result = highlightCode(output, 'stdout');
     expect(result.language).toBe('stdout');
@@ -43,20 +47,29 @@ describe('highlightCode', () => {
     expect(result.code).toContain('&lt;not-html&gt;');
     // No hljs span tags
     expect(result.code).not.toContain('<span');
+    // Performance guarantee: auto-detection must be bypassed entirely
+    expect(highlightAutoSpy).not.toHaveBeenCalled();
+    highlightAutoSpy.mockRestore();
   });
 
   it('returns escaped plain text for stderr', () => {
+    const highlightAutoSpy = jest.spyOn(hljs, 'highlightAuto');
     const output = 'Error: something went wrong\n<traceback>\n';
     const result = highlightCode(output, 'stderr');
     expect(result.language).toBe('stderr');
     expect(result.code).toContain('&lt;traceback&gt;');
     expect(result.code).not.toContain('<span');
+    expect(highlightAutoSpy).not.toHaveBeenCalled();
+    highlightAutoSpy.mockRestore();
   });
 
   it('returns escaped plain text for output', () => {
+    const highlightAutoSpy = jest.spyOn(hljs, 'highlightAuto');
     const result = highlightCode('plain output', 'output');
     expect(result.language).toBe('output');
     expect(result.code).not.toContain('<span');
+    expect(highlightAutoSpy).not.toHaveBeenCalled();
+    highlightAutoSpy.mockRestore();
   });
 
   it('escapes HTML entities in plain text output', () => {
