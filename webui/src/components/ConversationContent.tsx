@@ -1,5 +1,5 @@
 import type { FC } from 'react';
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -310,15 +310,48 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const logOffsetValue = use$(() => conversation$?.logOffset?.get() ?? 0);
   const stepRolesValue = use$(stepRoles$);
 
+  // Virtualize only rows that can render content. Hidden messages otherwise
+  // reserve their estimate until ResizeObserver measures a zero-height wrapper,
+  // creating blank regions and shifting scroll positions.
+  const visibleMessageIndices = useMemo(() => {
+    const indices: number[] = [];
+    const firstNonSystemIndex = firstNonSystemIndex$.peek();
+
+    for (let index = 0; index < messageCount; index++) {
+      const msg = conversation$?.data.log[index]?.peek();
+      if (!msg) continue;
+
+      const isInitialSystem =
+        msg.role === 'system' && (firstNonSystemIndex === -1 || index < firstNonSystemIndex);
+      if (isInitialSystem && !settings.showInitialSystem) continue;
+      if (msg.hide && !settings.showHiddenMessages) continue;
+
+      const stepRole = stepRolesValue[logOffsetValue + index];
+      if (stepRole?.type === 'grouped' && !expandedGroups.has(stepRole.groupId)) continue;
+      indices.push(index);
+    }
+    return indices;
+  }, [
+    conversation$,
+    expandedGroups,
+    firstNonSystemIndex$,
+    logOffsetValue,
+    messageCount,
+    settings.showHiddenMessages,
+    settings.showInitialSystem,
+    stepRolesValue,
+  ]);
+
   // Virtualizer: renders only visible messages, dramatically reducing DOM nodes
-  // for long conversations.  estimateSize is a rough average; measureElement
+  // for long conversations. estimateSize is a rough average; measureElement
   // (ResizeObserver-based) corrects actual heights after first render.
   const virtualizer = useVirtualizer({
-    count: messageCount,
+    count: visibleMessageIndices.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => 150,
     overscan: 5,
-    getItemKey: (index) => {
+    getItemKey: (virtualIndex) => {
+      const index = visibleMessageIndices[virtualIndex];
       const off = conversation$?.logOffset?.peek() ?? 0;
       const msg = conversation$?.data.log[index]?.peek();
       return msg ? `${off + index}-${msg.timestamp}` : `${off + index}`;
@@ -326,11 +359,11 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   });
 
   // Mutable refs so effects/callbacks always hold the latest virtualizer and
-  // messageCount without stale-closure issues.
+  // visible index mapping without stale-closure issues.
   const virtualizerRef = useRef(virtualizer);
-  const messageCountRef = useRef(messageCount);
+  const visibleMessageIndicesRef = useRef(visibleMessageIndices);
   virtualizerRef.current = virtualizer;
-  messageCountRef.current = messageCount;
+  visibleMessageIndicesRef.current = visibleMessageIndices;
 
   // Pending rAF handle for scroll-to-bottom — cancelled before re-scheduling so
   // a burst of log updates queues at most one scroll per animation frame.
@@ -360,7 +393,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   });
 
   const scrollToBottom = useCallback(() => {
-    const count = messageCountRef.current;
+    const count = visibleMessageIndicesRef.current.length;
     if (count <= 0) return;
     isAutoScrolling$.set(true);
     // scrollToIndex ensures the last item is actually rendered before measuring,
@@ -415,7 +448,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     });
   }, [autoScrollAborted$, isScrolledUp$, loadOlderMessages]);
 
+  const searchHighlightRAFRef = useRef<number | null>(null);
+
   const clearSearchHighlights = useCallback(() => {
+    if (searchHighlightRAFRef.current !== null) {
+      cancelAnimationFrame(searchHighlightRAFRef.current);
+      searchHighlightRAFRef.current = null;
+    }
     scrollContainerRef.current
       ?.querySelectorAll<HTMLElement>('[data-message-index]')
       .forEach((el) => {
@@ -467,20 +506,29 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
       clearSearchHighlights();
       const logOff = conversation$?.logOffset?.get() ?? 0;
       const localIndex = msgIndex - logOff;
-      // Instant scroll brings the item into the DOM immediately.
-      virtualizerRef.current.scrollToIndex(localIndex, { align: 'center' });
-      // Two rAFs: first lets the virtualizer commit, second lets layout flush.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const el = scrollContainerRef.current?.querySelector<HTMLElement>(
-            `[data-message-index="${msgIndex}"]`
-          );
-          if (el) {
-            el.style.outline = '2px solid rgba(234,179,8,0.6)';
-            el.style.outlineOffset = '-2px';
-          }
-        });
-      });
+      const virtualIndex = visibleMessageIndicesRef.current.indexOf(localIndex);
+      if (virtualIndex === -1) return;
+
+      virtualizerRef.current.scrollToIndex(virtualIndex, { align: 'center' });
+
+      // Variable-height rendering can take more than a fixed number of frames.
+      // Retry for a short bounded window until the target row mounts.
+      let attemptsRemaining = 10;
+      const applyHighlight = () => {
+        const el = scrollContainerRef.current?.querySelector<HTMLElement>(
+          `[data-message-index="${msgIndex}"]`
+        );
+        if (el) {
+          el.style.outline = '2px solid rgba(234,179,8,0.6)';
+          el.style.outlineOffset = '-2px';
+          searchHighlightRAFRef.current = null;
+          return;
+        }
+        attemptsRemaining--;
+        searchHighlightRAFRef.current =
+          attemptsRemaining > 0 ? requestAnimationFrame(applyHighlight) : null;
+      };
+      searchHighlightRAFRef.current = requestAnimationFrame(applyHighlight);
     },
     [clearSearchHighlights, conversation$]
   );
@@ -591,7 +639,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   }, [pendingToolId, settings.noConfirmMode]);
 
   const handleScrollToBottom = () => {
-    const count = messageCountRef.current;
+    const count = visibleMessageIndicesRef.current.length;
     if (count > 0) {
       isAutoScrolling$.set(true);
       virtualizerRef.current.scrollToIndex(count - 1, { align: 'end', behavior: 'smooth' });
@@ -840,7 +888,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
           }}
         >
           {virtualizer.getVirtualItems().map((virtualItem) => {
-            const index = virtualItem.index;
+            const index = visibleMessageIndices[virtualItem.index];
             // Guard against count/log getting briefly out of sync.
             const msg$ = conversation$?.data.log[index];
             if (!msg$) return null;
@@ -858,37 +906,6 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
               width: '100%',
             };
 
-            // Hide all system messages before the first non-system message by default.
-            // Use peek() — reads are not inside a reactive context here; reactivity
-            // is handled by component-level use$() calls (showInitialSystem$, etc.)
-            // that trigger a re-render when settings change.
-            const firstNonSystemIndex = firstNonSystemIndex$.peek();
-            const isInitialSystem =
-              msg$.role.peek() === 'system' &&
-              (firstNonSystemIndex === -1 || index < firstNonSystemIndex);
-            if (isInitialSystem && !settings.showInitialSystem) {
-              return (
-                <div
-                  key={virtualItem.key}
-                  data-index={virtualItem.index}
-                  ref={virtualizer.measureElement}
-                  style={wrapperStyle}
-                />
-              );
-            }
-
-            // Hide messages with hide=true (e.g., auto-included lessons)
-            if (msg$.hide?.peek() && !settings.showHiddenMessages) {
-              return (
-                <div
-                  key={virtualItem.key}
-                  data-index={virtualItem.index}
-                  ref={virtualizer.measureElement}
-                  style={wrapperStyle}
-                />
-              );
-            }
-
             // Get the previous and next *visible* messages for chain context
             // (skip hidden messages so they don't break chain grouping).
             let prevIdx = index - 1;
@@ -904,19 +921,6 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
             // stepRolesValue is read via use$() at the component level, so any
             // structural change that updates stepRoles$ triggers a re-render here.
             const stepRole = stepRolesValue[absoluteIndex];
-
-            // If this is a grouped message and the group is collapsed, render as
-            // a zero-height placeholder so the virtualizer measures it correctly.
-            if (stepRole?.type === 'grouped' && !expandedGroups.has(stepRole.groupId)) {
-              return (
-                <div
-                  key={virtualItem.key}
-                  data-index={virtualItem.index}
-                  ref={virtualizer.measureElement}
-                  style={wrapperStyle}
-                />
-              );
-            }
 
             // If this is a group-start, render the summary bar
             // (when collapsed, replaces the message; when expanded, shown above it)

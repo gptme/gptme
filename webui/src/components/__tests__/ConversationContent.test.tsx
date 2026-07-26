@@ -6,7 +6,7 @@
  * connection state and demo mode.
  */
 import '@testing-library/jest-dom';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import type { Message } from '@/types/conversation';
 import { ConversationContent } from '../ConversationContent';
@@ -18,6 +18,7 @@ declare global {
   var __virtualWindow: number;
 }
 global.__virtualWindow = Infinity;
+const mockScrollToIndex = jest.fn();
 
 jest.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: (opts: { count: number }) => {
@@ -33,17 +34,21 @@ jest.mock('@tanstack/react-virtual', () => ({
     return {
       getTotalSize: () => opts.count * 150,
       getVirtualItems: () => items,
-      scrollToIndex: jest.fn(),
+      scrollToIndex: mockScrollToIndex,
       measureElement: () => {},
     };
   },
 }));
 
 const mockBuildStepRoles = jest.fn((_messages: Message[]) => new Map());
+let mockStepRoles = new Map<number, { type: 'grouped'; groupId: number }>();
 
 jest.mock('@/utils/stepGrouping', () => ({
   ...jest.requireActual('@/utils/stepGrouping'),
-  buildStepRoles: (messages: Message[]) => mockBuildStepRoles(messages),
+  buildStepRoles: (messages: Message[]) => {
+    mockBuildStepRoles(messages);
+    return mockStepRoles;
+  },
 }));
 
 // --- Mocks ---
@@ -258,6 +263,7 @@ describe('step role recomputation', () => {
   beforeEach(() => {
     mockConversation$.set(makeConversationState().peek());
     mockBuildStepRoles.mockClear();
+    mockStepRoles = new Map();
   });
 
   it('does not recompute roles for streamed content updates', () => {
@@ -446,6 +452,7 @@ describe('virtual message list', () => {
     isConnected$.set(true);
     lastConnectionResult$.set(null);
     global.__virtualWindow = Infinity; // reset to "render all" default
+    mockStepRoles = new Map();
   });
 
   afterEach(() => {
@@ -482,6 +489,57 @@ describe('virtual message list', () => {
 
     const rendered = document.querySelectorAll('[data-message-index]');
     expect(rendered.length).toBe(3);
+  });
+
+  it('excludes hidden messages from virtualizer geometry', () => {
+    act(() => {
+      mockConversation$.data.log.set([
+        message('system', 'Initial prompt'),
+        { ...message('assistant', 'Hidden lesson'), hide: true },
+        message('user', 'Visible question'),
+        message('assistant', 'Visible answer'),
+      ]);
+    });
+    renderComponent();
+
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(2);
+    expect(document.querySelectorAll('[data-message-index]')).toHaveLength(2);
+  });
+
+  it('excludes grouped messages when their group is collapsed', () => {
+    mockStepRoles = new Map([[1, { type: 'grouped', groupId: 0 }]]);
+    act(() => {
+      mockConversation$.data.log.set([
+        message('user', 'Question'),
+        message('system', 'Tool result'),
+        message('assistant', 'Answer'),
+      ]);
+    });
+    renderComponent();
+
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(2);
+    expect(document.querySelectorAll('[data-message-index]')).toHaveLength(2);
+  });
+
+  it('retries search highlighting until a virtual row mounts', () => {
+    jest.useFakeTimers();
+    global.__virtualWindow = 1;
+    act(() => {
+      mockConversation$.data.log.set([
+        message('user', 'First'),
+        message('assistant', 'Find this target'),
+      ]);
+    });
+    renderComponent();
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true }));
+    });
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'target' } });
+
+    expect(mockScrollToIndex).toHaveBeenCalledWith(1, { align: 'center' });
+    act(() => jest.advanceTimersByTime(16 * 10));
+    jest.useRealTimers();
   });
 
   it('assigns data-index to rendered wrappers (required for ResizeObserver height measurement)', () => {
