@@ -60,6 +60,7 @@ class ScriptHookConfig:
     event: str
     command: str
     timeout: int = 30
+    priority: int = 0
 
     def __post_init__(self) -> None:
         if self.event not in {"session.start", "session.end"}:
@@ -76,6 +77,8 @@ class ScriptHookConfig:
                 "hooks.scripts timeout must be between 1 and "
                 f"{MAX_SCRIPT_HOOK_TIMEOUT} seconds"
             )
+        if not isinstance(self.priority, int) or isinstance(self.priority, bool):
+            raise ValueError("hooks.scripts priority must be an integer")
 
 
 @dataclass
@@ -230,6 +233,9 @@ class UserConfig:
 
     # CLI/runtime defaults. Mirrors project-level [settings].
     settings: SettingsConfig = field(default_factory=SettingsConfig)
+
+    # Lifecycle hooks that apply across projects.
+    hooks: HooksConfig = field(default_factory=HooksConfig)
 
     # Plugin-specific configuration namespace (user-level)
     # Allows plugins to have their own config sections like [plugin.retrieval]

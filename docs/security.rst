@@ -28,7 +28,7 @@ gptme loads project configuration from ``gptme.toml`` files in the workspace. Th
 
    **Review** ``gptme.toml`` **before running gptme in untrusted repositories.**
 
-   The ``context_cmd`` option and project ``hooks.scripts`` execute shell commands.
+   The ``context_cmd`` option and global/project ``hooks.scripts`` execute shell commands.
    A malicious repository could include a ``gptme.toml`` that runs arbitrary code
    when gptme starts or a lifecycle event fires:
 

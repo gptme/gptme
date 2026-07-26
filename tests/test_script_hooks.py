@@ -7,7 +7,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gptme.config import ChatConfig, HooksConfig, ProjectConfig, ScriptHookConfig
+from gptme.config import (
+    ChatConfig,
+    Config,
+    HooksConfig,
+    ProjectConfig,
+    ScriptHookConfig,
+    load_user_config,
+)
 from gptme.hooks import HookType, clear_hooks, get_hooks, trigger_hook
 from gptme.hooks.script import register_script_hooks
 from gptme.llm.models import set_default_model
@@ -49,6 +56,37 @@ def test_project_config_parses_script_hooks():
             )
         ]
     )
+
+
+def test_user_and_project_script_hooks_layer_by_priority(tmp_path):
+    user_config_path = tmp_path / "config.toml"
+    user_config_path.write_text(
+        """
+[[hooks.scripts]]
+event = "session.end"
+command = "echo user"
+priority = 10
+"""
+    )
+    project = ProjectConfig.from_dict(
+        {
+            "hooks": {
+                "scripts": [
+                    {
+                        "event": "session.end",
+                        "command": "echo project",
+                        "priority": 20,
+                    }
+                ]
+            }
+        }
+    )
+    config = Config(user=load_user_config(str(user_config_path)), project=project)
+
+    hooks = config.get_script_hooks()
+
+    assert [hook.command for hook in hooks] == ["echo project", "echo user"]
+    assert [hook.priority for hook in hooks] == [20, 10]
 
 
 def test_project_config_script_hooks_round_trip():
@@ -107,6 +145,7 @@ def test_session_end_script_hook_runs_synchronously_with_metadata(tmp_path):
     assert kwargs["env"]["GPTME_WORKSPACE"] == str(tmp_path)
     assert kwargs["env"]["GPTME_MODEL"] == "openai/gpt-5.4"
     assert kwargs["start_new_session"] is True
+    assert kwargs["creationflags"] == 0
     process.communicate.assert_called_once_with(timeout=17)
 
 
@@ -157,6 +196,25 @@ def test_session_start_script_hook_uses_current_model_and_trigger_workspace(tmp_
     assert kwargs["cwd"] == tmp_path
 
 
+def test_script_hooks_register_priority_and_preserve_tie_order(tmp_path):
+    register_script_hooks(
+        [
+            ScriptHookConfig(event="session.end", command="echo first", priority=5),
+            ScriptHookConfig(event="session.end", command="echo second", priority=5),
+            ScriptHookConfig(event="session.end", command="echo low", priority=-1),
+        ],
+        tmp_path,
+    )
+
+    hooks = get_hooks(HookType.SESSION_END)
+    assert [hook.priority for hook in hooks] == [5, 5, -1]
+    assert [hook.name for hook in hooks] == [
+        "script.000003.session.end",
+        "script.000002.session.end",
+        "script.000001.session.end",
+    ]
+
+
 def test_script_hook_failure_and_timeout_are_logged(tmp_path, caplog):
     hooks = [
         ScriptHookConfig(event="session.end", command="exit 1", timeout=3),
@@ -191,6 +249,47 @@ def test_script_hook_failure_and_timeout_are_logged(tmp_path, caplog):
     assert timed_out.communicate.call_count == 2
 
 
+def test_windows_timeout_kills_and_drains_process(tmp_path, caplog):
+    register_script_hooks(
+        [ScriptHookConfig(event="session.end", command="sleep forever")],
+        tmp_path,
+    )
+    process = MagicMock(pid=202)
+    process.communicate.side_effect = [
+        subprocess.TimeoutExpired("sleep", 30),
+        ("", ""),
+    ]
+
+    taskkill = MagicMock(returncode=0)
+    with (
+        caplog.at_level(logging.WARNING, logger="gptme.hooks.script"),
+        patch("gptme.hooks.script.sys.platform", "win32"),
+        patch("gptme.hooks.script.subprocess.Popen", return_value=process) as popen,
+        patch("gptme.hooks.script.subprocess.run", return_value=taskkill) as run,
+        patch("gptme.hooks.script.os.killpg") as killpg,
+    ):
+        list(
+            trigger_hook(
+                HookType.SESSION_END,
+                manager=_make_manager(tmp_path / "session-windows"),
+            )
+        )
+
+    kwargs = popen.call_args.kwargs
+    assert kwargs["start_new_session"] is False
+    assert kwargs["creationflags"] == 0x00000200
+    run.assert_called_once_with(
+        ["taskkill", "/F", "/T", "/PID", "202"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    process.kill.assert_not_called()
+    killpg.assert_not_called()
+    assert process.communicate.call_count == 2
+    assert "timed out after 30s" in caplog.text
+
+
 @pytest.mark.parametrize(
     ("data", "message"),
     [
@@ -213,6 +312,10 @@ def test_script_hook_failure_and_timeout_are_logged(tmp_path, caplog):
         (
             {"event": "session.end", "command": "echo", "timeout": "slow"},
             "timeout must be an integer",
+        ),
+        (
+            {"event": "session.end", "command": "echo", "priority": True},
+            "priority must be an integer",
         ),
     ],
 )

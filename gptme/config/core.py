@@ -13,7 +13,13 @@ from pathlib import Path
 from typing_extensions import Self
 
 from .chat import ChatConfig
-from .models import MCPConfig, MCPServerConfig, ProjectConfig, UserConfig
+from .models import (
+    MCPConfig,
+    MCPServerConfig,
+    ProjectConfig,
+    ScriptHookConfig,
+    UserConfig,
+)
 from .project import (
     _config_logged_workspaces,
     _get_project_config_cached,
@@ -56,6 +62,13 @@ class Config:
             project=get_project_config(chat_config.workspace),
             chat=chat_config,
         )
+
+    def get_script_hooks(self) -> list[ScriptHookConfig]:
+        """Return user and project script hooks in execution order."""
+        hooks = list(self.user.hooks.scripts)
+        if self.project:
+            hooks.extend(self.project.hooks.scripts)
+        return sorted(hooks, key=lambda hook: hook.priority, reverse=True)
 
     @property
     def mcp(self) -> MCPConfig:

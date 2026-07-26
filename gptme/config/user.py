@@ -21,11 +21,13 @@ if TYPE_CHECKING:
 
 from ..util import path_with_tilde
 from .models import (
+    HooksConfig,
     LessonsConfig,
     MCPConfig,
     ModelsConfig,
     PluginsConfig,
     ProviderConfig,
+    ScriptHookConfig,
     SettingsConfig,
     UserConfig,
     UserIdentityConfig,
@@ -272,6 +274,27 @@ def load_user_config(path: str | None = None) -> UserConfig:
             logger.warning("[settings].gear should be an integer from 0 to 4")
             settings.gear = None
 
+    hooks_data = config.pop("hooks", {})
+    if not isinstance(hooks_data, dict):
+        raise ValueError("hooks must be an object")
+    scripts_data = hooks_data.pop("scripts", [])
+    if not isinstance(scripts_data, list):
+        raise ValueError("hooks.scripts must be a list")
+    if hooks_data:
+        logger.warning(
+            f"Unknown keys in [hooks] config: {sorted(hooks_data)} (ignored)"
+        )
+    if not all(isinstance(item, dict) for item in scripts_data):
+        raise ValueError("each hooks.scripts entry must be an object")
+    hooks = HooksConfig(
+        scripts=[
+            ScriptHookConfig(
+                **_filter_known_fields(ScriptHookConfig, item, "hooks.scripts")
+            )
+            for item in scripts_data
+        ]
+    )
+
     # Parse [models] section (model-related preferences like favorites)
     models_data = config.pop("models", {})
     if not isinstance(models_data, dict):
@@ -339,6 +362,7 @@ def load_user_config(path: str | None = None) -> UserConfig:
         models=models_config,
         plugins=plugins,
         settings=settings,
+        hooks=hooks,
         plugin=plugin_config,
     )
 

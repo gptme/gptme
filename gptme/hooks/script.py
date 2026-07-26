@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import subprocess
+import sys
 from collections.abc import Generator
 from pathlib import Path
 
@@ -16,10 +17,42 @@ from .types import HookType
 
 logger = logging.getLogger(__name__)
 
+_WINDOWS_CREATE_NEW_PROCESS_GROUP = 0x00000200
 _SCRIPT_HOOK_EVENTS = {
     HookType.SESSION_START.value: HookType.SESSION_START,
     HookType.SESSION_END.value: HookType.SESSION_END,
 }
+
+
+def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+    """Terminate a timed-out shell and its descendants."""
+    if sys.platform == "win32":
+        try:
+            result = subprocess.run(
+                [
+                    "taskkill",
+                    "/F",
+                    "/T",
+                    "/PID",
+                    str(process.pid),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except OSError:
+            process.kill()
+        else:
+            if result.returncode != 0:
+                process.kill()
+        return
+
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        process.kill()
 
 
 def _run_script_hook(
@@ -44,12 +77,15 @@ def _run_script_hook(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        start_new_session=True,
+        start_new_session=sys.platform != "win32",
+        creationflags=(
+            _WINDOWS_CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+        ),
     )
     try:
         _stdout, stderr = process.communicate(timeout=hook.timeout)
     except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
+        _terminate_process_tree(process)
         process.communicate()
         logger.warning(
             "Script hook %s timed out after %ds: %s",
@@ -59,7 +95,7 @@ def _run_script_hook(
         )
         return
     except Exception as exc:
-        os.killpg(process.pid, signal.SIGKILL)
+        _terminate_process_tree(process)
         process.communicate()
         logger.warning("Script hook %s failed: %s", hook.event, exc)
         return
@@ -85,9 +121,10 @@ def _current_model(logdir: Path) -> str:
 def _register_script_hook(
     hook: ScriptHookConfig,
     workspace: Path,
-    index: int,
+    order: int,
 ) -> None:
     hook_type = _SCRIPT_HOOK_EVENTS[hook.event]
+    hook_name = f"script.{order:06d}.{hook.event}"
 
     if hook_type is HookType.SESSION_START:
 
@@ -106,7 +143,12 @@ def _register_script_hook(
             )
             yield
 
-        register_hook(f"script.{index}.{hook.event}", hook_type, _on_session_start)
+        register_hook(
+            hook_name,
+            hook_type,
+            _on_session_start,
+            priority=hook.priority,
+        )
         return
 
     def _on_session_end(manager: LogManager) -> Generator:
@@ -118,10 +160,16 @@ def _register_script_hook(
         )
         yield
 
-    register_hook(f"script.{index}.{hook.event}", hook_type, _on_session_end)
+    register_hook(
+        hook_name,
+        hook_type,
+        _on_session_end,
+        priority=hook.priority,
+    )
 
 
 def register_script_hooks(hooks: list[ScriptHookConfig], workspace: Path) -> None:
-    """Register project script hooks against the core hook registry."""
+    """Register configured script hooks against the core hook registry."""
     for index, hook in enumerate(hooks):
-        _register_script_hook(hook, workspace, index)
+        # Hook names sort descending, so reverse the index to preserve config order.
+        _register_script_hook(hook, workspace, len(hooks) - index)
