@@ -433,3 +433,53 @@ describe('buildStepRoles', () => {
     });
   });
 });
+
+// Complexity regression guard — ensures buildStepRoles stays O(n), not O(n²).
+//
+// Pre-fix (#3370): the function subscribed to the full log Observable, running
+// an O(n) scan on every streaming token. The scan itself is O(n), so any
+// regression that re-introduces that coupling creates O(n²) total work per
+// generation.
+//
+// This test measures runtime for n=50 and n=200 turns (~4x input size) and
+// asserts the ratio stays under 16 — the O(n²) threshold would be exactly 16×.
+// We allow generous headroom (< 12×) so CI variance doesn't cause false
+// positives while still catching a genuine quadratic regression.
+describe('buildStepRoles complexity', () => {
+  function makeConversation(numTurns: number): Message[] {
+    const messages: Message[] = [];
+    for (let i = 0; i < numTurns; i++) {
+      messages.push(msg('user', `Turn ${i}`));
+      messages.push(msg('assistant', 'using tool'));
+      messages.push(msg('system', 'saved file.py'));
+      messages.push(msg('assistant', 'done'));
+    }
+    return messages;
+  }
+
+  it('runtime scales linearly (not quadratically) from n=50 to n=200 turns', () => {
+    const neverHidden = () => false;
+    const ITERS = 50;
+
+    // Warm-up: let the JS engine reach steady state before measuring
+    for (let w = 0; w < 5; w++) {
+      buildStepRoles(makeConversation(200), neverHidden);
+    }
+
+    const msgs50 = makeConversation(50);
+    const msgs200 = makeConversation(200);
+
+    const t50start = performance.now();
+    for (let i = 0; i < ITERS; i++) buildStepRoles(msgs50, neverHidden);
+    const t50 = performance.now() - t50start;
+
+    const t200start = performance.now();
+    for (let i = 0; i < ITERS; i++) buildStepRoles(msgs200, neverHidden);
+    const t200 = performance.now() - t200start;
+
+    // Linear scaling: ratio ~4×; quadratic scaling: ratio ~16×
+    // Gate at 12 gives CI headroom while still catching O(n²)
+    const ratio = t200 / t50;
+    expect(ratio).toBeLessThan(12);
+  });
+});

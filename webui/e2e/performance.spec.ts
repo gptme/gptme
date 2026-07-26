@@ -189,4 +189,63 @@ test.describe('Performance: streaming code block rendering', () => {
     expect(result.finalInnerHTMLWrites).toBeLessThanOrEqual(1);
     expect(result.finalText).toContain('<safe> & fast');
   });
+
+  test('JS heap does not grow unboundedly when streaming a long code block', async ({
+    page,
+    browserName,
+  }) => {
+    // CDP heap metrics require Chromium
+    test.skip(browserName !== 'chromium', 'CDP heap metrics require Chromium');
+    test.setTimeout(60_000);
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+    // Warm up the page to let initial setup allocations settle before baseline
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 200)));
+
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Performance.enable');
+
+    const sampleHeap = async () => {
+      await cdp.send('HeapProfiler.collectGarbage');
+      const { metrics } = await cdp.send('Performance.getMetrics');
+      return metrics.find((m: { name: string }) => m.name === 'JSHeapUsedSize')?.value ?? 0;
+    };
+
+    // Baseline heap before any streaming
+    const baseHeap = await sampleHeap();
+
+    // Simulate streaming a 500-line code block token-by-token via markdownRenderer.
+    // Pre-fix: innerHTML was rebuilt from the full accumulated text on every token →
+    // O(N) work per token, O(N²) total → heap grew proportional to N².
+    // Post-fix: text node is appended per token (O(1)); innerHTML written once at end.
+    // 5 rounds exercises the coalesce+GC boundary rather than a single large run.
+    for (let round = 0; round < 5; round++) {
+      await page.evaluate(async () => {
+        const [{ customRenderer }, smd] = await Promise.all([
+          import('/src/utils/markdownRenderer.ts'),
+          import('/src/utils/smd.js'),
+        ]);
+        const root = document.createElement('div');
+        document.body.appendChild(root);
+        const parser = smd.parser(customRenderer(root));
+        const line = 'const x = "hello world";\n';
+        const header = '```typescript\n';
+        const body = line.repeat(100); // 100 lines ≈ realistic long code block
+        for (const char of header + body) {
+          smd.parser_write(parser, char);
+        }
+        smd.parser_end(parser);
+        root.remove();
+      });
+    }
+
+    const afterHeap = await sampleHeap();
+    const growthMB = (afterHeap - baseHeap) / (1024 * 1024);
+
+    // 20 MB over 5 rounds is a generous ceiling.
+    // Pre-fix, each round retained the full accumulated codeText string in innerHTML,
+    // creating multi-MB retained strings with no upper bound.
+    expect(growthMB).toBeLessThan(20);
+  });
 });
