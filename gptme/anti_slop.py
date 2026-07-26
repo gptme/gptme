@@ -323,8 +323,10 @@ def _format_report(report: dict[str, Any], *, top: int = 5) -> str:
     lines = [
         f"Anti-Slop Gate: {status}  [mode={report['mode']}]",
         f"reason: {report['reason']}",
-        f"words: {smell['word_count']}  hits: {smell['total_hits']}  "
-        f"weighted_score: {smell['weighted_score']} /1k words",
+        (
+            f"words: {smell['word_count']}  hits: {smell['total_hits']}  "
+            f"weighted_score: {smell['weighted_score']} /1k words"
+        ),
     ]
     if smell["hits"]:
         lines.append("\nTop smells:")
