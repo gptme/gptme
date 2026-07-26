@@ -5,6 +5,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 from collections.abc import Generator
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from .types import HookType
 logger = logging.getLogger(__name__)
 
 _WINDOWS_CREATE_NEW_PROCESS_GROUP = 0x00000200
+_MAX_OUTPUT_LOG_BYTES = 4096
 _SCRIPT_HOOK_EVENTS = {
     HookType.SESSION_START.value: HookType.SESSION_START,
     HookType.SESSION_END.value: HookType.SESSION_END,
@@ -73,54 +75,56 @@ def _run_script_hook(
         "GPTME_WORKSPACE": str(workspace),
         "GPTME_MODEL": model,
     }
-    process = subprocess.Popen(
-        hook.command,
-        shell=True,
-        cwd=workspace,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=sys.platform != "win32",
-        creationflags=(
-            _WINDOWS_CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
-        ),
-    )
-    try:
-        _stdout, stderr = process.communicate(timeout=hook.timeout)
-    except subprocess.TimeoutExpired:
+    with tempfile.TemporaryFile(mode="w+t") as output:
+        process = subprocess.Popen(
+            hook.command,
+            shell=True,
+            cwd=workspace,
+            env=env,
+            stdout=output,
+            stderr=output,
+            text=True,
+            start_new_session=sys.platform != "win32",
+            creationflags=(
+                _WINDOWS_CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+            ),
+        )
         try:
-            _terminate_process_tree(process)
-        except Exception:
-            logger.exception(
-                "Script hook %s timed out after %ds and its process tree "
-                "could not be terminated: %s",
+            process.wait(timeout=hook.timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                _terminate_process_tree(process)
+            except Exception:
+                logger.exception(
+                    "Script hook %s timed out after %ds and its process tree "
+                    "could not be terminated: %s",
+                    hook.event,
+                    hook.timeout,
+                    hook.command,
+                )
+                raise
+            process.wait()
+            logger.warning(
+                "Script hook %s timed out after %ds: %s",
                 hook.event,
                 hook.timeout,
                 hook.command,
             )
-            raise
-        process.communicate()
-        logger.warning(
-            "Script hook %s timed out after %ds: %s",
-            hook.event,
-            hook.timeout,
-            hook.command,
-        )
-        return
-    except Exception as exc:
-        _terminate_process_tree(process)
-        process.communicate()
-        logger.warning("Script hook %s failed: %s", hook.event, exc)
-        return
+            return
+        except Exception as exc:
+            _terminate_process_tree(process)
+            process.wait()
+            logger.warning("Script hook %s failed: %s", hook.event, exc)
+            return
 
-    if process.returncode != 0:
-        logger.warning(
-            "Script hook %s failed (exit %d): %s",
-            hook.event,
-            process.returncode,
-            stderr.strip(),
-        )
+        if process.returncode != 0:
+            output.seek(0)
+            logger.warning(
+                "Script hook %s failed (exit %d): %s",
+                hook.event,
+                process.returncode,
+                output.read(_MAX_OUTPUT_LOG_BYTES).strip(),
+            )
 
 
 def _current_model(logdir: Path) -> str:

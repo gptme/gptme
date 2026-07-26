@@ -2,6 +2,9 @@
 
 import logging
 import subprocess
+import sys
+import tempfile
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -130,7 +133,7 @@ def test_session_end_script_hook_runs_synchronously_with_metadata(tmp_path):
     manager = _make_manager(logdir)
     with patch("gptme.hooks.script.subprocess.Popen") as mock_popen:
         process = mock_popen.return_value
-        process.communicate.return_value = ("", "")
+        process.wait.return_value = 0
         process.returncode = 0
         list(trigger_hook(HookType.SESSION_END, manager=manager))
 
@@ -146,7 +149,7 @@ def test_session_end_script_hook_runs_synchronously_with_metadata(tmp_path):
     assert kwargs["env"]["GPTME_MODEL"] == "openai/gpt-5.4"
     assert kwargs["start_new_session"] is True
     assert kwargs["creationflags"] == 0
-    process.communicate.assert_called_once_with(timeout=17)
+    process.wait.assert_called_once_with(timeout=17)
 
 
 def test_session_end_script_hook_reads_model_switch_at_trigger_time(tmp_path):
@@ -161,7 +164,7 @@ def test_session_end_script_hook_reads_model_switch_at_trigger_time(tmp_path):
     chat_config.save()
 
     with patch("gptme.hooks.script.subprocess.Popen") as mock_popen:
-        mock_popen.return_value.communicate.return_value = ("", "")
+        mock_popen.return_value.wait.return_value = 0
         mock_popen.return_value.returncode = 0
         list(trigger_hook(HookType.SESSION_END, manager=_make_manager(logdir)))
 
@@ -179,7 +182,7 @@ def test_session_start_script_hook_uses_current_model_and_trigger_workspace(tmp_
     )
 
     with patch("gptme.hooks.script.subprocess.Popen") as mock_popen:
-        mock_popen.return_value.communicate.return_value = ("", "")
+        mock_popen.return_value.wait.return_value = 0
         mock_popen.return_value.returncode = 0
         list(
             trigger_hook(
@@ -215,6 +218,48 @@ def test_script_hooks_register_priority_and_preserve_tie_order(tmp_path):
     ]
 
 
+def test_script_hook_output_is_spooled_to_disk(tmp_path, caplog, monkeypatch):
+    logdir = tmp_path / "session-output"
+    ChatConfig(_logdir=logdir, workspace=tmp_path).save()
+    hook = ScriptHookConfig(
+        event="session.end",
+        command=f"{sys.executable} -c \"import sys; sys.stderr.write('x' * 1000000)\"",
+    )
+    register_script_hooks([hook], tmp_path)
+    temporary_file = MagicMock(wraps=tempfile.TemporaryFile)
+    monkeypatch.setattr("gptme.hooks.script.tempfile.TemporaryFile", temporary_file)
+
+    with caplog.at_level(logging.WARNING, logger="gptme.hooks.script"):
+        list(trigger_hook(HookType.SESSION_END, manager=_make_manager(logdir)))
+
+    assert caplog.text == ""
+    temporary_file.assert_called_once_with(mode="w+t")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process-group regression")
+def test_timeout_is_bounded_when_detached_descendant_inherits_output(tmp_path, caplog):
+    logdir = tmp_path / "session-detached-child"
+    ChatConfig(_logdir=logdir, workspace=tmp_path).save()
+    hook = ScriptHookConfig(
+        event="session.end",
+        command=(
+            f'{sys.executable} -c "import subprocess, sys, time; '
+            "subprocess.Popen([sys.executable, '-c', "
+            "'import time; time.sleep(10)'], start_new_session=True); "
+            'time.sleep(10)"'
+        ),
+        timeout=1,
+    )
+    register_script_hooks([hook], tmp_path)
+
+    started = time.monotonic()
+    with caplog.at_level(logging.WARNING, logger="gptme.hooks.script"):
+        list(trigger_hook(HookType.SESSION_END, manager=_make_manager(logdir)))
+
+    assert time.monotonic() - started < 3
+    assert "timed out after 1s" in caplog.text
+
+
 def test_script_hook_failure_and_timeout_are_logged(tmp_path, caplog):
     hooks = [
         ScriptHookConfig(event="session.end", command="exit 1", timeout=3),
@@ -224,12 +269,9 @@ def test_script_hook_failure_and_timeout_are_logged(tmp_path, caplog):
     manager = _make_manager(tmp_path / "session-errors")
 
     failed = MagicMock(pid=101, returncode=1)
-    failed.communicate.return_value = ("", "bad command")
+    failed.wait.return_value = 1
     timed_out = MagicMock(pid=202)
-    timed_out.communicate.side_effect = [
-        subprocess.TimeoutExpired("sleep", 4),
-        ("", ""),
-    ]
+    timed_out.wait.side_effect = [subprocess.TimeoutExpired("sleep", 4), None]
 
     with (
         caplog.at_level(logging.WARNING, logger="gptme.hooks.script"),
@@ -243,10 +285,10 @@ def test_script_hook_failure_and_timeout_are_logged(tmp_path, caplog):
     ):
         list(trigger_hook(HookType.SESSION_END, manager=manager))
 
-    assert "failed (exit 1): bad command" in caplog.text
+    assert "failed (exit 1)" in caplog.text
     assert "timed out after 4s" in caplog.text
     killpg.assert_called_once_with(202, 9)
-    assert timed_out.communicate.call_count == 2
+    assert timed_out.wait.call_count == 2
 
 
 @pytest.mark.parametrize("taskkill_error", [OSError("missing"), None])
@@ -258,7 +300,7 @@ def test_windows_timeout_cleanup_failure_is_not_silenced(
         tmp_path,
     )
     process = MagicMock(pid=202)
-    process.communicate.side_effect = subprocess.TimeoutExpired("sleep", 30)
+    process.wait.side_effect = subprocess.TimeoutExpired("sleep", 30)
     taskkill = MagicMock(returncode=1)
     run_result = taskkill_error if taskkill_error is not None else taskkill
 
@@ -276,7 +318,7 @@ def test_windows_timeout_cleanup_failure_is_not_silenced(
         )
 
     process.kill.assert_not_called()
-    assert process.communicate.call_count == 1
+    process.wait.assert_called_once_with(timeout=30)
     assert "process tree could not be terminated" in caplog.text
     assert "Error executing hook" in caplog.text
 
@@ -287,10 +329,7 @@ def test_windows_timeout_kills_and_drains_process(tmp_path, caplog):
         tmp_path,
     )
     process = MagicMock(pid=202)
-    process.communicate.side_effect = [
-        subprocess.TimeoutExpired("sleep", 30),
-        ("", ""),
-    ]
+    process.wait.side_effect = [subprocess.TimeoutExpired("sleep", 30), None]
 
     taskkill = MagicMock(returncode=0)
     with (
@@ -318,7 +357,7 @@ def test_windows_timeout_kills_and_drains_process(tmp_path, caplog):
     )
     process.kill.assert_not_called()
     killpg.assert_not_called()
-    assert process.communicate.call_count == 2
+    assert process.wait.call_count == 2
     assert "timed out after 30s" in caplog.text
 
 
