@@ -45,6 +45,11 @@ Session Lifecycle Hooks
 - ``SESSION_START``: At session start
 - ``SESSION_END``: At session end
 
+Project configuration can attach bounded shell commands to these two lifecycle
+events through ``[[hooks.scripts]]``. See :ref:`project-config`. Other hook types
+carry structured inputs or control-flow semantics and are not exposed through
+the shell adapter.
+
 Generation Hooks
 ~~~~~~~~~~~~~~~~
 

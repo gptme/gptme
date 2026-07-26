@@ -79,6 +79,19 @@ def init(
         )
     init_tools(tool_allowlist)
     init_hooks(interactive=interactive, no_confirm=no_confirm, server=server)
+
+    config = get_config()
+    if config.project and config.project.hooks.scripts:
+        from .hooks.script import register_script_hooks
+
+        workspace = (
+            config.chat.workspace
+            if config.chat is not None
+            else config.project._workspace
+        )
+        if workspace is not None:
+            register_script_hooks(config.project.hooks.scripts, workspace)
+
     init_commands()
 
     set_tool_format(tool_format)

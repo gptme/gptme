@@ -53,6 +53,35 @@ class PluginsConfig:
 
 
 @dataclass
+class ScriptHookConfig:
+    """Shell command registered for an allowlisted lifecycle hook event."""
+
+    event: str
+    command: str
+    timeout: int = 30
+
+    def __post_init__(self) -> None:
+        if self.event not in {"session.start", "session.end"}:
+            raise ValueError(
+                f"unsupported hooks.scripts event {self.event!r}; "
+                "expected session.start or session.end"
+            )
+        if not self.command.strip():
+            raise ValueError("hooks.scripts command must not be empty")
+        if not isinstance(self.timeout, int) or isinstance(self.timeout, bool):
+            raise ValueError("hooks.scripts timeout must be an integer")
+        if self.timeout <= 0:
+            raise ValueError("hooks.scripts timeout must be greater than zero")
+
+
+@dataclass
+class HooksConfig:
+    """Project-configured hooks."""
+
+    scripts: list[ScriptHookConfig] = field(default_factory=list)
+
+
+@dataclass
 class MCPServerConfig:
     """Configuration for a MCP server."""
 
@@ -298,7 +327,7 @@ class ProjectConfig:
     files: list[str] | None = None
     exclude: list[str] = field(default_factory=list)
     context_cmd: str | None = None
-    on_stop: str | None = None
+    hooks: HooksConfig = field(default_factory=HooksConfig)
     rag: RagConfig = field(default_factory=RagConfig)
     agent: AgentConfig | None = None
     lessons: LessonsConfig = field(default_factory=LessonsConfig)
@@ -326,7 +355,6 @@ class ProjectConfig:
     def from_dict(cls, config_data: dict, workspace: Path | None = None) -> Self:
         """Create a ProjectConfig instance from a dictionary. Warns about unknown keys."""
         # Support new "prompt" section or old-style base_prompt + files + context_cmd
-        # Support new "prompt" section or old-style base_prompt + files + context_cmd
         prompt_data = config_data.pop("prompt", None)
         system: str | None = None
         if isinstance(prompt_data, dict):
@@ -343,7 +371,6 @@ class ProjectConfig:
             files = prompt_data.pop("files", None)
             exclude = prompt_data.pop("exclude", [])
             context_cmd = prompt_data.pop("context_cmd", None)
-            on_stop = prompt_data.pop("on_stop", None)
         else:
             # Old format: flat structure, prompt_data contains the prompt string
             prompt = prompt_data
@@ -351,7 +378,23 @@ class ProjectConfig:
             files = config_data.pop("files", None)
             exclude = []
             context_cmd = config_data.pop("context_cmd", None)
-            on_stop = config_data.pop("on_stop", None)
+
+        hooks_data = _pop_object_section(config_data, "hooks")
+        script_hooks_data = hooks_data.pop("scripts", [])
+        if not isinstance(script_hooks_data, list):
+            raise ValueError("hooks.scripts must be a list")
+        if hooks_data:
+            logger.warning(
+                f"Unknown keys in hooks config: {list(hooks_data)} (ignored)"
+            )
+        script_hooks = [
+            _build_section("hooks.scripts", ScriptHookConfig, hook_data)
+            for hook_data in script_hooks_data
+            if isinstance(hook_data, dict)
+        ]
+        if len(script_hooks) != len(script_hooks_data):
+            raise ValueError("each hooks.scripts entry must be an object")
+        hooks = HooksConfig(scripts=script_hooks)
 
         rag = _build_section("rag", RagConfig, _pop_object_section(config_data, "rag"))
 
@@ -449,7 +492,7 @@ class ProjectConfig:
             files=files,
             exclude=exclude,
             context_cmd=context_cmd,
-            on_stop=on_stop,
+            hooks=hooks,
             rag=rag,
             agent=agent,
             lessons=lessons,
