@@ -32,8 +32,10 @@ describe('highlightCode', () => {
   });
 
   it('maps morph → diff', () => {
-    const patchContent = '<<<<<<< ORIGINAL\nold line\n=======\nnew line\n>>>>>>> UPDATED';
-    const result = highlightCode(patchContent, 'morph');
+    // morph invocations use "// ... existing code ..." markers (morphllm.com format)
+    const morphContent =
+      '// ... existing code ...\ndef updated_fn():\n    return True\n// ... existing code ...';
+    const result = highlightCode(morphContent, 'morph');
     expect(result.language).toBe('diff');
   });
 
