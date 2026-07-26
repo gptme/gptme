@@ -35,6 +35,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -308,11 +309,15 @@ def sandbox_exec_python(
 
     try:
         workspace = str(config.workspace.resolve())
+        # Named container so we can force-stop it via the Docker daemon on timeout.
+        container_name = f"gptme-sandbox-{uuid.uuid4().hex[:8]}"
 
         cmd: list[str] = [
             "docker",
             "run",
             "--rm",
+            "--name",
+            container_name,
             "--memory=256m",
             "--memory-swap=256m",  # disallow swap (OOM kills instead of thrashing)
             "--pids-limit=512",
@@ -331,16 +336,25 @@ def sandbox_exec_python(
 
         cmd += [config.docker_image, "python", "/tmp/script.py"]
 
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         try:
-            result = subprocess.run(
-                cmd,
+            stdout, stderr = proc.communicate(timeout=config.timeout)
+            return stdout, stderr, proc.returncode
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()  # collect remaining output and release resources
+            # Force-stop the container via the Docker daemon: killing the `docker
+            # run` client process does not stop the daemon-managed container.
+            subprocess.run(
+                ["docker", "kill", container_name],
                 capture_output=True,
-                text=True,
-                timeout=config.timeout,
                 check=False,
             )
-            return result.stdout, result.stderr, result.returncode
-        except subprocess.TimeoutExpired:
             logger.warning(
                 "Docker Python sandbox: execution timed out after %ds", config.timeout
             )

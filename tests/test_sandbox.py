@@ -412,15 +412,12 @@ class TestDockerExecPythonCommandShape:
         cfg = SandboxConfig(
             backend="docker", workspace=Path("/workspace"), **cfg_kwargs
         )
-        mock_result = MagicMock()
-        mock_result.stdout = "hello\n"
-        mock_result.stderr = ""
-        mock_result.returncode = 0
-        with patch("gptme.sandbox.subprocess.run", return_value=mock_result) as mock:
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = ("hello\n", "")
+        mock_proc.returncode = 0
+        with patch("gptme.sandbox.subprocess.Popen", return_value=mock_proc) as mock:
             sandbox_exec_python(cfg, code)
             return mock
-
-        return mock  # unreachable but satisfies type checkers
 
     def test_docker_run_is_first_arg(self):
         mock = self._run("print('hi')")
@@ -471,27 +468,36 @@ class TestDockerExecPythonCommandShape:
         assert w_idx is not None
         assert cmd[w_idx + 1] == "/workspace"
 
-    def test_timeout_passed_to_subprocess(self):
+    def test_timeout_passed_to_communicate(self):
         cfg = SandboxConfig(backend="docker", workspace=Path("/ws"), timeout=15)
-        mock_result = MagicMock()
-        mock_result.stdout = ""
-        mock_result.stderr = ""
-        mock_result.returncode = 0
-        with patch("gptme.sandbox.subprocess.run", return_value=mock_result) as mock:
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = ("", "")
+        mock_proc.returncode = 0
+        with patch("gptme.sandbox.subprocess.Popen", return_value=mock_proc):
             sandbox_exec_python(cfg, "pass")
-        assert mock.call_args[1]["timeout"] == 15
+        mock_proc.communicate.assert_called_once_with(timeout=15)
 
-    def test_timeout_returns_error_tuple(self):
+    def test_timeout_kills_container_and_returns_error(self):
         import subprocess
 
         cfg = SandboxConfig(backend="docker", workspace=Path("/ws"), timeout=1)
-        with patch(
-            "gptme.sandbox.subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd="docker", timeout=1),
+        mock_proc = MagicMock()
+        mock_proc.communicate.side_effect = [
+            subprocess.TimeoutExpired(cmd="docker", timeout=1),
+            ("", ""),  # cleanup call after proc.kill()
+        ]
+        with (
+            patch("gptme.sandbox.subprocess.Popen", return_value=mock_proc),
+            patch("gptme.sandbox.subprocess.run") as mock_run,  # docker kill
         ):
             stdout, stderr, rc = sandbox_exec_python(cfg, "import time; time.sleep(99)")
         assert rc == 1
         assert "timed out" in stderr
+        mock_proc.kill.assert_called_once()
+        # docker kill was called to stop the container
+        kill_call = mock_run.call_args
+        assert kill_call is not None
+        assert "kill" in kill_call[0][0]
 
 
 # ---------------------------------------------------------------------------
