@@ -371,7 +371,20 @@ def get_functions():
     )
 
 
-instructions = """
+def _instructions() -> str:
+    if os.environ.get("GPTME_SANDBOX", "none").lower() == "docker":
+        return """
+Use this tool to execute a self-contained standard Python script in a fresh Docker
+container. Each call starts with no prior state. IPython syntax, registered host
+functions, and host-installed libraries are unavailable; include every definition
+and import needed by the script. Files in the workspace remain available.
+
+### When to use the python tool
+
+Use `python` for isolated computation and file-processing automation. Use `shell`
+when the command must use packages or tools installed only on the host.
+""".strip()
+    return """
 Use this tool to execute Python code in an interactive IPython session.
 It responds with the execution output and final result.
 
@@ -381,6 +394,9 @@ Use `python` for computation, structured data, and file-processing automation.
 Prefer it over the shell for pure computation or when you need persistent
 state or Python libraries.
 """.strip()
+
+
+instructions = _instructions()
 
 instructions_format = {
     "markdown": """
@@ -435,20 +451,30 @@ def init() -> ToolSpec:
             for tf in loaded_tool.functions:
                 register_function(tf.fn)
 
-    python_libraries = get_installed_python_libraries()
+    docker_mode = os.environ.get("GPTME_SANDBOX", "none").lower() == "docker"
+    python_libraries = [] if docker_mode else get_installed_python_libraries()
     python_libraries_str = (
         "\n".join(f"- {lib}" for lib in python_libraries)
         or "- no common libraries found"
     )
 
-    _appendix_full = f"""Available libraries:
+    _appendix_full = (
+        "Docker image: "
+        + os.environ.get("GPTME_SANDBOX_DOCKER_IMAGE", "python:3.12-slim")
+        if docker_mode
+        else f"""Available libraries:
 {python_libraries_str}
 
 Available functions:
 {get_functions()}"""
+    )
 
     # Concise function list for tool format (stays within OpenAI's 1024-char limit, see #1697)
-    _appendix_concise = f"Available functions: {', '.join(registered_functions.keys())}"
+    _appendix_concise = (
+        "Fresh Docker container; self-contained standard Python only"
+        if docker_mode
+        else f"Available functions: {', '.join(registered_functions.keys())}"
+    )
 
     # Merge with existing format overrides (markdown already has codeblock note).
     # NOTE: _appendix_full is placed before existing_markdown intentionally so the
@@ -474,7 +500,7 @@ Available functions:
     #   concise names only for tool to stay within OpenAI's 1024-char limit)
     return dataclasses.replace(
         tool,
-        instructions=instructions,
+        instructions=_instructions(),
         instructions_format=instructions_format_updated,
     )
 

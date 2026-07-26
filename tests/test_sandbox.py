@@ -381,6 +381,15 @@ class TestDockerBackendConfig:
             cfg = SandboxConfig.from_env()
         assert cfg.timeout == 60
 
+    def test_malformed_docker_timeout_does_not_break_other_backends(self):
+        with patch.dict(
+            os.environ,
+            {"GPTME_SANDBOX": "none", "GPTME_SANDBOX_TIMEOUT": "invalid"},
+        ):
+            cfg = SandboxConfig.from_env()
+        assert cfg.backend == "none"
+        assert cfg.timeout == 30
+
     def test_check_available_when_docker_missing(self):
         cfg = SandboxConfig(backend="docker")
         with patch("shutil.which", return_value=None):

@@ -112,7 +112,13 @@ class SandboxConfig:
         allow_network = os.environ.get("GPTME_SANDBOX_NET", "0") == "1"
         ro_home = os.environ.get("GPTME_SANDBOX_RO_HOME", "0") == "1"
         docker_image = os.environ.get("GPTME_SANDBOX_DOCKER_IMAGE", "python:3.12-slim")
-        timeout = int(os.environ.get("GPTME_SANDBOX_TIMEOUT", "30"))
+        # Docker is the only backend that uses this timeout. Do not let a stale or
+        # malformed Docker-only setting break shell or IPython execution.
+        timeout = (
+            int(os.environ.get("GPTME_SANDBOX_TIMEOUT", "30"))
+            if backend == "docker"
+            else 30
+        )
 
         return cls(
             backend=backend,

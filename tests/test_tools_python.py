@@ -56,6 +56,17 @@ def test_execute_python_with_kwargs():
     assert "2\n" in run_with_kwargs("print(1 + 1)")
 
 
+def test_init_describes_docker_execution_contract():
+    with patch.dict(os.environ, {"GPTME_SANDBOX": "docker"}):
+        from gptme.tools.python import init
+
+        docker_tool = init()
+    assert "fresh Docker\ncontainer" in docker_tool.instructions
+    assert "no prior state" in docker_tool.instructions
+    assert "registered host\nfunctions" in docker_tool.instructions
+    assert "Available functions:" not in docker_tool.instructions_format["markdown"]
+
+
 TestType: TypeAlias = Literal["a", "b"]
 
 
