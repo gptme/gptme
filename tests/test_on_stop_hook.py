@@ -2,7 +2,6 @@
 
 import subprocess
 import threading
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -54,10 +53,15 @@ def test_on_stop_hook_runs_command(tmp_path):
     _register_on_stop_hook("echo hello", tmp_path)
 
     manager = _make_manager(tmp_path / "session-abc")
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
+    completed = threading.Event()
+
+    def fake_run(*args, **kwargs):
+        completed.set()
+        return MagicMock(returncode=0, stderr="")
+
+    with patch("subprocess.run", side_effect=fake_run) as mock_run:
         list(trigger_hook(HookType.SESSION_END, manager=manager))
-        time.sleep(0.1)  # wait for async hook thread before mock reverts
+        assert completed.wait(timeout=1)
 
     mock_run.assert_called_once()
     call_kwargs = mock_run.call_args
@@ -72,9 +76,11 @@ def test_on_stop_hook_runs_on_session_complete_path(tmp_path):
     from gptme.cli.main import _register_on_stop_hook
 
     called = []
+    completed = threading.Event()
 
     def fake_run(*args, **kwargs):
         called.append(kwargs.get("args", args))
+        completed.set()
         return MagicMock(returncode=0, stderr="")
 
     _register_on_stop_hook("touch done", tmp_path)
@@ -82,7 +88,7 @@ def test_on_stop_hook_runs_on_session_complete_path(tmp_path):
 
     with patch("subprocess.run", side_effect=fake_run):
         list(trigger_hook(HookType.SESSION_END, manager=manager))
-        time.sleep(0.1)  # wait for async hook thread before mock reverts
+        assert completed.wait(timeout=1)
 
     assert len(called) == 1
 

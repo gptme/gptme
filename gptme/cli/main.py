@@ -1521,7 +1521,9 @@ def main(
     effective_on_stop = on_stop or (config.project.on_stop if config.project else None)
     if effective_on_stop:
         _register_on_stop_hook(
-            effective_on_stop, config.chat.workspace, model=model or ""
+            effective_on_stop,
+            config.chat.workspace,
+            model=config.chat.model or "",
         )
 
     try:
