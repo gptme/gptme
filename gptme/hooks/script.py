@@ -102,6 +102,23 @@ def _run_script_hook(
                     hook.timeout,
                     hook.command,
                 )
+                # Tree termination is the only operation that can account for
+                # descendants. If that OS primitive fails, still stop and reap
+                # the tracked shell before surfacing the incomplete cleanup.
+                try:
+                    process.kill()
+                except OSError:
+                    logger.exception(
+                        "Failed to terminate tracked script hook process %d",
+                        process.pid,
+                    )
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    logger.error(
+                        "Tracked script hook process %d did not exit after kill",
+                        process.pid,
+                    )
                 raise
             process.wait()
             logger.warning(

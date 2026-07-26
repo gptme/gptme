@@ -317,8 +317,10 @@ def test_windows_timeout_cleanup_failure_is_not_silenced(
             )
         )
 
-    process.kill.assert_not_called()
-    process.wait.assert_called_once_with(timeout=30)
+    process.kill.assert_called_once_with()
+    assert process.wait.call_count == 2
+    process.wait.assert_any_call(timeout=30)
+    process.wait.assert_any_call(timeout=1)
     assert "process tree could not be terminated" in caplog.text
     assert "Error executing hook" in caplog.text
 
