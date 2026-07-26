@@ -299,6 +299,8 @@ def sandbox_exec_python(
         - No network (unless config.allow_network).
         - 256 MiB memory cap, no swap (OOM → container exit 137).
         - 512 PID limit (fork-bomb mitigation).
+        - All Linux capabilities dropped (--cap-drop=ALL).
+        - No privilege escalation (--security-opt=no-new-privileges).
         - Script mounted read-only; workspace bind-mounted read-write.
         - Fresh, ephemeral filesystem (no host credentials visible).
     """
@@ -327,6 +329,8 @@ def sandbox_exec_python(
             "--memory=256m",
             "--memory-swap=256m",  # disallow swap (OOM kills instead of thrashing)
             "--pids-limit=512",
+            "--cap-drop=ALL",  # drop all Linux capabilities (no CAP_NET_RAW etc.)
+            "--security-opt=no-new-privileges",  # prevent privilege escalation
             # Mount script as read-only inside the container
             "-v",
             f"{script_path}:/tmp/script.py:ro",

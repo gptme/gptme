@@ -445,6 +445,16 @@ class TestDockerExecPythonCommandShape:
         cmd = self._run("x=1").call_args[0][0]
         assert "--pids-limit=512" in cmd
 
+    def test_cap_drop_all_present(self):
+        """All Linux capabilities must be dropped to prevent raw sockets etc."""
+        cmd = self._run("x=1").call_args[0][0]
+        assert "--cap-drop=ALL" in cmd
+
+    def test_no_new_privileges_present(self):
+        """Privilege escalation must be blocked."""
+        cmd = self._run("x=1").call_args[0][0]
+        assert "--security-opt=no-new-privileges" in cmd
+
     def test_network_none_by_default(self):
         cmd = self._run("x=1").call_args[0][0]
         assert "--network=none" in cmd
