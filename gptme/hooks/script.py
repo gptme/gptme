@@ -104,7 +104,6 @@ def _register_script_hook(
                 logdir=logdir,
                 model=_current_model(logdir),
             )
-            return
             yield
 
         register_hook(f"script.{index}.{hook.event}", hook_type, _on_session_start)
@@ -117,7 +116,6 @@ def _register_script_hook(
             logdir=manager.logdir,
             model=_current_model(manager.logdir),
         )
-        return
         yield
 
     register_hook(f"script.{index}.{hook.event}", hook_type, _on_session_end)
