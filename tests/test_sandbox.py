@@ -1,8 +1,9 @@
 """Tests for gptme.sandbox — sandbox wrapper module (Idea #834)."""
 
 import os
+import shutil
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -12,6 +13,7 @@ from gptme.sandbox import (
     _bwrap_cmd,
     _firejail_cmd,
     build_env,
+    sandbox_exec_python,
     wrap_shell_cmd,
 )
 
@@ -338,3 +340,230 @@ class TestBuildEnv:
     def test_allowlist_covers_shell_basics(self):
         required = {"HOME", "USER", "PATH", "TERM"}
         assert required.issubset(_DEFAULT_ENV_ALLOWLIST)
+
+
+# ---------------------------------------------------------------------------
+# Docker backend — config tests (no Docker daemon required)
+# ---------------------------------------------------------------------------
+
+
+class TestDockerBackendConfig:
+    def test_docker_backend_accepted(self):
+        cfg = SandboxConfig(backend="docker")
+        assert cfg.backend == "docker"
+        assert cfg.enabled
+
+    def test_docker_backend_from_env(self):
+        with patch.dict(os.environ, {"GPTME_SANDBOX": "docker"}):
+            cfg = SandboxConfig.from_env()
+        assert cfg.backend == "docker"
+
+    def test_docker_image_default(self):
+        cfg = SandboxConfig(backend="docker")
+        assert cfg.docker_image == "python:3.12-slim"
+
+    def test_docker_image_from_env(self):
+        with patch.dict(
+            os.environ,
+            {"GPTME_SANDBOX": "docker", "GPTME_SANDBOX_DOCKER_IMAGE": "python:3.11"},
+        ):
+            cfg = SandboxConfig.from_env()
+        assert cfg.docker_image == "python:3.11"
+
+    def test_timeout_default(self):
+        cfg = SandboxConfig(backend="docker")
+        assert cfg.timeout == 30
+
+    def test_timeout_from_env(self):
+        with patch.dict(
+            os.environ, {"GPTME_SANDBOX": "docker", "GPTME_SANDBOX_TIMEOUT": "60"}
+        ):
+            cfg = SandboxConfig.from_env()
+        assert cfg.timeout == 60
+
+    def test_check_available_when_docker_missing(self):
+        cfg = SandboxConfig(backend="docker")
+        with patch("shutil.which", return_value=None):
+            ok, msg = cfg.check_available()
+        assert not ok
+        assert "docker" in msg
+
+    def test_check_available_when_docker_present(self):
+        cfg = SandboxConfig(backend="docker")
+        with patch("shutil.which", return_value="/usr/bin/docker"):
+            ok, _ = cfg.check_available()
+        assert ok
+
+    def test_exec_python_requires_docker_backend(self):
+        cfg = SandboxConfig(backend="none")
+        with pytest.raises(ValueError, match="backend='docker'"):
+            sandbox_exec_python(cfg, "print('hi')")
+
+
+# ---------------------------------------------------------------------------
+# Docker backend — command-shape tests (mock subprocess.run)
+# ---------------------------------------------------------------------------
+
+
+class TestDockerExecPythonCommandShape:
+    """Verify the docker run invocation shape without a live Docker daemon."""
+
+    def _run(self, code: str, **cfg_kwargs) -> MagicMock:
+        cfg = SandboxConfig(
+            backend="docker", workspace=Path("/workspace"), **cfg_kwargs
+        )
+        mock_result = MagicMock()
+        mock_result.stdout = "hello\n"
+        mock_result.stderr = ""
+        mock_result.returncode = 0
+        with patch("gptme.sandbox.subprocess.run", return_value=mock_result) as mock:
+            sandbox_exec_python(cfg, code)
+            return mock
+
+        return mock  # unreachable but satisfies type checkers
+
+    def test_docker_run_is_first_arg(self):
+        mock = self._run("print('hi')")
+        cmd = mock.call_args[0][0]
+        assert cmd[:2] == ["docker", "run"]
+
+    def test_rm_flag_present(self):
+        cmd = self._run("x=1").call_args[0][0]
+        assert "--rm" in cmd
+
+    def test_memory_limit_present(self):
+        cmd = self._run("x=1").call_args[0][0]
+        assert "--memory=256m" in cmd
+
+    def test_pids_limit_present(self):
+        cmd = self._run("x=1").call_args[0][0]
+        assert "--pids-limit=512" in cmd
+
+    def test_network_none_by_default(self):
+        cmd = self._run("x=1").call_args[0][0]
+        assert "--network=none" in cmd
+
+    def test_network_not_disabled_when_allowed(self):
+        cmd = self._run("x=1", allow_network=True).call_args[0][0]
+        assert "--network=none" not in cmd
+
+    def test_workspace_mounted(self):
+        mock = self._run("x=1")
+        cmd = mock.call_args[0][0]
+        # -v /workspace:/workspace should appear
+        v_pairs = [
+            cmd[i + 1] for i, a in enumerate(cmd) if a == "-v" and i + 1 < len(cmd)
+        ]
+        assert any("/workspace:/workspace" in p for p in v_pairs)
+
+    def test_script_mounted_readonly(self):
+        mock = self._run("x=1")
+        cmd = mock.call_args[0][0]
+        v_pairs = [
+            cmd[i + 1] for i, a in enumerate(cmd) if a == "-v" and i + 1 < len(cmd)
+        ]
+        assert any(":ro" in p for p in v_pairs)
+
+    def test_working_dir_set_to_workspace(self):
+        mock = self._run("x=1")
+        cmd = mock.call_args[0][0]
+        w_idx = next((i for i, a in enumerate(cmd) if a == "-w"), None)
+        assert w_idx is not None
+        assert cmd[w_idx + 1] == "/workspace"
+
+    def test_timeout_passed_to_subprocess(self):
+        cfg = SandboxConfig(backend="docker", workspace=Path("/ws"), timeout=15)
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+        mock_result.returncode = 0
+        with patch("gptme.sandbox.subprocess.run", return_value=mock_result) as mock:
+            sandbox_exec_python(cfg, "pass")
+        assert mock.call_args[1]["timeout"] == 15
+
+    def test_timeout_returns_error_tuple(self):
+        import subprocess
+
+        cfg = SandboxConfig(backend="docker", workspace=Path("/ws"), timeout=1)
+        with patch(
+            "gptme.sandbox.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="docker", timeout=1),
+        ):
+            stdout, stderr, rc = sandbox_exec_python(cfg, "import time; time.sleep(99)")
+        assert rc == 1
+        assert "timed out" in stderr
+
+
+# ---------------------------------------------------------------------------
+# Docker backend — integration tests (require live Docker daemon)
+# ---------------------------------------------------------------------------
+
+docker_available = shutil.which("docker") is not None
+requires_docker = pytest.mark.skipif(
+    not docker_available, reason="docker not available"
+)
+
+
+@requires_docker
+class TestDockerExecPythonIntegration:
+    """Smoke tests that need a running Docker daemon and the python:3.12-slim image."""
+
+    def _cfg(self, **kwargs) -> SandboxConfig:
+        return SandboxConfig(
+            backend="docker",
+            workspace=Path.cwd(),
+            timeout=30,
+            **kwargs,
+        )
+
+    def test_basic_print(self):
+        stdout, stderr, rc = sandbox_exec_python(self._cfg(), "print('hello sandbox')")
+        assert rc == 0
+        assert "hello sandbox" in stdout
+
+    def test_arithmetic(self):
+        stdout, stderr, rc = sandbox_exec_python(self._cfg(), "print(2 + 2)")
+        assert rc == 0
+        assert "4" in stdout
+
+    def test_syntax_error_surfaces_in_stderr(self):
+        stdout, stderr, rc = sandbox_exec_python(self._cfg(), "def foo(:\n  pass")
+        assert rc != 0
+        assert stderr  # Python prints SyntaxError to stderr
+
+    def test_runtime_exception_surfaces(self):
+        stdout, stderr, rc = sandbox_exec_python(
+            self._cfg(), "raise ValueError('boom')"
+        )
+        assert rc != 0
+        assert "ValueError" in stderr
+
+    def test_no_network_by_default(self):
+        """Container should not be able to open network connections."""
+        code = (
+            "import socket\n"
+            "try:\n"
+            "    socket.setdefaulttimeout(2)\n"
+            "    socket.create_connection(('1.1.1.1', 80))\n"
+            "    print('NETWORK_REACHABLE')\n"
+            "except OSError:\n"
+            "    print('NETWORK_BLOCKED')\n"
+        )
+        stdout, stderr, rc = sandbox_exec_python(self._cfg(), code)
+        assert "NETWORK_BLOCKED" in stdout, (
+            "Expected network to be blocked in sandbox, but got: " + stdout
+        )
+
+    def test_home_credentials_not_visible(self):
+        """The container's home should be a blank tmpfs, not the host's ~/.ssh."""
+        code = (
+            "import os\n"
+            "home = os.path.expanduser('~')\n"
+            "has_ssh = os.path.exists(os.path.join(home, '.ssh'))\n"
+            "has_aws = os.path.exists(os.path.join(home, '.aws'))\n"
+            "print('ssh:', has_ssh, 'aws:', has_aws)\n"
+        )
+        stdout, stderr, rc = sandbox_exec_python(self._cfg(), code)
+        assert rc == 0
+        assert "ssh: False" in stdout
+        assert "aws: False" in stdout

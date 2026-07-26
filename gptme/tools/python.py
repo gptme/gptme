@@ -255,6 +255,34 @@ def execute_python(
         yield Message("system", DECLINED_CONTENT)
         return
 
+    # Docker sandbox path: when GPTME_SANDBOX=docker, execute in a container
+    # instead of the in-process IPython REPL.
+    from ..sandbox import SandboxConfig, sandbox_exec_python
+
+    sandbox_cfg = SandboxConfig.from_env(workspace=Path.cwd())
+    if sandbox_cfg.backend == "docker":
+        ok, avail_msg = sandbox_cfg.check_available()
+        if not ok:
+            yield Message(
+                "system",
+                f"Docker sandbox unavailable: {avail_msg}\n"
+                "Set GPTME_SANDBOX=none to fall back to the unsandboxed IPython REPL.",
+            )
+            return
+        stdout, stderr, returncode = sandbox_exec_python(sandbox_cfg, code)
+        output = ""
+        if stdout:
+            output += md_codeblock("stdout", stdout.rstrip()) + "\n\n"
+        if stderr:
+            output += md_codeblock("stderr", stderr.rstrip()) + "\n\n"
+        if returncode not in (0, None):
+            output += f"Process exited with code {returncode}\n"
+        yield Message(
+            "system",
+            "Executed code block (Docker sandbox).\n\n" + output,
+        )
+        return
+
     # Create an IPython instance if it doesn't exist yet
     _ipython = _get_ipython()
 

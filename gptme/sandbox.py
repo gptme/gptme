@@ -3,11 +3,14 @@ Sandboxed execution support for gptme.
 
 Wraps the bash subprocess launched by the shell tool in firejail or bubblewrap
 to contain credential exfiltration, filesystem escape, and network misuse.
+For the Python tool, a Docker backend runs code in an isolated container.
 
 Environment variables:
-    GPTME_SANDBOX: sandbox backend ("firejail" | "bwrap" | "none", default "none")
+    GPTME_SANDBOX: sandbox backend ("firejail" | "bwrap" | "docker" | "none", default "none")
     GPTME_SANDBOX_NET: "0" to disable network (default), "1" to allow
     GPTME_SANDBOX_RO_HOME: "1" to add read-only home bind (default "0")
+    GPTME_SANDBOX_DOCKER_IMAGE: Docker image for python sandbox (default "python:3.12-slim")
+    GPTME_SANDBOX_TIMEOUT: execution timeout in seconds (default 30)
 
 The integration point in gptme/tools/shell.py is the subprocess.Popen call
 that starts the persistent bash process. Caller passes a SandboxConfig and
@@ -30,6 +33,8 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -83,7 +88,7 @@ class SandboxConfig:
     or construct directly for programmatic control.
     """
 
-    backend: str = "none"  # "firejail" | "bwrap" | "none"
+    backend: str = "none"  # "firejail" | "bwrap" | "docker" | "none"
     workspace: Path = field(default_factory=Path.cwd)
     allow_network: bool = False
     ro_home: bool = False
@@ -91,9 +96,11 @@ class SandboxConfig:
         default_factory=lambda: _DEFAULT_ENV_ALLOWLIST
     )
     mask_secrets: bool = True
+    docker_image: str = "python:3.12-slim"
+    timeout: int = 30  # seconds; used by sandbox_exec_python
 
     def __post_init__(self) -> None:
-        if self.backend not in ("firejail", "bwrap", "none"):
+        if self.backend not in ("firejail", "bwrap", "docker", "none"):
             raise ValueError(f"Unsupported sandbox backend: {self.backend!r}")
 
     @classmethod
@@ -103,12 +110,16 @@ class SandboxConfig:
 
         allow_network = os.environ.get("GPTME_SANDBOX_NET", "0") == "1"
         ro_home = os.environ.get("GPTME_SANDBOX_RO_HOME", "0") == "1"
+        docker_image = os.environ.get("GPTME_SANDBOX_DOCKER_IMAGE", "python:3.12-slim")
+        timeout = int(os.environ.get("GPTME_SANDBOX_TIMEOUT", "30"))
 
         return cls(
             backend=backend,
             workspace=workspace or Path.cwd(),
             allow_network=allow_network,
             ro_home=ro_home,
+            docker_image=docker_image,
+            timeout=timeout,
         )
 
     @property
@@ -119,7 +130,10 @@ class SandboxConfig:
         """Return (available, message). Use before committing to this backend."""
         if self.backend == "none":
             return True, "no-op sandbox (passthrough)"
-        tool = self.backend if self.backend != "bwrap" else "bwrap"
+        if self.backend == "docker":
+            tool = "docker"
+        else:
+            tool = self.backend if self.backend != "bwrap" else "bwrap"
         if not shutil.which(tool):
             msg = f"{tool} not found. Install with: sudo apt install {tool}"
             return False, msg
@@ -250,3 +264,86 @@ def _bwrap_cmd(config: SandboxConfig, inner: list[str]) -> list[str]:
 
     cmd.extend(["--", *inner])
     return cmd
+
+
+# ---------------------------------------------------------------------------
+# Docker Python sandbox
+# ---------------------------------------------------------------------------
+
+
+def sandbox_exec_python(
+    config: SandboxConfig,
+    code: str,
+) -> tuple[str, str, int]:
+    """Execute Python code in a Docker container sandbox.
+
+    Writes *code* to a temporary file, mounts it read-only into the container,
+    and runs ``python /tmp/script.py`` with resource limits applied.
+
+    Args:
+        config: SandboxConfig with backend=="docker".
+        code:   Python source to execute.
+
+    Returns:
+        (stdout, stderr, returncode).  On timeout, stderr contains a message
+        and returncode is 1.
+
+    Security boundaries:
+        - No network (unless config.allow_network).
+        - 256 MiB memory cap, no swap (OOM → container exit 137).
+        - 512 PID limit (fork-bomb mitigation).
+        - Script mounted read-only; workspace bind-mounted read-write.
+        - Fresh, ephemeral filesystem (no host credentials visible).
+    """
+    if config.backend != "docker":
+        raise ValueError(
+            f"sandbox_exec_python requires backend='docker', got {config.backend!r}"
+        )
+
+    with tempfile.NamedTemporaryFile(
+        suffix=".py", mode="w", delete=False, prefix="gptme_sandbox_"
+    ) as f:
+        f.write(code)
+        script_path = Path(f.name)
+
+    try:
+        workspace = str(config.workspace.resolve())
+
+        cmd: list[str] = [
+            "docker",
+            "run",
+            "--rm",
+            "--memory=256m",
+            "--memory-swap=256m",  # disallow swap (OOM kills instead of thrashing)
+            "--pids-limit=512",
+            # Mount script as read-only inside the container
+            "-v",
+            f"{script_path}:/tmp/script.py:ro",
+            # Workspace read-write so generated files land in expected places
+            "-v",
+            f"{workspace}:{workspace}",
+            "-w",
+            workspace,
+        ]
+
+        if not config.allow_network:
+            cmd.append("--network=none")
+
+        cmd += [config.docker_image, "python", "/tmp/script.py"]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=config.timeout,
+                check=False,
+            )
+            return result.stdout, result.stderr, result.returncode
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "Docker Python sandbox: execution timed out after %ds", config.timeout
+            )
+            return "", f"Execution timed out after {config.timeout}s\n", 1
+    finally:
+        script_path.unlink(missing_ok=True)
