@@ -354,8 +354,7 @@ def determine_action_type(command: str, model: str) -> str:
             "--non-interactive",
             "--model",
             model,
-            f"Determine if this command requires changes to be made or just a response. "
-            f"Respond with ONLY 'make_changes' or 'respond'. Command: {command}",
+            f"Determine if this command requires changes to be made or just a response. Respond with ONLY 'make_changes' or 'respond'. Command: {command}",
         ],
         capture=True,
     )

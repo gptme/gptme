@@ -1010,8 +1010,7 @@ def get_github_run_logs(
                 "view",
                 run_id,
                 "--json",
-                "databaseId,displayTitle,event,headBranch,conclusion,status,"
-                "workflowName,createdAt,updatedAt,url,jobs",
+                "databaseId,displayTitle,event,headBranch,conclusion,status,workflowName,createdAt,updatedAt,url,jobs",
             ],
             capture_output=True,
             text=True,

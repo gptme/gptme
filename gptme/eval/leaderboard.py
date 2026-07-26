@@ -223,7 +223,7 @@ def aggregate_results(results: list[dict], min_tests: int = 4) -> list[dict]:
 
         for test_name, runs in tests_dict.items():
             # Sort by run_dir to ensure chronological order
-            latest = sorted(runs, key=lambda r: r["run_dir"])[-1]
+            latest = max(runs, key=lambda r: r["run_dir"])
             total_tests += 1
             if latest["passed"]:
                 total_passed += 1
@@ -701,7 +701,7 @@ def aggregate_per_test(
         passed = sum(
             1
             for runs in tests_dict.values()
-            if sorted(runs, key=lambda r: r["run_dir"])[-1]["passed"]
+            if max(runs, key=lambda r: r["run_dir"])["passed"]
         )
         score = wilson_lower_bound(passed, total)
         current = best_fmt.get(model)
@@ -733,7 +733,7 @@ def aggregate_per_test(
         row: dict[str, bool | None] = {}
         for test in test_names:
             if test in tests_dict:
-                latest = sorted(tests_dict[test], key=lambda r: r["run_dir"])[-1]
+                latest = max(tests_dict[test], key=lambda r: r["run_dir"])
                 row[test] = latest["passed"]
             else:
                 row[test] = None
