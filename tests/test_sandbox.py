@@ -116,13 +116,6 @@ class TestWrapShellCmd:
         assert wrapped[0] == "bwrap"
         assert "bash" in wrapped
 
-    def test_unavailable_backend_falls_back_to_passthrough(self):
-        cfg = SandboxConfig(backend="firejail", workspace=Path("/workspace"))
-        cmd = ["bash"]
-        with patch("shutil.which", return_value=None):
-            wrapped = wrap_shell_cmd(cfg, cmd)
-        assert wrapped == cmd  # falls back gracefully
-
     def test_inner_command_appears_after_separator(self):
         cfg = SandboxConfig(backend="firejail", workspace=Path("/workspace"))
         with patch("shutil.which", return_value="/usr/bin/firejail"):
@@ -233,6 +226,29 @@ class TestBwrapCmd:
         assert "--" in cmd
         assert cmd[-1] == "bash"
 
+    def test_workspace_bind_after_home_tmpfs(self):
+        """Workspace bind must come after --tmpfs /home so it wins when
+        the workspace is under /home (e.g. /home/user/project)."""
+        cmd = self._build(workspace=Path("/home/user/project"))
+        tmpfs_home_idx = next(
+            (i for i, a in enumerate(cmd) if a == "--tmpfs" and cmd[i + 1] == "/home"),
+            None,
+        )
+        workspace_bind_idx = next(
+            (
+                i
+                for i, a in enumerate(cmd)
+                if a == "--bind" and cmd[i + 1] == "/home/user/project"
+            ),
+            None,
+        )
+        assert tmpfs_home_idx is not None, "--tmpfs /home not found in bwrap command"
+        assert workspace_bind_idx is not None, "--bind /home/user/project not found"
+        assert workspace_bind_idx > tmpfs_home_idx, (
+            "workspace --bind must appear after --tmpfs /home so it overrides"
+            " the blank home mount when workspace is under /home"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Environment filtering
@@ -258,20 +274,28 @@ class TestBuildEnv:
         assert "MY_SECRET" not in (env or {})
         assert "MY_AWS_KEY" not in (env or {})
 
-    def test_passes_allowlisted_vars(self):
+    def test_strips_provider_api_keys(self):
+        """Provider API keys must NOT be passed into the sandboxed shell.
+        LLM calls are made by the parent Python process, not by bash commands.
+        Exposing them (especially with GPTME_SANDBOX_NET=1) enables exfiltration."""
         cfg = SandboxConfig(backend="firejail")
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test123"}):
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "sk-test",
+                "ANTHROPIC_API_KEY": "ant-test",
+                "OPENROUTER_API_KEY": "or-test",
+            },
+        ):
             env = build_env(cfg)
         assert env is not None
-        assert env.get("OPENAI_API_KEY") == "sk-test123"
+        assert "OPENAI_API_KEY" not in env
+        assert "ANTHROPIC_API_KEY" not in env
+        assert "OPENROUTER_API_KEY" not in env
 
     def test_mask_secrets_false_returns_none(self):
         cfg = SandboxConfig(backend="firejail", mask_secrets=False)
         assert build_env(cfg) is None
-
-    def test_allowlist_covers_common_llm_keys(self):
-        required = {"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"}
-        assert required.issubset(_DEFAULT_ENV_ALLOWLIST)
 
     def test_allowlist_covers_shell_basics(self):
         required = {"HOME", "USER", "PATH", "TERM"}

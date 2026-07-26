@@ -285,15 +285,14 @@ class ShellSession:
         )
         if sandbox.enabled:
             available, msg = sandbox.check_available()
-            if available:
-                shell_cmd = wrap_shell_cmd(sandbox, shell_cmd)
-                logger.info("Sandboxed shell: %s", " ".join(shell_cmd))
-            else:
-                logger.warning(
-                    "GPTME_SANDBOX=%s requested but unavailable: %s",
-                    sandbox.backend,
-                    msg,
+            if not available:
+                raise RuntimeError(
+                    f"GPTME_SANDBOX={sandbox.backend!r} was requested but the"
+                    f" backend is not available: {msg}. Either install the"
+                    f" sandbox tool or unset GPTME_SANDBOX."
                 )
+            shell_cmd = wrap_shell_cmd(sandbox, shell_cmd)
+            logger.info("Sandboxed shell: %s", " ".join(shell_cmd))
         sandbox_env = build_env(
             sandbox
         )  # None if sandbox disabled → inherit os.environ

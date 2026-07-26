@@ -40,15 +40,13 @@ logger = logging.getLogger(__name__)
 # Secrets NOT in this list are stripped before the subprocess is started.
 _DEFAULT_ENV_ALLOWLIST = frozenset(
     [
-        # LLM providers (gptme needs these to function)
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "OPENROUTER_API_KEY",
-        "GEMINI_API_KEY",
-        "GROQ_API_KEY",
-        "XAI_API_KEY",
-        "MISTRAL_API_KEY",
         # Shell basics
+        # NOTE: Provider API keys are intentionally excluded. LLM calls are
+        # made in the parent Python process, not in the sandboxed bash shell.
+        # Exposing credentials inside the sandbox (especially with
+        # GPTME_SANDBOX_NET=1) would allow agent-generated commands to
+        # exfiltrate them. Add keys to a custom env_allowlist if your workflow
+        # needs agent scripts to call the LLM provider directly.
         "HOME",
         "USER",
         "LOGNAME",
@@ -132,15 +130,11 @@ def wrap_shell_cmd(config: SandboxConfig, cmd: list[str]) -> list[str]:
 
     For backend=="none", returns cmd unchanged.
     For firejail/bwrap, prepends the sandbox invocation.
+    The caller is responsible for checking availability (check_available())
+    before calling this function.
     """
     if not config.enabled:
         return cmd
-
-    available, msg = config.check_available()
-    if not available:
-        logger.warning("Sandbox backend unavailable — running unsandboxed: %s", msg)
-        return cmd
-
     if config.backend == "firejail":
         return _firejail_cmd(config, cmd)
     if config.backend == "bwrap":
@@ -228,14 +222,18 @@ def _bwrap_cmd(config: SandboxConfig, inner: list[str]) -> list[str]:
         if Path(etc_file).exists():
             cmd.extend(["--ro-bind", etc_file, etc_file])
 
-    # Workspace: read-write
-    cmd.extend(["--bind", workspace, workspace])
-
     # Scratch dirs
     cmd.extend(["--proc", "/proc"])
     cmd.extend(["--dev", "/dev"])
     cmd.extend(["--tmpfs", "/tmp"])
-    cmd.extend(["--tmpfs", "/home"])  # blank home — no credentials
+    # Blank home hides credentials (~/.ssh, ~/.aws, etc.).
+    # Must come BEFORE the workspace bind so that when the workspace is under
+    # /home (e.g. /home/user/project) the subsequent --bind overrides the tmpfs
+    # at that specific path, making the workspace accessible.
+    cmd.extend(["--tmpfs", "/home"])
+
+    # Workspace: read-write (after home tmpfs so it wins when under /home)
+    cmd.extend(["--bind", workspace, workspace])
 
     # Optional read-only home overlay (exposes home files read-only)
     if config.ro_home:
