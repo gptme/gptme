@@ -24,12 +24,29 @@ export function highlightCode(
 ): HighlightResult {
   if (!code) return { code: '' };
 
+  const escapeHtml = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // gptme tool-output blocks contain plain text (command output, error messages, etc.).
+  // Calling hljs.highlightAuto on these is expensive (runs all grammars) and wrong —
+  // it mis-detects random languages in arbitrary command output. Return escaped text.
+  const GPTME_PLAIN_OUTPUT = new Set(['stdout', 'stderr', 'output']);
+
   try {
     // Normalize language name
     if (language) {
       // Handle common aliases
       if (language === 'shell') language = 'bash';
       if (language === 'result') language = 'markdown';
+      // Map gptme tool invocation tags to their correct hljs equivalents
+      if (language === 'ipython') language = 'python';
+      if (language === 'tmux') language = 'bash';
+      if (language === 'patch' || language === 'morph') language = 'diff';
+
+      // Tool output: plain text, skip expensive auto-detection
+      if (GPTME_PLAIN_OUTPUT.has(language)) {
+        return { code: escapeHtml(code), language };
+      }
 
       // Check if language is supported
       if (hljs.getLanguage(language)) {
@@ -44,11 +61,11 @@ export function highlightCode(
     }
 
     // Return escaped plain text for larger blocks or when auto-detect is disabled
-    return { code: code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') };
+    return { code: escapeHtml(code) };
   } catch (error) {
     console.warn('Syntax highlighting error:', error);
     // Return escaped text on error
-    return { code: code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') };
+    return { code: escapeHtml(code) };
   }
 }
 

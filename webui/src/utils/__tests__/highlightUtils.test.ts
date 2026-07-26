@@ -1,0 +1,66 @@
+import { highlightCode } from '../highlightUtils';
+
+describe('highlightCode', () => {
+  const code = 'x = 1\ny = 2\n';
+
+  it('handles empty input', () => {
+    expect(highlightCode('')).toEqual({ code: '' });
+  });
+
+  it('highlights known languages correctly', () => {
+    const result = highlightCode(code, 'python');
+    expect(result.language).toBe('python');
+    expect(result.code).toContain('class');
+  });
+
+  // gptme tool invocation tag mappings
+  it('maps ipython → python', () => {
+    const result = highlightCode(code, 'ipython');
+    expect(result.language).toBe('python');
+  });
+
+  it('maps tmux → bash', () => {
+    const result = highlightCode('ls -la', 'tmux');
+    expect(result.language).toBe('bash');
+  });
+
+  it('maps patch → diff', () => {
+    const result = highlightCode('--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new', 'patch');
+    expect(result.language).toBe('diff');
+  });
+
+  it('maps morph → diff', () => {
+    const result = highlightCode('--- a/file\n+++ b/file\n', 'morph');
+    expect(result.language).toBe('diff');
+  });
+
+  // gptme tool output tags: must return plain escaped text without auto-detection
+  it('returns escaped plain text for stdout without running hljs.highlightAuto', () => {
+    const output = 'Hello, world!\n<not-html>\n';
+    const result = highlightCode(output, 'stdout');
+    expect(result.language).toBe('stdout');
+    // HTML entities escaped
+    expect(result.code).toContain('&lt;not-html&gt;');
+    // No hljs span tags
+    expect(result.code).not.toContain('<span');
+  });
+
+  it('returns escaped plain text for stderr', () => {
+    const output = 'Error: something went wrong\n<traceback>\n';
+    const result = highlightCode(output, 'stderr');
+    expect(result.language).toBe('stderr');
+    expect(result.code).toContain('&lt;traceback&gt;');
+    expect(result.code).not.toContain('<span');
+  });
+
+  it('returns escaped plain text for output', () => {
+    const result = highlightCode('plain output', 'output');
+    expect(result.language).toBe('output');
+    expect(result.code).not.toContain('<span');
+  });
+
+  it('escapes HTML entities in plain text output', () => {
+    const result = highlightCode('<b>bold</b> & "quoted"', 'stdout');
+    expect(result.code).toBe('&lt;b&gt;bold&lt;/b&gt; &amp; "quoted"');
+  });
+});
