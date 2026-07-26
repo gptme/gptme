@@ -25,7 +25,8 @@ test.describe('Performance: sidebar hot-loop prevention', () => {
 
     // Open the demo conversation to populate the Observable store with messages
     await page.getByText('Introduction to gptme').click();
-    await expect(page.getByText(/Hello! I'm gptme/)).toBeVisible({ timeout: 10000 });
+    // With virtualization only viewport messages are in the DOM; check any message rendered.
+    await expect(page.locator('[data-message-index]').first()).toBeVisible({ timeout: 10000 });
 
     // Use CDP Performance.getMetrics instead of the removed page.metrics() API
     const cdp = await page.context().newCDPSession(page);
@@ -46,7 +47,7 @@ test.describe('Performance: sidebar hot-loop prevention', () => {
       await page.goto('/', { waitUntil: 'domcontentloaded' });
       await expect(page.getByTestId('conversation-list')).toBeVisible();
       await page.getByText('Introduction to gptme').click();
-      await expect(page.getByText(/Hello! I'm gptme/)).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('[data-message-index]').first()).toBeVisible({ timeout: 10000 });
     }
 
     const afterHeap = await sampleHeapUsed();

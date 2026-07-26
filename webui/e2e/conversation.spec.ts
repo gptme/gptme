@@ -186,8 +186,8 @@ test.describe('Split View', () => {
     await page.goto('/chat/introduction');
     await page.waitForLoadState('networkidle');
 
-    // Should see the conversation content
-    await expect(page.getByText(/Hello! I'm gptme/)).toBeVisible({ timeout: 10000 });
+    // Should see the conversation content (virtualizer shows only viewport messages)
+    await expect(page.locator('[data-message-index]').first()).toBeVisible({ timeout: 10000 });
 
     // Press keyboard shortcut (Ctrl+Shift+\) to open split view
     await page.keyboard.press('Control+Shift+\\');
