@@ -314,6 +314,11 @@ def sandbox_exec_python(
     ) as f:
         f.write(code)
         script_path = Path(f.name)
+    # NamedTemporaryFile creates mode 0600. Once all container capabilities are
+    # dropped, container root cannot bypass that host ownership check on a bind
+    # mount. The script contains only the caller-provided code and is mounted
+    # read-only, so make it world-readable before starting the container.
+    script_path.chmod(0o644)
 
     try:
         workspace = str(config.workspace.resolve())
