@@ -75,7 +75,7 @@ jobs:
     # Derive OCI labels for the base image (same pattern as server)
     - name: Docker meta (base)
       id: meta-base
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@v6
       with:
         images: ghcr.io/${{ env.OWNER_LC }}/gptme
         context: git
@@ -99,7 +99,7 @@ jobs:
     # build metadata directly off the image instead of guessing "unknown".
     - name: Docker meta (server)
       id: meta-server
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@v6
       with:
         images: ghcr.io/${{ env.OWNER_LC }}/gptme-server
         # Use git CLI context so org.opencontainers.image.revision reflects
@@ -125,7 +125,7 @@ jobs:
     # Derive OCI labels for the eval image (same pattern as server)
     - name: Docker meta (eval)
       id: meta-eval
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@v6
       with:
         images: ghcr.io/${{ env.OWNER_LC }}/gptme-eval
         context: git
