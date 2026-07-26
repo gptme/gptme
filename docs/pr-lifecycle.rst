@@ -19,7 +19,7 @@ Quick expectations
   merged PRs, the median time from open to merge was **2.29 hours**.
 
 - Human maintainer follow-up is less uniform than bot feedback. Only 11 of those
-  50 merged PRs needed an on-thread maintainer reply or review, but when that
+  50 merged PRs had on-thread maintainer follow-up, but when that
   happened the median first maintainer response was **1.32 hours**.
 
 - ``master`` currently has **no GitHub branch-protection rule**. Merge decisions
