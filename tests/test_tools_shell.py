@@ -1811,6 +1811,11 @@ def test_needs_tty_sudo_detection():
             assert shell._needs_tty(
                 "DEBIAN_FRONTEND=noninteractive sudo apt install vim"
             )
+
+            # A separate TTY subprocess would bypass the configured sandbox.
+            with patch("gptme.tools.shell.SandboxConfig.from_env") as from_env:
+                from_env.return_value.enabled = True
+                assert not shell._needs_tty("sudo apt install vim")
     finally:
         shell.close()
 

@@ -348,6 +348,10 @@ class ShellSession:
             return False  # No /dev/tty on Windows
         if not sys.stdin.isatty():
             return False
+        if SandboxConfig.from_env().enabled:
+            # _run_with_tty launches a separate host process, outside the persistent
+            # sandbox. Keep sandboxed commands on the isolated shell instead.
+            return False
         # Check for sudo without -S (stdin password) or -n (non-interactive)
         try:
             parts = shlex.split(command)
