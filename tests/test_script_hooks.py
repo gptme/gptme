@@ -249,6 +249,38 @@ def test_script_hook_failure_and_timeout_are_logged(tmp_path, caplog):
     assert timed_out.communicate.call_count == 2
 
 
+@pytest.mark.parametrize("taskkill_error", [OSError("missing"), None])
+def test_windows_timeout_cleanup_failure_is_not_silenced(
+    tmp_path, caplog, taskkill_error
+):
+    register_script_hooks(
+        [ScriptHookConfig(event="session.end", command="sleep forever")],
+        tmp_path,
+    )
+    process = MagicMock(pid=202)
+    process.communicate.side_effect = subprocess.TimeoutExpired("sleep", 30)
+    taskkill = MagicMock(returncode=1)
+    run_result = taskkill_error if taskkill_error is not None else taskkill
+
+    with (
+        caplog.at_level(logging.ERROR, logger="gptme.hooks.script"),
+        patch("gptme.hooks.script.sys.platform", "win32"),
+        patch("gptme.hooks.script.subprocess.Popen", return_value=process),
+        patch("gptme.hooks.script.subprocess.run", side_effect=run_result),
+    ):
+        list(
+            trigger_hook(
+                HookType.SESSION_END,
+                manager=_make_manager(tmp_path / "session-windows-failure"),
+            )
+        )
+
+    process.kill.assert_not_called()
+    assert process.communicate.call_count == 1
+    assert "process tree could not be terminated" in caplog.text
+    assert "Error executing hook" in caplog.text
+
+
 def test_windows_timeout_kills_and_drains_process(tmp_path, caplog):
     register_script_hooks(
         [ScriptHookConfig(event="session.end", command="sleep forever")],

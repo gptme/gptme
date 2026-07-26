@@ -40,11 +40,15 @@ def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
                 stderr=subprocess.DEVNULL,
                 check=False,
             )
-        except OSError:
-            process.kill()
-        else:
-            if result.returncode != 0:
-                process.kill()
+        except OSError as exc:
+            raise RuntimeError(
+                f"failed to launch taskkill for process tree {process.pid}"
+            ) from exc
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"taskkill failed for process tree {process.pid} "
+                f"with exit code {result.returncode}"
+            )
         return
 
     try:
@@ -85,7 +89,17 @@ def _run_script_hook(
     try:
         _stdout, stderr = process.communicate(timeout=hook.timeout)
     except subprocess.TimeoutExpired:
-        _terminate_process_tree(process)
+        try:
+            _terminate_process_tree(process)
+        except Exception:
+            logger.exception(
+                "Script hook %s timed out after %ds and its process tree "
+                "could not be terminated: %s",
+                hook.event,
+                hook.timeout,
+                hook.command,
+            )
+            raise
         process.communicate()
         logger.warning(
             "Script hook %s timed out after %ds: %s",
