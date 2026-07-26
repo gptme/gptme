@@ -40,6 +40,7 @@
 - [Lessons](https://gptme.org/docs/_sources/lessons.rst)
 - [Skills](https://gptme.org/docs/_sources/skills.rst)
 - [Contributing](https://gptme.org/docs/_sources/contributing.rst)
+- [PR lifecycle](https://gptme.org/docs/_sources/pr-lifecycle.rst)
 - [Building Executables](https://gptme.org/docs/_sources/building.rst)
 - [Custom Tools](https://gptme.org/docs/_sources/custom_tool.rst)
 - [Hooks](https://gptme.org/docs/_sources/hooks.rst)

@@ -6,6 +6,10 @@ We welcome contributions to the project. Here is some information to get you sta
 .. note::
     This document is a work in progress. PRs are welcome.
 
+If you already have a change ready, read :doc:`pr-lifecycle` for the current
+pull-request flow: what automation runs, what maintainers look for, and the
+recent response/merge timings contributors can expect.
+
 Looking to **add a new LLM provider**? See :doc:`provider-integration` for the
 dedicated guide covering plugin packages, custom provider configs, and built-in
 provider PRs.
