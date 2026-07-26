@@ -298,6 +298,7 @@ class ProjectConfig:
     files: list[str] | None = None
     exclude: list[str] = field(default_factory=list)
     context_cmd: str | None = None
+    on_stop: str | None = None
     rag: RagConfig = field(default_factory=RagConfig)
     agent: AgentConfig | None = None
     lessons: LessonsConfig = field(default_factory=LessonsConfig)
@@ -342,6 +343,7 @@ class ProjectConfig:
             files = prompt_data.pop("files", None)
             exclude = prompt_data.pop("exclude", [])
             context_cmd = prompt_data.pop("context_cmd", None)
+            on_stop = prompt_data.pop("on_stop", None)
         else:
             # Old format: flat structure, prompt_data contains the prompt string
             prompt = prompt_data
@@ -349,6 +351,7 @@ class ProjectConfig:
             files = config_data.pop("files", None)
             exclude = []
             context_cmd = config_data.pop("context_cmd", None)
+            on_stop = config_data.pop("on_stop", None)
 
         rag = _build_section("rag", RagConfig, _pop_object_section(config_data, "rag"))
 
@@ -446,6 +449,7 @@ class ProjectConfig:
             files=files,
             exclude=exclude,
             context_cmd=context_cmd,
+            on_stop=on_stop,
             rag=rag,
             agent=agent,
             lessons=lessons,

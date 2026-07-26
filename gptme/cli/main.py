@@ -36,9 +36,9 @@ from ..gears import parse_gear, resolve_gear
 # them instead.
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Generator
 
-    from ..logmanager import ConversationMeta
+    from ..logmanager import ConversationMeta, LogManager
     from ..prompts import ContextMode
     from ..tools import ToolFormat
 
@@ -447,6 +447,41 @@ Utilities:
 Run 'gptme-util --help' for all utility commands."""
 
 
+def _register_on_stop_hook(cmd: str, workspace: Path) -> None:
+    """Register a SESSION_END hook that runs ``cmd`` as a fire-and-forget shell command."""
+    from ..hooks import HookType, register_hook  # fmt: skip
+
+    def _on_stop_hook(manager: LogManager) -> Generator:
+        logdir = manager.logdir
+        model = os.environ.get("GPTME_MODEL", "")
+        env = {**os.environ, "GPTME_LOGDIR": str(logdir), "GPTME_MODEL": model}
+        try:
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                check=False,
+                cwd=workspace,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "on_stop command failed (exit %d): %s",
+                    result.returncode,
+                    result.stderr.strip(),
+                )
+        except subprocess.TimeoutExpired:
+            logger.warning("on_stop command timed out after 60s: %s", cmd)
+        except Exception as e:
+            logger.warning("on_stop command error: %s", e)
+        return
+        yield  # make it a generator
+
+    register_hook("on_stop", HookType.SESSION_END, _on_stop_hook)
+
+
 @click.command(
     help=docstring,
     context_settings={"auto_envvar_prefix": "GPTME"},
@@ -524,6 +559,13 @@ Run 'gptme-util --help' for all utility commands."""
     "prompt_system",
     default=None,
     help="System prompt [full|full-noexamples|short|<custom>]. Defaults to 'full', or the value of `system` in gptme.toml [prompt] if set. 'full-noexamples' omits tool examples (~40% token reduction).",
+)
+@click.option(
+    "--on-stop",
+    "on_stop",
+    default=None,
+    envvar="GPTME_ON_STOP",
+    help="Shell command to run at session end (fire-and-forget). Runs in the workspace directory with GPTME_LOGDIR and GPTME_MODEL set.",
 )
 @click.option(
     "-t",
@@ -716,6 +758,7 @@ def main(
     output_schema: str | None,
     injection_hygiene: str | None,
     manifest_dir: Path | None,
+    on_stop: str | None,
 ):
     """Main entrypoint for the CLI."""
 
@@ -1463,6 +1506,11 @@ def main(
             )
         ]
         initial_msgs = list(initial_msgs) + [editor_injection]
+
+    # Resolve on_stop: CLI flag takes precedence over project config
+    effective_on_stop = on_stop or (config.project.on_stop if config.project else None)
+    if effective_on_stop:
+        _register_on_stop_hook(effective_on_stop, config.chat.workspace)
 
     try:
         chat(
