@@ -1,13 +1,15 @@
 """Tests for the on_stop session-end hook."""
 
 import subprocess
+import threading
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gptme.config.models import ProjectConfig
-from gptme.hooks import HookType, clear_hooks, trigger_hook
+from gptme.hooks import HookType, clear_hooks, get_hooks, trigger_hook
 
 
 @pytest.fixture(autouse=True)
@@ -55,6 +57,7 @@ def test_on_stop_hook_runs_command(tmp_path):
     with patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stderr="")
         list(trigger_hook(HookType.SESSION_END, manager=manager))
+        time.sleep(0.1)  # wait for async hook thread before mock reverts
 
     mock_run.assert_called_once()
     call_kwargs = mock_run.call_args
@@ -79,6 +82,7 @@ def test_on_stop_hook_runs_on_session_complete_path(tmp_path):
 
     with patch("subprocess.run", side_effect=fake_run):
         list(trigger_hook(HookType.SESSION_END, manager=manager))
+        time.sleep(0.1)  # wait for async hook thread before mock reverts
 
     assert len(called) == 1
 
@@ -90,12 +94,18 @@ def test_on_stop_hook_failure_is_logged_not_raised(tmp_path, caplog):
     _register_on_stop_hook("exit 1", tmp_path)
     manager = _make_manager(tmp_path / "session-err")
 
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=1, stderr="something went wrong")
+    completed = threading.Event()
+
+    def failing_run(*args, **kwargs):
+        completed.set()
+        return MagicMock(returncode=1, stderr="something went wrong")
+
+    with patch("subprocess.run", side_effect=failing_run):
         import logging
 
         with caplog.at_level(logging.WARNING, logger="gptme.cli.main"):
             list(trigger_hook(HookType.SESSION_END, manager=manager))
+            assert completed.wait(timeout=1)
 
     assert any("on_stop command failed" in r.message for r in caplog.records)
 
@@ -107,11 +117,18 @@ def test_on_stop_hook_timeout_is_logged_not_raised(tmp_path, caplog):
     _register_on_stop_hook("sleep 9999", tmp_path)
     manager = _make_manager(tmp_path / "session-timeout")
 
-    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("sleep", 30)):
+    completed = threading.Event()
+
+    def timing_out_run(*args, **kwargs):
+        completed.set()
+        raise subprocess.TimeoutExpired("sleep", 30)
+
+    with patch("subprocess.run", side_effect=timing_out_run):
         import logging
 
         with caplog.at_level(logging.WARNING, logger="gptme.cli.main"):
             list(trigger_hook(HookType.SESSION_END, manager=manager))
+            assert completed.wait(timeout=1)
 
     assert any("timed out" in r.message for r in caplog.records)
 
@@ -123,9 +140,58 @@ def test_on_stop_hook_passes_model_from_registration(tmp_path):
     _register_on_stop_hook("echo model", tmp_path, model="anthropic/claude-opus-5")
     manager = _make_manager(tmp_path / "session-model")
 
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
+    completed = threading.Event()
+
+    def fake_run(*args, **kwargs):
+        completed.set()
+        return MagicMock(returncode=0, stderr="")
+
+    with patch("subprocess.run", side_effect=fake_run) as mock_run:
         list(trigger_hook(HookType.SESSION_END, manager=manager))
+        assert completed.wait(timeout=1)
 
     env = mock_run.call_args.kwargs["env"]
     assert env["GPTME_MODEL"] == "anthropic/claude-opus-5"
+
+
+def test_on_stop_hook_is_non_blocking(tmp_path):
+    """SESSION_END returns without waiting for the command to finish."""
+    from gptme.cli.main import _register_on_stop_hook
+
+    _register_on_stop_hook("sleep forever", tmp_path, model="test/model")
+    hook = get_hooks(HookType.SESSION_END)[0]
+    assert hook.async_mode is True
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_run(*args, **kwargs):
+        started.set()
+        assert release.wait(timeout=1)
+        return MagicMock(returncode=0, stderr="")
+
+    manager = _make_manager(tmp_path / "session-async")
+    with patch("subprocess.run", side_effect=blocking_run):
+        list(trigger_hook(HookType.SESSION_END, manager=manager))
+        assert started.wait(timeout=1)
+        assert not release.is_set()
+        release.set()
+
+
+def test_on_stop_hook_uses_effective_config_model(tmp_path):
+    """Registration accepts the resolved model from project or resumed config."""
+    from gptme.cli.main import _register_on_stop_hook
+
+    _register_on_stop_hook("echo model", tmp_path, model="openai/gpt-5.4")
+    manager = _make_manager(tmp_path / "session-config-model")
+    completed = threading.Event()
+
+    def fake_run(*args, **kwargs):
+        completed.set()
+        return MagicMock(returncode=0, stderr="")
+
+    with patch("subprocess.run", side_effect=fake_run) as mock_run:
+        list(trigger_hook(HookType.SESSION_END, manager=manager))
+        assert completed.wait(timeout=1)
+
+    assert mock_run.call_args.kwargs["env"]["GPTME_MODEL"] == "openai/gpt-5.4"
