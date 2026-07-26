@@ -247,15 +247,16 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     expandedGroups$.set(next);
   };
 
-  // Structural key: encodes only message count and logOffset.
+  // Structural key: encodes message count, logOffset, and wholesale-log revision.
   // The selector re-runs on every log mutation (including streaming tokens), but its
-  // VALUE (e.g. "12:0") only changes when messages are added/removed or the window
-  // shifts. Legend State compares by value, so downstream observers only fire on
-  // actual structural changes — not on per-token content updates.
+  // VALUE (e.g. "12:0:3") changes only when messages are added/removed, the window
+  // shifts, or the log is replaced after an edit/branch switch/reload. Legend State
+  // compares by value, so downstream observers skip per-token content updates.
   const logStructureKey$ = useObservable(() => {
     const count = conversation$?.data.log.get()?.length ?? 0;
     const offset = conversation$?.logOffset?.get() ?? 0;
-    return `${count}:${offset}`;
+    const revision = conversation$?.logRevision?.get() ?? 0;
+    return `${count}:${offset}:${revision}`;
   });
 
   // Recompute step roles when the message structure or visibility settings change.
@@ -267,9 +268,9 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     const showInitial = showInitialSystem$.get();
     const showHidden = showHiddenMessages$.get();
 
-    const sep = structureKey.indexOf(':');
-    const messageCount = parseInt(structureKey.slice(0, sep), 10);
-    const logOffset = parseInt(structureKey.slice(sep + 1), 10);
+    const [messageCountText, logOffsetText] = structureKey.split(':');
+    const messageCount = parseInt(messageCountText, 10);
+    const logOffset = parseInt(logOffsetText, 10);
 
     if (!messageCount) {
       stepRoles$.set(new Map());

@@ -103,6 +103,17 @@ describe('updateConversationData window metadata', () => {
     updateConversationData(id, makeResponse());
     expect(conversations$.get(id)?.isWindowHydrated.get()).toBe(true);
   });
+
+  it('increments logRevision for same-size full-log replacements', () => {
+    const first = makeResponse({ log: [msg('user', 'first')] });
+    const replacement = makeResponse({ log: [msg('assistant', 'replacement')] });
+
+    updateConversationData(id, first);
+    const revision = conversations$.get(id)?.logRevision.get();
+    updateConversationData(id, replacement);
+
+    expect(conversations$.get(id)?.logRevision.get()).toBe((revision ?? 0) + 1);
+  });
 });
 
 describe('replaceLog window metadata reset', () => {
@@ -116,12 +127,14 @@ describe('replaceLog window metadata reset', () => {
 
   it('resets logOffset and hasMoreBefore to full-log defaults after server mutation', () => {
     const fullLog = [msg('user', 'hi'), msg('assistant', 'hello')];
+    const revision = conversations$.get(id)?.logRevision.get();
     replaceLog(id, fullLog);
 
     const conv = conversations$.get(id);
     expect(conv?.logOffset.get()).toBe(0);
     expect(conv?.hasMoreBefore.get()).toBe(false);
     expect(conv?.isWindowHydrated.get()).toBe(true);
+    expect(conv?.logRevision.get()).toBe((revision ?? 0) + 1);
   });
 });
 
@@ -183,6 +196,7 @@ describe('setCurrentBranch window metadata reset', () => {
   });
 
   it('resets window metadata when switching branches', () => {
+    const revision = conversations$.get(id)?.logRevision.get();
     setCurrentBranch(id, 'alt');
 
     const conv = conversations$.get(id);
@@ -191,6 +205,7 @@ describe('setCurrentBranch window metadata reset', () => {
     expect(conv?.logOffset.get()).toBe(0);
     expect(conv?.hasMoreBefore.get()).toBe(false);
     expect(conv?.isWindowHydrated.get()).toBe(true);
+    expect(conv?.logRevision.get()).toBe((revision ?? 0) + 1);
   });
 
   it('does not switch to a non-existent branch', () => {

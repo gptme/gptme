@@ -66,6 +66,7 @@ function makeConversationState() {
     chatConfig: null,
     needsInitialStep: false,
     currentBranch: 'main',
+    logRevision: 0,
     logOffset: 0,
     isWindowHydrated: true,
     lastMessage: undefined,
