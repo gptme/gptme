@@ -114,7 +114,7 @@ jobs:
 
     - name: Upload visual snapshot diffs on failure
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: tui-visual-snapshot-diffs
         path: tests/snapshots/*.actual.svg
