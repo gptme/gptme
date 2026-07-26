@@ -107,10 +107,25 @@ def test_on_stop_hook_timeout_is_logged_not_raised(tmp_path, caplog):
     _register_on_stop_hook("sleep 9999", tmp_path)
     manager = _make_manager(tmp_path / "session-timeout")
 
-    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("sleep", 60)):
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("sleep", 30)):
         import logging
 
         with caplog.at_level(logging.WARNING, logger="gptme.cli.main"):
             list(trigger_hook(HookType.SESSION_END, manager=manager))
 
     assert any("timed out" in r.message for r in caplog.records)
+
+
+def test_on_stop_hook_passes_model_from_registration(tmp_path):
+    """Model passed at registration time takes precedence over GPTME_MODEL env."""
+    from gptme.cli.main import _register_on_stop_hook
+
+    _register_on_stop_hook("echo model", tmp_path, model="anthropic/claude-opus-5")
+    manager = _make_manager(tmp_path / "session-model")
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        list(trigger_hook(HookType.SESSION_END, manager=manager))
+
+    env = mock_run.call_args.kwargs["env"]
+    assert env["GPTME_MODEL"] == "anthropic/claude-opus-5"

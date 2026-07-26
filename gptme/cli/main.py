@@ -447,14 +447,24 @@ Utilities:
 Run 'gptme-util --help' for all utility commands."""
 
 
-def _register_on_stop_hook(cmd: str, workspace: Path) -> None:
-    """Register a SESSION_END hook that runs ``cmd`` as a fire-and-forget shell command."""
+def _register_on_stop_hook(cmd: str, workspace: Path, model: str = "") -> None:
+    """Register a SESSION_END hook that runs ``cmd`` as a fire-and-forget shell command.
+
+    Runs in a background thread (async_mode=True) so session teardown is not
+    blocked. ``GPTME_LOGDIR`` and ``GPTME_MODEL`` are injected into env.
+    Trust model: same as ``context_cmd`` — the caller controls the project config.
+    """
     from ..hooks import HookType, register_hook  # fmt: skip
+
+    effective_model = model or os.environ.get("GPTME_MODEL", "")
 
     def _on_stop_hook(manager: LogManager) -> Generator:
         logdir = manager.logdir
-        model = os.environ.get("GPTME_MODEL", "")
-        env = {**os.environ, "GPTME_LOGDIR": str(logdir), "GPTME_MODEL": model}
+        env = {
+            **os.environ,
+            "GPTME_LOGDIR": str(logdir),
+            "GPTME_MODEL": effective_model,
+        }
         try:
             result = subprocess.run(
                 cmd,
@@ -464,7 +474,7 @@ def _register_on_stop_hook(cmd: str, workspace: Path) -> None:
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=30,
             )
             if result.returncode != 0:
                 logger.warning(
@@ -473,13 +483,13 @@ def _register_on_stop_hook(cmd: str, workspace: Path) -> None:
                     result.stderr.strip(),
                 )
         except subprocess.TimeoutExpired:
-            logger.warning("on_stop command timed out after 60s: %s", cmd)
+            logger.warning("on_stop command timed out after 30s: %s", cmd)
         except Exception as e:
             logger.warning("on_stop command error: %s", e)
         return
         yield  # make it a generator
 
-    register_hook("on_stop", HookType.SESSION_END, _on_stop_hook)
+    register_hook("on_stop", HookType.SESSION_END, _on_stop_hook, async_mode=True)
 
 
 @click.command(
@@ -1510,7 +1520,9 @@ def main(
     # Resolve on_stop: CLI flag takes precedence over project config
     effective_on_stop = on_stop or (config.project.on_stop if config.project else None)
     if effective_on_stop:
-        _register_on_stop_hook(effective_on_stop, config.chat.workspace)
+        _register_on_stop_hook(
+            effective_on_stop, config.chat.workspace, model=model or ""
+        )
 
     try:
         chat(
