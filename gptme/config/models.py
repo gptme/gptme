@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 VALID_PROJECT_SYSTEM_PROMPTS = {"full", "short"}
+MAX_SCRIPT_HOOK_TIMEOUT = 300
 
 
 def _pop_object_section(config_data: dict, key: str) -> dict:
@@ -70,8 +71,11 @@ class ScriptHookConfig:
             raise ValueError("hooks.scripts command must not be empty")
         if not isinstance(self.timeout, int) or isinstance(self.timeout, bool):
             raise ValueError("hooks.scripts timeout must be an integer")
-        if self.timeout <= 0:
-            raise ValueError("hooks.scripts timeout must be greater than zero")
+        if not 0 < self.timeout <= MAX_SCRIPT_HOOK_TIMEOUT:
+            raise ValueError(
+                "hooks.scripts timeout must be between 1 and "
+                f"{MAX_SCRIPT_HOOK_TIMEOUT} seconds"
+            )
 
 
 @dataclass

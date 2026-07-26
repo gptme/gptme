@@ -90,21 +90,24 @@ def test_session_end_script_hook_runs_synchronously_with_metadata(tmp_path):
     register_script_hooks([hook], tmp_path)
 
     manager = _make_manager(logdir)
-    with patch("gptme.hooks.script.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
+    with patch("gptme.hooks.script.subprocess.Popen") as mock_popen:
+        process = mock_popen.return_value
+        process.communicate.return_value = ("", "")
+        process.returncode = 0
         list(trigger_hook(HookType.SESSION_END, manager=manager))
 
     registered = get_hooks(HookType.SESSION_END)
     assert len(registered) == 1
     assert registered[0].async_mode is False
-    mock_run.assert_called_once()
-    kwargs = mock_run.call_args.kwargs
+    mock_popen.assert_called_once()
+    kwargs = mock_popen.call_args.kwargs
     assert kwargs["cwd"] == tmp_path
-    assert kwargs["timeout"] == 17
     assert kwargs["env"]["GPTME_HOOK_EVENT"] == "session.end"
     assert kwargs["env"]["GPTME_LOGDIR"] == str(logdir)
     assert kwargs["env"]["GPTME_WORKSPACE"] == str(tmp_path)
     assert kwargs["env"]["GPTME_MODEL"] == "openai/gpt-5.4"
+    assert kwargs["start_new_session"] is True
+    process.communicate.assert_called_once_with(timeout=17)
 
 
 def test_session_end_script_hook_reads_model_switch_at_trigger_time(tmp_path):
@@ -118,12 +121,14 @@ def test_session_end_script_hook_reads_model_switch_at_trigger_time(tmp_path):
     chat_config.model = "anthropic/claude-sonnet-4-6"
     chat_config.save()
 
-    with patch("gptme.hooks.script.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
+    with patch("gptme.hooks.script.subprocess.Popen") as mock_popen:
+        mock_popen.return_value.communicate.return_value = ("", "")
+        mock_popen.return_value.returncode = 0
         list(trigger_hook(HookType.SESSION_END, manager=_make_manager(logdir)))
 
     assert (
-        mock_run.call_args.kwargs["env"]["GPTME_MODEL"] == "anthropic/claude-sonnet-4-6"
+        mock_popen.call_args.kwargs["env"]["GPTME_MODEL"]
+        == "anthropic/claude-sonnet-4-6"
     )
 
 
@@ -134,8 +139,9 @@ def test_session_start_script_hook_uses_current_model_and_trigger_workspace(tmp_
         [ScriptHookConfig(event="session.start", command="echo start")], tmp_path
     )
 
-    with patch("gptme.hooks.script.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
+    with patch("gptme.hooks.script.subprocess.Popen") as mock_popen:
+        mock_popen.return_value.communicate.return_value = ("", "")
+        mock_popen.return_value.returncode = 0
         list(
             trigger_hook(
                 HookType.SESSION_START,
@@ -145,7 +151,7 @@ def test_session_start_script_hook_uses_current_model_and_trigger_workspace(tmp_
             )
         )
 
-    kwargs = mock_run.call_args.kwargs
+    kwargs = mock_popen.call_args.kwargs
     assert kwargs["env"]["GPTME_HOOK_EVENT"] == "session.start"
     assert kwargs["env"]["GPTME_MODEL"] == "openai/gpt-5.4"
     assert kwargs["cwd"] == tmp_path
@@ -159,19 +165,30 @@ def test_script_hook_failure_and_timeout_are_logged(tmp_path, caplog):
     register_script_hooks(hooks, tmp_path)
     manager = _make_manager(tmp_path / "session-errors")
 
-    def fake_run(command, **_kwargs):
-        if command == "exit 1":
-            return MagicMock(returncode=1, stderr="bad command")
-        raise subprocess.TimeoutExpired(command, 4)
+    failed = MagicMock(pid=101, returncode=1)
+    failed.communicate.return_value = ("", "bad command")
+    timed_out = MagicMock(pid=202)
+    timed_out.communicate.side_effect = [
+        subprocess.TimeoutExpired("sleep", 4),
+        ("", ""),
+    ]
 
     with (
         caplog.at_level(logging.WARNING, logger="gptme.hooks.script"),
-        patch("gptme.hooks.script.subprocess.run", side_effect=fake_run),
+        patch(
+            "gptme.hooks.script.subprocess.Popen",
+            side_effect=lambda command, **_kwargs: (
+                failed if command == "exit 1" else timed_out
+            ),
+        ),
+        patch("gptme.hooks.script.os.killpg") as killpg,
     ):
         list(trigger_hook(HookType.SESSION_END, manager=manager))
 
     assert "failed (exit 1): bad command" in caplog.text
     assert "timed out after 4s" in caplog.text
+    killpg.assert_called_once_with(202, 9)
+    assert timed_out.communicate.call_count == 2
 
 
 @pytest.mark.parametrize(
@@ -187,7 +204,11 @@ def test_script_hook_failure_and_timeout_are_logged(tmp_path, caplog):
         ),
         (
             {"event": "session.end", "command": "echo", "timeout": 0},
-            "timeout must be greater than zero",
+            "timeout must be between 1 and 300 seconds",
+        ),
+        (
+            {"event": "session.end", "command": "echo", "timeout": 301},
+            "timeout must be between 1 and 300 seconds",
         ),
         (
             {"event": "session.end", "command": "echo", "timeout": "slow"},

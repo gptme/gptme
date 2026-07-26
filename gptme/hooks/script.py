@@ -2,6 +2,7 @@
 
 import logging
 import os
+import signal
 import subprocess
 from collections.abc import Generator
 from pathlib import Path
@@ -35,33 +36,41 @@ def _run_script_hook(
         "GPTME_WORKSPACE": str(workspace),
         "GPTME_MODEL": model,
     }
+    process = subprocess.Popen(
+        hook.command,
+        shell=True,
+        cwd=workspace,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
     try:
-        result = subprocess.run(
-            hook.command,
-            shell=True,
-            check=False,
-            cwd=workspace,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=hook.timeout,
-        )
-        if result.returncode != 0:
-            logger.warning(
-                "Script hook %s failed (exit %d): %s",
-                hook.event,
-                result.returncode,
-                result.stderr.strip(),
-            )
+        _stdout, stderr = process.communicate(timeout=hook.timeout)
     except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
         logger.warning(
             "Script hook %s timed out after %ds: %s",
             hook.event,
             hook.timeout,
             hook.command,
         )
+        return
     except Exception as exc:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
         logger.warning("Script hook %s failed: %s", hook.event, exc)
+        return
+
+    if process.returncode != 0:
+        logger.warning(
+            "Script hook %s failed (exit %d): %s",
+            hook.event,
+            process.returncode,
+            stderr.strip(),
+        )
 
 
 def _current_model(logdir: Path) -> str:
