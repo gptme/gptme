@@ -40,10 +40,16 @@ class TestSandboxConfigFromEnv:
         assert cfg.backend == "bwrap"
         assert cfg.enabled
 
-    def test_unknown_backend_falls_back_to_none(self):
-        with patch.dict(os.environ, {"GPTME_SANDBOX": "nsjail"}):
-            cfg = SandboxConfig.from_env()
-        assert cfg.backend == "none"
+    def test_unknown_backend_fails_closed(self):
+        with (
+            patch.dict(os.environ, {"GPTME_SANDBOX": "nsjail"}),
+            pytest.raises(ValueError, match="Unsupported sandbox backend"),
+        ):
+            SandboxConfig.from_env()
+
+    def test_programmatic_unknown_backend_fails_closed(self):
+        with pytest.raises(ValueError, match="Unsupported sandbox backend"):
+            SandboxConfig(backend="nsjail")
 
     def test_network_disabled_by_default(self):
         with patch.dict(os.environ, {"GPTME_SANDBOX": "firejail"}):
@@ -221,6 +227,10 @@ class TestBwrapCmd:
     def test_new_session_present(self):
         assert "--new-session" in self._build()
 
+    def test_pid_namespace_isolated(self):
+        """The sandbox must not see the credential-bearing parent via /proc."""
+        assert "--unshare-pid" in self._build()
+
     def test_separator_before_inner_cmd(self):
         cmd = self._build()
         assert "--" in cmd
@@ -247,6 +257,34 @@ class TestBwrapCmd:
         assert workspace_bind_idx > tmpfs_home_idx, (
             "workspace --bind must appear after --tmpfs /home so it overrides"
             " the blank home mount when workspace is under /home"
+        )
+
+    def test_workspace_bind_after_read_only_home_overlay(self):
+        """A read-only home overlay must not hide a nested writable workspace."""
+        home = Path.home()
+        workspace = home / "project"
+        cmd = self._build(workspace=workspace, ro_home=True)
+        home_bind_idx = next(
+            (
+                i
+                for i, arg in enumerate(cmd)
+                if arg == "--ro-bind" and cmd[i + 1 : i + 3] == [str(home), str(home)]
+            ),
+            None,
+        )
+        workspace_bind_idx = next(
+            (
+                i
+                for i, arg in enumerate(cmd)
+                if arg == "--bind"
+                and cmd[i + 1 : i + 3] == [str(workspace), str(workspace)]
+            ),
+            None,
+        )
+        assert home_bind_idx is not None, "read-only home bind not found"
+        assert workspace_bind_idx is not None, "workspace bind not found"
+        assert workspace_bind_idx > home_bind_idx, (
+            "workspace --bind must appear after the read-only home overlay"
         )
 
 

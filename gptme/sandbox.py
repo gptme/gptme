@@ -92,13 +92,14 @@ class SandboxConfig:
     )
     mask_secrets: bool = True
 
+    def __post_init__(self) -> None:
+        if self.backend not in ("firejail", "bwrap", "none"):
+            raise ValueError(f"Unsupported sandbox backend: {self.backend!r}")
+
     @classmethod
     def from_env(cls, workspace: Path | None = None) -> SandboxConfig:
         """Build a SandboxConfig from environment variables."""
         backend = os.environ.get("GPTME_SANDBOX", "none").lower()
-        if backend not in ("firejail", "bwrap", "none"):
-            logger.warning("Unknown GPTME_SANDBOX value %r, using 'none'", backend)
-            backend = "none"
 
         allow_network = os.environ.get("GPTME_SANDBOX_NET", "0") == "1"
         ro_home = os.environ.get("GPTME_SANDBOX_RO_HOME", "0") == "1"
@@ -232,15 +233,17 @@ def _bwrap_cmd(config: SandboxConfig, inner: list[str]) -> list[str]:
     # at that specific path, making the workspace accessible.
     cmd.extend(["--tmpfs", "/home"])
 
-    # Workspace: read-write (after home tmpfs so it wins when under /home)
-    cmd.extend(["--bind", workspace, workspace])
-
-    # Optional read-only home overlay (exposes home files read-only)
+    # Optional read-only home overlay (exposes home files read-only). Apply it
+    # before the workspace bind so a workspace nested under home stays writable.
     if config.ro_home:
         home = str(Path.home())
         cmd.extend(["--ro-bind", home, home])
 
-    cmd.extend(["--new-session", "--die-with-parent"])
+    # Workspace: read-write (after every home mount so it wins when nested there)
+    cmd.extend(["--bind", workspace, workspace])
+
+    # Isolate procfs from the credential-bearing gptme parent process.
+    cmd.extend(["--unshare-pid", "--new-session", "--die-with-parent"])
 
     if not config.allow_network:
         cmd.append("--unshare-net")
