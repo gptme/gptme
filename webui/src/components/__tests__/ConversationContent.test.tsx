@@ -6,9 +6,17 @@
  * connection state and demo mode.
  */
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { observable } from '@legendapp/state';
+import type { Message } from '@/types/conversation';
 import { ConversationContent } from '../ConversationContent';
+
+const mockBuildStepRoles = jest.fn((_messages: Message[]) => new Map());
+
+jest.mock('@/utils/stepGrouping', () => ({
+  ...jest.requireActual('@/utils/stepGrouping'),
+  buildStepRoles: (messages: Message[]) => mockBuildStepRoles(messages),
+}));
 
 // --- Mocks ---
 
@@ -42,13 +50,14 @@ function makeConversationState() {
   return observable({
     loadError: null,
     data: {
-      log: [],
+      log: [] as Message[],
       logdir: 'demo/test',
       name: 'Test',
       id: 'demo/test',
       logfile: 'demo/test',
       branches: {},
       workspace: '/demo',
+      agent: {},
     },
     connectionStatus: 'connected',
     reconnectAttempt: null,
@@ -191,6 +200,10 @@ jest.mock('../ChatInput', () => ({
   ChatInput: () => <div data-testid="chat-input" />,
 }));
 
+jest.mock('../ChatMessage', () => ({
+  ChatMessage: () => <div data-testid="chat-message" />,
+}));
+
 jest.mock('../OpenConversationPathButton', () => ({
   OpenConversationPathButton: () => null,
 }));
@@ -208,6 +221,50 @@ jest.mock('@tanstack/react-query', () => ({
 function renderComponent() {
   return render(<ConversationContent conversationId="demo/test" />);
 }
+
+function message(role: Message['role'], content: string): Message {
+  return { role, content };
+}
+
+describe('step role recomputation', () => {
+  beforeEach(() => {
+    mockConversation$.set(makeConversationState().peek());
+    mockBuildStepRoles.mockClear();
+  });
+
+  it('does not recompute roles for streamed content updates', () => {
+    mockConversation$.data.log.set([
+      message('user', 'Write code'),
+      message('assistant', 'Working'),
+      message('system', 'Saved file'),
+      message('assistant', 'Initial response'),
+    ]);
+
+    const view = renderComponent();
+    expect(mockBuildStepRoles).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      mockConversation$.data.log[3].content.set('Initial response plus streamed token');
+    });
+
+    expect(mockBuildStepRoles).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  it('recomputes roles when a message is added', () => {
+    mockConversation$.data.log.set([message('user', 'Write code')]);
+
+    const view = renderComponent();
+    expect(mockBuildStepRoles).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      mockConversation$.data.log.push(message('assistant', 'Working'));
+    });
+
+    expect(mockBuildStepRoles).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+});
 
 describe('server disconnected banner', () => {
   beforeEach(() => {
