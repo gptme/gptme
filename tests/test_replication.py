@@ -22,6 +22,7 @@ from gptme.logmanager.replication import (
     recover_from_remote,
     reset_worker,
 )
+from gptme.message import Message
 
 if TYPE_CHECKING:
     pass
@@ -276,7 +277,7 @@ def test_get_worker_isolates_backend_and_retry_config(logdir: Path):
 def test_logmanager_forwards_branch_and_retry_config(
     logdir: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """LogManager forwards branch isolation and configured retry count."""
+    """LogManager forwards the production branch event source and config."""
     config = Config(
         user=UserConfig(
             session_event_log_replication=EventLogReplicationConfig(
@@ -289,11 +290,11 @@ def test_logmanager_forwards_branch_and_retry_config(
         )
     )
     token = _config_var.set(config)
-    calls: list[tuple[int, int, str]] = []
+    calls: list[tuple[Path, int, int, str]] = []
 
     class StubWorker:
         def enqueue(self, event_dir: Path, chat_id: str, branch: str) -> None:
-            calls.append((25, 7, branch))
+            calls.append((event_dir, 25, 7, branch))
 
     def stub_get_worker(backend, debounce_ms: int, max_retries: int):
         assert debounce_ms == 25
@@ -303,11 +304,36 @@ def test_logmanager_forwards_branch_and_retry_config(
     monkeypatch.setattr("gptme.logmanager.replication.get_worker", stub_get_worker)
     try:
         manager = LogManager(logdir=logdir, branch="experiment", lock=False)
-        manager._enqueue_replication(logdir)
+        manager.append(Message(role="user", content="branch message"))
     finally:
         _config_var.reset(token)
 
-    assert calls == [(25, 7, "experiment")]
+    branch_event_dir = logdir / "branches" / "experiment"
+    assert calls == [(branch_event_dir, 25, 7, "experiment")]
+    assert (branch_event_dir / eventlog.EVENT_LOG_NAME).exists()
+    assert not (logdir / "branches" / eventlog.EVENT_LOG_NAME).exists()
+
+
+def test_logmanager_keeps_non_main_branch_event_histories_separate(
+    logdir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Production writes never mix two non-main branch event streams."""
+    config = Config(user=UserConfig())
+    token = _config_var.set(config)
+    try:
+        manager = LogManager(logdir=logdir, branch="alpha", lock=False)
+        manager.append(Message(role="user", content="alpha message"))
+        manager.branch("beta")
+        manager.append(Message(role="user", content="beta message"))
+    finally:
+        _config_var.reset(token)
+
+    alpha = eventlog.recover_messages(logdir / "branches" / "alpha")
+    beta = eventlog.recover_messages(logdir / "branches" / "beta")
+    assert alpha is not None
+    assert beta is not None
+    assert [message["content"] for message in alpha] == ["alpha message"]
+    assert [message["content"] for message in beta] == ["beta message"]
 
 
 # ── recover_from_remote ───────────────────────────────────────────────────────

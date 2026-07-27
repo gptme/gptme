@@ -369,11 +369,15 @@ class LogManager:
         """Write an event to the event log and optionally a checkpoint.
 
         Writes a ``message_append``, ``message_edit``, or ``undo`` event
-        followed by a checkpoint if one is due.  Writes alongside the main
-        conversation JSONL (``get_logs_dir() / chat_id / events.jsonl``).
+        followed by a checkpoint if one is due. Main events live beside
+        ``conversation.jsonl``; branch events live under
+        ``branches/<branch>/events.jsonl`` so branch histories stay isolated.
         Silent-noop when the log directory is not set up yet.
         """
-        event_dir = self.logfile.parent
+        if self.current_branch == "main":
+            event_dir = self.logdir
+        else:
+            event_dir = self.logdir / "branches" / self.current_branch
         event_dir.mkdir(parents=True, exist_ok=True)
         seq = eventlog.sequence_number(event_dir)
         if event_type == eventlog.EVENT_MESSAGE_APPEND:
