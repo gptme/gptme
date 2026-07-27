@@ -255,21 +255,29 @@ def execute_python(
         yield Message("system", DECLINED_CONTENT)
         return
 
-    # Docker sandbox path: when GPTME_SANDBOX=docker, execute in a container
-    # instead of the in-process IPython REPL.
-    from ..sandbox import SandboxConfig, sandbox_exec_python
+    # Sandboxed execution path: docker or wasmtime backend.
+    from ..sandbox import (
+        SandboxConfig,
+        sandbox_exec_python,
+        sandbox_exec_wasmtime,
+    )
 
     sandbox_cfg = SandboxConfig.from_env(workspace=Path.cwd())
-    if sandbox_cfg.backend == "docker":
+    if sandbox_cfg.backend in ("docker", "wasmtime"):
         ok, avail_msg = sandbox_cfg.check_available()
         if not ok:
             yield Message(
                 "system",
-                f"Docker sandbox unavailable: {avail_msg}\n"
+                f"{sandbox_cfg.backend.capitalize()} sandbox unavailable: {avail_msg}\n"
                 "Set GPTME_SANDBOX=none to fall back to the unsandboxed IPython REPL.",
             )
             return
-        stdout, stderr, returncode = sandbox_exec_python(sandbox_cfg, code)
+        if sandbox_cfg.backend == "docker":
+            stdout, stderr, returncode = sandbox_exec_python(sandbox_cfg, code)
+            label = "Docker sandbox"
+        else:
+            stdout, stderr, returncode = sandbox_exec_wasmtime(sandbox_cfg, code)
+            label = "Wasmtime sandbox"
         output = ""
         if stdout:
             output += md_codeblock("stdout", stdout.rstrip()) + "\n\n"
@@ -279,7 +287,7 @@ def execute_python(
             output += f"Process exited with code {returncode}\n"
         yield Message(
             "system",
-            "Executed code block (Docker sandbox).\n\n" + output,
+            f"Executed code block ({label}).\n\n" + output,
         )
         return
 
@@ -372,7 +380,8 @@ def get_functions():
 
 
 def _instructions() -> str:
-    if os.environ.get("GPTME_SANDBOX", "none").lower() == "docker":
+    _sandbox_backend = os.environ.get("GPTME_SANDBOX", "none").lower()
+    if _sandbox_backend == "docker":
         return """
 Use this tool to execute a self-contained standard Python script in a fresh Docker
 container. Each call starts with no prior state. IPython syntax, registered host
@@ -383,6 +392,18 @@ and import needed by the script. Files in the workspace remain available.
 
 Use `python` for isolated computation and file-processing automation. Use `shell`
 when the command must use packages or tools installed only on the host.
+""".strip()
+    if _sandbox_backend == "wasmtime":
+        return """
+Use this tool to execute a self-contained standard Python script in a Wasmtime
+WASI sandbox. Each call starts with no prior state. IPython syntax, registered
+host functions, and native C-extension libraries are unavailable; use pure-Python
+code only. Files in the workspace are not accessible.
+
+### When to use the python tool
+
+Use `python` for self-contained computation using only the standard library.
+For tasks that need host libraries or file access, use `shell` instead.
 """.strip()
     return """
 Use this tool to execute Python code in an interactive IPython session.
@@ -451,30 +472,40 @@ def init() -> ToolSpec:
             for tf in loaded_tool.functions:
                 register_function(tf.fn)
 
-    docker_mode = os.environ.get("GPTME_SANDBOX", "none").lower() == "docker"
-    python_libraries = [] if docker_mode else get_installed_python_libraries()
+    _sandbox_backend = os.environ.get("GPTME_SANDBOX", "none").lower()
+    docker_mode = _sandbox_backend == "docker"
+    wasmtime_mode = _sandbox_backend == "wasmtime"
+    isolated_mode = docker_mode or wasmtime_mode
+    python_libraries = [] if isolated_mode else get_installed_python_libraries()
     python_libraries_str = (
         "\n".join(f"- {lib}" for lib in python_libraries)
         or "- no common libraries found"
     )
 
-    _appendix_full = (
-        "Docker image: "
-        + os.environ.get("GPTME_SANDBOX_DOCKER_IMAGE", "python:3.12-slim")
-        if docker_mode
-        else f"""Available libraries:
+    if docker_mode:
+        _appendix_full = "Docker image: " + os.environ.get(
+            "GPTME_SANDBOX_DOCKER_IMAGE", "python:3.12-slim"
+        )
+    elif wasmtime_mode:
+        _appendix_full = "Wasmtime WASI sandbox; pure-Python standard library only"
+    else:
+        _appendix_full = f"""Available libraries:
 {python_libraries_str}
 
 Available functions:
 {get_functions()}"""
-    )
 
     # Concise function list for tool format (stays within OpenAI's 1024-char limit, see #1697)
-    _appendix_concise = (
-        "Fresh Docker container; self-contained standard Python only"
-        if docker_mode
-        else f"Available functions: {', '.join(registered_functions.keys())}"
-    )
+    if docker_mode:
+        _appendix_concise = (
+            "Fresh Docker container; self-contained standard Python only"
+        )
+    elif wasmtime_mode:
+        _appendix_concise = "Wasmtime WASI sandbox; pure-Python standard library only"
+    else:
+        _appendix_concise = (
+            f"Available functions: {', '.join(registered_functions.keys())}"
+        )
 
     # Merge with existing format overrides (markdown already has codeblock note).
     # NOTE: _appendix_full is placed before existing_markdown intentionally so the

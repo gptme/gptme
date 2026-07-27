@@ -43,6 +43,11 @@ gptme-status = "gptme.cli.cmd_status:status"
 gptme-resume = "gptme.cli.cmd_resume:resume"
 gptme-mcp-server = "gptme.cli.cmd_mcp_serve:main"
 
+[project.optional-dependencies]
+sandbox = [
+    "wasmtime>=47.0.1",
+]
+
 [tool.poetry]
 packages = [
     { include = "gptme" },
@@ -78,6 +83,7 @@ anthropic = "^0.120"
 ipython = "^8.39.0"
 bashlex = "^0.18"
 playwright = {version = "1.61.0", optional=true}  # version constrained due to annoying to have to run `playwright install` on every update
+wasmtime = {version = ">=47.0.1", optional=true}  # Wasmtime WASI Python sandbox (GPTME_SANDBOX=wasmtime)
 python-xlib = {version = "^0.33", optional=true}  # for X11 interaction
 
 # evals
@@ -175,6 +181,7 @@ browser = ["playwright"]
 docs = ["lxml", "pypdf"]  # enhanced HTML/XML parsing + PDF extraction; not required for basic use
 minimal = []  # no native extensions beyond pydantic-core; works on ARM/musl/Termux/Lambda
 datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
+sandbox = ["wasmtime"]  # Wasmtime WASI Python sandbox (GPTME_SANDBOX=wasmtime)
 sounds = ["sounddevice", "scipy"]
 computer = []  # pillow (non-opt); AT-SPI2 accessibility needs system pkg: apt install python3-pyatspi
 pyinstaller = ["pyinstaller"]
@@ -334,6 +341,10 @@ module = [
     "test_computer_transport",
 ]
 disable_error_code = ["unused-ignore"]
+
+[[tool.mypy.overrides]]
+module = "wasmtime.*"
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "sounddevice.*"

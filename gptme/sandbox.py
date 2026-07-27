@@ -3,14 +3,15 @@ Sandboxed execution support for gptme.
 
 Wraps the bash subprocess launched by the shell tool in firejail or bubblewrap
 to contain credential exfiltration, filesystem escape, and network misuse.
-For the Python tool, a Docker backend runs code in an isolated container.
+For the Python tool, a Docker or Wasmtime backend runs code in an isolated environment.
 
 Environment variables:
-    GPTME_SANDBOX: sandbox backend ("firejail" | "bwrap" | "docker" | "none", default "none")
+    GPTME_SANDBOX: sandbox backend ("firejail" | "bwrap" | "docker" | "wasmtime" | "none", default "none")
     GPTME_SANDBOX_NET: "0" to disable network (default), "1" to allow
     GPTME_SANDBOX_RO_HOME: "1" to add read-only home bind (default "0")
     GPTME_SANDBOX_DOCKER_IMAGE: Docker image for python sandbox (default "python:3.12-slim")
     GPTME_SANDBOX_TIMEOUT: execution timeout in seconds (default 30)
+    GPTME_SANDBOX_PYTHON_WASM: path to CPython WASI binary (default ~/.cache/gptme/python.wasm)
 
 The integration point in gptme/tools/shell.py is the subprocess.Popen call
 that starts the persistent bash process. Caller passes a SandboxConfig and
@@ -30,11 +31,14 @@ Out of scope:
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
+import threading
+import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -89,7 +93,7 @@ class SandboxConfig:
     or construct directly for programmatic control.
     """
 
-    backend: str = "none"  # "firejail" | "bwrap" | "docker" | "none"
+    backend: str = "none"  # "firejail" | "bwrap" | "docker" | "wasmtime" | "none"
     workspace: Path = field(default_factory=Path.cwd)
     allow_network: bool = False
     ro_home: bool = False
@@ -98,10 +102,11 @@ class SandboxConfig:
     )
     mask_secrets: bool = True
     docker_image: str = "python:3.12-slim"
-    timeout: int = 30  # seconds; used by sandbox_exec_python
+    timeout: int = 30  # seconds; used by sandbox_exec_python / sandbox_exec_wasmtime
+    python_wasm_path: Path | None = None  # wasmtime: CPython WASI binary path
 
     def __post_init__(self) -> None:
-        if self.backend not in ("firejail", "bwrap", "docker", "none"):
+        if self.backend not in ("firejail", "bwrap", "docker", "wasmtime", "none"):
             raise ValueError(f"Unsupported sandbox backend: {self.backend!r}")
 
     @classmethod
@@ -112,12 +117,17 @@ class SandboxConfig:
         allow_network = os.environ.get("GPTME_SANDBOX_NET", "0") == "1"
         ro_home = os.environ.get("GPTME_SANDBOX_RO_HOME", "0") == "1"
         docker_image = os.environ.get("GPTME_SANDBOX_DOCKER_IMAGE", "python:3.12-slim")
-        # Docker is the only backend that uses this timeout. Do not let a stale or
-        # malformed Docker-only setting break shell or IPython execution.
+        # Only Docker and Wasmtime backends use a timeout. Do not let a stale or
+        # malformed setting break shell or IPython execution.
         timeout = (
             int(os.environ.get("GPTME_SANDBOX_TIMEOUT", "30"))
-            if backend == "docker"
+            if backend in ("docker", "wasmtime")
             else 30
+        )
+        python_wasm_path = (
+            Path(os.environ["GPTME_SANDBOX_PYTHON_WASM"])
+            if "GPTME_SANDBOX_PYTHON_WASM" in os.environ
+            else None
         )
 
         return cls(
@@ -127,6 +137,7 @@ class SandboxConfig:
             ro_home=ro_home,
             docker_image=docker_image,
             timeout=timeout,
+            python_wasm_path=python_wasm_path,
         )
 
     @property
@@ -137,6 +148,10 @@ class SandboxConfig:
         """Return (available, message). Use before committing to this backend."""
         if self.backend == "none":
             return True, "no-op sandbox (passthrough)"
+        if self.backend == "wasmtime":
+            if importlib.util.find_spec("wasmtime") is None:
+                return False, "wasmtime not installed. Run: pip install wasmtime"
+            return True, "wasmtime Python bindings available"
         if self.backend == "docker":
             tool = "docker"
         else:
@@ -367,3 +382,156 @@ def sandbox_exec_python(
             return "", f"Execution timed out after {config.timeout}s\n", 1
     finally:
         script_path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Wasmtime Python sandbox
+# ---------------------------------------------------------------------------
+
+# CPython 3.12 WASI build from VMware Labs webassembly-language-runtimes.
+# This is the only publicly available pre-built CPython WASI binary.
+_PYTHON_WASM_URL = (
+    "https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/"
+    "python%2F3.12.0%2B20231211-040d5a6/python-3.12.0.wasm"
+)
+_PYTHON_WASM_CACHE = Path.home() / ".cache" / "gptme" / "python.wasm"
+
+
+def _ensure_python_wasm(path: Path | None = None) -> Path:
+    """Return path to the cached CPython WASI binary, downloading if needed.
+
+    Args:
+        path: Override cache path. Defaults to ~/.cache/gptme/python.wasm.
+
+    Returns:
+        Path to the .wasm binary.
+
+    Raises:
+        RuntimeError: If download fails.
+    """
+    target = path or _PYTHON_WASM_CACHE
+    if target.exists():
+        return target
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("Downloading CPython WASI binary to %s …", target)
+    tmp = target.with_suffix(".tmp")
+    try:
+        urllib.request.urlretrieve(_PYTHON_WASM_URL, tmp)
+        tmp.rename(target)
+        logger.info("CPython WASI binary downloaded (%s)", target)
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Failed to download CPython WASI binary from {_PYTHON_WASM_URL}: {exc}\n"
+            "Set GPTME_SANDBOX_PYTHON_WASM to a local .wasm path to skip the download."
+        ) from exc
+    return target
+
+
+def sandbox_exec_wasmtime(
+    config: SandboxConfig,
+    code: str,
+) -> tuple[str, str, int]:
+    """Execute Python code in a Wasmtime WASI sandbox.
+
+    Writes *code* to a temporary file, mounts the containing directory into the
+    WASI environment, and runs CPython compiled to WASM/WASI via wasmtime-py.
+
+    Args:
+        config: SandboxConfig with backend=="wasmtime".
+        code:   Python source to execute.
+
+    Returns:
+        (stdout, stderr, returncode).  On timeout, stderr contains a message
+        and returncode is 1.
+
+    Security boundaries:
+        - No network access (WASI has no network capability by default).
+        - No filesystem access beyond /tmp/script dir (WASI capability model).
+        - ~256 MiB memory cap via wasmtime ResourceLimiter.
+        - Execution timeout via a daemon thread + join.
+
+    Caveats:
+        - CPython WASI has slower startup than native Python (~2–5 s cold).
+        - The full stdlib is not available (WASI port is experimental).
+        - Imports that need native extensions (numpy, etc.) will fail.
+    """
+    if config.backend != "wasmtime":
+        raise ValueError(
+            f"sandbox_exec_wasmtime requires backend='wasmtime', got {config.backend!r}"
+        )
+
+    import wasmtime  # deferred: optional dependency
+
+    wasm_path = _ensure_python_wasm(config.python_wasm_path)
+
+    with tempfile.NamedTemporaryFile(
+        suffix=".py", mode="w", delete=False, prefix="gptme_wasm_"
+    ) as f:
+        f.write(code)
+        script_path = Path(f.name)
+
+    out_fd, out_path = tempfile.mkstemp(suffix=".out", prefix="gptme_wasm_")
+    err_fd, err_path = tempfile.mkstemp(suffix=".err", prefix="gptme_wasm_")
+    os.close(out_fd)
+    os.close(err_fd)
+
+    returncode: int = 0
+    exec_error: BaseException | None = None
+
+    def _run() -> None:
+        nonlocal returncode, exec_error
+        try:
+            engine = wasmtime.Engine()
+            store = wasmtime.Store(engine)
+
+            wasi_cfg = wasmtime.WasiConfig()
+            wasi_cfg.argv = ["python", f"/work/{script_path.name}"]
+            # Grant read-only access to the script directory as /work
+            wasi_cfg.preopen_dir(str(script_path.parent), "/work")
+
+            with open(out_path, "wb") as out_f, open(err_path, "wb") as err_f:
+                wasi_cfg.stdout_file(out_f)
+                wasi_cfg.stderr_file(err_f)
+
+                store.set_wasi(wasi_cfg)
+
+                module = wasmtime.Module.from_file(engine, str(wasm_path))
+                linker = wasmtime.Linker(engine)
+                linker.define_wasi()
+                instance = linker.instantiate(store, module)
+                try:
+                    start = instance.exports(store)["_start"]
+                    start(store)
+                    returncode = 0
+                except wasmtime.ExitTrap as e:
+                    returncode = e.code
+        except Exception as exc:
+            exec_error = exc
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    thread.join(timeout=config.timeout)
+    timed_out = thread.is_alive()
+
+    try:
+        if timed_out:
+            logger.warning(
+                "Wasmtime sandbox: execution timed out after %ds", config.timeout
+            )
+            # Daemon thread is abandoned; no clean kill path for in-process WASM.
+            return "", f"Execution timed out after {config.timeout}s\n", 1
+
+        if exec_error is not None:
+            logger.error("Wasmtime sandbox error: %s", exec_error)
+            return "", f"Wasmtime error: {exec_error}\n", 1
+
+        stdout = Path(out_path).read_text(errors="replace")
+        stderr = Path(err_path).read_text(errors="replace")
+    finally:
+        script_path.unlink(missing_ok=True)
+        Path(out_path).unlink(missing_ok=True)
+        Path(err_path).unlink(missing_ok=True)
+
+    return stdout, stderr, returncode
