@@ -430,8 +430,12 @@ class LogManager:
                 endpoint_url=cfg.endpoint_url or None,
                 region=cfg.region or None,
             )
-            worker = replication.get_worker(backend, debounce_ms=cfg.upload_debounce_ms)
-            worker.enqueue(event_dir, self.chat_id)
+            worker = replication.get_worker(
+                backend,
+                debounce_ms=cfg.upload_debounce_ms,
+                max_retries=cfg.max_retries,
+            )
+            worker.enqueue(event_dir, self.chat_id, self.current_branch)
         except Exception:
             logger.debug("Failed to initialise replication worker", exc_info=True)
 

@@ -9,11 +9,14 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from gptme.logmanager import eventlog
+from gptme.config.core import Config, _config_var
+from gptme.config.models import EventLogReplicationConfig, UserConfig
+from gptme.logmanager import LogManager, eventlog
 from gptme.logmanager.replication import (
     FakeBackend,
     ReplicationWorker,
     _event_log_key,
+    get_worker,
     recover_from_remote,
     reset_worker,
 )
@@ -47,6 +50,10 @@ def fake_backend() -> FakeBackend:
 
 def test_event_log_key():
     assert _event_log_key("conv-abc") == "conv-abc/events.jsonl"
+    assert (
+        _event_log_key("conv-abc", "experiment")
+        == "conv-abc/branches/experiment/events.jsonl"
+    )
 
 
 # ── FakeBackend ───────────────────────────────────────────────────────────────
@@ -118,6 +125,26 @@ def test_worker_debounces_multiple_enqueues(logdir: Path, fake_backend: FakeBack
     assert len(fake_backend.upload_calls) == 1
 
 
+def test_worker_keeps_branches_separate(tmp_path: Path, fake_backend: FakeBackend):
+    """Branch uploads use distinct debounce entries and remote keys."""
+    main_dir = tmp_path / "conv"
+    branch_dir = main_dir / "branches" / "experiment"
+    main_dir.mkdir()
+    branch_dir.mkdir(parents=True)
+    _write_event_log(main_dir)
+    _write_event_log(branch_dir)
+
+    worker = ReplicationWorker(fake_backend, debounce_s=0.1)
+    worker.enqueue(main_dir, "conv-abc123")
+    worker.enqueue(branch_dir, "conv-abc123", "experiment")
+    worker.stop(timeout=2.0)
+
+    assert set(fake_backend._store) == {
+        "conv-abc123/events.jsonl",
+        "conv-abc123/branches/experiment/events.jsonl",
+    }
+
+
 def test_worker_retries_on_transient_failure(logdir: Path):
     """Worker retries on transient upload failure and does not raise into append."""
     backend = FakeBackend()
@@ -171,6 +198,61 @@ def test_worker_noop_when_log_missing(logdir: Path, fake_backend: FakeBackend):
     assert len(fake_backend.upload_calls) == 0
 
 
+def test_get_worker_isolates_backend_and_retry_config(logdir: Path):
+    """Context-local destinations and retry settings get isolated workers."""
+    _write_event_log(logdir)
+    first = FakeBackend()
+    first_worker = get_worker(first, debounce_ms=10, max_retries=1)
+    first_worker.enqueue(logdir, "conv-first")
+
+    second = FakeBackend()
+    second_worker = get_worker(second, debounce_ms=20, max_retries=2)
+    second_worker.enqueue(logdir, "conv-second")
+    reset_worker()
+
+    assert first_worker is not second_worker
+    assert len(first.upload_calls) == 1
+    assert len(second.upload_calls) == 1
+    assert second_worker._max_retries == 2
+
+
+def test_logmanager_forwards_branch_and_retry_config(
+    logdir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """LogManager forwards branch isolation and configured retry count."""
+    config = Config(
+        user=UserConfig(
+            session_event_log_replication=EventLogReplicationConfig(
+                enabled=True,
+                backend="s3",
+                bucket="test-bucket",
+                upload_debounce_ms=25,
+                max_retries=7,
+            )
+        )
+    )
+    token = _config_var.set(config)
+    calls: list[tuple[int, int, str]] = []
+
+    class StubWorker:
+        def enqueue(self, event_dir: Path, chat_id: str, branch: str) -> None:
+            calls.append((25, 7, branch))
+
+    def stub_get_worker(backend, debounce_ms: int, max_retries: int):
+        assert debounce_ms == 25
+        assert max_retries == 7
+        return StubWorker()
+
+    monkeypatch.setattr("gptme.logmanager.replication.get_worker", stub_get_worker)
+    try:
+        manager = LogManager(logdir=logdir, branch="experiment", lock=False)
+        manager._enqueue_replication(logdir)
+    finally:
+        _config_var.reset(token)
+
+    assert calls == [(25, 7, "experiment")]
+
+
 # ── recover_from_remote ───────────────────────────────────────────────────────
 
 
@@ -201,6 +283,28 @@ def test_recover_from_remote_round_trip(tmp_path: Path, fake_backend: FakeBacken
     assert len(messages) == 1
     assert messages[0]["content"] == "hello from recovery"
     assert messages[0]["role"] == "user"
+
+
+def test_recover_from_remote_branch(tmp_path: Path, fake_backend: FakeBackend):
+    """Recovery reads the requested branch-specific remote object."""
+    from gptme.message import Message
+
+    logdir = tmp_path / "branch"
+    logdir.mkdir()
+    eventlog.append_event(
+        logdir,
+        eventlog.build_message_append_event(
+            1, Message(role="user", content="branch message")
+        ),
+    )
+    fake_backend.upload(
+        _event_log_key("conv-recover", "experiment"),
+        logdir / eventlog.EVENT_LOG_NAME,
+    )
+
+    messages = recover_from_remote("conv-recover", fake_backend, "experiment")
+    assert messages is not None
+    assert messages[0]["content"] == "branch message"
 
 
 def test_recover_from_remote_with_checkpoint(tmp_path: Path, fake_backend: FakeBackend):

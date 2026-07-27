@@ -21,10 +21,13 @@ Remote recovery:
 
 from __future__ import annotations
 
+import atexit
+import importlib
 import logging
 import tempfile
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -104,10 +107,25 @@ class S3Backend:
         self._region = region
         self._client: Any = None
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, S3Backend):
+            return NotImplemented
+        return (
+            self._bucket,
+            self._prefix,
+            self._endpoint_url,
+            self._region,
+        ) == (
+            other._bucket,
+            other._prefix,
+            other._endpoint_url,
+            other._region,
+        )
+
     def _get_client(self) -> Any:
         if self._client is None:
             try:
-                import boto3
+                boto3 = importlib.import_module("boto3")
             except ImportError as exc:
                 raise ImportError(
                     "boto3 is required for S3 replication. "
@@ -146,9 +164,11 @@ class S3Backend:
 # ── object key helpers ────────────────────────────────────────────────────────
 
 
-def _event_log_key(conversation_id: str) -> str:
-    """Remote object key for a conversation's event log."""
-    return f"{conversation_id}/events.jsonl"
+def _event_log_key(conversation_id: str, branch: str = "main") -> str:
+    """Remote object key for a conversation branch's event log."""
+    if branch == "main":
+        return f"{conversation_id}/events.jsonl"
+    return f"{conversation_id}/branches/{branch}/events.jsonl"
 
 
 # ── background replication worker ─────────────────────────────────────────────
@@ -180,7 +200,7 @@ class ReplicationWorker:
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
 
-        self._pending: dict[str, Path] = {}  # logdir_key → logdir Path
+        self._pending: dict[str, tuple[Path, str]] = {}
         self._lock = threading.Lock()
         self._event = threading.Event()
         self._stopped = False
@@ -192,18 +212,23 @@ class ReplicationWorker:
         )
         self._thread.start()
 
-    def enqueue(self, logdir: Path, conversation_id: str) -> None:
-        """Schedule *logdir* for replication.  Repeated calls are debounced."""
-        key = conversation_id
+    def enqueue(self, logdir: Path, conversation_id: str, branch: str = "main") -> None:
+        """Schedule one conversation branch for replication.
+
+        Repeated calls for the same conversation and branch are debounced.
+        """
+        key = _event_log_key(conversation_id, branch)
         with self._lock:
-            self._pending[key] = logdir
+            self._pending[key] = (logdir, key)
         self._event.set()
 
-    def stop(self, timeout: float = 5.0) -> None:
-        """Request shutdown and wait for the worker thread to exit."""
+    def stop(self, timeout: float | None = None) -> None:
+        """Request shutdown, flush pending uploads, and wait for exit."""
         self._stopped = True
         self._event.set()
         self._thread.join(timeout=timeout)
+        if self._thread.is_alive():
+            logger.warning("Replication worker did not stop within the timeout")
 
     def _run(self) -> None:
         while True:
@@ -221,30 +246,27 @@ class ReplicationWorker:
             pending = dict(self._pending)
             self._pending.clear()
 
-        for conv_id, logdir in pending.items():
-            self._upload_with_retry(conv_id, logdir)
+        for logdir, key in pending.values():
+            self._upload_with_retry(key, logdir)
 
-    def _upload_with_retry(self, conversation_id: str, logdir: Path) -> None:
+    def _upload_with_retry(self, key: str, logdir: Path) -> None:
         from . import eventlog
 
         local_path = logdir / eventlog.EVENT_LOG_NAME
         if not local_path.exists():
             return
 
-        key = _event_log_key(conversation_id)
         delay = self._retry_backoff
         for attempt in range(1, self._max_retries + 1):
             try:
                 self._backend.upload(key, local_path)
-                logger.debug(
-                    "Replicated event log for %s (attempt %d)", conversation_id, attempt
-                )
+                logger.debug("Replicated event log %s (attempt %d)", key, attempt)
                 return
             except Exception as exc:
                 if attempt == self._max_retries:
                     logger.warning(
                         "Event log replication failed for %s after %d attempts: %s",
-                        conversation_id,
+                        key,
                         self._max_retries,
                         exc,
                     )
@@ -252,7 +274,7 @@ class ReplicationWorker:
                 logger.debug(
                     "Replication attempt %d for %s failed (%s); retrying in %.1fs",
                     attempt,
-                    conversation_id,
+                    key,
                     exc,
                     delay,
                 )
@@ -262,28 +284,57 @@ class ReplicationWorker:
 
 # ── process-level singleton ───────────────────────────────────────────────────
 
-_worker: ReplicationWorker | None = None
+
+@dataclass(frozen=True)
+class WorkerConfig:
+    """Settings that define one process-local replication destination."""
+
+    backend: ReplicationBackend
+    debounce_ms: int
+    max_retries: int
+
+
+_workers: list[tuple[WorkerConfig, ReplicationWorker]] = []
 _worker_lock = threading.Lock()
+_atexit_registered = False
 
 
 def get_worker(
-    backend: ReplicationBackend, debounce_ms: int = 500
+    backend: ReplicationBackend,
+    debounce_ms: int = 500,
+    max_retries: int = ReplicationWorker._MAX_RETRIES,
 ) -> ReplicationWorker:
-    """Return the process-level ReplicationWorker, creating it on first call."""
-    global _worker
+    """Return a worker matching the current replication configuration.
+
+    A process can host context-local sessions with different destinations, so
+    each distinct configuration gets its own worker. Equivalent S3 settings
+    reuse a worker and preserve debounce behavior.
+    """
+    global _atexit_registered
+    config = WorkerConfig(backend, debounce_ms, max_retries)
     with _worker_lock:
-        if _worker is None:
-            _worker = ReplicationWorker(backend, debounce_s=debounce_ms / 1000.0)
-    return _worker
+        for existing_config, worker in _workers:
+            if existing_config == config:
+                return worker
+        worker = ReplicationWorker(
+            backend,
+            debounce_s=debounce_ms / 1000.0,
+            max_retries=max_retries,
+        )
+        _workers.append((config, worker))
+        if not _atexit_registered:
+            atexit.register(reset_worker)
+            _atexit_registered = True
+        return worker
 
 
 def reset_worker() -> None:
-    """Stop and discard the process-level worker.  Used in tests only."""
-    global _worker
+    """Stop, flush, and discard the process-level worker."""
     with _worker_lock:
-        if _worker is not None:
-            _worker.stop()
-            _worker = None
+        workers = [worker for _, worker in _workers]
+        _workers.clear()
+    for worker in workers:
+        worker.stop()
 
 
 # ── remote recovery ───────────────────────────────────────────────────────────
@@ -292,6 +343,7 @@ def reset_worker() -> None:
 def recover_from_remote(
     conversation_id: str,
     backend: ReplicationBackend,
+    branch: str = "main",
 ) -> list[dict[str, Any]] | None:
     """Attempt to recover messages from the remote event log replica.
 
@@ -303,7 +355,7 @@ def recover_from_remote(
     """
     from . import eventlog
 
-    key = _event_log_key(conversation_id)
+    key = _event_log_key(conversation_id, branch)
     with tempfile.TemporaryDirectory(prefix="gptme-recovery-") as tmp:
         tmp_path = Path(tmp)
         dest = tmp_path / eventlog.EVENT_LOG_NAME
