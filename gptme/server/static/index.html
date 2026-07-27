@@ -105,25 +105,59 @@
                 <input type="checkbox" id="show-system-messages" v-model="showSystemMessages">
                 <label for="show-system-messages">Show initial system messages</label>
               </div>
-              <div v-for="message in preparedChatLog" v-show="!message.hide" class="chat-msg bg-white rounded-lg shadow-md mb-4 p-3">
-                <div class="flex justify-between items-center mb-2">
-                  <div class="font-bold text-gray-700">{{ capitalize(message.role) }}</div>
-                  <div v-if="message.branches.length > 1" class="text-sm ml-auto">
-                    <button class="text-sm p-1"
-                            @click="changeBranch(message.branches[message.branches.indexOf(branch) - 1])"
-                            :disabled="message.branches.indexOf(branch) == 0">
-                      &lt;
-                    </button>
-                    {{ message.branches.indexOf(branch) + 1 }}/{{ message.branches.length }}
-                    <!-- ({{message.branches}}) -->
-                    <button class="text-sm p-1"
-                            @click="changeBranch(message.branches[message.branches.indexOf(branch) + 1])">
-                      &gt;
-                    </button>
+              <!-- Virtualized message list: only render visible rows -->
+              <div v-if="virtualVisibleMessages.length > 0">
+                <div v-for="vm in virtualVisibleMessages"
+                     :key="vm.idx"
+                     v-show="!vm.message.hide"
+                     class="chat-msg bg-white rounded-lg shadow-md mb-4 p-3"
+                     :style="{ position: 'absolute', top: vm.top + 'px', left: 0, right: 0 }">
+                  <div class="flex justify-between items-center mb-2">
+                    <div class="font-bold text-gray-700">{{ capitalize(vm.message.role) }}</div>
+                    <div v-if="vm.message.branches && vm.message.branches.length > 1" class="text-sm ml-auto">
+                      <button class="text-sm p-1"
+                              @click="changeBranch(vm.message.branches[vm.message.branches.indexOf(branch) - 1])"
+                              :disabled="vm.message.branches.indexOf(branch) == 0">
+                        &lt;
+                      </button>
+                      {{ vm.message.branches.indexOf(branch) + 1 }}/{{ vm.message.branches.length }}
+                      <!-- ({{vm.message.branches}}) -->
+                      <button class="text-sm p-1"
+                              @click="changeBranch(vm.message.branches[vm.message.branches.indexOf(branch) + 1])">
+                        &gt;
+                      </button>
+                    </div>
                   </div>
+                  <div class="text-sm" v-html="vm.message.html"></div>
                 </div>
-                <div class="text-sm" v-html="message.html"></div>
               </div>
+              <!-- Spacer to maintain scroll height -->
+              <div v-if="virtualScrollHeight > 0"
+                   :style="{ height: virtualScrollHeight + 'px', position: 'relative' }"></div>
+              <!-- Fallback: render all messages if virtualizer not ready -->
+              <template v-if="virtualVisibleMessages.length === 0 && chatLog.length > 0">
+                <div v-for="message in preparedChatLog"
+                     v-show="!message.hide"
+                     class="chat-msg bg-white rounded-lg shadow-md mb-4 p-3">
+                  <div class="flex justify-between items-center mb-2">
+                    <div class="font-bold text-gray-700">{{ capitalize(message.role) }}</div>
+                    <div v-if="message.branches && message.branches.length > 1" class="text-sm ml-auto">
+                      <button class="text-sm p-1"
+                              @click="changeBranch(message.branches[message.branches.indexOf(branch) - 1])"
+                              :disabled="message.branches.indexOf(branch) == 0">
+                        &lt;
+                      </button>
+                      {{ message.branches.indexOf(branch) + 1 }}/{{ message.branches.length }}
+                      <!-- ({{message.branches}}) -->
+                      <button class="text-sm p-1"
+                              @click="changeBranch(message.branches[message.branches.indexOf(branch) + 1])">
+                        &gt;
+                      </button>
+                    </div>
+                  </div>
+                  <div class="text-sm" v-html="message.html"></div>
+                </div>
+              </template>
               <div v-if="cmdout" class="chat-msg bg-white rounded-lg shadow-md mb-4 p-4">
                 <div class="flex justify-between items-center mb-2">
                   <span class="font-bold text-gray-700">System</span> <span class="text-gray-500">(not stored)</span>

@@ -1,0 +1,109 @@
+name: Changelog
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      range:
+        description: 'Git range for changelog (e.g. v0.28.0...HEAD)'
+        required: false
+        default: ''
+      output:
+        description: 'Output file path'
+        required: false
+        default: 'dist/CHANGELOG.md'
+
+jobs:
+  generate-changelog:
+    name: Generate Changelog
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install poetry
+        make build
+
+    - name: Determine version and range
+      id: version
+      run: |
+        VERSION="${GITHUB_REF_NAME#v}"
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+        # Get previous version
+        PREV_VERSION=$(python3 scripts/get-last-version.sh "v${VERSION}")
+        echo "prev_version=${PREV_VERSION}" >> $GITHUB_OUTPUT
+
+        if [ -n "${{ github.event.inputs.range }}" ]; then
+          RANGE="${{ github.event.inputs.range }}"
+        elif [ -n "$PREV_VERSION" ] && [ "$PREV_VERSION" != "" ]; then
+          RANGE="${PREV_VERSION}...HEAD"
+        else
+          RANGE="--all"
+        fi
+        echo "range=${RANGE}" >> $GITHUB_OUTPUT
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        OUTPUT="${{ github.event.inputs.output || 'dist/CHANGELOG.md' }}"
+        mkdir -p dist
+        python3 scripts/changelog.py \
+          --range "${{ steps.version.outputs.range }}" \
+          --version "v${{ steps.version.outputs.version }}" \
+          --output "$OUTPUT"
+
+        echo "content<<EOF" >> $GITHUB_OUTPUT
+        cat "$OUTPUT" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Upload changelog artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: changelog
+        path: dist/CHANGELOG.md
+        retention-days: 5
+
+    - name: Commit changelog update
+      if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+        OUTPUT="${{ github.event.inputs.output || 'dist/CHANGELOG.md' }}"
+        VERSION="${{ steps.version.outputs.version }}"
+
+        # Update docs/changelog.rst to include new version
+        grep -q "releases/v${VERSION}.md" docs/changelog.rst || (
+          awk -v ver="$VERSION" '/^   releases\// && !done {
+            print "   releases/\""ver"\".md";
+            done=1;
+          }
+          {print}' docs/changelog.rst > docs/changelog.rst.tmp && \
+          mv docs/changelog.rst.tmp docs/changelog.rst
+        )
+
+        git add docs/changelog.rst
+        git add "$OUTPUT"
+
+        if git diff --cached --quiet; then
+          echo "No changelog changes to commit"
+        else
+          git commit -m "docs: update changelog for v${VERSION}"
+          git push origin master
+          echo "Changelog committed and pushed"
+        fi

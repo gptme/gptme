@@ -544,6 +544,7 @@ def api_conversation_events(conversation_id: str):
 
             # Create an event queue
             last_event_index = 0
+            ping_count = 0
 
             while True:
                 # Check if there are new events
@@ -553,8 +554,15 @@ def api_conversation_events(conversation_id: str):
                         yield f"data: {flask.json.dumps(event)}\n\n"
                     last_event_index = new_index
 
-                # Wait a bit before checking again
-                yield f"data: {flask.json.dumps({'type': 'ping'})}\n\n"
+                # Send a keepalive comment every other loop iteration.
+                # SSE comments (lines starting with ':') are ignored by clients
+                # but force proxies like Traefik/nginx to flush their buffers,
+                # preventing the >5s delay on the generation_complete event.
+                ping_count += 1
+                if ping_count % 2 == 0:
+                    yield ":\n\n"  # SSE keepalive comment — flushes Traefik buffer
+                else:
+                    yield f"data: {flask.json.dumps({'type': 'ping'})}\n\n"
 
                 # Use event.wait() with timeout to avoid busy waiting while allowing ping intervals
                 # 15s timeout for connection keep-alive
@@ -576,6 +584,10 @@ def api_conversation_events(conversation_id: str):
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",  # Disable buffering in nginx
+            "X-Content-Type-Options": "nosniff",
+            "Connection": "keep-alive",
+            # Traefik / k3s ingress: force streaming, disable response buffering
+            "Traefik-Response-Streaming": "true",
         },
     )
 

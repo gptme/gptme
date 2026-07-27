@@ -4,6 +4,7 @@ const hljs = globalThis.hljs;
 
 const apiRoot = "/api/conversations";
 
+// ── Markdown renderer ─────────────────────────────────────────────────────────
 const marked = new Marked(
   markedHighlight({
     langPrefix: "hljs language-",
@@ -18,8 +19,142 @@ const marked = new Marked(
   })
 );
 
+// ── Virtualizer for the message list ──────────────────────────────────────────
+// Renders only the messages visible in the chat container plus an overscan
+// buffer, keeping scroll position stable during streaming and history loads.
+
+const VIRTUAL_ROW_HEIGHT = 80; // initial estimate for height calculations
+const VIRTUAL_OVERSCAN = 15;   // rows to render above/below viewport
+
+const Virtualizer = {
+  data() {
+    return {
+      _virtualVisibleStart: 0,
+      _virtualVisibleEnd: 0,
+      _virtualTotalHeight: 0,
+      _virtualRowHeights: [],   // actual measured heights
+      _virtualScrollTop: 0,
+      _virtualScrollHeight: 0,
+      _virtualClientHeight: 0,
+      _virtualContainerEl: null,
+    };
+  },
+  computed: {
+    // Messages visible in the viewport, with their computed top positions
+    virtualVisibleMessages() {
+      if (!this._virtualContainerEl || this._virtualRowHeights.length === 0) return [];
+      const start = this._virtualVisibleStart;
+      const end = this._virtualVisibleEnd;
+      const total = this._virtualRowHeights.length;
+      const msgs = this.preparedChatLog;
+      if (start >= total || start > end) return [];
+      const result = [];
+      let topOffset = 0;
+      for (let i = 0; i < start; i++) {
+        topOffset += this._virtualRowHeights[i] || VIRTUAL_ROW_HEIGHT;
+      }
+      for (let i = start; i <= end && i < total; i++) {
+        const h = this._virtualRowHeights[i] || VIRTUAL_ROW_HEIGHT;
+        result.push({
+          message: msgs[i],
+          idx: i,
+          top: topOffset,
+        });
+        topOffset += h;
+      }
+      return result;
+    },
+    // Total scroll height for the spacer
+    virtualScrollHeight() {
+      return this._virtualTotalHeight || 0;
+    },
+  },
+  mounted() {
+    this.$nextTick(() => {
+      this._virtualContainerEl = this.$refs.chatContainer;
+      if (this._virtualContainerEl) {
+        this._virtualContainerEl.addEventListener('scroll', this._onScroll);
+        this._measureVirtual();
+        this._scheduleReflow();
+      }
+    });
+  },
+  beforeDestroy() {
+    if (this._virtualContainerEl) {
+      this._virtualContainerEl.removeEventListener('scroll', this._onScroll);
+    }
+  },
+  methods: {
+    _onScroll() {
+      if (!this._virtualContainerEl) return;
+      this._virtualScrollTop = this._virtualContainerEl.scrollTop;
+      this._virtualClientHeight = this._virtualContainerEl.clientHeight;
+      this._virtualScrollHeight = this._virtualContainerEl.scrollHeight;
+      this._computeVisibleRange();
+    },
+    _measureVirtual() {
+      if (!this._virtualContainerEl) return;
+      this._virtualScrollHeight = this._virtualContainerEl.scrollHeight;
+      this._virtualClientHeight = this._virtualContainerEl.clientHeight;
+      this._virtualTotalHeight = this._virtualRowHeights.reduce((s, h) => s + h, 0);
+      this._computeVisibleRange();
+    },
+    _computeVisibleRange() {
+      const scrollTop = this._virtualScrollTop;
+      const clientHeight = this._virtualClientHeight;
+      const total = this._virtualRowHeights.length;
+
+      let start = 0;
+      let accumulated = 0;
+      for (let i = 0; i < total; i++) {
+        const h = this._virtualRowHeights[i] || VIRTUAL_ROW_HEIGHT;
+        if (accumulated + h > scrollTop) {
+          start = Math.max(0, i - VIRTUAL_OVERSCAN);
+          break;
+        }
+        accumulated += h;
+      }
+
+      let end = total - 1;
+      accumulated = 0;
+      for (let i = 0; i < total; i++) {
+        const h = this._virtualRowHeights[i] || VIRTUAL_ROW_HEIGHT;
+        accumulated += h;
+        if (accumulated > scrollTop + clientHeight + VIRTUAL_OVERSCAN) {
+          end = Math.min(total - 1, i + VIRTUAL_OVERSCAN);
+          break;
+        }
+      }
+
+      if (start !== this._virtualVisibleStart || end !== this._virtualVisibleEnd) {
+        this._virtualVisibleStart = start;
+        this._virtualVisibleEnd = end;
+      }
+    },
+    _getOffset(topIdx) {
+      let offset = 0;
+      for (let i = 0; i < topIdx; i++) {
+        offset += this._virtualRowHeights[i] || VIRTUAL_ROW_HEIGHT;
+      }
+      return offset;
+    },
+    _scheduleReflow() {
+      this.$nextTick(() => {
+        this._measureVirtual();
+      });
+    },
+    // Call after DOM updates (new messages, streaming, etc.)
+    virtualInvalidate() {
+      this.$nextTick(() => {
+        this._measureVirtual();
+      });
+    },
+  },
+};
+
 new Vue({
   el: "#app",
+  mixins: [Virtualizer],
   data: {
     // List of conversations
     conversations: [],
@@ -135,6 +270,25 @@ new Vue({
         return msg;
       });
     },
+    // Virtualized subset: only render visible rows
+    virtualChatLog: function () {
+      if (!this._virtualContainerEl) return this.preparedChatLog;
+      const start = this._virtualVisibleStart;
+      const end = this._virtualVisibleEnd;
+      if (start === 0 && end >= this.preparedChatLog.length - 1) {
+        // All rows fit — no need to virtualize
+        return this.preparedChatLog;
+      }
+      return this.preparedChatLog.slice(start, end + 1);
+    },
+  },
+  watch: {
+    chatLog() {
+      // Invalidate virtualizer when messages change
+      this.$nextTick(() => {
+        this.virtualInvalidate();
+      });
+    },
   },
   methods: {
     async getConversations() {
@@ -166,8 +320,9 @@ new Vue({
         return;
       }
 
-      // TODO: Only scroll to bottom on conversation load and new messages
+      // Invalidate virtualizer after loading new conversation
       this.$nextTick(() => {
+        this.virtualInvalidate();
         this.scrollToBottom();
       });
     },
@@ -319,6 +474,9 @@ new Vue({
     changeBranch(branch) {
       this.branch = branch;
       this.chatLog = this.branches[branch];
+      this.$nextTick(() => {
+        this.virtualInvalidate();
+      });
     },
     backToConversations() {
       this.getConversations(); // refresh conversations
@@ -329,7 +487,9 @@ new Vue({
     scrollToBottom() {
       this.$nextTick(() => {
         const container = this.$refs.chatContainer;
-        container.scrollTop = container.scrollHeight;
+        if (container) {
+          container.scrollTop = container.scrollHeight;
+        }
       });
     },
     fromNow(timestamp) {

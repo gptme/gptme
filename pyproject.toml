@@ -23,6 +23,7 @@ gptme-util = "gptme.util.cli:main"
 gptme-nc = "gptme.ncurses:main"
 gptme-wut = "gptme.wut:main"
 gptme-dspy = "gptme.eval.dspy:main"
+gptme-acp = "gptme.acp:run_server"
 
 [tool.poetry]
 packages = [
@@ -137,6 +138,7 @@ datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
 computer = []  # pillow (non-opt)
 youtube = ["youtube_transcript_api"]
 tts = ["sounddevice", "scipy", "numpy"]
+acp = []  # ACP is a stdio-based protocol, no extra deps needed
 pyinstaller = ["pyinstaller"]
 telemetry = [
     "opentelemetry-api", "opentelemetry-sdk",
@@ -165,6 +167,8 @@ all = [
     "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus",
     "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-requests",
     "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-openai",
+    # ACP
+    "acp",
 ]
 
 [tool.ruff]

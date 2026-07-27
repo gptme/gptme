@@ -19,6 +19,14 @@ repos:
     args: [--ignore-missing-imports, --check-untyped-defs]
 - repo: local
   hooks:
+  - id: check-conventional-commits
+    name: Check conventional commit format
+    description: Ensures commit messages follow Conventional Commits (https://www.conventionalcommits.org/)
+    entry: python3 scripts/check_conventional_commits.py
+    language: system
+    stages: [commit-msg]
+    args: [--commit-msg-file]
+    verbose: true
   - id: check-rst-formatting
     name: Check RST nested list formatting
     description: Ensures RST files have proper blank lines between parent/child list items
