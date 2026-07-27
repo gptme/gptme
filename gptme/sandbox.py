@@ -448,9 +448,9 @@ def sandbox_exec_wasmtime(
 
     Security boundaries:
         - No network access (WASI has no network capability by default).
-        - No filesystem access beyond /tmp/script dir (WASI capability model).
-        - ~256 MiB memory cap via wasmtime ResourceLimiter.
-        - Execution timeout via a daemon thread + join.
+        - No filesystem access beyond a private read-only script directory.
+        - 256 MiB linear-memory cap via ``Store.set_limits``.
+        - Execution timeout via Wasmtime epoch interruption.
 
     Caveats:
         - CPython WASI has slower startup than native Python (~2–5 s cold).
@@ -466,72 +466,74 @@ def sandbox_exec_wasmtime(
 
     wasm_path = _ensure_python_wasm(config.python_wasm_path)
 
-    with tempfile.NamedTemporaryFile(
-        suffix=".py", mode="w", delete=False, prefix="gptme_wasm_"
-    ) as f:
-        f.write(code)
-        script_path = Path(f.name)
+    # A private directory is the capability boundary. Never preopen the shared
+    # system temp directory: that would expose unrelated processes' temporary files.
+    with tempfile.TemporaryDirectory(prefix="gptme_wasm_") as temp_dir:
+        temp_path = Path(temp_dir)
+        script_path = temp_path / "script.py"
+        out_path = temp_path / "stdout"
+        err_path = temp_path / "stderr"
+        script_path.write_text(code)
+        out_path.touch()
+        err_path.touch()
 
-    out_fd, out_path = tempfile.mkstemp(suffix=".out", prefix="gptme_wasm_")
-    err_fd, err_path = tempfile.mkstemp(suffix=".err", prefix="gptme_wasm_")
-    os.close(out_fd)
-    os.close(err_fd)
-
-    returncode: int = 0
-    exec_error: BaseException | None = None
-
-    def _run() -> None:
-        nonlocal returncode, exec_error
-        try:
-            engine = wasmtime.Engine()
+        def _execute() -> tuple[str, str, int]:
+            engine_config = wasmtime.Config()
+            engine_config.epoch_interruption = True
+            engine = wasmtime.Engine(engine_config)
             store = wasmtime.Store(engine)
+            store.set_limits(memory_size=256 * 1024 * 1024)
+            store.set_epoch_deadline(1)
 
             wasi_cfg = wasmtime.WasiConfig()
-            wasi_cfg.argv = ["python", f"/work/{script_path.name}"]
-            # Grant read-only access to the script directory as /work
-            wasi_cfg.preopen_dir(str(script_path.parent), "/work")
+            wasi_cfg.argv = ["python", "/work/script.py"]
+            wasi_cfg.preopen_dir(
+                str(temp_path),
+                "/work",
+                dir_perms=wasmtime.DirPerms.READ_ONLY,
+                file_perms=wasmtime.FilePerms.READ_ONLY,
+            )
+            wasi_cfg.stdout_file(str(out_path))
+            wasi_cfg.stderr_file(str(err_path))
+            store.set_wasi(wasi_cfg)
 
-            with open(out_path, "wb") as out_f, open(err_path, "wb") as err_f:
-                wasi_cfg.stdout_file(out_f)
-                wasi_cfg.stderr_file(err_f)
+            module = wasmtime.Module.from_file(engine, str(wasm_path))
+            linker = wasmtime.Linker(engine)
+            linker.define_wasi()
+            instance = linker.instantiate(store, module)
+            start = instance.exports(store)["_start"]
 
-                store.set_wasi(wasi_cfg)
+            timeout_fired = threading.Event()
 
-                module = wasmtime.Module.from_file(engine, str(wasm_path))
-                linker = wasmtime.Linker(engine)
-                linker.define_wasi()
-                instance = linker.instantiate(store, module)
+            def _interrupt() -> None:
+                timeout_fired.set()
+                engine.increment_epoch()
+
+            timer = threading.Timer(config.timeout, _interrupt)
+            timer.start()
+            try:
                 try:
-                    start = instance.exports(store)["_start"]
                     start(store)
                     returncode = 0
-                except wasmtime.ExitTrap as e:
-                    returncode = e.code
+                except wasmtime.ExitTrap as exc:
+                    returncode = exc.code
+                except wasmtime.Trap:
+                    if not timeout_fired.is_set():
+                        raise
+                    logger.warning(
+                        "Wasmtime sandbox: execution timed out after %ds",
+                        config.timeout,
+                    )
+                    return "", f"Execution timed out after {config.timeout}s\n", 1
+            finally:
+                timer.cancel()
+
+            stdout = out_path.read_text(errors="replace")
+            stderr = err_path.read_text(errors="replace")
+            return stdout, stderr, returncode
+
+        try:
+            return _execute()
         except Exception as exc:
-            exec_error = exc
-
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-    thread.join(timeout=config.timeout)
-    timed_out = thread.is_alive()
-
-    try:
-        if timed_out:
-            logger.warning(
-                "Wasmtime sandbox: execution timed out after %ds", config.timeout
-            )
-            # Daemon thread is abandoned; no clean kill path for in-process WASM.
-            return "", f"Execution timed out after {config.timeout}s\n", 1
-
-        if exec_error is not None:
-            logger.error("Wasmtime sandbox error: %s", exec_error)
-            return "", f"Wasmtime error: {exec_error}\n", 1
-
-        stdout = Path(out_path).read_text(errors="replace")
-        stderr = Path(err_path).read_text(errors="replace")
-    finally:
-        script_path.unlink(missing_ok=True)
-        Path(out_path).unlink(missing_ok=True)
-        Path(err_path).unlink(missing_ok=True)
-
-    return stdout, stderr, returncode
+            logger.error("Wasmtime sandbox error: %s", exc)
+            return "", f"Wasmtime error: {exc}\n", 1
