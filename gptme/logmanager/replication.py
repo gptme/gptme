@@ -26,7 +26,6 @@ import importlib
 import logging
 import tempfile
 import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -203,7 +202,7 @@ class ReplicationWorker:
         self._pending: dict[str, tuple[Path, str]] = {}
         self._lock = threading.Lock()
         self._event = threading.Event()
-        self._stopped = False
+        self._stop_event = threading.Event()
 
         self._thread = threading.Thread(
             target=self._run,
@@ -224,7 +223,7 @@ class ReplicationWorker:
 
     def stop(self, timeout: float | None = None) -> None:
         """Request shutdown, flush pending uploads, and wait for exit."""
-        self._stopped = True
+        self._stop_event.set()
         self._event.set()
         self._thread.join(timeout=timeout)
         if self._thread.is_alive():
@@ -234,11 +233,11 @@ class ReplicationWorker:
         while True:
             self._event.wait()
             self._event.clear()
-            # Debounce: sleep only when not stopping so we still flush on exit
-            if not self._stopped:
-                time.sleep(self._debounce_s)
+            # An interruptible debounce lets shutdown flush without waiting.
+            if not self._stop_event.is_set():
+                self._stop_event.wait(self._debounce_s)
             self._flush()
-            if self._stopped:
+            if self._stop_event.is_set():
                 break
 
     def _flush(self) -> None:
@@ -278,7 +277,12 @@ class ReplicationWorker:
                     exc,
                     delay,
                 )
-                time.sleep(delay)
+                if self._stop_event.wait(delay):
+                    logger.warning(
+                        "Event log replication for %s aborted during shutdown",
+                        key,
+                    )
+                    return
                 delay = min(delay * 2, 30.0)
 
 

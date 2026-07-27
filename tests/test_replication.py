@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 import pytest
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 from gptme.config.core import Config, _config_var
@@ -103,6 +105,16 @@ def _write_event_log(logdir: Path, n: int = 1) -> None:
         )
 
 
+def _wait_until(predicate: Callable[[], bool], timeout: float = 1.0) -> bool:
+    """Wait for a worker-thread condition without a fixed test sleep."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.001)
+    return predicate()
+
+
 def test_worker_enqueues_upload(logdir: Path, fake_backend: FakeBackend):
     """Enqueuing a logdir leads to one upload call after debounce."""
     _write_event_log(logdir)
@@ -165,6 +177,7 @@ def test_worker_retries_on_transient_failure(logdir: Path):
         backend, debounce_s=0.01, max_retries=3, retry_backoff=0.01
     )
     worker.enqueue(logdir, "conv-abc123")
+    assert _wait_until(lambda: call_count == 3)
     worker.stop(timeout=5.0)
     assert call_count == 3
     assert "conv-abc123/events.jsonl" in backend._store
@@ -183,10 +196,30 @@ def test_worker_gives_up_after_max_retries(logdir: Path, caplog):
     )
     with caplog.at_level(logging.WARNING, logger="gptme.logmanager.replication"):
         worker.enqueue(logdir, "conv-abc123")
+        assert _wait_until(lambda: len(backend.upload_calls) == 2)
         worker.stop(timeout=5.0)
 
     assert any("after 2 attempts" in r.message for r in caplog.records)
     assert len(backend.upload_calls) == 2  # tried max_retries times
+
+
+def test_worker_stop_interrupts_retry_backoff(logdir: Path):
+    """Shutdown does not wait through the configured retry schedule."""
+    backend = FakeBackend()
+    backend.fail_upload = True
+    _write_event_log(logdir)
+    worker = ReplicationWorker(
+        backend, debounce_s=0.01, max_retries=7, retry_backoff=30.0
+    )
+    worker.enqueue(logdir, "conv-abc123")
+    assert _wait_until(lambda: len(backend.upload_calls) == 1)
+
+    started = time.monotonic()
+    worker.stop(timeout=1.0)
+
+    assert time.monotonic() - started < 1.0
+    assert not worker._thread.is_alive()
+    assert len(backend.upload_calls) == 1
 
 
 def test_worker_noop_when_log_missing(logdir: Path, fake_backend: FakeBackend):
