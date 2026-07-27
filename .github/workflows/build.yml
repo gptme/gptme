@@ -217,6 +217,19 @@ jobs:
         make build
         poetry install --extras server --extras pyinstaller --with dev
 
+    - name: Set up Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: webui/package-lock.json
+
+    - name: Build and bundle webui
+      run: |
+        cd webui && npm ci && npm run build
+        cd ..
+        make bundle-webui
+
     - name: Build PyInstaller executable
       run: make build-server-exe
 

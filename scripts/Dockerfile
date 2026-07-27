@@ -1,3 +1,11 @@
+# Build the modern web UI separately so the Python package serves it by default.
+FROM node:20-slim AS webui-builder
+WORKDIR /app/webui
+COPY webui/package.json webui/package-lock.json ./
+RUN npm ci
+COPY webui/ ./
+RUN npm run build
+
 # Build stage
 FROM python:3.12-slim AS builder
 
@@ -16,6 +24,7 @@ RUN python -m venv /opt/poetry && \
 # Copy files needed for building wheel
 COPY pyproject.toml poetry.lock README.md ./
 COPY gptme gptme/
+COPY --from=webui-builder /app/webui/dist gptme/server/webui-dist/
 
 # Install dependencies and export requirements for server
 RUN /opt/poetry/bin/poetry self add poetry-plugin-export && \

@@ -198,9 +198,8 @@ def main():
     default=None,
     envvar="GPTME_WEBUI_DIR",
     help=(
-        "Directory containing a web UI build (e.g. the modern React webui's "
-        "dist/) to serve instead of the bundled legacy UI. Can also be set "
-        "via the GPTME_WEBUI_DIR environment variable."
+        "Directory containing a web UI build to serve instead of the bundled "
+        "modern UI. Can also be set via the GPTME_WEBUI_DIR environment variable."
     ),
 )
 @click.option(

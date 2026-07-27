@@ -256,8 +256,7 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
   - Use OpenRouter for access to 100+ models, or serve locally with `llama.cpp`.
   - [Pick the right model per task][docs-model-routing] — fast/cheap for triage, powerful for coding.
 - 🌐 **Web UI and REST API**
-  - Modern web interface at [chat.gptme.org](https://chat.gptme.org) ([gptme-webui])
-  - Simple built-in web UI included in the Python package.
+  - Modern [gptme-webui] bundled with `gptme-server` and hosted at [chat.gptme.org](https://chat.gptme.org).
   - [Server][docs-server] with REST API.
   - Standalone executable builds available with PyInstaller.
 - 💻 **[Computer use][docs-tools-computer]** (see [#216](https://github.com/gptme/gptme/issues/216))

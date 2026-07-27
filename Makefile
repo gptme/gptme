@@ -51,6 +51,9 @@ bundle-webui: ## Bundle the modern webui dist into the package (run after `cd we
 	rsync -a --delete webui/dist/ gptme/server/webui-dist/
 	@echo "Bundled webui/dist → gptme/server/webui-dist/ ($(ls gptme/server/webui-dist | wc -l) files at top level)"
 
+validate-release-package: ## Verify built packages contain the modern webui
+	python3 scripts/validate_release_package.py dist/*.whl dist/*.tar.gz
+
 test: ## Run tests
 	@# if SLOW is not set, pass `-m "not slow"` to skip slow tests
 	poetry run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \

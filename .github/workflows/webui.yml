@@ -7,6 +7,9 @@ on:
     branches: [ master, 'dev/*' ]
     paths:
       - 'webui/**'
+      - 'pyproject.toml'
+      - 'Makefile'
+      - 'scripts/validate_release_package.py'
       - '.github/workflows/webui.yml'
 
 defaults:
@@ -44,6 +47,19 @@ jobs:
 
     - name: Build
       run: npm run build
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.12'
+
+    - name: Verify release package includes the built webui
+      working-directory: .
+      run: |
+        make bundle-webui
+        pipx install poetry
+        poetry build
+        make validate-release-package
 
     - name: Upload dist artifact
       if: github.ref == 'refs/heads/master'

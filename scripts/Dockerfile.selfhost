@@ -6,6 +6,13 @@
 #
 # Build/run via docker compose (see docker-compose.yml at the repo root):
 #   docker compose up --build
+FROM node:20-slim AS webui-builder
+WORKDIR /app/webui
+COPY webui/package.json webui/package-lock.json ./
+RUN npm ci
+COPY webui/ ./
+RUN npm run build
+
 FROM python:3.12-slim
 
 # git: gptme's git-aware features expect it at runtime. curl: container healthcheck.
@@ -16,9 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# .dockerignore trims the build context to gptme/, pyproject.toml, poetry.lock,
-# and README.md — exactly what's needed to build and install the package.
 COPY . /app
+COPY --from=webui-builder /app/webui/dist gptme/server/webui-dist/
 RUN pip install --no-cache-dir ".[server]"
 
 # Run as a non-root user; named volumes inherit this ownership.
@@ -37,7 +43,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD curl -fsS -H "Authorization: Bearer ${GPTME_SERVER_TOKEN}" http://localhost:5700/api/v2/server/health \
         || [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5700/api/v2/server/health)" = "401" ]
 
-# Bind to 0.0.0.0 so the port is reachable from the host and other containers.
-# Pass --cors-origin (see docker-compose.yml) to allow a web UI origin, and set
+# Bind to 0.0.0.0 so the bundled UI is reachable from the host. Set
 # GPTME_SERVER_TOKEN to require auth (recommended for any non-localhost exposure).
 ENTRYPOINT ["gptme-server", "serve", "--host", "0.0.0.0", "--port", "5700"]

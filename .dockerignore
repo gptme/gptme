@@ -43,11 +43,12 @@ demos
 projects
 eval_results*
 
-# Frontend / desktop / static-site sources — not needed by either image.
-# The agent image (scripts/Dockerfile) copies only pyproject/gptme explicitly;
-# the self-host image (scripts/Dockerfile.selfhost) only pip-installs the
-# package. tauri (~8G) and webui (~600M) would otherwise bloat the build context.
-webui
+# Desktop/static-site sources and generated frontend files are not needed. The
+# Dockerfiles build the modern UI from source in a dedicated Node stage.
+webui/node_modules
+webui/dist
+webui/playwright-report
+webui/test-results
 tauri
 site
 

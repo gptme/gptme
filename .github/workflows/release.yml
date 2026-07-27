@@ -306,6 +306,9 @@ jobs:
         rm -f dist/*.whl dist/*.tar.gz
         poetry build
 
+    - name: Validate package contents
+      run: make validate-release-package
+
     - name: Validate package (dry-run publish)
       run: |
         # Dry-run validates artifact structure and metadata — no upload, no auth check

@@ -9,7 +9,8 @@ sys.path.insert(0, str(project_root))
 
 # Define data files to include
 datas = [
-    # Include server static files
+    # Include the modern web UI and legacy computer.html fallback.
+    (str(project_root / 'gptme/server/webui-dist'), 'gptme/server/webui-dist'),
     (str(project_root / 'gptme/server/static'), 'gptme/server/static'),
     # Include the logo if needed
     (str(project_root / 'media/logo.png'), 'media'),

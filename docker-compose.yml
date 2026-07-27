@@ -1,6 +1,6 @@
 # Two services are available:
 #
-#   gptme-server  — headless API server for use with the web UI:
+#   gptme-server  — API server with the modern web UI bundled at :5700:
 #
 #       docker compose up --build
 #
@@ -31,11 +31,9 @@ services:
       # configure the web UI with the same value; if blank, one is auto-generated
       # at startup — see `docker compose logs`.
       GPTME_SERVER_TOKEN: ${GPTME_SERVER_TOKEN:-}
-    # Appended to the image's entrypoint (gptme-server serve --host 0.0.0.0
-    # --port 5700). Allows the configured web UI origin to call this server.
-    command:
-      - --cors-origin
-      - ${CORS_ORIGIN:-https://chat.gptme.org}
+    # The bundled UI is same-origin and needs no CORS configuration. To use a
+    # separately hosted UI, uncomment this command and set CORS_ORIGIN.
+    # command: [--cors-origin, ${CORS_ORIGIN:-https://chat.gptme.org}]
     volumes:
       # Persist config, credentials, and conversation logs across restarts.
       - gptme-config:/home/gptme/.config/gptme

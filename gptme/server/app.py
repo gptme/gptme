@@ -29,7 +29,7 @@ def _resolve_static_folder(webui_dir: str | Path | None = None) -> Path:
 
     Precedence: explicit ``webui_dir`` argument > ``GPTME_WEBUI_DIR`` env var >
     bundled modern webui (``gptme/server/webui-dist/``) >
-    the embedded legacy static bundle. A configured directory must exist so
+    the embedded legacy static fallback. A configured directory must exist so
     that a typo fails loudly at startup instead of silently serving 404s.
     """
     candidate = webui_dir or os.environ.get("GPTME_WEBUI_DIR")
@@ -65,10 +65,10 @@ def create_app(
             validation is active (loopback binds without auth). Adds to the
             built-in localhost/127.0.0.1/[::1] allow-list, for users who proxy
             the local server behind a hostname. See init_host_validation.
-        webui_dir: Optional directory containing a web UI build (e.g. the
-            modern React webui's ``dist/``) to serve instead of the bundled
-            legacy UI. Falls back to the ``GPTME_WEBUI_DIR`` environment
-            variable, then to the embedded legacy static bundle.
+        webui_dir: Optional directory containing a web UI build to serve
+            instead of the bundled modern UI. Falls back to the
+            ``GPTME_WEBUI_DIR`` environment variable, then to the bundled UI
+            and finally the embedded legacy static fallback.
         default_profile: Optional profile name to apply to new conversations
             that don't specify a system prompt. The profile's system_prompt is
             injected as an additional system message when the conversation is

@@ -19,7 +19,7 @@
 #      sudo install -m 640 -o gptme -g gptme /dev/null /etc/gptme/server.env
 #      # then edit /etc/gptme/server.env (see the EnvironmentFile keys below)
 #   5. sudo cp scripts/gptme-server.service /etc/systemd/system/
-#      # adjust User=, the ExecStart path, and --cors-origin to match your setup
+#      # adjust User= and the ExecStart path to match your setup
 #   6. sudo systemctl daemon-reload && sudo systemctl enable --now gptme-server
 #
 # The server binds to loopback (127.0.0.1) by design: terminate TLS and expose
@@ -46,11 +46,10 @@ Group=gptme
 EnvironmentFile=-/etc/gptme/server.env
 
 # Adjust the path to wherever pipx installed the entrypoint for User= above.
-# Bind loopback and front it with a reverse proxy; set --cors-origin to the
-# origin your web UI is served from (the hosted UI is https://chat.gptme.org).
+# The bundled UI is served at the same origin. Add --cors-origin only when a
+# separate frontend origin (for example chat.gptme.org) connects to this server.
 ExecStart=/home/gptme/.local/bin/gptme-server serve \
-    --host 127.0.0.1 --port 5700 \
-    --cors-origin https://chat.gptme.org
+    --host 127.0.0.1 --port 5700
 
 Restart=on-failure
 RestartSec=5

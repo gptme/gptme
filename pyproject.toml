@@ -47,7 +47,15 @@ gptme-mcp-server = "gptme.cli.cmd_mcp_serve:main"
 packages = [
     { include = "gptme" },
 ]
-include = ["gptme/server/static/**/*", "gptme/server/webui-dist/**/*", "gptme/eval/tbench/setup.sh", "media/*.png", "media/*.wav"]
+include = [
+    "gptme/server/static/**/*",
+    # webui-dist is generated and gitignored; an explicit path include is
+    # required so Poetry does not silently omit it from release artifacts.
+    { path = "gptme/server/webui-dist", format = ["sdist", "wheel"] },
+    "gptme/eval/tbench/setup.sh",
+    "media/*.png",
+    "media/*.wav",
+]
 
 [tool.poetry.dependencies]
 python = "^3.10"
