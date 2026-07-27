@@ -506,13 +506,7 @@ def sandbox_exec_wasmtime(
             if not isinstance(start, wasmtime.Func):
                 raise RuntimeError("CPython WASI module exports non-function _start")
 
-            timeout_fired = threading.Event()
-
-            def _interrupt() -> None:
-                timeout_fired.set()
-                engine.increment_epoch()
-
-            timer = threading.Timer(config.timeout, _interrupt)
+            timer = threading.Timer(config.timeout, engine.increment_epoch)
             timer.start()
             try:
                 try:
@@ -520,8 +514,8 @@ def sandbox_exec_wasmtime(
                     returncode = 0
                 except wasmtime.ExitTrap as exc:
                     returncode = exc.code
-                except wasmtime.Trap:
-                    if not timeout_fired.is_set():
+                except wasmtime.Trap as exc:
+                    if exc.trap_code is not wasmtime.TrapCode.INTERRUPT:
                         raise
                     logger.warning(
                         "Wasmtime sandbox: execution timed out after %ds",

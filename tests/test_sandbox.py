@@ -729,6 +729,7 @@ class TestWasmtimeExecUnit:
         mock_wt = MagicMock()
         mock_wt.ExitTrap = type("ExitTrap", (Exception,), {})
         mock_wt.Trap = type("Trap", (Exception,), {})
+        mock_wt.TrapCode.INTERRUPT = "interrupt"
         mock_wt.DirPerms.READ_ONLY = "dir-read-only"
         mock_wt.FilePerms.READ_ONLY = "file-read-only"
         mock_wt.WasiConfig.return_value = MagicMock()
@@ -784,9 +785,9 @@ class TestWasmtimeExecUnit:
         wasm.write_bytes(b"\x00asm")
         mock_wt = self._mock_wasmtime()
         timer = MagicMock()
-        timeout_fired = MagicMock()
-        timeout_fired.is_set.return_value = True
-        start = MagicMock(side_effect=mock_wt.Trap("interrupt"))
+        timeout_trap = mock_wt.Trap("interrupt")
+        timeout_trap.trap_code = mock_wt.TrapCode.INTERRUPT
+        start = MagicMock(side_effect=timeout_trap)
         mock_wt.Func = type(start)
         mock_wt.Linker.return_value.instantiate.return_value.exports.return_value = {
             "_start": start
@@ -794,7 +795,6 @@ class TestWasmtimeExecUnit:
 
         with (
             patch("gptme.sandbox.threading.Timer", return_value=timer),
-            patch("gptme.sandbox.threading.Event", return_value=timeout_fired),
             patch.dict("sys.modules", {"wasmtime": mock_wt}),
         ):
             stdout, stderr, rc = sandbox_exec_wasmtime(self._cfg(wasm), "pass")
@@ -809,9 +809,9 @@ class TestWasmtimeExecUnit:
         wasm.write_bytes(b"\x00asm")
         mock_wt = self._mock_wasmtime()
         timer = MagicMock()
-        timeout_fired = MagicMock()
-        timeout_fired.is_set.return_value = False
-        start = MagicMock(side_effect=mock_wt.Trap("guest trap"))
+        guest_trap = mock_wt.Trap("guest trap")
+        guest_trap.trap_code = "unreachable"
+        start = MagicMock(side_effect=guest_trap)
         mock_wt.Func = type(start)
         mock_wt.Linker.return_value.instantiate.return_value.exports.return_value = {
             "_start": start
@@ -819,7 +819,6 @@ class TestWasmtimeExecUnit:
 
         with (
             patch("gptme.sandbox.threading.Timer", return_value=timer),
-            patch("gptme.sandbox.threading.Event", return_value=timeout_fired),
             patch.dict("sys.modules", {"wasmtime": mock_wt}),
         ):
             stdout, stderr, rc = sandbox_exec_wasmtime(self._cfg(wasm), "pass")
