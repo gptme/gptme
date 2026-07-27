@@ -13,6 +13,7 @@ from gptme.logmanager import Log, LogManager
 from gptme.logmanager.eventlog import (
     CHECKPOINT_INTERVAL,
     EVENT_CHECKPOINT,
+    EVENT_LOG_NAME,
     EVENT_MESSAGE_APPEND,
     EVENT_MESSAGE_EDIT,
     EVENT_UNDO,
@@ -335,6 +336,27 @@ def test_logmanager_append_writes_event_log(logdir: Path):
     assert len(events) >= 1
     assert events[0]["type"] == EVENT_MESSAGE_APPEND
     assert events[0]["payload"]["message"]["content"] == "hello from event log test"
+
+
+def test_logmanager_keeps_non_main_branch_event_histories_separate(
+    logdir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Events from distinct branches remain independently recoverable."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logdir.parent))
+    with LogManager(logdir=logdir, branch="alpha", lock=False) as lm:
+        assert lm.current_branch == "alpha"
+        assert lm.logdir == logdir
+        lm.append(Message("user", "alpha message"))
+        assert (logdir / "branches" / "alpha" / EVENT_LOG_NAME).exists()
+        lm.branch("beta")
+        lm.append(Message("user", "beta message"))
+
+    alpha = recover_messages(logdir / "branches" / "alpha")
+    beta = recover_messages(logdir / "branches" / "beta")
+    assert alpha is not None
+    assert beta is not None
+    assert [message["content"] for message in alpha] == ["alpha message"]
+    assert [message["content"] for message in beta] == ["beta message"]
 
 
 def test_logmanager_undo_writes_undo_event(logdir: Path):
