@@ -236,19 +236,22 @@ class ReplicationWorker:
             # An interruptible debounce lets shutdown flush without waiting.
             if not self._stop_event.is_set():
                 self._stop_event.wait(self._debounce_s)
-            self._flush()
-            if self._stop_event.is_set():
+            stopping = self._stop_event.is_set()
+            self._flush(stopping=stopping)
+            if stopping:
                 break
 
-    def _flush(self) -> None:
+    def _flush(self, *, stopping: bool = False) -> None:
         with self._lock:
             pending = dict(self._pending)
             self._pending.clear()
 
         for logdir, key in pending.values():
-            self._upload_with_retry(key, logdir)
+            self._upload_with_retry(key, logdir, stopping=stopping)
 
-    def _upload_with_retry(self, key: str, logdir: Path) -> None:
+    def _upload_with_retry(
+        self, key: str, logdir: Path, *, stopping: bool = False
+    ) -> None:
         from . import eventlog
 
         local_path = logdir / eventlog.EVENT_LOG_NAME
@@ -277,12 +280,12 @@ class ReplicationWorker:
                     exc,
                     delay,
                 )
+                if stopping:
+                    # Preserve the configured attempt budget at exit, but skip
+                    # backoff so shutdown is bounded by upload calls, not sleeps.
+                    continue
                 if self._stop_event.wait(delay):
-                    logger.warning(
-                        "Event log replication for %s aborted during shutdown",
-                        key,
-                    )
-                    return
+                    stopping = True
                 delay = min(delay * 2, 30.0)
 
 

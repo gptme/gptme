@@ -204,7 +204,7 @@ def test_worker_gives_up_after_max_retries(logdir: Path, caplog):
 
 
 def test_worker_stop_interrupts_retry_backoff(logdir: Path):
-    """Shutdown does not wait through the configured retry schedule."""
+    """Shutdown preserves retry attempts without waiting through backoff."""
     backend = FakeBackend()
     backend.fail_upload = True
     _write_event_log(logdir)
@@ -219,7 +219,31 @@ def test_worker_stop_interrupts_retry_backoff(logdir: Path):
 
     assert time.monotonic() - started < 1.0
     assert not worker._thread.is_alive()
-    assert len(backend.upload_calls) == 1
+    assert len(backend.upload_calls) == 7
+
+
+def test_worker_shutdown_retries_transient_final_upload(logdir: Path):
+    """A transient final-upload failure retains its configured retry budget."""
+    backend = FakeBackend()
+    _write_event_log(logdir)
+    call_count = 0
+
+    def flaky_upload(key: str, local_path: Path) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise OSError("transient")
+        backend._store[key] = local_path.read_bytes()
+
+    backend.upload = flaky_upload  # type: ignore
+    worker = ReplicationWorker(
+        backend, debounce_s=30.0, max_retries=3, retry_backoff=30.0
+    )
+    worker.enqueue(logdir, "conv-abc123")
+    worker.stop(timeout=1.0)
+
+    assert call_count == 2
+    assert "conv-abc123/events.jsonl" in backend._store
 
 
 def test_worker_noop_when_log_missing(logdir: Path, fake_backend: FakeBackend):
