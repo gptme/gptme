@@ -23,7 +23,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY . /app
+# Keep frontend sources in the builder stage only. Copy the Python package inputs
+# explicitly so WebUI changes do not invalidate or bloat the runtime source layer.
+COPY pyproject.toml poetry.lock README.md ./
+COPY gptme/ gptme/
 COPY --from=webui-builder /app/webui/dist gptme/server/webui-dist/
 RUN pip install --no-cache-dir ".[server]"
 
