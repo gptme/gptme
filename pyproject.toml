@@ -43,11 +43,6 @@ gptme-status = "gptme.cli.cmd_status:status"
 gptme-resume = "gptme.cli.cmd_resume:resume"
 gptme-mcp-server = "gptme.cli.cmd_mcp_serve:main"
 
-[project.optional-dependencies]
-sandbox = [
-    "wasmtime>=47.0.1",
-]
-
 [tool.poetry]
 packages = [
     { include = "gptme" },

@@ -4510,4 +4510,4 @@ sandbox = ["wasmtime"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "84171b7f9c646c64cb5f57c839bcaf6a24fa525c466f0b6b65899ab1b7f36bba"
+content-hash = "3039d755fdb7b584ad736ae00825c0a0f99d9d7a959ac4cd8f174328e59784ce"
