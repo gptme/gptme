@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 from gptme.llm import llm_openai
 from gptme.llm.models import get_model
 from gptme.message import Message
@@ -30,6 +32,51 @@ def test_sampling_helpers_keep_model_overrides():
     assert llm_openai._get_top_p("openai", gpt5, top_p=0.82) is None
     assert llm_openai._get_temperature("moonshot", moonshot, temperature=0.37) == 1.0
     assert llm_openai._get_top_p("moonshot", moonshot, top_p=0.82) == 0.95
+
+
+def test_kimi_k3_sends_configured_reasoning_effort(monkeypatch):
+    monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
+    completion = SimpleNamespace(
+        usage=None,
+        choices=[
+            SimpleNamespace(
+                finish_reason="stop",
+                message=SimpleNamespace(
+                    content="answer",
+                    reasoning_content="reasoning",
+                    tool_calls=None,
+                ),
+            )
+        ],
+    )
+    completions_create = Mock(return_value=completion)
+    mock_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=completions_create))
+    )
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    result, _ = llm_openai.chat(
+        [Message(role="user", content="Solve this.")],
+        "moonshot/kimi-k3",
+        None,
+    )
+
+    assert result == "<think>\nreasoning\n</think>\n\nanswer"
+    assert "temperature" not in completions_create.call_args.kwargs
+    assert "top_p" not in completions_create.call_args.kwargs
+    assert completions_create.call_args.kwargs["extra_body"] == {
+        "reasoning_effort": "high"
+    }
+
+
+def test_kimi_k3_rejects_unsupported_reasoning_effort(monkeypatch):
+    monkeypatch.setenv("GPTME_THINKING_EFFORT", "medium")
+
+    with pytest.raises(ValueError, match="Kimi K3 reasoning effort"):
+        llm_openai.extra_body(
+            "moonshot", get_model("moonshot/kimi-k3"), max_tokens=None
+        )
 
 
 def test_chat_completions_forwards_caller_sampling_values(monkeypatch):

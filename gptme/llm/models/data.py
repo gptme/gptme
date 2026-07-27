@@ -490,7 +490,17 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
         # Kimi docs list 256K context for k2.6/k2.5. max_completion_tokens
         # is constrained by input + output fitting within that context; the
         # 32K K2.5 guide value is a default, not a documented hard output cap.
-        # All kimi models require temperature=1; handled in llm_openai.py
+        "kimi-k3": {
+            "context": 1_048_576,
+            "max_output": 1_048_576,
+            "price_input": 3.00,
+            "price_output": 15.00,
+            "supports_reasoning": True,
+            "supports_vision": True,
+            "supports_parallel_tool_calls": True,
+            "supports_strict_tools": True,
+            "preferred_edit_format": "diff",
+        },
         "kimi-k2.6": {
             "context": 262_144,
             "max_output": 262_144,

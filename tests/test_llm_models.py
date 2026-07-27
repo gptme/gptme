@@ -355,6 +355,20 @@ def test_list_models_json_available_keeps_plugin_models(
 # --- Tests for closest-match heuristic ---
 
 
+def test_kimi_k3_metadata():
+    """Kimi K3 must not silently inherit the smaller K2 metadata."""
+    model = get_model("moonshot/kimi-k3")
+
+    assert model.context == 1_048_576
+    assert model.max_output == 1_048_576
+    assert model.supports_reasoning is True
+    assert model.supports_vision is True
+    assert model.supports_parallel_tool_calls is True
+    assert model.supports_strict_tools is True
+    assert model.price_input == 3.0
+    assert model.price_output == 15.0
+
+
 class TestClosestModelMatch:
     """Tests for _find_closest_model_properties and its integration in get_model."""
 

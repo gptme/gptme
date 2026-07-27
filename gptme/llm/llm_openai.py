@@ -132,9 +132,10 @@ def _get_temperature(
 ) -> float:
     """Return the temperature for a given provider/model.
 
-    Moonshot/Kimi models require temperature=1.
-    OpenAI GPT-5 class models require temperature=1.
-    All others use the caller value or global default.
+    Moonshot/Kimi models require temperature=1. K3 is marked as a reasoner, so
+    callers omit this fixed parameter rather than invoking this helper. OpenAI
+    GPT-5 class models require temperature=1. All others use the caller value
+    or global default.
     """
     if provider == "moonshot":
         return 1.0
@@ -150,9 +151,10 @@ def _get_top_p(
 ) -> float | None:
     """Return the top_p for a given provider.
 
-    Moonshot/Kimi models require top_p=0.95.
-    All others use the caller value or global default.
-    Returns None for models that don't support top_p (e.g., gpt-5.x).
+    Moonshot/Kimi models require top_p=0.95. K3 is marked as a reasoner, so
+    callers omit this fixed parameter rather than invoking this helper. All
+    others use the caller value or global default. Returns None for models
+    that don't support top_p.
     """
     if model_meta is not None and "gpt-5" in model_meta.model:
         return None
@@ -1083,6 +1085,7 @@ def extra_headers(provider: Provider) -> dict[str, str]:
 
 _OPENROUTER_REASONING_DEFAULT = 20000
 _VALID_QUANTIZATIONS = {"fp16", "bf16", "fp8", "int8", "int4", "unknown"}
+_KIMI_K3_REASONING_EFFORTS = {"low", "high", "max"}
 
 
 def extra_body(
@@ -1091,6 +1094,17 @@ def extra_body(
     """Return extra body for the OpenAI API based on the model."""
     body: dict[str, Any] = {}
     _maybe_apply_verbosity(body, model_meta)
+    if provider == "moonshot" and model_meta.model == "kimi-k3":
+        effort = get_config().get_env("GPTME_THINKING_EFFORT")
+        if effort is not None:
+            effort = effort.strip().lower()
+            if effort not in _KIMI_K3_REASONING_EFFORTS:
+                valid = ", ".join(sorted(_KIMI_K3_REASONING_EFFORTS))
+                raise ValueError(
+                    f"Invalid Kimi K3 reasoning effort: {effort!r}. "
+                    f"Must be one of: {valid}."
+                )
+            body["reasoning_effort"] = effort
     if provider == "openrouter":
         # Enable detailed usage info including cached tokens
         # See: https://openrouter.ai/docs/guides/usage-accounting
@@ -1640,10 +1654,13 @@ def _transform_msgs_for_special_provider(
                 result.append(cast(MessageDict, msg))
         return result
 
-    # OpenRouter reasoning models (e.g., Moonshot AI Kimi) need reasoning_content
-    # for assistant messages with tool_calls when thinking mode is enabled
-    # This prevents: "thinking is enabled but reasoning_content is missing in assistant tool call message"
-    if model.provider == "openrouter" and model.supports_reasoning:
+    # Reasoning models need the structured field restored from gptme's <think>
+    # representation before historical messages go back to the provider.
+    # OpenRouter requires it on tool-call turns; K3 requires it on every turn.
+    preserve_all_reasoning = model.provider == "moonshot" and model.model == "kimi-k3"
+    if (model.provider == "openrouter" and model.supports_reasoning) or (
+        preserve_all_reasoning
+    ):
 
         def _extract_and_strip_reasoning(
             content: str | None,
@@ -1685,7 +1702,7 @@ def _transform_msgs_for_special_provider(
         for msg in messages_dicts:
             if (
                 msg.get("role") == "assistant"
-                and msg.get("tool_calls")
+                and (msg.get("tool_calls") or preserve_all_reasoning)
                 and "reasoning_content" not in msg
             ):
                 # Extract reasoning and clean content to prevent context duplication
@@ -1742,6 +1759,7 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
         "azure",
         "openrouter",
         "deepseek",
+        "moonshot",
         "local",
     ] or is_custom_provider(model.model.split("/")[0]):
         all_required = all(p.required for p in spec.parameters)

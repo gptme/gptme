@@ -1782,6 +1782,47 @@ class TestOpenAIRetryLogic:
         assert return_value == {"metadata": "value"}
 
 
+def test_prepare_kimi_k3_preserves_reasoning_across_turns():
+    """K3 requires historical reasoning content even without a tool call."""
+    messages = [
+        Message(role="user", content="Solve this."),
+        Message(
+            role="assistant",
+            content="<think>Work through it.</think>\nThe answer is 42.",
+        ),
+        Message(role="user", content="Check that answer."),
+    ]
+
+    result, _ = _prepare_messages_for_api(messages, "moonshot/kimi-k3", None)
+
+    assert result[1]["reasoning_content"] == "Work through it."
+    assert result[1]["content"] == "The answer is 42."
+
+
+def test_prepare_kimi_k3_preserves_reasoning_for_tool_calls():
+    """K3 requires complete historical assistant messages on tool turns."""
+    init_tools(allowlist=["shell"])
+    shell = get_tool("shell")
+    assert shell
+    messages = [
+        Message(role="user", content="List the files."),
+        Message(
+            role="assistant",
+            content=(
+                "<think>Inspect the directory first.</think>\n"
+                '@shell(call_123): {"command": "ls"}'
+            ),
+        ),
+        Message(role="system", content="README.md", call_id="call_123"),
+    ]
+
+    result, _ = _prepare_messages_for_api(messages, "moonshot/kimi-k3", [shell])
+
+    assert result[1]["reasoning_content"] == "Inspect the directory first."
+    assert result[1].get("content") is None
+    assert result[1]["tool_calls"][0]["id"] == "call_123"
+
+
 def test_transform_msgs_for_openrouter_reasoning_tool_calls():
     """Test that OpenRouter reasoning models get empty reasoning_content for tool_calls.
 
