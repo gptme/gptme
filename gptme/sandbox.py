@@ -493,8 +493,9 @@ def sandbox_exec_wasmtime(
                 dir_perms=wasmtime.DirPerms.READ_ONLY,
                 file_perms=wasmtime.FilePerms.READ_ONLY,
             )
-            wasi_cfg.stdout_file(str(out_path))
-            wasi_cfg.stderr_file(str(err_path))
+            # wasmtime-py exposes these as write-only properties, not methods.
+            wasi_cfg.stdout_file = str(out_path)
+            wasi_cfg.stderr_file = str(err_path)
             store.set_wasi(wasi_cfg)
 
             module = wasmtime.Module.from_file(engine, str(wasm_path))
@@ -502,6 +503,8 @@ def sandbox_exec_wasmtime(
             linker.define_wasi()
             instance = linker.instantiate(store, module)
             start = instance.exports(store)["_start"]
+            if not isinstance(start, wasmtime.Func):
+                raise RuntimeError("CPython WASI module exports non-function _start")
 
             timeout_fired = threading.Event()
 

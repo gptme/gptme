@@ -731,8 +731,11 @@ class TestWasmtimeExecUnit:
         mock_wt.Trap = type("Trap", (Exception,), {})
         mock_wt.DirPerms.READ_ONLY = "dir-read-only"
         mock_wt.FilePerms.READ_ONLY = "file-read-only"
+        mock_wt.WasiConfig.return_value = MagicMock()
+        mock_start = start_fn or MagicMock()
+        mock_wt.Func = type(mock_start)
         mock_instance = MagicMock()
-        mock_instance.exports.return_value = {"_start": start_fn or (lambda _: None)}
+        mock_instance.exports.return_value = {"_start": mock_start}
         mock_wt.Linker.return_value.instantiate.return_value = mock_instance
         return mock_wt
 
@@ -755,6 +758,9 @@ class TestWasmtimeExecUnit:
             memory_size=256 * 1024 * 1024
         )
         mock_wt.Store.return_value.set_epoch_deadline.assert_called_once_with(1)
+        wasi_cfg = mock_wt.WasiConfig.return_value
+        assert Path(wasi_cfg.stdout_file).name == "stdout"
+        assert Path(wasi_cfg.stderr_file).name == "stderr"
 
     def test_preopens_private_directory_read_only(self, tmp_path):
         wasm = tmp_path / "python.wasm"
@@ -780,8 +786,10 @@ class TestWasmtimeExecUnit:
         timer = MagicMock()
         timeout_fired = MagicMock()
         timeout_fired.is_set.return_value = True
+        start = MagicMock(side_effect=mock_wt.Trap("interrupt"))
+        mock_wt.Func = type(start)
         mock_wt.Linker.return_value.instantiate.return_value.exports.return_value = {
-            "_start": MagicMock(side_effect=mock_wt.Trap("interrupt"))
+            "_start": start
         }
 
         with (
@@ -803,8 +811,10 @@ class TestWasmtimeExecUnit:
         timer = MagicMock()
         timeout_fired = MagicMock()
         timeout_fired.is_set.return_value = False
+        start = MagicMock(side_effect=mock_wt.Trap("guest trap"))
+        mock_wt.Func = type(start)
         mock_wt.Linker.return_value.instantiate.return_value.exports.return_value = {
-            "_start": MagicMock(side_effect=mock_wt.Trap("guest trap"))
+            "_start": start
         }
 
         with (
