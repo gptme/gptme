@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 
 from ..util import path_with_tilde
 from .models import (
-    EventLogReplicationConfig,
     HooksConfig,
     LessonsConfig,
     MCPConfig,
@@ -340,20 +339,6 @@ def load_user_config(path: str | None = None) -> UserConfig:
         if isinstance(plugin_data, dict):
             plugin_config = plugin_data
 
-    # Parse [session_event_log_replication] section
-    replication_data = config.pop("session_event_log_replication", {})
-    if not isinstance(replication_data, dict):
-        logger.warning(
-            "[session_event_log_replication] should be a table, "
-            f"got {type(replication_data).__name__}"
-        )
-        replication_data = {}
-    replication_config = EventLogReplicationConfig(
-        **_filter_known_fields(
-            EventLogReplicationConfig, replication_data, "session_event_log_replication"
-        )
-    )
-
     if config:
         unknown = set(config.keys())
         strip_targets = str(path_with_tilde(config_file))
@@ -379,7 +364,6 @@ def load_user_config(path: str | None = None) -> UserConfig:
         settings=settings,
         hooks=hooks,
         plugin=plugin_config,
-        session_event_log_replication=replication_config,
     )
 
 

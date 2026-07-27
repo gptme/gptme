@@ -369,15 +369,11 @@ class LogManager:
         """Write an event to the event log and optionally a checkpoint.
 
         Writes a ``message_append``, ``message_edit``, or ``undo`` event
-        followed by a checkpoint if one is due. Main events live beside
-        ``conversation.jsonl``; branch events live under
-        ``branches/<branch>/events.jsonl`` so branch histories stay isolated.
+        followed by a checkpoint if one is due.  Writes alongside the main
+        conversation JSONL (``get_logs_dir() / chat_id / events.jsonl``).
         Silent-noop when the log directory is not set up yet.
         """
-        if self.current_branch == "main":
-            event_dir = self.logdir
-        else:
-            event_dir = self.logdir / "branches" / self.current_branch
+        event_dir = self.logfile.parent
         event_dir.mkdir(parents=True, exist_ok=True)
         seq = eventlog.sequence_number(event_dir)
         if event_type == eventlog.EVENT_MESSAGE_APPEND:
@@ -403,45 +399,6 @@ class LogManager:
                 seq + 1,  # next seq for the checkpoint
                 [m.to_dict() for m in self.log.messages],
             )
-
-        # Enqueue remote replication (best-effort, off by default)
-        self._enqueue_replication(event_dir)
-
-    def _enqueue_replication(self, event_dir: Path) -> None:
-        """Enqueue *event_dir* for best-effort remote replication if configured."""
-        from ..config import get_config
-        from . import replication
-
-        cfg = get_config().user.session_event_log_replication
-        if not cfg.enabled:
-            return
-        if cfg.backend != "s3":
-            logger.warning(
-                "Unsupported replication backend %r (only 's3' is supported)",
-                cfg.backend,
-            )
-            return
-        if not cfg.bucket:
-            logger.warning(
-                "session_event_log_replication.bucket is not set; skipping replication"
-            )
-            return
-
-        try:
-            backend = replication.S3Backend(
-                bucket=cfg.bucket,
-                prefix=cfg.prefix,
-                endpoint_url=cfg.endpoint_url or None,
-                region=cfg.region or None,
-            )
-            worker = replication.get_worker(
-                backend,
-                debounce_ms=cfg.upload_debounce_ms,
-                max_retries=cfg.max_retries,
-            )
-            worker.enqueue(event_dir, self.chat_id, self.current_branch)
-        except Exception:
-            logger.debug("Failed to initialise replication worker", exc_info=True)
 
     def append(self, msg: Message) -> None:
         """Appends a message to the log, writes the log, prints the message.
