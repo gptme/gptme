@@ -6720,11 +6720,14 @@ To use gptme's server capabilities, install with server extras:
 
     pipx install 'gptme[server]'
 
-Start the server:
+Start the server, then open http://localhost:5700:
 
 .. code-block:: bash
 
     gptme-server
+
+The server and modern web UI share one origin by default, so no separate
+frontend process or CORS configuration is required.
 
 For more CLI options, see the :ref:`CLI reference <cli:gptme-server>`.
 
@@ -6750,10 +6753,13 @@ The primary web interface is `gptme-webui <https://github.com/gptme/gptme/tree/m
 - Integrated computer use interface
 - Create your own persistent `agents`
 
-**Local Installation:**
-For self-hosting and local development, see the `gptme-webui README <https://github.com/gptme/gptme/tree/master/webui>`_.
+**Local use:**
 
-To use the server with a locally hosted gptme-webui, configure the CORS origin when starting the server:
+The modern UI is bundled in gptme release packages. Run ``gptme-server`` and
+open http://localhost:5700.
+
+For frontend development, see the `gptme-webui README <https://github.com/gptme/gptme/tree/master/webui>`_.
+When Vite runs separately on port 5701, allow that development origin:
 
 .. code-block:: bash
 
@@ -6810,21 +6816,20 @@ gptme + the ``server`` extra only — no Node/agent tooling) and runs
 
 The server listens on http://localhost:5700.
 
-The simplest way to use it is the basic web UI the server bundles at the same
-origin — just open http://localhost:5700 in a browser. Being same-origin, it
-needs no CORS setup (you will still need the server token; see below).
+The modern web UI is bundled at the same origin — just open
+http://localhost:5700 in a browser. Being same-origin, it needs no CORS setup
+(you will still need the server token; see below).
 
-To use the full-featured hosted web UI instead, open
+To use the hosted web UI instead, open
 `chat.gptme.org <https://chat.gptme.org>`_ and point it at your server. That is
-a cross-origin setup, so the server must allow the UI's origin — the default
-``CORS_ORIGIN`` already permits ``chat.gptme.org``. Set ``CORS_ORIGIN`` in
-``.env`` to a different origin if you self-host the web UI yourself.
+a cross-origin setup, so uncomment the Compose ``command`` and set
+``CORS_ORIGIN`` to the hosted UI (or your separately hosted UI).
 
 Key ``.env`` settings:
 
 - ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY`` / ``OPENROUTER_API_KEY`` — at least one is required.
 - ``GPTME_SERVER_TOKEN`` — auth token. The server enables auth by default when bound to ``0.0.0.0`` (as in the container), so set this and configure the web UI with the same value. If left blank, a token is auto-generated at startup — find it with ``docker compose logs``.
-- ``CORS_ORIGIN`` — origin allowed to call the server (defaults to the hosted web UI).
+- ``CORS_ORIGIN`` — only needed for a separately hosted web UI; uncomment the Compose ``command`` and set this to that UI's origin.
 - ``GPTME_SERVER_PORT`` — host port to publish (the container always listens on 5700).
 
 Production Deployment: nginx Reverse Proxy
@@ -6913,9 +6918,10 @@ example below uses nginx with a Let's Encrypt certificate.
    sudo nginx -t        # validate config
    sudo systemctl reload nginx
 
-The server is now reachable at ``https://gptme.example.com``. Point your web UI
-(or the hosted UI at `chat.gptme.org <https://chat.gptme.org>`_) at that URL, and
-set ``CORS_ORIGIN`` in ``.env`` to the origin the UI is served from.
+The server and bundled UI are now reachable together at
+``https://gptme.example.com``. If you instead use a separately hosted UI such
+as `chat.gptme.org <https://chat.gptme.org>`_, set ``CORS_ORIGIN`` in ``.env``
+to that UI's origin and enable the Compose ``--cors-origin`` command.
 
 .. note::
 
@@ -6959,7 +6965,7 @@ The template runs the server as a dedicated ``gptme`` user, reads secrets from
     sudo install -m 640 -o gptme -g gptme /dev/null /etc/gptme/server.env
     sudoedit /etc/gptme/server.env   # add ANTHROPIC_API_KEY=... etc.
 
-    # Download and install the unit (adjust User=, the ExecStart path, --cors-origin)
+    # Download and install the unit (adjust User= and the ExecStart path)
     sudo curl -fsSL https://raw.githubusercontent.com/gptme/gptme/master/scripts/gptme-server.service \
         -o /etc/systemd/system/gptme-server.service
     sudo systemctl daemon-reload

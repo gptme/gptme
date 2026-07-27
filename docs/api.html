@@ -1968,10 +1968,10 @@ entries is ignored.</p></li>
 validation is active (loopback binds without auth). Adds to the
 built-in localhost/127.0.0.1/[::1] allow-list, for users who proxy
 the local server behind a hostname. See init_host_validation.</p></li>
-<li><p><strong>webui_dir</strong> – Optional directory containing a web UI build (e.g. the
-modern React webui’s <code class="docutils literal notranslate"><span class="pre">dist/</span></code>) to serve instead of the bundled
-legacy UI. Falls back to the <code class="docutils literal notranslate"><span class="pre">GPTME_WEBUI_DIR</span></code> environment
-variable, then to the embedded legacy static bundle.</p></li>
+<li><p><strong>webui_dir</strong> – Optional directory containing a web UI build to serve
+instead of the bundled modern UI. Falls back to the
+<code class="docutils literal notranslate"><span class="pre">GPTME_WEBUI_DIR</span></code> environment variable, then to the bundled UI
+and finally the embedded legacy static fallback.</p></li>
 <li><p><strong>default_profile</strong> – Optional profile name to apply to new conversations
 that don’t specify a system prompt. The profile’s system_prompt is
 injected as an additional system message when the conversation is
