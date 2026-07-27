@@ -213,6 +213,20 @@ class SettingsConfig:
 
 
 @dataclass
+class EventLogReplicationConfig:
+    """Configuration for optional S3-compatible event log replication."""
+
+    enabled: bool = False
+    backend: str = "s3"
+    bucket: str = ""
+    prefix: str = "events/"
+    endpoint_url: str = ""
+    region: str = ""
+    upload_debounce_ms: int = 500
+    max_retries: int = 3
+
+
+@dataclass
 class UserConfig:
     """User-level configuration, such as user-specific prompts and environment variables."""
 
@@ -240,6 +254,11 @@ class UserConfig:
     # Plugin-specific configuration namespace (user-level)
     # Allows plugins to have their own config sections like [plugin.retrieval]
     plugin: dict[str, dict] = field(default_factory=dict)
+
+    # Optional S3-compatible replication of session event logs.
+    session_event_log_replication: EventLogReplicationConfig = field(
+        default_factory=EventLogReplicationConfig
+    )
 
 
 @dataclass

@@ -400,6 +400,41 @@ class LogManager:
                 [m.to_dict() for m in self.log.messages],
             )
 
+        # Enqueue remote replication (best-effort, off by default)
+        self._enqueue_replication(event_dir)
+
+    def _enqueue_replication(self, event_dir: Path) -> None:
+        """Enqueue *event_dir* for best-effort remote replication if configured."""
+        from ..config import get_config
+        from . import replication
+
+        cfg = get_config().user.session_event_log_replication
+        if not cfg.enabled:
+            return
+        if cfg.backend != "s3":
+            logger.warning(
+                "Unsupported replication backend %r (only 's3' is supported)",
+                cfg.backend,
+            )
+            return
+        if not cfg.bucket:
+            logger.warning(
+                "session_event_log_replication.bucket is not set; skipping replication"
+            )
+            return
+
+        try:
+            backend = replication.S3Backend(
+                bucket=cfg.bucket,
+                prefix=cfg.prefix,
+                endpoint_url=cfg.endpoint_url or None,
+                region=cfg.region or None,
+            )
+            worker = replication.get_worker(backend, debounce_ms=cfg.upload_debounce_ms)
+            worker.enqueue(event_dir, self.chat_id)
+        except Exception:
+            logger.debug("Failed to initialise replication worker", exc_info=True)
+
     def append(self, msg: Message) -> None:
         """Appends a message to the log, writes the log, prints the message.
 
