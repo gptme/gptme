@@ -182,7 +182,7 @@ def _git_push_arguments(words: list[str]) -> list[str] | None:
     # common ``env``, ``command``, and ``sudo`` forms without mistaking
     # ``echo git push ...`` for delivery.
     prefix = words[:git_index]
-    if prefix and prefix[0] not in {"command", "env", "sudo"}:
+    if prefix and prefix[0] not in {"bg", "command", "env", "sudo"}:
         return None
     return words[push_index + 1 :]
 
@@ -202,18 +202,20 @@ def _git_push_targets(command: str) -> list[tuple[str, str | None]]:
         return [("origin", None)] if "git" in command and "push" in command else []
 
     targets: list[tuple[str, str | None]] = []
+    dynamic_commands = {".", "bash", "eval", "sh", "source", "xargs"}
     for root in roots:
         for node in _walk_shell_nodes(root):
+            if getattr(node, "kind", None) != "command":
+                continue
             words = _command_words(node)
             if words is None:
+                targets.append(("origin", None))
                 continue
             args = _git_push_arguments(words)
             if args is None:
-                # Shell interpreters can hide an arbitrary push in a string. Block
-                # such commands when the payload contains a push signal.
-                if words[:2] in (["bash", "-c"], ["sh", "-c"]) and any(
-                    "git push" in word for word in words[2:]
-                ):
+                # Dynamic command loaders/evaluators can hide arbitrary pushes from
+                # static inspection, so review-gated mode must reject them.
+                if words and words[0] in dynamic_commands:
                     targets.append(("origin", None))
                 continue
 

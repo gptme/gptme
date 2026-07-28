@@ -228,6 +228,9 @@ def test_shell_delivery_allows_feature_branch(
         "git push origin HEAD:refs/tags/v1",
         'git push origin "HEAD:refs/heads/$DESTINATION"',
         'bash -c "git push origin HEAD:refs/heads/feat/my-task"',
+        'eval "$COMMAND"',
+        "source ./delivery.sh",
+        ". ./delivery.sh",
     ],
 )
 def test_shell_delivery_blocks_ambiguous_push(
@@ -289,5 +292,16 @@ def test_execute_shell_invokes_delivery_gate(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr("gptme.tools.shell.get_workspace_cwd", lambda: "/workspace")
     messages = list(execute_shell("git push origin", [], None))
     assert checked == [("git push origin", Path("/workspace"))]
+    assert len(messages) == 1
+    assert "Command denied by review gate" in messages[0].content
+
+
+def test_execute_shell_gates_background_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, _ = _make_repo_with_remote(tmp_path)
+    monkeypatch.setenv("GPTME_REVIEW_GATE", "1")
+    monkeypatch.setattr("gptme.tools.shell.get_workspace_cwd", lambda: str(repo))
+    messages = list(execute_shell("bg git push origin master", [], None))
     assert len(messages) == 1
     assert "Command denied by review gate" in messages[0].content

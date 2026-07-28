@@ -1655,6 +1655,17 @@ def execute_shell(
     cmd_lower = cmd_stripped.lower()
     cmd_parts = cmd_stripped.split(maxsplit=1)
 
+    # Gate the full command before any special handler can execute a subset of it.
+    workspace = get_workspace_cwd()
+    delivery_result = check_shell_delivery(
+        cmd, Path(workspace) if workspace is not None else Path.cwd()
+    )
+    if delivery_result is not None and not delivery_result.ok:
+        yield Message(
+            "system", f"Command denied by review gate: {delivery_result.message}"
+        )
+        return
+
     # Check for bg command - can be on any line (Issue #992)
     # Split into lines and find if any line starts with "bg "
     lines = cmd_stripped.split("\n")
@@ -1720,17 +1731,6 @@ def execute_shell(
         # Fall through to regular shell execution for other kill commands
 
     timeout = _get_timeout()
-
-    # In review-gated mode, fail closed before an autonomous shell can push.
-    workspace = get_workspace_cwd()
-    delivery_result = check_shell_delivery(
-        cmd, Path(workspace) if workspace is not None else Path.cwd()
-    )
-    if delivery_result is not None and not delivery_result.ok:
-        yield Message(
-            "system", f"Command denied by review gate: {delivery_result.message}"
-        )
-        return
 
     # Check with shellcheck if available
     has_issues, should_block, shellcheck_msg = check_with_shellcheck(cmd)
