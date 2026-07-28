@@ -225,6 +225,15 @@ const demoMessages: Record<string, Message[]> = {
     },
     // (last message — no result, no wrap-up)
   ],
+  // Stress-test conversation: 200 alternating user/assistant messages.
+  // Used by the virtualization regression e2e test to verify that only a
+  // bounded subset of messages is mounted in the DOM regardless of total
+  // conversation length. Generated programmatically to keep the file readable.
+  'stress-test': Array.from({ length: 200 }, (_, i) => ({
+    role: (i % 2 === 0 ? 'user' : 'assistant') as Message['role'],
+    content: `Stress message ${i + 1}: ${'Lorem ipsum dolor sit amet. '.repeat(3)}`,
+    timestamp: new Date(Date.now() + i * 1000).toISOString(),
+  })),
 };
 
 // Demo conversations (as ConversationSummary objects)
@@ -250,6 +259,14 @@ export const demoConversations: ConversationSummary[] = [
     name: 'Edge cases (rendering regression bed)',
     modified: Math.floor(Date.now() / 1000),
     messages: demoMessages['edge-cases'].length,
+    readonly: true,
+    workspace: '/demo/workspace',
+  },
+  {
+    id: 'stress-test',
+    name: 'Stress test (200 messages)',
+    modified: Math.floor(Date.now() / 1000),
+    messages: demoMessages['stress-test'].length,
     readonly: true,
     workspace: '/demo/workspace',
   },

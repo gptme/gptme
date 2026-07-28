@@ -20,8 +20,13 @@ declare global {
 global.__virtualWindow = Infinity;
 const mockScrollToIndex = jest.fn();
 
+// Track the count passed to the virtualizer so tests can assert that
+// hidden/system/collapsed messages are excluded from the virtualizer geometry.
+let lastVirtualizerCount = 0;
+
 jest.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: (opts: { count: number }) => {
+    lastVirtualizerCount = opts.count;
     const win = isFinite(global.__virtualWindow) ? global.__virtualWindow : opts.count;
     const items = Array.from({ length: Math.min(opts.count, win) }, (_, i) => ({
       index: i,
@@ -560,5 +565,29 @@ describe('virtual message list', () => {
       mockConversation$.data.log.set([]);
     });
     expect(() => renderComponent()).not.toThrow();
+  });
+
+  it('passes only visible message count to the virtualizer (regression guard for #3379)', () => {
+    // 10 total messages: 2 hidden + 1 initial-system (hidden by default) + 7 visible.
+    // The virtualizer count must equal 7, not 10 — hidden messages must not
+    // reserve geometry slots (they would create blank scroll regions).
+    act(() => {
+      mockConversation$.data.log.set([
+        message('system', 'Initial system prompt'),
+        message('user', 'Question 1'),
+        message('assistant', 'Answer 1'),
+        { ...message('system', 'Hidden tool result'), hide: true },
+        message('assistant', 'Answer 1 continued'),
+        message('user', 'Question 2'),
+        { ...message('assistant', 'Hidden draft'), hide: true },
+        message('assistant', 'Answer 2'),
+        message('user', 'Question 3'),
+        message('assistant', 'Answer 3'),
+      ]);
+    });
+    renderComponent();
+
+    // 10 total - 1 initial system - 2 hidden = 7 visible
+    expect(lastVirtualizerCount).toBe(7);
   });
 });
