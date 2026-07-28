@@ -292,11 +292,19 @@ sessions, but they break down in autonomous use: ``-n``/``--non-interactive``
 skips all prompts, and many tools (browser, shell) don't route every operation
 through a confirmation hook anyway.
 
-The pattern that works in practice is **review-gated delivery**: let gptme work
-autonomously in an isolated, version-controlled workspace, but gate every
-consequential output on a deterministic review step — push a branch, open a PR,
-let CI run, get a human to review, then merge. The PR diff is the evidence; the
-review is the gate.
+The pattern that works in practice for code and other version-controlled
+artifacts is **review-gated delivery**: let gptme work autonomously in an
+isolated workspace, but gate delivery on a deterministic review step — inspect
+the complete staged diff, push a branch, open a PR, let CI run, get a human to
+review, then merge. The PR diff is the evidence; the review is the delivery
+gate.
+
+A PR cannot contain side effects outside the checkout. Scope the task to the
+worktree and do not give the session credentials or tools that can send,
+publish, deploy, spend, or mutate external systems. For stronger isolation, run
+gptme in a VM or container with only the repository mounted and use a dedicated
+GitHub account or fine-grained token that can push feature branches but cannot
+merge or write to the default branch.
 
 This is the pattern used by gptme agents in production (see :doc:`agents`).
 
@@ -316,21 +324,30 @@ Workflow
      - "Run the tests and fix any failures" \
      - "Summarize what you changed"
 
-   # 3. Review the diff yourself before pushing
+   # 3. Review every change, including newly created files
+   git status --short
    git diff origin/master
 
-   # 4. Push to a branch (never directly to master)
+   # Stage only the files you accepted
+   git add path/to/changed-file path/to/new-file
+   git diff --cached origin/master
+
+   # 4. Commit exactly what you reviewed
+   git commit -m "feat: implement issue #42"
+
+   # 5. Push to a branch (never directly to master)
    git push origin feat/my-task
 
-   # 5. Open a PR — CI runs, human reviews, then merges
+   # 6. Open a PR — CI runs, human reviews, then merges
    gh pr create --title "feat: implement issue #42" --body "Closes #42"
 
 .. note::
 
-   The PR review step is where you catch problems: the diff shows exactly what
-   changed, CI validates correctness, and you decide whether to merge. This is
-   a stronger boundary than per-tool confirmations because it covers the full
-   output rather than individual operations.
+   The PR review step is where you catch problems in the committed artifact:
+   the diff shows exactly what changed, CI validates correctness, and you
+   decide whether to merge. It does not review external side effects, so those
+   must be prevented through task scoping, tool restrictions, credentials, and
+   environment isolation.
 
 Compared to Interactive Mode
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -342,7 +359,7 @@ Compared to Interactive Mode
 +-----------------------------+-----------------------------+-----------------------------+
 | Works in ``-n`` mode        | No (prompts skipped)        | Yes                         |
 +-----------------------------+-----------------------------+-----------------------------+
-| Covers all tool calls       | Partial (varies by tool)    | Yes (diff shows everything) |
+| Coverage                    | Supported operations        | Committed artifact only     |
 +-----------------------------+-----------------------------+-----------------------------+
 | CI integration              | Manual                      | Automatic on PR open        |
 +-----------------------------+-----------------------------+-----------------------------+
@@ -355,8 +372,14 @@ When to use each:
   approve each step; actions that can't be reversed (deleting data, sending
   emails, deploying to production).
 
-- **Review-gated autonomous mode**: code changes, doc updates, research tasks,
-  or any work that produces a reviewable artifact before its effects are final.
+- **Review-gated autonomous mode**: code changes, doc updates, or other work
+  where all intended effects are contained in the committed artifact. Keep
+  research local unless its browser access is constrained to reading; external
+  actions still need a separate boundary before they occur.
+
+For a task-oriented introduction to these choices, including copy-paste
+starting points and local-versus-remote guidance, see
+:doc:`howto/choose-workflow`.
 
 
 Best Practices
