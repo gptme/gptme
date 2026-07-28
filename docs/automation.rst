@@ -318,7 +318,7 @@ Workflow
    cd /tmp/my-task
 
    # 2. Let gptme work autonomously — no confirmations needed
-   gptme -n \
+   gptme -n --review-gated \
      "Read the issue at https://github.com/myorg/myrepo/issues/42" \
      - "Implement the requested feature" \
      - "Run the tests and fix any failures" \
@@ -335,11 +335,16 @@ Workflow
    # 4. Commit exactly what you reviewed
    git commit -m "feat: implement issue #42"
 
-   # 5. Push to a branch (never directly to master)
-   git push origin feat/my-task
+   # 5. Push to an explicit feature branch (never directly to master)
+   git push origin HEAD:refs/heads/feat/my-task
 
    # 6. Open a PR — CI runs, human reviews, then merges
    gh pr create --title "feat: implement issue #42" --body "Closes #42"
+
+``--review-gated`` activates a fail-closed shell delivery gate. Every ``git
+push`` must name an explicit destination branch, the configured remote and its
+default branch must be discoverable, and the destination must not be that default
+branch. Commands outside this mode retain their existing behavior.
 
 .. note::
 

@@ -500,6 +500,12 @@ Run 'gptme-util --help' for all utility commands."""
     help="Skip all confirmation prompts.",
 )
 @click.option(
+    "--review-gated",
+    is_flag=True,
+    envvar="GPTME_REVIEW_GATED",
+    help="Fail closed on git pushes that do not target an explicit non-default branch.",
+)
+@click.option(
     "--gear",
     type=click.IntRange(0, 4),
     default=None,
@@ -696,6 +702,7 @@ def main(
     stream: bool,
     verbose: bool,
     no_confirm: bool,
+    review_gated: bool,
     non_interactive: bool,
     output_format: str,
     show_hidden: bool,
@@ -761,6 +768,9 @@ def main(
         from ..hooks.manifest import register_manifest_hooks  # fmt: skip
 
         register_manifest_hooks(manifest_dir)
+
+    if review_gated:
+        os.environ["GPTME_REVIEW_GATE"] = "1"
 
     # Defense-in-depth: handle empty/whitespace names in case Click bypasses convert()
     # (observed to occur in some Click versions when --name "" is passed)

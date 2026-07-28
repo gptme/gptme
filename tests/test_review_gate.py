@@ -10,17 +10,19 @@ from __future__ import annotations
 
 import os
 import subprocess
-from typing import TYPE_CHECKING
+from pathlib import Path
 
-if TYPE_CHECKING:
-    from pathlib import Path
+import pytest
 
 from gptme.review_gate import (
+    ReviewGateResult,
     ReviewGateStatus,
     check_delivery_target,
+    check_shell_delivery,
     get_default_branch,
     get_remote_names,
 )
+from gptme.tools.shell import execute_shell
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -112,6 +114,12 @@ def test_get_default_branch_no_remote_returns_none(tmp_path: Path) -> None:
     assert branch is None
 
 
+def test_get_default_branch_preserves_slashes(tmp_path: Path) -> None:
+    repo, _ = _make_repo_with_remote(tmp_path, default_branch="release/stable")
+    branch = get_default_branch(repo)
+    assert branch == "release/stable"
+
+
 # ── check_delivery_target ────────────────────────────────────────────────────
 
 
@@ -171,3 +179,115 @@ def test_review_gate_result_ok_property(tmp_path: Path) -> None:
     bad_result = check_delivery_target("master", repo)
     assert ok_result.ok is True
     assert bad_result.ok is False
+
+
+def test_delivery_target_fails_when_default_is_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, _ = _make_repo_with_remote(tmp_path)
+    monkeypatch.setattr("gptme.review_gate.get_default_branch", lambda *_: None)
+    result = check_delivery_target("feat/my-task", repo)
+    assert not result.ok
+    assert "cannot determine" in result.message.lower()
+
+
+def test_run_git_failures_are_bounded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(*args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(["git"], 10)
+
+    monkeypatch.setattr(subprocess, "run", fail)
+    assert get_remote_names(tmp_path) == []
+
+
+def test_shell_delivery_blocks_default_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, _ = _make_repo_with_remote(tmp_path)
+    monkeypatch.setenv("GPTME_REVIEW_GATE", "1")
+    result = check_shell_delivery("git push origin HEAD:refs/heads/master", repo)
+    assert result is not None and not result.ok
+    assert result.status == ReviewGateStatus.DEFAULT_BRANCH
+
+
+def test_shell_delivery_allows_feature_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, _ = _make_repo_with_remote(tmp_path)
+    monkeypatch.setenv("GPTME_REVIEW_GATE", "1")
+    result = check_shell_delivery("git push origin HEAD:refs/heads/feat/my-task", repo)
+    assert result is not None and result.ok
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git push origin",
+        "git push origin HEAD",
+        "git push origin HEAD:refs/tags/v1",
+        'git push origin "HEAD:refs/heads/$DESTINATION"',
+        'bash -c "git push origin HEAD:refs/heads/feat/my-task"',
+    ],
+)
+def test_shell_delivery_blocks_ambiguous_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    repo, _ = _make_repo_with_remote(tmp_path)
+    monkeypatch.setenv("GPTME_REVIEW_GATE", "1")
+    result = check_shell_delivery(command, repo)
+    assert result is not None and not result.ok
+    assert result.status == ReviewGateStatus.AMBIGUOUS_TARGET
+    assert "explicit literal destination" in result.message.lower()
+
+
+def test_shell_delivery_rejects_implicit_default_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, _ = _make_repo_with_remote(tmp_path)
+    monkeypatch.setenv("GPTME_REVIEW_GATE", "1")
+    result = check_shell_delivery("git push origin master", repo)
+    assert result is not None
+    assert result.status == ReviewGateStatus.DEFAULT_BRANCH
+
+
+def test_shell_delivery_finds_nested_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, _ = _make_repo_with_remote(tmp_path)
+    monkeypatch.setenv("GPTME_REVIEW_GATE", "1")
+    result = check_shell_delivery(
+        "true && git push origin HEAD:refs/heads/master", repo
+    )
+    assert result is not None and result.status == ReviewGateStatus.DEFAULT_BRANCH
+
+
+def test_shell_delivery_ignores_push_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, _ = _make_repo_with_remote(tmp_path)
+    monkeypatch.setenv("GPTME_REVIEW_GATE", "1")
+    assert check_shell_delivery("echo 'git push origin master'", repo) is None
+
+
+def test_shell_delivery_is_inactive_by_default(tmp_path: Path) -> None:
+    repo, _ = _make_repo_with_remote(tmp_path)
+    assert check_shell_delivery("git push origin master", repo) is None
+
+
+def test_execute_shell_invokes_delivery_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    blocked = ReviewGateResult(
+        ReviewGateStatus.AMBIGUOUS_TARGET, "test delivery boundary"
+    )
+    checked: list[tuple[str, Path]] = []
+
+    def block(command: str, repo: Path) -> ReviewGateResult:
+        checked.append((command, repo))
+        return blocked
+
+    monkeypatch.setattr("gptme.tools.shell.check_shell_delivery", block)
+    monkeypatch.setattr("gptme.tools.shell.get_workspace_cwd", lambda: "/workspace")
+    messages = list(execute_shell("git push origin", [], None))
+    assert checked == [("git push origin", Path("/workspace"))]
+    assert len(messages) == 1
+    assert "Command denied by review gate" in messages[0].content

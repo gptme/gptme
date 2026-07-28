@@ -160,6 +160,15 @@ def test_version(runner: CliRunner):
     assert "gptme" in result.output
 
 
+def test_review_gated_flag_activates_delivery_gate(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("GPTME_REVIEW_GATE", raising=False)
+    result = runner.invoke(cli.main, ["--review-gated", "--version"])
+    assert result.exit_code == 0
+    assert os.environ["GPTME_REVIEW_GATE"] == "1"
+
+
 def test_show_prompt_stats_exits_before_chat(monkeypatch, tmp_path: Path, runner):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))

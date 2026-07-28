@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..message import Message
+from ..review_gate import check_shell_delivery
 from ..sandbox import SandboxConfig, build_env, wrap_shell_cmd
 from ..util import get_installed_programs
 from ..util.ask_execute import execute_with_confirmation
@@ -1719,6 +1720,17 @@ def execute_shell(
         # Fall through to regular shell execution for other kill commands
 
     timeout = _get_timeout()
+
+    # In review-gated mode, fail closed before an autonomous shell can push.
+    workspace = get_workspace_cwd()
+    delivery_result = check_shell_delivery(
+        cmd, Path(workspace) if workspace is not None else Path.cwd()
+    )
+    if delivery_result is not None and not delivery_result.ok:
+        yield Message(
+            "system", f"Command denied by review gate: {delivery_result.message}"
+        )
+        return
 
     # Check with shellcheck if available
     has_issues, should_block, shellcheck_msg = check_with_shellcheck(cmd)
