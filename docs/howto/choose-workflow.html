@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>How-To Guides &#8212; gptme</title>
+    <title>Choose a workflow for your task &#8212; gptme</title>
   
   
   
@@ -43,13 +43,13 @@
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/asciinema-player_3.12.1.js"></script>
     <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'howto/index';</script>
-    <link rel="canonical" href="https://gptme.org/docs/howto/index.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'howto/choose-workflow';</script>
+    <link rel="canonical" href="https://gptme.org/docs/howto/choose-workflow.html" />
     <link rel="icon" href="../_static/logo.png"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Choose a workflow for your task" href="choose-workflow.html" />
-    <link rel="prev" title="Projects" href="../projects.html" />
+    <link rel="next" title="Run gptme with minimal context" href="minimal-context.html" />
+    <link rel="prev" title="How-To Guides" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   </head>
@@ -170,8 +170,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../projects.html">Projects</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">How-To Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="choose-workflow.html">Choose a workflow for your task</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">How-To Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Choose a workflow for your task</a></li>
 <li class="toctree-l2"><a class="reference internal" href="minimal-context.html">Run gptme with minimal context</a></li>
 <li class="toctree-l2"><a class="reference internal" href="edit-files.html">How to Edit Files</a></li>
 <li class="toctree-l2"><a class="reference internal" href="code-review.html">How to Review Code</a></li>
@@ -370,7 +370,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/howto/index.md" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/howto/choose-workflow.md" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -400,7 +400,7 @@
       
       
       
-      <li><a href="../_sources/howto/index.md" target="_blank"
+      <li><a href="../_sources/howto/choose-workflow.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -484,7 +484,7 @@ document.write(`
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>How-To Guides</h1>
+    <h1>Choose a workflow for your task</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -494,15 +494,17 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choose-a-workflow">Choose a Workflow</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#minimal-context">Minimal Context</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#file-editing">File Editing</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#code-review">Code Review</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#debug-python">Debug Python</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#automate-tasks">Automate Tasks</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#refactor-code">Refactor Code</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#automate-guis-computer-use">Automate GUIs (Computer Use)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#text-to-speech">Text-to-Speech</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#decision-matrix">Decision matrix</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#copy-paste-starting-points">Copy-paste starting points</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#low-stakes-answer">Low-stakes answer</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#research">Research</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#artifact-creation">Artifact creation</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#inspectable-code">Inspectable code</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-or-remote">Local or remote?</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#approval-rule">Approval rule</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#escalate-deliberately">Escalate deliberately</a></li>
 </ul>
             </nav>
         </div>
@@ -514,60 +516,143 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="how-to-guides">
-<h1>How-To Guides<a class="headerlink" href="#how-to-guides" title="Link to this heading">#</a></h1>
-<p>Task-oriented recipes for common workflows with gptme.
-Each guide gives you a copy-pasteable pattern you can adapt immediately.</p>
-<div class="toctree-wrapper compound">
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="choose-workflow.html">Choose a workflow for your task</a></li>
-<li class="toctree-l1"><a class="reference internal" href="minimal-context.html">Run gptme with minimal context</a></li>
-<li class="toctree-l1"><a class="reference internal" href="edit-files.html">How to Edit Files</a></li>
-<li class="toctree-l1"><a class="reference internal" href="code-review.html">How to Review Code</a></li>
-<li class="toctree-l1"><a class="reference internal" href="debug-python.html">How to Debug Python</a></li>
-<li class="toctree-l1"><a class="reference internal" href="automate-task.html">How to Automate Tasks</a></li>
-<li class="toctree-l1"><a class="reference internal" href="refactor.html">How to Refactor Code</a></li>
-<li class="toctree-l1"><a class="reference internal" href="computer-use.html">How to Automate GUIs with Computer Use</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tts-setup.html">Set Up Text-to-Speech</a></li>
-</ul>
+  <section id="choose-a-workflow-for-your-task">
+<h1>Choose a workflow for your task<a class="headerlink" href="#choose-a-workflow-for-your-task" title="Link to this heading">#</a></h1>
+<p>Start with the outcome, not a provider or feature name. Most gptme tasks fit one
+of the four rows below. Pick the narrowest execution surface that can finish the
+job, then increase model capability or tool access only when the task requires it.</p>
+<section id="decision-matrix">
+<h2>Decision matrix<a class="headerlink" href="#decision-matrix" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Task</p></th>
+<th class="head"><p>Start here</p></th>
+<th class="head"><p>Model tier</p></th>
+<th class="head"><p>Execution and approval posture</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Answer a low-stakes question</strong></p></td>
+<td><p>Run <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">&quot;…&quot;</span></code> with no tools when the answer does not need live or local evidence.</p></td>
+<td><p>Small and fast.</p></td>
+<td><p>No external actions; inspect the answer before relying on it.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Research a topic</strong></p></td>
+<td><p>Give the agent the browser tool and ask for linked sources plus a short synthesis.</p></td>
+<td><p>Small for collection; stronger reasoning for conflicting evidence or an important decision.</p></td>
+<td><p>Keep the work local and require source links. The browser can interact with pages, so keep confirmations on and approve only read operations.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Create an artifact</strong></p></td>
+<td><p>Name the output file and acceptance criteria: a report, image, script, or web page.</p></td>
+<td><p>General-purpose; use a stronger model when structure or judgment matters.</p></td>
+<td><p>Write only to a dedicated workspace. Review the artifact before sending or publishing it.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Change inspectable code</strong></p></td>
+<td><p>Run gptme inside a version-controlled checkout; ask it to inspect, edit, test, and show the diff.</p></td>
+<td><p>Strong coding/reasoning model.</p></td>
+<td><p>Keep confirmations on. Review commands and the diff; isolate untrusted repositories.</p></td>
+</tr>
+</tbody>
+</table>
 </div>
-<section id="choose-a-workflow">
-<h2>Choose a Workflow<a class="headerlink" href="#choose-a-workflow" title="Link to this heading">#</a></h2>
-<p><a class="reference internal" href="choose-workflow.html"><span class="std std-doc">Match the task to the right workflow</span></a> — pick tools, model capability, local or remote execution, and an approval boundary from the outcome you need.</p>
+<p>Model names change faster than these capabilities. See <a class="reference internal" href="../model-routing.html"><span class="doc">Choosing your model</span></a>
+for current model examples and <a class="reference internal" href="../tools.html#tool-allowlist"><span class="std std-ref">Tool Selection &amp; Allowlists</span></a> for exact tool-selection
+syntax.</p>
 </section>
-<section id="minimal-context">
-<h2>Minimal Context<a class="headerlink" href="#minimal-context" title="Link to this heading">#</a></h2>
-<p><a class="reference internal" href="minimal-context.html"><span class="std std-doc">Run gptme with minimal context</span></a> — measure and trim prompt sections for cheaper, tighter specialized runs.</p>
+<section id="copy-paste-starting-points">
+<h2>Copy-paste starting points<a class="headerlink" href="#copy-paste-starting-points" title="Link to this heading">#</a></h2>
+<section id="low-stakes-answer">
+<h3>Low-stakes answer<a class="headerlink" href="#low-stakes-answer" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">&quot;&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;Explain the difference between a process and a thread in five bullets.&quot;</span>
+</pre></div>
+</div>
+<p>Use this for explanations, brainstorming, and rewriting that need no current
+facts or local files. If the answer affects money, safety, legal obligations, or
+production behavior, it is no longer low-stakes: ask for evidence and verify it.</p>
 </section>
-<section id="file-editing">
-<h2>File Editing<a class="headerlink" href="#file-editing" title="Link to this heading">#</a></h2>
-<p><a class="reference internal" href="edit-files.html"><span class="std std-doc">Edit files surgically</span></a> — patch, save, and inspect without rewriting whole files.</p>
+<section id="research">
+<h3>Research<a class="headerlink" href="#research" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">&quot;browser,rag,chats,read&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;Compare three maintained Python task queues. Cite primary sources, state the tradeoffs, and save nothing. Use the browser only to read and search; do not interact with pages.&quot;</span>
+</pre></div>
+</div>
+<p>The browser tool also exposes page interactions such as clicks and form entry;
+its allowlist entry does not restrict it to reading. Keep interactive
+confirmations enabled, reject any interaction request, and use <code class="docutils literal notranslate"><span class="pre">hint:read-only</span></code>
+only for tools actually annotated as read-only. For an important choice, split
+collection from judgment: gather sources cheaply, then use a stronger model to
+challenge the synthesis and identify missing evidence.</p>
 </section>
-<section id="code-review">
-<h2>Code Review<a class="headerlink" href="#code-review" title="Link to this heading">#</a></h2>
-<p><a class="reference internal" href="code-review.html"><span class="std std-doc">Review code changes</span></a> — review a diff, a PR, or a single file with context.</p>
+<section id="artifact-creation">
+<h3>Artifact creation<a class="headerlink" href="#artifact-creation" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mkdir<span class="w"> </span>-p<span class="w"> </span>output
+<span class="nb">cd</span><span class="w"> </span>output
+gptme<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;Create report.md comparing the supplied options. Include a decision table and a sources section. Do not publish or send it.&quot;</span>
+</pre></div>
+</div>
+<p>An artifact-oriented task has a named deliverable and acceptance criteria. A
+file you can inspect, test, or render is easier to verify than a vague request
+to “work on” something. Use local execution when the output depends on private
+files or local tools. Use a remote or hosted workspace only when its convenience
+outweighs the cost of uploading the inputs, and never upload secrets by default.</p>
 </section>
-<section id="debug-python">
-<h2>Debug Python<a class="headerlink" href="#debug-python" title="Link to this heading">#</a></h2>
-<p><a class="reference internal" href="debug-python.html"><span class="std std-doc">Debug failing tests</span></a> — reproduce, trace, and fix Python errors step by step.</p>
+<section id="inspectable-code">
+<h3>Inspectable code<a class="headerlink" href="#inspectable-code" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>/path/to/version-controlled-project
+gptme<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;Inspect the failing tests, make the smallest fix, rerun the targeted tests, and show me the diff. Do not commit or push.&quot;</span>
+</pre></div>
+</div>
+<p>A local checkout gives you the strongest review surface: version control,
+tests, and a diff. Review an unfamiliar repository’s <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> before
+starting because project configuration can run hooks and context commands. See
+<a class="reference internal" href="../security.html"><span class="doc">Security Considerations</span></a> for the complete trust model.</p>
 </section>
-<section id="automate-tasks">
-<h2>Automate Tasks<a class="headerlink" href="#automate-tasks" title="Link to this heading">#</a></h2>
-<p><a class="reference internal" href="automate-task.html"><span class="std std-doc">Automate shell workflows</span></a> — turn a repeated shell or git procedure into a script.</p>
 </section>
-<section id="refactor-code">
-<h2>Refactor Code<a class="headerlink" href="#refactor-code" title="Link to this heading">#</a></h2>
-<p><a class="reference internal" href="refactor.html"><span class="std std-doc">Refactor across files</span></a> — rename, extract, and reshape code across a codebase.</p>
+<section id="local-or-remote">
+<h2>Local or remote?<a class="headerlink" href="#local-or-remote" title="Link to this heading">#</a></h2>
+<p>Choose based on where the required data and verification tools already live:</p>
+<ul class="simple">
+<li><p><strong>Local execution</strong> is the default for private files, existing repositories,
+device access, and work that must be verified with local tests.</p></li>
+<li><p><strong>Remote or hosted execution</strong> is useful for a clean disposable environment,
+collaboration, or work that must continue after your machine disconnects.</p></li>
+<li><p><strong>Do not copy data merely to fit the surface.</strong> Keep sensitive inputs where
+they already are, or create an isolated environment with only the files the
+task needs.</p></li>
+<li><p><strong>Treat remote execution as a different trust boundary.</strong> Check credential,
+retention, network, and filesystem access before granting tools.</p></li>
+</ul>
 </section>
-<section id="automate-guis-computer-use">
-<h2>Automate GUIs (Computer Use)<a class="headerlink" href="#automate-guis-computer-use" title="Link to this heading">#</a></h2>
-<p><a class="reference internal" href="computer-use.html"><span class="std std-doc">Control desktop apps and automate web UIs</span></a> — screenshots, mouse/keyboard, and structured browser interaction.</p>
+<section id="approval-rule">
+<h2>Approval rule<a class="headerlink" href="#approval-rule" title="Link to this heading">#</a></h2>
+<p>Keep interactive confirmations on by default. Require an explicit human review
+immediately before any action that:</p>
+<ul class="simple">
+<li><p>sends a message or submits a form;</p></li>
+<li><p>spends money or creates a paid resource;</p></li>
+<li><p>deletes or irreversibly overwrites data; or</p></li>
+<li><p>publishes, deploys, merges, or pushes work to other people.</p></li>
+</ul>
+<p>Drafting is not publishing. Preparing a command is not running it. Ask gptme to
+stop at the reviewable boundary (<code class="docutils literal notranslate"><span class="pre">&quot;write</span> <span class="pre">the</span> <span class="pre">draft</span> <span class="pre">but</span> <span class="pre">do</span> <span class="pre">not</span> <span class="pre">send&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;show</span> <span class="pre">the</span> <span class="pre">diff</span> <span class="pre">but</span> <span class="pre">do</span> <span class="pre">not</span> <span class="pre">commit&quot;</span></code>). Avoid <code class="docutils literal notranslate"><span class="pre">--no-confirm</span></code> and <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> for
+these actions; non-interactive mode implies no confirmations.</p>
 </section>
-<section id="text-to-speech">
-<h2>Text-to-Speech<a class="headerlink" href="#text-to-speech" title="Link to this heading">#</a></h2>
-<p><a class="reference internal" href="tts-setup.html"><span class="std std-doc">Set up TTS for voice output</span></a> — configure OpenRouter, the local gptme-tts server, or browser synthesis.</p>
-<hr class="docutils" />
-<p>For shorter examples and one-liners, see <a class="reference internal" href="../examples.html"><span class="doc">Examples</span></a>.</p>
+<section id="escalate-deliberately">
+<h2>Escalate deliberately<a class="headerlink" href="#escalate-deliberately" title="Link to this heading">#</a></h2>
+<p>Change one dimension at a time when the first attempt is insufficient:</p>
+<ol class="arabic simple">
+<li><p>Add the missing evidence source or local context.</p></li>
+<li><p>Grant the narrow tool capability needed to inspect or verify it.</p></li>
+<li><p>Move to a stronger model when the remaining problem is judgment or complex
+reasoning, not missing information.</p></li>
+<li><p>Move from local to remote (or the reverse) only when the task’s data,
+duration, or verification needs justify the trust-boundary change.</p></li>
+</ol>
+<p>This keeps cheap questions cheap, research bounded to approved read operations,
+artifacts inspectable, and consequential actions under human control.</p>
 </section>
 </section>
 
@@ -583,20 +668,20 @@ Each guide gives you a copy-pasteable pattern you can adapt immediately.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../projects.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Projects</p>
+        <p class="prev-next-title">How-To Guides</p>
       </div>
     </a>
     <a class="right-next"
-       href="choose-workflow.html"
+       href="minimal-context.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Choose a workflow for your task</p>
+        <p class="prev-next-title">Run gptme with minimal context</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -616,15 +701,17 @@ Each guide gives you a copy-pasteable pattern you can adapt immediately.</p>
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choose-a-workflow">Choose a Workflow</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#minimal-context">Minimal Context</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#file-editing">File Editing</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#code-review">Code Review</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#debug-python">Debug Python</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#automate-tasks">Automate Tasks</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#refactor-code">Refactor Code</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#automate-guis-computer-use">Automate GUIs (Computer Use)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#text-to-speech">Text-to-Speech</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#decision-matrix">Decision matrix</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#copy-paste-starting-points">Copy-paste starting points</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#low-stakes-answer">Low-stakes answer</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#research">Research</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#artifact-creation">Artifact creation</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#inspectable-code">Inspectable code</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-or-remote">Local or remote?</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#approval-rule">Approval rule</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#escalate-deliberately">Escalate deliberately</a></li>
 </ul>
   </nav></div>
 
