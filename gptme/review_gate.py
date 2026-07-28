@@ -217,6 +217,11 @@ def _git_push_targets(command: str) -> list[tuple[str, str | None]]:
                 # static inspection, so review-gated mode must reject them.
                 if words and words[0] in dynamic_commands:
                     targets.append(("origin", None))
+                # A variable-expanded command word (empty string from _command_words)
+                # before a literal 'push' cannot be statically verified as non-git;
+                # e.g. `$g push origin master` bypasses the literal 'git' check.
+                elif words and words[0] == "" and "push" in words:
+                    targets.append(("origin", None))
                 continue
 
             positional: list[str] = []

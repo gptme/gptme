@@ -296,6 +296,17 @@ def test_execute_shell_invokes_delivery_gate(monkeypatch: pytest.MonkeyPatch) ->
     assert "Command denied by review gate" in messages[0].content
 
 
+def test_shell_delivery_blocks_variable_expanded_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Variable-expanded git command (e.g. $g push) must not bypass the gate."""
+    repo, _ = _make_repo_with_remote(tmp_path)
+    monkeypatch.setenv("GPTME_REVIEW_GATE", "1")
+    result = check_shell_delivery("$g push origin HEAD:refs/heads/master", repo)
+    assert result is not None and not result.ok
+    assert result.status == ReviewGateStatus.AMBIGUOUS_TARGET
+
+
 def test_execute_shell_gates_background_push(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
