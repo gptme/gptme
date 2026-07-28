@@ -512,6 +512,11 @@ document.write(`
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-step-pipelines">Multi-Step Pipelines</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-gptme-as-a-library">Using gptme as a Library</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#review-gated-autonomous-workflows">Review-Gated Autonomous Workflows</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workflow">Workflow</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#compared-to-interactive-mode">Compared to Interactive Mode</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a></li>
 </ul>
             </nav>
@@ -553,7 +558,13 @@ and scheduling strategies.</p>
 </li>
 <li><p><a class="reference internal" href="#multi-step-pipelines" id="id11">Multi-Step Pipelines</a></p></li>
 <li><p><a class="reference internal" href="#using-gptme-as-a-library" id="id12">Using gptme as a Library</a></p></li>
-<li><p><a class="reference internal" href="#best-practices" id="id13">Best Practices</a></p></li>
+<li><p><a class="reference internal" href="#review-gated-autonomous-workflows" id="id13">Review-Gated Autonomous Workflows</a></p>
+<ul>
+<li><p><a class="reference internal" href="#workflow" id="id14">Workflow</a></p></li>
+<li><p><a class="reference internal" href="#compared-to-interactive-mode" id="id15">Compared to Interactive Mode</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#best-practices" id="id16">Best Practices</a></p></li>
 </ul>
 </nav>
 <section id="non-interactive-mode">
@@ -928,8 +939,115 @@ crontab<span class="w"> </span>-e
 </div>
 <p>See the <a class="reference internal" href="api.html"><span class="doc">API Reference</span></a> reference for the full Python interface.</p>
 </section>
+<section id="review-gated-autonomous-workflows">
+<h2><a class="toc-backref" href="#id13" role="doc-backlink">Review-Gated Autonomous Workflows</a><a class="headerlink" href="#review-gated-autonomous-workflows" title="Link to this heading">#</a></h2>
+<p>Interactive confirmation prompts are the natural safety boundary for interactive
+sessions, but they break down in autonomous use: <code class="docutils literal notranslate"><span class="pre">-n</span></code>/<code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code>
+skips all prompts, and many tools (browser, shell) don’t route every operation
+through a confirmation hook anyway.</p>
+<p>The pattern that works in practice for code and other version-controlled
+artifacts is <strong>review-gated delivery</strong>: let gptme work autonomously in an
+isolated workspace, but gate delivery on a deterministic review step — inspect
+the complete staged diff, push a branch, open a PR, let CI run, get a human to
+review, then merge. The PR diff is the evidence; the review is the delivery
+gate.</p>
+<p>A PR cannot contain side effects outside the checkout. Scope the task to the
+worktree and do not give the session credentials or tools that can send,
+publish, deploy, spend, or mutate external systems. For stronger isolation, run
+gptme in a VM or container with only the repository mounted and use a dedicated
+GitHub account or fine-grained token that can push feature branches but cannot
+merge or write to the default branch.</p>
+<p>This is the pattern used by gptme agents in production (see <a class="reference internal" href="agents.html"><span class="doc">Agents</span></a>).</p>
+<section id="workflow">
+<h3><a class="toc-backref" href="#id14" role="doc-backlink">Workflow</a><a class="headerlink" href="#workflow" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1. Create an isolated workspace so changes are contained</span>
+git<span class="w"> </span>worktree<span class="w"> </span>add<span class="w"> </span>-b<span class="w"> </span>feat/my-task<span class="w"> </span>/tmp/my-task<span class="w"> </span>origin/master
+<span class="nb">cd</span><span class="w"> </span>/tmp/my-task
+
+<span class="c1"># 2. Let gptme work autonomously — no confirmations needed</span>
+gptme<span class="w"> </span>-n<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;Read the issue at https://github.com/myorg/myrepo/issues/42&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-<span class="w"> </span><span class="s2">&quot;Implement the requested feature&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-<span class="w"> </span><span class="s2">&quot;Run the tests and fix any failures&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-<span class="w"> </span><span class="s2">&quot;Summarize what you changed&quot;</span>
+
+<span class="c1"># 3. Review every change, including newly created files</span>
+git<span class="w"> </span>status<span class="w"> </span>--short
+git<span class="w"> </span>diff<span class="w"> </span>origin/master
+
+<span class="c1"># Stage only the files you accepted</span>
+git<span class="w"> </span>add<span class="w"> </span>path/to/changed-file<span class="w"> </span>path/to/new-file
+git<span class="w"> </span>diff<span class="w"> </span>--cached<span class="w"> </span>origin/master
+
+<span class="c1"># 4. Commit exactly what you reviewed</span>
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: implement issue #42&quot;</span>
+
+<span class="c1"># 5. Push to a branch (never directly to master)</span>
+git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>feat/my-task
+
+<span class="c1"># 6. Open a PR — CI runs, human reviews, then merges</span>
+gh<span class="w"> </span>pr<span class="w"> </span>create<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;feat: implement issue #42&quot;</span><span class="w"> </span>--body<span class="w"> </span><span class="s2">&quot;Closes #42&quot;</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The PR review step is where you catch problems in the committed artifact:
+the diff shows exactly what changed, CI validates correctness, and you
+decide whether to merge. It does not review external side effects, so those
+must be prevented through task scoping, tool restrictions, credentials, and
+environment isolation.</p>
+</div>
+</section>
+<section id="compared-to-interactive-mode">
+<h3><a class="toc-backref" href="#id15" role="doc-backlink">Compared to Interactive Mode</a><a class="headerlink" href="#compared-to-interactive-mode" title="Link to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Aspect</p></th>
+<th class="head"><p>Interactive (with prompts)</p></th>
+<th class="head"><p>Review-gated (autonomous)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Safety boundary</p></td>
+<td><p>Per-operation confirmation</p></td>
+<td><p>PR review before merge</p></td>
+</tr>
+<tr class="row-odd"><td><p>Works in <code class="docutils literal notranslate"><span class="pre">-n</span></code> mode</p></td>
+<td><p>No (prompts skipped)</p></td>
+<td><p>Yes</p></td>
+</tr>
+<tr class="row-even"><td><p>Coverage</p></td>
+<td><p>Supported operations</p></td>
+<td><p>Committed artifact only</p></td>
+</tr>
+<tr class="row-odd"><td><p>CI integration</p></td>
+<td><p>Manual</p></td>
+<td><p>Automatic on PR open</p></td>
+</tr>
+<tr class="row-even"><td><p>Audit trail</p></td>
+<td><p>Session log</p></td>
+<td><p>Git history + PR thread</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>When to use each:</p>
+<ul class="simple">
+<li><p><strong>Interactive mode with confirmations</strong>: exploratory tasks where you want to
+approve each step; actions that can’t be reversed (deleting data, sending
+emails, deploying to production).</p></li>
+<li><p><strong>Review-gated autonomous mode</strong>: code changes, doc updates, or other work
+where all intended effects are contained in the committed artifact. Keep
+research local unless its browser access is constrained to reading; external
+actions still need a separate boundary before they occur.</p></li>
+</ul>
+<p>For a task-oriented introduction to these choices, including copy-paste
+starting points and local-versus-remote guidance, see
+<a class="reference internal" href="howto/choose-workflow.html"><span class="doc">Choose a workflow for your task</span></a>.</p>
+</section>
+</section>
 <section id="best-practices">
-<h2><a class="toc-backref" href="#id13" role="doc-backlink">Best Practices</a><a class="headerlink" href="#best-practices" title="Link to this heading">#</a></h2>
+<h2><a class="toc-backref" href="#id16" role="doc-backlink">Best Practices</a><a class="headerlink" href="#best-practices" title="Link to this heading">#</a></h2>
 <p><strong>Be specific in prompts</strong>: Vague prompts lead to vague actions.
 Instead of “fix issues”, try “fix the type error in <code class="docutils literal notranslate"><span class="pre">src/user.py</span></code> line 42”.</p>
 <p><strong>Use ``-n`` / ``–non-interactive`` explicitly</strong>: When running in scripts,
@@ -1014,6 +1132,11 @@ gptme exits non-zero if it cannot complete the task.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-step-pipelines">Multi-Step Pipelines</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-gptme-as-a-library">Using gptme as a Library</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#review-gated-autonomous-workflows">Review-Gated Autonomous Workflows</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workflow">Workflow</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#compared-to-interactive-mode">Compared to Interactive Mode</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a></li>
 </ul>
   </nav></div>

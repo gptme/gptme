@@ -9,9 +9,9 @@ job, then increase model capability or tool access only when the task requires i
 | Task | Start here | Model tier | Execution and approval posture |
 |---|---|---|---|
 | **Answer a low-stakes question** | Run `gptme "…"` with no tools when the answer does not need live or local evidence. | Small and fast. | No external actions; inspect the answer before relying on it. |
-| **Research a topic** | Give the agent the browser tool and ask for linked sources plus a short synthesis. | Small for collection; stronger reasoning for conflicting evidence or an important decision. | Keep the work local and require source links. The browser can interact with pages, so keep confirmations on and approve only read operations. |
+| **Research a topic** | Give the agent the browser tool and ask for linked sources plus a short synthesis. | Small for collection; stronger reasoning for conflicting evidence or an important decision. | Keep the work local and require source links. The browser can interact with pages, so explicitly forbid external actions and use environment or credential isolation when confirmation prompts are not a reliable boundary. |
 | **Create an artifact** | Name the output file and acceptance criteria: a report, image, script, or web page. | General-purpose; use a stronger model when structure or judgment matters. | Write only to a dedicated workspace. Review the artifact before sending or publishing it. |
-| **Change inspectable code** | Run gptme inside a version-controlled checkout; ask it to inspect, edit, test, and show the diff. | Strong coding/reasoning model. | Keep confirmations on. Review commands and the diff; isolate untrusted repositories. |
+| **Change inspectable code** | Run gptme inside a version-controlled checkout; ask it to inspect, edit, test, and show the diff. | Strong coding/reasoning model. | Use confirmations for interactive work or a review-gated branch/PR workflow for autonomous work. Isolate untrusted repositories. |
 
 Model names change faster than these capabilities. See {doc}`../model-routing`
 for current model examples and {ref}`tool-allowlist` for exact tool-selection
@@ -38,11 +38,14 @@ gptme --tools "browser,rag,chats,read" \
 ```
 
 The browser tool also exposes page interactions such as clicks and form entry;
-its allowlist entry does not restrict it to reading. Keep interactive
-confirmations enabled, reject any interaction request, and use `hint:read-only`
-only for tools actually annotated as read-only. For an important choice, split
-collection from judgment: gather sources cheaply, then use a stronger model to
-challenge the synthesis and identify missing evidence.
+its allowlist entry does not restrict it to reading, and confirmation prompts do
+not cover every browser operation. Explicitly prohibit external actions in the
+task, but do not treat that instruction as a security boundary. For stronger
+assurance, run in a VM or container without sensitive credentials or use a
+restricted account or fine-grained token that cannot write. Use
+`hint:read-only` only for tools actually annotated as read-only. For an
+important choice, split collection from judgment: gather sources cheaply, then
+use a stronger model to challenge the synthesis and identify missing evidence.
 
 ### Artifact creation
 
@@ -67,10 +70,14 @@ gptme \
   "Inspect the failing tests, make the smallest fix, rerun the targeted tests, and show me the diff. Do not commit or push."
 ```
 
-A local checkout gives you the strongest review surface: version control,
-tests, and a diff. Review an unfamiliar repository's `gptme.toml` before
-starting because project configuration can run hooks and context commands. See
-{doc}`../security` for the complete trust model.
+A local checkout gives you a strong review surface: version control, tests, and
+a diff. For autonomous work, use the review-gated branch/PR workflow in
+{doc}`../automation`: stage and inspect every change, commit only that reviewed
+artifact, push only a feature branch, and stop before merge. A PR does not cover
+side effects outside the checkout, so remove external credentials or constrain
+them with a dedicated GitHub account or fine-grained token. Review an unfamiliar
+repository's `gptme.toml` before starting because project configuration can run
+hooks and context commands. See {doc}`../security` for the complete trust model.
 
 ## Local or remote?
 
@@ -88,8 +95,11 @@ Choose based on where the required data and verification tools already live:
 
 ## Approval rule
 
-Keep interactive confirmations on by default. Require an explicit human review
-immediately before any action that:
+Use interactive confirmations when a human is present, or a review-gated
+artifact workflow when autonomous work can be fully contained in a checkout.
+Confirmation prompts are not available in non-interactive mode and do not cover
+every operation, so they are a convenience rather than a complete security
+boundary. Require an explicit human review immediately before any action that:
 
 - sends a message or submits a form;
 - spends money or creates a paid resource;
