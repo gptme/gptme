@@ -4,9 +4,11 @@ Provides functions to gather costs from multiple sources (CostTracker, metadata,
 and display them in a consistent format.
 """
 
+import os
 from dataclasses import dataclass
 
-from ..message import Message
+from ..message import Message, is_output_json, is_output_quiet
+from . import console
 from .cost_tracker import CostTracker
 
 
@@ -98,6 +100,66 @@ def _format_cost(cost: float) -> str:
     if 0 < cost < 0.0001:
         return "<$0.0001"
     return f"${cost:.4f}"
+
+
+def _fmt_tokens(n: int) -> str:
+    """Format token counts compactly: 1200 → '1.2k'."""
+    if n >= 1000:
+        return f"{n / 1000:.1f}k"
+    return str(n)
+
+
+def print_inline_cost(msg: Message) -> None:
+    """Print a dim per-message cost line after an assistant response.
+
+    Enabled via GPTME_SHOW_COST=1 environment variable.
+    No-ops in JSON/quiet output modes.
+    """
+    if not os.environ.get("GPTME_SHOW_COST"):
+        return
+    if is_output_json() or is_output_quiet():
+        return
+
+    # Prefer real per-message metadata (most accurate)
+    if msg.metadata:
+        usage = msg.metadata.get("usage", {})
+        input_tokens = usage.get("input_tokens", 0)
+        cache_read = usage.get("cache_read_tokens", 0)
+        cache_creation = usage.get("cache_creation_tokens", 0)
+        output_tokens = usage.get("output_tokens", 0)
+        cost = msg.metadata.get("cost", 0.0)
+        model_name = msg.metadata.get("model")
+        total_in = input_tokens + cache_read + cache_creation
+
+        # Subscription providers: show "~$0 (subscription)" instead of $0.0000
+        if model_name:
+            try:
+                from ..llm.models import get_model
+
+                meta = get_model(model_name)
+                if meta and meta.pricing_type == "subscription":
+                    console.print(
+                        f"[dim][cost: ~$0 (subscription) | tokens: {_fmt_tokens(total_in)} in / {_fmt_tokens(output_tokens)} out][/dim]"
+                    )
+                    return
+            except Exception:
+                pass
+
+        console.print(
+            f"[dim][cost: {_format_cost(cost)} | tokens: {_fmt_tokens(total_in)} in / {_fmt_tokens(output_tokens)} out][/dim]"
+        )
+        return
+
+    # Fall back to CostTracker last entry
+    session_costs = CostTracker.get_session_costs()
+    if session_costs and session_costs.entries:
+        last = session_costs.entries[-1]
+        total_in = (
+            last.input_tokens + last.cache_read_tokens + last.cache_creation_tokens
+        )
+        console.print(
+            f"[dim][cost: {_format_cost(last.cost)} | tokens: {_fmt_tokens(total_in)} in / {_fmt_tokens(last.output_tokens)} out][/dim]"
+        )
 
 
 def gather_session_costs() -> CostData | None:

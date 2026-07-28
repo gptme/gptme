@@ -41,6 +41,7 @@ from .util import console, path_with_tilde
 from .util.auto_naming import MAX_ASSISTANT_MSGS_FOR_NAMING, try_auto_name
 from .util.context import include_paths
 from .util.cost import log_costs
+from .util.cost_display import print_inline_cost
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.prompt import add_history, get_input
 from .util.sound import print_bell
@@ -440,6 +441,9 @@ def _process_message_conversation(
             # run any user-commands, if msg is from user
             if response_msg.role == "user" and execute_cmd(response_msg, manager):
                 return
+            # Show per-message cost if GPTME_SHOW_COST=1 (no-op otherwise)
+            if response_msg.role == "assistant":
+                print_inline_cost(response_msg)
 
         # Check if user declined execution - return to prompt without generating response
         # This makes "n" at confirm prompt behave like Ctrl+C (return to user prompt)

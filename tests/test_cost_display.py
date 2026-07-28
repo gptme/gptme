@@ -1,5 +1,6 @@
 """Tests for util/cost_display.py — cost aggregation and display."""
 
+import os
 from unittest.mock import patch
 
 from gptme.message import Message
@@ -9,8 +10,10 @@ from gptme.util.cost_display import (
     RequestCosts,
     StepCost,
     TotalCosts,
+    _fmt_tokens,
     display_costs,
     gather_conversation_costs,
+    print_inline_cost,
 )
 
 
@@ -730,3 +733,119 @@ def test_display_costs_only_conversation_when_no_session():
     output = "\n".join(str(call.args[0]) for call in log.call_args_list)
     assert "Session Total" not in output
     assert "Conversation Total" in output
+
+
+# ── inline cost display ───────────────────────────────────────────────────────
+
+
+def test_fmt_tokens_below_1k():
+    assert _fmt_tokens(500) == "500"
+
+
+def test_fmt_tokens_at_1k():
+    assert _fmt_tokens(1000) == "1.0k"
+
+
+def test_fmt_tokens_above_1k():
+    assert _fmt_tokens(1200) == "1.2k"
+
+
+def test_print_inline_cost_disabled_by_default(capsys):
+    """print_inline_cost is a no-op when GPTME_SHOW_COST is not set."""
+    env = {k: v for k, v in os.environ.items() if k != "GPTME_SHOW_COST"}
+    msg = Message(
+        role="assistant",
+        content="hello",
+        metadata={
+            "cost": 0.004,
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
+            },
+        },
+    )
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch("gptme.util.cost_display.console") as mock_console,
+    ):
+        print_inline_cost(msg)
+    mock_console.print.assert_not_called()
+
+
+def test_print_inline_cost_with_metadata(monkeypatch):
+    """Shows cost and tokens from message metadata when GPTME_SHOW_COST=1."""
+    monkeypatch.setenv("GPTME_SHOW_COST", "1")
+    msg = Message(
+        role="assistant",
+        content="hello",
+        metadata={
+            "cost": 0.004,
+            "usage": {
+                "input_tokens": 1000,
+                "output_tokens": 200,
+                "cache_read_tokens": 500,
+                "cache_creation_tokens": 0,
+            },
+        },
+    )
+    with patch("gptme.util.cost_display.console") as mock_console:
+        print_inline_cost(msg)
+    mock_console.print.assert_called_once()
+    output = mock_console.print.call_args[0][0]
+    assert "$0.0040" in output
+    assert "1.5k in" in output  # 1000 + 500 = 1500 total in
+    assert "200 out" in output
+
+
+def test_print_inline_cost_no_metadata_falls_back_to_tracker(monkeypatch):
+    """Falls back to CostTracker when message has no metadata."""
+    from gptme.util.cost_tracker import CostEntry, CostTracker
+
+    monkeypatch.setenv("GPTME_SHOW_COST", "1")
+    CostTracker.start_session("test-session")
+    CostTracker.record(
+        CostEntry(
+            timestamp=0.0,
+            model="test",
+            input_tokens=800,
+            output_tokens=150,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.002,
+        )
+    )
+    msg = Message(role="assistant", content="hello")
+    with patch("gptme.util.cost_display.console") as mock_console:
+        print_inline_cost(msg)
+    mock_console.print.assert_called_once()
+    output = mock_console.print.call_args[0][0]
+    assert "$0.0020" in output
+    assert "800 in" in output
+    assert "150 out" in output
+    CostTracker.reset()
+
+
+def test_print_inline_cost_no_output_in_json_mode(monkeypatch):
+    """Suppressed in JSON output mode even when GPTME_SHOW_COST=1."""
+    monkeypatch.setenv("GPTME_SHOW_COST", "1")
+    msg = Message(
+        role="assistant",
+        content="hello",
+        metadata={
+            "cost": 0.001,
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
+            },
+        },
+    )
+    with (
+        patch("gptme.util.cost_display.is_output_json", return_value=True),
+        patch("gptme.util.cost_display.console") as mock_console,
+    ):
+        print_inline_cost(msg)
+    mock_console.print.assert_not_called()
