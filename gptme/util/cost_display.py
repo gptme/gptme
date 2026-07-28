@@ -109,16 +109,10 @@ def _fmt_tokens(n: int) -> str:
     return str(n)
 
 
-def print_inline_cost(msg: Message) -> None:
-    """Print a dim per-message cost line after an assistant response.
-
-    Enabled via GPTME_SHOW_COST=1 environment variable.
-    No-ops in JSON/quiet output modes.
-    """
+def inline_cost_text(msg: Message) -> str | None:
+    """Build the inline cost summary for an assistant message."""
     if os.environ.get("GPTME_SHOW_COST") != "1":
-        return
-    if is_output_json() or is_output_quiet():
-        return
+        return None
 
     # Prefer real per-message metadata (most accurate), but only when it
     # contains actual usage data — a metadata dict with only a "model" key
@@ -133,9 +127,16 @@ def print_inline_cost(msg: Message) -> None:
         cost = msg.metadata.get("cost", 0.0)
         model_name = msg.metadata.get("model")
 
-        has_usage = input_tokens > 0 or output_tokens > 0 or cache_read > 0 or cost > 0
+        has_usage = (
+            input_tokens > 0
+            or output_tokens > 0
+            or cache_read > 0
+            or cache_creation > 0
+            or cost > 0
+        )
         if has_usage:
             total_in = input_tokens + cache_read + cache_creation
+            cost_text = _format_cost(cost)
 
             # Subscription providers: show "~$0 (subscription)" instead of $0.0000
             if model_name:
@@ -144,28 +145,47 @@ def print_inline_cost(msg: Message) -> None:
 
                     meta = get_model(model_name)
                     if meta and meta.pricing_type == "subscription":
-                        console.print(
-                            f"[dim][cost: ~$0 (subscription) | tokens: {_fmt_tokens(total_in)} in / {_fmt_tokens(output_tokens)} out][/dim]"
-                        )
-                        return
+                        cost_text = "~$0 (subscription)"
                 except Exception:
                     pass
 
-            console.print(
-                f"[dim][cost: {_format_cost(cost)} | tokens: {_fmt_tokens(total_in)} in / {_fmt_tokens(output_tokens)} out][/dim]"
+            return (
+                f"[cost: {cost_text} | tokens: {_fmt_tokens(total_in)} in / "
+                f"{_fmt_tokens(output_tokens)} out]"
             )
-            return
 
-    # Fall back to CostTracker last entry
+    # Fall back to CostTracker last entry.
     session_costs = CostTracker.get_session_costs()
     if session_costs and session_costs.entries:
         last = session_costs.entries[-1]
         total_in = (
             last.input_tokens + last.cache_read_tokens + last.cache_creation_tokens
         )
-        console.print(
-            f"[dim][cost: {_format_cost(last.cost)} | tokens: {_fmt_tokens(total_in)} in / {_fmt_tokens(last.output_tokens)} out][/dim]"
+        cost_text = _format_cost(last.cost)
+        try:
+            from ..llm.models import get_model
+
+            meta = get_model(last.model)
+            if meta and meta.pricing_type == "subscription":
+                cost_text = "~$0 (subscription)"
+        except Exception:
+            pass
+        return (
+            f"[cost: {cost_text} | tokens: {_fmt_tokens(total_in)} in / "
+            f"{_fmt_tokens(last.output_tokens)} out]"
         )
+    return None
+
+
+def print_inline_cost(msg: Message) -> None:
+    """Print a dim per-message cost line for the plain CLI.
+
+    The Textual TUI uses :func:`inline_cost_text` in its own render path.
+    """
+    if is_output_json() or is_output_quiet():
+        return
+    if text := inline_cost_text(msg):
+        console.print(f"[dim]{text}[/dim]")
 
 
 def gather_session_costs() -> CostData | None:

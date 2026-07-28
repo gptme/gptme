@@ -13,6 +13,7 @@ from gptme.util.cost_display import (
     _fmt_tokens,
     display_costs,
     gather_conversation_costs,
+    inline_cost_text,
     print_inline_cost,
 )
 
@@ -841,6 +842,30 @@ def test_print_inline_cost_disabled_for_false_value(monkeypatch):
     with patch("gptme.util.cost_display.console") as mock_console:
         print_inline_cost(msg)
     mock_console.print.assert_not_called()
+
+
+def test_inline_cost_text_subscription_tracker_fallback(monkeypatch):
+    """Tracker fallback preserves subscription pricing semantics."""
+    from gptme.util.cost_tracker import CostEntry, CostTracker
+
+    monkeypatch.setenv("GPTME_SHOW_COST", "1")
+    CostTracker.start_session("test-subscription")
+    CostTracker.record(
+        CostEntry(
+            timestamp=0.0,
+            model="openai-subscription/gpt-5.6-sol",
+            input_tokens=600,
+            output_tokens=120,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.0,
+        )
+    )
+    text = inline_cost_text(Message(role="assistant", content="hello"))
+    assert text is not None
+    assert "~$0 (subscription)" in text
+    assert "600 in" in text
+    CostTracker.reset()
 
 
 def test_print_inline_cost_partial_metadata_falls_back_to_tracker(monkeypatch):

@@ -14,6 +14,7 @@ from gptme.tui.app import (
     AssistantMessage,
     BouncingError,
     ChatInput,
+    CostMessage,
     GptmeApp,
     InfoMessage,
     StreamingMessage,
@@ -118,6 +119,28 @@ async def test_app_renders_history(tmp_path):
         assert len(app.query(SystemMessage)) == 1
         collapsible = app.query_one(Collapsible)
         assert collapsible.collapsed
+
+
+@pytest.mark.asyncio
+async def test_app_renders_inline_cost_in_quiet_tui(tmp_path, monkeypatch):
+    """The TUI renders enabled costs through widgets despite quiet core output."""
+    monkeypatch.setenv("GPTME_SHOW_COST", "1")
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    msg = Message(
+        "assistant",
+        "hi there!",
+        metadata={
+            "cost": 0.004,
+            "usage": {"input_tokens": 1000, "output_tokens": 200},
+        },
+    )
+
+    async with app.run_test() as pilot:
+        app._on_step_message(msg)
+        await pilot.pause()
+        cost = app.query_one(CostMessage)
+        assert "$0.0040" in str(cost.render())
+        assert "1.0k in" in str(cost.render())
 
 
 @pytest.mark.asyncio

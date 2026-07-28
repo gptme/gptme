@@ -62,6 +62,7 @@ from ..tools.base import get_tool_format
 from ..tools.complete import SessionCompleteException
 from ..util.content import is_message_command
 from ..util.context import extract_urls, include_paths
+from ..util.cost_display import inline_cost_text
 from ..util.history import append_history, load_history
 from ..util.tokens import len_tokens
 
@@ -446,6 +447,13 @@ class InfoMessage(Static):
 
     def __init__(self, content: str, error: bool = False):
         super().__init__(Text(content), classes="info" + (" error" if error else ""))
+
+
+class CostMessage(Static):
+    """Dim per-message cost line rendered by the Textual TUI."""
+
+    def __init__(self, content: str):
+        super().__init__(Text(content, style="dim"), classes="cost")
 
 
 class BouncingError(Static):
@@ -931,6 +939,10 @@ class GptmeApp(App):
         color: $text-muted;
         margin: 1 0 0 1;
     }
+    .cost {
+        color: $text-muted;
+        margin: 0 0 0 2;
+    }
     .info.error {
         color: $error;
     }
@@ -1183,12 +1195,18 @@ class GptmeApp(App):
         self.refresh()
 
     def _show_message(self, msg: Message) -> None:
+        cost_text = inline_cost_text(msg) if msg.role == "assistant" else None
         if self.inline:
-            self._print_above(*renderables_for_message(msg, self._outputs_expanded))
+            renderables = renderables_for_message(msg, self._outputs_expanded)
+            if cost_text:
+                renderables.insert(-1, Text(cost_text, style="dim"))
+            self._print_above(*renderables)
             return
         widget = self._widget_for(msg)
         if widget:
             self._mount_in_chat(widget)
+        if cost_text:
+            self._mount_in_chat(CostMessage(cost_text))
 
     def _show_info(self, text: str, error: bool = False) -> None:
         if self.inline:
