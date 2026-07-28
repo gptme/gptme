@@ -827,6 +827,54 @@ def test_print_inline_cost_no_metadata_falls_back_to_tracker(monkeypatch):
     CostTracker.reset()
 
 
+def test_print_inline_cost_disabled_for_false_value(monkeypatch):
+    """GPTME_SHOW_COST=0 (or 'false') must not enable the feature."""
+    monkeypatch.setenv("GPTME_SHOW_COST", "0")
+    msg = Message(
+        role="assistant",
+        content="hello",
+        metadata={
+            "cost": 0.004,
+            "usage": {"input_tokens": 100, "output_tokens": 50},
+        },
+    )
+    with patch("gptme.util.cost_display.console") as mock_console:
+        print_inline_cost(msg)
+    mock_console.print.assert_not_called()
+
+
+def test_print_inline_cost_partial_metadata_falls_back_to_tracker(monkeypatch):
+    """Falls back to CostTracker when metadata has only 'model' (no usage data)."""
+    from gptme.util.cost_tracker import CostEntry, CostTracker
+
+    monkeypatch.setenv("GPTME_SHOW_COST", "1")
+    CostTracker.start_session("test-partial")
+    CostTracker.record(
+        CostEntry(
+            timestamp=0.0,
+            model="test",
+            input_tokens=600,
+            output_tokens=120,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.003,
+        )
+    )
+    # Metadata has only "model", no usage — would produce zero output without fix
+    msg = Message(
+        role="assistant",
+        content="hello",
+        metadata={"model": "anthropic/claude-sonnet-4-5"},
+    )
+    with patch("gptme.util.cost_display.console") as mock_console:
+        print_inline_cost(msg)
+    mock_console.print.assert_called_once()
+    output = mock_console.print.call_args[0][0]
+    assert "$0.0030" in output
+    assert "600 in" in output
+    CostTracker.reset()
+
+
 def test_print_inline_cost_no_output_in_json_mode(monkeypatch):
     """Suppressed in JSON output mode even when GPTME_SHOW_COST=1."""
     monkeypatch.setenv("GPTME_SHOW_COST", "1")

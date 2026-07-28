@@ -115,12 +115,15 @@ def print_inline_cost(msg: Message) -> None:
     Enabled via GPTME_SHOW_COST=1 environment variable.
     No-ops in JSON/quiet output modes.
     """
-    if not os.environ.get("GPTME_SHOW_COST"):
+    if os.environ.get("GPTME_SHOW_COST") != "1":
         return
     if is_output_json() or is_output_quiet():
         return
 
-    # Prefer real per-message metadata (most accurate)
+    # Prefer real per-message metadata (most accurate), but only when it
+    # contains actual usage data — a metadata dict with only a "model" key
+    # (partial metadata) must fall through to CostTracker rather than printing
+    # zeros.
     if msg.metadata:
         usage = msg.metadata.get("usage", {})
         input_tokens = usage.get("input_tokens", 0)
@@ -129,26 +132,29 @@ def print_inline_cost(msg: Message) -> None:
         output_tokens = usage.get("output_tokens", 0)
         cost = msg.metadata.get("cost", 0.0)
         model_name = msg.metadata.get("model")
-        total_in = input_tokens + cache_read + cache_creation
 
-        # Subscription providers: show "~$0 (subscription)" instead of $0.0000
-        if model_name:
-            try:
-                from ..llm.models import get_model
+        has_usage = input_tokens > 0 or output_tokens > 0 or cache_read > 0 or cost > 0
+        if has_usage:
+            total_in = input_tokens + cache_read + cache_creation
 
-                meta = get_model(model_name)
-                if meta and meta.pricing_type == "subscription":
-                    console.print(
-                        f"[dim][cost: ~$0 (subscription) | tokens: {_fmt_tokens(total_in)} in / {_fmt_tokens(output_tokens)} out][/dim]"
-                    )
-                    return
-            except Exception:
-                pass
+            # Subscription providers: show "~$0 (subscription)" instead of $0.0000
+            if model_name:
+                try:
+                    from ..llm.models import get_model
 
-        console.print(
-            f"[dim][cost: {_format_cost(cost)} | tokens: {_fmt_tokens(total_in)} in / {_fmt_tokens(output_tokens)} out][/dim]"
-        )
-        return
+                    meta = get_model(model_name)
+                    if meta and meta.pricing_type == "subscription":
+                        console.print(
+                            f"[dim][cost: ~$0 (subscription) | tokens: {_fmt_tokens(total_in)} in / {_fmt_tokens(output_tokens)} out][/dim]"
+                        )
+                        return
+                except Exception:
+                    pass
+
+            console.print(
+                f"[dim][cost: {_format_cost(cost)} | tokens: {_fmt_tokens(total_in)} in / {_fmt_tokens(output_tokens)} out][/dim]"
+            )
+            return
 
     # Fall back to CostTracker last entry
     session_costs = CostTracker.get_session_costs()
