@@ -284,6 +284,81 @@ For tighter integration, use the gptme Python API directly:
 See the :doc:`api` reference for the full Python interface.
 
 
+Review-Gated Autonomous Workflows
+----------------------------------
+
+Interactive confirmation prompts are the natural safety boundary for interactive
+sessions, but they break down in autonomous use: ``-n``/``--non-interactive``
+skips all prompts, and many tools (browser, shell) don't route every operation
+through a confirmation hook anyway.
+
+The pattern that works in practice is **review-gated delivery**: let gptme work
+autonomously in an isolated, version-controlled workspace, but gate every
+consequential output on a deterministic review step — push a branch, open a PR,
+let CI run, get a human to review, then merge. The PR diff is the evidence; the
+review is the gate.
+
+This is the pattern used by gptme agents in production (see :doc:`agents`).
+
+Workflow
+~~~~~~~~~
+
+.. code-block:: bash
+
+   # 1. Create an isolated workspace so changes are contained
+   git worktree add -b feat/my-task /tmp/my-task origin/master
+   cd /tmp/my-task
+
+   # 2. Let gptme work autonomously — no confirmations needed
+   gptme -n \
+     "Read the issue at https://github.com/myorg/myrepo/issues/42" \
+     - "Implement the requested feature" \
+     - "Run the tests and fix any failures" \
+     - "Summarize what you changed"
+
+   # 3. Review the diff yourself before pushing
+   git diff origin/master
+
+   # 4. Push to a branch (never directly to master)
+   git push origin feat/my-task
+
+   # 5. Open a PR — CI runs, human reviews, then merges
+   gh pr create --title "feat: implement issue #42" --body "Closes #42"
+
+.. note::
+
+   The PR review step is where you catch problems: the diff shows exactly what
+   changed, CI validates correctness, and you decide whether to merge. This is
+   a stronger boundary than per-tool confirmations because it covers the full
+   output rather than individual operations.
+
+Compared to Interactive Mode
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
++-----------------------------+-----------------------------+-----------------------------+
+| Aspect                      | Interactive (with prompts)  | Review-gated (autonomous)   |
++=============================+=============================+=============================+
+| Safety boundary             | Per-operation confirmation  | PR review before merge      |
++-----------------------------+-----------------------------+-----------------------------+
+| Works in ``-n`` mode        | No (prompts skipped)        | Yes                         |
++-----------------------------+-----------------------------+-----------------------------+
+| Covers all tool calls       | Partial (varies by tool)    | Yes (diff shows everything) |
++-----------------------------+-----------------------------+-----------------------------+
+| CI integration              | Manual                      | Automatic on PR open        |
++-----------------------------+-----------------------------+-----------------------------+
+| Audit trail                 | Session log                 | Git history + PR thread     |
++-----------------------------+-----------------------------+-----------------------------+
+
+When to use each:
+
+- **Interactive mode with confirmations**: exploratory tasks where you want to
+  approve each step; actions that can't be reversed (deleting data, sending
+  emails, deploying to production).
+
+- **Review-gated autonomous mode**: code changes, doc updates, research tasks,
+  or any work that produces a reviewable artifact before its effects are final.
+
+
 Best Practices
 --------------
 
