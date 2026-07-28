@@ -243,25 +243,29 @@ test.describe('Performance: message list virtualization', () => {
     await page.getByText('Stress test (200 messages)').click();
     await expect(page.locator('[data-message-index]').first()).toBeVisible({ timeout: 10000 });
 
-    // Record initial rendered indices
+    // Conversations open at the bottom. Scroll the actual message viewport to
+    // the top rather than sending a wheel event to the sidebar item we clicked.
+    const messageViewport = page.getByTestId('message-scroll-viewport');
     const initialIndices = await page
       .locator('[data-message-index]')
       .evaluateAll((els) => els.map((el) => Number(el.getAttribute('data-message-index'))));
+    await messageViewport.evaluate((element) => element.scrollTo({ top: 0 }));
 
-    // Scroll down significantly using mouse wheel to trigger virtualizer
-    // to render a different set of messages.
-    await page.mouse.wheel(0, 5000);
-    await page.waitForTimeout(500);
+    // Wait for the virtualizer to replace the bottom rows with top rows.
+    await expect
+      .poll(async () =>
+        page
+          .locator('[data-message-index]')
+          .evaluateAll((els) => els.map((el) => Number(el.getAttribute('data-message-index'))))
+      )
+      .not.toEqual(initialIndices);
 
-    // After scrolling, a different set of messages should be rendered
     const scrolledIndices = await page
       .locator('[data-message-index]')
       .evaluateAll((els) => els.map((el) => Number(el.getAttribute('data-message-index'))));
 
-    // The rendered set changed — virtualization is working
-    expect(scrolledIndices).not.toEqual(initialIndices);
-
-    // Still bounded — not all 200 mounted
+    // The top of the conversation is now rendered, while the DOM stays bounded.
+    expect(scrolledIndices).toContain(0);
     expect(scrolledIndices.length).toBeLessThan(50);
   });
 

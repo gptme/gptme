@@ -822,6 +822,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
 
       <div
         className="flex-1 overflow-y-auto"
+        data-testid="message-scroll-viewport"
         ref={scrollContainerRef}
         onScroll={() => {
           if (!scrollContainerRef.current || isAutoScrolling$.get()) return;
