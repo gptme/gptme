@@ -74,14 +74,6 @@ def get_default_branch(repo: Path, remote: str = "origin") -> str | None:
             if stripped.startswith("HEAD branch:"):
                 return stripped.split(":", 1)[1].strip()
 
-    # Final heuristic: check well-known default branch names
-    for name in ("master", "main"):
-        rc, _ = _run_git(
-            ["rev-parse", "--verify", f"refs/remotes/{remote}/{name}"], repo
-        )
-        if rc == 0:
-            return name
-
     return None
 
 

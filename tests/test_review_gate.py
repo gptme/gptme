@@ -120,6 +120,24 @@ def test_get_default_branch_preserves_slashes(tmp_path: Path) -> None:
     assert branch == "release/stable"
 
 
+def test_get_default_branch_does_not_guess_from_tracking_refs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, _ = _make_repo_with_remote(tmp_path)
+
+    def run_git(args: list[str], cwd: Path) -> tuple[int, str]:
+        if args == ["remote"]:
+            return 0, "origin"
+        if args[:2] == ["rev-parse", "--verify"]:
+            return 0, args[-1]
+        return 1, ""
+
+    monkeypatch.setattr("gptme.review_gate._run_git", run_git)
+    assert get_default_branch(repo) is None
+    result = check_delivery_target("main", repo)
+    assert result.status == ReviewGateStatus.NO_REMOTE
+
+
 # ── check_delivery_target ────────────────────────────────────────────────────
 
 
