@@ -1089,7 +1089,7 @@ export const ChatInput: FC<Props> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-2 sm:p-4">
+    <form onSubmit={handleSubmit}>
       <p id={inputHelpId} className="sr-only">
         Press Enter to send, Shift Enter for a new line, and Escape to cancel, stop generation, or
         leave the message field.
