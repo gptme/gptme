@@ -900,6 +900,36 @@ def test_print_inline_cost_partial_metadata_falls_back_to_tracker(monkeypatch):
     CostTracker.reset()
 
 
+def test_inline_cost_text_explicit_zero_metadata_does_not_reuse_tracker(monkeypatch):
+    """Explicit zero usage belongs to this message, not the prior tracker entry."""
+    from gptme.util.cost_tracker import CostEntry, CostTracker
+
+    monkeypatch.setenv("GPTME_SHOW_COST", "1")
+    CostTracker.start_session("test-zero-usage")
+    CostTracker.record(
+        CostEntry(
+            timestamp=0.0,
+            model="test",
+            input_tokens=600,
+            output_tokens=120,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.003,
+        )
+    )
+    msg = Message(
+        role="assistant",
+        content="hello",
+        metadata={
+            "cost": 0.0,
+            "usage": {"input_tokens": 0, "output_tokens": 0},
+        },
+    )
+
+    assert inline_cost_text(msg) == "[cost: $0.0000 | tokens: 0 in / 0 out]"
+    CostTracker.reset()
+
+
 def test_print_inline_cost_no_output_in_json_mode(monkeypatch):
     """Suppressed in JSON output mode even when GPTME_SHOW_COST=1."""
     monkeypatch.setenv("GPTME_SHOW_COST", "1")

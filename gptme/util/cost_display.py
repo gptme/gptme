@@ -127,12 +127,14 @@ def inline_cost_text(msg: Message) -> str | None:
         cost = msg.metadata.get("cost", 0.0)
         model_name = msg.metadata.get("model")
 
-        has_usage = (
-            input_tokens > 0
-            or output_tokens > 0
-            or cache_read > 0
-            or cache_creation > 0
-            or cost > 0
+        has_usage = "cost" in msg.metadata or any(
+            key in usage
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_creation_tokens",
+            )
         )
         if has_usage:
             total_in = input_tokens + cache_read + cache_creation
