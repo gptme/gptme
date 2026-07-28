@@ -123,6 +123,7 @@ for Ollama, vLLM, and custom server setup.
 Next Steps
 ----------
 
+- Match your task to a safe execution surface with :doc:`howto/choose-workflow`
 - Read the :doc:`usage` guide
 - Try the :doc:`examples`
 - Learn about available :doc:`tools`

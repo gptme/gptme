@@ -6,6 +6,7 @@ Each guide gives you a copy-pasteable pattern you can adapt immediately.
 ```{toctree}
 :maxdepth: 1
 
+choose-workflow
 minimal-context
 edit-files
 code-review
@@ -15,6 +16,9 @@ refactor
 computer-use
 tts-setup
 ```
+
+## Choose a Workflow
+[Match the task to the right workflow](choose-workflow.md) — pick tools, model capability, local or remote execution, and an approval boundary from the outcome you need.
 
 ## Minimal Context
 [Run gptme with minimal context](minimal-context.md) — measure and trim prompt sections for cheaper, tighter specialized runs.
