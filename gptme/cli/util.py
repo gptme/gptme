@@ -1348,6 +1348,8 @@ def profile_list():
             behavior_flags.append("no-network")
         if prof.behavior.confirm_writes:
             behavior_flags.append("confirm-writes")
+        if prof.behavior.review_gate:
+            behavior_flags.append("review-gate")
         behavior_str = ", ".join(behavior_flags) if behavior_flags else "default"
 
         table.add_row(name, prof.description, tools_str, behavior_str)
@@ -1381,6 +1383,8 @@ def profile_show(name: str):
         behavior_flags.append("no-network")
     if prof.behavior.confirm_writes:
         behavior_flags.append("confirm-writes")
+    if prof.behavior.review_gate:
+        behavior_flags.append("review-gate")
     behavior_str = ", ".join(behavior_flags) if behavior_flags else "none (default)"
 
     content = f"""[cyan]Name:[/cyan] {prof.name}

@@ -4,14 +4,19 @@ Tests the allowlist/denylist logic, quote/heredoc parsing, pipe detection,
 and redirection detection in gptme/tools/shell_validation.py.
 """
 
+import pytest
+
 from gptme.tools.shell_validation import (
     _find_first_unquoted_pipe,
     _find_heredoc_regions,
     _find_quotes,
     _has_file_redirection,
     _is_in_quoted_region,
+    get_review_gate,
     is_allowlisted,
     is_denylisted,
+    is_review_gate_blocked,
+    set_review_gate,
 )
 
 # ── _find_quotes ─────────────────────────────────────────────────────
@@ -621,3 +626,196 @@ class TestEdgeCases:
         """Pipe characters in quoted arguments shouldn't trigger pipe detection."""
         result = _find_first_unquoted_pipe("grep 'a|b' file.txt")
         assert result is None
+
+
+# ── Review gate ───────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=False)
+def review_gate_active():
+    """Fixture that enables the review gate for the duration of a test."""
+    set_review_gate(True)
+    yield
+    set_review_gate(False)
+
+
+class TestReviewGateState:
+    """Tests for review gate enable/disable logic."""
+
+    def test_default_inactive(self):
+        set_review_gate(False)
+        assert get_review_gate() is False
+
+    def test_activate(self):
+        set_review_gate(True)
+        assert get_review_gate() is True
+        set_review_gate(False)
+
+    def test_deactivate(self):
+        set_review_gate(True)
+        set_review_gate(False)
+        assert get_review_gate() is False
+
+
+class TestReviewGateBlocked:
+    """Tests for is_review_gate_blocked() — default-branch push/merge enforcement."""
+
+    # --- Default-branch pushes are blocked ---
+
+    def test_push_to_master_blocked(self):
+        blocked, reason, matched = is_review_gate_blocked("git push origin master")
+        assert blocked
+        assert reason is not None
+        assert "review gate" in reason.lower()
+
+    def test_push_to_main_blocked(self):
+        blocked, _, _ = is_review_gate_blocked("git push origin main")
+        assert blocked
+
+    def test_push_to_trunk_blocked(self):
+        blocked, _, _ = is_review_gate_blocked("git push origin trunk")
+        assert blocked
+
+    def test_push_to_develop_blocked(self):
+        blocked, _, _ = is_review_gate_blocked("git push origin develop")
+        assert blocked
+
+    def test_push_head_to_master_blocked(self):
+        blocked, _, _ = is_review_gate_blocked("git push origin HEAD:master")
+        assert blocked
+
+    def test_push_head_to_main_blocked(self):
+        blocked, _, _ = is_review_gate_blocked("git push origin HEAD:main")
+        assert blocked
+
+    def test_push_upstream_to_master_blocked(self):
+        blocked, _, _ = is_review_gate_blocked("git push -u origin master")
+        assert blocked
+
+    def test_push_set_upstream_to_main_blocked(self):
+        blocked, _, _ = is_review_gate_blocked("git push --set-upstream origin main")
+        assert blocked
+
+    # --- Feature branch pushes are allowed ---
+
+    def test_push_feature_branch_allowed(self):
+        blocked, _, _ = is_review_gate_blocked("git push origin feat/my-feature")
+        assert not blocked
+
+    def test_push_fix_branch_allowed(self):
+        blocked, _, _ = is_review_gate_blocked("git push origin fix/issue-123")
+        assert not blocked
+
+    def test_push_upstream_feature_allowed(self):
+        blocked, _, _ = is_review_gate_blocked("git push -u origin feat/my-task")
+        assert not blocked
+
+    def test_push_with_explicit_refspec_feature_allowed(self):
+        blocked, _, _ = is_review_gate_blocked(
+            "git push origin feat/my-task:feat/my-task"
+        )
+        assert not blocked
+
+    # --- Merge is blocked ---
+
+    def test_git_merge_blocked(self):
+        blocked, reason, _ = is_review_gate_blocked("git merge origin/master")
+        assert blocked
+        assert reason is not None
+        assert "review gate" in reason.lower()
+
+    def test_git_merge_feature_blocked(self):
+        blocked, _, _ = is_review_gate_blocked("git merge feat/some-branch")
+        assert blocked
+
+    # --- Other git operations are not blocked ---
+
+    def test_git_status_allowed(self):
+        blocked, _, _ = is_review_gate_blocked("git status")
+        assert not blocked
+
+    def test_git_add_allowed(self):
+        blocked, _, _ = is_review_gate_blocked("git add file.py")
+        assert not blocked
+
+    def test_git_commit_allowed(self):
+        blocked, _, _ = is_review_gate_blocked("git commit -m 'feat: something'")
+        assert not blocked
+
+    def test_git_checkout_allowed(self):
+        blocked, _, _ = is_review_gate_blocked("git checkout -b feat/new-branch")
+        assert not blocked
+
+    def test_non_git_command_allowed(self):
+        blocked, _, _ = is_review_gate_blocked("pytest tests/")
+        assert not blocked
+
+    # --- Patterns inside quotes are not blocked ---
+
+    def test_push_master_in_single_quotes_allowed(self):
+        blocked, _, _ = is_review_gate_blocked("echo 'git push origin master'")
+        assert not blocked
+
+    def test_merge_in_commit_message_allowed(self):
+        blocked, _, _ = is_review_gate_blocked(
+            "git commit -m 'fix: git merge used to fail here'"
+        )
+        assert not blocked
+
+    # --- review-gated profile exists ---
+
+
+class TestReviewGatedProfile:
+    """Tests for the built-in review-gated profile."""
+
+    def test_profile_exists(self):
+        from gptme.profiles import BUILTIN_PROFILES
+
+        assert "review-gated" in BUILTIN_PROFILES
+
+    def test_profile_has_review_gate_behavior(self):
+        from gptme.profiles import BUILTIN_PROFILES
+
+        profile = BUILTIN_PROFILES["review-gated"]
+        assert profile.behavior.review_gate is True
+
+    def test_profile_has_no_tool_restriction(self):
+        from gptme.profiles import BUILTIN_PROFILES
+
+        profile = BUILTIN_PROFILES["review-gated"]
+        assert profile.tools is None
+
+    def test_profile_system_prompt_mentions_no_merge(self):
+        from gptme.profiles import BUILTIN_PROFILES
+
+        profile = BUILTIN_PROFILES["review-gated"]
+        assert "merge" in profile.system_prompt.lower()
+        assert (
+            "pr" in profile.system_prompt.lower()
+            or "pull request" in profile.system_prompt.lower()
+        )
+
+    def test_profile_name_matches_key(self):
+        from gptme.profiles import BUILTIN_PROFILES
+
+        profile = BUILTIN_PROFILES["review-gated"]
+        assert profile.name == "review-gated"
+
+    def test_get_profile_returns_review_gated(self):
+        from gptme.profiles import get_profile
+
+        profile = get_profile("review-gated")
+        assert profile is not None
+        assert profile.name == "review-gated"
+        assert profile.behavior.review_gate is True
+
+    def test_profile_behavior_from_dict_review_gate(self):
+        from gptme.profiles import Profile
+
+        data = {
+            "name": "custom-gated",
+            "description": "Test",
+            "behavior": {"review_gate": True},
+        }
+        profile = Profile.from_dict(data)
+        assert profile.behavior.review_gate is True

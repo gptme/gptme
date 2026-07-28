@@ -812,6 +812,15 @@ def main(
 
         logger.info(f"Using agent profile: {selected_profile.name}")
 
+        # Activate review gate enforcement when the profile requests it
+        if selected_profile.behavior.review_gate:
+            from ..tools.shell_validation import set_review_gate
+
+            set_review_gate(True)
+            logger.info(
+                "Review gate activated: pushes to default branch and merges are blocked."
+            )
+
         # Apply profile tools if no explicit tools specified
         if (
             ctx.get_parameter_source("tool_allowlist") == ParameterSource.DEFAULT

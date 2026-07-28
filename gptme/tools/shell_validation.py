@@ -11,6 +11,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 from typing import TYPE_CHECKING
 
 from ..util.context import md_codeblock
@@ -103,6 +104,75 @@ deny_groups = [
         "Piping to shell interpreters or script execution is blocked. This pattern can execute arbitrary code and is a security risk.",
     ),
 ]
+
+# Default branch names that the review gate protects
+_DEFAULT_BRANCHES = {"master", "main", "trunk", "develop"}
+
+# Patterns blocked when the review gate is active.
+# These prevent pushing/merging/deploying directly to the default branch or
+# triggering irreversible delivery actions without a PR-review step.
+_REVIEW_GATE_DENY_GROUPS: list[tuple[list[str], str]] = [
+    (
+        [
+            # git push [remote] <default-branch>
+            r"git\s+push\s+\S+\s+(?:" + "|".join(_DEFAULT_BRANCHES) + r")(?:\s|$)",
+            # git push [remote] HEAD:<default-branch>
+            r"git\s+push\s+\S+\s+HEAD:(?:" + "|".join(_DEFAULT_BRANCHES) + r")(?:\s|$)",
+            # git push with --set-upstream/-u to a default branch
+            r"git\s+push\s+(?:-u|--set-upstream)\s+\S+\s+(?:"
+            + "|".join(_DEFAULT_BRANCHES)
+            + r")(?:\s|$)",
+        ],
+        "Review gate: pushing directly to a default branch is blocked. "
+        "Push to a feature branch and open a PR instead.",
+    ),
+    (
+        [
+            r"git\s+merge\s+",
+        ],
+        "Review gate: merging is blocked. "
+        "Deliver changes via a PR; let the reviewer or CI trigger the merge.",
+    ),
+]
+
+# Module-level flag for review gate; set once at session startup.
+# A plain threading.local isn't needed here because the flag is set once
+# before any worker threads start and is read-only during the session.
+_review_gate_lock = threading.Lock()
+_review_gate_active: bool = False
+
+
+def set_review_gate(active: bool) -> None:
+    """Enable or disable review-gate enforcement for this process."""
+    global _review_gate_active
+    with _review_gate_lock:
+        _review_gate_active = active
+
+
+def get_review_gate() -> bool:
+    """Return True if review-gate enforcement is currently active."""
+    return _review_gate_active
+
+
+def is_review_gate_blocked(cmd: str) -> tuple[bool, str | None, str | None]:
+    """Check whether a command violates the review-gate policy.
+
+    Returns (blocked, reason, matched_pattern).
+    Only meaningful when get_review_gate() is True.
+    """
+    cmd_lower = cmd.lower().strip()
+    quoted_regions = _find_quotes(cmd)
+    heredoc_regions = _find_heredoc_regions(cmd)
+    safe_regions = quoted_regions + heredoc_regions
+
+    for patterns, reason in _REVIEW_GATE_DENY_GROUPS:
+        for pattern in patterns:
+            for match in re.finditer(pattern, cmd_lower, re.IGNORECASE):
+                if not _is_in_quoted_region(match.start(), safe_regions):
+                    return True, reason, match.group(0).strip()
+
+    return False, None, None
+
 
 # Regex to extract command names from pipeline components
 cmd_regex = re.compile(r"(?:^|[|&;]|\|\||&&|\n)\s*([^\s|&;]+)")

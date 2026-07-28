@@ -48,6 +48,7 @@ class ProfileBehavior:
     confirm_writes: bool = False
     read_only: bool = False
     no_network: bool = False
+    review_gate: bool = False
 
 
 @dataclass
@@ -258,6 +259,54 @@ BUILTIN_PROFILES: dict[str, Profile] = {
         ),
         tools=["read", "ipython", "shell", "chats"],
         behavior=ProfileBehavior(read_only=True, no_network=True),
+    ),
+    "review-gated": Profile(
+        name="review-gated",
+        description="Autonomous coding with enforced PR-review delivery gate — no merge/push to default branch",
+        system_prompt=(
+            "You are in REVIEW-GATED mode for autonomous coding work.\n"
+            "\n"
+            "## How this mode works\n"
+            "\n"
+            "You run without per-tool confirmation prompts (-n / non-interactive).\n"
+            "The safety boundary is the delivery gate, not interactive prompts:\n"
+            "- Work in an isolated feature branch (never push to master/main).\n"
+            "- Run tests and verify your changes before pushing.\n"
+            "- Push only to a feature branch, then open a PR.\n"
+            "- Stop after opening the PR — do not merge, deploy, or publish.\n"
+            "\n"
+            "## What is enforced\n"
+            "\n"
+            "The following are hard-blocked regardless of instructions:\n"
+            "- `git push` to master, main, trunk, or develop.\n"
+            "- `git merge` (merging must happen via PR after human/CI review).\n"
+            "\n"
+            "## Workflow\n"
+            "\n"
+            "```bash\n"
+            "# 1. Work in a feature branch\n"
+            "git checkout -b feat/my-task origin/master\n"
+            "\n"
+            "# 2. Make changes, run tests\n"
+            "# ... edit files ...\n"
+            "uv run pytest\n"
+            "\n"
+            "# 3. Commit your work\n"
+            "git add changed_file.py\n"
+            "git commit -m 'feat: description'\n"
+            "\n"
+            "# 4. Push the feature branch and open a PR\n"
+            "git push origin feat/my-task\n"
+            "gh pr create --title 'feat: ...' --body '...'\n"
+            "\n"
+            "# 5. Stop here — do not merge\n"
+            "```\n"
+            "\n"
+            "The PR diff, test results, and CI status form the reviewable artifact.\n"
+            "A human or CI pipeline approves and merges; you never do.\n"
+        ),
+        tools=None,
+        behavior=ProfileBehavior(review_gate=True),
     ),
 }
 

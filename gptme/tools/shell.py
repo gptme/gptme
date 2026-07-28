@@ -66,8 +66,10 @@ from .shell_background import (
 from .shell_validation import (
     _find_first_unquoted_pipe,
     check_with_shellcheck,
+    get_review_gate,
     is_allowlisted,
     is_denylisted,
+    is_review_gate_blocked,
     shell_allowlist_hook,
 )
 
@@ -1733,6 +1735,16 @@ def execute_shell(
     if is_denied:
         yield Message("system", f"Command denied: `{matched_cmd}`\n\n{deny_reason}")
         return
+
+    # Check review-gate policy when active (profile: review-gated)
+    if get_review_gate():
+        is_rg_blocked, rg_reason, rg_matched = is_review_gate_blocked(cmd)
+        if is_rg_blocked:
+            yield Message(
+                "system",
+                f"Command blocked by review gate: `{rg_matched}`\n\n{rg_reason}",
+            )
+            return
 
     # Skip confirmation for allowlisted commands
     if is_allowlisted(cmd):
