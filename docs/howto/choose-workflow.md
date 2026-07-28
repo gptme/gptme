@@ -9,7 +9,7 @@ job, then increase model capability or tool access only when the task requires i
 | Task | Start here | Model tier | Execution and approval posture |
 |---|---|---|---|
 | **Answer a low-stakes question** | Run `gptme "…"` with no tools when the answer does not need live or local evidence. | Small and fast. | No external actions; inspect the answer before relying on it. |
-| **Research a topic** | Give the agent browser/read-only tools and ask for linked sources plus a short synthesis. | Small for collection; stronger reasoning for conflicting evidence or an important decision. | Read-only. Keep the work local and require source links. |
+| **Research a topic** | Give the agent the browser tool and ask for linked sources plus a short synthesis. | Small for collection; stronger reasoning for conflicting evidence or an important decision. | Keep the work local and require source links. The browser can interact with pages, so keep confirmations on and approve only read operations. |
 | **Create an artifact** | Name the output file and acceptance criteria: a report, image, script, or web page. | General-purpose; use a stronger model when structure or judgment matters. | Write only to a dedicated workspace. Review the artifact before sending or publishing it. |
 | **Change inspectable code** | Run gptme inside a version-controlled checkout; ask it to inspect, edit, test, and show the diff. | Strong coding/reasoning model. | Keep confirmations on. Review commands and the diff; isolate untrusted repositories. |
 
@@ -33,13 +33,16 @@ production behavior, it is no longer low-stakes: ask for evidence and verify it.
 ### Research
 
 ```bash
-gptme --tools "browser,rag,chats,hint:read-only" \
-  "Compare three maintained Python task queues. Cite primary sources, state the tradeoffs, and save nothing."
+gptme --tools "browser,rag,chats,read" \
+  "Compare three maintained Python task queues. Cite primary sources, state the tradeoffs, and save nothing. Use the browser only to read and search; do not interact with pages."
 ```
 
-Read-only tools make the intended boundary explicit. For an important choice,
-split collection from judgment: gather sources cheaply, then use a stronger
-model to challenge the synthesis and identify missing evidence.
+The browser tool also exposes page interactions such as clicks and form entry;
+its allowlist entry does not restrict it to reading. Keep interactive
+confirmations enabled, reject any interaction request, and use `hint:read-only`
+only for tools actually annotated as read-only. For an important choice, split
+collection from judgment: gather sources cheaply, then use a stronger model to
+challenge the synthesis and identify missing evidence.
 
 ### Artifact creation
 
@@ -109,5 +112,5 @@ Change one dimension at a time when the first attempt is insufficient:
 4. Move from local to remote (or the reverse) only when the task's data,
    duration, or verification needs justify the trust-boundary change.
 
-This keeps cheap questions cheap, research read-only, artifacts inspectable,
-and consequential actions under human control.
+This keeps cheap questions cheap, research bounded to approved read operations,
+artifacts inspectable, and consequential actions under human control.
