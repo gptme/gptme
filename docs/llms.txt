@@ -10,6 +10,7 @@
 - [Demos](https://gptme.org/docs/_sources/demos.rst)
 - [Automation](https://gptme.org/docs/_sources/automation.rst)
 - [Projects](https://gptme.org/docs/_sources/projects.rst)
+- [Cookbook](https://gptme.org/docs/_sources/cookbook.rst)
 - [How-To Guides](https://gptme.org/docs/_sources/howto/index.md)
 - [Choose a workflow for your task](https://gptme.org/docs/_sources/howto/choose-workflow.md)
 - [Run gptme with minimal context](https://gptme.org/docs/_sources/howto/minimal-context.md)

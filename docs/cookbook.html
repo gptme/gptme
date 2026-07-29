@@ -1,0 +1,988 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Cookbook &#8212; gptme</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/sphinx-book-theme.css?v=eba8b062" />
+    <link rel="stylesheet" type="text/css" href="_static/asciinema-player_3.12.1.css" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=3a28e17f" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script src="_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/asciinema-player_3.12.1.js"></script>
+    <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'cookbook';</script>
+    <link rel="canonical" href="https://gptme.org/docs/cookbook.html" />
+    <link rel="icon" href="_static/logo.png"/>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="How-To Guides" href="howto/index.html" />
+    <link rel="prev" title="Projects" href="projects.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
+    <script>document.write(`<img src="_static/logo.png" class="logo__image only-dark" alt="gptme - Home"/>`);</script>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+ <script>
+ document.write(`
+   <button class="btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="demos.html">Demos</a></li>
+<li class="toctree-l2"><a class="reference internal" href="automation.html">Automation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html">Projects</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Cookbook</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="howto/index.html">How-To Guides</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="howto/choose-workflow.html">Choose a workflow for your task</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/minimal-context.html">Run gptme with minimal context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/edit-files.html">How to Edit Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/code-review.html">How to Review Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/debug-python.html">How to Debug Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/automate-task.html">How to Automate Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/refactor.html">How to Refactor Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/computer-use.html">How to Automate GUIs with Computer Use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/tts-setup.html">Set Up Text-to-Speech</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="provider-integration.html">Provider Integration Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Extensibility</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="agents.html">Agents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="agent/verifier-profile.html">Verifier Profile</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
+<li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
+<li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pr-lifecycle.html">PR lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="design/hook-based-confirmations.html">Design: Hook-Based Tool Confirmations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design/elicitation.html">Design: Generalized Elicitation</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="misc/acronyms.html">What does “gptme” stand for?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.32.1.html">v0.32.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.32.0.html">v0.32.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.31.0.html">v0.31.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.30.0.html">v0.30.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.29.0.html">v0.29.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.3.html">v0.28.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.2.html">v0.28.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.1.html">v0.28.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.27.0.html">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.22.0.html">v0.22.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.21.0.html">v0.21.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.20.0.html">v0.20.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.19.0.html">v0.19.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.18.0.html">v0.18.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.17.0.html">v0.17.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.16.0.html">v0.16.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.15.0.html">v0.15.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.14.0.html">v0.14.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.13.0.html">v0.13.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.12.0.html">v0.12.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.11.0.html">v0.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.5.html">v0.10.5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.4.html">v0.10.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.3.html">v0.10.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.2.html">v0.10.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.1.html">v0.10.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.0.html">v0.10.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.4.html">v0.9.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.3.html">v0.9.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.2.html">v0.9.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.1.html">v0.9.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.0.html">v0.9.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.1.html">v0.8.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.0.html">v0.8.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.7.0.html">v0.7.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.1.html">v0.6.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.0.html">v0.6.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.5.0.html">v0.5.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.2.html">v0.4.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.1.html">v0.4.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.0.html">v0.4.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.3.html">v0.3.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.2.html">v0.3.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.1.html">v0.3.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.0.html">v0.3.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.2.html">v0.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.1.html">v0.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.1.1.html">v0.1.1</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">External</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference external" href="https://github.com/gptme/gptme">GitHub</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://x.com/gptmeorg">X</a></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/cookbook.rst" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="_sources/cookbook.rst" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.rst</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script>
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm pst-navbar-icon search-button search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+  </button>
+`);
+</script>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>Cookbook</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-use-basics">Tool Use Basics</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#parallel-research-pipeline">Parallel Research Pipeline</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-context-with-skills">Persistent Context with Skills</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#compose-skills-into-workflows">Compose Skills into Workflows</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-a-custom-tool-plugin">Write a Custom Tool Plugin</a></li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="cookbook">
+<h1>Cookbook<a class="headerlink" href="#cookbook" title="Link to this heading">#</a></h1>
+<p>A collection of patterns for common gptme workflows. Each pattern shows a
+concrete problem, the idiomatic solution, and a runnable example.</p>
+<nav class="contents local" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#tool-use-basics" id="id1">Tool Use Basics</a></p></li>
+<li><p><a class="reference internal" href="#parallel-research-pipeline" id="id2">Parallel Research Pipeline</a></p></li>
+<li><p><a class="reference internal" href="#persistent-context-with-skills" id="id3">Persistent Context with Skills</a></p></li>
+<li><p><a class="reference internal" href="#compose-skills-into-workflows" id="id4">Compose Skills into Workflows</a></p></li>
+<li><p><a class="reference internal" href="#write-a-custom-tool-plugin" id="id5">Write a Custom Tool Plugin</a></p></li>
+</ul>
+</nav>
+<section id="tool-use-basics">
+<h2><a class="toc-backref" href="#id1" role="doc-backlink">Tool Use Basics</a><a class="headerlink" href="#tool-use-basics" title="Link to this heading">#</a></h2>
+<p><strong>Difficulty</strong>: Beginner | <strong>Category</strong>: Tool Use</p>
+<p><strong>Problem</strong></p>
+<p>New gptme users often treat it as a chatbot. The real power is that gptme can
+<em>act</em> — read and write files, run commands, and inspect output — all in one
+conversational session without leaving the terminal.</p>
+<p><strong>Solution</strong></p>
+<p>gptme ships with built-in tools that are always available:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 80.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Tool</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">shell</span></code></p></td>
+<td><p>Run any shell command and capture stdout/stderr</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">save</span></code> / <code class="docutils literal notranslate"><span class="pre">patch</span></code></p></td>
+<td><p>Write or edit files</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ipython</span></code></p></td>
+<td><p>Execute Python code in a persistent interpreter</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">read</span></code></p></td>
+<td><p>Read file contents into context</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">browser</span></code></p></td>
+<td><p>Fetch a URL (if enabled)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The agent orchestrates these tools automatically based on your request. You
+don’t need to invoke them explicitly.</p>
+<p><strong>Example</strong></p>
+<p>Start a session and ask a compound question that requires multiple tools:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;Read README.md, list the project&#39;s dependencies from pyproject.toml, and tell me if any are pinned to an old major version&quot;</span>
+</pre></div>
+</div>
+<p>gptme will read both files, reason about version ranges, and reply with its
+findings.</p>
+<p>For interactive iteration, start a session and keep chatting:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w">  </span><span class="c1"># opens an interactive session</span>
+<span class="c1"># &gt; Read the failing tests and fix them</span>
+<span class="c1"># &gt; Now run the test suite and show me the output</span>
+<span class="c1"># &gt; Write a summary of what you changed to CHANGES.md</span>
+</pre></div>
+</div>
+<p><strong>Notes</strong></p>
+<ul class="simple">
+<li><p>Tools run in your local environment with your permissions. Keep sessions
+scoped to the project directory.</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">tools</span> <span class="pre">list</span></code> to see which tools are available and which are
+enabled by default.</p></li>
+<li><p>Add <code class="docutils literal notranslate"><span class="pre">--no-confirm</span></code> to skip per-tool confirmation prompts in trusted sessions.</p></li>
+</ul>
+</section>
+<hr class="docutils" />
+<section id="parallel-research-pipeline">
+<h2><a class="toc-backref" href="#id2" role="doc-backlink">Parallel Research Pipeline</a><a class="headerlink" href="#parallel-research-pipeline" title="Link to this heading">#</a></h2>
+<p><strong>Difficulty</strong>: Intermediate | <strong>Category</strong>: Multi-Agent</p>
+<p><strong>Problem</strong></p>
+<p>Deep research takes time when done sequentially. If you need to compare five
+frameworks or investigate three bug hypotheses, doing them one-by-one wastes
+wall-clock time and burns context on already-answered sub-questions.</p>
+<p><strong>Solution</strong></p>
+<p>gptme supports spawning subagents via the <code class="docutils literal notranslate"><span class="pre">subagent</span></code> tool. Each subagent gets
+a clean context and runs its task independently. The coordinator waits for all
+subagents to finish, then synthesizes the results.</p>
+<p>This pattern works well for:</p>
+<ul class="simple">
+<li><p>Comparing N alternatives simultaneously</p></li>
+<li><p>Running independent research branches</p></li>
+<li><p>Executing the same task against multiple inputs</p></li>
+</ul>
+<p><strong>Example</strong></p>
+<p>Create a coordinator prompt file and run it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cat<span class="w"> </span>&gt;<span class="w"> </span>research-prompt.md<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
+<span class="s">Research the following three Python HTTP client libraries in parallel:</span>
+<span class="s">1. httpx</span>
+<span class="s">2. aiohttp</span>
+<span class="s">3. requests</span>
+
+<span class="s">For each, find: latest version, async support, connection pooling behavior, and</span>
+<span class="s">known issues with timeouts. Then write a comparison table to comparison.md and</span>
+<span class="s">recommend one for a high-concurrency microservice.</span>
+<span class="s">EOF</span>
+
+gptme<span class="w"> </span>--tools<span class="w"> </span>+subagent<span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>cat<span class="w"> </span>research-prompt.md<span class="k">)</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+<p>Or invoke multi-agent mode directly in an interactive session:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme
+<span class="c1"># &gt; Spawn three subagents: one researches httpx, one aiohttp, one requests.</span>
+<span class="c1"># &gt; Each should write its findings to a temp file named after the library.</span>
+<span class="c1"># &gt; When all are done, synthesize the findings into comparison.md.</span>
+</pre></div>
+</div>
+<p>The coordinator agent will spawn three subagents with separate contexts, each
+researching one library. Results are written to shared files; the coordinator
+reads them and writes the synthesis.</p>
+<p><strong>Notes</strong></p>
+<ul class="simple">
+<li><p>Subagents share your filesystem but not context. Use files as the
+communication channel between coordinator and workers.</p></li>
+<li><p>For independent tasks, the total wall-clock time is roughly
+<code class="docutils literal notranslate"><span class="pre">max(subtask</span> <span class="pre">times)</span></code> rather than <code class="docutils literal notranslate"><span class="pre">sum(subtask</span> <span class="pre">times)</span></code>.</p></li>
+<li><p>Keep each subagent’s prompt self-contained — it won’t see the coordinator’s
+conversation history.</p></li>
+</ul>
+</section>
+<hr class="docutils" />
+<section id="persistent-context-with-skills">
+<h2><a class="toc-backref" href="#id3" role="doc-backlink">Persistent Context with Skills</a><a class="headerlink" href="#persistent-context-with-skills" title="Link to this heading">#</a></h2>
+<p><strong>Difficulty</strong>: Intermediate | <strong>Category</strong>: Context Management</p>
+<p><strong>Problem</strong></p>
+<p>Every new gptme session starts blank. If your project has conventions (a
+specific naming scheme, a non-obvious architecture decision, a required workflow
+before running tests), you end up pasting the same explanation repeatedly or
+getting wrong first drafts because the agent lacked context.</p>
+<p><strong>Solution</strong></p>
+<p>A <em>skill</em> is a plain markdown document (<code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code>) that gptme injects into
+the session context automatically when its name is requested. Skills are placed
+in named subdirectories under <code class="docutils literal notranslate"><span class="pre">skills/</span></code> (or <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/skills/</span></code> for
+user-global skills).</p>
+<p>This means you write the explanation <strong>once</strong>, commit it, and gptme makes it
+available on demand — no copy-pasting, no per-session setup.</p>
+<p><strong>Example</strong></p>
+<p>Create a skill for your project’s database migration convention:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mkdir<span class="w"> </span>-p<span class="w"> </span>skills/db-migration
+cat<span class="w"> </span>&gt;<span class="w"> </span>skills/db-migration/SKILL.md<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
+<span class="s">---</span>
+<span class="s">name: db-migration</span>
+<span class="s">description: Django migration conventions and pre-migration checklist</span>
+<span class="s">---</span>
+
+<span class="s"># Migration Workflow</span>
+
+<span class="s">## Before creating a migration</span>
+
+<span class="s">1. Run `make lint` — schema changes that fail lint cause corrupt migrations.</span>
+<span class="s">2. Squash pending migrations if there are more than 10.</span>
+<span class="s">3. Never create a migration on an unmerged feature branch.</span>
+
+<span class="s">## Creating a migration</span>
+
+<span class="s">```bash</span>
+<span class="s">python manage.py makemigrations --name describe_the_change</span>
+<span class="s">```</span>
+
+<span class="s">## Reverting a migration</span>
+
+<span class="s">```bash</span>
+<span class="s">python manage.py migrate myapp 0042  # the migration before yours</span>
+<span class="s">```</span>
+<span class="s">EOF</span>
+</pre></div>
+</div>
+<p>gptme automatically discovers skills in the <code class="docutils literal notranslate"><span class="pre">skills/</span></code> directory at your
+project root (no configuration needed). Alternatively, place skills in
+<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/skills/</span></code> for user-global availability across all projects.</p>
+<p>Skills are loaded by name — request one explicitly in a session:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;Using the db-migration skill, help me add a nullable email field to the User model&quot;</span>
+</pre></div>
+</div>
+<p><strong>Notes</strong></p>
+<ul class="simple">
+<li><p>Skills are plain markdown files — commit them to your project repo so all
+contributors benefit from them.</p></li>
+<li><p>Skills work across runtimes (gptme terminal, Claude Code with the hook
+adapter). Write them once, use them everywhere.</p></li>
+<li><p>See <a class="reference internal" href="skills.html"><span class="doc">Skills</span></a> for the full skills reference.</p></li>
+</ul>
+</section>
+<hr class="docutils" />
+<section id="compose-skills-into-workflows">
+<h2><a class="toc-backref" href="#id4" role="doc-backlink">Compose Skills into Workflows</a><a class="headerlink" href="#compose-skills-into-workflows" title="Link to this heading">#</a></h2>
+<p><strong>Difficulty</strong>: Advanced | <strong>Category</strong>: Skill Composition</p>
+<p><strong>Problem</strong></p>
+<p>Real-world workflows are multi-step: run tests, update a changelog, bump a
+version, create a tag, post a release. Writing a single monolithic prompt for
+this is brittle — it’s hard to update one step without breaking others, and you
+can’t reuse the individual steps elsewhere.</p>
+<p><strong>Solution</strong></p>
+<p>gptme skills compose explicitly. A workflow skill is a sequenced list of steps,
+while focused sub-skills hold the detailed conventions for each step. Name the
+workflow and every sub-skill you want loaded in the prompt; mentioning the
+workflow alone does not recursively load skills that it references.</p>
+<p>This gives you a library of reusable primitives that snap together into larger
+workflows without duplicating their detailed instructions.</p>
+<p><strong>Example</strong></p>
+<p>Three focused sub-skills, each in its own <code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skills/release-check-tests/SKILL.md</span>
+---
+name:<span class="w"> </span>release-check-tests
+description:<span class="w"> </span>Verify<span class="w"> </span>the<span class="w"> </span><span class="nb">test</span><span class="w"> </span>suite<span class="w"> </span>passes<span class="w"> </span>before<span class="w"> </span>any<span class="w"> </span>release<span class="w"> </span>action
+---
+<span class="c1"># Check Tests Before Release</span>
+
+Always<span class="w"> </span>run<span class="w"> </span>the<span class="w"> </span>full<span class="w"> </span><span class="nb">test</span><span class="w"> </span>suite<span class="w"> </span>before<span class="w"> </span>any<span class="w"> </span>release<span class="w"> </span>action:
+
+<span class="w">    </span>make<span class="w"> </span><span class="nb">test</span>
+
+If<span class="w"> </span>any<span class="w"> </span><span class="nb">test</span><span class="w"> </span>fails,<span class="w"> </span>STOP<span class="w"> </span>and<span class="w"> </span>fix<span class="w"> </span>it<span class="w"> </span>before<span class="w"> </span>proceeding.
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skills/release-update-changelog/SKILL.md</span>
+---
+name:<span class="w"> </span>release-update-changelog
+description:<span class="w"> </span>Changelog<span class="w"> </span>update<span class="w"> </span>convention<span class="w"> </span><span class="k">for</span><span class="w"> </span>releases
+---
+<span class="c1"># Changelog Update Convention</span>
+
+Format:<span class="w"> </span><span class="sb">`</span><span class="c1">## [X.Y.Z] - YYYY-MM-DD` with sections Added / Changed / Fixed / Removed.</span>
+Always<span class="w"> </span>add<span class="w"> </span>the<span class="w"> </span>new<span class="w"> </span>version<span class="w"> </span>block<span class="w"> </span>at<span class="w"> </span>the<span class="w"> </span>TOP<span class="w"> </span>of<span class="w"> </span>CHANGELOG.md,<span class="w"> </span>above<span class="w"> </span>previous<span class="w"> </span>versions.
+Never<span class="w"> </span>delete<span class="w"> </span>old<span class="w"> </span>entries.
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skills/release-tag-and-push/SKILL.md</span>
+---
+name:<span class="w"> </span>release-tag-and-push
+description:<span class="w"> </span>Git<span class="w"> </span>tagging<span class="w"> </span>and<span class="w"> </span>push<span class="w"> </span>convention<span class="w"> </span><span class="k">for</span><span class="w"> </span>releases
+---
+<span class="c1"># Tag and Push Convention</span>
+
+Create<span class="w"> </span>an<span class="w"> </span>annotated<span class="w"> </span>tag:
+
+<span class="w">    </span>git<span class="w"> </span>tag<span class="w"> </span>-a<span class="w"> </span>v<span class="nv">$VERSION</span><span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Release v</span><span class="nv">$VERSION</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>master<span class="w"> </span>--tags
+
+Do<span class="w"> </span>not<span class="w"> </span>push<span class="w"> </span>without<span class="w"> </span>a<span class="w"> </span>passing<span class="w"> </span>CI<span class="w"> </span>run<span class="w"> </span>on<span class="w"> </span>master.
+</pre></div>
+</div>
+<p>A workflow skill that chains all three into a single step:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skills/release-workflow/SKILL.md</span>
+---
+name:<span class="w"> </span>release-workflow
+description:<span class="w"> </span>Full<span class="w"> </span>release<span class="w"> </span>pipeline<span class="w"> </span>—<span class="w"> </span>test,<span class="w"> </span>changelog,<span class="w"> </span>tag,<span class="w"> </span>push
+---
+<span class="c1"># Release Workflow</span>
+
+Steps<span class="w"> </span><span class="k">in</span><span class="w"> </span>order:
+<span class="m">1</span>.<span class="w"> </span>Run<span class="w"> </span><span class="sb">`</span>make<span class="w"> </span><span class="nb">test</span><span class="sb">`</span><span class="w"> </span><span class="o">(</span>stop<span class="w"> </span>on<span class="w"> </span>failure<span class="o">)</span>
+<span class="m">2</span>.<span class="w"> </span>Update<span class="w"> </span>CHANGELOG.md<span class="w"> </span>with<span class="w"> </span>the<span class="w"> </span>new<span class="w"> </span>version
+<span class="m">3</span>.<span class="w"> </span>Commit<span class="w"> </span>the<span class="w"> </span>changelog:<span class="w"> </span><span class="sb">`</span>git<span class="w"> </span>commit<span class="w"> </span>CHANGELOG.md<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;chore: update changelog for vX.Y.Z&quot;</span><span class="sb">`</span>
+<span class="m">4</span>.<span class="w"> </span>Create<span class="w"> </span>the<span class="w"> </span>annotated<span class="w"> </span>tag<span class="w"> </span>and<span class="w"> </span>push:<span class="w"> </span><span class="sb">`</span>git<span class="w"> </span>tag<span class="w"> </span>-a<span class="w"> </span>v<span class="nv">$VERSION</span><span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Release v</span><span class="nv">$VERSION</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>master<span class="w"> </span>--tags<span class="sb">`</span>
+</pre></div>
+</div>
+<p>Trigger the full workflow and load its three focused conventions with one
+prompt:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;Using the release-workflow, release-check-tests, release-update-changelog, and release-tag-and-push skills, do a release for v1.4.2&quot;</span>
+</pre></div>
+</div>
+<p><strong>Notes</strong></p>
+<ul class="simple">
+<li><p>Keep sub-skills under ~50 lines each. Long skills dilute focus; split them.</p></li>
+<li><p>Skills are versioned in git — use <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">log</span> <span class="pre">skills/</span></code> to audit how your
+workflows have evolved over time.</p></li>
+<li><p>See <a class="reference internal" href="skills.html"><span class="doc">Skills</span></a> for the full skill format reference.</p></li>
+</ul>
+</section>
+<hr class="docutils" />
+<section id="write-a-custom-tool-plugin">
+<h2><a class="toc-backref" href="#id5" role="doc-backlink">Write a Custom Tool Plugin</a><a class="headerlink" href="#write-a-custom-tool-plugin" title="Link to this heading">#</a></h2>
+<p><strong>Difficulty</strong>: Advanced | <strong>Category</strong>: Custom Tools</p>
+<p><strong>Problem</strong></p>
+<p>gptme’s built-in tools cover general-purpose tasks, but domain-specific
+operations — querying a proprietary API, reading a custom binary format, calling
+an internal service — require a custom tool. Without one, you’re pasting raw
+output into the prompt by hand, which is slow and error-prone.</p>
+<p><strong>Solution</strong></p>
+<p>gptme has a plugin API. A plugin is a Python package that exposes a
+<code class="docutils literal notranslate"><span class="pre">GptmePlugin</span></code> instance via the <code class="docutils literal notranslate"><span class="pre">gptme.plugins</span></code> entry-point group. Each tool
+in the plugin is a <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> with a name, description (shown to the LLM), and
+a <code class="docutils literal notranslate"><span class="pre">functions</span></code> list of Python callables the LLM can invoke directly. Write typed
+functions with docstrings and gptme surfaces them as structured tool calls.</p>
+<p><strong>Example</strong></p>
+<p>A plugin that lets gptme query a local SQLite database:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_gptme_plugin/__init__.py</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.plugins.plugin</span><span class="w"> </span><span class="kn">import</span> <span class="n">GptmePlugin</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">query_db</span><span class="p">(</span><span class="n">db_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sql</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Execute a read-only SQL query against a local SQLite database.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        db_path: Path to the SQLite database file.</span>
+<span class="sd">        sql: SELECT statement to run.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Query results as a Markdown table, or &quot;(no results)&quot; when no rows match.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">con</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;file:</span><span class="si">{</span><span class="n">db_path</span><span class="si">}</span><span class="s2">?mode=ro&quot;</span><span class="p">,</span> <span class="n">uri</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">cur</span> <span class="o">=</span> <span class="n">con</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">sql</span><span class="p">)</span>
+    <span class="n">rows</span> <span class="o">=</span> <span class="n">cur</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+    <span class="n">cols</span> <span class="o">=</span> <span class="p">[</span><span class="n">d</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">cur</span><span class="o">.</span><span class="n">description</span><span class="p">]</span> <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">description</span> <span class="k">else</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">cols</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;(no results)&quot;</span>
+    <span class="n">header</span> <span class="o">=</span> <span class="s2">&quot; | &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cols</span><span class="p">)</span>
+    <span class="n">sep</span> <span class="o">=</span> <span class="s2">&quot; | &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s2">&quot;---&quot;</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">cols</span><span class="p">)</span>
+    <span class="n">body</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s2">&quot; | &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">row</span><span class="p">)</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">)</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">header</span><span class="si">}</span><span class="se">\n</span><span class="si">{</span><span class="n">sep</span><span class="si">}</span><span class="se">\n</span><span class="si">{</span><span class="n">body</span><span class="si">}</span><span class="s2">&quot;</span>
+
+
+<span class="n">plugin</span> <span class="o">=</span> <span class="n">GptmePlugin</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;sqlite&quot;</span><span class="p">,</span>
+    <span class="n">tools</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">ToolSpec</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;query_db&quot;</span><span class="p">,</span>
+            <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Run a read-only SQL query against a local SQLite database and return results as a Markdown table.&quot;</span><span class="p">,</span>
+            <span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">query_db</span><span class="p">],</span>
+        <span class="p">)</span>
+    <span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># pyproject.toml (in the plugin package)</span>
+<span class="k">[project]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my-gptme-plugin&quot;</span>
+<span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.1.0&quot;</span>
+
+<span class="k">[project.entry-points.</span><span class="s2">&quot;gptme.plugins&quot;</span><span class="k">]</span>
+<span class="n">sqlite</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_gptme_plugin:plugin&quot;</span>
+</pre></div>
+</div>
+<p>Install and use:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>./my_gptme_plugin
+
+<span class="c1"># Verify it loaded</span>
+gptme<span class="w"> </span>tools<span class="w"> </span>list
+
+<span class="c1"># Use it in a session</span>
+gptme<span class="w"> </span><span class="s2">&quot;Query the users table in /var/app/prod.db and find accounts created in the last 7 days&quot;</span>
+</pre></div>
+</div>
+<p>gptme will call <code class="docutils literal notranslate"><span class="pre">query_db</span></code> with the right arguments and show you the results
+inline, without you needing to copy-paste any SQL output.</p>
+<p><strong>Notes</strong></p>
+<ul class="simple">
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">mode=ro</span></code> in the SQLite URI (as shown) to prevent accidental writes from
+a buggy SQL statement the LLM generates.</p></li>
+<li><p>Keep tool descriptions concise but precise — the LLM reads the <code class="docutils literal notranslate"><span class="pre">desc</span></code> field
+to decide when and how to call the tool.</p></li>
+<li><p>gptme derives the tool’s parameter schema from the function’s type annotations
+and docstring <code class="docutils literal notranslate"><span class="pre">Args:</span></code> section; keep both accurate.</p></li>
+<li><p>See <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a> for the full <code class="docutils literal notranslate"><span class="pre">GptmePlugin</span></code> and <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> API reference.</p></li>
+</ul>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="projects.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Projects</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="howto/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">How-To Guides</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-use-basics">Tool Use Basics</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#parallel-research-pipeline">Parallel Research Pipeline</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-context-with-skills">Persistent Context with Skills</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#compose-skills-into-workflows">Compose Skills into Workflows</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-a-custom-tool-plugin">Write a Custom Tool Plugin</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Erik Bjäreholt
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2026, Erik Bjäreholt.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>
