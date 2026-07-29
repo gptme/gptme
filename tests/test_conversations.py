@@ -368,3 +368,89 @@ def test_list_conversations_limit_bounds(logs_dir, limit, expected):
     # Previously list_conversations(-5) raised ValueError from islice().
     convs = list_conversations(limit)
     assert len(convs) == expected
+
+
+def test_conversation_meta_models_usage_interleaved(logs_dir):
+    """ConversationMeta should accurately accumulate per-model usage across interleaved messages."""
+    _make_conversation(
+        logs_dir,
+        "interleaved-models",
+        [
+            {"role": "user", "content": "Q1"},
+            {
+                "role": "assistant",
+                "content": "A1",
+                "metadata": {
+                    "model": "openai/gpt-4o",
+                    "cost": 0.04,
+                    "usage": {
+                        "input_tokens": 300,
+                        "output_tokens": 100,
+                        "cache_read_tokens": 100,
+                    },
+                },
+            },
+            {"role": "user", "content": "Q2"},
+            {
+                "role": "assistant",
+                "content": "A2",
+                "metadata": {
+                    "model": "anthropic/claude-3-5-sonnet",
+                    "cost": 0.10,
+                    "usage": {
+                        "input_tokens": 1000,
+                        "output_tokens": 200,
+                        "cache_read_tokens": 0,
+                    },
+                },
+            },
+            {"role": "user", "content": "Q3"},
+            {
+                "role": "assistant",
+                "content": "A3",
+                "metadata": {
+                    "model": "openai/gpt-4o",
+                    "cost": 0.06,
+                    "usage": {
+                        "input_tokens": 400,
+                        "output_tokens": 150,
+                        "cache_read_tokens": 200,
+                    },
+                },
+            },
+            {"role": "user", "content": "Q4"},
+            {
+                "role": "assistant",
+                "content": "A4",
+                "metadata": {
+                    "model": "anthropic/claude-3-5-sonnet",
+                    "cost": 0.05,
+                    "usage": {
+                        "input_tokens": 450,
+                        "output_tokens": 100,
+                        "cache_read_tokens": 50,
+                    },
+                },
+            },
+        ],
+    )
+
+    convs = list(get_conversations())
+    assert len(convs) == 1
+    meta = convs[0]
+
+    assert "openai/gpt-4o" in meta.models_usage
+    assert "anthropic/claude-3-5-sonnet" in meta.models_usage
+
+    gpt4o = meta.models_usage["openai/gpt-4o"]
+    assert abs(gpt4o["cost"] - 0.10) < 1e-6
+    assert gpt4o["input_tokens"] == 1000  # (300 + 100) + (400 + 200)
+    assert gpt4o["output_tokens"] == 250  # 100 + 150
+    assert gpt4o["cache_read_tokens"] == 300  # 100 + 200
+
+    claude = meta.models_usage["anthropic/claude-3-5-sonnet"]
+    assert abs(claude["cost"] - 0.15) < 1e-6
+    assert claude["input_tokens"] == 1500  # (1000 + 0) + (450 + 50)
+    assert claude["output_tokens"] == 300  # 200 + 100
+    assert claude["cache_read_tokens"] == 50  # 0 + 50
+

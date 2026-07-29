@@ -108,16 +108,27 @@ def gather_global_stats(
         summary.total_output_tokens += conv.total_output_tokens
         summary.total_cache_read_tokens += conv.total_cache_read_tokens
 
-        model_name = conv.model or "unknown"
-        if model_name not in model_map:
-            model_map[model_name] = ModelStats(model=model_name)
+        if conv.models_usage:
+            for m_name, mu in conv.models_usage.items():
+                if m_name not in model_map:
+                    model_map[m_name] = ModelStats(model=m_name)
+                ms = model_map[m_name]
+                ms.sessions += 1
+                ms.cost += mu.get("cost", 0.0)
+                ms.input_tokens += mu.get("input_tokens", 0)
+                ms.output_tokens += mu.get("output_tokens", 0)
+                ms.cache_read_tokens += mu.get("cache_read_tokens", 0)
+        else:
+            model_name = conv.model or "unknown"
+            if model_name not in model_map:
+                model_map[model_name] = ModelStats(model=model_name)
 
-        ms = model_map[model_name]
-        ms.sessions += 1
-        ms.cost += conv.total_cost
-        ms.input_tokens += conv.total_input_tokens
-        ms.output_tokens += conv.total_output_tokens
-        ms.cache_read_tokens += conv.total_cache_read_tokens
+            ms = model_map[model_name]
+            ms.sessions += 1
+            ms.cost += conv.total_cost
+            ms.input_tokens += conv.total_input_tokens
+            ms.output_tokens += conv.total_output_tokens
+            ms.cache_read_tokens += conv.total_cache_read_tokens
 
     # Sort models by cost descending, then total tokens descending
     summary.by_model = sorted(
@@ -189,7 +200,7 @@ def display_stats(summary: StatsSummary, console: Console | None = None) -> None
         title="Breakdown by Model", title_style="bold yellow", show_lines=True
     )
     table.add_column("Model", style="cyan")
-    table.add_column("Sessions", justify="right", style="green")
+    table.add_column("Chats", justify="right", style="green")
     table.add_column("Tokens", justify="right", style="white")
     table.add_column("Cost (USD)", justify="right", style="bold magenta")
 

@@ -11,10 +11,11 @@ import re
 import shutil
 import sys
 from collections.abc import Generator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
+from typing import Any
 
 import tomlkit
 
@@ -85,6 +86,7 @@ class ConversationMeta:
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_cache_read_tokens: int = 0
+    models_usage: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_message_role: str | None = None
     last_message_preview: str | None = None
 
@@ -237,14 +239,23 @@ def _fast_scan_tail(
 
 def _full_scan(
     conv_fn: Path,
-) -> tuple[int, str | None, float, int, int, int, bytes | None]:
+) -> tuple[
+    int,
+    str | None,
+    float,
+    int,
+    int,
+    int,
+    dict[str, dict[str, Any]],
+    bytes | None,
+]:
     """Full JSONL scan: counts messages and accumulates cost/token metadata.
 
     Both scan modes return the most recently used model (last model wins),
     which is more useful for display than the first model used.
 
     Returns (len_msgs, model, cost, input_tokens, output_tokens,
-             cache_read_tokens, last_user_or_assistant_line).
+             cache_read_tokens, models_usage, last_user_or_assistant_line).
     """
     len_msgs = 0
     conv_model: str | None = None
@@ -252,6 +263,7 @@ def _full_scan(
     conv_input_tokens = 0
     conv_output_tokens = 0
     conv_cache_read_tokens = 0
+    models_usage: dict[str, dict[str, Any]] = {}
     last_msg_line: bytes | None = None
     with open(conv_fn, "rb") as f:
         for line in f:
@@ -266,19 +278,38 @@ def _full_scan(
                     msg = json.loads(line)
                     meta = msg.get("metadata")
                     if meta:
-                        if meta.get("model"):
-                            conv_model = meta["model"]
-                        conv_cost += meta.get("cost", 0) or 0
+                        msg_model = meta.get("model")
+                        if msg_model:
+                            conv_model = msg_model
+                        cost = meta.get("cost", 0) or 0
+                        conv_cost += cost
                         usage = meta.get("usage", {})
                         src = usage or meta
                         cache_read = src.get("cache_read_tokens", 0) or 0
-                        conv_input_tokens += (
+                        in_tok = (
                             (src.get("input_tokens", 0) or 0)
                             + cache_read
                             + (src.get("cache_creation_tokens", 0) or 0)
                         )
-                        conv_output_tokens += src.get("output_tokens", 0) or 0
+                        out_tok = src.get("output_tokens", 0) or 0
+                        conv_input_tokens += in_tok
+                        conv_output_tokens += out_tok
                         conv_cache_read_tokens += cache_read
+
+                        # Accumulate per-model nested usage dictionary
+                        target_model = msg_model or conv_model or "unknown"
+                        if target_model not in models_usage:
+                            models_usage[target_model] = {
+                                "cost": 0.0,
+                                "input_tokens": 0,
+                                "output_tokens": 0,
+                                "cache_read_tokens": 0,
+                            }
+                        mu = models_usage[target_model]
+                        mu["cost"] += cost
+                        mu["input_tokens"] += in_tok
+                        mu["output_tokens"] += out_tok
+                        mu["cache_read_tokens"] += cache_read
                 except (json.JSONDecodeError, TypeError):
                     pass
     return (
@@ -288,6 +319,7 @@ def _full_scan(
         conv_input_tokens,
         conv_output_tokens,
         conv_cache_read_tokens,
+        models_usage,
         last_msg_line,
     )
 
@@ -313,6 +345,7 @@ def _meta_from_file(conv_fn: Path, *, detail: bool = True) -> ConversationMeta:
             conv_input_tokens,
             conv_output_tokens,
             conv_cache_read_tokens,
+            models_usage,
             last_msg_line,
         ) = _full_scan(conv_fn)
     else:
@@ -322,6 +355,7 @@ def _meta_from_file(conv_fn: Path, *, detail: bool = True) -> ConversationMeta:
         conv_input_tokens = 0
         conv_output_tokens = 0
         conv_cache_read_tokens = 0
+        models_usage = {}
 
     last_msg_role, last_msg_preview = (
         _parse_preview(last_msg_line) if last_msg_line else (None, None)
@@ -376,6 +410,7 @@ def _meta_from_file(conv_fn: Path, *, detail: bool = True) -> ConversationMeta:
         total_input_tokens=conv_input_tokens,
         total_output_tokens=conv_output_tokens,
         total_cache_read_tokens=conv_cache_read_tokens,
+        models_usage=models_usage,
         last_message_role=last_msg_role,
         last_message_preview=last_msg_preview,
     )

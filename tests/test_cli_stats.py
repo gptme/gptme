@@ -225,3 +225,58 @@ def test_display_stats_empty(capsys: Any) -> None:
     assert "No conversation logs found" in captured.out
 
 
+def test_gather_global_stats_mixed_model_session(tmp_path: Path, monkeypatch: Any) -> None:
+    """Test exact per-message model attribution for cost and tokens in multi-model sessions."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    log_dir = tmp_path / "mixed-model-session"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    conv_file = log_dir / "conversation.jsonl"
+
+    messages = [
+        {"role": "user", "content": "Question 1"},
+        {
+            "role": "assistant",
+            "content": "Answer 1",
+            "metadata": {
+                "model": "openai/gpt-4o",
+                "cost": 0.04,
+                "usage": {"input_tokens": 400, "output_tokens": 100},
+            },
+        },
+        {"role": "user", "content": "Question 2"},
+        {
+            "role": "assistant",
+            "content": "Answer 2",
+            "metadata": {
+                "model": "anthropic/claude-3-5-sonnet",
+                "cost": 0.10,
+                "usage": {"input_tokens": 1000, "output_tokens": 200},
+            },
+        },
+    ]
+
+    with open(conv_file, "w", encoding="utf-8") as f:
+        f.writelines(json.dumps(msg) + "\n" for msg in messages)
+
+    summary = gather_global_stats()
+    assert summary.total_sessions == 1
+    assert abs(summary.total_cost - 0.14) < 1e-6
+
+    by_model_map = {m.model: m for m in summary.by_model}
+    assert "openai/gpt-4o" in by_model_map
+    assert "anthropic/claude-3-5-sonnet" in by_model_map
+
+    gpt4o = by_model_map["openai/gpt-4o"]
+    claude = by_model_map["anthropic/claude-3-5-sonnet"]
+
+    assert abs(gpt4o.cost - 0.04) < 1e-6
+    assert gpt4o.input_tokens == 400
+    assert gpt4o.output_tokens == 100
+
+    assert abs(claude.cost - 0.10) < 1e-6
+    assert claude.input_tokens == 1000
+    assert claude.output_tokens == 200
+
+
+
