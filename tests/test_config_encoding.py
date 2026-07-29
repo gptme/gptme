@@ -52,6 +52,20 @@ def legacy_default_encoding(codec: str = LEGACY_CODEC):
         yield
 
 
+@contextmanager
+def legacy_locale_codec(codec: str):
+    """Make the read-side fallback behave as it does under a legacy locale.
+
+    `_read_config_text` reads bytes and asks `locale.getpreferredencoding` what to
+    fall back to, so — unlike the writers — it is not reached by the `open()` shim
+    above. It must be patched at that call instead, or the upgrade-path tests only
+    exercise the fallback on a machine whose locale happens to be a legacy code
+    page, and assert the *opposite* behaviour (a re-raise) on a UTF-8 one.
+    """
+    with patch.object(user_mod.locale, "getpreferredencoding", lambda *args: codec):
+        yield
+
+
 def test_load_user_config_reads_non_ascii_about(tmp_path: Path):
     """A `[user] about` in the user's own language must load, not raise.
 
@@ -185,7 +199,7 @@ def test_legacy_encoded_user_config_is_still_readable(tmp_path: Path):
     config_file = tmp_path / "config.toml"
     config_file.write_bytes(b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n')
 
-    with legacy_default_encoding("cp936"):
+    with legacy_locale_codec("cp936"):
         config = user_mod.load_user_config(str(config_file))
 
     assert config.user.about == "我是一名开发者"
@@ -204,7 +218,7 @@ def test_legacy_encoded_chat_config_is_still_readable(tmp_path: Path):
         b'[chat]\nname = "' + LEGACY_BYTES_ABOUT + b'"\nmodel = "test-model"\n'
     )
 
-    with legacy_default_encoding("cp936"):
+    with legacy_locale_codec("cp936"):
         config = ChatConfig.from_logdir(logdir)
 
     assert config.name == "我是一名开发者"
@@ -217,7 +231,8 @@ def test_legacy_encoded_config_is_rewritten_as_utf8(tmp_path: Path, monkeypatch)
     config_file.write_bytes(b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n')
     monkeypatch.setattr(user_mod, "config_path", str(config_file))
 
-    with legacy_default_encoding("cp936"):
+    # Both shims: the read goes through the locale fallback, the write through `open()`.
+    with legacy_locale_codec("cp936"), legacy_default_encoding("cp936"):
         user_mod.set_config_value("user.name", "Alice", reload=False)
 
     doc = tomlkit.loads(config_file.read_bytes().decode("utf-8")).unwrap()
@@ -237,5 +252,26 @@ def test_undecodable_config_fails_at_the_parser_not_the_decoder(tmp_path: Path):
     config_file = tmp_path / "config.toml"
     config_file.write_bytes(b'[user]\nabout = "\xff\xfe\x00garbage"\n')
 
-    with legacy_default_encoding("cp936"), pytest.raises(TOMLKitError):
+    with legacy_locale_codec("cp936"), pytest.raises(TOMLKitError):
         user_mod.load_user_config(str(config_file))
+
+
+@pytest.mark.parametrize("locale_codec", ["UTF-8", "utf8", "cp936"])
+def test_read_config_text_never_raises_unicode_decode_error(
+    tmp_path: Path, locale_codec: str
+):
+    """The read helper must not leak `UnicodeDecodeError` for any locale.
+
+    On a UTF-8 locale there is no second codec to try, and re-raising sent a
+    `UnicodeDecodeError` up to callers — the very failure the fallback exists to
+    prevent, just narrowed to the platforms where the fallback cannot help. Callers
+    handle TOML parse errors, not decode errors, so `errors="replace"` is the right
+    outcome in both cases. The aliases cover `codecs.lookup` normalisation.
+    """
+    config_file = tmp_path / "config.toml"
+    config_file.write_bytes(b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n')
+
+    with legacy_locale_codec(locale_codec):
+        text = user_mod._read_config_text(config_file)
+
+    assert isinstance(text, str)

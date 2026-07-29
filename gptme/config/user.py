@@ -48,6 +48,10 @@ def _read_config_text(path: str | Path) -> str:
     page on Windows. Falling back to that codec keeps such a config readable
     instead of making gptme fail to start; the next write re-encodes it as UTF-8,
     since the writers are now explicit.
+
+    Never raises `UnicodeDecodeError`: callers wrap this in a TOML parse and handle
+    parse errors (`ChatConfig.from_logdir` degrades to defaults), so a corrupt file
+    is decoded with `errors="replace"` and left for the parser to reject.
     """
     data = Path(path).read_bytes()
     try:
@@ -55,8 +59,12 @@ def _read_config_text(path: str | Path) -> str:
     except UnicodeDecodeError:
         fallback = locale.getpreferredencoding(False)
         if codecs.lookup(fallback).name == "utf-8":
-            # Nothing else to try: the locale codec is the one that just failed.
-            raise
+            # No second codec to try: the locale's is the one that just failed.
+            logger.warning(
+                f"Config file {path} is not valid UTF-8; reading it with "
+                "replacement characters. Some values may be garbled."
+            )
+            return data.decode("utf-8", errors="replace")
         logger.warning(
             f"Config file {path} is not valid UTF-8; reading it as {fallback} "
             "(written by an older gptme). It will be rewritten as UTF-8 on the "
