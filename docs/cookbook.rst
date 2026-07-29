@@ -68,7 +68,8 @@ For interactive iteration, start a session and keep chatting:
 - Tools run in your local environment with your permissions. Keep sessions
   scoped to the project directory.
 
-- Use ``gptme --tools`` to see which tools are enabled in the current session.
+- Use ``gptme tools list`` to see which tools are available and which are
+  enabled by default.
 
 - Add ``--no-confirm`` to skip per-tool confirmation prompts in trusted sessions.
 
@@ -114,7 +115,7 @@ Create a coordinator prompt file and run it:
     recommend one for a high-concurrency microservice.
     EOF
 
-    gptme --tools subagent "$(cat research-prompt.md)"
+    gptme --tools +subagent "$(cat research-prompt.md)"
 
 Or invoke multi-agent mode directly in an interactive session:
 
@@ -234,13 +235,13 @@ can't reuse the individual steps elsewhere.
 
 **Solution**
 
-gptme skills compose. A workflow skill is a sequenced list of steps that
-references focused sub-skills; each sub-skill stays small and single-purpose.
-By sharing keyword overlap across multiple skills, gptme can inject several
-skills simultaneously when a high-level workflow keyword fires.
+gptme skills compose explicitly. A workflow skill is a sequenced list of steps,
+while focused sub-skills hold the detailed conventions for each step. Name the
+workflow and every sub-skill you want loaded in the prompt; mentioning the
+workflow alone does not recursively load skills that it references.
 
 This gives you a library of reusable primitives that snap together into larger
-automated workflows.
+workflows without duplicating their detailed instructions.
 
 **Example**
 
@@ -306,11 +307,12 @@ A workflow skill that chains all three into a single step:
     3. Commit the changelog: `git commit CHANGELOG.md -m "chore: update changelog for vX.Y.Z"`
     4. Create the annotated tag and push: `git tag -a v$VERSION -m "Release v$VERSION" && git push origin master --tags`
 
-Trigger the full workflow with one prompt:
+Trigger the full workflow and load its three focused conventions with one
+prompt:
 
 .. code-block:: bash
 
-    gptme "Using the release-workflow skill, do a release for v1.4.2"
+    gptme "Using the release-workflow, release-check-tests, release-update-changelog, and release-tag-and-push skills, do a release for v1.4.2"
 
 **Notes**
 
@@ -405,7 +407,7 @@ Install and use:
     pip install -e ./my_gptme_plugin
 
     # Verify it loaded
-    gptme --tools
+    gptme tools list
 
     # Use it in a session
     gptme "Query the users table in /var/app/prod.db and find accounts created in the last 7 days"
