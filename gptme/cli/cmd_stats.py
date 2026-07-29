@@ -27,8 +27,8 @@ class ModelStats:
 
     @property
     def total_tokens(self) -> int:
-        """Total tokens across input, output, and cache read."""
-        return self.input_tokens + self.output_tokens + self.cache_read_tokens
+        """Total tokens across input and output."""
+        return self.input_tokens + self.output_tokens
 
     def to_dict(self) -> dict[str, Any]:
         """Convert ModelStats to a dictionary."""
@@ -52,11 +52,8 @@ class StatsSummary:
     @property
     def total_tokens(self) -> int:
         """Total tokens across all conversations."""
-        return (
-            self.total_input_tokens
-            + self.total_output_tokens
-            + self.total_cache_read_tokens
-        )
+        return self.total_input_tokens + self.total_output_tokens
+
 
     @property
     def avg_cost_per_session(self) -> float:
