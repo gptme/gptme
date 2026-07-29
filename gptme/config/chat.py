@@ -234,7 +234,9 @@ class ChatConfig:
                 with open(chat_config_path, "rb") as f:
                     config_data = tomllib.load(f)
             else:
-                with open(chat_config_path) as f:
+                # `tomllib` above opens in binary mode and decodes as UTF-8 itself, as
+                # the TOML spec requires; this fallback must say so explicitly.
+                with open(chat_config_path, encoding="utf-8") as f:
                     config_data = tomlkit.load(f).unwrap()
             config_data["_logdir"] = path
             return cls.from_dict(config_data)
@@ -254,7 +256,7 @@ class ChatConfig:
         # Load existing config as TOMLDocument to preserve formatting/comments
         if chat_config_path.exists():
             try:
-                with open(chat_config_path) as f:
+                with open(chat_config_path, encoding="utf-8") as f:
                     doc = tomlkit.load(f)
                 # Update document in-place, preserving formatting
                 for key, value in config_dict.items():
@@ -289,6 +291,7 @@ class ChatConfig:
         # (e.g., daemon thread killed on exit while saving)
         with tempfile.NamedTemporaryFile(
             mode="w",
+            encoding="utf-8",
             dir=self._logdir,
             suffix=".toml.tmp",
             delete=False,

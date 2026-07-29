@@ -74,7 +74,7 @@ def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
             changed = True
     if changed:
         try:
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 tomlkit.dump(doc, f)
         except OSError as e:
             logger.warning(f"Could not strip unknown config keys from {path}: {e}")
@@ -141,7 +141,7 @@ def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
 
     config_file, local_path = get_user_config_paths(path)
     if local_path.exists():
-        with open(local_path) as f:
+        with open(local_path, encoding="utf-8") as f:
             local_doc = tomlkit.load(f)
         if _get_nested_config_value(local_doc, "env", bare) is not None:
             return USER_CONFIG_SOURCE_LOCAL
@@ -161,7 +161,7 @@ def get_default_model_source(path: str | None = None) -> str | None:
     """
     config_file, local_path = get_user_config_paths(path)
     if local_path.exists():
-        with open(local_path) as f:
+        with open(local_path, encoding="utf-8") as f:
             local_doc = tomlkit.load(f)
         if _get_nested_config_value(local_doc, "models", "default") is not None:
             return USER_CONFIG_SOURCE_LOCAL
@@ -197,7 +197,7 @@ def load_user_config(path: str | None = None) -> UserConfig:
     # Look for local config file in the same directory
     has_local = local_path.exists()
     if has_local:
-        with open(local_path) as f:
+        with open(local_path, encoding="utf-8") as f:
             local_config = tomlkit.load(f).unwrap()
         config = _merge_config_data(config, local_config)
 
@@ -384,12 +384,12 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
         # If not, create it and write some default settings
         os.makedirs(os.path.dirname(path), exist_ok=True)
         toml = tomlkit.dumps(_strip_none(asdict(default_config)))
-        with open(path, "w") as config_file:
+        with open(path, "w", encoding="utf-8") as config_file:
             config_file.write(toml)
         logger.info(f"Created config file at {path}")
         doc = tomlkit.loads(toml)
         return doc
-    with open(path) as config_file:
+    with open(path, encoding="utf-8") as config_file:
         doc = tomlkit.load(config_file)
     return doc
 
@@ -437,7 +437,7 @@ def set_config_value(
     # Write the config
     if local:
         os.makedirs(os.path.dirname(write_path), exist_ok=True)
-    with open(write_path, "w") as config_file:
+    with open(write_path, "w", encoding="utf-8") as config_file:
         tomlkit.dump(doc, config_file)
 
     if reload:
@@ -490,7 +490,7 @@ def save_provider_config(
 
     if local:
         os.makedirs(os.path.dirname(write_path), exist_ok=True)
-    with open(write_path, "w") as config_file:
+    with open(write_path, "w", encoding="utf-8") as config_file:
         tomlkit.dump(doc, config_file)
 
     if reload:

@@ -101,7 +101,7 @@ def _get_project_config_cached(
     if project_config_paths:
         project_config_path = project_config_paths[0]
         # load project config
-        with open(project_config_path) as f:
+        with open(project_config_path, encoding="utf-8") as f:
             config_data = tomlkit.load(f).unwrap()
 
         # Look for local config file in the same directory
@@ -109,7 +109,7 @@ def _get_project_config_cached(
         used_local_config_path: Path | None = None
         if local_config_path.exists():
             used_local_config_path = local_config_path
-            with open(local_config_path) as f:
+            with open(local_config_path, encoding="utf-8") as f:
                 local_config_data = tomlkit.load(f).unwrap()
 
             # Merge local config into main config
