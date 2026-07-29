@@ -19,15 +19,16 @@ from typing_extensions import Self
 if sys.version_info >= (3, 11):
     import tomllib
 
-    _CHAT_CONFIG_LOAD_ERRORS = (OSError, tomllib.TOMLDecodeError)
+    _CHAT_CONFIG_LOAD_ERRORS = (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError)
 else:
     tomllib = None
 
-    _CHAT_CONFIG_LOAD_ERRORS = (OSError, TOMLKitError)
+    _CHAT_CONFIG_LOAD_ERRORS = (OSError, UnicodeDecodeError, TOMLKitError)
 
 from ..util import path_with_tilde
 from .models import AgentConfig, MCPConfig
 from .project import get_project_config
+from .user import _read_config_text
 
 if TYPE_CHECKING:
     from ..tools.base import ToolFormat
@@ -230,14 +231,13 @@ class ChatConfig:
                 )
             return cls(_logdir=path, workspace=workspace.resolve())
         try:
+            # `_read_config_text` decodes as UTF-8 per the TOML spec, with a
+            # fallback for configs an older gptme wrote in the platform encoding.
+            text = _read_config_text(chat_config_path)
             if tomllib is not None:
-                with open(chat_config_path, "rb") as f:
-                    config_data = tomllib.load(f)
+                config_data = tomllib.loads(text)
             else:
-                # `tomllib` above opens in binary mode and decodes as UTF-8 itself, as
-                # the TOML spec requires; this fallback must say so explicitly.
-                with open(chat_config_path, encoding="utf-8") as f:
-                    config_data = tomlkit.load(f).unwrap()
+                config_data = tomlkit.loads(text).unwrap()
             config_data["_logdir"] = path
             return cls.from_dict(config_data)
         except _CHAT_CONFIG_LOAD_ERRORS as e:
@@ -256,8 +256,7 @@ class ChatConfig:
         # Load existing config as TOMLDocument to preserve formatting/comments
         if chat_config_path.exists():
             try:
-                with open(chat_config_path, encoding="utf-8") as f:
-                    doc = tomlkit.load(f)
+                doc = tomlkit.loads(_read_config_text(chat_config_path))
                 # Update document in-place, preserving formatting
                 for key, value in config_dict.items():
                     if isinstance(value, dict) and key in doc:

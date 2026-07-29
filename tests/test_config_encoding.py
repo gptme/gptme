@@ -13,7 +13,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 import tomlkit
+from tomlkit.exceptions import TOMLKitError
 
 import gptme.config.project as project_mod
 import gptme.config.user as user_mod
@@ -168,3 +170,72 @@ def test_chat_config_save_writes_valid_utf8(tmp_path: Path):
     text = (logdir / "config.toml").read_bytes().decode("utf-8")
     assert tomlkit.loads(text).unwrap()["chat"]["name"] == ABOUT
     assert ChatConfig.from_logdir(logdir).name == ABOUT
+
+
+# Upgrade path: gptme wrote these files without naming an encoding until this
+# change, so a config left behind by an older install on Windows may be in a
+# legacy code page. Strict UTF-8 decoding alone would make gptme fail to start
+# for exactly the users this change is meant to help.
+
+LEGACY_BYTES_ABOUT = "我是一名开发者".encode("cp936")
+
+
+def test_legacy_encoded_user_config_is_still_readable(tmp_path: Path):
+    """A config an older gptme wrote in cp936 must not break loading."""
+    config_file = tmp_path / "config.toml"
+    config_file.write_bytes(b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n')
+
+    with legacy_default_encoding("cp936"):
+        config = user_mod.load_user_config(str(config_file))
+
+    assert config.user.about == "我是一名开发者"
+
+
+def test_legacy_encoded_chat_config_is_still_readable(tmp_path: Path):
+    """Same for a per-conversation config.
+
+    On `master` this case is worse than a fallback-less read: `tomllib.load`
+    raises `UnicodeDecodeError`, which `_CHAT_CONFIG_LOAD_ERRORS` did not list,
+    so it escaped `from_logdir` entirely instead of degrading to defaults.
+    """
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    (logdir / "config.toml").write_bytes(
+        b'[chat]\nname = "' + LEGACY_BYTES_ABOUT + b'"\nmodel = "test-model"\n'
+    )
+
+    with legacy_default_encoding("cp936"):
+        config = ChatConfig.from_logdir(logdir)
+
+    assert config.name == "我是一名开发者"
+    assert config.model == "test-model"
+
+
+def test_legacy_encoded_config_is_rewritten_as_utf8(tmp_path: Path, monkeypatch):
+    """The fallback is a read-side bridge only: the next write normalises the file."""
+    config_file = tmp_path / "config.toml"
+    config_file.write_bytes(b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n')
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    with legacy_default_encoding("cp936"):
+        user_mod.set_config_value("user.name", "Alice", reload=False)
+
+    doc = tomlkit.loads(config_file.read_bytes().decode("utf-8")).unwrap()
+    assert doc["user"]["about"] == "我是一名开发者"  # preserved, not mangled
+    assert doc["user"]["name"] == "Alice"
+
+
+def test_undecodable_config_fails_at_the_parser_not_the_decoder(tmp_path: Path):
+    """Bytes no codec can make sense of must reach the parser, not raise on decode.
+
+    A config that is neither UTF-8 nor valid in the locale codec is corrupt. The
+    fallback decodes it with errors="replace" so that the *parser* decides what
+    happens to it, which is what callers already handle -- `ChatConfig.from_logdir`
+    catches TOML errors and degrades to defaults, and `_strip_unknown_config_keys`
+    catches OSError. A UnicodeDecodeError escaping from the decode would not be.
+    """
+    config_file = tmp_path / "config.toml"
+    config_file.write_bytes(b'[user]\nabout = "\xff\xfe\x00garbage"\n')
+
+    with legacy_default_encoding("cp936"), pytest.raises(TOMLKitError):
+        user_mod.load_user_config(str(config_file))

@@ -4,7 +4,9 @@ Handles loading, merging, and persisting user-level configuration
 from ~/.config/gptme/config.toml and config.local.toml.
 """
 
+import codecs
 import copy
+import locale
 import logging
 import os
 from collections.abc import MutableMapping
@@ -35,6 +37,32 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _read_config_text(path: str | Path) -> str:
+    """Read a TOML config file as text.
+
+    TOML is defined to be UTF-8, so that is what we decode as. But gptme wrote
+    these files without naming an encoding until recently, so one left behind by
+    an older install may be in the platform's preferred encoding -- a legacy code
+    page on Windows. Falling back to that codec keeps such a config readable
+    instead of making gptme fail to start; the next write re-encodes it as UTF-8,
+    since the writers are now explicit.
+    """
+    data = Path(path).read_bytes()
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        fallback = locale.getpreferredencoding(False)
+        if codecs.lookup(fallback).name == "utf-8":
+            # Nothing else to try: the locale codec is the one that just failed.
+            raise
+        logger.warning(
+            f"Config file {path} is not valid UTF-8; reading it as {fallback} "
+            "(written by an older gptme). It will be rewritten as UTF-8 on the "
+            "next config change."
+        )
+        return data.decode(fallback, errors="replace")
 
 
 # Define the path to the config file
@@ -141,8 +169,7 @@ def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
 
     config_file, local_path = get_user_config_paths(path)
     if local_path.exists():
-        with open(local_path, encoding="utf-8") as f:
-            local_doc = tomlkit.load(f)
+        local_doc = tomlkit.loads(_read_config_text(local_path))
         if _get_nested_config_value(local_doc, "env", bare) is not None:
             return USER_CONFIG_SOURCE_LOCAL
 
@@ -161,8 +188,7 @@ def get_default_model_source(path: str | None = None) -> str | None:
     """
     config_file, local_path = get_user_config_paths(path)
     if local_path.exists():
-        with open(local_path, encoding="utf-8") as f:
-            local_doc = tomlkit.load(f)
+        local_doc = tomlkit.loads(_read_config_text(local_path))
         if _get_nested_config_value(local_doc, "models", "default") is not None:
             return USER_CONFIG_SOURCE_LOCAL
     main_doc = _load_config_doc(str(config_file))
@@ -197,8 +223,7 @@ def load_user_config(path: str | None = None) -> UserConfig:
     # Look for local config file in the same directory
     has_local = local_path.exists()
     if has_local:
-        with open(local_path, encoding="utf-8") as f:
-            local_config = tomlkit.load(f).unwrap()
+        local_config = tomlkit.loads(_read_config_text(local_path)).unwrap()
         config = _merge_config_data(config, local_config)
 
     # Log config paths (only once per config file)
@@ -389,9 +414,7 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
         logger.info(f"Created config file at {path}")
         doc = tomlkit.loads(toml)
         return doc
-    with open(path, encoding="utf-8") as config_file:
-        doc = tomlkit.load(config_file)
-    return doc
+    return tomlkit.loads(_read_config_text(path))
 
 
 def set_config_value(

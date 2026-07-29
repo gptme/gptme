@@ -12,7 +12,7 @@ import tomlkit
 
 from ..util import path_with_tilde
 from .models import ProjectConfig
-from .user import _merge_config_data
+from .user import _merge_config_data, _read_config_text
 
 logger = logging.getLogger(__name__)
 
@@ -101,16 +101,16 @@ def _get_project_config_cached(
     if project_config_paths:
         project_config_path = project_config_paths[0]
         # load project config
-        with open(project_config_path, encoding="utf-8") as f:
-            config_data = tomlkit.load(f).unwrap()
+        config_data = tomlkit.loads(_read_config_text(project_config_path)).unwrap()
 
         # Look for local config file in the same directory
         local_config_path = project_config_path.parent / "gptme.local.toml"
         used_local_config_path: Path | None = None
         if local_config_path.exists():
             used_local_config_path = local_config_path
-            with open(local_config_path, encoding="utf-8") as f:
-                local_config_data = tomlkit.load(f).unwrap()
+            local_config_data = tomlkit.loads(
+                _read_config_text(local_config_path)
+            ).unwrap()
 
             # Merge local config into main config
             config_data = _merge_config_data(config_data, local_config_data)
