@@ -101,6 +101,30 @@ class TestClassifyTool:
             classify_tool("shell", {"command": "rm\t/tmp/sensitive"}) == OP_DESTRUCTIVE
         )
 
+    def test_shell_backslash_escaped_rm_is_destructive(self):
+        # r\m is a common shell-escape evasion; first-word unescaping must catch it
+        assert (
+            classify_tool("shell", {"command": r"r\m -rf /tmp/old"}) == OP_DESTRUCTIVE
+        )
+
+    def test_shell_leading_backslash_rm_is_destructive(self):
+        # \rm bypasses shell aliases but is still rm; must be caught
+        assert (
+            classify_tool("shell", {"command": r"\rm -rf /tmp/old"}) == OP_DESTRUCTIVE
+        )
+
+    def test_shell_single_quoted_rm_is_destructive(self):
+        # 'rm' -rf ... is valid shell; classifier must not miss it
+        assert (
+            classify_tool("shell", {"command": "'rm' -rf /tmp/old"}) == OP_DESTRUCTIVE
+        )
+
+    def test_shell_double_quoted_rm_is_destructive(self):
+        # "rm" -rf ... is valid shell; classifier must not miss it
+        assert (
+            classify_tool("shell", {"command": '"rm" -rf /tmp/old'}) == OP_DESTRUCTIVE
+        )
+
     def test_unknown_tool_defaults_to_modifying(self):
         assert classify_tool("ipython", {"code": "print(1)"}) == OP_MODIFYING
 

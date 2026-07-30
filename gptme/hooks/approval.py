@@ -28,6 +28,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sqlite3
 import sys
 import uuid
@@ -80,6 +81,24 @@ _RISKY_SHELL_PATTERNS: tuple[str, ...] = (
 )
 
 
+def _unescape_first_word(word: str) -> str:
+    """Strip common shell escaping from a single command word (the executable name).
+
+    Handles:
+    - Backslash-escaped characters: ``r\\m`` → ``rm``, ``\\rm`` → ``rm``
+    - Surrounding single quotes: ``'rm'`` → ``rm``
+    - Surrounding double quotes: ``"rm"`` → ``rm``
+
+    This is intentionally narrow (first word only, common forms only).  A full
+    shell word-expansion is out of scope — see :func:`classify_tool` note.
+    """
+    # Strip surrounding matching quotes first (outermost pair only)
+    if len(word) >= 2 and word[0] == word[-1] and word[0] in ('"', "'"):
+        word = word[1:-1]
+    # Remove backslash escaping inside the word: \X → X
+    return re.sub(r"\\(.)", r"\1", word)
+
+
 def classify_tool(tool: str, args: dict[str, Any]) -> str:
     """Return the operation class for *tool* + *args*.
 
@@ -92,20 +111,25 @@ def classify_tool(tool: str, args: dict[str, Any]) -> str:
         :data:`OP_DESTRUCTIVE`, :data:`OP_RISKY`.
 
     .. note::
-        Classification is heuristic: it matches against the **literal command
-        string** after whitespace normalization.  It does NOT parse shell syntax,
-        so shell-escaped executables (``r\\m``, ``r"m"``, ``'rm'``) or aliased
-        commands bypass pattern matching and return :data:`OP_MODIFYING`.  This
-        is defence-in-depth, not a complete security boundary — always combine
-        with ``--approval-mode block`` in fully automated contexts.
+        Classification is heuristic: it matches common literal command patterns
+        after whitespace normalization and first-word unescaping.  Common forms
+        of shell quoting and backslash-escaping on the executable name are
+        stripped (``r\\m`` → ``rm``, ``'rm'`` → ``rm``).  More exotic evasions
+        (aliases, ``eval``, here-strings, brace expansion) are still out of
+        scope — always combine with ``--approval-mode block`` in fully automated
+        contexts for defence-in-depth.
     """
     if tool in ("read", "browser"):
         return OP_SAFE
 
     if tool == "shell":
         cmd = str(args.get("command") or "")
-        # Normalize whitespace so tab/multi-space variants match the same patterns
-        normalized = " ".join(cmd.split())
+        # Normalize whitespace so tab/multi-space variants match the same patterns,
+        # then unescape the first word (executable name) to catch r\m, 'rm', etc.
+        parts = cmd.split()
+        if parts:
+            parts[0] = _unescape_first_word(parts[0])
+        normalized = " ".join(parts)
         for pattern in _DESTRUCTIVE_SHELL_PATTERNS:
             if pattern in normalized:
                 return OP_DESTRUCTIVE
