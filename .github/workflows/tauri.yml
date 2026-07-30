@@ -418,22 +418,12 @@ jobs:
           make build
           poetry install --extras server --extras pyinstaller --with dev
 
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: webui/package-lock.json
-
-      - name: Build and bundle webui
-        shell: bash
-        run: |
-          cd webui && npm ci && npm run build
-          cd ..
-          make bundle-webui
-
       - name: Build PyInstaller executable
         shell: bash
+        # Tauri bundles webui/dist itself via frontendDist. Keep the API sidecar
+        # lean instead of embedding a second copy of the same frontend.
+        env:
+          GPTME_PYINSTALLER_EXCLUDE_WEBUI: '1'
         run: make build-server-exe
 
       - name: Place sidecar with Rust target triple
