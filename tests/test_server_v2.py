@@ -2610,6 +2610,31 @@ def test_v2_fork_conversation_rejects_out_of_range_index(client: FlaskClient):
     assert "out of range" in response.get_json()["error"]
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "json"),
+    [
+        ("PATCH", "/messages/0", {"content": "updated"}),
+        ("DELETE", "/messages/0", None),
+        ("POST", "/fork?after_message=0", None),
+    ],
+)
+def test_missing_conversation_mutations_do_not_allocate_locks(
+    client: FlaskClient, method: str, path: str, json: dict | None
+):
+    """Rejected mutation requests must not grow the process-wide lock registry."""
+    from gptme.server.session_models import SessionManager
+
+    before = dict(SessionManager._conversation_locks)
+    conversation_id = f"missing-{uuid.uuid4().hex}"
+
+    response = client.open(
+        f"/api/v2/conversations/{conversation_id}{path}", method=method, json=json
+    )
+
+    assert response.status_code == 404
+    assert SessionManager._conversation_locks == before
+
+
 def test_copy_messages_for_fork_copies_only_referenced_attachments(tmp_path: Path):
     """Forking should not copy attachments excluded from the retained message slice."""
     from gptme.message import Message  # fmt: skip

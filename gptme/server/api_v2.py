@@ -1988,8 +1988,18 @@ def api_conversation_edit_message(conversation_id: str, index: int):
     if not truncate and not has_changes:
         return flask.jsonify({"error": "content or files is required"}), 400
 
+    # Reject missing conversations before allocating a persistent lock entry.
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return (
+            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+            404,
+        )
+
     # Keep the complete read-modify-write atomic with respect to /step.
-    # /step takes the same lock before reserving generation.
+    # /step takes the same lock before reserving generation. Reload inside the
+    # lock so deletion between the existence check and lock acquisition is safe.
     with SessionManager.conversation_lock(conversation_id):
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
         if any(sess.generating for sess in sessions):
@@ -2101,8 +2111,18 @@ def api_conversation_delete_message(conversation_id: str, index: int):
     if error := _validate_conversation_id(conversation_id):
         return error
 
+    # Reject missing conversations before allocating a persistent lock entry.
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return (
+            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+            404,
+        )
+
     # Keep the complete read-modify-write atomic with respect to /step.
-    # /step takes the same lock before reserving generation.
+    # /step takes the same lock before reserving generation. Reload inside the
+    # lock so deletion between the existence check and lock acquisition is safe.
     with SessionManager.conversation_lock(conversation_id):
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
         if any(sess.generating for sess in sessions):
@@ -2208,8 +2228,23 @@ def api_conversation_fork(conversation_id: str):
     if error := _validate_branch(branch):
         return error
 
+    # Reject missing conversations or branches before allocating a persistent lock.
+    try:
+        manager = LogManager.load(conversation_id, branch=branch, lock=False)
+    except FileNotFoundError:
+        if branch == "main":
+            return (
+                flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+                404,
+            )
+        return (
+            flask.jsonify({"error": f"Branch not found: {branch}"}),
+            404,
+        )
+
     # Keep the source snapshot stable through copying its log, attachments, and
-    # config. /step takes the same lock before reserving generation.
+    # config. /step takes the same lock before reserving generation. Reload inside
+    # the lock so deletion between the existence check and lock acquisition is safe.
     with SessionManager.conversation_lock(conversation_id):
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
         if any(sess.generating for sess in sessions):
