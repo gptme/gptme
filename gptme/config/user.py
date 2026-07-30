@@ -39,6 +39,46 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+def _legacy_codec_candidates() -> list[str]:
+    """Codecs to try after UTF-8 when reading a config, most likely first.
+
+    `locale.getpreferredencoding(False)` is not sufficient on its own. Under
+    Python's UTF-8 mode (`-X utf8`, `PYTHONUTF8=1`, or a launcher that enables it)
+    it returns "utf-8" whatever the platform code page is -- so on exactly the
+    Windows install whose code page wrote the file, the codec needed to read it
+    back is the one this function would hide. `locale.getencoding()` (3.11+)
+    reports the real code page regardless of UTF-8 mode; on 3.10 the same value is
+    only reachable through `getdefaultlocale`, which is not yet deprecated there.
+
+    Names are deduplicated by their canonical codec name, and "utf-8" is dropped
+    since the caller has already tried it.
+    """
+    candidates: list[str] = []
+    getencoding = getattr(locale, "getencoding", None)
+    if getencoding is not None:
+        candidates.append(getencoding())
+    else:  # Python 3.10
+        try:
+            candidates.append(locale.getdefaultlocale()[1] or "")
+        except ValueError:
+            pass
+    candidates.append(locale.getpreferredencoding(False))
+
+    result: list[str] = []
+    seen = {"utf-8"}
+    for name in candidates:
+        if not name:
+            continue
+        try:
+            canonical = codecs.lookup(name).name
+        except LookupError:
+            continue
+        if canonical not in seen:
+            seen.add(canonical)
+            result.append(name)
+    return result
+
+
 def _read_config_text(path: str | Path) -> str:
     """Read a TOML config file as text.
 
@@ -49,28 +89,37 @@ def _read_config_text(path: str | Path) -> str:
     instead of making gptme fail to start; the next write re-encodes it as UTF-8,
     since the writers are now explicit.
 
+    Each candidate is decoded strictly, so a codec that cannot represent the bytes
+    hands over to the next one instead of quietly producing mojibake.
+
     Never raises `UnicodeDecodeError`: callers wrap this in a TOML parse and handle
-    parse errors (`ChatConfig.from_logdir` degrades to defaults), so a corrupt file
-    is decoded with `errors="replace"` and left for the parser to reject.
+    parse errors (`ChatConfig.from_logdir` degrades to defaults), so a file no
+    candidate can decode is read with `errors="replace"` and left for the parser to
+    reject.
     """
     data = Path(path).read_bytes()
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError:
-        fallback = locale.getpreferredencoding(False)
-        if codecs.lookup(fallback).name == "utf-8":
-            # No second codec to try: the locale's is the one that just failed.
-            logger.warning(
-                f"Config file {path} is not valid UTF-8; reading it with "
-                "replacement characters. Some values may be garbled."
-            )
-            return data.decode("utf-8", errors="replace")
+        pass
+
+    for codec in _legacy_codec_candidates():
+        try:
+            text = data.decode(codec)
+        except UnicodeDecodeError:
+            continue
         logger.warning(
-            f"Config file {path} is not valid UTF-8; reading it as {fallback} "
+            f"Config file {path} is not valid UTF-8; reading it as {codec} "
             "(written by an older gptme). It will be rewritten as UTF-8 on the "
             "next config change."
         )
-        return data.decode(fallback, errors="replace")
+        return text
+
+    logger.warning(
+        f"Config file {path} is not valid UTF-8 and no legacy codec could decode "
+        "it; reading it with replacement characters. Some values may be garbled."
+    )
+    return data.decode("utf-8", errors="replace")
 
 
 # Define the path to the config file

@@ -9,6 +9,7 @@ are exactly the ones a user writes about themselves: `[user] about`,
 """
 
 import builtins
+import codecs
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -53,16 +54,27 @@ def legacy_default_encoding(codec: str = LEGACY_CODEC):
 
 
 @contextmanager
-def legacy_locale_codec(codec: str):
-    """Make the read-side fallback behave as it does under a legacy locale.
+def legacy_locale_codec(codec: str, utf8_mode: bool = False):
+    """Make the read-side fallback behave as it does on a legacy-codepage machine.
 
-    `_read_config_text` reads bytes and asks `locale.getpreferredencoding` what to
-    fall back to, so — unlike the writers — it is not reached by the `open()` shim
-    above. It must be patched at that call instead, or the upgrade-path tests only
-    exercise the fallback on a machine whose locale happens to be a legacy code
-    page, and assert the *opposite* behaviour (a re-raise) on a UTF-8 one.
+    `_read_config_text` reads bytes and asks the `locale` module what to fall back
+    to, so — unlike the writers — it is not reached by the `open()` shim above. It
+    must be patched at those calls instead, or the upgrade-path tests only exercise
+    the fallback on a machine whose locale happens to be a legacy code page.
+
+    `utf8_mode=True` reproduces Python's UTF-8 mode (`-X utf8`, `PYTHONUTF8=1`):
+    `getpreferredencoding(False)` reports "utf-8" while `getencoding()` still
+    reports the real code page. A fallback that consults only the former is blind
+    to the codec that wrote the file on exactly the machine that wrote it.
     """
-    with patch.object(user_mod.locale, "getpreferredencoding", lambda *args: codec):
+    preferred = "utf-8" if utf8_mode else codec
+    with (
+        patch.object(user_mod.locale, "getpreferredencoding", lambda *a: preferred),
+        patch.object(user_mod.locale, "getencoding", lambda: codec, create=True),
+        patch.object(
+            user_mod.locale, "getdefaultlocale", lambda: ("zh_CN", codec), create=True
+        ),
+    ):
         yield
 
 
@@ -194,23 +206,34 @@ def test_chat_config_save_writes_valid_utf8(tmp_path: Path):
 LEGACY_BYTES_ABOUT = "我是一名开发者".encode("cp936")
 
 
-def test_legacy_encoded_user_config_is_still_readable(tmp_path: Path):
-    """A config an older gptme wrote in cp936 must not break loading."""
+@pytest.mark.parametrize("utf8_mode", [False, True], ids=["locale", "utf8-mode"])
+def test_legacy_encoded_user_config_is_still_readable(tmp_path: Path, utf8_mode: bool):
+    """A config an older gptme wrote in cp936 must not break loading.
+
+    Parametrised over UTF-8 mode because that is the case a fallback built on
+    `getpreferredencoding` alone cannot serve: it reports "utf-8" there, hiding the
+    very code page that wrote the file.
+    """
     config_file = tmp_path / "config.toml"
     config_file.write_bytes(b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n')
 
-    with legacy_locale_codec("cp936"):
+    with legacy_locale_codec("cp936", utf8_mode=utf8_mode):
         config = user_mod.load_user_config(str(config_file))
 
     assert config.user.about == "我是一名开发者"
 
 
-def test_legacy_encoded_chat_config_is_still_readable(tmp_path: Path):
+@pytest.mark.parametrize("utf8_mode", [False, True], ids=["locale", "utf8-mode"])
+def test_legacy_encoded_chat_config_is_still_readable(tmp_path: Path, utf8_mode: bool):
     """Same for a per-conversation config.
 
     On `master` this case is worse than a fallback-less read: `tomllib.load`
     raises `UnicodeDecodeError`, which `_CHAT_CONFIG_LOAD_ERRORS` did not list,
     so it escaped `from_logdir` entirely instead of degrading to defaults.
+
+    Under UTF-8 mode the symptom is different but no better: the settings decode to
+    replacement characters, so `from_logdir` silently returns a config whose `name`
+    is mojibake rather than the one on disk.
     """
     logdir = tmp_path / "conv"
     logdir.mkdir()
@@ -218,7 +241,7 @@ def test_legacy_encoded_chat_config_is_still_readable(tmp_path: Path):
         b'[chat]\nname = "' + LEGACY_BYTES_ABOUT + b'"\nmodel = "test-model"\n'
     )
 
-    with legacy_locale_codec("cp936"):
+    with legacy_locale_codec("cp936", utf8_mode=utf8_mode):
         config = ChatConfig.from_logdir(logdir)
 
     assert config.name == "我是一名开发者"
@@ -262,11 +285,12 @@ def test_read_config_text_never_raises_unicode_decode_error(
 ):
     """The read helper must not leak `UnicodeDecodeError` for any locale.
 
-    On a UTF-8 locale there is no second codec to try, and re-raising sent a
+    When no candidate codec can decode the bytes, re-raising would send a
     `UnicodeDecodeError` up to callers — the very failure the fallback exists to
-    prevent, just narrowed to the platforms where the fallback cannot help. Callers
+    prevent, just narrowed to the platforms where no fallback can help. Callers
     handle TOML parse errors, not decode errors, so `errors="replace"` is the right
-    outcome in both cases. The aliases cover `codecs.lookup` normalisation.
+    outcome. The aliases cover `codecs.lookup` normalisation, which is what stops
+    "UTF-8" and "utf8" from being retried as if they were a second codec.
     """
     config_file = tmp_path / "config.toml"
     config_file.write_bytes(b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n')
@@ -275,3 +299,44 @@ def test_read_config_text_never_raises_unicode_decode_error(
         text = user_mod._read_config_text(config_file)
 
     assert isinstance(text, str)
+
+
+def test_legacy_codec_candidates_excludes_utf8_and_deduplicates():
+    """The candidate list must never re-offer a codec UTF-8 already covers.
+
+    `_read_config_text` has decoded as UTF-8 before consulting this list, so a
+    "utf-8" entry — under an ASCII/UTF-8 locale, or from
+    `getpreferredencoding` under UTF-8 mode — is a wasted retry that would decode
+    the same bytes the same failing way. Aliases must collapse too, since
+    `getencoding()` and `getpreferredencoding()` routinely spell one codec two ways.
+    """
+    with legacy_locale_codec("cp936", utf8_mode=True):
+        candidates = user_mod._legacy_codec_candidates()
+
+    canonical = [codecs.lookup(c).name for c in candidates]
+    assert "utf-8" not in canonical
+    assert canonical == [codecs.lookup("cp936").name]
+
+    # Both sources agreeing must not yield the codec twice.
+    with legacy_locale_codec("cp1252"):
+        assert [codecs.lookup(c).name for c in user_mod._legacy_codec_candidates()] == [
+            codecs.lookup("cp1252").name
+        ]
+
+
+def test_a_codec_that_cannot_decode_hands_over_to_the_next(tmp_path: Path):
+    """Candidates are tried strictly, so a wrong codec does not win by mojibake.
+
+    Decoding each candidate with errors="replace" would let the first one always
+    "succeed", making every later candidate dead code. Here the preferred encoding
+    (UTF-8 mode) cannot decode the bytes and `getencoding()` can, so the real code
+    page must be the one that is used.
+    """
+    config_file = tmp_path / "config.toml"
+    config_file.write_bytes(b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n')
+
+    with legacy_locale_codec("cp936", utf8_mode=True):
+        text = user_mod._read_config_text(config_file)
+
+    assert "我是一名开发者" in text
+    assert "�" not in text  # no replacement characters
