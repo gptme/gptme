@@ -561,7 +561,12 @@ def api_conversation_step(conversation_id: str):
     description="Confirm, edit, skip, or auto-confirm a pending tool execution. "
     "session_id is optional - if not provided, the tool will be found across all sessions for the conversation.",
     request_body=ToolConfirmRequest,
-    responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
+    responses={
+        200: StatusResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        409: ErrorResponse,
+    },
     parameters=[CONVERSATION_ID_PARAM],
     tags=["sessions"],
 )
@@ -649,9 +654,10 @@ def api_conversation_tool_confirm(conversation_id: str):
     default_model = get_default_model()
     model = chat_config.model or (default_model.full if default_model else "anthropic")
 
-    # Try to resolve via hook system (for hook-based confirmation flow)
-    # This enables future integration where tools use hooks for confirmation
-    resolve_hook_confirmation(tool_id, action, req_json.get("content"))
+    # Skip reserves its continuation before resolving hook state or consuming the
+    # pending tool below. Other actions retain the existing hook resolution flow.
+    if action != "skip":
+        resolve_hook_confirmation(tool_id, action, req_json.get("content"))
 
     if action == "confirm":
         # Execute the tool
@@ -682,23 +688,49 @@ def api_conversation_tool_confirm(conversation_id: str):
         )
 
     elif action == "skip":
-        # Skip the tool execution
-        tool_exec.status = ToolStatus.SKIPPED
-        session.pending_tools.pop(
-            tool_id, None
-        )  # use pop to avoid KeyError if concurrently removed
+        continuation_dispatched = False
+        # Reserve the continuation before consuming any tool or hook state. A
+        # concurrent /step may already own the reservation; then the pending tool
+        # stays untouched so the client can retry.
+        with SessionManager.conversation_lock(conversation_id), session.step_lock:
+            current_tool = session.pending_tools.get(tool_id)
+            if current_tool is None:
+                return flask.jsonify({"error": f"Tool not found: {tool_id}"}), 404
+            if session.generating:
+                return (
+                    flask.jsonify({"error": "Generation already in progress"}),
+                    409,
+                )
 
-        # Provide meaningful message to prevent LLM from re-suggesting the same tool
-        tool_name = tool_exec.tooluse.tool
-        msg = Message(
-            "system",
-            f"User chose not to execute this {tool_name} tool. "
-            "Do not re-suggest the same action unless explicitly requested.",
-        )
-        _append_and_notify(LogManager.load(conversation_id, lock=False), session, msg)
+            session.generating = True
+            session.generating_since = datetime.now(tz=timezone.utc)
+            try:
+                current_tool.status = ToolStatus.SKIPPED
+                session.pending_tools.pop(tool_id)
 
-        # Resume generation
-        _start_step_thread(conversation_id, session, model, chat_config.workspace)
+                # Persist the skip before the continuation can load the log.
+                tool_name = current_tool.tooluse.tool
+                msg = Message(
+                    "system",
+                    f"User chose not to execute this {tool_name} tool. "
+                    "Do not re-suggest the same action unless explicitly requested.",
+                )
+                manager = LogManager.load(conversation_id, lock=False)
+                _append_and_notify(manager, session, msg)
+                manager.write()
+
+                resolve_hook_confirmation(tool_id, action, req_json.get("content"))
+                continuation_dispatched = _start_step_thread(
+                    conversation_id,
+                    session,
+                    model,
+                    chat_config.workspace,
+                    reserved=True,
+                )
+            finally:
+                if not continuation_dispatched:
+                    session.generating = False
+                    session.generating_since = None
 
     elif action == "auto":
         # Enable auto-confirmation for future tools

@@ -745,18 +745,22 @@ class TestToolConfirmEndpoint:
             session.pending_tools.pop(tool_id, None)
 
     def test_skip_action(self, conv, client: FlaskClient):
-        """Skip action removes pending tool and appends system message."""
+        """Skip consumes the tool only after reserving its continuation."""
         session = SessionManager.get_session(conv["session_id"])
         assert session is not None
         tool_id = str(uuid.uuid4())
-        session.pending_tools[tool_id] = ToolExecution(
+        tool_exec = ToolExecution(
             tool_id=tool_id,
             tooluse=ToolUse("bash", [], "rm -rf /"),
         )
+        session.pending_tools[tool_id] = tool_exec
 
         with (
             patch("gptme.server.api_v2_sessions._append_and_notify"),
-            patch("gptme.server.api_v2_sessions._start_step_thread"),
+            patch(
+                "gptme.server.api_v2_sessions._start_step_thread", return_value=True
+            ) as start_step,
+            patch("gptme.server.api_v2_sessions.resolve_hook_confirmation") as resolve,
         ):
             response = client.post(
                 f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
@@ -769,23 +773,30 @@ class TestToolConfirmEndpoint:
 
         assert response.status_code == 200
         assert tool_id not in session.pending_tools
+        assert tool_exec.status.value == "skipped"
+        resolve.assert_called_once_with(tool_id, "skip", None)
+        assert start_step.call_count == 1
+        assert start_step.call_args.args[:2] == (conv["conversation_id"], session)
+        assert start_step.call_args.kwargs == {"reserved": True}
 
-    def test_skip_does_not_dispatch_when_step_reserved_generation(
+    def test_skip_preserves_tool_when_step_reserved_generation(
         self, conv, client: FlaskClient
     ):
-        """A tool continuation must not overlap a generation reserved by /step."""
+        """A rejected skip remains retryable while another generation runs."""
         session = SessionManager.get_session(conv["session_id"])
         assert session is not None
         tool_id = str(uuid.uuid4())
-        session.pending_tools[tool_id] = ToolExecution(
+        tool_exec = ToolExecution(
             tool_id=tool_id,
             tooluse=ToolUse("bash", [], "rm -rf /"),
         )
+        session.pending_tools[tool_id] = tool_exec
         session.generating = True
 
         with (
-            patch("gptme.server.api_v2_sessions._append_and_notify"),
-            patch("gptme.server.session_step.threading.Thread") as thread_cls,
+            patch("gptme.server.api_v2_sessions._append_and_notify") as append,
+            patch("gptme.server.api_v2_sessions._start_step_thread") as start_step,
+            patch("gptme.server.api_v2_sessions.resolve_hook_confirmation") as resolve,
         ):
             response = client.post(
                 f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
@@ -796,8 +807,44 @@ class TestToolConfirmEndpoint:
                 },
             )
 
-        assert response.status_code == 200
-        thread_cls.assert_not_called()
+        assert response.status_code == 409
+        assert session.pending_tools[tool_id] is tool_exec
+        assert tool_exec.status.value == "pending"
+        append.assert_not_called()
+        start_step.assert_not_called()
+        resolve.assert_not_called()
+
+    def test_skip_releases_reservation_when_dispatch_fails(
+        self, conv, client: FlaskClient
+    ):
+        """A failed continuation dispatch must not strand generating=True."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        tool_id = str(uuid.uuid4())
+        session.pending_tools[tool_id] = ToolExecution(
+            tool_id=tool_id,
+            tooluse=ToolUse("bash", [], "rm -rf /"),
+        )
+
+        with (
+            patch("gptme.server.api_v2_sessions._append_and_notify"),
+            patch(
+                "gptme.server.api_v2_sessions._start_step_thread",
+                side_effect=RuntimeError("thread start failed"),
+            ),
+        ):
+            response = client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                json={
+                    "session_id": conv["session_id"],
+                    "tool_id": tool_id,
+                    "action": "skip",
+                },
+            )
+
+        assert response.status_code == 500
+        assert session.generating is False
+        assert session.generating_since is None
 
     def test_edit_requires_content(self, conv, client: FlaskClient):
         """Edit action without content returns 400."""
