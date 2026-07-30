@@ -194,6 +194,44 @@ def test_workspace_tracks_persistent_shell_after_cd(tmp_path):
     assert captured_workspace == [target.resolve()]
 
 
+def test_workspace_cannot_be_spoofed_by_pwd_function(tmp_path):
+    """Approval scope uses the shell's real cwd even when `pwd` is overridden."""
+    from gptme.hooks import HookType, clear_hooks, register_hook
+    from gptme.hooks.confirm import ConfirmationResult
+    from gptme.tools.shell import ShellSession, set_shell
+
+    approved = tmp_path / "approved"
+    target = tmp_path / "target"
+    approved.mkdir()
+    target.mkdir()
+    shell = ShellSession(cwd=str(approved))
+    shell.run(f"function pwd {{ printf '%s\\n' {approved}; }}; cd {target}")
+    set_shell(shell)
+    captured_workspace: list[Path | None] = []
+
+    def spy_hook(tool_use, preview=None, workspace=None):
+        captured_workspace.append(workspace)
+        return ConfirmationResult.skip("test spy")
+
+    clear_hooks()
+    register_hook(
+        name="test.workspace_spoof",
+        hook_type=HookType.TOOL_CONFIRM,
+        func=spy_hook,
+        priority=100,
+        enabled=True,
+    )
+    try:
+        tool_use = ToolUse(tool="shell", args=[], content="touch relative-file")
+        with patch("gptme.tools.shell.get_shell", return_value=shell):
+            list(tool_use.execute(workspace=approved))
+    finally:
+        clear_hooks()
+        shell.close()
+
+    assert captured_workspace == [target.resolve()]
+
+
 def test_workspace_contextvar_reset_after_execute(tmp_path):
     """After ToolUse.execute() completes, the workspace ContextVar is reset."""
     from gptme.hooks import HookType, clear_hooks, register_hook

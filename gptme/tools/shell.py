@@ -328,7 +328,13 @@ class ShellSession:
 
     def cwd(self) -> Path:
         """Return the persistent shell's current working directory."""
-        returncode, stdout, _ = self._run("pwd -P", output=False)
+        if not _is_windows:
+            # Read the kernel's view of the shell process instead of executing
+            # `pwd` inside the mutable shell, where aliases or functions can
+            # spoof the directory used to scope an approval.
+            return Path(f"/proc/{self.process.pid}/cwd").resolve(strict=True)
+
+        returncode, stdout, _ = self._run("command pwd -P", output=False)
         if returncode != 0 or not stdout.strip():
             raise RuntimeError("Could not determine shell working directory")
         return Path(stdout.strip()).resolve()
