@@ -235,13 +235,23 @@ class TestApprovalRegistry:
         registry.approve("s1", intent, OP_DESTRUCTIVE, "shell", workspace=ws)
         assert registry.is_approved(intent, workspace=ws)
 
-    def test_is_approved_no_workspace_restriction_when_not_stored(
+    def test_is_approved_null_workspace_rejected_when_caller_provides_workspace(
         self, registry: ApprovalRegistry, tmp_path: Path
     ):
-        # Approvals without a workspace stored are workspace-unrestricted
+        # An approval stored without workspace must not pass workspace-aware lookups;
+        # NULL-workspace entries would otherwise act as global pass-through tokens.
         intent = _intent_hash("shell", {"command": "rm /tmp/old"})
-        registry.approve("s1", intent, OP_DESTRUCTIVE, "shell")  # no workspace
-        assert registry.is_approved(intent, workspace=tmp_path)
+        registry.approve("s1", intent, OP_DESTRUCTIVE, "shell")  # no workspace → NULL
+        assert not registry.is_approved(intent, workspace=tmp_path)
+
+    def test_is_approved_no_workspace_caller_accepts_null_stored(
+        self, registry: ApprovalRegistry
+    ):
+        # When the caller doesn't supply a workspace, NULL-stored approvals still pass
+        # (backward-compat for programmatic / non-gated paths).
+        intent = _intent_hash("shell", {"command": "rm /tmp/old"})
+        registry.approve("s1", intent, OP_DESTRUCTIVE, "shell")
+        assert registry.is_approved(intent)  # no workspace arg
 
     def test_db_created_on_demand(self, tmp_path: Path):
         db_path = tmp_path / "sub" / "dir" / "approvals.db"

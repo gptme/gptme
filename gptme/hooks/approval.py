@@ -90,6 +90,14 @@ def classify_tool(tool: str, args: dict[str, Any]) -> str:
     Returns:
         One of :data:`OP_SAFE`, :data:`OP_MODIFYING`,
         :data:`OP_DESTRUCTIVE`, :data:`OP_RISKY`.
+
+    .. note::
+        Classification is heuristic: it matches against the **literal command
+        string** after whitespace normalization.  It does NOT parse shell syntax,
+        so shell-escaped executables (``r\\m``, ``r"m"``, ``'rm'``) or aliased
+        commands bypass pattern matching and return :data:`OP_MODIFYING`.  This
+        is defence-in-depth, not a complete security boundary — always combine
+        with ``--approval-mode block`` in fully automated contexts.
     """
     if tool in ("read", "browser"):
         return OP_SAFE
@@ -174,15 +182,19 @@ class ApprovalRegistry:
         """Return ``True`` iff an approved record exists for *intent_hash*.
 
         When *workspace* is provided AND the stored record has a workspace, both
-        must resolve to the same path.  This prevents a cross-workspace approval
-        (e.g. ``rm ./data`` approved in workspace A) from silently authorising
-        the same relative command in workspace B.
+        workspace and both must resolve to the same path.  A stored ``NULL``
+        workspace (pre-migration entry or an approval created without workspace
+        context) is rejected when the caller supplies a workspace — preventing
+        NULL-workspace approvals from acting as global pass-through tokens.
         """
         record = self.get(intent_hash)
         if record is None or record["status"] != "approved":
             return False
         stored_ws = record.get("workspace")
-        if workspace is not None and stored_ws is not None:
+        if workspace is not None:
+            # Require an explicit workspace match; NULL stored workspace is rejected.
+            if stored_ws is None:
+                return False
             return str(workspace.resolve()) == stored_ws
         return True
 
