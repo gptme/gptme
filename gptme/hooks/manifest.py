@@ -112,9 +112,9 @@ def register_manifest_hooks(manifest_dir: Path) -> None:
         }
         if data.tool_use.content:
             record["content_hash"] = _sha256_hex(data.tool_use.content)
-        # Phase 3: annotate with operation class (classifier from approval.py)
+        # Phase 3: annotate with operation class and intent hash (from approval.py)
         try:
-            from .approval import classify_tool  # fmt: skip
+            from .approval import _intent_hash, classify_tool  # fmt: skip
 
             kw: dict[str, Any] = dict(data.tool_use.kwargs or {})
             if (
@@ -124,6 +124,8 @@ def register_manifest_hooks(manifest_dir: Path) -> None:
             ):
                 kw["command"] = data.tool_use.content
             record["approval_class"] = classify_tool(data.tool_use.tool, kw)
+            # intent_hash links this pre-record to the approval registry entry
+            record["intent_hash"] = _intent_hash(data.tool_use.tool, kw)
         except ImportError:
             pass
         fname = f"{session_id}-{seq[0]:04d}-{data.tool_use.tool}-pre.json"

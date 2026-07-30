@@ -85,6 +85,22 @@ class TestClassifyTool:
             == OP_RISKY
         )
 
+    def test_shell_curl_request_delete_is_risky(self):
+        # --request DELETE is a valid alternate form of -X DELETE
+        assert (
+            classify_tool(
+                "shell",
+                {"command": "curl --request DELETE https://api.example.com/v1/res"},
+            )
+            == OP_RISKY
+        )
+
+    def test_shell_rm_with_tab_separator_is_destructive(self):
+        # Tabs instead of spaces must not bypass classification
+        assert (
+            classify_tool("shell", {"command": "rm\t/tmp/sensitive"}) == OP_DESTRUCTIVE
+        )
+
     def test_unknown_tool_defaults_to_modifying(self):
         assert classify_tool("ipython", {"code": "print(1)"}) == OP_MODIFYING
 
@@ -189,6 +205,44 @@ class TestApprovalRegistry:
         records_2 = registry.list_session("sess-2")
         assert len(records_2) == 1
 
+    def test_approve_stores_workspace(self, registry: ApprovalRegistry, tmp_path: Path):
+        ws = tmp_path / "my-workspace"
+        ws.mkdir()
+        intent = _intent_hash("shell", {"command": "rm ./stale"})
+        registry.approve("s1", intent, OP_DESTRUCTIVE, "shell", workspace=ws)
+        record = registry.get(intent)
+        assert record is not None
+        assert record["workspace"] == str(ws.resolve())
+
+    def test_is_approved_false_for_different_workspace(
+        self, registry: ApprovalRegistry, tmp_path: Path
+    ):
+        ws_a = tmp_path / "workspace-a"
+        ws_b = tmp_path / "workspace-b"
+        ws_a.mkdir()
+        ws_b.mkdir()
+        intent = _intent_hash("shell", {"command": "rm ./data"})
+        registry.approve("s1", intent, OP_DESTRUCTIVE, "shell", workspace=ws_a)
+        # Same relative command approved in workspace A must NOT pass for workspace B
+        assert not registry.is_approved(intent, workspace=ws_b)
+
+    def test_is_approved_true_for_same_workspace(
+        self, registry: ApprovalRegistry, tmp_path: Path
+    ):
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+        intent = _intent_hash("shell", {"command": "rm ./data"})
+        registry.approve("s1", intent, OP_DESTRUCTIVE, "shell", workspace=ws)
+        assert registry.is_approved(intent, workspace=ws)
+
+    def test_is_approved_no_workspace_restriction_when_not_stored(
+        self, registry: ApprovalRegistry, tmp_path: Path
+    ):
+        # Approvals without a workspace stored are workspace-unrestricted
+        intent = _intent_hash("shell", {"command": "rm /tmp/old"})
+        registry.approve("s1", intent, OP_DESTRUCTIVE, "shell")  # no workspace
+        assert registry.is_approved(intent, workspace=tmp_path)
+
     def test_db_created_on_demand(self, tmp_path: Path):
         db_path = tmp_path / "sub" / "dir" / "approvals.db"
         assert not db_path.exists()
@@ -243,6 +297,9 @@ class TestManifestApprovalClass:
 
         record = json.loads(pre_files[0].read_text())
         assert record.get("approval_class") == OP_DESTRUCTIVE
+        # intent_hash must be present so the manifest can be correlated to the
+        # approval registry entry that authorized the operation
+        assert record.get("intent_hash", "").startswith("sha256:")
 
     def test_pre_record_safe_op_class(self, tmp_path: Path):
         from unittest.mock import MagicMock

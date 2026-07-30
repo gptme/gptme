@@ -73,6 +73,9 @@ _RISKY_SHELL_PATTERNS: tuple[str, ...] = (
     "curl -X DELETE",
     "curl -X POST",
     "curl -X PUT",
+    "curl --request DELETE",
+    "curl --request POST",
+    "curl --request PUT",
     "wget --post",
 )
 
@@ -93,11 +96,13 @@ def classify_tool(tool: str, args: dict[str, Any]) -> str:
 
     if tool == "shell":
         cmd = str(args.get("command") or "")
+        # Normalize whitespace so tab/multi-space variants match the same patterns
+        normalized = " ".join(cmd.split())
         for pattern in _DESTRUCTIVE_SHELL_PATTERNS:
-            if pattern in cmd:
+            if pattern in normalized:
                 return OP_DESTRUCTIVE
         for pattern in _RISKY_SHELL_PATTERNS:
-            if pattern in cmd:
+            if pattern in normalized:
                 return OP_RISKY
         return OP_MODIFYING
 
@@ -138,11 +143,16 @@ class ApprovalRegistry:
                     status        TEXT NOT NULL DEFAULT 'pending',
                     approved_by   TEXT,
                     approval_mechanism TEXT,
+                    workspace     TEXT,
                     created_at    TEXT NOT NULL,
                     approved_at   TEXT,
                     notes         TEXT
                 )
             """)
+            # Migrate tables created before the workspace column was added
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(approvals)")}
+            if "workspace" not in cols:
+                conn.execute("ALTER TABLE approvals ADD COLUMN workspace TEXT")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_intent ON approvals(intent_hash)"
             )
@@ -160,10 +170,21 @@ class ApprovalRegistry:
             ).fetchone()
             return dict(row) if row else None
 
-    def is_approved(self, intent_hash: str) -> bool:
-        """Return ``True`` iff an approved record exists for *intent_hash*."""
+    def is_approved(self, intent_hash: str, workspace: Path | None = None) -> bool:
+        """Return ``True`` iff an approved record exists for *intent_hash*.
+
+        When *workspace* is provided AND the stored record has a workspace, both
+        must resolve to the same path.  This prevents a cross-workspace approval
+        (e.g. ``rm ./data`` approved in workspace A) from silently authorising
+        the same relative command in workspace B.
+        """
         record = self.get(intent_hash)
-        return record is not None and record["status"] == "approved"
+        if record is None or record["status"] != "approved":
+            return False
+        stored_ws = record.get("workspace")
+        if workspace is not None and stored_ws is not None:
+            return str(workspace.resolve()) == stored_ws
+        return True
 
     def approve(
         self,
@@ -174,18 +195,20 @@ class ApprovalRegistry:
         approved_by: str = "user",
         mechanism: str = "interactive_prompt",
         notes: str = "",
+        workspace: Path | None = None,
     ) -> str:
         """Insert or replace an approval record.  Returns the approval UUID."""
         approval_id = str(uuid.uuid4())
         now = datetime.now(tz=timezone.utc).isoformat()
+        ws_str = str(workspace.resolve()) if workspace is not None else None
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO approvals
                   (id, session_id, intent_hash, operation_class, tool,
-                   status, approved_by, approval_mechanism,
+                   status, approved_by, approval_mechanism, workspace,
                    created_at, approved_at, notes)
-                VALUES (?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     approval_id,
@@ -195,6 +218,7 @@ class ApprovalRegistry:
                     tool,
                     approved_by,
                     mechanism,
+                    ws_str,
                     now,
                     now,
                     notes,
@@ -273,7 +297,7 @@ def register_approval_hooks(
 
         intent = _intent_hash(tool_use.tool, kw)
 
-        if registry.is_approved(intent):
+        if registry.is_approved(intent, workspace=workspace):
             logger.debug(
                 "Approval gate: pre-approved %s op %s", op_class, tool_use.tool
             )
@@ -296,6 +320,7 @@ def register_approval_hooks(
                     intent_hash=intent,
                     operation_class=op_class,
                     tool=tool_use.tool,
+                    workspace=workspace,
                 )
                 return None  # approved — fall through to tool execution
             return ConfirmationResult(
