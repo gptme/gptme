@@ -2308,6 +2308,44 @@ def test_v2_chat_config_patch_rejected_during_generation(client: FlaskClient):
     assert "generation is in progress" in response.get_json()["error"]
 
 
+def test_v2_chat_config_patch_loads_log_under_conversation_lock(
+    client: FlaskClient,
+):
+    """Config PATCH must not retain a stale log snapshot while waiting on /step."""
+    from gptme.logmanager import LogManager
+    from gptme.server.session_models import SessionManager
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    lock = unittest.mock.MagicMock()
+    lock.held = False
+    lock.__enter__.side_effect = lambda: setattr(lock, "held", True)
+    lock.__exit__.side_effect = lambda *_: setattr(lock, "held", False)
+    real_load = LogManager.load
+    loaded_while_locked: list[bool] = []
+
+    def tracking_load(*args, **kwargs):
+        if args and args[0] == conversation_id:
+            loaded_while_locked.append(lock.held)
+        return real_load(*args, **kwargs)
+
+    with (
+        unittest.mock.patch.object(
+            SessionManager, "conversation_lock", return_value=lock
+        ),
+        unittest.mock.patch(
+            "gptme.server.api_v2.LogManager.load", side_effect=tracking_load
+        ),
+    ):
+        response = client.patch(
+            f"/api/v2/conversations/{conversation_id}/config",
+            json={"chat": {"model": "openai/gpt-4o"}},
+        )
+
+    assert response.status_code == 200
+    assert loaded_while_locked == [True]
+
+
 @pytest.mark.parametrize(
     "files_payload",
     [

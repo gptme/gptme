@@ -2703,20 +2703,19 @@ def api_conversation_config_patch(conversation_id: str):
             404,
         )
 
-    # Load conversation log BEFORE any side effects (config write, global state).
-    # A directory can exist without a valid log file (partial deletion, corruption),
-    # so we must verify the log is loadable before committing changes.
-    try:
-        manager = LogManager.load(conversation_id, lock=False)
-    except FileNotFoundError:
-        return (
-            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
-            404,
-        )
-
     # Keep all config, process-global tool state, and log mutations atomic
     # with respect to /step, which takes the same lock before generation.
     with SessionManager.conversation_lock(conversation_id):
+        # Load under the lock. Loading before acquisition can leave a stale
+        # snapshot that overwrites messages generated while PATCH waited.
+        try:
+            manager = LogManager.load(conversation_id, lock=False)
+        except FileNotFoundError:
+            return (
+                flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+                404,
+            )
+
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
         if any(sess.generating for sess in sessions):
             return (
