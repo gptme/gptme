@@ -41,15 +41,28 @@ def reset_session_manager(monkeypatch):
     monkeypatch.setattr("gptme.server.session_models.trigger_hook", lambda *a, **kw: [])
     SessionManager._sessions = {}
     SessionManager._conversation_sessions = defaultdict(set)
+    SessionManager._conversation_locks = {}
     yield
     # Cleanup after test as well
     SessionManager._sessions = {}
     SessionManager._conversation_sessions = defaultdict(set)
+    SessionManager._conversation_locks = {}
 
 
 def make_tooluse(tool: str = "shell", content: str = "echo hi") -> ToolUse:
     """Helper to build a minimal ToolUse."""
     return ToolUse(tool=tool, args=None, content=content)
+
+
+def test_conversation_lock_is_shared_per_conversation():
+    """Operations on one conversation must use the exact same lock."""
+    first = SessionManager.conversation_lock("conversation-a")
+    second = SessionManager.conversation_lock("conversation-a")
+    other = SessionManager.conversation_lock("conversation-b")
+
+    assert first is second
+    assert first is not other
+    assert isinstance(first, type(threading.RLock()))
 
 
 # ---------------------------------------------------------------------------

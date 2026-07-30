@@ -394,6 +394,53 @@ class TestStepEndpoint:
         finally:
             session.generating = False
 
+    def test_step_reserves_generation_under_conversation_lock(
+        self, conv, client: FlaskClient
+    ):
+        """The mutation lock must be held when /step reserves generation."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        lock = MagicMock()
+        lock.__enter__.side_effect = lambda: setattr(lock, "held", True)
+        lock.__exit__.side_effect = lambda *_: setattr(lock, "held", False)
+
+        with (
+            patch.object(SessionManager, "conversation_lock", return_value=lock),
+            patch.object(
+                session,
+                "step_lock",
+                MagicMock(
+                    __enter__=MagicMock(
+                        side_effect=lambda: setattr(
+                            lock, "step_entered_while_held", lock.held
+                        )
+                    )
+                ),
+            ),
+            patch("gptme.server.api_v2_sessions.get_default_model", return_value=None),
+            patch(
+                "gptme.server.api_v2_sessions.ChatConfig.load_or_create"
+            ) as mock_config,
+            patch(
+                "gptme.server.api_v2_sessions.Config.from_workspace"
+            ) as mock_ws_config,
+        ):
+            from gptme.config import ChatConfig
+
+            cfg = ChatConfig()
+            cfg.model = None
+            mock_config.return_value = cfg
+            mock_ws_config.return_value = MagicMock(
+                get_env=MagicMock(return_value=None)
+            )
+            response = client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/step",
+                json={"session_id": conv["session_id"]},
+            )
+
+        assert response.status_code == 400
+        assert lock.step_entered_while_held is True
+
 
 # --- Interrupt endpoint tests ---
 

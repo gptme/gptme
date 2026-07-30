@@ -510,9 +510,10 @@ def _start_acp_step_thread(
     workspace: Path,
 ) -> None:
     """Start an ACP-backed step in a background thread."""
-    session.last_error = None
-    session.generating = True
-    session.generating_since = datetime.now(tz=timezone.utc)
+    with SessionManager.conversation_lock(conversation_id):
+        session.last_error = None
+        session.generating = True
+        session.generating_since = datetime.now(tz=timezone.utc)
 
     def _run() -> None:
         from ..hooks import current_conversation_id, current_session_id
@@ -1045,9 +1046,10 @@ def _start_step_thread(
     # needed because _start_step_thread is called directly from the
     # tool-confirm endpoint (api_conversation_tool_response), which bypasses
     # the /step route's guard.
-    session.last_error = None
-    session.generating = True
-    session.generating_since = datetime.now(tz=timezone.utc)
+    with SessionManager.conversation_lock(conversation_id):
+        session.last_error = None
+        session.generating = True
+        session.generating_since = datetime.now(tz=timezone.utc)
 
     def step_thread() -> None:
         # Set conversation/session context vars so hooks triggered during

@@ -131,7 +131,21 @@ class SessionManager:
 
     _sessions: dict[str, ConversationSession] = {}
     _conversation_sessions: dict[str, set[str]] = defaultdict(set)
+    # Kept for the process lifetime. Conversation IDs are durable and their
+    # per-ID locks are tiny; retaining them avoids replacing a lock while a
+    # request still holds it after the final session is removed.
+    _conversation_locks: dict[str, threading.RLock] = {}
     _lock = threading.Lock()
+
+    @classmethod
+    def conversation_lock(cls, conversation_id: str) -> threading.RLock:
+        """Return the lock serializing generation-sensitive conversation work."""
+        with cls._lock:
+            lock = cls._conversation_locks.get(conversation_id)
+            if lock is None:
+                lock = threading.RLock()
+                cls._conversation_locks[conversation_id] = lock
+            return lock
 
     @classmethod
     def create_session(cls, conversation_id: str) -> ConversationSession:

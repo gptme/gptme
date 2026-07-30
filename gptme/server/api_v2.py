@@ -1988,82 +1988,81 @@ def api_conversation_edit_message(conversation_id: str, index: int):
     if not truncate and not has_changes:
         return flask.jsonify({"error": "content or files is required"}), 400
 
-    # Check if generation is in progress.
-    # Acquiring step_lock per session mirrors how /step sets generating=True atomically,
-    # closing the TOCTOU window where fork/edit/delete could read False just before
-    # /step sets True under its own lock.
-    sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-    for sess in sessions:
-        with sess.step_lock:
-            if sess.generating:
-                return (
-                    flask.jsonify(
-                        {"error": "Cannot edit while generation is in progress"}
-                    ),
-                    409,
-                )
-
-    try:
-        manager = LogManager.load(conversation_id, lock=False)
-    except FileNotFoundError:
-        return (
-            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
-            404,
-        )
-
-    msgs = list(manager.log.messages)
-    if index < 0 or index >= len(msgs):
-        return (
-            flask.jsonify(
-                {"error": f"Message index {index} out of range (0-{len(msgs) - 1})"}
-            ),
-            404,
-        )
-
-    # Content/file changes are only allowed on user messages.
-    # Truncation (without content change) is allowed on any message.
-    content_changed = content is not None and content != msgs[index].content
-    files_changed = files is not None and [str(f) for f in msgs[index].files] != files
-    if (content_changed or files_changed) and msgs[index].role != "user":
-        return flask.jsonify({"error": "Can only edit user messages"}), 400
-
-    if content_changed or files_changed:
-        replacements: dict = {}
-        if content_changed:
-            replacements["content"] = content
-        if files_changed and files is not None:
-            validated_files = _validate_message_file_references(
-                files, manager.workspace
+    # Keep the complete read-modify-write atomic with respect to /step.
+    # /step takes the same lock before reserving generation.
+    with SessionManager.conversation_lock(conversation_id):
+        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+        if any(sess.generating for sess in sessions):
+            return (
+                flask.jsonify({"error": "Cannot edit while generation is in progress"}),
+                409,
             )
-            if isinstance(validated_files, tuple):
-                return validated_files
-            replacements["files"] = validated_files
-        edited_msg = replace(msgs[index], **replacements)
-        new_msgs = msgs[:index] + [edited_msg] + ([] if truncate else msgs[index + 1 :])
-    elif truncate:
-        new_msgs = msgs[: index + 1]
-    else:
-        return flask.jsonify({"error": "No changes requested"}), 400
 
-    manager.edit(Log(new_msgs))
+        try:
+            manager = LogManager.load(conversation_id, lock=False)
+        except FileNotFoundError:
+            return (
+                flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+                404,
+            )
 
-    # Build response with updated conversation
-    log_dict = manager.to_dict(branches=True)
+        msgs = list(manager.log.messages)
+        if index < 0 or index >= len(msgs):
+            return (
+                flask.jsonify(
+                    {"error": f"Message index {index} out of range (0-{len(msgs) - 1})"}
+                ),
+                404,
+            )
 
-    # Emit SSE event
-    SessionManager.add_event(
-        conversation_id,
-        {
-            "type": "conversation_edited",
-            "index": index,
-            "truncated": truncate,
-            "log": log_dict.get("log", []),
-            "branches": log_dict.get("branches", {}),
-        },
-    )
+        # Content/file changes are only allowed on user messages.
+        # Truncation (without content change) is allowed on any message.
+        content_changed = content is not None and content != msgs[index].content
+        files_changed = (
+            files is not None and [str(f) for f in msgs[index].files] != files
+        )
+        if (content_changed or files_changed) and msgs[index].role != "user":
+            return flask.jsonify({"error": "Can only edit user messages"}), 400
 
-    _invalidate_conversations_cache()
-    return flask.jsonify(log_dict)
+        if content_changed or files_changed:
+            replacements: dict = {}
+            if content_changed:
+                replacements["content"] = content
+            if files_changed and files is not None:
+                validated_files = _validate_message_file_references(
+                    files, manager.workspace
+                )
+                if isinstance(validated_files, tuple):
+                    return validated_files
+                replacements["files"] = validated_files
+            edited_msg = replace(msgs[index], **replacements)
+            new_msgs = (
+                msgs[:index] + [edited_msg] + ([] if truncate else msgs[index + 1 :])
+            )
+        elif truncate:
+            new_msgs = msgs[: index + 1]
+        else:
+            return flask.jsonify({"error": "No changes requested"}), 400
+
+        manager.edit(Log(new_msgs))
+
+        # Build response with updated conversation
+        log_dict = manager.to_dict(branches=True)
+
+        # Emit SSE event
+        SessionManager.add_event(
+            conversation_id,
+            {
+                "type": "conversation_edited",
+                "index": index,
+                "truncated": truncate,
+                "log": log_dict.get("log", []),
+                "branches": log_dict.get("branches", {}),
+            },
+        )
+
+        _invalidate_conversations_cache()
+        return flask.jsonify(log_dict)
 
 
 @v2_api.route(
@@ -2102,81 +2101,81 @@ def api_conversation_delete_message(conversation_id: str, index: int):
     if error := _validate_conversation_id(conversation_id):
         return error
 
-    # Check if generation is in progress.
-    # Acquiring step_lock per session mirrors how /step sets generating=True atomically,
-    # closing the TOCTOU window where delete could read False just before /step sets True.
-    sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-    for sess in sessions:
-        with sess.step_lock:
-            if sess.generating:
-                return (
-                    flask.jsonify(
-                        {"error": "Cannot delete while generation is in progress"}
-                    ),
-                    409,
-                )
+    # Keep the complete read-modify-write atomic with respect to /step.
+    # /step takes the same lock before reserving generation.
+    with SessionManager.conversation_lock(conversation_id):
+        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+        if any(sess.generating for sess in sessions):
+            return (
+                flask.jsonify(
+                    {"error": "Cannot delete while generation is in progress"}
+                ),
+                409,
+            )
 
-    try:
-        manager = LogManager.load(conversation_id, lock=False)
-    except FileNotFoundError:
-        return (
-            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
-            404,
+        try:
+            manager = LogManager.load(conversation_id, lock=False)
+        except FileNotFoundError:
+            return (
+                flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+                404,
+            )
+
+        msgs = list(manager.log.messages)
+        if index < 0 or index >= len(msgs):
+            return (
+                flask.jsonify(
+                    {"error": f"Message index {index} out of range (0-{len(msgs) - 1})"}
+                ),
+                404,
+            )
+
+        # Cannot delete system messages
+        if msgs[index].role == "system":
+            return flask.jsonify({"error": "Cannot delete system messages"}), 400
+
+        new_msgs = msgs[:index] + msgs[index + 1 :]
+
+        # Validate role sequence: consecutive same-role messages break LLM APIs.
+        # Deleting a (non-system) message can only introduce a NEW adjacency at the
+        # seam — between its nearest non-system neighbours on either side. Check only
+        # that seam; scanning the whole conversation would reject valid deletions
+        # whenever an unrelated pre-existing adjacency exists elsewhere in the log.
+        prev_role = next(
+            (m.role for m in reversed(msgs[:index]) if m.role != "system"), None
+        )
+        next_role = next(
+            (m.role for m in msgs[index + 1 :] if m.role != "system"), None
+        )
+        if prev_role is not None and prev_role == next_role:
+            return (
+                flask.jsonify(
+                    {
+                        "error": f"Deleting this message would create consecutive {next_role!r} messages, which is not supported by LLM APIs"
+                    }
+                ),
+                400,
+            )
+
+        manager.edit(Log(new_msgs))
+
+        # Build response with updated conversation
+        log_dict = manager.to_dict(branches=True)
+
+        # Emit SSE event (reuse conversation_edited — client handles log replacement)
+        SessionManager.add_event(
+            conversation_id,
+            {
+                "type": "conversation_edited",
+                "index": index,
+                "truncated": False,
+                "log": log_dict.get("log", []),
+                "branches": log_dict.get("branches", {}),
+            },
         )
 
-    msgs = list(manager.log.messages)
-    if index < 0 or index >= len(msgs):
-        return (
-            flask.jsonify(
-                {"error": f"Message index {index} out of range (0-{len(msgs) - 1})"}
-            ),
-            404,
-        )
-
-    # Cannot delete system messages
-    if msgs[index].role == "system":
-        return flask.jsonify({"error": "Cannot delete system messages"}), 400
-
-    new_msgs = msgs[:index] + msgs[index + 1 :]
-
-    # Validate role sequence: consecutive same-role messages break LLM APIs.
-    # Deleting a (non-system) message can only introduce a NEW adjacency at the
-    # seam — between its nearest non-system neighbours on either side. Check only
-    # that seam; scanning the whole conversation would reject valid deletions
-    # whenever an unrelated pre-existing adjacency exists elsewhere in the log.
-    prev_role = next(
-        (m.role for m in reversed(msgs[:index]) if m.role != "system"), None
-    )
-    next_role = next((m.role for m in msgs[index + 1 :] if m.role != "system"), None)
-    if prev_role is not None and prev_role == next_role:
-        return (
-            flask.jsonify(
-                {
-                    "error": f"Deleting this message would create consecutive {next_role!r} messages, which is not supported by LLM APIs"
-                }
-            ),
-            400,
-        )
-
-    manager.edit(Log(new_msgs))
-
-    # Build response with updated conversation
-    log_dict = manager.to_dict(branches=True)
-
-    # Emit SSE event (reuse conversation_edited — client handles log replacement)
-    SessionManager.add_event(
-        conversation_id,
-        {
-            "type": "conversation_edited",
-            "index": index,
-            "truncated": False,
-            "log": log_dict.get("log", []),
-            "branches": log_dict.get("branches", {}),
-        },
-    )
-
-    _invalidate_conversations_cache()
-    return flask.jsonify(log_dict)
+        _invalidate_conversations_cache()
+        return flask.jsonify(log_dict)
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>/fork", methods=["POST"])
@@ -2209,67 +2208,66 @@ def api_conversation_fork(conversation_id: str):
     if error := _validate_branch(branch):
         return error
 
-    # Acquiring step_lock per session mirrors how /step sets generating=True atomically,
-    # closing the TOCTOU window where fork could read False just before /step sets True.
-    sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-    for sess in sessions:
-        with sess.step_lock:
-            if sess.generating:
+    # Keep the source snapshot stable through copying its log, attachments, and
+    # config. /step takes the same lock before reserving generation.
+    with SessionManager.conversation_lock(conversation_id):
+        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+        if any(sess.generating for sess in sessions):
+            return (
+                flask.jsonify({"error": "Cannot fork while generation is in progress"}),
+                409,
+            )
+
+        try:
+            manager = LogManager.load(conversation_id, branch=branch, lock=False)
+        except FileNotFoundError:
+            if branch == "main":
                 return (
                     flask.jsonify(
-                        {"error": "Cannot fork while generation is in progress"}
+                        {"error": f"Conversation not found: {conversation_id}"}
                     ),
-                    409,
+                    404,
                 )
-
-    try:
-        manager = LogManager.load(conversation_id, branch=branch, lock=False)
-    except FileNotFoundError:
-        if branch == "main":
             return (
-                flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+                flask.jsonify({"error": f"Branch not found: {branch}"}),
                 404,
             )
-        return (
-            flask.jsonify({"error": f"Branch not found: {branch}"}),
-            404,
+
+        source_messages = list(manager.log.messages)
+        if after_message < 0 or after_message >= len(source_messages):
+            return (
+                flask.jsonify(
+                    {
+                        "error": f"Message index {after_message} out of range (0-{len(source_messages) - 1})"
+                    }
+                ),
+                400,
+            )
+
+        new_conversation_id = _generate_fork_conversation_id()
+        new_logdir = get_logs_dir() / new_conversation_id
+
+        forked_messages = _copy_messages_for_fork(
+            source_messages[: after_message + 1], manager.logdir, new_logdir
         )
-
-    source_messages = list(manager.log.messages)
-    if after_message < 0 or after_message >= len(source_messages):
-        return (
-            flask.jsonify(
-                {
-                    "error": f"Message index {after_message} out of range (0-{len(source_messages) - 1})"
-                }
-            ),
-            400,
+        fork_manager = LogManager.load(
+            logdir=new_logdir, initial_msgs=forked_messages, create=True, lock=False
         )
+        fork_manager.write()
 
-    new_conversation_id = _generate_fork_conversation_id()
-    new_logdir = get_logs_dir() / new_conversation_id
+        source_config = ChatConfig.from_logdir(manager.logdir)
+        fork_name = f"Fork of {manager.name} @ msg {after_message + 1}"
+        replace(source_config, _logdir=new_logdir, name=fork_name).save()
 
-    forked_messages = _copy_messages_for_fork(
-        source_messages[: after_message + 1], manager.logdir, new_logdir
-    )
-    fork_manager = LogManager.load(
-        logdir=new_logdir, initial_msgs=forked_messages, create=True, lock=False
-    )
-    fork_manager.write()
-
-    source_config = ChatConfig.from_logdir(manager.logdir)
-    fork_name = f"Fork of {manager.name} @ msg {after_message + 1}"
-    replace(source_config, _logdir=new_logdir, name=fork_name).save()
-
-    session = SessionManager.create_session(new_conversation_id)
-    _invalidate_conversations_cache()
-    return flask.jsonify(
-        {
-            "status": "ok",
-            "conversation_id": new_conversation_id,
-            "session_id": session.id,
-        }
-    )
+        session = SessionManager.create_session(new_conversation_id)
+        _invalidate_conversations_cache()
+        return flask.jsonify(
+            {
+                "status": "ok",
+                "conversation_id": new_conversation_id,
+                "session_id": session.id,
+            }
+        )
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["DELETE"])
@@ -2681,112 +2679,107 @@ def api_conversation_config_patch(conversation_id: str):
             404,
         )
 
-    # Reject config changes while generation is in progress — config PATCH rewrites
-    # system messages and mutates global state, which races with streaming.
-    # Acquiring step_lock per session mirrors how /step sets generating=True atomically,
-    # closing the TOCTOU window where config PATCH could read False just before /step sets True.
-    sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-    for sess in sessions:
-        with sess.step_lock:
-            if sess.generating:
-                return (
-                    flask.jsonify(
-                        {
-                            "error": "Cannot update config while generation is in progress"
-                        }
-                    ),
-                    409,
-                )
+    # Keep all config, process-global tool state, and log mutations atomic
+    # with respect to /step, which takes the same lock before generation.
+    with SessionManager.conversation_lock(conversation_id):
+        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+        if any(sess.generating for sess in sessions):
+            return (
+                flask.jsonify(
+                    {"error": "Cannot update config while generation is in progress"}
+                ),
+                409,
+            )
 
-    # Validate tool allowlist now that 404/409 guards have passed.
-    # init_tools mutates process-wide state; must run AFTER guards, not before.
-    if tool_allowlist is not None:
+        # Validate tool allowlist now that 404/409 guards have passed.
+        # init_tools mutates process-wide state; must run AFTER guards, not before.
+        if tool_allowlist is not None:
+            try:
+                init_tools(tool_allowlist)
+            except ValueError as exc:
+                return flask.jsonify({"error": str(exc)}), 400
+            except Exception as exc:
+                return flask.jsonify({"error": f"Failed to load tool: {exc}"}), 400
+
+        # Determine if workspace was explicitly provided in the request body.
+        # This check must happen BEFORE ChatConfig.from_dict, which mutates the
+        # chat_patch dict by inferring workspace from the existing logdir/workspace
+        # path when workspace is absent (adding it as a side effect via the
+        # `elif _logdir and (_logdir / "workspace").exists()` branch).
+        workspace_in_patch = isinstance(chat_patch, dict) and "workspace" in chat_patch
+
+        # Create and set config
+        req_json["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
         try:
-            init_tools(tool_allowlist)
+            request_config = ChatConfig.from_dict(req_json)
         except ValueError as exc:
             return flask.jsonify({"error": str(exc)}), 400
-        except Exception as exc:
-            return flask.jsonify({"error": f"Failed to load tool: {exc}"}), 400
 
-    # Determine if workspace was explicitly provided in the request body.
-    # This check must happen BEFORE ChatConfig.from_dict, which mutates the
-    # chat_patch dict by inferring workspace from the existing logdir/workspace
-    # path when workspace is absent (adding it as a side effect via the
-    # `elif _logdir and (_logdir / "workspace").exists()` branch).
-    workspace_in_patch = isinstance(chat_patch, dict) and "workspace" in chat_patch
+        # Enforce workspace containment: a PATCH must not *redirect* the agent of
+        # an existing conversation outside the conversation's logdir.
+        # Only enforce when workspace was explicitly provided — when absent, from_dict
+        # infers it from the existing logdir/workspace symlink (which may legitimately
+        # point outside logdir for CLI-created conversations).
+        # A round-trip of the already-persisted workspace is also allowed: the webui
+        # settings dialog echoes the full config (including workspace) on every
+        # save, and conversations legitimately have external workspaces (created
+        # via the CLI, or via PUT with an explicit workspace).
+        if workspace_in_patch:
+            existing_workspace = ChatConfig.from_logdir(logdir).workspace
+            if request_config.workspace != existing_workspace:
+                if not request_config.workspace.is_relative_to(logdir.resolve()):
+                    return flask.jsonify(
+                        {"error": "workspace escapes conversation logdir"}
+                    ), 400
 
-    # Create and set config
-    req_json["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
-    try:
-        request_config = ChatConfig.from_dict(req_json)
-    except ValueError as exc:
-        return flask.jsonify({"error": str(exc)}), 400
+        try:
+            chat_config = ChatConfig.load_or_create(logdir, request_config).save()
+        except ValueError as exc:
+            return flask.jsonify({"error": str(exc)}), 400
+        config = Config.from_workspace(workspace=chat_config.workspace)
+        config.chat = chat_config
+        set_config(config)
 
-    # Enforce workspace containment: a PATCH must not *redirect* the agent of
-    # an existing conversation outside the conversation's logdir.
-    # Only enforce when workspace was explicitly provided — when absent, from_dict
-    # infers it from the existing logdir/workspace symlink (which may legitimately
-    # point outside logdir for CLI-created conversations).
-    # A round-trip of the already-persisted workspace is also allowed: the webui
-    # settings dialog echoes the full config (including workspace) on every
-    # save, and conversations legitimately have external workspaces (created
-    # via the CLI, or via PUT with an explicit workspace).
-    if workspace_in_patch:
-        existing_workspace = ChatConfig.from_logdir(logdir).workspace
-        if request_config.workspace != existing_workspace:
-            if not request_config.workspace.is_relative_to(logdir.resolve()):
-                return flask.jsonify(
-                    {"error": "workspace escapes conversation logdir"}
-                ), 400
+        # Initialize tools in this thread
+        init_tools(chat_config.tools)
 
-    try:
-        chat_config = ChatConfig.load_or_create(logdir, request_config).save()
-    except ValueError as exc:
-        return flask.jsonify({"error": str(exc)}), 400
-    config = Config.from_workspace(workspace=chat_config.workspace)
-    config.chat = chat_config
-    set_config(config)
+        tools = get_tools()
 
-    # Initialize tools in this thread
-    init_tools(chat_config.tools)
+        if len(manager.log.messages) >= 1 and manager.log.messages[0].role == "system":
+            # Remove leading system messages and replace with new ones
+            # Use immutable Log interface instead of mutating the frozen dataclass's list
+            first_non_system = 0
+            for m in manager.log.messages:
+                if m.role != "system":
+                    break
+                first_non_system += 1
+            remaining_msgs = list(manager.log.messages[first_non_system:])
 
-    tools = get_tools()
-
-    if len(manager.log.messages) >= 1 and manager.log.messages[0].role == "system":
-        # Remove leading system messages and replace with new ones
-        # Use immutable Log interface instead of mutating the frozen dataclass's list
-        first_non_system = 0
-        for m in manager.log.messages:
-            if m.role != "system":
-                break
-            first_non_system += 1
-        remaining_msgs = list(manager.log.messages[first_non_system:])
-
-        new_system_msgs = list(
-            get_prompt(
-                tools=tools,
-                tool_format=chat_config.tool_format or "markdown",
-                interactive=chat_config.interactive,
-                model=chat_config.model,
-                workspace=chat_config.workspace,
-                agent_path=chat_config.agent,
+            new_system_msgs = list(
+                get_prompt(
+                    tools=tools,
+                    tool_format=chat_config.tool_format or "markdown",
+                    interactive=chat_config.interactive,
+                    model=chat_config.model,
+                    workspace=chat_config.workspace,
+                    agent_path=chat_config.agent,
+                )
             )
-        )
-        _append_conversation_system_prompt(
-            new_system_msgs, _resolve_conversation_system_prompt(chat_config)
-        )
-        manager.log = Log(new_system_msgs + remaining_msgs)
-    manager.write()
+            _append_conversation_system_prompt(
+                new_system_msgs, _resolve_conversation_system_prompt(chat_config)
+            )
+            manager.log = Log(new_system_msgs + remaining_msgs)
+        manager.write()
 
-    _invalidate_conversations_cache()
-    return flask.jsonify(
-        {
-            "status": "ok",
-            "message": "Chat config updated",
-            "config": chat_config.to_dict(),
-            "tools": [t.name for t in tools],
-        }
-    )
+        _invalidate_conversations_cache()
+        return flask.jsonify(
+            {
+                "status": "ok",
+                "message": "Chat config updated",
+                "config": chat_config.to_dict(),
+                "tools": [t.name for t in tools],
+            }
+        )
 
 
 @v2_api.route(

@@ -333,6 +333,7 @@ def cleanup_acp_health_monitor():
             with SessionManager._lock:
                 SessionManager._sessions.clear()
                 SessionManager._conversation_sessions.clear()
+                SessionManager._conversation_locks.clear()
         except ImportError:
             pass
     except Exception as e:

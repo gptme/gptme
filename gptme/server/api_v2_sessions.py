@@ -399,12 +399,10 @@ def api_conversation_step(conversation_id: str):
 
     auto_confirm_enabled = bool(session.auto_confirm_count > 0)
 
-    # Atomically check-and-set generating under a per-session lock.
-    # Without the lock, two concurrent requests on a threaded WSGI server can
-    # both read False before either writes True (classic TOCTOU).  The lock is
-    # held only for the check+set — the expensive model/branch resolution that
-    # follows runs outside it.
-    with session.step_lock:
+    # Reserve generation while serialized with conversation mutations. The
+    # conversation lock is released after generating=True; mutating endpoints
+    # then reject until generation finishes.
+    with SessionManager.conversation_lock(conversation_id), session.step_lock:
         if session.generating:
             return flask.jsonify({"error": "Generation already in progress"}), 409
         # Mark generating early to prevent concurrent /step requests from racing
