@@ -394,10 +394,10 @@ class TestStepEndpoint:
         finally:
             session.generating = False
 
-    def test_step_reserves_generation_under_conversation_lock(
+    def test_step_loads_config_and_reserves_under_conversation_lock(
         self, conv, client: FlaskClient
     ):
-        """The mutation lock must be held when /step reserves generation."""
+        """Config snapshot and generation reservation share the mutation lock."""
         session = SessionManager.get_session(conv["session_id"])
         assert session is not None
         lock = MagicMock()
@@ -429,7 +429,12 @@ class TestStepEndpoint:
 
             cfg = ChatConfig()
             cfg.model = None
-            mock_config.return_value = cfg
+
+            def load_config(*_args, **_kwargs):
+                lock.config_loaded_while_held = lock.held
+                return cfg
+
+            mock_config.side_effect = load_config
             mock_ws_config.return_value = MagicMock(
                 get_env=MagicMock(return_value=None)
             )
@@ -439,6 +444,7 @@ class TestStepEndpoint:
             )
 
         assert response.status_code == 400
+        assert lock.config_loaded_while_held is True
         assert lock.step_entered_while_held is True
 
 
@@ -743,6 +749,52 @@ class TestToolConfirmEndpoint:
             assert "unknown action" in data["error"].lower()
         finally:
             session.pending_tools.pop(tool_id, None)
+
+    def test_skip_loads_config_after_reserving_continuation(
+        self, conv, client: FlaskClient
+    ):
+        """Skip captures model/workspace while holding the mutation lock."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        tool_id = str(uuid.uuid4())
+        session.pending_tools[tool_id] = ToolExecution(
+            tool_id=tool_id,
+            tooluse=ToolUse("bash", [], "rm -rf /"),
+        )
+        lock = MagicMock()
+        lock.__enter__.side_effect = lambda: setattr(lock, "held", True)
+        lock.__exit__.side_effect = lambda *_: setattr(lock, "held", False)
+        from gptme.config import ChatConfig
+
+        cfg = ChatConfig(model="fresh/model")
+
+        def load_config(*_args, **_kwargs):
+            lock.config_loaded_while_held = lock.held
+            return cfg
+
+        with (
+            patch.object(SessionManager, "conversation_lock", return_value=lock),
+            patch(
+                "gptme.server.api_v2_sessions.ChatConfig.load_or_create",
+                side_effect=load_config,
+            ),
+            patch(
+                "gptme.server.api_v2_sessions._start_step_thread", return_value=True
+            ) as start_step,
+            patch("gptme.server.api_v2_sessions._append_and_notify"),
+        ):
+            response = client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                json={
+                    "session_id": conv["session_id"],
+                    "tool_id": tool_id,
+                    "action": "skip",
+                },
+            )
+        assert response.status_code == 200
+        assert lock.config_loaded_while_held is True
+        assert start_step.call_args.args[2] == "fresh/model"
+        assert start_step.call_args.args[3] == cfg.workspace
 
     def test_skip_action(self, conv, client: FlaskClient):
         """Skip consumes the tool only after reserving its continuation."""

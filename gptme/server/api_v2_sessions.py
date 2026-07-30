@@ -329,7 +329,6 @@ def api_conversation_step(conversation_id: str):
         ), 403
 
     logdir = get_logs_dir() / conversation_id
-    chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
 
     model = req_json.get("model")
     if model is not None and not isinstance(model, str):
@@ -348,7 +347,7 @@ def api_conversation_step(conversation_id: str):
                 400,
             )
     else:
-        stream = chat_config.stream
+        stream = None
 
     # ACP opt-in: sticky once enabled for a session.
     # Default can be set server-wide via GPTME_USE_ACP_DEFAULT=true env var.
@@ -366,15 +365,6 @@ def api_conversation_step(conversation_id: str):
             400,
         )
 
-    if use_acp and not session.use_acp:
-        from .acp_session_runtime import AcpSessionRuntime
-
-        session.use_acp = True
-        session.acp_runtime = AcpSessionRuntime(workspace=chat_config.workspace)
-        # Lazy-start the health monitor on first ACP session — avoids unconditional
-        # background thread and global session-eviction side-effects at app startup.
-        start_acp_health_monitor()
-
     # Validate auto_confirm type explicitly (bool OR int).
     # Reject strings/floats/etc. to avoid accidental truthy coercion.
     auto_confirm = req_json.get("auto_confirm", False)
@@ -389,27 +379,28 @@ def api_conversation_step(conversation_id: str):
             400,
         )
 
-    # If auto_confirm set, set auto_confirm_count.
-    # Check bool first: bool is a subclass of int in Python, so isinstance(True, int) is True.
-    # Use type() to distinguish them correctly.
-    if type(auto_confirm) is bool:
-        session.auto_confirm_count = 1 if auto_confirm else -1
-    else:  # int
-        session.auto_confirm_count = auto_confirm
-
-    auto_confirm_enabled = bool(session.auto_confirm_count > 0)
-
-    # Reserve generation while serialized with conversation mutations. The
-    # conversation lock is released after generating=True; mutating endpoints
-    # then reject until generation finishes.
+    # Reserve generation and capture config in the same critical section as
+    # config PATCH. A PATCH completed before this acquisition must affect the
+    # worker; one arriving afterward sees generating=True and returns 409.
     with SessionManager.conversation_lock(conversation_id), session.step_lock:
         if session.generating:
             return flask.jsonify({"error": "Generation already in progress"}), 409
-        # Mark generating early to prevent concurrent /step requests from racing
-        # through the setup code below.  _start_step_thread/_start_acp_step_thread
-        # also set this, but ~60 lines of model/branch resolution sit between the
-        # check above and those calls — enough for a second request to slip through
-        # on threaded WSGI servers.
+        chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+        if stream is None:
+            stream = chat_config.stream
+        # Check bool first: bool is a subclass of int.
+        if type(auto_confirm) is bool:
+            session.auto_confirm_count = 1 if auto_confirm else -1
+        else:
+            session.auto_confirm_count = auto_confirm
+        auto_confirm_enabled = session.auto_confirm_count > 0
+        if use_acp and not session.use_acp:
+            from .acp_session_runtime import AcpSessionRuntime
+
+            session.use_acp = True
+            session.acp_runtime = AcpSessionRuntime(workspace=chat_config.workspace)
+            # Lazy-start the health monitor on first ACP session.
+            start_acp_health_monitor()
         session.generating = True
         session.generating_since = datetime.now(tz=timezone.utc)
 
@@ -648,16 +639,18 @@ def api_conversation_tool_confirm(conversation_id: str):
         )
 
     logdir = get_logs_dir() / conversation_id
-    chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
-
-    # Get model from session config, default model, or fallback to "anthropic"
-    default_model = get_default_model()
-    model = chat_config.model or (default_model.full if default_model else "anthropic")
 
     # Skip reserves its continuation before resolving hook state or consuming the
     # pending tool below. Other actions retain the existing hook resolution flow.
     if action != "skip":
         resolve_hook_confirmation(tool_id, action, req_json.get("content"))
+
+    if action in {"confirm", "edit"}:
+        chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+        default_model = get_default_model()
+        model = chat_config.model or (
+            default_model.full if default_model else "anthropic"
+        )
 
     if action == "confirm":
         # Execute the tool
@@ -702,6 +695,14 @@ def api_conversation_tool_confirm(conversation_id: str):
                     409,
                 )
 
+            # Capture the continuation config only after the shared lock is held,
+            # so a config PATCH that completed first cannot be silently ignored.
+            chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+            default_model = get_default_model()
+            model = chat_config.model or (
+                default_model.full if default_model else "anthropic"
+            )
+
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
             try:
@@ -733,6 +734,11 @@ def api_conversation_tool_confirm(conversation_id: str):
                     session.generating_since = None
 
     elif action == "auto":
+        chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+        default_model = get_default_model()
+        model = chat_config.model or (
+            default_model.full if default_model else "anthropic"
+        )
         # Enable auto-confirmation for future tools
         count = req_json.get("count", 1)
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
