@@ -112,6 +112,20 @@ def register_manifest_hooks(manifest_dir: Path) -> None:
         }
         if data.tool_use.content:
             record["content_hash"] = _sha256_hex(data.tool_use.content)
+        # Phase 3: annotate with operation class (classifier from approval.py)
+        try:
+            from .approval import classify_tool  # fmt: skip
+
+            kw: dict[str, Any] = dict(data.tool_use.kwargs or {})
+            if (
+                data.tool_use.tool == "shell"
+                and "command" not in kw
+                and data.tool_use.content
+            ):
+                kw["command"] = data.tool_use.content
+            record["approval_class"] = classify_tool(data.tool_use.tool, kw)
+        except ImportError:
+            pass
         fname = f"{session_id}-{seq[0]:04d}-{data.tool_use.tool}-pre.json"
         if _write_record(manifest_dir, fname, record):
             # Only advance the chain tail when the file was actually persisted.

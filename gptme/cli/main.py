@@ -682,6 +682,17 @@ Run 'gptme-util --help' for all utility commands."""
     help="Write a JSON record before and after each tool call to this directory. "
     "Records can be committed alongside session artifacts for tool-call-level attribution.",
 )
+@click.option(
+    "--approval-mode",
+    "approval_mode",
+    default=None,
+    type=click.Choice(["audit", "interactive", "block"]),
+    envvar="GPTME_APPROVAL_MODE",
+    help="Approval gate for destructive/risky tool operations (requires --manifest-dir). "
+    "audit: classify only, add approval_class to manifest records. "
+    "interactive: prompt user before DESTRUCTIVE/RISKY ops (TTY only). "
+    "block: skip DESTRUCTIVE/RISKY ops without a prior approval registry entry.",
+)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -716,6 +727,7 @@ def main(
     output_schema: str | None,
     injection_hygiene: str | None,
     manifest_dir: Path | None,
+    approval_mode: str | None,
 ):
     """Main entrypoint for the CLI."""
 
@@ -761,6 +773,15 @@ def main(
         from ..hooks.manifest import register_manifest_hooks  # fmt: skip
 
         register_manifest_hooks(manifest_dir)
+
+    # Register approval gates (Phase 3) when --approval-mode is set.
+    # Requires --manifest-dir so approval_class fields land in the manifest chain.
+    if approval_mode is not None:
+        if manifest_dir is None:
+            raise click.UsageError("--approval-mode requires --manifest-dir")
+        from ..hooks.approval import register_approval_hooks  # fmt: skip
+
+        register_approval_hooks(approval_mode=approval_mode)
 
     # Defense-in-depth: handle empty/whitespace names in case Click bypasses convert()
     # (observed to occur in some Click versions when --name "" is passed)

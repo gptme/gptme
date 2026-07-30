@@ -1,0 +1,273 @@
+"""Tests for CLODEx Phase 3a: approval gate and registry."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+from gptme.hooks.approval import (
+    OP_DESTRUCTIVE,
+    OP_MODIFYING,
+    OP_RISKY,
+    OP_SAFE,
+    ApprovalRegistry,
+    _intent_hash,
+    classify_tool,
+)
+
+# ---------------------------------------------------------------------------
+# classify_tool
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyTool:
+    def test_read_is_safe(self):
+        assert classify_tool("read", {"path": "/tmp/foo.txt"}) == OP_SAFE
+
+    def test_browser_is_safe(self):
+        assert classify_tool("browser", {"url": "https://example.com"}) == OP_SAFE
+
+    def test_write_is_modifying(self):
+        assert (
+            classify_tool("write", {"path": "foo.py", "content": "x"}) == OP_MODIFYING
+        )
+
+    def test_patch_is_modifying(self):
+        assert classify_tool("patch", {"path": "a.py", "patch": "diff"}) == OP_MODIFYING
+
+    def test_shell_plain_is_modifying(self):
+        assert classify_tool("shell", {"command": "echo hello"}) == OP_MODIFYING
+
+    def test_shell_rm_is_destructive(self):
+        assert classify_tool("shell", {"command": "rm -rf /tmp/old"}) == OP_DESTRUCTIVE
+
+    def test_shell_rmdir_is_destructive(self):
+        assert (
+            classify_tool("shell", {"command": "rmdir /tmp/emptydir"}) == OP_DESTRUCTIVE
+        )
+
+    def test_shell_git_reset_hard_is_destructive(self):
+        assert (
+            classify_tool("shell", {"command": "git reset --hard HEAD~1"})
+            == OP_DESTRUCTIVE
+        )
+
+    def test_shell_git_push_force_is_destructive(self):
+        assert (
+            classify_tool("shell", {"command": "git push --force origin master"})
+            == OP_DESTRUCTIVE
+        )
+
+    def test_shell_git_branch_capital_d_is_destructive(self):
+        assert (
+            classify_tool("shell", {"command": "git branch -D stale-branch"})
+            == OP_DESTRUCTIVE
+        )
+
+    def test_shell_gh_pr_merge_is_risky(self):
+        assert classify_tool("shell", {"command": "gh pr merge 42"}) == OP_RISKY
+
+    def test_shell_gh_pr_close_is_risky(self):
+        assert classify_tool("shell", {"command": "gh pr close 99"}) == OP_RISKY
+
+    def test_shell_git_push_master_is_risky(self):
+        assert classify_tool("shell", {"command": "git push origin master"}) == OP_RISKY
+
+    def test_shell_curl_delete_is_risky(self):
+        assert (
+            classify_tool(
+                "shell", {"command": "curl -X DELETE https://api.example.com/v1/res"}
+            )
+            == OP_RISKY
+        )
+
+    def test_unknown_tool_defaults_to_modifying(self):
+        assert classify_tool("ipython", {"code": "print(1)"}) == OP_MODIFYING
+
+    def test_empty_command_is_modifying(self):
+        assert classify_tool("shell", {"command": ""}) == OP_MODIFYING
+
+    def test_none_command_is_modifying(self):
+        assert classify_tool("shell", {"command": None}) == OP_MODIFYING
+
+
+# ---------------------------------------------------------------------------
+# _intent_hash
+# ---------------------------------------------------------------------------
+
+
+class TestIntentHash:
+    def test_deterministic(self):
+        h1 = _intent_hash("shell", {"command": "rm -rf /tmp/x"})
+        h2 = _intent_hash("shell", {"command": "rm -rf /tmp/x"})
+        assert h1 == h2
+
+    def test_starts_with_sha256(self):
+        h = _intent_hash("read", {"path": "foo.txt"})
+        assert h.startswith("sha256:")
+
+    def test_different_args_produce_different_hash(self):
+        h1 = _intent_hash("shell", {"command": "rm /tmp/a"})
+        h2 = _intent_hash("shell", {"command": "rm /tmp/b"})
+        assert h1 != h2
+
+    def test_different_tool_produces_different_hash(self):
+        h1 = _intent_hash("write", {"path": "a.py"})
+        h2 = _intent_hash("read", {"path": "a.py"})
+        assert h1 != h2
+
+
+# ---------------------------------------------------------------------------
+# ApprovalRegistry
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def registry(tmp_path: Path) -> ApprovalRegistry:
+    return ApprovalRegistry(tmp_path / "approvals.db")
+
+
+class TestApprovalRegistry:
+    def test_get_returns_none_for_unknown_hash(self, registry: ApprovalRegistry):
+        assert registry.get("sha256:unknown") is None
+
+    def test_is_approved_false_for_unknown(self, registry: ApprovalRegistry):
+        assert not registry.is_approved("sha256:unknown")
+
+    def test_approve_and_retrieve(self, registry: ApprovalRegistry):
+        intent = _intent_hash("shell", {"command": "rm /tmp/old"})
+        approval_id = registry.approve(
+            session_id="sess-abc",
+            intent_hash=intent,
+            operation_class=OP_DESTRUCTIVE,
+            tool="shell",
+        )
+        assert approval_id  # non-empty UUID
+
+        record = registry.get(intent)
+        assert record is not None
+        assert record["status"] == "approved"
+        assert record["intent_hash"] == intent
+        assert record["tool"] == "shell"
+        assert record["session_id"] == "sess-abc"
+
+    def test_is_approved_true_after_approve(self, registry: ApprovalRegistry):
+        intent = _intent_hash("shell", {"command": "git reset --hard HEAD~1"})
+        registry.approve("s1", intent, OP_DESTRUCTIVE, "shell")
+        assert registry.is_approved(intent)
+
+    def test_idempotent_approve(self, registry: ApprovalRegistry):
+        intent = _intent_hash("shell", {"command": "rm /tmp/x"})
+        id1 = registry.approve("s1", intent, OP_DESTRUCTIVE, "shell")
+        id2 = registry.approve("s1", intent, OP_DESTRUCTIVE, "shell")
+        # Second approve replaces the record; both succeed
+        assert id1
+        assert id2
+        assert registry.is_approved(intent)
+
+    def test_list_session_returns_only_session_records(
+        self, registry: ApprovalRegistry
+    ):
+        intent_a = _intent_hash("shell", {"command": "rm /tmp/a"})
+        intent_b = _intent_hash("shell", {"command": "rm /tmp/b"})
+        intent_c = _intent_hash("shell", {"command": "rm /tmp/c"})
+
+        registry.approve("sess-1", intent_a, OP_DESTRUCTIVE, "shell")
+        registry.approve("sess-1", intent_b, OP_DESTRUCTIVE, "shell")
+        registry.approve("sess-2", intent_c, OP_DESTRUCTIVE, "shell")
+
+        records_1 = registry.list_session("sess-1")
+        assert len(records_1) == 2
+        hashes_1 = {r["intent_hash"] for r in records_1}
+        assert intent_a in hashes_1
+        assert intent_b in hashes_1
+
+        records_2 = registry.list_session("sess-2")
+        assert len(records_2) == 1
+
+    def test_db_created_on_demand(self, tmp_path: Path):
+        db_path = tmp_path / "sub" / "dir" / "approvals.db"
+        assert not db_path.exists()
+        ApprovalRegistry(db_path)
+        assert db_path.exists()
+
+    def test_persists_across_instances(self, tmp_path: Path):
+        db_path = tmp_path / "approvals.db"
+        intent = _intent_hash("shell", {"command": "rm /tmp/persist"})
+
+        reg1 = ApprovalRegistry(db_path)
+        reg1.approve("s1", intent, OP_DESTRUCTIVE, "shell")
+
+        reg2 = ApprovalRegistry(db_path)
+        assert reg2.is_approved(intent)
+
+
+# ---------------------------------------------------------------------------
+# Manifest integration: approval_class field
+# ---------------------------------------------------------------------------
+
+
+class TestManifestApprovalClass:
+    """Verify that manifest pre-records include approval_class when approval.py is present."""
+
+    def test_pre_record_includes_approval_class(self, tmp_path: Path):
+        from unittest.mock import MagicMock
+
+        from gptme.hooks import clear_hooks
+        from gptme.hooks.manifest import register_manifest_hooks
+
+        manifest_dir = tmp_path / "manifest"
+        clear_hooks()
+        register_manifest_hooks(manifest_dir)
+
+        # Build a minimal ToolUse mock for a destructive shell command
+        tool_use = MagicMock()
+        tool_use.tool = "shell"
+        tool_use.kwargs = {"command": "rm -rf /tmp/old"}
+        tool_use.content = None
+
+        from gptme.hooks import HookType, trigger_hook
+        from gptme.hooks.types import ToolExecutePreData
+
+        data = ToolExecutePreData(tool_use=tool_use)
+        list(trigger_hook(HookType.TOOL_EXECUTE_PRE, data))
+
+        # Find the written pre-record
+        pre_files = list(manifest_dir.glob("*-pre.json"))
+        assert pre_files, "No pre-record was written"
+        import json
+
+        record = json.loads(pre_files[0].read_text())
+        assert record.get("approval_class") == OP_DESTRUCTIVE
+
+    def test_pre_record_safe_op_class(self, tmp_path: Path):
+        from unittest.mock import MagicMock
+
+        from gptme.hooks import clear_hooks
+        from gptme.hooks.manifest import register_manifest_hooks
+
+        manifest_dir = tmp_path / "manifest2"
+        clear_hooks()
+        register_manifest_hooks(manifest_dir)
+
+        tool_use = MagicMock()
+        tool_use.tool = "read"
+        tool_use.kwargs = {"path": "/tmp/foo.txt"}
+        tool_use.content = None
+
+        from gptme.hooks import HookType, trigger_hook
+        from gptme.hooks.types import ToolExecutePreData
+
+        data = ToolExecutePreData(tool_use=tool_use)
+        list(trigger_hook(HookType.TOOL_EXECUTE_PRE, data))
+
+        import json
+
+        pre_files = list(manifest_dir.glob("*-pre.json"))
+        assert pre_files
+        record = json.loads(pre_files[0].read_text())
+        assert record.get("approval_class") == OP_SAFE
