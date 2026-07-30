@@ -125,6 +125,12 @@ class TestClassifyTool:
             classify_tool("shell", {"command": '"rm" -rf /tmp/old'}) == OP_DESTRUCTIVE
         )
 
+    def test_shell_embedded_quoted_rm_is_destructive(self):
+        # r"m" is a bash word-concat evasion that resolves to rm; must be caught
+        assert (
+            classify_tool("shell", {"command": 'r"m" -rf /tmp/old'}) == OP_DESTRUCTIVE
+        )
+
     def test_unknown_tool_defaults_to_modifying(self):
         assert classify_tool("ipython", {"code": "print(1)"}) == OP_MODIFYING
 

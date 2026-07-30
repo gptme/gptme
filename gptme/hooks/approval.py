@@ -88,6 +88,7 @@ def _unescape_first_word(word: str) -> str:
     - Backslash-escaped characters: ``r\\m`` → ``rm``, ``\\rm`` → ``rm``
     - Surrounding single quotes: ``'rm'`` → ``rm``
     - Surrounding double quotes: ``"rm"`` → ``rm``
+    - Embedded quotes: ``r"m"`` → ``rm``, ``r'm'`` → ``rm``
 
     This is intentionally narrow (first word only, common forms only).  A full
     shell word-expansion is out of scope — see :func:`classify_tool` note.
@@ -96,7 +97,9 @@ def _unescape_first_word(word: str) -> str:
     if len(word) >= 2 and word[0] == word[-1] and word[0] in ('"', "'"):
         word = word[1:-1]
     # Remove backslash escaping inside the word: \X → X
-    return re.sub(r"\\(.)", r"\1", word)
+    word = re.sub(r"\\(.)", r"\1", word)
+    # Strip any remaining embedded quote characters: r"m" → rm, r'm' → rm
+    return word.replace('"', "").replace("'", "")
 
 
 def classify_tool(tool: str, args: dict[str, Any]) -> str:
@@ -114,10 +117,10 @@ def classify_tool(tool: str, args: dict[str, Any]) -> str:
         Classification is heuristic: it matches common literal command patterns
         after whitespace normalization and first-word unescaping.  Common forms
         of shell quoting and backslash-escaping on the executable name are
-        stripped (``r\\m`` → ``rm``, ``'rm'`` → ``rm``).  More exotic evasions
-        (aliases, ``eval``, here-strings, brace expansion) are still out of
-        scope — always combine with ``--approval-mode block`` in fully automated
-        contexts for defence-in-depth.
+        stripped (``r\\m`` → ``rm``, ``'rm'`` → ``rm``, ``r"m"`` → ``rm``).
+        More exotic evasions (aliases, ``eval``, here-strings, brace expansion)
+        are still out of scope — always combine with ``--approval-mode block``
+        in fully automated contexts for defence-in-depth.
     """
     if tool in ("read", "browser"):
         return OP_SAFE
