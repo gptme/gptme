@@ -205,6 +205,12 @@ def test_chat_config_save_writes_valid_utf8(tmp_path: Path):
 
 LEGACY_BYTES_ABOUT = "我是一名开发者".encode("cp936")
 
+# A byte no candidate can decode, so the read falls all the way through to
+# `errors="replace"`. 0xff is invalid in UTF-8 and, unlike a single-byte code page
+# that maps every byte, invalid in cp936 too — which is what makes cp936 the locale
+# to patch in for the replacement path.
+UNDECODABLE_BYTE = b"\xff"
+
 
 @pytest.mark.parametrize("utf8_mode", [False, True], ids=["locale", "utf8-mode"])
 def test_legacy_encoded_user_config_is_still_readable(tmp_path: Path, utf8_mode: bool):
@@ -390,6 +396,70 @@ def test_every_legacy_fallback_is_recorded_as_unverified(
 
     assert isinstance(text, str)
     assert str(config_file.resolve()) in user_mod._encoding_unverified
+
+
+def test_replacement_decoding_is_recorded_as_unverified(tmp_path: Path):
+    """The last-resort read is a guess too, and the one that loses the most.
+
+    A legacy-codec fallback at least keeps the bytes' meaning — mojibake
+    re-encodes to the original bytes — whereas U+FFFD discards which byte it
+    stood for, so nothing but the backup can undo it. Leaving this path unmarked
+    would exempt the most damaging decode from the protection the milder ones get.
+    """
+    config_file = tmp_path / "config.toml"
+    config_file.write_bytes(b'[user]\nabout = "caf' + UNDECODABLE_BYTE + b'"\n')
+    user_mod._encoding_unverified.clear()
+
+    with legacy_locale_codec("cp936"):
+        text = user_mod._read_config_text(config_file)
+
+    assert "�" in text, "test byte was decodable after all"
+    assert str(config_file.resolve()) in user_mod._encoding_unverified
+
+
+def test_replacement_decoded_config_can_still_be_valid_toml(tmp_path: Path):
+    """Reaching the parser is not the same as being rejected by it.
+
+    `errors="replace"` is chosen so the parser decides what happens, and for a
+    file that is corrupt in its structure the parser does reject it (see
+    `test_undecodable_config_fails_at_the_parser_not_the_decoder`). But an
+    undecodable byte *inside a quoted value* leaves the document well-formed:
+    U+FFFD is an ordinary character to TOML. So the parser cannot be relied on as
+    the backstop for this path either, which is why it is marked instead.
+    """
+    text = (b'[user]\nabout = "caf' + UNDECODABLE_BYTE + b'"\n').decode(
+        "utf-8", errors="replace"
+    )
+
+    assert tomlkit.loads(text).unwrap()["user"]["about"] == "caf�"
+
+    # And unlike a wrong-codec read, this one cannot be undone from the text:
+    # the byte is gone, not merely misinterpreted.
+    assert "caf�".encode(errors="replace") != b"caf" + UNDECODABLE_BYTE
+
+
+def test_replacement_decoded_config_is_backed_up_before_being_rewritten(
+    tmp_path: Path, monkeypatch
+):
+    """End to end: a save must not be what turns U+FFFD into the file's contents.
+
+    This is the case the parser lets through — a well-formed document holding a
+    replacement character — so without the marker the save proceeds, writes the
+    U+FFFD out as UTF-8, and the byte it replaced is gone for good with no `.orig`
+    beside it.
+    """
+    config_file = tmp_path / "config.toml"
+    original = b'[user]\nabout = "caf' + UNDECODABLE_BYTE + b'"\n'
+    config_file.write_bytes(original)
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    user_mod._encoding_unverified.clear()
+
+    with legacy_locale_codec("cp936"), legacy_default_encoding("cp936"):
+        user_mod.set_config_value("user.name", "Alice", reload=False)
+
+    backup = Path(str(config_file) + ".orig")
+    assert backup.exists(), "original bytes were discarded"
+    assert backup.read_bytes() == original
 
 
 def test_unverified_config_is_backed_up_before_being_rewritten(

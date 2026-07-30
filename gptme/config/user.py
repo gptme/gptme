@@ -161,8 +161,11 @@ def _read_config_text(path: str | Path) -> str:
 
     Never raises `UnicodeDecodeError`: callers wrap this in a TOML parse and handle
     parse errors (`ChatConfig.from_logdir` degrades to defaults), so a file no
-    candidate can decode is read with `errors="replace"` and left for the parser to
-    reject.
+    candidate can decode is read with `errors="replace"`. That usually reaches the
+    parser and is rejected, but not always -- undecodable bytes inside a quoted
+    value leave the document well-formed -- so replacement is treated as a guess
+    too, and the more damaging one: U+FFFD discards which byte it stood for, so
+    only the backup can undo it.
     """
     data = Path(path).read_bytes()
     try:
@@ -188,8 +191,10 @@ def _read_config_text(path: str | Path) -> str:
 
     logger.warning(
         f"Config file {path} is not valid UTF-8 and no legacy codec could decode "
-        "it; reading it with replacement characters. Some values may be garbled."
+        "it; reading it with replacement characters. Some values may be garbled, "
+        "and the original bytes are saved before anything rewrites the file."
     )
+    _mark_encoding_unverified(path)
     return data.decode("utf-8", errors="replace")
 
 
