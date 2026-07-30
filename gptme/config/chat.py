@@ -28,7 +28,7 @@ else:
 from ..util import path_with_tilde
 from .models import AgentConfig, MCPConfig
 from .project import get_project_config
-from .user import _read_config_text
+from .user import _back_up_before_reencoding, _read_config_text
 
 if TYPE_CHECKING:
     from ..tools.base import ToolFormat
@@ -284,6 +284,10 @@ class ChatConfig:
                 doc = tomlkit.parse(tomlkit.dumps(config_dict))
         else:
             doc = tomlkit.parse(tomlkit.dumps(config_dict))
+
+        # If this config was read through a codec that accepts any bytes, its text
+        # is a guess; keep the original bytes before the rename discards them.
+        _back_up_before_reencoding(chat_config_path)
 
         # Use atomic write: write to temp file, then rename
         # This prevents corruption if process is interrupted during write

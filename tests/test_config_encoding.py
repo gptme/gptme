@@ -340,3 +340,114 @@ def test_a_codec_that_cannot_decode_hands_over_to_the_next(tmp_path: Path):
 
     assert "我是一名开发者" in text
     assert "�" not in text  # no replacement characters
+
+
+def test_a_successful_decode_does_not_identify_the_codec():
+    """Why the fallback cannot be trusted, and why no cheap check can rescue it.
+
+    This is the premise the rest of these tests rest on, so it is asserted rather
+    than assumed. The same cp936 bytes decode without error, into the wrong text,
+    under codecs of both kinds:
+
+    - single-byte tables map each byte independently and so accept almost anything;
+    - multi-byte code pages *do* have invalid sequences, but real text routinely
+      satisfies more than one of them, so raising is not something they can be
+      relied on to do.
+
+    "Does this codec reject some bytes?" therefore does not separate the safe cases
+    from the unsafe ones -- cp1252 leaves five bytes undefined and none of them occur
+    here. Hence: no classifier, treat every fallback as a guess.
+    """
+    for codec in ("cp1252", "latin-1", "cp437", "big5", "cp949", "cp932"):
+        decoded = LEGACY_BYTES_ABOUT.decode(codec)  # no error
+        assert decoded != "我是一名开发者", f"{codec} unexpectedly round-tripped"
+
+    # And the parser is no backstop: the mojibake is still valid TOML.
+    mojibake = (b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n').decode("cp1252")
+    assert tomlkit.loads(mojibake).unwrap()["user"]["about"] != "我是一名开发者"
+
+    # The damage is undone only by the bytes, which is what the backup preserves.
+    assert LEGACY_BYTES_ABOUT.decode("cp1252").encode("cp1252") == LEGACY_BYTES_ABOUT
+
+
+@pytest.mark.parametrize("locale_codec", ["cp1252", "cp936"])
+def test_every_legacy_fallback_is_recorded_as_unverified(
+    tmp_path: Path, locale_codec: str
+):
+    """Both the wrong codec and the right one are marked; neither can be told apart.
+
+    cp1252 is the damaging case -- it decodes these bytes into mojibake -- and cp936
+    is the one that happens to be correct. `_read_config_text` cannot distinguish
+    them, so it must not try: both get recorded, and the cost of being wrong about
+    cp936 is one backup file nobody needs.
+    """
+    config_file = tmp_path / "config.toml"
+    config_file.write_bytes(b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n')
+    user_mod._encoding_unverified.clear()
+
+    with legacy_locale_codec(locale_codec):
+        text = user_mod._read_config_text(config_file)
+
+    assert isinstance(text, str)
+    assert str(config_file.resolve()) in user_mod._encoding_unverified
+
+
+def test_unverified_config_is_backed_up_before_being_rewritten(
+    tmp_path: Path, monkeypatch
+):
+    """The original bytes must survive the rewrite that would otherwise erase them.
+
+    A misread is reversible — the bytes still mean what they meant, they were only
+    read through the wrong table — but only while the bytes exist. Rewriting as
+    UTF-8 without a copy makes the loss permanent.
+    """
+    config_file = tmp_path / "config.toml"
+    original = b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n'
+    config_file.write_bytes(original)
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    user_mod._encoding_unverified.clear()
+
+    with legacy_locale_codec("cp1252"), legacy_default_encoding("cp1252"):
+        user_mod.set_config_value("user.name", "Alice", reload=False)
+
+    backup = Path(str(config_file) + ".orig")
+    assert backup.exists(), "original bytes were discarded"
+    assert backup.read_bytes() == original
+    # And the loss is recoverable from the backup.
+    assert LEGACY_BYTES_ABOUT.decode("cp936") == "我是一名开发者"
+
+
+def test_utf8_config_is_not_backed_up(tmp_path: Path, monkeypatch):
+    """The normal path stays clean: no fallback, no `.orig` beside every config.
+
+    A UTF-8 config is read by the codec TOML specifies, so there is nothing to
+    second-guess. Only files that went through the legacy fallback get a copy.
+    """
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[user]\nabout = "我是一名开发者"\n', encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    user_mod._encoding_unverified.clear()
+
+    with legacy_locale_codec("cp1252"), legacy_default_encoding("cp1252"):
+        user_mod.set_config_value("user.name", "Alice", reload=False)
+
+    assert not Path(str(config_file) + ".orig").exists()
+    doc = tomlkit.loads(config_file.read_bytes().decode("utf-8")).unwrap()
+    assert doc["user"]["about"] == "我是一名开发者"
+
+
+def test_backup_is_written_once_not_overwritten_by_a_second_save(
+    tmp_path: Path, monkeypatch
+):
+    """A second save must not replace the original with the already-garbled file."""
+    config_file = tmp_path / "config.toml"
+    original = b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n'
+    config_file.write_bytes(original)
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    user_mod._encoding_unverified.clear()
+
+    with legacy_locale_codec("cp1252"), legacy_default_encoding("cp1252"):
+        user_mod.set_config_value("user.name", "Alice", reload=False)
+        user_mod.set_config_value("user.name", "Bob", reload=False)
+
+    assert Path(str(config_file) + ".orig").read_bytes() == original

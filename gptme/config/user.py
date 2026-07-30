@@ -79,6 +79,43 @@ def _legacy_codec_candidates() -> list[str]:
     return result
 
 
+# Configs whose text came out of a guessed codec rather than a declared one.
+# Rewriting one as UTF-8 would persist whatever text that guess produced, and the
+# original bytes would be gone -- so the bytes are backed up first, once.
+_encoding_unverified: set[str] = set()
+
+
+def _mark_encoding_unverified(path: str | Path) -> None:
+    """Record that this file's text came from a codec that was guessed, not declared."""
+    _encoding_unverified.add(str(Path(path).resolve()))
+
+
+def _back_up_before_reencoding(path: str | Path) -> None:
+    """Keep the original bytes of a config whose decoding was a guess.
+
+    Called before overwriting such a file as UTF-8. A misread is reversible -- the
+    bytes still say what they always said, they were just read through the wrong
+    table -- but only while those bytes exist. One backup per file: a second save
+    would otherwise overwrite the original with the already-garbled version.
+    """
+    resolved = str(Path(path).resolve())
+    if resolved not in _encoding_unverified:
+        return
+    backup = Path(f"{path}.orig")
+    try:
+        if not backup.exists():
+            backup.write_bytes(Path(path).read_bytes())
+            logger.warning(
+                f"Rewriting {path} as UTF-8, but its previous encoding could not be "
+                f"confirmed. The original bytes are saved at {backup} in case any "
+                "non-ASCII values were misread."
+            )
+    except OSError as e:
+        logger.warning(f"Could not back up {path} before rewriting it as UTF-8: {e}")
+    finally:
+        _encoding_unverified.discard(resolved)
+
+
 def _read_config_text(path: str | Path) -> str:
     """Read a TOML config file as text.
 
@@ -89,8 +126,14 @@ def _read_config_text(path: str | Path) -> str:
     instead of making gptme fail to start; the next write re-encodes it as UTF-8,
     since the writers are now explicit.
 
-    Each candidate is decoded strictly, so a codec that cannot represent the bytes
-    hands over to the next one instead of quietly producing mojibake.
+    A decode that succeeds is not evidence that this was the codec that wrote the
+    file, and no cheap check makes it so. A single-byte code page accepts anything:
+    cp936 bytes read as cp1252 "succeed" as mojibake. Multi-byte code pages are no
+    safer in practice -- the same cp936 bytes also decode cleanly, and wrongly, as
+    big5, cp949 and cp932. Mojibake is still valid TOML, so the parser will not
+    catch it either. So every fallback here is treated as a guess: it keeps the file
+    readable, but the bytes are backed up before anything rewrites them as UTF-8,
+    since a misread is reversible only while the original bytes exist.
 
     Never raises `UnicodeDecodeError`: callers wrap this in a TOML parse and handle
     parse errors (`ChatConfig.from_logdir` degrades to defaults), so a file no
@@ -109,10 +152,14 @@ def _read_config_text(path: str | Path) -> str:
         except UnicodeDecodeError:
             continue
         logger.warning(
-            f"Config file {path} is not valid UTF-8; reading it as {codec} "
-            "(written by an older gptme). It will be rewritten as UTF-8 on the "
-            "next config change."
+            f"Config file {path} is not valid UTF-8. Reading it as {codec}, the "
+            "locale's encoding, which is what an older gptme would have written it "
+            "in -- but a successful decode does not prove that, so non-ASCII values "
+            "may be garbled if the file came from a machine with a different one. "
+            "They are preserved as read; check them before saving, since saving "
+            "rewrites the file as UTF-8."
         )
+        _mark_encoding_unverified(path)
         return text
 
     logger.warning(
@@ -159,6 +206,7 @@ def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
             changed = True
     if changed:
         try:
+            _back_up_before_reencoding(path)
             with open(path, "w", encoding="utf-8") as f:
                 tomlkit.dump(doc, f)
         except OSError as e:
@@ -517,6 +565,7 @@ def set_config_value(
     # Write the config
     if local:
         os.makedirs(os.path.dirname(write_path), exist_ok=True)
+    _back_up_before_reencoding(write_path)
     with open(write_path, "w", encoding="utf-8") as config_file:
         tomlkit.dump(doc, config_file)
 
@@ -570,6 +619,7 @@ def save_provider_config(
 
     if local:
         os.makedirs(os.path.dirname(write_path), exist_ok=True)
+    _back_up_before_reencoding(write_path)
     with open(write_path, "w", encoding="utf-8") as config_file:
         tomlkit.dump(doc, config_file)
 
