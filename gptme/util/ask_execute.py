@@ -77,6 +77,7 @@ def execute_with_confirmation(
         [str | None, list[str] | None, dict[str, str] | None], Path | None
     ],
     # Optional parameters
+    workspace: Path | None = None,
     preview_fn: Callable[[str, Path | None], str | None] | None = None,
     preview_header: str | None = None,
     preview_lang: str | None = None,
@@ -94,6 +95,7 @@ def execute_with_confirmation(
         kwargs: Dictionary of keyword arguments
         execute_fn: Function that performs the actual execution
         get_path_fn: Function to get the path from args/kwargs
+        workspace: Workspace directory passed to TOOL_CONFIRM hooks (e.g. approval gate)
         preview_fn: Optional function to prepare preview content
         preview_lang: Language for syntax highlighting
         confirm_msg: Custom confirmation message
@@ -117,6 +119,7 @@ def execute_with_confirmation(
         # The hook will show preview, allow editing, and return result
         result = get_confirmation(
             preview=preview_content or content,
+            workspace=workspace,
             default_confirm=True,
         )
 

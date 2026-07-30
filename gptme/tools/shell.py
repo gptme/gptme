@@ -1746,12 +1746,15 @@ def execute_shell(
         def execute_fn(cmd: str, path: Path | None) -> Generator[Message, None, None]:
             return execute_shell_impl(cmd, path, timeout=timeout)
 
+        ws_str = get_workspace_cwd()
+        workspace = Path(ws_str) if ws_str else None
         yield from execute_with_confirmation(
             cmd,
             args,
             kwargs,
             execute_fn=execute_fn,
             get_path_fn=get_path_fn,
+            workspace=workspace,
             preview_fn=preview_shell,
             preview_lang="bash",
             confirm_msg="Run command?",

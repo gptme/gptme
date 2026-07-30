@@ -368,3 +368,64 @@ class TestManifestApprovalClass:
         assert pre_files
         record = json.loads(pre_files[0].read_text())
         assert record.get("approval_class") == OP_SAFE
+
+
+# ---------------------------------------------------------------------------
+# execute_with_confirmation workspace threading
+# ---------------------------------------------------------------------------
+
+
+class TestExecuteWithConfirmationWorkspace:
+    """Verify workspace is forwarded from execute_with_confirmation → get_confirmation."""
+
+    def test_workspace_reaches_tool_confirm_hook(self, tmp_path: Path):
+        """execute_with_confirmation(workspace=ws) must pass ws to TOOL_CONFIRM hooks."""
+        from unittest.mock import MagicMock, patch
+
+        from gptme.hooks import HookType, clear_hooks, register_hook
+        from gptme.hooks.confirm import ConfirmationResult
+        from gptme.util.ask_execute import execute_with_confirmation
+
+        ws = tmp_path / "my-workspace"
+        ws.mkdir()
+
+        received: list[Path | None] = []
+
+        def capture_hook(tool_use, preview=None, workspace=None):
+            received.append(workspace)
+            return ConfirmationResult.confirm()
+
+        clear_hooks()
+        register_hook(
+            name="capture",
+            hook_type=HookType.TOOL_CONFIRM,
+            func=capture_hook,
+            priority=0,
+            enabled=True,
+        )
+
+        # get_confirmation() skips hooks when get_current_tool_use() returns None.
+        # Provide a minimal ToolUse stub so the hook path is exercised.
+        tool_use_stub = MagicMock()
+        tool_use_stub.tool = "shell"
+        tool_use_stub.kwargs = {"command": "rm -rf /tmp/old"}
+        tool_use_stub.content = None
+
+        def execute_fn(cmd: str, path):
+            return iter([])
+
+        with patch("gptme.tools.base.get_current_tool_use", return_value=tool_use_stub):
+            list(
+                execute_with_confirmation(
+                    "rm -rf /tmp/old",
+                    None,
+                    None,
+                    execute_fn=execute_fn,
+                    get_path_fn=lambda code, args, kwargs: None,
+                    workspace=ws,
+                )
+            )
+
+        assert received, "TOOL_CONFIRM hook was never called"
+        assert received[0] is not None, "workspace was None — not forwarded"
+        assert received[0] == ws, f"expected {ws}, got {received[0]}"
