@@ -328,11 +328,40 @@ class ShellSession:
 
     def cwd(self) -> Path:
         """Return the persistent shell's current working directory."""
-        if not _is_windows:
+        if sys.platform.startswith("linux"):
             # Read the kernel's view of the shell process instead of executing
             # `pwd` inside the mutable shell, where aliases or functions can
             # spoof the directory used to scope an approval.
             return Path(f"/proc/{self.process.pid}/cwd").resolve(strict=True)
+
+        if sys.platform == "darwin":
+            try:
+                stdout = subprocess.check_output(
+                    [
+                        "/usr/sbin/lsof",
+                        "-a",
+                        "-p",
+                        str(self.process.pid),
+                        "-d",
+                        "cwd",
+                        "-Fn",
+                    ],
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    timeout=10,
+                )
+            except (
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+                FileNotFoundError,
+            ) as exc:
+                raise RuntimeError(
+                    "Could not determine shell working directory"
+                ) from exc
+            for line in stdout.splitlines():
+                if line.startswith("n"):
+                    return Path(line[1:]).resolve(strict=True)
+            raise RuntimeError("Could not determine shell working directory")
 
         returncode, stdout, _ = self._run("command pwd -P", output=False)
         if returncode != 0 or not stdout.strip():

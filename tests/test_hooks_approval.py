@@ -8,6 +8,7 @@ Covers:
 
 from __future__ import annotations
 
+import subprocess
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -230,6 +231,32 @@ def test_workspace_cannot_be_spoofed_by_pwd_function(tmp_path):
         shell.close()
 
     assert captured_workspace == [target.resolve()]
+
+
+def test_workspace_uses_lsof_on_macos(tmp_path):
+    """macOS obtains the shell cwd without relying on Linux procfs."""
+    from unittest.mock import Mock
+
+    from gptme.tools.shell import ShellSession
+
+    shell = ShellSession.__new__(ShellSession)
+    shell.process = Mock(pid=123)
+    lsof_output = f"p123\nfcwd\nn{tmp_path}\n"
+
+    with (
+        patch("gptme.tools.shell.sys.platform", "darwin"),
+        patch(
+            "gptme.tools.shell.subprocess.check_output", return_value=lsof_output
+        ) as check_output,
+    ):
+        assert shell.cwd() == tmp_path.resolve()
+
+    check_output.assert_called_once_with(
+        ["/usr/sbin/lsof", "-a", "-p", "123", "-d", "cwd", "-Fn"],
+        stderr=subprocess.DEVNULL,
+        text=True,
+        timeout=10,
+    )
 
 
 def test_workspace_contextvar_reset_after_execute(tmp_path):
