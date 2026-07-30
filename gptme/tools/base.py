@@ -763,6 +763,15 @@ class ToolUse:
                     # Set context var so tools can access current ToolUse
                     # via get_current_tool_use() or implicitly in get_confirmation()
                     token = _current_tool_use.set(self)
+                    # Propagate workspace into the shell ContextVar so execute_shell
+                    # can pass it through to get_confirmation / approval hooks even
+                    # in the CLI path (where session_step.py never calls
+                    # set_workspace_cwd).  Lazy import avoids circular dependency.
+                    ws_token = None
+                    if workspace is not None:
+                        from .shell import _workspace_cwd  # fmt: skip
+
+                        ws_token = _workspace_cwd.set(str(workspace))
                     try:
                         ex = tool.execute(
                             self.content,
@@ -828,6 +837,10 @@ class ToolUse:
                             )
                     finally:
                         _current_tool_use.reset(token)
+                        if ws_token is not None:
+                            from .shell import _workspace_cwd  # fmt: skip
+
+                            _workspace_cwd.reset(ws_token)
 
                     # Calculate duration
                     duration = time.time() - start_time

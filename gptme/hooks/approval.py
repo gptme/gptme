@@ -336,7 +336,15 @@ def register_approval_hooks(
 
         intent = _intent_hash(tool_use.tool, kw)
 
-        if registry.is_approved(intent, workspace=workspace):
+        # Always resolve to a concrete workspace for the scope check.  When the
+        # hook receives workspace=None (e.g. non-workspace CLI path where the
+        # _workspace_cwd ContextVar was never set), fall back to cwd so that
+        # is_approved() always performs a workspace comparison rather than
+        # accepting any stored record regardless of its stored workspace.
+        from pathlib import Path as _Path
+
+        effective_ws = workspace if workspace is not None else _Path.cwd()
+        if registry.is_approved(intent, workspace=effective_ws):
             logger.debug(
                 "Approval gate: pre-approved %s op %s", op_class, tool_use.tool
             )
@@ -359,7 +367,7 @@ def register_approval_hooks(
                     intent_hash=intent,
                     operation_class=op_class,
                     tool=tool_use.tool,
-                    workspace=workspace,
+                    workspace=effective_ws,
                 )
                 return None  # approved — fall through to tool execution
             return ConfirmationResult(

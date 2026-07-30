@@ -429,3 +429,100 @@ class TestExecuteWithConfirmationWorkspace:
         assert received, "TOOL_CONFIRM hook was never called"
         assert received[0] is not None, "workspace was None — not forwarded"
         assert received[0] == ws, f"expected {ws}, got {received[0]}"
+
+
+class TestApprovalGateCwdFallback:
+    """Verify _approval_gate falls back to cwd when workspace=None."""
+
+    def test_approval_gate_uses_cwd_when_workspace_is_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When workspace=None, the gate must use cwd so is_approved is workspace-scoped."""
+        from gptme.hooks import clear_hooks
+        from gptme.hooks.approval import register_approval_hooks
+
+        db = tmp_path / "approvals.db"
+        # Change cwd to tmp_path so the gate uses tmp_path as effective_ws
+        monkeypatch.chdir(tmp_path)
+
+        clear_hooks()
+        register_approval_hooks(
+            approval_mode="interactive", db_path=db, session_id="test"
+        )
+
+        # Pre-approve the intent for tmp_path (the cwd the gate will use)
+        from gptme.hooks.approval import OP_DESTRUCTIVE, ApprovalRegistry, _intent_hash
+
+        intent = _intent_hash("shell", {"command": "rm /tmp/old"})
+        reg = ApprovalRegistry(db)
+        reg.approve("test", intent, OP_DESTRUCTIVE, "shell", workspace=tmp_path)
+
+        # Now check: the gate should accept this approval when called with workspace=None
+        # because effective_ws falls back to cwd == tmp_path
+        from typing import cast
+        from unittest.mock import MagicMock
+
+        from gptme.hooks import HookType, get_hooks
+        from gptme.hooks.confirm import ToolConfirmHook
+
+        tool_use = MagicMock()
+        tool_use.tool = "shell"
+        tool_use.kwargs = {"command": "rm /tmp/old"}
+        tool_use.content = None
+
+        hooks = [
+            h for h in get_hooks(HookType.TOOL_CONFIRM) if h.name == "approval.gate"
+        ]
+        assert hooks, "approval.gate hook not registered"
+        gate_func = cast(ToolConfirmHook, hooks[0].func)
+
+        result = gate_func(tool_use, workspace=None)
+        assert result is None, (
+            f"Expected gate to pass through (pre-approved for cwd), but got: {result}"
+        )
+
+    def test_approval_gate_rejects_wrong_workspace_even_with_cwd_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A cross-workspace approval must not pass when cwd differs from stored workspace."""
+        from gptme.hooks import clear_hooks
+        from gptme.hooks.approval import register_approval_hooks
+
+        ws_a = tmp_path / "workspace-a"
+        ws_b = tmp_path / "workspace-b"
+        ws_a.mkdir()
+        ws_b.mkdir()
+        db = tmp_path / "approvals.db"
+
+        # Pre-approve for ws_a
+        from gptme.hooks.approval import OP_DESTRUCTIVE, ApprovalRegistry, _intent_hash
+
+        intent = _intent_hash("shell", {"command": "rm /tmp/old"})
+        reg = ApprovalRegistry(db)
+        reg.approve("test", intent, OP_DESTRUCTIVE, "shell", workspace=ws_a)
+
+        clear_hooks()
+        register_approval_hooks(approval_mode="block", db_path=db, session_id="test")
+
+        # Change cwd to ws_b — the gate falls back to ws_b which != ws_a
+        monkeypatch.chdir(ws_b)
+
+        from typing import cast
+        from unittest.mock import MagicMock
+
+        from gptme.hooks import HookType, get_hooks
+        from gptme.hooks.confirm import ConfirmAction, ToolConfirmHook
+
+        tool_use = MagicMock()
+        tool_use.tool = "shell"
+        tool_use.kwargs = {"command": "rm /tmp/old"}
+        tool_use.content = None
+
+        hooks = [
+            h for h in get_hooks(HookType.TOOL_CONFIRM) if h.name == "approval.gate"
+        ]
+        gate_func = cast(ToolConfirmHook, hooks[0].func)
+
+        result = gate_func(tool_use, workspace=None)
+        assert result is not None, "Gate must block when stored workspace != cwd"
+        assert result.action == ConfirmAction.SKIP
