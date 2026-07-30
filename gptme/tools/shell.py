@@ -326,6 +326,13 @@ class ShellSession:
         # make Python output unbuffered by default for better UX
         self.run("export PYTHONUNBUFFERED=1")
 
+    def cwd(self) -> Path:
+        """Return the persistent shell's current working directory."""
+        returncode, stdout, _ = self._run("pwd -P", output=False)
+        if returncode != 0 or not stdout.strip():
+            raise RuntimeError("Could not determine shell working directory")
+        return Path(stdout.strip()).resolve()
+
     def run(
         self, code: str, output=True, timeout: float | None = None
     ) -> tuple[int | None, str, str]:
@@ -1746,8 +1753,10 @@ def execute_shell(
         def execute_fn(cmd: str, path: Path | None) -> Generator[Message, None, None]:
             return execute_shell_impl(cmd, path, timeout=timeout)
 
-        ws_str = get_workspace_cwd()
-        workspace = Path(ws_str) if ws_str else None
+        # Scope approval reuse to where this persistent shell will execute the
+        # command, not the configured workspace where the shell started.  The
+        # shell may have changed directory in an earlier tool call.
+        workspace = get_shell().cwd()
         yield from execute_with_confirmation(
             cmd,
             args,

@@ -9,6 +9,7 @@ Covers:
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -153,6 +154,44 @@ def test_workspace_propagated_from_tool_use_execute_to_approval_gate(tmp_path):
         "workspace must not be None when passed via ToolUse.execute()"
     )
     assert captured_workspace[0].resolve() == ws.resolve()
+
+
+def test_workspace_tracks_persistent_shell_after_cd(tmp_path):
+    """Approval scope follows the shell's actual cwd after a prior cd."""
+    from gptme.hooks import HookType, clear_hooks, register_hook
+    from gptme.hooks.confirm import ConfirmationResult
+    from gptme.tools.shell import ShellSession, set_shell
+
+    initial = tmp_path / "initial"
+    target = tmp_path / "target"
+    initial.mkdir()
+    target.mkdir()
+    shell = ShellSession(cwd=str(initial))
+    shell.run(f"cd {target}")
+    set_shell(shell)
+    captured_workspace: list[Path | None] = []
+
+    def spy_hook(tool_use, preview=None, workspace=None):
+        captured_workspace.append(workspace)
+        return ConfirmationResult.skip("test spy")
+
+    clear_hooks()
+    register_hook(
+        name="test.workspace_after_cd",
+        hook_type=HookType.TOOL_CONFIRM,
+        func=spy_hook,
+        priority=100,
+        enabled=True,
+    )
+    try:
+        tool_use = ToolUse(tool="shell", args=[], content="touch relative-file")
+        with patch("gptme.tools.shell.get_shell", return_value=shell):
+            list(tool_use.execute(workspace=initial))
+    finally:
+        clear_hooks()
+        shell.close()
+
+    assert captured_workspace == [target.resolve()]
 
 
 def test_workspace_contextvar_reset_after_execute(tmp_path):
