@@ -508,12 +508,17 @@ def _start_acp_step_thread(
     conversation_id: str,
     session: "ConversationSession",
     workspace: Path,
-) -> None:
-    """Start an ACP-backed step in a background thread."""
-    with SessionManager.conversation_lock(conversation_id):
-        session.last_error = None
-        session.generating = True
-        session.generating_since = datetime.now(tz=timezone.utc)
+    *,
+    reserved: bool = False,
+) -> bool:
+    """Start an ACP-backed step unless another generation has reserved it."""
+    if not reserved:
+        with SessionManager.conversation_lock(conversation_id), session.step_lock:
+            if session.generating:
+                return False
+            session.generating = True
+            session.generating_since = datetime.now(tz=timezone.utc)
+    session.last_error = None
 
     def _run() -> None:
         from ..hooks import current_conversation_id, current_session_id
@@ -527,6 +532,7 @@ def _start_acp_step_thread(
     ctx = contextvars.copy_context()
     t = threading.Thread(target=ctx.run, args=(_run,), daemon=True)
     t.start()
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -1031,25 +1037,21 @@ def _start_step_thread(
     branch: str = "main",
     auto_confirm: bool = False,
     stream: bool = True,
-) -> None:
-    """Start a step execution in a background thread.
+    *,
+    reserved: bool = False,
+) -> bool:
+    """Start a step unless another generation has already reserved it."""
 
-    Clears any previous error state before starting.
-    """
-
-    # Clear previous error and mark as generating before starting thread
-    # to avoid race condition where interrupt is called before the thread
-    # sets generating=True.
-    #
-    # NOTE: the /step route handler also sets session.generating = True early
-    # (under step_lock, with try/finally guard).  This assignment is still
-    # needed because _start_step_thread is called directly from the
-    # tool-confirm endpoint (api_conversation_tool_response), which bypasses
-    # the /step route's guard.
-    with SessionManager.conversation_lock(conversation_id):
-        session.last_error = None
-        session.generating = True
-        session.generating_since = datetime.now(tz=timezone.utc)
+    # Direct callers (tool continuations and A2A) share /step's atomic
+    # check-and-reserve protocol. The /step route reserves before setup and
+    # identifies that reservation explicitly to avoid rejecting itself.
+    if not reserved:
+        with SessionManager.conversation_lock(conversation_id), session.step_lock:
+            if session.generating:
+                return False
+            session.generating = True
+            session.generating_since = datetime.now(tz=timezone.utc)
+    session.last_error = None
 
     def step_thread() -> None:
         # Set conversation/session context vars so hooks triggered during
@@ -1075,6 +1077,7 @@ def _start_step_thread(
     thread = threading.Thread(target=ctx.run, args=(step_thread,))
     thread.daemon = True
     thread.start()
+    return True
 
 
 # ---------------------------------------------------------------------------

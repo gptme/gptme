@@ -486,6 +486,7 @@ def api_conversation_step(conversation_id: str):
                 conversation_id=conversation_id,
                 session=session,
                 workspace=chat_config.workspace,
+                reserved=True,
             )
         else:
             # model should be non-None here: the `if not model and not session.use_acp`
@@ -505,6 +506,7 @@ def api_conversation_step(conversation_id: str):
                 branch=branch,
                 auto_confirm=auto_confirm_enabled,
                 stream=stream,
+                reserved=True,
             )
         _step_dispatched = True
     finally:

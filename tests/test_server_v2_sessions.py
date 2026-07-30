@@ -770,6 +770,35 @@ class TestToolConfirmEndpoint:
         assert response.status_code == 200
         assert tool_id not in session.pending_tools
 
+    def test_skip_does_not_dispatch_when_step_reserved_generation(
+        self, conv, client: FlaskClient
+    ):
+        """A tool continuation must not overlap a generation reserved by /step."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        tool_id = str(uuid.uuid4())
+        session.pending_tools[tool_id] = ToolExecution(
+            tool_id=tool_id,
+            tooluse=ToolUse("bash", [], "rm -rf /"),
+        )
+        session.generating = True
+
+        with (
+            patch("gptme.server.api_v2_sessions._append_and_notify"),
+            patch("gptme.server.session_step.threading.Thread") as thread_cls,
+        ):
+            response = client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                json={
+                    "session_id": conv["session_id"],
+                    "tool_id": tool_id,
+                    "action": "skip",
+                },
+            )
+
+        assert response.status_code == 200
+        thread_cls.assert_not_called()
+
     def test_edit_requires_content(self, conv, client: FlaskClient):
         """Edit action without content returns 400."""
         session = SessionManager.get_session(conv["session_id"])
