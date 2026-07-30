@@ -451,3 +451,129 @@ def test_backup_is_written_once_not_overwritten_by_a_second_save(
         user_mod.set_config_value("user.name", "Bob", reload=False)
 
     assert Path(str(config_file) + ".orig").read_bytes() == original
+
+
+@contextmanager
+def backup_writes_failing():
+    """Make writing the `.orig` copy fail, as a full disk or read-only dir would.
+
+    Both the staging file and the final name are covered, since the copy is made
+    under a temporary name and renamed — a probe that only fails on `.orig` would
+    silently miss the write and report a pass.
+    """
+    real_write_bytes = Path.write_bytes
+
+    def shim(self, data):
+        if ".orig" in str(self):
+            raise OSError(28, "No space left on device")
+        return real_write_bytes(self, data)
+
+    with patch.object(Path, "write_bytes", shim):
+        yield
+
+
+def test_failed_backup_aborts_the_rewrite_instead_of_destroying_the_bytes(
+    tmp_path: Path, monkeypatch
+):
+    """A backup that did not happen removes the justification for the write.
+
+    The backup exists because rewriting a guessed decoding as UTF-8 is the step
+    that makes a misread permanent. If the copy fails, logging and continuing
+    performs exactly the destruction the backup was added to prevent — and it is
+    the worst case, because the values are garbled *and* unrecoverable.
+
+    Refusing to save is recoverable: the user is told why and can copy the file
+    by hand. So the error propagates and nothing is written.
+    """
+    config_file = tmp_path / "config.toml"
+    original = b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n'
+    config_file.write_bytes(original)
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    user_mod._encoding_unverified.clear()
+
+    with (
+        legacy_locale_codec("cp1252"),
+        legacy_default_encoding("cp1252"),
+        backup_writes_failing(),
+        pytest.raises(OSError, match="Refusing to rewrite"),
+    ):
+        user_mod.set_config_value("user.name", "Alice", reload=False)
+
+    # The bytes that could not be copied are still where they were.
+    assert config_file.read_bytes() == original
+    assert LEGACY_BYTES_ABOUT.decode("cp936") == "我是一名开发者"
+
+
+def test_failed_backup_leaves_no_partial_orig_file(tmp_path: Path, monkeypatch):
+    """A truncated `.orig` is as destructive as none, and reads as success.
+
+    The copy is staged under a temporary name and renamed, so a failure part way
+    through leaves nothing behind. Were it written to `.orig` directly, the next
+    save would see the file exist, treat the config as already preserved, and
+    rewrite it — with only a fragment of the original kept.
+    """
+    config_file = tmp_path / "config.toml"
+    config_file.write_bytes(b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n')
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    user_mod._encoding_unverified.clear()
+
+    with (
+        legacy_locale_codec("cp1252"),
+        legacy_default_encoding("cp1252"),
+        backup_writes_failing(),
+        pytest.raises(OSError, match="Refusing to rewrite"),
+    ):
+        user_mod.set_config_value("user.name", "Alice", reload=False)
+
+    assert [p.name for p in tmp_path.iterdir() if ".orig" in p.name] == []
+
+
+def test_a_later_save_retries_a_backup_that_failed(tmp_path: Path, monkeypatch):
+    """The file still holds unpreserved bytes, so the next save must try again.
+
+    The marker is what records "these bytes have not been copied yet". Clearing it
+    on failure — which a `finally` would — makes the *next* save skip the backup
+    and rewrite the file, so a single transient disk error would lose the original
+    at the following save instead of the current one.
+    """
+    config_file = tmp_path / "config.toml"
+    original = b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n'
+    config_file.write_bytes(original)
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    user_mod._encoding_unverified.clear()
+
+    with legacy_locale_codec("cp1252"), legacy_default_encoding("cp1252"):
+        with (
+            backup_writes_failing(),
+            pytest.raises(OSError, match="Refusing to rewrite"),
+        ):
+            user_mod.set_config_value("user.name", "Alice", reload=False)
+        assert str(config_file.resolve()) in user_mod._encoding_unverified
+
+        # Disk error cleared; the save that follows preserves the bytes.
+        user_mod.set_config_value("user.name", "Alice", reload=False)
+
+    assert Path(str(config_file) + ".orig").read_bytes() == original
+
+
+def test_failed_backup_aborts_a_chat_config_save_too(tmp_path: Path):
+    """The conversation config reaches the same backup, so it gets the same refusal.
+
+    `ChatConfig.save()` writes atomically via a rename, which would replace the
+    original bytes just as thoroughly as a direct write.
+    """
+    chat_config_path = tmp_path / "config.toml"
+    original = b'name = "' + LEGACY_BYTES_ABOUT + b'"\n'
+    chat_config_path.write_bytes(original)
+    user_mod._encoding_unverified.clear()
+
+    with legacy_locale_codec("cp1252"):
+        config = ChatConfig.from_logdir(tmp_path)
+        assert str(chat_config_path.resolve()) in user_mod._encoding_unverified
+        with (
+            backup_writes_failing(),
+            pytest.raises(OSError, match="Refusing to rewrite"),
+        ):
+            config.save()
+
+    assert chat_config_path.read_bytes() == original

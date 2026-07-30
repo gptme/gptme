@@ -97,23 +97,47 @@ def _back_up_before_reencoding(path: str | Path) -> None:
     bytes still say what they always said, they were just read through the wrong
     table -- but only while those bytes exist. One backup per file: a second save
     would otherwise overwrite the original with the already-garbled version.
+
+    Raises `OSError` if the bytes cannot be preserved, which aborts the caller's
+    write. That is the point: the only reason to rewrite the file is that the
+    original is recoverable, so a backup that did not happen removes the
+    justification for the write rather than being a detail to log and move past.
+    Refusing to save is recoverable -- the user is told and can copy the file by
+    hand -- while a rewrite without a backup is not.
+
+    The copy goes through a temporary file and a rename so that a failure part
+    way through leaves no `.orig` at all. A truncated one would be as destructive
+    as none while reading as success to the next call.
     """
     resolved = str(Path(path).resolve())
     if resolved not in _encoding_unverified:
         return
     backup = Path(f"{path}.orig")
-    try:
-        if not backup.exists():
-            backup.write_bytes(Path(path).read_bytes())
-            logger.warning(
-                f"Rewriting {path} as UTF-8, but its previous encoding could not be "
-                f"confirmed. The original bytes are saved at {backup} in case any "
-                "non-ASCII values were misread."
-            )
-    except OSError as e:
-        logger.warning(f"Could not back up {path} before rewriting it as UTF-8: {e}")
-    finally:
+    if backup.exists():
+        # Already preserved by an earlier save; this file is safe to rewrite.
         _encoding_unverified.discard(resolved)
+        return
+    staged = Path(f"{path}.orig.tmp")
+    try:
+        staged.write_bytes(Path(path).read_bytes())
+        staged.replace(backup)
+    except OSError as e:
+        staged.unlink(missing_ok=True)
+        # The marker is deliberately left in place: this file still holds
+        # unpreserved original bytes, so a later save must try again rather than
+        # treat it as already handled.
+        raise OSError(
+            f"Refusing to rewrite {path} as UTF-8: its previous encoding could not "
+            f"be confirmed, and the original bytes could not be copied to {backup} "
+            f"({e}). Saving would discard them. Back the file up by hand, or fix "
+            "the write error, and try again."
+        ) from e
+    _encoding_unverified.discard(resolved)
+    logger.warning(
+        f"Rewriting {path} as UTF-8, but its previous encoding could not be "
+        f"confirmed. The original bytes are saved at {backup} in case any "
+        "non-ASCII values were misread."
+    )
 
 
 def _read_config_text(path: str | Path) -> str:
@@ -206,6 +230,11 @@ def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
             changed = True
     if changed:
         try:
+            # May raise if the file's decoding was a guess and its original bytes
+            # cannot be preserved. Swallowing it is right *here* -- this write is
+            # only a cosmetic cleanup, so not doing it costs a repeated warning
+            # and nothing else -- but the reason is worth naming, because the same
+            # exception aborting a real save is deliberate.
             _back_up_before_reencoding(path)
             with open(path, "w", encoding="utf-8") as f:
                 tomlkit.dump(doc, f)
@@ -537,6 +566,10 @@ def set_config_value(
     Raises:
         ValueError: If an intermediate keypath segment already exists
             but is not a TOML table (e.g. traversing into a string value).
+        OSError: If the file was decoded by a guessed codec and its original
+            bytes could not be backed up. Nothing is written in that case, so
+            the unrecoverable values stay on disk rather than being replaced by
+            a possibly-garbled rewrite.
     """
     if local:
         _, local_path = get_user_config_paths()
@@ -585,6 +618,10 @@ def save_provider_config(
         reload: Whether to reload the in-memory config after writing.
         local: If True, write to config.local.toml instead of config.toml.
                Use for entries with inline api_key (secrets).
+
+    Raises:
+        OSError: If the file was decoded by a guessed codec and its original
+            bytes could not be backed up; nothing is written in that case.
     """
     if local:
         _, local_path = get_user_config_paths()

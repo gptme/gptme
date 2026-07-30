@@ -245,7 +245,14 @@ class ChatConfig:
             return cls()
 
     def save(self) -> Self:
-        """Save the chat config to the log directory."""
+        """Save the chat config to the log directory.
+
+        Raises:
+            OSError: If this config was decoded by a guessed codec and its
+                original bytes could not be backed up. The save is abandoned so
+                the unrecoverable bytes stay on disk; only a config that already
+                went through the legacy fallback can reach this.
+        """
         if not self._logdir:
             raise ValueError("ChatConfig has no logdir set")
         self._logdir.mkdir(parents=True, exist_ok=True)
