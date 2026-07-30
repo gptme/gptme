@@ -1988,14 +1988,20 @@ def api_conversation_edit_message(conversation_id: str, index: int):
     if not truncate and not has_changes:
         return flask.jsonify({"error": "content or files is required"}), 400
 
-    # Check if generation is in progress
+    # Check if generation is in progress.
+    # Acquiring step_lock per session mirrors how /step sets generating=True atomically,
+    # closing the TOCTOU window where fork/edit/delete could read False just before
+    # /step sets True under its own lock.
     sessions = SessionManager.get_sessions_for_conversation(conversation_id)
     for sess in sessions:
-        if sess.generating:
-            return (
-                flask.jsonify({"error": "Cannot edit while generation is in progress"}),
-                409,
-            )
+        with sess.step_lock:
+            if sess.generating:
+                return (
+                    flask.jsonify(
+                        {"error": "Cannot edit while generation is in progress"}
+                    ),
+                    409,
+                )
 
     try:
         manager = LogManager.load(conversation_id, lock=False)
@@ -2096,16 +2102,19 @@ def api_conversation_delete_message(conversation_id: str, index: int):
     if error := _validate_conversation_id(conversation_id):
         return error
 
-    # Check if generation is in progress
+    # Check if generation is in progress.
+    # Acquiring step_lock per session mirrors how /step sets generating=True atomically,
+    # closing the TOCTOU window where delete could read False just before /step sets True.
     sessions = SessionManager.get_sessions_for_conversation(conversation_id)
     for sess in sessions:
-        if sess.generating:
-            return (
-                flask.jsonify(
-                    {"error": "Cannot delete while generation is in progress"}
-                ),
-                409,
-            )
+        with sess.step_lock:
+            if sess.generating:
+                return (
+                    flask.jsonify(
+                        {"error": "Cannot delete while generation is in progress"}
+                    ),
+                    409,
+                )
 
     try:
         manager = LogManager.load(conversation_id, lock=False)
@@ -2200,13 +2209,18 @@ def api_conversation_fork(conversation_id: str):
     if error := _validate_branch(branch):
         return error
 
+    # Acquiring step_lock per session mirrors how /step sets generating=True atomically,
+    # closing the TOCTOU window where fork could read False just before /step sets True.
     sessions = SessionManager.get_sessions_for_conversation(conversation_id)
     for sess in sessions:
-        if sess.generating:
-            return (
-                flask.jsonify({"error": "Cannot fork while generation is in progress"}),
-                409,
-            )
+        with sess.step_lock:
+            if sess.generating:
+                return (
+                    flask.jsonify(
+                        {"error": "Cannot fork while generation is in progress"}
+                    ),
+                    409,
+                )
 
     try:
         manager = LogManager.load(conversation_id, branch=branch, lock=False)
@@ -2669,15 +2683,20 @@ def api_conversation_config_patch(conversation_id: str):
 
     # Reject config changes while generation is in progress — config PATCH rewrites
     # system messages and mutates global state, which races with streaming.
+    # Acquiring step_lock per session mirrors how /step sets generating=True atomically,
+    # closing the TOCTOU window where config PATCH could read False just before /step sets True.
     sessions = SessionManager.get_sessions_for_conversation(conversation_id)
     for sess in sessions:
-        if sess.generating:
-            return (
-                flask.jsonify(
-                    {"error": "Cannot update config while generation is in progress"}
-                ),
-                409,
-            )
+        with sess.step_lock:
+            if sess.generating:
+                return (
+                    flask.jsonify(
+                        {
+                            "error": "Cannot update config while generation is in progress"
+                        }
+                    ),
+                    409,
+                )
 
     # Validate tool allowlist now that 404/409 guards have passed.
     # init_tools mutates process-wide state; must run AFTER guards, not before.
