@@ -832,6 +832,12 @@ jobs:
       (startsWith(github.ref, 'refs/tags/v') || inputs.tag != '')
     needs: [lint, test, build, build-android]
     runs-on: ubuntu-latest
+    environment: tauri-autoupdater-signing
+    env:
+      # True only when all four Android signing secrets are provisioned.
+      # PR jobs never reach this job (gated by tag/inputs.tag condition above),
+      # so signing secrets are never exposed to pull-request workflows.
+      HAS_ANDROID_SIGNING: ${{ secrets.ANDROID_KEYSTORE != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_STORE_PASSWORD != '' }}
     permissions:
       contents: write
 
@@ -840,21 +846,99 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
       - name: Download Android artifacts
         uses: actions/download-artifact@v4
         with:
           name: android-build
           path: android-dist
 
+      - name: Sign Android APK and AAB
+        if: env.HAS_ANDROID_SIGNING == 'true'
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          # Decode keystore from base64 secret into a temp file
+          echo "$ANDROID_KEYSTORE" | base64 --decode > /tmp/android-release.jks
+
+          # Locate apksigner from the newest installed build-tools version
+          BUILD_TOOLS_DIR=$(ls -d "${ANDROID_HOME}/build-tools"/* 2>/dev/null | sort -V | tail -1)
+          APKSIGNER="${BUILD_TOOLS_DIR}/apksigner"
+          echo "Using apksigner: $APKSIGNER"
+
+          # Sign every unsigned APK produced by Gradle (v2/v3 scheme via apksigner)
+          find android-dist -name "*-unsigned.apk" | while read -r apk; do
+            signed="${apk/-unsigned/}"
+            "$APKSIGNER" sign \
+              --ks /tmp/android-release.jks \
+              --ks-key-alias "$ANDROID_KEY_ALIAS" \
+              --ks-pass "pass:$ANDROID_STORE_PASSWORD" \
+              --key-pass "pass:$ANDROID_KEY_PASSWORD" \
+              --out "$signed" \
+              "$apk"
+            rm "$apk"
+            echo "Signed APK: $signed"
+          done
+
+          # Sign AAB bundles with jarsigner (apksigner does not support AABs;
+          # v1 JAR signing is required for AABs distributed outside the Play Store)
+          find android-dist -name "*.aab" | while read -r aab; do
+            jarsigner \
+              -keystore /tmp/android-release.jks \
+              -storepass "$ANDROID_STORE_PASSWORD" \
+              -keypass "$ANDROID_KEY_PASSWORD" \
+              -digestalg SHA-256 \
+              -sigalg SHA256withRSA \
+              "$aab" \
+              "$ANDROID_KEY_ALIAS"
+            echo "Signed AAB: $aab"
+          done
+
+          # Remove keystore from disk immediately after signing
+          rm -f /tmp/android-release.jks
+
+      - name: Verify APK signatures
+        if: env.HAS_ANDROID_SIGNING == 'true'
+        run: |
+          BUILD_TOOLS_DIR=$(ls -d "${ANDROID_HOME}/build-tools"/* 2>/dev/null | sort -V | tail -1)
+          APKSIGNER="${BUILD_TOOLS_DIR}/apksigner"
+
+          FAILED=0
+          # Verify every APK that is NOT still named -unsigned (i.e. already signed above)
+          while IFS= read -r -d '' apk; do
+            echo "Verifying: $apk"
+            if ! "$APKSIGNER" verify --verbose --print-certs "$apk"; then
+              echo "::error::Signature verification FAILED for $apk"
+              FAILED=1
+            fi
+          done < <(find android-dist -name "*.apk" ! -name "*-unsigned*" -print0)
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::One or more APKs failed signature verification. Aborting upload."
+            exit 1
+          fi
+          echo "All APKs passed signature verification."
+
       - name: Upload APK/AAB to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          # Rename gradle's generic output names (app-universal-release-unsigned.apk)
-          # to match the desktop bundle naming (gptme-tauri_X.Y.Z_<arch>.<ext>),
-          # e.g. gptme-tauri_0.32.0_universal-unsigned.apk. The "-release" build-type
-          # marker is dropped; "-unsigned" is kept since the APK isn't signed yet.
+          # Rename Gradle's generic output names to match desktop bundle naming:
+          #   app-universal-release[-unsigned].apk  →  gptme-tauri_X.Y.Z_universal[-unsigned].apk
+          # The "-release" build-type marker is always dropped.
+          # The "-unsigned" suffix is NOT stripped here — the sign step above
+          # already renames *-unsigned.apk → *.apk on success, so signed APKs
+          # arrive without the suffix.  Unsigned APKs (no secrets provisioned)
+          # keep the suffix as an explicit signal.
           VERSION="${TAG#v}"
           find android-dist -name "*.apk" -o -name "*.aab" | while read -r f; do
             new="$(basename "$f" | sed -E "s/^app-/gptme-tauri_${VERSION}_/; s/-release//")"
