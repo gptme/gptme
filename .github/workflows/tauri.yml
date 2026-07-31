@@ -834,10 +834,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: tauri-autoupdater-signing
     env:
-      # True only when all four Android signing secrets are provisioned.
-      # PR jobs never reach this job (gated by tag/inputs.tag condition above),
-      # so signing secrets are never exposed to pull-request workflows.
-      HAS_ANDROID_SIGNING: ${{ secrets.ANDROID_KEYSTORE != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_STORE_PASSWORD != '' }}
+      # True only when the Android signing key, credentials, and pinned
+      # certificate identity are provisioned. PR jobs never reach this job
+      # (gated by tag/inputs.tag above), so these secrets stay release-only.
+      HAS_ANDROID_SIGNING: ${{ secrets.ANDROID_KEYSTORE != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_STORE_PASSWORD != '' && vars.ANDROID_CERT_SHA256 != '' }}
     permissions:
       contents: write
 
@@ -858,27 +858,44 @@ jobs:
           name: android-build
           path: android-dist
 
+      - name: Require Android signing configuration
+        if: env.HAS_ANDROID_SIGNING != 'true'
+        run: |
+          echo "::error::Android release signing is not fully configured."
+          echo "::error::Provision the four ANDROID_* secrets and ANDROID_CERT_SHA256 environment variable."
+          exit 1
+
       - name: Sign Android APK and AAB
-        if: env.HAS_ANDROID_SIGNING == 'true'
         env:
           ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: |
-          # Decode keystore from base64 secret into a temp file
-          echo "$ANDROID_KEYSTORE" | base64 --decode > /tmp/android-release.jks
+          # Decode the keystore with restrictive permissions and guarantee
+          # removal even when signing fails partway through.
+          KEYSTORE=$(mktemp)
+          trap 'rm -f "$KEYSTORE"' EXIT
+          chmod 600 "$KEYSTORE"
+          printf '%s' "$ANDROID_KEYSTORE" | base64 --decode > "$KEYSTORE"
 
-          # Locate apksigner from the newest installed build-tools version
-          BUILD_TOOLS_DIR=$(ls -d "${ANDROID_HOME}/build-tools"/* 2>/dev/null | sort -V | tail -1)
+          # Locate apksigner from the newest installed build-tools version.
+          BUILD_TOOLS_DIR=$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d -print | sort -V | tail -1)
           APKSIGNER="${BUILD_TOOLS_DIR}/apksigner"
-          echo "Using apksigner: $APKSIGNER"
+          test -x "$APKSIGNER"
 
-          # Sign every unsigned APK produced by Gradle (v2/v3 scheme via apksigner)
-          find android-dist -name "*-unsigned.apk" | while read -r apk; do
+          # Sign every unsigned APK produced by Gradle (v2/v3 scheme via apksigner).
+          mapfile -d '' unsigned_apks < <(find android-dist -name "*-unsigned.apk" -print0)
+          mapfile -d '' unsigned_aabs < <(find android-dist -name "*.aab" -print0)
+          if [ "${#unsigned_apks[@]}" -eq 0 ] || [ "${#unsigned_aabs[@]}" -eq 0 ]; then
+            echo "::error::Expected at least one unsigned APK and AAB to sign."
+            exit 1
+          fi
+
+          for apk in "${unsigned_apks[@]}"; do
             signed="${apk/-unsigned/}"
             "$APKSIGNER" sign \
-              --ks /tmp/android-release.jks \
+              --ks "$KEYSTORE" \
               --ks-key-alias "$ANDROID_KEY_ALIAS" \
               --ks-pass "pass:$ANDROID_STORE_PASSWORD" \
               --key-pass "pass:$ANDROID_KEY_PASSWORD" \
@@ -889,10 +906,10 @@ jobs:
           done
 
           # Sign AAB bundles with jarsigner (apksigner does not support AABs;
-          # v1 JAR signing is required for AABs distributed outside the Play Store)
-          find android-dist -name "*.aab" | while read -r aab; do
+          # v1 JAR signing is required for AABs distributed outside the Play Store).
+          for aab in "${unsigned_aabs[@]}"; do
             jarsigner \
-              -keystore /tmp/android-release.jks \
+              -keystore "$KEYSTORE" \
               -storepass "$ANDROID_STORE_PASSWORD" \
               -keypass "$ANDROID_KEY_PASSWORD" \
               -digestalg SHA-256 \
@@ -902,30 +919,39 @@ jobs:
             echo "Signed AAB: $aab"
           done
 
-          # Remove keystore from disk immediately after signing
-          rm -f /tmp/android-release.jks
-
-      - name: Verify APK signatures
-        if: env.HAS_ANDROID_SIGNING == 'true'
+      - name: Verify Android signatures and certificate identity
+        env:
+          EXPECTED_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
         run: |
-          BUILD_TOOLS_DIR=$(ls -d "${ANDROID_HOME}/build-tools"/* 2>/dev/null | sort -V | tail -1)
+          BUILD_TOOLS_DIR=$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d -print | sort -V | tail -1)
           APKSIGNER="${BUILD_TOOLS_DIR}/apksigner"
+          test -x "$APKSIGNER"
+          EXPECTED_CERT_SHA256=$(printf '%s' "$EXPECTED_CERT_SHA256" | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')
 
-          FAILED=0
-          # Verify every APK that is NOT still named -unsigned (i.e. already signed above)
-          while IFS= read -r -d '' apk; do
-            echo "Verifying: $apk"
-            if ! "$APKSIGNER" verify --verbose --print-certs "$apk"; then
-              echo "::error::Signature verification FAILED for $apk"
-              FAILED=1
-            fi
-          done < <(find android-dist -name "*.apk" ! -name "*-unsigned*" -print0)
-
-          if [ "$FAILED" -ne 0 ]; then
-            echo "::error::One or more APKs failed signature verification. Aborting upload."
+          mapfile -d '' apks < <(find android-dist -name "*.apk" ! -name "*-unsigned*" -print0)
+          mapfile -d '' aabs < <(find android-dist -name "*.aab" -print0)
+          if [ "${#apks[@]}" -eq 0 ] || [ "${#aabs[@]}" -eq 0 ]; then
+            echo "::error::Expected at least one signed APK and AAB before upload."
             exit 1
           fi
-          echo "All APKs passed signature verification."
+
+          for apk in "${apks[@]}"; do
+            echo "Verifying APK: $apk"
+            "$APKSIGNER" verify --verbose "$apk"
+            ACTUAL_CERT_SHA256=$("$APKSIGNER" verify --print-certs "$apk" \
+              | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+              | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')
+            if [ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then
+              echo "::error::APK signer certificate does not match ANDROID_CERT_SHA256: $apk"
+              exit 1
+            fi
+          done
+
+          for aab in "${aabs[@]}"; do
+            echo "Verifying AAB: $aab"
+            jarsigner -verify -strict "$aab"
+          done
+          echo "All Android artifacts passed signature and identity verification."
 
       - name: Upload APK/AAB to release
         env:
@@ -933,12 +959,9 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           # Rename Gradle's generic output names to match desktop bundle naming:
-          #   app-universal-release[-unsigned].apk  →  gptme-tauri_X.Y.Z_universal[-unsigned].apk
-          # The "-release" build-type marker is always dropped.
-          # The "-unsigned" suffix is NOT stripped here — the sign step above
-          # already renames *-unsigned.apk → *.apk on success, so signed APKs
-          # arrive without the suffix.  Unsigned APKs (no secrets provisioned)
-          # keep the suffix as an explicit signal.
+          #   app-universal-release.apk  →  gptme-tauri_X.Y.Z_universal.apk
+          # The "-release" build-type marker is always dropped. This job fails
+          # before reaching upload unless signing and verification succeeded.
           VERSION="${TAG#v}"
           find android-dist -name "*.apk" -o -name "*.aab" | while read -r f; do
             new="$(basename "$f" | sed -E "s/^app-/gptme-tauri_${VERSION}_/; s/-release//")"
