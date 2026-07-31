@@ -25,6 +25,8 @@ import { withLocalAddressSpace } from '@/utils/addressSpace';
 import { isLikelyChromeCorsPna } from '@/utils/api';
 import { isDemoMode } from '@/utils/connectionConfig';
 import { appRoute, chatRoute } from '@/utils/routes';
+import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
+import { useTauriServerStatus } from '@/hooks/useTauriServerStatus';
 
 const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://localhost:5700']);
 
@@ -45,10 +47,13 @@ export const WelcomeView = () => {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRetryingConnection, setIsRetryingConnection] = useState(false);
+  const [isRestartingServer, setIsRestartingServer] = useState(false);
   const [providerConfigured, setProviderConfigured] = useState<boolean | null>(null);
   const navigate = useNavigate();
   const { api, isConnected$, connectionConfig, switchServer, connect } = useApi();
   const demoMode = isDemoMode();
+  const isTauri = isTauriEnvironment();
+  const { managesLocalServer } = useTauriServerStatus();
   const queryClient = useQueryClient();
   const isConnected = use$(isConnected$);
   const lastConnectionResult = use$(api.lastConnectionResult$);
@@ -143,6 +148,28 @@ export const WelcomeView = () => {
       toast.success('Start command copied to clipboard');
     } catch {
       toast.error('Failed to copy start command');
+    }
+  };
+
+  const handleTauriRestartServer = async () => {
+    setIsRestartingServer(true);
+    try {
+      await invokeTauri('start_server');
+    } catch (error) {
+      const msg = String(error);
+      if (!msg.includes('already running')) {
+        toast.error('Failed to start the server. Please restart the app.');
+        setIsRestartingServer(false);
+        return;
+      }
+      // Server is already running — just retry the connection below
+    }
+    try {
+      await connect();
+    } catch {
+      // connect() already shows a toast on failure
+    } finally {
+      setIsRestartingServer(false);
     }
   };
 
@@ -256,6 +283,12 @@ export const WelcomeView = () => {
   ]);
 
   const disconnectedDesc = (() => {
+    if (isTauri && managesLocalServer) {
+      // Desktop app: the bundled server is managed by the app — no CLI commands needed.
+      if (errorBucket === 'network' || errorBucket === 'timeout' || errorBucket === 'unknown') {
+        return 'The built-in server failed to start. Click "Restart server" to try again.';
+      }
+    }
     if (errorBucket === 'network') {
       return isDefaultLocalServer
         ? 'The gptme server is not running. Start one with the command below.'
@@ -374,7 +407,8 @@ export const WelcomeView = () => {
                       using the managed gptme.ai option — no copy-pasting required.
                     </p>
                   )}
-                  {isDefaultLocalServer &&
+                  {!isTauri &&
+                    isDefaultLocalServer &&
                     !isFirstVisit &&
                     errorBucket !== 'cors' &&
                     !showHostedLoopbackCorsHint && (
@@ -401,7 +435,7 @@ export const WelcomeView = () => {
                       </div>
                     )}
                   <div className="flex flex-wrap gap-2">
-                    {showGuidedSetup && (
+                    {showGuidedSetup && !isTauri && (
                       <Button
                         type="button"
                         size="sm"
@@ -411,6 +445,17 @@ export const WelcomeView = () => {
                         }}
                       >
                         Get started
+                      </Button>
+                    )}
+                    {isTauri && managesLocalServer && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void handleTauriRestartServer()}
+                        disabled={isRestartingServer}
+                      >
+                        <RotateCcw className="mr-2 h-4 w-4" />
+                        {isRestartingServer ? 'Starting...' : 'Restart server'}
                       </Button>
                     )}
                     <Button
@@ -423,7 +468,7 @@ export const WelcomeView = () => {
                       <RotateCcw className="mr-2 h-4 w-4" />
                       {isRetryingConnection ? 'Retrying...' : 'Retry connection'}
                     </Button>
-                    {isDefaultLocalServer && !isFirstVisit && (
+                    {!isTauri && isDefaultLocalServer && !isFirstVisit && (
                       <Button
                         type="button"
                         size="sm"
@@ -445,7 +490,7 @@ export const WelcomeView = () => {
                       </Button>
                     )}
                   </div>
-                  {isDefaultLocalServer && !isFirstVisit && (
+                  {!isTauri && isDefaultLocalServer && !isFirstVisit && (
                     <p className="text-sm text-muted-foreground">
                       Prefer not to run a local server?{' '}
                       <Button

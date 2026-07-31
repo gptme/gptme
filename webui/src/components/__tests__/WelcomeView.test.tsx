@@ -11,6 +11,13 @@ const mockInvalidateQueries = jest.fn();
 const mockConnect = jest.fn();
 const mockFetch = jest.fn();
 const mockIsDemoMode = jest.fn(() => false);
+const mockIsTauriEnvironment = jest.fn(() => false);
+const mockInvokeTauri = jest.fn();
+const mockUseTauriServerStatus = jest.fn(() => ({
+  isLoading: false,
+  managesLocalServer: false,
+  serverStatus: null,
+}));
 const isConnected$ = observable(true);
 const compatibilityWarning$ = observable<null | {
   kind: 'server_older' | 'api_major_mismatch';
@@ -49,6 +56,15 @@ jest.mock('@/utils/api', () => ({
 
 jest.mock('@/utils/connectionConfig', () => ({
   isDemoMode: () => mockIsDemoMode(),
+}));
+
+jest.mock('@/utils/tauri', () => ({
+  isTauriEnvironment: () => mockIsTauriEnvironment(),
+  invokeTauri: (...args: unknown[]) => mockInvokeTauri(...args),
+}));
+
+jest.mock('@/hooks/useTauriServerStatus', () => ({
+  useTauriServerStatus: () => mockUseTauriServerStatus(),
 }));
 
 jest.mock('react-router-dom', () => {
@@ -126,6 +142,13 @@ describe('WelcomeView', () => {
     mockFetch.mockReset();
     mockIsDemoMode.mockReturnValue(false);
     mockIsLikelyChromeCorsPna.mockReturnValue(false);
+    mockIsTauriEnvironment.mockReturnValue(false);
+    mockInvokeTauri.mockReset();
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: false,
+      serverStatus: null,
+    });
     mockFetch.mockImplementation(() => new Promise(() => {}));
     Object.defineProperty(window, 'fetch', {
       writable: true,
@@ -659,6 +682,100 @@ describe('WelcomeView', () => {
       // jsdom sets window.location.href on assignment, constructing
       // a URL with ?demo=1 appended.
       expect(window.location.href).toContain('demo=1');
+    });
+  });
+
+  describe('Tauri desktop app', () => {
+    beforeEach(() => {
+      mockIsTauriEnvironment.mockReturnValue(true);
+      mockUseTauriServerStatus.mockReturnValue({
+        isLoading: false,
+        managesLocalServer: true,
+        serverStatus: null,
+      });
+      isConnected$.set(false);
+      lastConnectionResult$.set({
+        ok: false,
+        url: 'http://localhost:5700/api/v2',
+        reason: 'network',
+        message: 'Could not reach server (connection refused)',
+      });
+    });
+
+    it('shows desktop-friendly message instead of CLI command when sidecar fails', () => {
+      render(
+        <SettingsProvider>
+          <WelcomeView />
+        </SettingsProvider>
+      );
+
+      expect(screen.getByText(/The built-in server failed to start/i)).toBeInTheDocument();
+      // CLI-oriented messages must not appear for desktop users
+      expect(screen.queryByText(/The gptme server is not running/i)).not.toBeInTheDocument();
+      expect(screen.queryByText("pipx install 'gptme[server]'")).not.toBeInTheDocument();
+      expect(screen.queryByText(/gptme-server --cors-origin/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /copy start command/i })).not.toBeInTheDocument();
+    });
+
+    it('shows "Restart server" button in Tauri that invokes start_server then connect', async () => {
+      mockInvokeTauri.mockResolvedValue(5700);
+      mockConnect.mockResolvedValue(undefined);
+
+      render(
+        <SettingsProvider>
+          <WelcomeView />
+        </SettingsProvider>
+      );
+
+      const restartBtn = screen.getByRole('button', { name: /restart server/i });
+      expect(restartBtn).toBeInTheDocument();
+
+      fireEvent.click(restartBtn);
+
+      await waitFor(() => {
+        expect(mockInvokeTauri).toHaveBeenCalledWith('start_server');
+        expect(mockConnect).toHaveBeenCalled();
+      });
+    });
+
+    it('still shows "Retry connection" button alongside "Restart server"', () => {
+      render(
+        <SettingsProvider>
+          <WelcomeView />
+        </SettingsProvider>
+      );
+
+      expect(screen.getByRole('button', { name: /restart server/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /retry connection/i })).toBeInTheDocument();
+    });
+
+    it('hides "Use gptme.ai" cloud alternative in desktop app', () => {
+      seedReturningUser();
+
+      render(
+        <SettingsProvider>
+          <WelcomeView />
+        </SettingsProvider>
+      );
+
+      expect(screen.queryByRole('button', { name: /use gptme\.ai/i })).not.toBeInTheDocument();
+    });
+
+    it('falls back to connect-only when start_server says already running', async () => {
+      mockInvokeTauri.mockRejectedValue('Server is already running');
+      mockConnect.mockResolvedValue(undefined);
+
+      render(
+        <SettingsProvider>
+          <WelcomeView />
+        </SettingsProvider>
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: /restart server/i }));
+
+      await waitFor(() => {
+        expect(mockConnect).toHaveBeenCalled();
+      });
     });
   });
 });
