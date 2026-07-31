@@ -51,7 +51,7 @@
   </a>
   <br>
   <a href="https://gptme.org/docs/projects.html">
-    <img src="https://gptme.ai/badge.svg" alt="Built with gptme" />
+    <img src="https://gptme.org/badge.svg" alt="Built with gptme" />
   </a>
 </p>
 
@@ -598,12 +598,11 @@ gptme is more than a CLI — it's a platform with a growing ecosystem:
 
 ## 🏷️ Repository Badge
 
-This repo is maintained with [gptme](https://gptme.ai).
+This repo is maintained with [gptme](https://gptme.org).
 To show your repo is AI-assisted with gptme, add the badge below.
-Embed: `[![Built with gptme](https://gptme.ai/badge.svg)](https://gptme.ai)`
 
 ```markdown
-[![Built with gptme](https://gptme.ai/badge.svg)](https://gptme.ai)
+[![Built with gptme](https://gptme.org/badge.svg)](https://gptme.org)
 ```
 
 ## 💬 Community
