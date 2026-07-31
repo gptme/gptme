@@ -2349,6 +2349,13 @@ def api_conversation_delete(conversation_id: str):
         )
 
     with SessionManager.conversation_lock(conversation_id):
+        # Another serialized DELETE may have removed it while we waited.
+        if not logdir.exists():
+            return (
+                flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+                404,
+            )
+
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
         if any(sess.generating for sess in sessions):
             return (

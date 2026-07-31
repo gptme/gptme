@@ -2326,6 +2326,35 @@ def test_v2_conversation_delete_rejected_during_generation(client: FlaskClient):
     assert "generation is in progress" in response.get_json()["error"]
 
 
+def test_v2_conversation_delete_rechecks_existence_under_lock(client: FlaskClient):
+    """A DELETE serialized behind another deletion should return 404, not 500."""
+    from gptme.dirs import get_logs_dir
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    logdir = get_logs_dir() / conversation_id
+
+    class DeleteBeforeLock:
+        def __enter__(self):
+            import shutil
+
+            shutil.rmtree(logdir)
+
+        def __exit__(self, *_args):
+            return None
+
+    with unittest.mock.patch(
+        "gptme.server.api_v2.SessionManager.conversation_lock",
+        return_value=DeleteBeforeLock(),
+    ):
+        response = client.delete(f"/api/v2/conversations/{conversation_id}")
+
+    assert response.status_code == 404
+    assert response.get_json() == {
+        "error": f"Conversation not found: {conversation_id}"
+    }
+
+
 def test_v2_chat_config_patch_loads_log_under_conversation_lock(
     client: FlaskClient,
 ):
