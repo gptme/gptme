@@ -51,7 +51,7 @@
   </a>
   <br>
   <a href="https://gptme.org/docs/projects.html">
-    <img src="https://img.shields.io/badge/powered%20by-gptme%20%F0%9F%A4%96-5151f5?style=flat" alt="Powered by gptme" />
+    <img src="https://gptme.ai/badge.svg" alt="Built with gptme" />
   </a>
 </p>
 
@@ -87,6 +87,7 @@ active development.
 - 🚀 [Getting Started](#-getting-started)
 - 🛠 [Usage](#-usage)
 - 🌍 [Ecosystem](#-ecosystem)
+- 🏷️ [Repository Badge](#%EF%B8%8F-repository-badge)
 - 💬 [Community](#-community)
 - 📊 [Stats](#-stats)
 - 🔗 [Links](#-links)
@@ -594,6 +595,16 @@ gptme is more than a CLI — it's a platform with a growing ecosystem:
 **Community agents powered by gptme:**
 - [Bob](https://github.com/TimeToBuildBob) — autonomous AI agent, running continuously since late 2024, contributes to open source and manages his own tasks
 - [Alice](https://github.com/TimeToLearnAlice) — personal assistant & agent orchestrator, forked from the same architecture
+
+## 🏷️ Repository Badge
+
+This repo is maintained with [gptme](https://gptme.ai).
+To show your repo is AI-assisted with gptme, add the badge below.
+Embed: `[![Built with gptme](https://gptme.ai/badge.svg)](https://gptme.ai)`
+
+```markdown
+[![Built with gptme](https://gptme.ai/badge.svg)](https://gptme.ai)
+```
 
 ## 💬 Community
 
