@@ -4,21 +4,11 @@ import { use$ } from '@legendapp/state/react';
 import type { ConversationSummary } from '@/types/conversation';
 import { shouldFetchDetailedConversationSummaries } from '@/utils/conversationSummaryDetail';
 
-// Jest cannot parse import.meta — use Function() so it throws and we fall
-// back to process.env, which jest.setup.ts populates.
-function getViteEmbeddedMode(): string | undefined {
-  try {
-    return Function('return import.meta.env.VITE_EMBEDDED_MODE')() as string | undefined;
-  } catch {
-    return process.env['VITE_EMBEDDED_MODE'];
-  }
-}
-
 export function useConversationsInfiniteQuery(enabled: boolean = true) {
   const { api, connectionConfig } = useApi();
   const isConnected = use$(api.isConnected$);
   const includeDetail = shouldFetchDetailedConversationSummaries({
-    VITE_EMBEDDED_MODE: getViteEmbeddedMode(),
+    VITE_EMBEDDED_MODE: import.meta.env.VITE_EMBEDDED_MODE,
   });
 
   return useInfiniteQuery({
