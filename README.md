@@ -860,6 +860,24 @@ gptme is **self-correcting**:
 - **Discord**: [Discord Community](https://discord.gg/NMaCmmkxWv)
 - **Twitter**: [@gptmeorg](https://x.com/gptmeorg)
 
+### Badges
+
+Show that your repository is built with gptme! Add this badge to your README:
+
+[![Built with gptme](https://gptme.ai/badge.svg)](https://gptme.ai)
+
+Markdown:
+```markdown
+[![Built with gptme](https://gptme.ai/badge.svg)](https://gptme.ai)
+```
+
+HTML:
+```html
+<a href="https://gptme.ai">
+  <img src="https://gptme.ai/badge.svg" alt="Built with gptme" />
+</a>
+```
+
 ---
 
 **Happy Terminal Agent Building!** 🤖
