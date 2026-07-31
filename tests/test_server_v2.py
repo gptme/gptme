@@ -2308,6 +2308,24 @@ def test_v2_chat_config_patch_rejected_during_generation(client: FlaskClient):
     assert "generation is in progress" in response.get_json()["error"]
 
 
+def test_v2_conversation_delete_rejected_during_generation(client: FlaskClient):
+    """Conversation DELETE should return 409 when a session is actively generating."""
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    with unittest.mock.patch(
+        "gptme.server.api_v2.SessionManager.get_sessions_for_conversation"
+    ) as mock_get:
+        mock_session = unittest.mock.MagicMock()
+        mock_session.generating = True
+        mock_get.return_value = [mock_session]
+
+        response = client.delete(f"/api/v2/conversations/{conversation_id}")
+
+    assert response.status_code == 409
+    assert "generation is in progress" in response.get_json()["error"]
+
+
 def test_v2_chat_config_patch_loads_log_under_conversation_lock(
     client: FlaskClient,
 ):

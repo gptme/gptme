@@ -2340,17 +2340,29 @@ def api_conversation_delete(conversation_id: str):
     if logdir.parent != get_logs_dir():
         logger.warning(f"Path traversal attempt blocked: {conversation_id}")
         return flask.jsonify({"error": "Invalid conversation_id"}), 400
+
+    # Reject missing conversations before acquiring the lock.
     if not logdir.exists():
         return (
             flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
             404,
         )
 
-    try:
-        shutil.rmtree(logdir)
-    except OSError as e:
-        logger.error(f"Error deleting conversation {conversation_id}: {e}")
-        return flask.jsonify({"error": f"Could not delete conversation: {e}"}), 500
+    with SessionManager.conversation_lock(conversation_id):
+        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+        if any(sess.generating for sess in sessions):
+            return (
+                flask.jsonify(
+                    {"error": "Cannot delete while generation is in progress"}
+                ),
+                409,
+            )
+
+        try:
+            shutil.rmtree(logdir)
+        except OSError as e:
+            logger.error(f"Error deleting conversation {conversation_id}: {e}")
+            return flask.jsonify({"error": f"Could not delete conversation: {e}"}), 500
 
     SessionManager.remove_all_sessions_for_conversation(conversation_id)
 
