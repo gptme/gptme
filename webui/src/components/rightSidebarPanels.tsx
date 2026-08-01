@@ -8,6 +8,7 @@ import {
   Monitor,
   Package,
   SlidersHorizontal,
+  Wrench,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { RightSidebarPanelId } from '@/types/sidebar';
@@ -18,6 +19,7 @@ import { ComputerPreview } from './ComputerPreview';
 import { ConversationSettings } from './ConversationSettings';
 import { FunctionBrowserPanel } from './FunctionBrowserPanel';
 import { PanelsPanel } from './PanelsPanel';
+import { ToolActivityPanel } from './ToolActivityPanel';
 import { WorkspaceExplorer } from './workspace/WorkspaceExplorer';
 
 interface RightSidebarPanelRenderProps {
@@ -67,6 +69,12 @@ export const rightSidebarPanels: RightSidebarPanelDefinition[] = [
     label: 'Functions',
     icon: Cpu,
     render: () => <FunctionBrowserPanel />,
+  },
+  {
+    id: 'tools',
+    label: 'Tool Activity',
+    icon: Wrench,
+    render: ({ conversationId }) => <ToolActivityPanel conversationId={conversationId} />,
   },
   {
     id: 'browser',

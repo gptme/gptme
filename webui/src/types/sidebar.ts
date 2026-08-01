@@ -5,5 +5,6 @@ export type RightSidebarPanelId =
   | 'branches'
   | 'panels'
   | 'functions'
+  | 'tools'
   | 'browser'
   | 'computer';
