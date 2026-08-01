@@ -100,7 +100,9 @@ const ToolEntryRow: FC<{ entry: ToolActivityEntry }> = ({ entry }) => {
 };
 
 export const ToolActivityPanel: FC<Props> = ({ conversationId }) => {
-  const log = use$(conversations$.get(conversationId)?.data.log);
+  const conversation = conversations$.get(conversationId);
+  const log = use$(conversation?.data.log);
+  const hasMoreBefore = use$(conversation?.hasMoreBefore) ?? false;
   const activity = useMemo(() => buildToolActivity(log ?? []), [log]);
 
   if (!log || log.length === 0) {
@@ -116,18 +118,28 @@ export const ToolActivityPanel: FC<Props> = ({ conversationId }) => {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground">
         <Wrench className="h-8 w-8 opacity-40" />
-        <p className="text-sm">No tool calls in this session</p>
+        <p className="text-sm">
+          {hasMoreBefore ? 'No tool calls in loaded messages' : 'No tool calls in this session'}
+        </p>
+        {hasMoreBefore && (
+          <p className="text-xs">Load older messages in the conversation to include them.</p>
+        )}
       </div>
     );
   }
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <h3 className="text-sm font-medium">Tool Activity</h3>
-        <Badge variant="outline" className="text-xs">
-          {activity.reduce((s, e) => s + e.callCount, 0)} calls
-        </Badge>
+      <div className="border-b px-3 py-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium">Tool Activity</h3>
+          <Badge variant="outline" className="text-xs">
+            {activity.reduce((s, e) => s + e.callCount, 0)} calls
+          </Badge>
+        </div>
+        {hasMoreBefore && (
+          <p className="mt-1 text-xs text-muted-foreground">Loaded messages only</p>
+        )}
       </div>
       <ScrollArea className="flex-1">
         <div className="p-1">

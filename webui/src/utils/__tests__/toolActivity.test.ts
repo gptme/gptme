@@ -5,6 +5,8 @@ function msg(content: string, role: Message['role'] = 'assistant', ts?: string):
   return { role, content, timestamp: ts };
 }
 
+const toolResult = (content = 'Tool completed') => msg(content, 'system');
+
 describe('buildToolActivity', () => {
   it('returns empty for no messages', () => {
     expect(buildToolActivity([])).toEqual([]);
@@ -18,98 +20,129 @@ describe('buildToolActivity', () => {
   it('ignores non-gptme code blocks', () => {
     const messages = [
       msg('```typescript\nconst x = 1;\n```', 'assistant'),
+      toolResult(),
       msg('```json\n{"a": 1}\n```', 'assistant'),
+      toolResult(),
     ];
     expect(buildToolActivity(messages)).toEqual([]);
   });
 
-  it('detects a bash tool call', () => {
-    const messages = [msg('```bash\nls -la\n```', 'assistant', '2026-08-01T00:00:00Z')];
-    const result = buildToolActivity(messages);
-    expect(result).toHaveLength(1);
-    expect(result[0].tool).toBe('bash');
-    expect(result[0].callCount).toBe(1);
-    expect(result[0].lastCall.content).toBe('ls -la\n');
+  it('detects a shell tool call followed by an execution result', () => {
+    const messages = [
+      msg('```shell\nls -la\n```', 'assistant', '2026-08-01T00:00:00Z'),
+      toolResult(),
+    ];
+    const activity = buildToolActivity(messages);
+    expect(activity).toHaveLength(1);
+    expect(activity[0].tool).toBe('shell');
+    expect(activity[0].callCount).toBe(1);
+    expect(activity[0].lastCall.content).toBe('ls -la');
   });
 
   it('detects save tool call with filename arg', () => {
-    const messages = [msg('```save myfile.py\nprint("hello")\n```', 'assistant')];
-    const result = buildToolActivity(messages);
-    expect(result).toHaveLength(1);
-    expect(result[0].tool).toBe('save');
-    expect(result[0].lastCall.args).toEqual(['myfile.py']);
+    const messages = [msg('```save myfile.py\nprint("hello")\n```'), toolResult()];
+    const activity = buildToolActivity(messages);
+    expect(activity).toHaveLength(1);
+    expect(activity[0].tool).toBe('save');
+    expect(activity[0].lastCall.args).toEqual(['myfile.py']);
   });
 
   it('counts multiple calls to the same tool', () => {
     const messages = [
-      msg('```bash\nls\n```', 'assistant'),
-      msg('```bash\npwd\n```', 'assistant'),
-      msg('```bash\necho hi\n```', 'assistant'),
+      msg('```shell\nls\n```'),
+      toolResult(),
+      msg('```shell\npwd\n```'),
+      toolResult(),
+      msg('```shell\necho hi\n```'),
+      toolResult(),
     ];
-    const result = buildToolActivity(messages);
-    expect(result).toHaveLength(1);
-    expect(result[0].tool).toBe('bash');
-    expect(result[0].callCount).toBe(3);
-    expect(result[0].lastCall.content).toBe('echo hi\n');
+    const activity = buildToolActivity(messages);
+    expect(activity).toHaveLength(1);
+    expect(activity[0].tool).toBe('shell');
+    expect(activity[0].callCount).toBe(3);
+    expect(activity[0].lastCall.content).toBe('echo hi');
   });
 
   it('tracks multiple distinct tools', () => {
     const messages = [
-      msg('```bash\nls\n```', 'assistant'),
-      msg('```python\nprint("hi")\n```', 'assistant'),
-      msg('```save out.txt\nhello\n```', 'assistant'),
+      msg('```shell\nls\n```'),
+      toolResult(),
+      msg('```ipython\nprint("hi")\n```'),
+      toolResult(),
+      msg('```save out.txt\nhello\n```'),
+      toolResult(),
     ];
-    const result = buildToolActivity(messages);
-    expect(result).toHaveLength(3);
-    const tools = result.map((e) => e.tool);
-    expect(tools).toContain('bash');
-    expect(tools).toContain('python');
+    const activity = buildToolActivity(messages);
+    expect(activity).toHaveLength(3);
+    const tools = activity.map((entry) => entry.tool);
+    expect(tools).toContain('shell');
+    expect(tools).toContain('ipython');
     expect(tools).toContain('save');
   });
 
   it('sorts by call count descending', () => {
     const messages = [
-      msg('```python\nprint(1)\n```', 'assistant'),
-      msg('```bash\nls\n```', 'assistant'),
-      msg('```bash\npwd\n```', 'assistant'),
+      msg('```ipython\nprint(1)\n```'),
+      toolResult(),
+      msg('```shell\nls\n```'),
+      toolResult(),
+      msg('```shell\npwd\n```'),
+      toolResult(),
     ];
-    const result = buildToolActivity(messages);
-    expect(result[0].tool).toBe('bash');
-    expect(result[0].callCount).toBe(2);
-    expect(result[1].tool).toBe('python');
-    expect(result[1].callCount).toBe(1);
+    const activity = buildToolActivity(messages);
+    expect(activity[0].tool).toBe('shell');
+    expect(activity[0].callCount).toBe(2);
+    expect(activity[1].tool).toBe('ipython');
+    expect(activity[1].callCount).toBe(1);
   });
 
   it('ignores tool calls in non-assistant messages', () => {
     const messages = [
-      msg('```bash\nls\n```', 'user'),
-      msg('```bash\npwd\n```', 'system'),
-      msg('```bash\necho ok\n```', 'tool'),
+      msg('```shell\nls\n```', 'user'),
+      msg('```shell\npwd\n```', 'system'),
+      msg('```shell\necho ok\n```', 'tool'),
     ];
     expect(buildToolActivity(messages)).toHaveLength(0);
   });
 
-  it('handles ipython/shell aliases', () => {
+  it('uses the canonical tool allowlist', () => {
     const messages = [
-      msg('```ipython\nimport os\n```', 'assistant'),
-      msg('```shell\necho hi\n```', 'assistant'),
+      msg('```mcp\nlist servers\n```'),
+      toolResult(),
+      msg('```gh\npr view 1\n```'),
+      toolResult(),
     ];
-    const result = buildToolActivity(messages);
-    expect(result).toHaveLength(2);
-    const tools = result.map((e) => e.tool);
-    expect(tools).toContain('ipython');
-    expect(tools).toContain('shell');
+    const tools = buildToolActivity(messages).map((entry) => entry.tool);
+    expect(tools).toContain('mcp');
+    expect(tools).toContain('gh');
   });
 
   it('preserves firstSeen timestamp from first call', () => {
     const ts1 = '2026-08-01T00:00:00Z';
     const ts2 = '2026-08-01T01:00:00Z';
     const messages = [
-      msg('```bash\nls\n```', 'assistant', ts1),
-      msg('```bash\npwd\n```', 'assistant', ts2),
+      msg('```shell\nls\n```', 'assistant', ts1),
+      toolResult(),
+      msg('```shell\npwd\n```', 'assistant', ts2),
+      toolResult(),
     ];
-    const result = buildToolActivity(messages);
-    expect(result[0].firstSeen).toBe(ts1);
-    expect(result[0].lastCall.timestamp).toBe(ts2);
+    const activity = buildToolActivity(messages);
+    expect(activity[0].firstSeen).toBe(ts1);
+    expect(activity[0].lastCall.timestamp).toBe(ts2);
+  });
+
+  it('does not count a recognized code example without a tool result', () => {
+    const messages = [msg('For example:\n```ipython\nprint("hello")\n```'), msg('Thanks', 'user')];
+    expect(buildToolActivity(messages)).toEqual([]);
+  });
+
+  it('counts only calls with corresponding result messages', () => {
+    const messages = [
+      msg('```shell\nls\n```\n```save out.txt\nhello\n```'),
+      toolResult('Ran command'),
+    ];
+    const activity = buildToolActivity(messages);
+    expect(activity).toHaveLength(1);
+    expect(activity[0].tool).toBe('shell');
   });
 });
