@@ -897,6 +897,7 @@ class ToolUse:
                         "system",
                         f"Error executing tool '{self.tool}': {e}",
                         call_id=self.call_id if not result_msgs else None,
+                        metadata={"tool": self.tool},
                     )
             else:
                 logger.warning(f"Tool '{self.tool}' is not available for execution.")

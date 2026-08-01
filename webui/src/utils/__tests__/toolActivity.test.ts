@@ -210,4 +210,14 @@ describe('buildToolActivity', () => {
     expect(activity).toHaveLength(1);
     expect(activity[0].tool).toBe('shell');
   });
+
+  it('counts both successful and failed identified tools in one batch', () => {
+    const messages = [
+      msg('```shell\nls\n```\n```save out.txt\nhello\n```'),
+      toolResult('Ran command', 'shell'),
+      toolResult('Error executing save', 'save'),
+    ];
+    const activity = buildToolActivity(messages);
+    expect(activity.map((entry) => entry.tool)).toEqual(['shell', 'save']);
+  });
 });
