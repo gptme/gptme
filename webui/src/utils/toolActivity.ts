@@ -25,14 +25,17 @@ function parseExecutedToolCalls(messages: Message[]): ToolCall[] {
     const parsedCalls = parseToolCalls(message.content);
     if (parsedCalls.length === 0) continue;
 
-    // Markdown tool calls have no persisted call ID. A call is only known to have
-    // executed when its assistant message is followed by one or more system
-    // result messages. Plain examples in a final response have no such result.
-    let resultCount = 0;
-    for (let next = index + 1; next < messages.length && messages[next].role === 'system'; next++) {
-      resultCount++;
+    // Markdown tool calls have no persisted call ID. A completed tool step has
+    // system output followed by the assistant's continuation. TURN_POST hooks
+    // can also emit system messages immediately after a final response, so a
+    // system message alone is not evidence that a fenced example executed.
+    let next = index + 1;
+    while (next < messages.length && messages[next].role === 'system') {
+      next++;
     }
+    if (next >= messages.length || messages[next].role !== 'assistant') continue;
 
+    const resultCount = next - index - 1;
     for (const call of parsedCalls.slice(0, resultCount)) {
       const args = call.args;
       const content = call.content || args[0] || '';

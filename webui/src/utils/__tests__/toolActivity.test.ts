@@ -27,10 +27,11 @@ describe('buildToolActivity', () => {
     expect(buildToolActivity(messages)).toEqual([]);
   });
 
-  it('detects a shell tool call followed by an execution result', () => {
+  it('detects a shell tool call followed by an execution result and continuation', () => {
     const messages = [
       msg('```shell\nls -la\n```', 'assistant', '2026-08-01T00:00:00Z'),
       toolResult(),
+      msg('Done'),
     ];
     const activity = buildToolActivity(messages);
     expect(activity).toHaveLength(1);
@@ -40,7 +41,7 @@ describe('buildToolActivity', () => {
   });
 
   it('detects save tool call with filename arg', () => {
-    const messages = [msg('```save myfile.py\nprint("hello")\n```'), toolResult()];
+    const messages = [msg('```save myfile.py\nprint("hello")\n```'), toolResult(), msg('Done')];
     const activity = buildToolActivity(messages);
     expect(activity).toHaveLength(1);
     expect(activity[0].tool).toBe('save');
@@ -55,6 +56,7 @@ describe('buildToolActivity', () => {
       toolResult(),
       msg('```shell\necho hi\n```'),
       toolResult(),
+      msg('Done'),
     ];
     const activity = buildToolActivity(messages);
     expect(activity).toHaveLength(1);
@@ -71,6 +73,7 @@ describe('buildToolActivity', () => {
       toolResult(),
       msg('```save out.txt\nhello\n```'),
       toolResult(),
+      msg('Done'),
     ];
     const activity = buildToolActivity(messages);
     expect(activity).toHaveLength(3);
@@ -88,6 +91,7 @@ describe('buildToolActivity', () => {
       toolResult(),
       msg('```shell\npwd\n```'),
       toolResult(),
+      msg('Done'),
     ];
     const activity = buildToolActivity(messages);
     expect(activity[0].tool).toBe('shell');
@@ -111,6 +115,7 @@ describe('buildToolActivity', () => {
       toolResult(),
       msg('```gh\npr view 1\n```'),
       toolResult(),
+      msg('Done'),
     ];
     const tools = buildToolActivity(messages).map((entry) => entry.tool);
     expect(tools).toContain('mcp');
@@ -125,6 +130,7 @@ describe('buildToolActivity', () => {
       toolResult(),
       msg('```shell\npwd\n```', 'assistant', ts2),
       toolResult(),
+      msg('Done'),
     ];
     const activity = buildToolActivity(messages);
     expect(activity[0].firstSeen).toBe(ts1);
@@ -136,10 +142,20 @@ describe('buildToolActivity', () => {
     expect(buildToolActivity(messages)).toEqual([]);
   });
 
+  it('does not treat a TURN_POST system message as execution evidence', () => {
+    const messages = [
+      msg('For example:\n```ipython\nprint("hello")\n```'),
+      msg('# Relevant Lessons', 'system'),
+      msg('Thanks', 'user'),
+    ];
+    expect(buildToolActivity(messages)).toEqual([]);
+  });
+
   it('counts only calls with corresponding result messages', () => {
     const messages = [
       msg('```shell\nls\n```\n```save out.txt\nhello\n```'),
       toolResult('Ran command'),
+      msg('Done'),
     ];
     const activity = buildToolActivity(messages);
     expect(activity).toHaveLength(1);
