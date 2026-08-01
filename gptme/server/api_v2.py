@@ -1833,7 +1833,9 @@ def api_conversation_post(conversation_id: str):
             )
 
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(sess.generating for sess in sessions):
+        if any(
+            sess.generating for sess in sessions
+        ) or SessionManager.command_is_active(conversation_id):
             return (
                 flask.jsonify(
                     {"error": "Cannot add message while generation is in progress"}
@@ -1884,8 +1886,14 @@ def api_conversation_post(conversation_id: str):
                     {"error": f"Command /{cmd_name} is not available in server mode"}
                 ), 400
 
-            # Append command message first (handle_cmd may undo it via auto_undo)
+            # Reserve the conversation before releasing the lock. Command execution
+            # may call an LLM or tools, so keeping the lock held would block rather
+            # than promptly reject concurrent mutations and /step requests.
+            SessionManager.start_command(conversation_id)
+        else:
             log.append(msg)
+
+            # Notify all sessions that a new message was added
             SessionManager.add_event(
                 conversation_id,
                 {
@@ -1894,39 +1902,16 @@ def api_conversation_post(conversation_id: str):
                 },
             )
 
-            # Execute the command and collect response messages
-            responses: list[Message] = []
-            try:
-                for resp in handle_cmd(msg.content, log):
-                    log.append(resp)
-                    responses.append(resp)
-                    SessionManager.add_event(
-                        conversation_id,
-                        {
-                            "type": "message_added",
-                            "message": msg2dict(resp, log.workspace, log.logdir),
-                        },
-                    )
-            except Exception as e:
-                logger.exception("Error executing command: %s", msg.content)
-                error_msg = Message("system", f"Command error: {e}")
-                log.append(error_msg)
-                responses.append(error_msg)
-                SessionManager.add_event(
-                    conversation_id,
-                    {
-                        "type": "message_added",
-                        "message": msg2dict(error_msg, log.workspace, log.logdir),
-                    },
-                )
+            # Partial cache update: only refresh this conversation's entry so the
+            # conversations-list endpoint can keep serving from cache during streaming.
+            _update_conversation_in_cache(conversation_id)
+            return flask.jsonify({"status": "ok"})
 
-            return flask.jsonify(
-                {"status": "ok", "command": True, "responses": len(responses)}
-            )
-
+    # Append and execute a command under its reservation, not the conversation lock.
+    # The reservation is always cleared, including when handle_cmd raises.
+    responses: list[Message] = []
+    try:
         log.append(msg)
-
-        # Notify all sessions that a new message was added
         SessionManager.add_event(
             conversation_id,
             {
@@ -1934,11 +1919,34 @@ def api_conversation_post(conversation_id: str):
                 "message": msg2dict(msg, log.workspace, log.logdir),
             },
         )
-
-        # Partial cache update: only refresh this conversation's entry so the
-        # conversations-list endpoint can keep serving from cache during streaming.
-        _update_conversation_in_cache(conversation_id)
-        return flask.jsonify({"status": "ok"})
+        try:
+            for resp in handle_cmd(msg.content, log):
+                log.append(resp)
+                responses.append(resp)
+                SessionManager.add_event(
+                    conversation_id,
+                    {
+                        "type": "message_added",
+                        "message": msg2dict(resp, log.workspace, log.logdir),
+                    },
+                )
+        except Exception as e:
+            logger.exception("Error executing command: %s", msg.content)
+            error_msg = Message("system", f"Command error: {e}")
+            log.append(error_msg)
+            responses.append(error_msg)
+            SessionManager.add_event(
+                conversation_id,
+                {
+                    "type": "message_added",
+                    "message": msg2dict(error_msg, log.workspace, log.logdir),
+                },
+            )
+        return flask.jsonify(
+            {"status": "ok", "command": True, "responses": len(responses)}
+        )
+    finally:
+        SessionManager.finish_command(conversation_id)
 
 
 @v2_api.route(

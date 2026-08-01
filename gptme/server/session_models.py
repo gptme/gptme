@@ -135,6 +135,9 @@ class SessionManager:
     # per-ID locks are tiny; retaining them avoids replacing a lock while a
     # request still holds it after the final session is removed.
     _conversation_locks: dict[str, threading.RLock] = {}
+    # Slash commands may perform slow LLM/tool work outside the conversation lock.
+    # This reservation keeps generation and mutations from racing that work.
+    _active_commands: set[str] = set()
     _lock = threading.Lock()
 
     @classmethod
@@ -146,6 +149,24 @@ class SessionManager:
                 lock = threading.RLock()
                 cls._conversation_locks[conversation_id] = lock
             return lock
+
+    @classmethod
+    def command_is_active(cls, conversation_id: str) -> bool:
+        """Return whether a synchronous command owns the conversation."""
+        with cls._lock:
+            return conversation_id in cls._active_commands
+
+    @classmethod
+    def start_command(cls, conversation_id: str) -> None:
+        """Reserve a conversation for synchronous command execution."""
+        with cls._lock:
+            cls._active_commands.add(conversation_id)
+
+    @classmethod
+    def finish_command(cls, conversation_id: str) -> None:
+        """Release a synchronous command reservation."""
+        with cls._lock:
+            cls._active_commands.discard(conversation_id)
 
     @classmethod
     def create_session(cls, conversation_id: str) -> ConversationSession:

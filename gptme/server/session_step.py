@@ -511,10 +511,10 @@ def _start_acp_step_thread(
     *,
     reserved: bool = False,
 ) -> bool:
-    """Start an ACP-backed step unless another generation has reserved it."""
+    """Start an ACP-backed step unless another operation has reserved it."""
     if not reserved:
         with SessionManager.conversation_lock(conversation_id), session.step_lock:
-            if session.generating:
+            if session.generating or SessionManager.command_is_active(conversation_id):
                 return False
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
@@ -1040,14 +1040,14 @@ def _start_step_thread(
     *,
     reserved: bool = False,
 ) -> bool:
-    """Start a step unless another generation has already reserved it."""
+    """Start a step unless another operation has already reserved it."""
 
     # Direct callers (tool continuations and A2A) share /step's atomic
     # check-and-reserve protocol. The /step route reserves before setup and
     # identifies that reservation explicitly to avoid rejecting itself.
     if not reserved:
         with SessionManager.conversation_lock(conversation_id), session.step_lock:
-            if session.generating:
+            if session.generating or SessionManager.command_is_active(conversation_id):
                 return False
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)

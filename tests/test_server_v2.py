@@ -2351,6 +2351,57 @@ def test_v2_conversation_post_rejected_during_generation(client: FlaskClient):
     assert all(msg["content"] != "This should wait" for msg in conversation["log"])
 
 
+def test_v2_conversation_command_releases_lock_while_reserved(client: FlaskClient):
+    """Slow commands reserve the conversation without retaining its lock."""
+    from gptme.server.session_models import SessionManager
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    lock_was_available = False
+
+    def handle_cmd_while_probing_lock(*_args):
+        nonlocal lock_was_available
+        lock = SessionManager.conversation_lock(conversation_id)
+        acquired = lock.acquire(blocking=False)
+        lock_was_available = acquired
+        if acquired:
+            lock.release()
+        assert SessionManager.command_is_active(conversation_id)
+        return iter(())
+
+    with unittest.mock.patch(
+        "gptme.server.api_v2.handle_cmd", side_effect=handle_cmd_while_probing_lock
+    ):
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": "/help"},
+        )
+
+    assert response.status_code == 200
+    assert lock_was_available
+    assert not SessionManager.command_is_active(conversation_id)
+
+
+def test_v2_step_rejected_while_conversation_command_is_active(client: FlaskClient):
+    """Generation cannot start while a synchronous command owns the log."""
+    from gptme.server.session_models import SessionManager
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+    SessionManager.start_command(conversation_id)
+    try:
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={"session_id": session_id},
+        )
+    finally:
+        SessionManager.finish_command(conversation_id)
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "Generation already in progress"
+
+
 def test_v2_conversation_delete_rechecks_existence_under_lock(client: FlaskClient):
     """A DELETE serialized behind another deletion should return 404, not 500."""
     from gptme.dirs import get_logs_dir
