@@ -5,9 +5,10 @@ function msg(content: string, role: Message['role'] = 'assistant', ts?: string):
   return { role, content, timestamp: ts };
 }
 
-const toolResult = (content = 'Tool completed'): Message => ({
+const toolResult = (content = 'Tool completed', tool?: string): Message => ({
   ...msg(content, 'system'),
   call_id: 'call-1',
+  metadata: tool ? { tool } : undefined,
 });
 
 describe('buildToolActivity', () => {
@@ -183,6 +184,27 @@ describe('buildToolActivity', () => {
       msg('```shell\nls\n```\n```save out.txt\nhello\n```'),
       toolResult('Ran command'),
       msg('Done'),
+    ];
+    const activity = buildToolActivity(messages);
+    expect(activity).toHaveLength(1);
+    expect(activity[0].tool).toBe('shell');
+  });
+
+  it('matches mixed native and markdown-format results by tool provenance', () => {
+    const messages = [
+      msg('```shell\nls\n```\n```save out.txt\nhello\n```'),
+      toolResult('Saved file', 'save'),
+    ];
+    const activity = buildToolActivity(messages);
+    expect(activity).toHaveLength(1);
+    expect(activity[0].tool).toBe('save');
+  });
+
+  it('does not count untagged hook output in a mixed result batch', () => {
+    const messages = [
+      msg('```shell\nls\n```\n```save out.txt\nhello\n```'),
+      msg('# Relevant Lessons', 'system'),
+      toolResult('Ran command', 'shell'),
     ];
     const activity = buildToolActivity(messages);
     expect(activity).toHaveLength(1);

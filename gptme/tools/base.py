@@ -778,11 +778,12 @@ class ToolUse:
                         if generator_result is not None:
                             if self.call_id:
                                 # Buffer the generator so we can identify the last
-                                # message and stamp call_id on it. The Responses API
-                                # expects exactly one function_call_output per call_id;
-                                # stamping only the last message ensures the actual
-                                # tool result (not an earlier warning such as a
-                                # shellcheck notice) becomes the function_call_output.
+                                # message and stamp call_id plus tool provenance on it.
+                                # The Responses API expects exactly one
+                                # function_call_output per call_id; stamping only the
+                                # last message ensures the actual tool result (not an
+                                # earlier warning such as a shellcheck notice) becomes
+                                # the function_call_output.
                                 # Earlier messages pass through without call_id and
                                 # become system context instead.
                                 #
@@ -801,11 +802,17 @@ class ToolUse:
                                     result_msgs.append(msg)
                                     if on_result_message:
                                         on_result_message(msg)
-                                    yield (
-                                        msg.replace(call_id=self.call_id)
-                                        if idx == last_idx and _ki is None
-                                        else msg
-                                    )
+                                    if idx == last_idx and _ki is None:
+                                        metadata = (
+                                            dict(msg.metadata) if msg.metadata else {}
+                                        )
+                                        metadata["tool"] = self.tool
+                                        yield msg.replace(
+                                            call_id=self.call_id,
+                                            metadata=metadata,
+                                        )
+                                    else:
+                                        yield msg
                                 if _ki is not None:
                                     raise _ki
                             else:
@@ -821,11 +828,19 @@ class ToolUse:
                             result_msgs = [single_result]
                             if on_result_message:
                                 on_result_message(single_result)
-                            yield (
-                                single_result.replace(call_id=self.call_id)
-                                if self.call_id
-                                else single_result
-                            )
+                            if self.call_id:
+                                metadata = (
+                                    dict(single_result.metadata)
+                                    if single_result.metadata
+                                    else {}
+                                )
+                                metadata["tool"] = self.tool
+                                yield single_result.replace(
+                                    call_id=self.call_id,
+                                    metadata=metadata,
+                                )
+                            else:
+                                yield single_result
                     finally:
                         _current_tool_use.reset(token)
 

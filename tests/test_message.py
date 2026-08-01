@@ -267,6 +267,7 @@ def test_message_metadata():
     meta: MessageMetadata = {
         "model": "claude-sonnet",
         "cost": 0.005,
+        "tool": "shell",
         "usage": {
             "input_tokens": 100,
             "output_tokens": 50,
@@ -280,6 +281,7 @@ def test_message_metadata():
     assert msg.metadata is not None
     assert msg.metadata["model"] == "claude-sonnet"
     assert msg.metadata["cost"] == 0.005
+    assert msg.metadata["tool"] == "shell"
     usage = msg.metadata["usage"]
     assert usage["input_tokens"] == 100
     assert usage["output_tokens"] == 50

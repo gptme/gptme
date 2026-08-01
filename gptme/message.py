@@ -125,6 +125,7 @@ class MessageMetadata(TypedDict, total=False):
     usage: UsageData
     voice_call: dict[str, Any]  # Voice call metadata (call_sid, source, etc.)
     artifacts: list[ArtifactDescriptor]  # tool/plugin-emitted artifact descriptors
+    tool: str  # tool that produced this result message
     # Identifies one generated startup-prompt generation. A newer generation
     # supersedes older ones in provider context while all remain on disk.
     prompt_generation: str

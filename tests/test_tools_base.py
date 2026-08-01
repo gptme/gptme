@@ -955,6 +955,35 @@ class TestToolUseFormatting:
         ]
         assert streamed == [actual_output]
 
+    def test_execute_adds_tool_provenance_to_identified_result(self, monkeypatch):
+        actual_output = Message(
+            "system",
+            "actual output",
+            metadata={"artifacts": []},
+        )
+
+        def execute(code, args, kwargs):
+            yield actual_output
+
+        fake_tool = ToolSpec(name="test_tool", desc="test", execute=execute)
+        monkeypatch.setattr("gptme.tools.get_tool", lambda name: fake_tool)
+        monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+
+        yielded = list(
+            ToolUse(
+                "test_tool",
+                [],
+                None,
+                call_id="call-1",
+                start=0,
+                _format="tool",
+            ).execute()
+        )
+
+        assert yielded[0].call_id == "call-1"
+        assert yielded[0].metadata == {"artifacts": [], "tool": "test_tool"}
+        assert actual_output.metadata == {"artifacts": []}
+
     def test_execute_on_result_message_streams_generator_progressively(
         self, monkeypatch
     ):

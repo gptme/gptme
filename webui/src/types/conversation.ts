@@ -11,6 +11,7 @@ export interface MessageMetadata {
   model?: string;
   cost?: number;
   usage?: MessageUsage;
+  tool?: string;
 }
 
 export interface Message {

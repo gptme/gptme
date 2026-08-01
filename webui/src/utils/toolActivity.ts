@@ -25,23 +25,38 @@ function parseExecutedToolCalls(messages: Message[]): ToolCall[] {
     const parsedCalls = parseToolCalls(message.content);
     if (parsedCalls.length === 0) continue;
 
-    // Native tool results carry call_id while hook/context system messages do
-    // not. Legacy markdown logs predate call IDs, so retain the conservative
-    // system-result + assistant-continuation fallback for those logs only.
+    // New result messages carry explicit tool provenance. Fall back to call_id
+    // counts for older native-tool logs, then to the conservative continuation
+    // heuristic for legacy markdown logs. A mixed batch can therefore match
+    // identified and untagged results without treating hook output as execution.
     let next = index + 1;
     const resultMessages: Message[] = [];
     while (next < messages.length && messages[next].role === 'system') {
       resultMessages.push(messages[next]);
       next++;
     }
-    const hasIdentifiedResults = resultMessages.some((result) => result.call_id);
-    const resultCount = hasIdentifiedResults
-      ? resultMessages.filter((result) => result.call_id).length
-      : next < messages.length && messages[next].role === 'assistant'
-        ? resultMessages.length
-        : 0;
+    const remainingByTool = new Map<string, number>();
+    for (const result of resultMessages) {
+      const tool = result.metadata?.tool?.toLowerCase();
+      if (tool) remainingByTool.set(tool, (remainingByTool.get(tool) ?? 0) + 1);
+    }
+    const identifiedResultCount = resultMessages.filter((result) => result.call_id).length;
+    let fallbackCount = remainingByTool.size > 0 ? 0 : identifiedResultCount;
+    if (fallbackCount === 0 && remainingByTool.size === 0) {
+      fallbackCount =
+        next < messages.length && messages[next].role === 'assistant' ? resultMessages.length : 0;
+    }
 
-    for (const call of parsedCalls.slice(0, resultCount)) {
+    for (const call of parsedCalls) {
+      const tool = call.tool.toLowerCase();
+      const matchingResults = remainingByTool.get(tool) ?? 0;
+      if (matchingResults > 0) {
+        remainingByTool.set(tool, matchingResults - 1);
+      } else if (fallbackCount > 0) {
+        fallbackCount--;
+      } else {
+        continue;
+      }
       const args = call.args;
       const content = call.content || args[0] || '';
       calls.push({
