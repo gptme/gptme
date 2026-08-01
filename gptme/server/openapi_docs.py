@@ -78,6 +78,9 @@ class Message(BaseModel):
     content: str = Field(..., description="Message content")
     timestamp: str = Field(..., description="Message timestamp")
     files: list[str] | None = Field(None, description="Associated files")
+    call_id: str | None = Field(
+        None, description="Tool call identifier for result messages"
+    )
 
 
 class Conversation(BaseModel):

@@ -99,6 +99,7 @@ class MessageDict(TypedDict):
     timestamp: str
     files: NotRequired[list[str] | None]
     hide: NotRequired[bool]
+    call_id: NotRequired[str]
     metadata: NotRequired[dict]
 
 
@@ -294,6 +295,8 @@ def msg2dict(msg: Message, workspace: Path, logdir: Path | None = None) -> Messa
         ]
     if msg.hide:
         result["hide"] = True
+    if msg.call_id:
+        result["call_id"] = msg.call_id
     if msg.metadata:
         result["metadata"] = dict(msg.metadata)
     return result

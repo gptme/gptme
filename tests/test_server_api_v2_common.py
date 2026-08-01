@@ -220,6 +220,18 @@ class TestMsg2Dict:
         result = msg2dict(msg, tmp_path)
         assert "hide" not in result
 
+    def test_call_id_included_for_tool_result(self, tmp_path):
+        """Tool result identity is exposed to API clients."""
+        msg = Message(role="system", content="result", call_id="call-1")
+        result = msg2dict(msg, tmp_path)
+        assert result["call_id"] == "call-1"
+
+    def test_call_id_omitted_when_absent(self, tmp_path):
+        """Ordinary messages omit the optional call_id key."""
+        msg = Message(role="system", content="context")
+        result = msg2dict(msg, tmp_path)
+        assert "call_id" not in result
+
     def test_timestamp_is_iso_format(self, tmp_path):
         """Timestamp is a valid ISO 8601 string."""
         from datetime import datetime, timezone

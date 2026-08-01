@@ -5,7 +5,10 @@ function msg(content: string, role: Message['role'] = 'assistant', ts?: string):
   return { role, content, timestamp: ts };
 }
 
-const toolResult = (content = 'Tool completed') => msg(content, 'system');
+const toolResult = (content = 'Tool completed'): Message => ({
+  ...msg(content, 'system'),
+  call_id: 'call-1',
+});
 
 describe('buildToolActivity', () => {
   it('returns empty for no messages', () => {
@@ -142,13 +145,37 @@ describe('buildToolActivity', () => {
     expect(buildToolActivity(messages)).toEqual([]);
   });
 
-  it('does not treat a TURN_POST system message as execution evidence', () => {
+  it('does not treat a hook message after an identified result as another result', () => {
     const messages = [
-      msg('For example:\n```ipython\nprint("hello")\n```'),
+      msg('```shell\nls\n```\n```save out.txt\nhello\n```'),
+      toolResult(),
       msg('# Relevant Lessons', 'system'),
-      msg('Thanks', 'user'),
+      msg('Done'),
     ];
-    expect(buildToolActivity(messages)).toEqual([]);
+    const activity = buildToolActivity(messages);
+    expect(activity).toHaveLength(1);
+    expect(activity[0].tool).toBe('shell');
+  });
+
+  it('keeps the legacy continuation heuristic when no result has an ID', () => {
+    const messages = [msg('```shell\nls\n```'), msg('legacy tool output', 'system'), msg('Done')];
+    expect(buildToolActivity(messages)).toHaveLength(1);
+  });
+
+  it('counts an identified result even when no assistant continuation follows', () => {
+    const messages = [msg('```shell\nls\n```'), toolResult()];
+    expect(buildToolActivity(messages)).toHaveLength(1);
+  });
+
+  it('ignores hook output interleaved with a real tool result', () => {
+    const messages = [
+      msg('```shell\nls\n```'),
+      msg('# Tool pre-hook context', 'system'),
+      toolResult(),
+      msg('# Tool post-hook context', 'system'),
+      msg('Done'),
+    ];
+    expect(buildToolActivity(messages)).toHaveLength(1);
   });
 
   it('counts only calls with corresponding result messages', () => {
