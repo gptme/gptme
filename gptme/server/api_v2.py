@@ -1816,13 +1816,6 @@ def api_conversation_post(conversation_id: str):
     if isinstance(tool_allowlist, tuple):
         return tool_allowlist
 
-    try:
-        init_tools(tool_allowlist)
-    except ValueError as exc:
-        return flask.jsonify({"error": str(exc)}), 400
-    except Exception as exc:
-        return flask.jsonify({"error": f"Failed to load tool: {exc}"}), 400
-
     # Check conversation existence before branch to return accurate error messages.
     logdir = get_logs_dir() / conversation_id
     if not logdir.exists():
@@ -1830,42 +1823,110 @@ def api_conversation_post(conversation_id: str):
             flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
             404,
         )
-    try:
-        log = LogManager.load(logdir, branch=branch)
-    except FileNotFoundError:
-        return (
-            flask.jsonify({"error": f"Branch not found: {branch}"}),
-            404,
+
+    with SessionManager.conversation_lock(conversation_id):
+        # Another serialized DELETE may have removed it while we waited.
+        if not logdir.exists():
+            return (
+                flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+                404,
+            )
+
+        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+        if any(sess.generating for sess in sessions):
+            return (
+                flask.jsonify(
+                    {"error": "Cannot add message while generation is in progress"}
+                ),
+                409,
+            )
+
+        try:
+            log = LogManager.load(logdir, branch=branch)
+        except FileNotFoundError:
+            return (
+                flask.jsonify({"error": f"Branch not found: {branch}"}),
+                404,
+            )
+
+        try:
+            init_tools(tool_allowlist)
+        except ValueError as exc:
+            return flask.jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            return flask.jsonify({"error": f"Failed to load tool: {exc}"}), 400
+
+        # Validate and convert file paths from JSON strings to Path objects
+        files_result = _get_optional_string_list_field(req_json, "files")
+        if isinstance(files_result, tuple):
+            return files_result
+        file_paths: list[FilePath] = []
+        if files_result is not None:
+            validated_files = _validate_message_file_references(
+                files_result, log.workspace
+            )
+            if isinstance(validated_files, tuple):
+                return validated_files
+            file_paths = validated_files
+        msg = Message(
+            req_json["role"],
+            req_json["content"],
+            files=file_paths,
         )
 
-    # Validate and convert file paths from JSON strings to Path objects
-    files_result = _get_optional_string_list_field(req_json, "files")
-    if isinstance(files_result, tuple):
-        return files_result
-    file_paths: list[FilePath] = []
-    if files_result is not None:
-        validated_files = _validate_message_file_references(files_result, log.workspace)
-        if isinstance(validated_files, tuple):
-            return validated_files
-        file_paths = validated_files
-    msg = Message(
-        req_json["role"],
-        req_json["content"],
-        files=file_paths,
-    )
+        # Check if the message is a slash command (e.g. /help, /model, /tools)
+        if msg.role == "user" and is_message_command(msg.content):
+            # Block commands that are unsafe in server context (see _SERVER_BLOCKED_COMMANDS)
+            parts = msg.content.lstrip("/").split()
+            cmd_name = parts[0] if parts else ""
+            if cmd_name in _SERVER_BLOCKED_COMMANDS:
+                return flask.jsonify(
+                    {"error": f"Command /{cmd_name} is not available in server mode"}
+                ), 400
 
-    # Check if the message is a slash command (e.g. /help, /model, /tools)
-    if msg.role == "user" and is_message_command(msg.content):
-        # Block commands that are unsafe in server context (see _SERVER_BLOCKED_COMMANDS)
-        parts = msg.content.lstrip("/").split()
-        cmd_name = parts[0] if parts else ""
-        if cmd_name in _SERVER_BLOCKED_COMMANDS:
+            # Append command message first (handle_cmd may undo it via auto_undo)
+            log.append(msg)
+            SessionManager.add_event(
+                conversation_id,
+                {
+                    "type": "message_added",
+                    "message": msg2dict(msg, log.workspace, log.logdir),
+                },
+            )
+
+            # Execute the command and collect response messages
+            responses: list[Message] = []
+            try:
+                for resp in handle_cmd(msg.content, log):
+                    log.append(resp)
+                    responses.append(resp)
+                    SessionManager.add_event(
+                        conversation_id,
+                        {
+                            "type": "message_added",
+                            "message": msg2dict(resp, log.workspace, log.logdir),
+                        },
+                    )
+            except Exception as e:
+                logger.exception("Error executing command: %s", msg.content)
+                error_msg = Message("system", f"Command error: {e}")
+                log.append(error_msg)
+                responses.append(error_msg)
+                SessionManager.add_event(
+                    conversation_id,
+                    {
+                        "type": "message_added",
+                        "message": msg2dict(error_msg, log.workspace, log.logdir),
+                    },
+                )
+
             return flask.jsonify(
-                {"error": f"Command /{cmd_name} is not available in server mode"}
-            ), 400
+                {"status": "ok", "command": True, "responses": len(responses)}
+            )
 
-        # Append command message first (handle_cmd may undo it via auto_undo)
         log.append(msg)
+
+        # Notify all sessions that a new message was added
         SessionManager.add_event(
             conversation_id,
             {
@@ -1874,51 +1935,10 @@ def api_conversation_post(conversation_id: str):
             },
         )
 
-        # Execute the command and collect response messages
-        responses: list[Message] = []
-        try:
-            for resp in handle_cmd(msg.content, log):
-                log.append(resp)
-                responses.append(resp)
-                SessionManager.add_event(
-                    conversation_id,
-                    {
-                        "type": "message_added",
-                        "message": msg2dict(resp, log.workspace, log.logdir),
-                    },
-                )
-        except Exception as e:
-            logger.exception("Error executing command: %s", msg.content)
-            error_msg = Message("system", f"Command error: {e}")
-            log.append(error_msg)
-            responses.append(error_msg)
-            SessionManager.add_event(
-                conversation_id,
-                {
-                    "type": "message_added",
-                    "message": msg2dict(error_msg, log.workspace, log.logdir),
-                },
-            )
-
-        return flask.jsonify(
-            {"status": "ok", "command": True, "responses": len(responses)}
-        )
-
-    log.append(msg)
-
-    # Notify all sessions that a new message was added
-    SessionManager.add_event(
-        conversation_id,
-        {
-            "type": "message_added",
-            "message": msg2dict(msg, log.workspace, log.logdir),
-        },
-    )
-
-    # Partial cache update: only refresh this conversation's entry so the
-    # conversations-list endpoint can keep serving from cache during streaming.
-    _update_conversation_in_cache(conversation_id)
-    return flask.jsonify({"status": "ok"})
+        # Partial cache update: only refresh this conversation's entry so the
+        # conversations-list endpoint can keep serving from cache during streaming.
+        _update_conversation_in_cache(conversation_id)
+        return flask.jsonify({"status": "ok"})
 
 
 @v2_api.route(

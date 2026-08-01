@@ -2326,6 +2326,31 @@ def test_v2_conversation_delete_rejected_during_generation(client: FlaskClient):
     assert "generation is in progress" in response.get_json()["error"]
 
 
+def test_v2_conversation_post_rejected_during_generation(client: FlaskClient):
+    """Appending a message while generation is active should not race the worker."""
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    with unittest.mock.patch(
+        "gptme.server.api_v2.SessionManager.get_sessions_for_conversation"
+    ) as mock_get:
+        mock_session = unittest.mock.MagicMock()
+        mock_session.generating = True
+        mock_get.return_value = [mock_session]
+
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": "This should wait"},
+        )
+
+    assert response.status_code == 409
+    assert "generation is in progress" in response.get_json()["error"]
+
+    conversation = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert conversation is not None
+    assert all(msg["content"] != "This should wait" for msg in conversation["log"])
+
+
 def test_v2_conversation_delete_rechecks_existence_under_lock(client: FlaskClient):
     """A DELETE serialized behind another deletion should return 404, not 500."""
     from gptme.dirs import get_logs_dir
