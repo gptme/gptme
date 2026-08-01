@@ -2030,7 +2030,9 @@ def api_conversation_edit_message(conversation_id: str, index: int):
     # lock so deletion between the existence check and lock acquisition is safe.
     with SessionManager.conversation_lock(conversation_id):
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(sess.generating for sess in sessions):
+        if any(
+            sess.generating for sess in sessions
+        ) or SessionManager.command_is_active(conversation_id):
             return (
                 flask.jsonify({"error": "Cannot edit while generation is in progress"}),
                 409,
@@ -2153,7 +2155,9 @@ def api_conversation_delete_message(conversation_id: str, index: int):
     # lock so deletion between the existence check and lock acquisition is safe.
     with SessionManager.conversation_lock(conversation_id):
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(sess.generating for sess in sessions):
+        if any(
+            sess.generating for sess in sessions
+        ) or SessionManager.command_is_active(conversation_id):
             return (
                 flask.jsonify(
                     {"error": "Cannot delete while generation is in progress"}
@@ -2275,7 +2279,9 @@ def api_conversation_fork(conversation_id: str):
     # the lock so deletion between the existence check and lock acquisition is safe.
     with SessionManager.conversation_lock(conversation_id):
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(sess.generating for sess in sessions):
+        if any(
+            sess.generating for sess in sessions
+        ) or SessionManager.command_is_active(conversation_id):
             return (
                 flask.jsonify({"error": "Cannot fork while generation is in progress"}),
                 409,
@@ -2385,7 +2391,9 @@ def api_conversation_delete(conversation_id: str):
             )
 
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(sess.generating for sess in sessions):
+        if any(
+            sess.generating for sess in sessions
+        ) or SessionManager.command_is_active(conversation_id):
             return (
                 flask.jsonify(
                     {"error": "Cannot delete while generation is in progress"}
@@ -2764,7 +2772,9 @@ def api_conversation_config_patch(conversation_id: str):
             )
 
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(sess.generating for sess in sessions):
+        if any(
+            sess.generating for sess in sessions
+        ) or SessionManager.command_is_active(conversation_id):
             return (
                 flask.jsonify(
                     {"error": "Cannot update config while generation is in progress"}

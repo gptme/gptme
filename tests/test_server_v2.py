@@ -2402,6 +2402,35 @@ def test_v2_step_rejected_while_conversation_command_is_active(client: FlaskClie
     assert response.get_json()["error"] == "Generation already in progress"
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "json"),
+    [
+        ("PATCH", "/messages/0", {"content": "updated"}),
+        ("DELETE", "/messages/0", None),
+        ("POST", "/fork?after_message=0", None),
+        ("DELETE", "", None),
+        ("PATCH", "/config", {"model": "openai/gpt-4o"}),
+    ],
+)
+def test_v2_mutations_rejected_while_conversation_command_is_active(
+    client: FlaskClient, method: str, path: str, json: dict | None
+):
+    """Mutations cannot race a synchronous command's log snapshot."""
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    SessionManager.start_command(conversation_id)
+    try:
+        response = client.open(
+            f"/api/v2/conversations/{conversation_id}{path}", method=method, json=json
+        )
+    finally:
+        SessionManager.finish_command(conversation_id)
+
+    assert response.status_code == 409
+    assert "generation is in progress" in response.get_json()["error"]
+
+
 def test_v2_conversation_delete_rechecks_existence_under_lock(client: FlaskClient):
     """A DELETE serialized behind another deletion should return 404, not 500."""
     from gptme.dirs import get_logs_dir
