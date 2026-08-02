@@ -281,13 +281,23 @@ def record_runtime_selection(
     This is intentionally explicit rather than part of ``set_default_model``:
     internal temporary model switches are not user/session selections.
     """
-    from .llm.models import get_model
+    from .llm.models import MODEL_ALIASES, get_model
 
     model_meta = get_model(model)
-    transport_provider = model.split("/", 1)[0]
+    transport_provider, model_name = model.split("/", 1)
     resolved_model = model
     if transport_provider == "gptme" and "/" in model_meta.model:
         resolved_model = f"gptme/{model_meta.model}"
+
+    alias_name = model_name
+    if transport_provider == "openai-subscription" and ":" in alias_name:
+        alias_name = alias_name.rsplit(":", 1)[0]
+    alias_model = MODEL_ALIASES.get(transport_provider, {}).get(alias_name)
+    alias_target = (
+        f"{transport_provider}/{alias_model}" if alias_model is not None else None
+    )
+    if alias_target is not None:
+        resolved_model = alias_target
 
     parts = resolved_model.split("/")
     backend_provider = transport_provider
@@ -303,8 +313,11 @@ def record_runtime_selection(
         source_value=model,
         transport_provider=transport_provider,
         backend_provider=backend_provider,
+        alias_target=alias_target,
         resolution_notes=(
-            ["resolved backend model from provider catalog"]
+            ["resolved model alias for metadata lookup"]
+            if alias_target is not None
+            else ["resolved backend model from provider catalog"]
             if resolved_model != model
             else []
         ),

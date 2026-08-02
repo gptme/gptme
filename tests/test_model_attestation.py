@@ -271,6 +271,37 @@ def test_record_runtime_selection_resolves_server_model(monkeypatch):
     assert get_selection_trace() is trace
 
 
+def test_record_runtime_selection_preserves_alias_resolution(monkeypatch):
+    from gptme.llm.models import MODEL_ALIASES, ModelMeta
+    from gptme.model_attestation import record_runtime_selection
+
+    monkeypatch.setitem(
+        MODEL_ALIASES,
+        "openai-subscription",
+        {"gpt-5.6": "gpt-5.6-sol"},
+    )
+    monkeypatch.setattr(
+        "gptme.llm.models.get_model",
+        lambda _model: ModelMeta(
+            provider="openai-subscription",
+            model="gpt-5.6:high",
+            context=400_000,
+        ),
+    )
+
+    model = "openai-subscription/gpt-5.6:high"
+    trace = record_runtime_selection(model, "api_request")
+
+    assert trace.selection is not None
+    assert trace.selection.requested_model == model
+    assert trace.selection.alias_target == "openai-subscription/gpt-5.6-sol"
+    assert trace.selection.resolved_model == "openai-subscription/gpt-5.6-sol"
+    assert trace.selection.backend_provider == "openai-subscription"
+    assert trace.selection.resolution_notes == [
+        "resolved model alias for metadata lookup"
+    ]
+
+
 def test_record_selection_trace_preserves_alias_resolution(monkeypatch):
     from gptme.init import MODEL_ALIASES, _record_selection_trace
     from gptme.llm.models import ModelMeta
