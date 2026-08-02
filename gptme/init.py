@@ -231,6 +231,13 @@ def init_model(
 
     model_meta = _resolved_meta or get_model(model_full)
 
+    # Preserve the transport-qualified resolved model before any metadata-only
+    # alias expansion. Routed providers can encode the real backend in ModelMeta.
+    if str(provider) == "gptme" and "/" in model_meta.model:
+        resolved_model = f"gptme/{model_meta.model}"
+    else:
+        resolved_model = model_full
+
     # Apply GPTME_CONTEXT_LENGTH override (useful for local models with non-standard context)
     context_length_str = os.environ.get("GPTME_CONTEXT_LENGTH")
     if context_length_str:
@@ -245,7 +252,9 @@ def init_model(
             logger.info(f"Context length overridden to {context_length} tokens")
 
     # Record model selection provenance trace (Phase 0).
-    _record_selection_trace(config, _requested_model, model_full, provider, model_meta)
+    _record_selection_trace(
+        config, _requested_model, model_full, resolved_model, provider, model_meta
+    )
 
     set_default_model(model_meta)
 
@@ -254,6 +263,7 @@ def _record_selection_trace(
     config: Config,
     requested_model: str | None,
     model_full: str,
+    resolved_model: str,
     provider: Provider,
     model_meta: ModelMeta,
 ) -> None:
@@ -277,15 +287,43 @@ def _record_selection_trace(
         source_kind = "cli"
         source_value = model_full
 
+    transport_provider = str(provider)
+    backend_provider = _backend_provider(transport_provider, resolved_model)
+    alias_name = model_full.split("/", 1)[1]
+    alias_model = MODEL_ALIASES.get(transport_provider, {}).get(alias_name)
+    alias_target = (
+        f"{transport_provider}/{alias_model}" if alias_model is not None else None
+    )
+    resolved_model = alias_target or resolved_model
+    resolution_notes = []
+    if alias_target is not None:
+        resolution_notes.append("resolved model alias for metadata lookup")
+    if resolved_model != model_full and alias_target is None:
+        resolution_notes.append("resolved backend model from provider catalog")
+
     trace = create_selection_trace(
-        requested_model=requested_model or model_full,
-        resolved_model=model_full,
+        requested_model=source_value,
+        resolved_model=resolved_model,
         source_kind=source_kind,  # type: ignore[arg-type]
         source_value=source_value,
-        transport_provider=str(provider),
-        backend_provider=str(model_meta.provider),
+        transport_provider=transport_provider,
+        backend_provider=backend_provider,
+        alias_target=alias_target,
+        resolution_notes=resolution_notes,
     )
     set_selection_trace(trace)
+
+
+def _backend_provider(transport_provider: str, resolved_model: str) -> str:
+    """Return the provider serving the model weights when it is knowable."""
+    parts = resolved_model.split("/")
+    if transport_provider == "gptme" and len(parts) >= 3:
+        if parts[1] == "openrouter" and len(parts) >= 4:
+            return parts[2]
+        return parts[1]
+    if transport_provider == "openrouter" and len(parts) >= 3:
+        return parts[1]
+    return transport_provider
 
 
 def _maybe_authenticate_gptme_interactively(

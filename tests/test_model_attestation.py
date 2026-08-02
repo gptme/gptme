@@ -1,6 +1,8 @@
 """Tests for the model selection attestation module (Phase 0)."""
 
 import json
+from contextvars import Context, copy_context
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -112,8 +114,22 @@ def test_session_trace_storage():
     assert retrieved is trace
 
     # Reset
-    set_selection_trace(None)  # type: ignore[arg-type]
+    set_selection_trace(None)
     assert get_selection_trace() is None
+
+
+def test_session_trace_storage_is_context_local():
+    parent_trace = make_trace(requested="anthropic/parent")
+    child_trace = make_trace(requested="anthropic/child")
+    set_selection_trace(parent_trace)
+
+    child_context = copy_context()
+    child_context.run(set_selection_trace, child_trace)
+    empty_context = Context()
+
+    assert get_selection_trace() is parent_trace
+    assert child_context.run(get_selection_trace) is child_trace
+    assert empty_context.run(get_selection_trace) is None
 
 
 def test_session_trace_distinguishes_providers():
@@ -145,3 +161,117 @@ def test_source_kinds():
         trace = make_trace(source_kind=kind)
         assert trace.selection is not None
         assert trace.selection.source.kind == kind
+
+
+def _config() -> MagicMock:
+    config = MagicMock()
+    config.chat = MagicMock(model=None)
+    config.user.models.default = None
+    config.get_env.return_value = None
+    return config
+
+
+def test_record_selection_trace_resolves_gptme_backend():
+    from gptme.init import _record_selection_trace
+    from gptme.llm.models import ModelMeta
+
+    _record_selection_trace(
+        _config(),
+        "gptme/claude-sonnet-4-6",
+        "gptme/claude-sonnet-4-6",
+        "gptme/anthropic/claude-sonnet-4-6",
+        "gptme",
+        ModelMeta(
+            provider="gptme",
+            model="anthropic/claude-sonnet-4-6",
+            context=200_000,
+        ),
+    )
+
+    trace = get_selection_trace()
+    assert trace is not None and trace.selection is not None
+    assert trace.selection.requested_model == "gptme/claude-sonnet-4-6"
+    assert trace.selection.resolved_model == "gptme/anthropic/claude-sonnet-4-6"
+    assert trace.selection.transport_provider == "gptme"
+    assert trace.selection.backend_provider == "anthropic"
+    assert trace.selection.resolution_notes == [
+        "resolved backend model from provider catalog"
+    ]
+
+
+def test_record_selection_trace_resolves_openrouter_backend():
+    from gptme.init import _record_selection_trace
+    from gptme.llm.models import ModelMeta
+
+    model = "openrouter/anthropic/claude-sonnet-4-6"
+    _record_selection_trace(
+        _config(),
+        model,
+        model,
+        model,
+        "openrouter",
+        ModelMeta(
+            provider="openrouter",
+            model="anthropic/claude-sonnet-4-6",
+            context=200_000,
+        ),
+    )
+
+    trace = get_selection_trace()
+    assert trace is not None and trace.selection is not None
+    assert trace.selection.resolved_model == model
+    assert trace.selection.transport_provider == "openrouter"
+    assert trace.selection.backend_provider == "anthropic"
+
+
+def test_record_selection_trace_resolves_openrouter_backed_gptme_backend():
+    from gptme.init import _record_selection_trace
+    from gptme.llm.models import ModelMeta
+
+    requested = "gptme/gpt-5.4"
+    resolved = "gptme/openrouter/openai/gpt-5.4"
+    _record_selection_trace(
+        _config(),
+        requested,
+        requested,
+        resolved,
+        "gptme",
+        ModelMeta(
+            provider="gptme",
+            model="openrouter/openai/gpt-5.4",
+            context=400_000,
+        ),
+    )
+
+    trace = get_selection_trace()
+    assert trace is not None and trace.selection is not None
+    assert trace.selection.resolved_model == resolved
+    assert trace.selection.transport_provider == "gptme"
+    assert trace.selection.backend_provider == "openai"
+
+
+def test_record_selection_trace_preserves_alias_resolution(monkeypatch):
+    from gptme.init import MODEL_ALIASES, _record_selection_trace
+    from gptme.llm.models import ModelMeta
+
+    monkeypatch.setitem(
+        MODEL_ALIASES,
+        "anthropic",
+        {"claude-haiku-4-5": "claude-haiku-4-5-20251001"},
+    )
+    _record_selection_trace(
+        _config(),
+        "anthropic/claude-haiku-4-5",
+        "anthropic/claude-haiku-4-5",
+        "anthropic/claude-haiku-4-5",
+        "anthropic",
+        ModelMeta(provider="anthropic", model="claude-haiku-4-5", context=200_000),
+    )
+
+    trace = get_selection_trace()
+    assert trace is not None and trace.selection is not None
+    assert trace.selection.alias_target == "anthropic/claude-haiku-4-5-20251001"
+    assert trace.selection.resolved_model == "anthropic/claude-haiku-4-5-20251001"
+    assert trace.selection.resolution_notes == [
+        "resolved model alias for metadata lookup"
+    ]

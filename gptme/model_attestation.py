@@ -10,6 +10,7 @@ This module provides durable, auditable records of:
 from __future__ import annotations
 
 import json
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -255,16 +256,18 @@ def create_selection_trace(
     )
 
 
-# Module-level storage for the current session's trace.
-_current_trace: ModelSelectionTrace | None = None
+# Context-local storage mirrors the default model's ownership. This keeps
+# concurrent ACP/server sessions from seeing each other's provenance.
+_current_trace_var: ContextVar[ModelSelectionTrace | None] = ContextVar(
+    "model_selection_trace", default=None
+)
 
 
 def get_selection_trace() -> ModelSelectionTrace | None:
-    """Return the model selection trace captured during this session's init."""
-    return _current_trace
+    """Return the model selection trace captured in the current context."""
+    return _current_trace_var.get()
 
 
-def set_selection_trace(trace: ModelSelectionTrace) -> None:
-    """Store the model selection trace for this session."""
-    global _current_trace
-    _current_trace = trace
+def set_selection_trace(trace: ModelSelectionTrace | None) -> None:
+    """Store the model selection trace in the current context."""
+    _current_trace_var.set(trace)
