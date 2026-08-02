@@ -159,6 +159,26 @@ class TestKBestGuessErrors:
         with pytest.raises(ValueError, match="invalid"):
             fn()
 
+    @pytest.mark.parametrize(
+        "non_finite_score", [float("nan"), float("inf"), float("-inf")]
+    )
+    def test_non_finite_score_is_rejected(self, non_finite_score):
+        outcomes = iter(["invalid", "valid"])
+
+        @k_best_guess(
+            k=2,
+            check=lambda result: non_finite_score if result == "invalid" else 1.0,
+            parallel=False,
+            return_metadata=True,
+        )
+        def fn():
+            return next(outcomes)
+
+        result = fn()
+        assert isinstance(result, KBestResult)
+        assert result.winner == "valid"
+        assert isinstance(result.candidates[0].error, ValueError)
+
 
 # ---------------------------------------------------------------------------
 # Parallel execution

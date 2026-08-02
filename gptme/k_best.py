@@ -28,6 +28,7 @@ exception is re-raised.
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -187,7 +188,10 @@ def _score(
         return 0.0, None
     try:
         raw = check(result)
-        return float(raw), None
+        score = float(raw)
+        if not math.isfinite(score):
+            raise ValueError(f"check returned a non-finite score: {score!r}")
+        return score, None
     except Exception as e:
         logger.debug(
             "k_best_guess check function raised for candidate %d: %s", index, e
