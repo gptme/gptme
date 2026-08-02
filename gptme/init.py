@@ -113,6 +113,9 @@ def init_model(
 ):
     config = get_config()
 
+    # Save original input for provenance tracking before precedence resolution.
+    _requested_model = model
+
     # get from config
     # Precedence: explicit CLI --model > per-chat saved model > [models].default > MODEL env var.
     if not model:
@@ -241,7 +244,48 @@ def init_model(
             model_meta = replace(model_meta, context=context_length)
             logger.info(f"Context length overridden to {context_length} tokens")
 
+    # Record model selection provenance trace (Phase 0).
+    _record_selection_trace(config, _requested_model, model_full, provider, model_meta)
+
     set_default_model(model_meta)
+
+
+def _record_selection_trace(
+    config: Config,
+    requested_model: str | None,
+    model_full: str,
+    provider: Provider,
+    model_meta: ModelMeta,
+) -> None:
+    """Create and store a ModelSelectionTrace for this session."""
+    from .model_attestation import create_selection_trace, set_selection_trace
+
+    # Infer source kind from the precedence chain.
+    if requested_model is not None:
+        source_kind = "cli"
+        source_value = requested_model
+    elif config.chat and config.chat.model:
+        source_kind = "chat_config"
+        source_value = config.chat.model
+    elif config.user.models.default:
+        source_kind = "models.default"
+        source_value = config.user.models.default
+    elif config.get_env("MODEL"):
+        source_kind = "MODEL"
+        source_value = config.get_env("MODEL") or model_full
+    else:
+        source_kind = "cli"
+        source_value = model_full
+
+    trace = create_selection_trace(
+        requested_model=requested_model or model_full,
+        resolved_model=model_full,
+        source_kind=source_kind,  # type: ignore[arg-type]
+        source_value=source_value,
+        transport_provider=str(provider),
+        backend_provider=str(model_meta.provider),
+    )
+    set_selection_trace(trace)
 
 
 def _maybe_authenticate_gptme_interactively(

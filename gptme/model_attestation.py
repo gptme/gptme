@@ -253,3 +253,18 @@ def create_selection_trace(
             registry_record=registry_record,
         ),
     )
+
+
+# Module-level storage for the current session's trace.
+_current_trace: ModelSelectionTrace | None = None
+
+
+def get_selection_trace() -> ModelSelectionTrace | None:
+    """Return the model selection trace captured during this session's init."""
+    return _current_trace
+
+
+def set_selection_trace(trace: ModelSelectionTrace) -> None:
+    """Store the model selection trace for this session."""
+    global _current_trace
+    _current_trace = trace
