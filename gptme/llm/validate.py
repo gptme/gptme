@@ -11,6 +11,7 @@ PROVIDER_DOCS: dict[str, str] = {
     "openai": "https://platform.openai.com/account/api-keys",
     "anthropic": "https://console.anthropic.com/settings/keys",
     "openrouter": "https://openrouter.ai/settings/keys",
+    "orcarouter": "https://www.orcarouter.ai/console",
     "gemini": "https://aistudio.google.com/app/apikey",
     "google": "https://aistudio.google.com/app/apikey",  # alias for gemini
     "groq": "https://console.groq.com/keys",
@@ -52,6 +53,8 @@ def validate_api_key(
             return _validate_anthropic(api_key, timeout)
         if provider == "openrouter":
             return _validate_openrouter(api_key, timeout)
+        if provider == "orcarouter":
+            return _validate_orcarouter(api_key, timeout)
         if provider in ("google", "gemini"):
             return _validate_google(api_key, timeout)
         if provider == "groq":
@@ -149,6 +152,25 @@ def _validate_openrouter(api_key: str, timeout: int) -> tuple[bool, str]:
             "HTTP-Referer": "https://github.com/gptme/gptme",
             "X-Title": "gptme",
         },
+        timeout=timeout,
+    )
+
+    if response.status_code == 200:
+        return True, ""
+    if response.status_code == 401:
+        return False, "Invalid API key. Please check your key and try again."
+    if response.status_code == 429:
+        return True, ""  # Rate limited but key is valid
+    return False, f"API returned status {response.status_code}"
+
+
+def _validate_orcarouter(api_key: str, timeout: int) -> tuple[bool, str]:
+    """Validate OrcaRouter API key by listing models."""
+    from .constants import ORCAROUTER_APP_HEADERS, ORCAROUTER_BASE_URL
+
+    response = requests.get(
+        f"{ORCAROUTER_BASE_URL}/models",
+        headers={"Authorization": f"Bearer {api_key}", **ORCAROUTER_APP_HEADERS},
         timeout=timeout,
     )
 

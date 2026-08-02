@@ -27,6 +27,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ORCAROUTER_API_KEY: ${ORCAROUTER_API_KEY:-}
       # Auth token (the server enables auth by default on 0.0.0.0). Set this and
       # configure the web UI with the same value; if blank, one is auto-generated
       # at startup — see `docker compose logs`.
@@ -72,6 +73,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ORCAROUTER_API_KEY: ${ORCAROUTER_API_KEY:-}
       # Virtual display resolution (must match Xvfb resolution in Dockerfile)
       WIDTH: ${COMPUTER_WIDTH:-1024}
       HEIGHT: ${COMPUTER_HEIGHT:-768}

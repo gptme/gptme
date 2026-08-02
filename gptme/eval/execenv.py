@@ -305,6 +305,8 @@ DOCKER_ENV_PASSTHROUGH = [
     "GROQ_API_KEY",
     # OpenRouter
     "OPENROUTER_API_KEY",
+    # OrcaRouter
+    "ORCAROUTER_API_KEY",
     # Azure OpenAI
     "AZURE_OPENAI_API_KEY",
     "AZURE_OPENAI_ENDPOINT",

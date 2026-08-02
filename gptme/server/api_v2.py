@@ -2474,9 +2474,12 @@ def _probe_provider(provider_name: str) -> dict:
     try:
         provider = cast(Provider, provider_name)
 
-        if provider_name in ("openrouter", "local", "gptme") or is_custom_provider(
-            provider
-        ):
+        if provider_name in (
+            "openrouter",
+            "orcarouter",
+            "local",
+            "gptme",
+        ) or is_custom_provider(provider):
             # These support dynamic model listing via an HTTP call
             from ..llm import get_available_models  # fmt: skip
 

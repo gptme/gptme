@@ -11,3 +11,13 @@ OPENROUTER_APP_HEADERS = {
     "HTTP-Referer": "https://github.com/gptme/gptme",
     "X-Title": "gptme",
 }
+
+# Same attribution convention, accepted by OrcaRouter (verified 2026-08-02).
+ORCAROUTER_APP_HEADERS = {
+    "HTTP-Referer": "https://github.com/gptme/gptme",
+    "X-Title": "gptme",
+}
+
+# OrcaRouter's OpenAI-compatible endpoint. Shared by the chat client and the
+# dynamic model listing so the two can't drift.
+ORCAROUTER_BASE_URL = "https://api.orcarouter.ai/v1"

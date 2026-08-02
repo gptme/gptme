@@ -712,6 +712,7 @@ gptme supports multiple AI providers:
 | **xAI** | `XAI_API_KEY` | Grok models |
 | **DeepSeek** | `DEEPSEEK_API_KEY` | DeepSeek models |
 | **OpenRouter** | `OPENROUTER_API_KEY` | Multi-provider gateway |
+| **OrcaRouter** | `ORCAROUTER_API_KEY` | Multi-provider gateway |
 | **llama.cpp** | Local server | OpenAI-compatible local models |
 
 ### How do I use local models?

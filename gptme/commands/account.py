@@ -18,9 +18,18 @@ from .base import CommandContext, command
 
 logger = logging.getLogger(__name__)
 
-MANUAL_SETUP_PROVIDERS = ("anthropic", "openai", "deepseek", "gemini", "groq", "xai")
+MANUAL_SETUP_PROVIDERS = (
+    "anthropic",
+    "openai",
+    "orcarouter",
+    "deepseek",
+    "gemini",
+    "groq",
+    "xai",
+)
 SETUP_PROVIDER_HELP = {
     "openrouter": "Browser sign-in (OAuth / PKCE)",
+    "orcarouter": "Paste API key",
     "anthropic": "Paste API key",
     "openai": "Paste API key",
     "deepseek": "Paste API key",
@@ -69,7 +78,15 @@ def _refresh_runtime_provider(provider: str, api_key: str) -> None:
     try:
         if provider == "anthropic":
             _switch_anthropic(api_key)
-        elif provider in ("openai", "openrouter", "deepseek", "gemini", "groq", "xai"):
+        elif provider in (
+            "openai",
+            "openrouter",
+            "orcarouter",
+            "deepseek",
+            "gemini",
+            "groq",
+            "xai",
+        ):
             _switch_openai_like(provider, api_key)
     except ValueError:
         logger.debug(
@@ -209,7 +226,10 @@ def cmd_account(ctx: CommandContext):
             return
 
         print(f"Unknown provider: {provider}")
-        print("Supported: openrouter, anthropic, openai, deepseek, gemini, groq, xai")
+        print(
+            "Supported: openrouter, orcarouter, anthropic, openai, deepseek, "
+            "gemini, groq, xai"
+        )
         return
 
     print(f"Unknown subcommand: {subcommand}")
