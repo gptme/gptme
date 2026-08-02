@@ -1090,18 +1090,19 @@ def api_conversation_interrupt(conversation_id: str):
             }
         ), 403
 
-    if not session.generating and not session.pending_tools:
-        # Idempotent: if nothing is generating, treat as already interrupted
-        return flask.jsonify(
-            {"status": "ok", "message": "Already interrupted or not generating"}
-        )
+    with session.step_lock:
+        if not session.generating and not session.pending_tools:
+            # Idempotent: if nothing is generating, treat as already interrupted
+            return flask.jsonify(
+                {"status": "ok", "message": "Already interrupted or not generating"}
+            )
 
-    # Mark session as not generating
-    session.generating = False
-    session.generating_since = None
+        # Mark session as not generating
+        session.generating = False
+        session.generating_since = None
 
-    # Clear pending tools
-    session.pending_tools.clear()
+        # Clear pending tools
+        session.pending_tools.clear()
 
     # Notify about interruption
     SessionManager.add_event(conversation_id, {"type": "interrupted"})
