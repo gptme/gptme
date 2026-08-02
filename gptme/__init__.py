@@ -10,7 +10,15 @@ warnings.filterwarnings(
     message=r"urllib3 .* or chardet.*charset_normalizer .* doesn't match a supported version",
 )
 
-__all__ = ["Codeblock", "LogManager", "Message", "__version__", "chat", "get_prompt"]
+__all__ = [
+    "Codeblock",
+    "LogManager",
+    "Message",
+    "__version__",
+    "chat",
+    "get_prompt",
+    "k_best_guess",
+]
 
 _lazy: dict[str, tuple[str, str]] = {
     "chat": (".chat", "chat"),
@@ -18,6 +26,7 @@ _lazy: dict[str, tuple[str, str]] = {
     "LogManager": (".logmanager", "LogManager"),
     "Message": (".message", "Message"),
     "get_prompt": (".prompts", "get_prompt"),
+    "k_best_guess": (".k_best", "k_best_guess"),
 }
 
 
