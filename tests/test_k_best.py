@@ -148,6 +148,17 @@ class TestKBestGuessErrors:
 
         assert fn() == 20
 
+    def test_all_checks_fail_reraises_last_validation_error(self):
+        def invalid_check(_result):
+            raise ValueError("invalid")
+
+        @k_best_guess(k=3, check=invalid_check, parallel=False)
+        def fn():
+            return "unvalidated"
+
+        with pytest.raises(ValueError, match="invalid"):
+            fn()
+
 
 # ---------------------------------------------------------------------------
 # Parallel execution

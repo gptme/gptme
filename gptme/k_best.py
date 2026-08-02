@@ -20,8 +20,9 @@ The ``check`` callable receives the return value and must return a numeric
 score; higher is better. If ``check`` is omitted, the first non-exception
 result is returned. Candidates are run in parallel by default.
 
-Exceptions from individual candidates are caught and logged; if **all** K
-candidates raise, the last exception is re-raised.
+Exceptions from individual candidates and validation checks are caught and
+logged; if **all** K candidates fail generation or validation, the last
+exception is re-raised.
 """
 
 from __future__ import annotations
@@ -88,7 +89,8 @@ def k_best_guess(
 
     Raises:
         ValueError: If ``k < 1``.
-        Exception: Re-raises the last candidate exception if all K fail.
+        Exception: Re-raises the last generation or validation exception if all
+                   K candidates fail.
     """
     if k < 1:
         raise ValueError(f"k must be >= 1, got {k!r}")
@@ -123,17 +125,22 @@ def k_best_guess(
                             )
                         else:
                             result = future.result()
-                            score = _score(result, check, idx)
+                            score, error = _score(result, check, idx)
                             candidates.append(
-                                Candidate(result=result, score=score, index=idx)
+                                Candidate(
+                                    result=result,
+                                    score=score,
+                                    index=idx,
+                                    error=error,
+                                )
                             )
             else:
                 for i in range(k):
                     try:
                         result = fn(*args, **kwargs)
-                        score = _score(result, check, i)
+                        score, error = _score(result, check, i)
                         candidates.append(
-                            Candidate(result=result, score=score, index=i)
+                            Candidate(result=result, score=score, index=i, error=error)
                         )
                     except Exception as e:
                         logger.debug("k_best_guess candidate %d raised: %s", i, e)
@@ -170,17 +177,19 @@ def k_best_guess(
     return decorator
 
 
-def _score(result: object, check: CheckFn | None, index: int) -> float:
-    """Return the numeric score for a candidate result."""
+def _score(
+    result: object, check: CheckFn | None, index: int
+) -> tuple[float, BaseException | None]:
+    """Return the numeric score and any validation error for a candidate."""
     if check is None:
         # First successful result gets score 0; parallel order is non-deterministic
         # so we do not award bonus points for first-arrival here.
-        return 0.0
+        return 0.0, None
     try:
         raw = check(result)
-        return float(raw)
+        return float(raw), None
     except Exception as e:
         logger.debug(
             "k_best_guess check function raised for candidate %d: %s", index, e
         )
-        return float("-inf")
+        return float("-inf"), e
