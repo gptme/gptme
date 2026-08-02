@@ -21,6 +21,7 @@ from ..dirs import get_logs_dir
 from ..init import init
 from ..llm.models import get_default_model, set_default_model
 from ..logmanager import LogManager, list_conversations
+from ..model_attestation import record_runtime_selection
 from ..prompts import get_prompt
 from ..session import SessionRegistry
 from ..tools import ToolUse, get_tools, set_tools
@@ -1042,8 +1043,7 @@ class GptmeAgent:
         effective_model = self._session_models.get(session_id, self._model)
         if effective_model:
             set_default_model(effective_model)
-        elif self._model:
-            set_default_model(self._model)
+            record_runtime_selection(effective_model, "acp_runtime")
         if self._tools is not None:
             set_tools(self._tools)
 

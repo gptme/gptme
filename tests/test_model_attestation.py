@@ -250,6 +250,27 @@ def test_record_selection_trace_resolves_openrouter_backed_gptme_backend():
     assert trace.selection.backend_provider == "openai"
 
 
+def test_record_runtime_selection_resolves_server_model(monkeypatch):
+    from gptme.llm.models import ModelMeta
+    from gptme.model_attestation import record_runtime_selection
+
+    monkeypatch.setattr(
+        "gptme.llm.models.get_model",
+        lambda _model: ModelMeta(
+            provider="gptme",
+            model="anthropic/claude-sonnet-4-6",
+            context=200_000,
+        ),
+    )
+
+    trace = record_runtime_selection("gptme/claude-sonnet-4-6", "api_request")
+    assert trace.selection is not None
+    assert trace.selection.source.kind == "api_request"
+    assert trace.selection.resolved_model == "gptme/anthropic/claude-sonnet-4-6"
+    assert trace.selection.backend_provider == "anthropic"
+    assert get_selection_trace() is trace
+
+
 def test_record_selection_trace_preserves_alias_resolution(monkeypatch):
     from gptme.init import MODEL_ALIASES, _record_selection_trace
     from gptme.llm.models import ModelMeta

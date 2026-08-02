@@ -271,3 +271,43 @@ def get_selection_trace() -> ModelSelectionTrace | None:
 def set_selection_trace(trace: ModelSelectionTrace | None) -> None:
     """Store the model selection trace in the current context."""
     _current_trace_var.set(trace)
+
+
+def record_runtime_selection(
+    model: str, source_kind: Literal["api_request", "acp_runtime"]
+) -> ModelSelectionTrace:
+    """Resolve and record a model selected outside CLI initialization.
+
+    This is intentionally explicit rather than part of ``set_default_model``:
+    internal temporary model switches are not user/session selections.
+    """
+    from .llm.models import get_model
+
+    model_meta = get_model(model)
+    transport_provider = model.split("/", 1)[0]
+    resolved_model = model
+    if transport_provider == "gptme" and "/" in model_meta.model:
+        resolved_model = f"gptme/{model_meta.model}"
+
+    parts = resolved_model.split("/")
+    backend_provider = transport_provider
+    if transport_provider == "gptme" and len(parts) >= 3:
+        backend_provider = parts[2] if parts[1] == "openrouter" else parts[1]
+    elif transport_provider == "openrouter" and len(parts) >= 3:
+        backend_provider = parts[1]
+
+    trace = create_selection_trace(
+        requested_model=model,
+        resolved_model=resolved_model,
+        source_kind=source_kind,
+        source_value=model,
+        transport_provider=transport_provider,
+        backend_provider=backend_provider,
+        resolution_notes=(
+            ["resolved backend model from provider catalog"]
+            if resolved_model != model
+            else []
+        ),
+    )
+    set_selection_trace(trace)
+    return trace

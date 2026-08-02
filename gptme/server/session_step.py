@@ -605,8 +605,10 @@ def step(
     # Set the model as default before triggering hooks
     # This ensures hooks like token_awareness can access the model
     from ..llm.models import set_default_model
+    from ..model_attestation import record_runtime_selection
 
     set_default_model(model)
+    record_runtime_selection(model, "api_request")
 
     # Trigger SESSION_START hook for new conversations
     assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
