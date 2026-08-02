@@ -296,3 +296,36 @@ def test_record_selection_trace_preserves_alias_resolution(monkeypatch):
     assert trace.selection.resolution_notes == [
         "resolved model alias for metadata lookup"
     ]
+
+
+def test_record_selection_trace_preserves_reasoning_suffixed_alias(monkeypatch):
+    from gptme.init import MODEL_ALIASES, _record_selection_trace
+    from gptme.llm.models import ModelMeta
+
+    monkeypatch.setitem(
+        MODEL_ALIASES,
+        "openai-subscription",
+        {"gpt-5.6": "gpt-5.6-sol"},
+    )
+    model = "openai-subscription/gpt-5.6:high"
+    _record_selection_trace(
+        _config(),
+        model,
+        model,
+        model,
+        "openai-subscription",
+        ModelMeta(
+            provider="openai-subscription",
+            model="gpt-5.6:high",
+            context=400_000,
+        ),
+    )
+
+    trace = get_selection_trace()
+    assert trace is not None and trace.selection is not None
+    assert trace.selection.requested_model == model
+    assert trace.selection.alias_target == "openai-subscription/gpt-5.6-sol"
+    assert trace.selection.resolved_model == "openai-subscription/gpt-5.6-sol"
+    assert trace.selection.resolution_notes == [
+        "resolved model alias for metadata lookup"
+    ]

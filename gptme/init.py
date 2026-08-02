@@ -290,6 +290,10 @@ def _record_selection_trace(
     transport_provider = str(provider)
     backend_provider = _backend_provider(transport_provider, resolved_model)
     alias_name = model_full.split("/", 1)[1]
+    # Mirror get_model()'s metadata lookup normalization. The reasoning suffix
+    # remains part of the selected wire model, but it is not part of the alias key.
+    if transport_provider == "openai-subscription" and ":" in alias_name:
+        alias_name = alias_name.rsplit(":", 1)[0]
     alias_model = MODEL_ALIASES.get(transport_provider, {}).get(alias_name)
     alias_target = (
         f"{transport_provider}/{alias_model}" if alias_model is not None else None
