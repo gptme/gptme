@@ -245,6 +245,35 @@ class TestCostWarningHook:
         assert warning is not None
         assert "50% of $0.50 budget" in warning
 
+    def test_cost_and_token_budget_crossing_combines_warnings(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A single turn can cross both configured budgets without losing either."""
+        monkeypatch.setenv("GPTME_SESSION_BUDGET_USD", "1.00")
+        monkeypatch.setenv("GPTME_SESSION_BUDGET_TOKENS", "1000")
+        monkeypatch.setenv("GPTME_BUDGET_WARN_PCT", "80")
+        CostTracker.start_session("test")
+        self._record_cost(0.81, input_tokens=700, output_tokens=100)
+        list(cost_warning_hook(self._make_manager()))
+        warning = _pending_warning_var.get()
+        assert warning is not None
+        assert "80% of $1.00 budget" in warning
+        assert "80% of 1,000 token budget" in warning
+
+    @pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+    def test_non_finite_budget_float_is_ignored(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ):
+        """Non-finite float env values must not disable sane warnings silently."""
+        monkeypatch.setenv("GPTME_SESSION_BUDGET_USD", value)
+        CostTracker.start_session("test")
+        self._record_cost(0.15)
+        list(cost_warning_hook(self._make_manager()))
+        warning = _pending_warning_var.get()
+        assert warning is not None
+        assert "Session cost reached $0.15" in warning
+        assert "budget" not in warning
+
 
 class TestInjectPendingWarning:
     """Tests for inject_pending_warning hook."""

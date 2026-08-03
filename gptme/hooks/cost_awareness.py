@@ -10,6 +10,7 @@ See Issue #935 for design context, #2320 for cache-cold warning.
 """
 
 import logging
+import math
 import os
 import time
 from collections.abc import Generator
@@ -74,7 +75,7 @@ def _positive_float_from_env(name: str) -> float | None:
     except ValueError:
         logger.warning("Ignoring invalid %s=%r; expected positive number", name, value)
         return None
-    if parsed <= 0:
+    if not math.isfinite(parsed) or parsed <= 0:
         logger.warning("Ignoring invalid %s=%r; expected positive number", name, value)
         return None
     return parsed
@@ -121,6 +122,8 @@ def _budget_warning(costs: SessionCosts) -> tuple[str, str] | None:
     warn_pct = _budget_warn_pct()
     warn_fraction = warn_pct / 100
     last_entry = costs.entries[-1]
+    warning_parts: list[str] = []
+    log_parts: list[str] = []
 
     cost_budget = _positive_float_from_env("GPTME_SESSION_BUDGET_USD")
     if cost_budget is not None:
@@ -129,17 +132,15 @@ def _budget_warning(costs: SessionCosts) -> tuple[str, str] | None:
         warn_at = cost_budget * warn_fraction
         if prev_cost < warn_at <= total_cost:
             cache_hit_pct = costs.cache_hit_rate * 100
-            return (
-                (
-                    f"<system_warning>Session cost reached ${total_cost:.2f} "
-                    f"({warn_pct:.0f}% of ${cost_budget:.2f} budget; "
-                    f"tokens: {costs.total_input_tokens:,}/{costs.total_output_tokens:,} in/out, "
-                    f"cache hit: {cache_hit_pct:.1f}%)</system_warning>"
-                ),
-                (
-                    f"Session cost reached ${total_cost:.2f} "
-                    f"({warn_pct:.0f}% of ${cost_budget:.2f} budget)"
-                ),
+            warning_parts.append(
+                f"Session cost reached ${total_cost:.2f} "
+                f"({warn_pct:.0f}% of ${cost_budget:.2f} budget; "
+                f"tokens: {costs.total_input_tokens:,}/{costs.total_output_tokens:,} in/out, "
+                f"cache hit: {cache_hit_pct:.1f}%)"
+            )
+            log_parts.append(
+                f"Session cost reached ${total_cost:.2f} "
+                f"({warn_pct:.0f}% of ${cost_budget:.2f} budget)"
             )
 
     token_budget = _positive_int_from_env("GPTME_SESSION_BUDGET_TOKENS")
@@ -154,18 +155,18 @@ def _budget_warning(costs: SessionCosts) -> tuple[str, str] | None:
         prev_tokens = total_tokens - last_tokens
         warn_at_tokens = token_budget * warn_fraction
         if prev_tokens < warn_at_tokens <= total_tokens:
-            return (
-                (
-                    f"<system_warning>Session token usage reached {total_tokens:,} "
-                    f"({warn_pct:.0f}% of {token_budget:,} token budget)</system_warning>"
-                ),
-                (
-                    f"Session token usage reached {total_tokens:,} "
-                    f"({warn_pct:.0f}% of {token_budget:,} token budget)"
-                ),
+            warning_parts.append(
+                f"Session token usage reached {total_tokens:,} "
+                f"({warn_pct:.0f}% of {token_budget:,} token budget)"
             )
+            log_parts.append(warning_parts[-1])
 
-    return None
+    if not warning_parts:
+        return None
+    return (
+        f"<system_warning>{' '.join(warning_parts)}</system_warning>",
+        " ".join(log_parts),
+    )
 
 
 def anthropic_cache_cold_warning(
