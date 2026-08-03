@@ -949,10 +949,17 @@ jobs:
           for apk in "${apks[@]}"; do
             echo "Verifying APK: $apk"
             "$APKSIGNER" verify --verbose "$apk"
+            # Label format varies across build-tools versions:
+            #   <=36: "Signer #1 certificate SHA-256 digest: <hex>"
+            #   37+:  "V3.0 Signer: certificate SHA-256 digest: <hex>"
+            # Match only *certificate* digests (not public-key digests) and
+            # dedupe: with one signing key every line carries the same value;
+            # multiple distinct certs concatenate and fail the comparison.
             PRINT_CERTS_OUT=$("$APKSIGNER" verify --print-certs "$apk")
-            ACTUAL_CERT_SHA256=$(printf '%s' "$PRINT_CERTS_OUT" \
-              | sed -n 's/.*SHA-256 digest: *//p' \
-              | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')
+            ACTUAL_CERT_SHA256=$(printf '%s\n' "$PRINT_CERTS_OUT" \
+              | sed -n 's/.*certificate SHA-256 digest: *//p' \
+              | tr '[:lower:]' '[:upper:]' | tr -d ':' \
+              | sort -u | tr -d '[:space:]')
             if [ -z "$ACTUAL_CERT_SHA256" ]; then
               echo "::error::Could not extract certificate SHA-256 fingerprint from: $apk"
               printf '%s\n' "$PRINT_CERTS_OUT" | sed 's/^/  /'
