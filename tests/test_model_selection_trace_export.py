@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 from gptme.model_attestation import (
     ModelSelectionTrace,
@@ -115,6 +117,17 @@ class TestLogManagerTracePersistence:
         assert data["schema"] == "gptme.model-attestation/v0"
         assert "selection" in data
         assert "identity" in data
+
+    def test_sync_fsyncs_conversation_and_trace(self, tmp_path: Path) -> None:
+        from gptme.logmanager.manager import LogManager
+
+        set_selection_trace(make_trace())
+        lm = LogManager(logdir=tmp_path, lock=False)
+
+        with patch.object(os, "fsync") as fsync:
+            lm.write(sync=True)
+
+        assert fsync.call_count == 2
 
 
 # ---------------------------------------------------------------------------

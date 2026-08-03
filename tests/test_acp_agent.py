@@ -1414,6 +1414,46 @@ class TestCwdSessionId:
 class TestPromptTurnLoop:
     """Regression tests for complete ACP prompt-turn execution."""
 
+    def test_prompt_records_trace_before_first_persisted_message(self, monkeypatch):
+        """ACP task contexts must record their model before LogManager.append()."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        import gptme.acp.agent as agent_mod
+
+        agent = GptmeAgent()
+        agent._conn = MagicMock()
+        agent._conn.session_update = AsyncMock()
+        agent._session_commands_advertised.add("s1")
+        agent._session_models["s1"] = "openai/gpt-4o-mini"
+
+        log = _make_mock_log()
+        log.log = []
+        log.workspace = None
+        agent._registry.create("s1", log=log)
+
+        trace = MagicMock()
+        record = MagicMock(return_value=trace)
+        monkeypatch.setattr(agent_mod, "record_runtime_selection", record)
+
+        def append(message):
+            assert record.call_count == 1
+
+        log.append.side_effect = append
+        monkeypatch.setattr(
+            "gptme.util.content.is_message_command", lambda content: True
+        )
+        monkeypatch.setattr(agent, "_handle_slash_command", AsyncMock())
+
+        _run(
+            agent.prompt(
+                prompt=[{"type": "text", "text": "/help"}],
+                session_id="s1",
+            )
+        )
+
+        record.assert_called_once_with("openai/gpt-4o-mini", "acp_runtime")
+
     def test_prompt_continues_after_tool_result(self, monkeypatch):
         """A tool call must be followed by another model step in the same turn."""
         if not _import_acp():

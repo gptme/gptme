@@ -496,17 +496,21 @@ class LogManager:
                     log.write_jsonl(view_path)
 
         # Persist model selection trace alongside the conversation
-        self.write_model_trace()
+        trace_path = self.write_model_trace()
 
         # Force sync to disk if requested
         if sync:
-            with open(self.logfile, "rb") as f:
-                os.fsync(f.fileno())
+            paths = [Path(self.logfile)]
+            if trace_path is not None:
+                paths.append(trace_path)
+            for path in paths:
+                with path.open("rb") as f:
+                    os.fsync(f.fileno())
 
     _TRACE_FILENAME = "model_selection_trace.json"
 
-    def write_model_trace(self) -> None:
-        """Persist the active ModelSelectionTrace to logdir/model_selection_trace.json.
+    def write_model_trace(self) -> Path | None:
+        """Persist the active ModelSelectionTrace and return its path.
 
         Called automatically by write(). No-op when no trace is active in the
         current context (e.g. tests or sessions that pre-date Phase 0).
@@ -515,9 +519,10 @@ class LogManager:
 
         trace = get_selection_trace()
         if trace is None:
-            return
+            return None
         trace_path = self.logdir / self._TRACE_FILENAME
         trace_path.write_text(trace.to_json() + "\n")
+        return trace_path
 
     def read_model_trace(self):
         """Read the persisted ModelSelectionTrace from logdir, or None if absent.
