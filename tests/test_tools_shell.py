@@ -1973,6 +1973,57 @@ def test_workspace_hint_in_command_output(tmp_path):
     )
 
 
+def test_workspace_hint_serializes_as_one_tool_response(tmp_path):
+    """No message may sit between a structured call and its tool result."""
+    from gptme.llm.llm_openai import _prepare_messages_for_api
+    from gptme.message import Message
+    from gptme.tools import get_tool, init_tools
+    from gptme.tools.base import ToolUse
+    from gptme.tools.shell import _hinted_workspaces
+
+    (tmp_path / "gptme.toml").write_text("[gptme]\n")
+    _hinted_workspaces.discard(str(tmp_path.resolve()))
+
+    original_cwd = os.getcwd()
+    try:
+        result_messages = list(
+            ToolUse(
+                tool="shell",
+                args=None,
+                content=None,
+                kwargs={"command": f"cd {tmp_path}"},
+                call_id="call_workspace",
+                _format="tool",
+            ).execute()
+        )
+    finally:
+        os.chdir(original_cwd)
+        _hinted_workspaces.discard(str(tmp_path.resolve()))
+
+    init_tools(allowlist=["shell"])
+    messages = [
+        Message(role="user", content="Enter the workspace."),
+        Message(
+            role="assistant",
+            content=(f'@shell(call_workspace): {{"command": "cd {tmp_path}"}}'),
+        ),
+        *result_messages,
+    ]
+    shell_tool = get_tool("shell")
+    assert shell_tool is not None
+    serialized, _ = _prepare_messages_for_api(
+        messages, "moonshot/kimi-k2.6", [shell_tool]
+    )
+
+    assistant_idx = next(
+        idx for idx, message in enumerate(serialized) if message["role"] == "assistant"
+    )
+    tool_result = serialized[assistant_idx + 1]
+    assert tool_result["role"] == "tool"
+    assert tool_result["tool_call_id"] == "call_workspace"
+    assert "gptme.toml" in str(tool_result["content"])
+
+
 def test_shell_bare_cd_updates_working_directory(tmp_path):
     """A bare ``cd`` should update cwd to HOME, not leave stale state behind."""
     original_cwd = os.getcwd()
