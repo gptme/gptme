@@ -150,7 +150,7 @@
   </a>
   <br>
   <a href="https://gptme.org/docs/projects.html">
-    <img src="https://img.shields.io/badge/powered%20by-gptme%20%F0%9F%A4%96-5151f5?style=flat" alt="Powered by gptme" />
+    <img src="https://gptme.org/badge.svg" alt="Built with gptme" />
   </a>
 </p>
 
@@ -951,6 +951,11 @@ and manages his own tasks</li>
 assistant &amp; agent orchestrator, forked from the same
 architecture</li>
 </ul>
+<h2 id="label-repository-badge">🏷️ Repository Badge</h2>
+<p>This repo is maintained with <a href="https://gptme.org">gptme</a>.
+To show your repo is AI-assisted with gptme, add the badge below.</p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co">[</span><span class="al">![Built with gptme](https://gptme.org/badge.svg)</span><span class="co">](https://gptme.org)</span></span></code></pre></div>
 <h2 id="speech_balloon-community">💬 Community</h2>
 <ul>
 <li><strong><a href="https://discord.gg/NMaCmmkxWv">Discord</a></strong>
@@ -1077,13 +1082,13 @@ gptme compare to other AI coding assistants?</h3>
 <h3 id="how-do-i-install-gptme">How do I install gptme?</h3>
 <p><strong>Prerequisites</strong>: Python 3.10+</p>
 <p><strong>Installation</strong>:</p>
-<div class="sourceCode" id="cb10"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install gptme</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or</span></span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install gptme</span></code></pre></div>
-<p><strong>First Run</strong>:</p>
 <div class="sourceCode" id="cb11"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">gptme</span></span></code></pre></div>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install gptme</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install gptme</span></code></pre></div>
+<p><strong>First Run</strong>:</p>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">gptme</span></span></code></pre></div>
 <h3 id="what-ai-providers-does-gptme-support">What AI providers does
 gptme support?</h3>
 <p>gptme supports multiple AI providers:</p>
@@ -1138,14 +1143,14 @@ gptme support?</h3>
 <ol type="1">
 <li>Start llama.cpp server:</li>
 </ol>
-<div class="sourceCode" id="cb12"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">llama-server</span> <span class="at">--model</span> ./models/llama-3.gguf <span class="at">--port</span> 8080</span></code></pre></div>
+<div class="sourceCode" id="cb13"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">llama-server</span> <span class="at">--model</span> ./models/llama-3.gguf <span class="at">--port</span> 8080</span></code></pre></div>
 <ol start="2" type="1">
 <li>Configure gptme:</li>
 </ol>
-<div class="sourceCode" id="cb13"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">OPENAI_BASE_URL</span><span class="op">=</span>http://localhost:8080/v1</span>
-<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="ex">gptme</span> <span class="at">-m</span> local/<span class="op">&lt;</span>model-name<span class="op">&gt;</span></span></code></pre></div>
+<div class="sourceCode" id="cb14"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">OPENAI_BASE_URL</span><span class="op">=</span>http://localhost:8080/v1</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="ex">gptme</span> <span class="at">-m</span> local/<span class="op">&lt;</span>model-name<span class="op">&gt;</span></span></code></pre></div>
 <h3 id="what-tools-does-gptme-have">What tools does gptme have?</h3>
 <p>gptme ships with comprehensive tools:</p>
 <ul>
@@ -1197,21 +1202,21 @@ agents:</p>
 <ol type="1">
 <li>Clone template:</li>
 </ol>
-<div class="sourceCode" id="cb14"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/gptme/gptme-agent-template</span></code></pre></div>
+<div class="sourceCode" id="cb15"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/gptme/gptme-agent-template</span></code></pre></div>
 <ol start="2" type="1">
 <li>Configure agent:</li>
 </ol>
-<div class="sourceCode" id="cb15"><pre
-class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># config.yaml</span></span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="fu">name</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;MyAgent&quot;</span></span>
-<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="fu">role</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;Code reviewer&quot;</span></span>
-<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a><span class="fu">schedule</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;hourly&quot;</span></span></code></pre></div>
+<div class="sourceCode" id="cb16"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co"># config.yaml</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="fu">name</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;MyAgent&quot;</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="fu">role</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;Code reviewer&quot;</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="fu">schedule</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;hourly&quot;</span></span></code></pre></div>
 <ol start="3" type="1">
 <li>Run:</li>
 </ol>
-<div class="sourceCode" id="cb16"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> agent.py</span></code></pre></div>
+<div class="sourceCode" id="cb17"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> agent.py</span></code></pre></div>
 <p>See <a href="https://github.com/TimeToBuildBob">Bob</a> for an
 example autonomous agent that has been running continuously since late
 2024.</p>
@@ -1234,12 +1239,12 @@ repository</li>
 </ul>
 <h3 id="how-do-i-use-gptme-in-cicd">How do I use gptme in CI/CD?</h3>
 <p>gptme runs in <strong>CI pipelines</strong>:</p>
-<div class="sourceCode" id="cb17"><pre
-class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co"># GitHub Actions</span></span>
-<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> Run gptme</span></span>
-<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="fu">  run</span><span class="kw">: </span><span class="ch">|</span></span>
-<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>    pip install gptme</span>
-<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>    gptme --non-interactive &quot;Review PR and suggest improvements&quot;</span></code></pre></div>
+<div class="sourceCode" id="cb18"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># GitHub Actions</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> Run gptme</span></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a><span class="fu">  run</span><span class="kw">: </span><span class="ch">|</span></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>    pip install gptme</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>    gptme --non-interactive &quot;Review PR and suggest improvements&quot;</span></code></pre></div>
 <h3 id="what-are-the-use-cases">What are the use cases?</h3>
 <p>gptme is general-purpose but excels at:</p>
 <ul>
@@ -1252,15 +1257,15 @@ class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb17-1"><a href=
 </ul>
 <h3 id="how-do-i-configure-gptme">How do I configure gptme?</h3>
 <p>Configuration via environment variables:</p>
-<div class="sourceCode" id="cb18"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Provider selection</span></span>
-<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">GPTME_MODEL</span><span class="op">=</span>anthropic/claude-sonnet-4-6</span>
-<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a><span class="co"># API keys</span></span>
-<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">ANTHROPIC_API_KEY</span><span class="op">=</span>your-key</span>
-<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Logging level</span></span>
-<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">GPTME_LOG_LEVEL</span><span class="op">=</span>INFO</span></code></pre></div>
+<div class="sourceCode" id="cb19"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Provider selection</span></span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">GPTME_MODEL</span><span class="op">=</span>anthropic/claude-sonnet-4-6</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a><span class="co"># API keys</span></span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">ANTHROPIC_API_KEY</span><span class="op">=</span>your-key</span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Logging level</span></span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">GPTME_LOG_LEVEL</span><span class="op">=</span>INFO</span></code></pre></div>
 <h3 id="how-do-i-handle-errors">How do I handle errors?</h3>
 <p>gptme is <strong>self-correcting</strong>:</p>
 <ul>
