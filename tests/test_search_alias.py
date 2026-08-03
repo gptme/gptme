@@ -93,6 +93,21 @@ class TestPluginDispatch:
         assert result.exit_code == 0
         mock_call.assert_called_once_with(["/usr/local/bin/gptme-sessions"])
 
+    def test_plugin_options_are_forwarded(self, runner: CliRunner):
+        """gptme sessions --format json forwards option-like plugin arguments."""
+        with (
+            patch(
+                "gptme.cli.main.shutil.which",
+                return_value="/usr/local/bin/gptme-sessions",
+            ),
+            patch("gptme.cli.main.subprocess.call", return_value=0) as mock_call,
+        ):
+            result = runner.invoke(main, ["sessions", "--format", "json"])
+        assert result.exit_code == 0
+        mock_call.assert_called_once_with(
+            ["/usr/local/bin/gptme-sessions", "--format", "json"]
+        )
+
     def test_plugin_not_found_falls_through(self, runner: CliRunner):
         """gptme unknowncmd with no gptme-unknowncmd in PATH falls through to normal CLI."""
         with (

@@ -449,7 +449,12 @@ Run 'gptme-util --help' for all utility commands."""
 
 @click.command(
     help=docstring,
-    context_settings={"auto_envvar_prefix": "GPTME"},
+    context_settings={
+        "auto_envvar_prefix": "GPTME",
+        # Preserve option-like arguments after a positional command for gptme-*
+        # dispatch. Core gptme options still parse normally before that command.
+        "ignore_unknown_options": True,
+    },
     cls=_DynamicHelpCommand,
 )
 @click.pass_context
