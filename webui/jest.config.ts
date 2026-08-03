@@ -11,9 +11,6 @@ export default {
       'ts-jest',
       {
         tsconfig: 'tsconfig.test.json',
-        astTransformers: {
-          before: ['<rootDir>/jest.import-meta-env-transformer.cjs'],
-        },
       },
     ],
   },
