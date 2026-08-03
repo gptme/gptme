@@ -975,7 +975,25 @@ jobs:
 
           for aab in "${aabs[@]}"; do
             echo "Verifying AAB: $aab"
-            jarsigner -verify -strict "$aab"
+            # No -strict: Android upload keys are self-signed, so PKIX chain
+            # validation can never pass (exit 4). Identity is enforced by
+            # pinning the signer certificate fingerprint below, like the APK.
+            VERIFY_OUT=$(jarsigner -verify "$aab")
+            printf '%s\n' "$VERIFY_OUT"
+            if ! printf '%s' "$VERIFY_OUT" | grep -q "jar verified"; then
+              echo "::error::AAB signature verification failed: $aab"
+              exit 1
+            fi
+            ACTUAL_CERT_SHA256=$(keytool -printcert -jarfile "$aab" \
+              | sed -n 's/^[[:space:]]*SHA256: //p' \
+              | tr '[:lower:]' '[:upper:]' | tr -d ':' \
+              | sort -u | tr -d '[:space:]')
+            if [ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then
+              echo "::error::AAB signer certificate does not match ANDROID_CERT_SHA256: $aab"
+              echo "::error::  expected: $EXPECTED_CERT_SHA256"
+              echo "::error::  actual:   $ACTUAL_CERT_SHA256"
+              exit 1
+            fi
           done
           echo "All Android artifacts passed signature and identity verification."
 
