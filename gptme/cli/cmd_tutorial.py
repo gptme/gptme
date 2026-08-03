@@ -6,6 +6,7 @@ scaffolded hints, and automated completion validators.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -53,8 +54,15 @@ class TutorialTask:
     prepare_fn: Callable[[Path], None]
 
 
+def _remove_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
 def _prepare_summarize(tmpdir: Path) -> None:
-    (tmpdir / "summary.md").unlink(missing_ok=True)
+    _remove_path(tmpdir / "summary.md")
 
 
 def _prepare_write_test(tmpdir: Path) -> None:
@@ -65,13 +73,15 @@ def _prepare_write_test(tmpdir: Path) -> None:
 
 
 def _prepare_fix_bug(tmpdir: Path) -> None:
-    (tmpdir / "buggy.py").write_text(BUGGY_SCRIPT)
+    script = tmpdir / "buggy.py"
+    _remove_path(script)
+    script.write_text(BUGGY_SCRIPT)
 
 
 def _validate_summarize(tmpdir: Path) -> tuple[bool, str]:
     """summary.md must be created with non-empty content."""
     summary = tmpdir / "summary.md"
-    if not summary.exists():
+    if not summary.is_file():
         return False, "summary.md not found — did gptme write the summary to a file?"
     content = summary.read_text().strip()
     if not content:
@@ -100,7 +110,7 @@ def _validate_write_test(tmpdir: Path) -> tuple[bool, str]:
 def _validate_fix_bug(tmpdir: Path) -> tuple[bool, str]:
     """buggy.py must run without errors after the fix."""
     script = tmpdir / "buggy.py"
-    if not script.exists():
+    if not script.is_file():
         return False, "buggy.py not found"
     try:
         result = subprocess.run(

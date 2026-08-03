@@ -205,6 +205,47 @@ def test_run_task_ignores_matching_directories_during_retry_cleanup(
     assert matching_dir.is_dir()
 
 
+def test_run_task_replaces_matching_summary_directory(
+    tutorial_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    matching_dir = tutorial_dir / "summary.md"
+    matching_dir.mkdir()
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        Mock(return_value=subprocess.CompletedProcess(["gptme"], 0)),
+    )
+    monkeypatch.setattr("click.getchar", Mock(side_effect=["\n", "s"]))
+
+    result = _run_task(TASKS[0], tutorial_dir, 1, len(TASKS))
+
+    assert result is TaskResult.SKIPPED
+    assert not matching_dir.exists()
+
+
+def test_run_task_replaces_matching_buggy_directory(
+    tutorial_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = tutorial_dir / "buggy.py"
+    script.unlink()
+    script.mkdir()
+
+    def fake_run(args, **kwargs):
+        if args[0] == "gptme":
+            return subprocess.CompletedProcess(args, 0)
+        return subprocess.CompletedProcess(args, 1, stderr="still broken")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("click.getchar", Mock(side_effect=["\n", "s"]))
+
+    result = _run_task(TASKS[2], tutorial_dir, 3, len(TASKS))
+
+    assert result is TaskResult.SKIPPED
+    assert script.is_file()
+    assert script.read_text() == BUGGY_SCRIPT
+
+
 def test_run_task_does_not_validate_stale_bug_fix_after_retry(
     tutorial_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
