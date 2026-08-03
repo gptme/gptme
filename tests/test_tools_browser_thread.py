@@ -17,12 +17,12 @@ import pytest
 pytest.importorskip("playwright")
 
 from gptme.tools._browser_thread import (
-    DEFAULT_CONTEXT_OPTIONS,
     TIMEOUT,
     BrowserThread,
     Command,
     _connect_or_launch_browser,
     _is_connection_error,
+    get_context_options,
 )
 
 # =============================================================================
@@ -479,11 +479,10 @@ class TestBrowserThreadSessionContext:
         mock_cdp_browser = MagicMock()
         mock_pw.chromium.connect_over_cdp.return_value = mock_cdp_browser
 
+        expected_options = get_context_options()
         bt = BrowserThread(cdp_url="http://127.0.0.1:9222")
         try:
-            mock_cdp_browser.new_context.assert_called_once_with(
-                **DEFAULT_CONTEXT_OPTIONS
-            )
+            mock_cdp_browser.new_context.assert_called_once_with(**expected_options)
             assert bt._session_context is mock_cdp_browser.new_context.return_value
         finally:
             bt.stop()
