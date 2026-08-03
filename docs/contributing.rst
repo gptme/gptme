@@ -244,6 +244,13 @@ zipalign before signing, apksigner for APKs, jarsigner for AABs, and passwords
 passed via environment variables. When changing the signing approach in either
 project, apply the same change to the other to keep them consistent.
 
+Note that gptme's Android app is built by Tauri (``tauri android build``, a
+generated Gradle project) while aw-android is a native Android app — this does
+not affect signing, since both sign the standard unsigned Gradle outputs after
+the build. Signing deliberately happens in the tag-gated release job rather
+than via a Gradle ``signingConfig`` or Tauri's keystore hooks in the build job,
+so signing secrets are never exposed to PR-triggered builds.
+
 Issue Labels
 ------------
 
