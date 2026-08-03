@@ -1494,18 +1494,28 @@ def execute_shell_impl(
         timeout_value=timeout,
         logdir=logdir,
     )
-    yield Message("system", msg)
-
-    if interrupted:
-        raise KeyboardInterrupt from None
-
-    # Workspace-awareness: notify when cd enters a directory with gptme.toml
-    if returncode == 0:
+    # Workspace-awareness: notify when cd enters a directory with gptme.toml.
+    # Yield BEFORE the command output so that the command output is the last
+    # message from this generator.  base.py stamps call_id on the last yielded
+    # message (the actual tool result); earlier messages become plain system
+    # context with no call_id.  If the workspace hint were last, it — not the
+    # command output — would receive the call_id, making it the nominal tool
+    # response.  Strict providers (e.g. Moonshot AI / kimi-k2.6) then reject
+    # the conversation because the actual command output arrives as a bare
+    # system message between the assistant tool_calls and the tool response.
+    workspace_hint: Message | None = None
+    if returncode == 0 and not interrupted:
         cmd_stripped = cmd.strip()
         if cmd_stripped.startswith("cd ") or cmd_stripped == "cd":
             workspace_hint = _check_workspace_config()
-            if workspace_hint:
-                yield workspace_hint
+
+    if workspace_hint:
+        yield workspace_hint  # first: no call_id → becomes system context
+
+    yield Message("system", msg)  # last: receives call_id stamp → correct tool response
+
+    if interrupted:
+        raise KeyboardInterrupt from None
 
 
 # Workspace paths already hinted this session, so we don't spam the

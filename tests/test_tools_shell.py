@@ -1938,6 +1938,42 @@ def test_check_workspace_config_hint_includes_workdir_param(tmp_path):
         _hinted_workspaces.discard(str(tmp_path.resolve()))
 
 
+def test_workspace_hint_yielded_before_command_output(tmp_path):
+    """Workspace hint is the FIRST yielded message, command output is LAST.
+
+    base.py stamps call_id only on the last message from a tool generator so
+    that the actual tool result becomes the function_call_output, not earlier
+    context/warning messages.  If the workspace hint were last, it would
+    receive the call_id instead of the command output, and strict providers
+    (e.g. Moonshot AI) would reject the conversation because the actual shell
+    output then arrives as a bare ``system`` role message between the assistant
+    ``tool_calls`` entry and its expected ``tool`` response.
+    """
+    from gptme.tools.shell import _hinted_workspaces, execute_shell
+
+    (tmp_path / "gptme.toml").write_text("[gptme]\n")
+    _hinted_workspaces.discard(str(tmp_path.resolve()))
+
+    original_cwd = os.getcwd()
+    try:
+        messages = list(execute_shell(None, None, {"command": f"cd {tmp_path}"}))
+    finally:
+        os.chdir(original_cwd)
+        _hinted_workspaces.discard(str(tmp_path.resolve()))
+
+    assert len(messages) == 2, (
+        f"Expected 2 messages (hint + output), got {len(messages)}"
+    )
+
+    hint_msg, output_msg = messages
+    assert "gptme.toml" in hint_msg.content, (
+        "First message should be the workspace hint"
+    )
+    assert output_msg.content.startswith("Ran"), (
+        "Second message should be the command output"
+    )
+
+
 def test_shell_bare_cd_updates_working_directory(tmp_path):
     """A bare ``cd`` should update cwd to HOME, not leave stale state behind."""
     original_cwd = os.getcwd()
