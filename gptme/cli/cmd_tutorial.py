@@ -9,6 +9,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from enum import Enum, auto
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -117,8 +118,14 @@ TASKS: list[TutorialTask] = [
 ]
 
 
-def _run_task(task: TutorialTask, tmpdir: Path, num: int, total: int) -> bool:
-    """Run one tutorial task interactively. Returns True to continue, False to quit."""
+class TaskResult(Enum):
+    COMPLETED = auto()
+    SKIPPED = auto()
+    QUIT = auto()
+
+
+def _run_task(task: TutorialTask, tmpdir: Path, num: int, total: int) -> TaskResult:
+    """Run one tutorial task interactively and return its outcome."""
     click.echo(f"\n{'=' * 55}")
     click.echo(f"Task {num}/{total}: {task.title}")
     click.echo(f"{'=' * 55}")
@@ -131,23 +138,27 @@ def _run_task(task: TutorialTask, tmpdir: Path, num: int, total: int) -> bool:
         click.echo()
 
         if choice in ("q", "Q"):
-            return False
+            return TaskResult.QUIT
         if choice in ("s", "S"):
             click.echo("Skipping task.")
-            return True
+            return TaskResult.SKIPPED
 
         # Run gptme non-interactively in the tutorial directory
         click.echo(f'\n$ gptme --non-interactive "{task.prompt}"\n')
-        subprocess.run(
+        result = subprocess.run(
             ["gptme", "--non-interactive", task.prompt],
             cwd=str(tmpdir),
             check=False,
         )
+        if result.returncode != 0:
+            click.echo(f"\n✗ gptme exited with status {result.returncode}.")
+            click.echo("Try again (or press 's' to skip).\n")
+            continue
 
         passed, message = task.validate_fn(tmpdir)
         if passed:
             click.echo(f"\n✓ {message}")
-            return True
+            return TaskResult.COMPLETED
         click.echo(f"\n✗ Not quite: {message}")
         click.echo("Try again (or press 's' to skip).\n")
 
@@ -195,9 +206,11 @@ def main(task_num: int | None) -> None:
 
         completed = 0
         for i, task in enumerate(tasks, start=start_num):
-            if not _run_task(task, tmpdir, i, len(TASKS)):
+            result = _run_task(task, tmpdir, i, len(TASKS))
+            if result is TaskResult.QUIT:
                 break
-            completed += 1
+            if result is TaskResult.COMPLETED:
+                completed += 1
 
     click.echo(f"\n{'=' * 55}")
     click.echo(f"Tutorial complete! {completed}/{len(tasks)} task(s) done.")
