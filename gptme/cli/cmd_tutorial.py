@@ -60,7 +60,8 @@ def _prepare_summarize(tmpdir: Path) -> None:
 def _prepare_write_test(tmpdir: Path) -> None:
     for pattern in ("test_*.py", "*_test.py"):
         for test_file in tmpdir.glob(pattern):
-            test_file.unlink()
+            if test_file.is_file() or test_file.is_symlink():
+                test_file.unlink()
 
 
 def _prepare_fix_bug(tmpdir: Path) -> None:
@@ -80,7 +81,12 @@ def _validate_summarize(tmpdir: Path) -> tuple[bool, str]:
 
 def _validate_write_test(tmpdir: Path) -> tuple[bool, str]:
     """A test_*.py file containing a test function with an assertion must exist."""
-    test_files = list(tmpdir.glob("test_*.py")) + list(tmpdir.glob("*_test.py"))
+    test_files = [
+        path
+        for pattern in ("test_*.py", "*_test.py")
+        for path in tmpdir.glob(pattern)
+        if path.is_file()
+    ]
     if not test_files:
         return False, "No test file (test_*.py) found in the directory"
     content = test_files[0].read_text()

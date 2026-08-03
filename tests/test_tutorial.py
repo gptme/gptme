@@ -186,6 +186,25 @@ def test_run_task_does_not_validate_stale_test_after_retry(
     assert not (tutorial_dir / "stale_test.py").exists()
 
 
+def test_run_task_ignores_matching_directories_during_retry_cleanup(
+    tutorial_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    matching_dir = tutorial_dir / "stale_test.py"
+    matching_dir.mkdir()
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        Mock(return_value=subprocess.CompletedProcess(["gptme"], 0)),
+    )
+    monkeypatch.setattr("click.getchar", Mock(side_effect=["\n", "s"]))
+
+    result = _run_task(TASKS[1], tutorial_dir, 2, len(TASKS))
+
+    assert result is TaskResult.SKIPPED
+    assert matching_dir.is_dir()
+
+
 def test_run_task_does_not_validate_stale_bug_fix_after_retry(
     tutorial_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
