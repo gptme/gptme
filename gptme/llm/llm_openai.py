@@ -1394,6 +1394,12 @@ def stream(
 
 
 def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
+    # Non-tool system messages between an assistant tool_calls message and the
+    # corresponding tool responses break strict APIs like DeepSeek. Buffer them
+    # and re-emit after the tool responses are flushed.
+    pending_system: list[dict] = []
+    after_tool_calls = False
+
     for message in message_dicts:
         # Format tool result as expected by the model
         if message["role"] == "system" and "call_id" in message:
@@ -1402,8 +1408,18 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
             modified_message["role"] = "tool"
             modified_message["tool_call_id"] = modified_message.pop("call_id")
             yield modified_message
+            # Flush system messages buffered while waiting for this tool response
+            for buffered in pending_system:
+                yield buffered
+            pending_system = []
+            after_tool_calls = False
         # Find tool_use occurrences and format them as expected
         elif message["role"] == "assistant":
+            # Flush any orphaned buffered system messages before next assistant turn
+            for buffered in pending_system:
+                yield buffered
+            pending_system = []
+
             modified_message = dict(message)
 
             content, tool_uses = extract_tool_uses_from_assistant_message(
@@ -1438,9 +1454,19 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                     del modified_message["content"]
                 modified_message["tool_calls"] = tool_calls
 
+            after_tool_calls = bool(tool_calls)
             yield modified_message
         else:
-            yield message
+            if after_tool_calls:
+                # Buffer: a non-tool system message between tool_calls and tool
+                # responses is an invalid sequence for strict APIs (e.g. DeepSeek)
+                pending_system.append(message)
+            else:
+                yield message
+
+    # Flush any remaining buffered messages at end of conversation
+    for buffered in pending_system:
+        yield buffered
 
 
 def _merge_tool_results_with_same_call_id(

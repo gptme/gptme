@@ -310,6 +310,52 @@ def test_message_conversion_with_tool_and_non_tool():
     ]
 
 
+def test_handle_tools_buffers_non_tool_system_between_tool_calls_and_response():
+    """Non-tool system messages between tool_calls and tool responses are buffered.
+
+    DeepSeek and other strict APIs require that an assistant message with tool_calls
+    be immediately followed by tool messages. A plain system message (no call_id)
+    in between — e.g. a shellcheck warning emitted before the actual tool result —
+    causes a 400 error. The fix buffers such messages and re-emits them after the
+    tool responses.
+    """
+    init_tools(allowlist=["shell"])
+
+    messages = [
+        Message(role="user", content="Run a shell command"),
+        Message(
+            role="assistant",
+            content='@shell(call_001): {"command": "echo hello"}',
+        ),
+        # Non-tool system message (e.g. shellcheck warning) — no call_id
+        Message(role="system", content="Shellcheck found potential issues: SC2086"),
+        # Actual tool result — has call_id
+        Message(role="system", content="Output: hello", call_id="call_001"),
+    ]
+
+    tool_shell = get_tool("shell")
+    assert tool_shell
+
+    model = get_model("openai/gpt-4o")
+    messages_dicts, _ = _prepare_messages_for_api(messages, model.full, [tool_shell])
+
+    # The tool response must immediately follow the assistant tool_calls message.
+    # The non-tool system message must appear AFTER the tool response.
+    assert messages_dicts[0]["role"] == "user"
+    assert messages_dicts[1]["role"] == "assistant"
+    assert "tool_calls" in messages_dicts[1]
+    # Index 2 must be the tool response, not the shellcheck warning
+    assert messages_dicts[2]["role"] == "tool"
+    assert messages_dicts[2]["tool_call_id"] == "call_001"
+    # The buffered system message must appear after the tool response
+    assert messages_dicts[3]["role"] == "system"
+    content = messages_dicts[3]["content"]
+    assert isinstance(content, list)
+    first_part = content[0]
+    assert isinstance(first_part, dict)
+    assert first_part["text"] == "Shellcheck found potential issues: SC2086"
+
+
 def test_message_conversion_tool_response_with_image():
     """Tool responses with image files should use follow-up user messages for images.
 
