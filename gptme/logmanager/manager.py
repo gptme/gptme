@@ -506,6 +506,19 @@ class LogManager:
             for path in paths:
                 with path.open("rb") as f:
                     os.fsync(f.fileno())
+            if trace_path is not None:
+                self._fsync_directory(trace_path.parent)
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        """Make directory-entry changes durable where the platform supports it."""
+        if os.name == "nt":
+            return
+        directory_fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
 
     _TRACE_FILENAME = "model_selection_trace.json"
 

@@ -139,7 +139,7 @@ class TestLogManagerTracePersistence:
         assert trace_path.read_text() == "old trace\n"
         assert not temp_path.exists()
 
-    def test_sync_fsyncs_conversation_and_trace(self, tmp_path: Path) -> None:
+    def test_sync_fsyncs_conversation_trace_and_directory(self, tmp_path: Path) -> None:
         from gptme.logmanager.manager import LogManager
 
         set_selection_trace(make_trace())
@@ -148,7 +148,8 @@ class TestLogManagerTracePersistence:
         with patch.object(os, "fsync") as fsync:
             lm.write(sync=True)
 
-        assert fsync.call_count == 2
+        expected_calls = 2 if os.name == "nt" else 3
+        assert fsync.call_count == expected_calls
 
 
 # ---------------------------------------------------------------------------
