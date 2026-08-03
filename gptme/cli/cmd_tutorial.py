@@ -53,10 +53,14 @@ class TutorialTask:
 
 
 def _validate_summarize(tmpdir: Path) -> tuple[bool, str]:
-    """README.md must exist; gptme's run is itself the completion signal."""
-    if not (tmpdir / "README.md").exists():
-        return False, "README.md missing from working directory"
-    return True, "File read and summarized!"
+    """summary.md must be created with non-empty content."""
+    summary = tmpdir / "summary.md"
+    if not summary.exists():
+        return False, "summary.md not found — did gptme write the summary to a file?"
+    content = summary.read_text().strip()
+    if not content:
+        return False, "summary.md is empty"
+    return True, "Summary written to summary.md!"
 
 
 def _validate_write_test(tmpdir: Path) -> tuple[bool, str]:
@@ -95,8 +99,8 @@ def _validate_fix_bug(tmpdir: Path) -> tuple[bool, str]:
 TASKS: list[TutorialTask] = [
     TutorialTask(
         title="Summarize a file",
-        prompt="Summarize the contents of README.md",
-        hint='Try: gptme "Summarize the contents of README.md"',
+        prompt="Summarize the contents of README.md and write the summary to summary.md",
+        hint='Try: gptme "Summarize README.md and write the summary to summary.md"',
         validate_fn=_validate_summarize,
     ),
     TutorialTask(

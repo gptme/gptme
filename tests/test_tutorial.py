@@ -31,12 +31,19 @@ def tutorial_dir(tmp_path: Path) -> Path:
 # --- _validate_summarize ---
 
 
-def test_validate_summarize_pass(tutorial_dir: Path) -> None:
-    passed, msg = _validate_summarize(tutorial_dir)
+def test_validate_summarize_pass(tmp_path: Path) -> None:
+    (tmp_path / "summary.md").write_text("This is a summary.\n")
+    passed, msg = _validate_summarize(tmp_path)
     assert passed, msg
 
 
-def test_validate_summarize_fail_no_readme(tmp_path: Path) -> None:
+def test_validate_summarize_fail_no_summary(tmp_path: Path) -> None:
+    passed, _ = _validate_summarize(tmp_path)
+    assert not passed
+
+
+def test_validate_summarize_fail_empty_summary(tmp_path: Path) -> None:
+    (tmp_path / "summary.md").write_text("")
     passed, _ = _validate_summarize(tmp_path)
     assert not passed
 
@@ -112,19 +119,23 @@ def test_validate_fix_bug_fail_runtime_error(tmp_path: Path) -> None:
 def test_run_task_retries_after_gptme_failure(
     tutorial_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run = Mock(
-        side_effect=[
-            subprocess.CompletedProcess([], 1),
-            subprocess.CompletedProcess([], 0),
-        ]
-    )
-    monkeypatch.setattr(subprocess, "run", run)
+    call_count = 0
+
+    def fake_run(args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return subprocess.CompletedProcess(args, 1)  # first attempt fails
+        (tutorial_dir / "summary.md").write_text("This is a summary.\n")
+        return subprocess.CompletedProcess(args, 0)  # second attempt succeeds
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr("click.getchar", Mock(side_effect=["\n", "\n"]))
 
     result = _run_task(TASKS[0], tutorial_dir, 1, len(TASKS))
 
     assert result is TaskResult.COMPLETED
-    assert run.call_count == 2
+    assert call_count == 2
 
 
 def test_run_task_reports_skip_separately(
