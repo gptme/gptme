@@ -29,7 +29,7 @@ from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, timezone
 from itertools import islice, zip_longest
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import (
     Literal,
     TextIO,
@@ -521,7 +521,19 @@ class LogManager:
         if trace is None:
             return None
         trace_path = self.logdir / self._TRACE_FILENAME
-        trace_path.write_text(trace.to_json() + "\n")
+        with NamedTemporaryFile(
+            mode="w",
+            dir=self.logdir,
+            prefix=f".{self._TRACE_FILENAME}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_file.write(trace.to_json() + "\n")
+            temp_path = Path(temp_file.name)
+        try:
+            temp_path.replace(trace_path)
+        finally:
+            temp_path.unlink(missing_ok=True)
         return trace_path
 
     def read_model_trace(self):

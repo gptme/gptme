@@ -118,6 +118,27 @@ class TestLogManagerTracePersistence:
         assert "selection" in data
         assert "identity" in data
 
+    def test_trace_write_replaces_file_atomically(self, tmp_path: Path) -> None:
+        from gptme.logmanager.manager import LogManager
+
+        trace_path = tmp_path / "model_selection_trace.json"
+        trace_path.write_text("old trace\n")
+        set_selection_trace(make_trace())
+        lm = LogManager(logdir=tmp_path, lock=False)
+
+        with patch.object(Path, "replace", autospec=True) as replace:
+            result = lm.write_model_trace()
+
+        replace.assert_called_once()
+        temp_path, destination = replace.call_args.args
+        assert temp_path.parent == tmp_path
+        assert temp_path.name.startswith(".model_selection_trace.json.")
+        assert temp_path.suffix == ".tmp"
+        assert destination == trace_path
+        assert result == trace_path
+        assert trace_path.read_text() == "old trace\n"
+        assert not temp_path.exists()
+
     def test_sync_fsyncs_conversation_and_trace(self, tmp_path: Path) -> None:
         from gptme.logmanager.manager import LogManager
 
