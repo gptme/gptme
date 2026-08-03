@@ -170,7 +170,7 @@ def test_run_task_does_not_validate_stale_test_after_retry(
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            (tutorial_dir / "test_add.py").write_text(
+            (tutorial_dir / "stale_test.py").write_text(
                 "def test_add():\n    assert 1 + 1 == 2\n"
             )
             return subprocess.CompletedProcess(args, 1)
@@ -183,7 +183,32 @@ def test_run_task_does_not_validate_stale_test_after_retry(
 
     assert result is TaskResult.SKIPPED
     assert call_count == 2
-    assert not (tutorial_dir / "test_add.py").exists()
+    assert not (tutorial_dir / "stale_test.py").exists()
+
+
+def test_run_task_does_not_validate_stale_bug_fix_after_retry(
+    tutorial_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    call_count = 0
+
+    def fake_run(args, **kwargs):
+        nonlocal call_count
+        if args[0] == "gptme":
+            call_count += 1
+            if call_count == 1:
+                (tutorial_dir / "buggy.py").write_text("print('fixed')\n")
+                return subprocess.CompletedProcess(args, 1)
+            return subprocess.CompletedProcess(args, 0)
+        return subprocess.CompletedProcess(args, 1, stderr="still broken")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("click.getchar", Mock(side_effect=["\n", "\n", "s"]))
+
+    result = _run_task(TASKS[2], tutorial_dir, 3, len(TASKS))
+
+    assert result is TaskResult.SKIPPED
+    assert call_count == 2
+    assert (tutorial_dir / "buggy.py").read_text() == BUGGY_SCRIPT
 
 
 def test_run_task_reports_skip_separately(

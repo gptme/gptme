@@ -50,7 +50,21 @@ class TutorialTask:
     prompt: str
     hint: str
     validate_fn: Callable[[Path], tuple[bool, str]]
-    generated_files: tuple[str, ...]
+    prepare_fn: Callable[[Path], None]
+
+
+def _prepare_summarize(tmpdir: Path) -> None:
+    (tmpdir / "summary.md").unlink(missing_ok=True)
+
+
+def _prepare_write_test(tmpdir: Path) -> None:
+    for pattern in ("test_*.py", "*_test.py"):
+        for test_file in tmpdir.glob(pattern):
+            test_file.unlink()
+
+
+def _prepare_fix_bug(tmpdir: Path) -> None:
+    (tmpdir / "buggy.py").write_text(BUGGY_SCRIPT)
 
 
 def _validate_summarize(tmpdir: Path) -> tuple[bool, str]:
@@ -103,7 +117,7 @@ TASKS: list[TutorialTask] = [
         prompt="Summarize the contents of README.md and write the summary to summary.md",
         hint='Try: gptme "Summarize README.md and write the summary to summary.md"',
         validate_fn=_validate_summarize,
-        generated_files=("summary.md",),
+        prepare_fn=_prepare_summarize,
     ),
     TutorialTask(
         title="Write a test",
@@ -114,14 +128,14 @@ TASKS: list[TutorialTask] = [
         ),
         hint='Try: gptme "Write a pytest test for add(a, b) and save to test_add.py"',
         validate_fn=_validate_write_test,
-        generated_files=("test_add.py",),
+        prepare_fn=_prepare_write_test,
     ),
     TutorialTask(
         title="Fix a bug",
         prompt="Find and fix the bug in buggy.py so it runs without errors",
         hint='Try: gptme "Fix the bug in buggy.py"',
         validate_fn=_validate_fix_bug,
-        generated_files=(),
+        prepare_fn=_prepare_fix_bug,
     ),
 ]
 
@@ -152,9 +166,8 @@ def _run_task(task: TutorialTask, tmpdir: Path, num: int, total: int) -> TaskRes
             return TaskResult.SKIPPED
 
         # An unsuccessful attempt may leave a plausible-looking artifact behind.
-        # Remove generated files before retrying so validation only sees this run.
-        for generated_file in task.generated_files:
-            (tmpdir / generated_file).unlink(missing_ok=True)
+        # Restore this task's inputs before retrying so validation only sees this run.
+        task.prepare_fn(tmpdir)
 
         # Run gptme non-interactively in the tutorial directory
         click.echo(f'\n$ gptme --non-interactive "{task.prompt}"\n')
