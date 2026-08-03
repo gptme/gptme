@@ -1342,6 +1342,14 @@ never dropped regardless of TTL.</p>
 <dt class="sig sig-object py" id="gptme.config.ChatConfig.save">
 <span class="sig-name descname"><span class="pre">save</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.ChatConfig.save" title="Link to this definition">#</a></dt>
 <dd><p>Save the chat config to the log directory.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#OSError" title="(in Python v3.14)"><strong>OSError</strong></a> – If this config was decoded by a guessed codec and its
+    original bytes could not be backed up. The save is abandoned so
+    the unrecoverable bytes stay on disk; only a config that already
+    went through the legacy fallback can reach this.</p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="py method">
@@ -1727,6 +1735,10 @@ deleted. We surface a clear message instead of a bare FileNotFoundError
 Use for entries with inline api_key (secrets).</p></li>
 </ul>
 </dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#OSError" title="(in Python v3.14)"><strong>OSError</strong></a> – If the file was decoded by a guessed codec and its original
+    bytes could not be backed up; nothing is written in that case.</p>
+</dd>
 </dl>
 </dd></dl>
 
@@ -1757,8 +1769,14 @@ Use for secrets (API keys) that should not be in the shared config.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If an intermediate keypath segment already exists
-    but is not a TOML table (e.g. traversing into a string value).</p>
+<dd class="field-even"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If an intermediate keypath segment already exists
+    but is not a TOML table (e.g. traversing into a string value).</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#OSError" title="(in Python v3.14)"><strong>OSError</strong></a> – If the file was decoded by a guessed codec and its original
+    bytes could not be backed up. Nothing is written in that case, so
+    the unrecoverable values stay on disk rather than being replaced by
+    a possibly-garbled rewrite.</p></li>
+</ul>
 </dd>
 </dl>
 </dd></dl>
