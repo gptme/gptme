@@ -865,6 +865,11 @@ jobs:
           echo "::error::Provision the four ANDROID_* secrets and ANDROID_CERT_SHA256 environment variable."
           exit 1
 
+      # Signing strategy is shared with ActivityWatch/aw-android
+      # (scripts/sign_apk.sh + .github/workflows/build.yml there): zipalign,
+      # then apksigner for APKs and jarsigner for AABs, passwords via env.
+      # Keep the two implementations consistent when changing either.
+      # See docs/contributing.rst "Android release signing" for provisioning.
       - name: Sign Android APK and AAB
         env:
           ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
@@ -879,10 +884,12 @@ jobs:
           chmod 600 "$KEYSTORE"
           printf '%s' "$ANDROID_KEYSTORE" | base64 --decode > "$KEYSTORE"
 
-          # Locate apksigner from the newest installed build-tools version.
+          # Locate apksigner/zipalign from the newest installed build-tools version.
           BUILD_TOOLS_DIR=$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d -print | sort -V | tail -1)
           APKSIGNER="${BUILD_TOOLS_DIR}/apksigner"
+          ZIPALIGN="${BUILD_TOOLS_DIR}/zipalign"
           test -x "$APKSIGNER"
+          test -x "$ZIPALIGN"
 
           # Sign every unsigned APK produced by Gradle (v2/v3 scheme via apksigner).
           mapfile -d '' unsigned_apks < <(find android-dist -name "*-unsigned.apk" -print0)
@@ -894,11 +901,15 @@ jobs:
 
           for apk in "${unsigned_apks[@]}"; do
             signed="${apk/-unsigned/}"
+            # zipalign must run before apksigner (which preserves alignment);
+            # Gradle's unsigned output is not guaranteed to be aligned.
+            "$ZIPALIGN" -p 4 "$apk" "$apk.aligned"
+            mv "$apk.aligned" "$apk"
             "$APKSIGNER" sign \
               --ks "$KEYSTORE" \
               --ks-key-alias "$ANDROID_KEY_ALIAS" \
-              --ks-pass "pass:$ANDROID_STORE_PASSWORD" \
-              --key-pass "pass:$ANDROID_KEY_PASSWORD" \
+              --ks-pass env:ANDROID_STORE_PASSWORD \
+              --key-pass env:ANDROID_KEY_PASSWORD \
               --out "$signed" \
               "$apk"
             rm "$apk"
@@ -910,8 +921,8 @@ jobs:
           for aab in "${unsigned_aabs[@]}"; do
             jarsigner \
               -keystore "$KEYSTORE" \
-              -storepass "$ANDROID_STORE_PASSWORD" \
-              -keypass "$ANDROID_KEY_PASSWORD" \
+              -storepass:env ANDROID_STORE_PASSWORD \
+              -keypass:env ANDROID_KEY_PASSWORD \
               -digestalg SHA-256 \
               -sigalg SHA256withRSA \
               "$aab" \

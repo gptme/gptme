@@ -237,6 +237,13 @@ in one maintenance window, then verify the first release's APK with
 fingerprint in the release notes so downstream metadata consumers can recognize
 the intentional identity transition.
 
+This signing strategy is intentionally shared with
+`ActivityWatch/aw-android <https://github.com/ActivityWatch/aw-android>`_
+(see ``scripts/sign_apk.sh`` and ``.github/workflows/build.yml`` there):
+zipalign before signing, apksigner for APKs, jarsigner for AABs, and passwords
+passed via environment variables. When changing the signing approach in either
+project, apply the same change to the other to keep them consistent.
+
 Issue Labels
 ------------
 
