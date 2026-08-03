@@ -10,6 +10,7 @@ See Issue #935 for design context, #2320 for cache-cold warning.
 """
 
 import logging
+import os
 import time
 from collections.abc import Generator
 from contextvars import ContextVar
@@ -56,10 +57,115 @@ COST_WARNING_THRESHOLDS = [
     1000.00,  # Large session warnings
 ]
 
+DEFAULT_BUDGET_WARN_PCT = 80.0
+
 
 def _is_direct_anthropic_model(model: str | None) -> bool:
     """Return True for direct Anthropic model IDs recorded by gptme."""
     return bool(model and model.startswith(("anthropic/", "claude-")))
+
+
+def _positive_float_from_env(name: str) -> float | None:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return None
+    try:
+        parsed = float(value)
+    except ValueError:
+        logger.warning("Ignoring invalid %s=%r; expected positive number", name, value)
+        return None
+    if parsed <= 0:
+        logger.warning("Ignoring invalid %s=%r; expected positive number", name, value)
+        return None
+    return parsed
+
+
+def _positive_int_from_env(name: str) -> int | None:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        logger.warning("Ignoring invalid %s=%r; expected positive integer", name, value)
+        return None
+    if parsed <= 0:
+        logger.warning("Ignoring invalid %s=%r; expected positive integer", name, value)
+        return None
+    return parsed
+
+
+def _budget_warn_pct() -> float:
+    pct = _positive_float_from_env("GPTME_BUDGET_WARN_PCT")
+    if pct is None:
+        return DEFAULT_BUDGET_WARN_PCT
+    if pct > 100:
+        logger.warning(
+            "Ignoring invalid GPTME_BUDGET_WARN_PCT=%r; expected 0-100",
+            os.environ.get("GPTME_BUDGET_WARN_PCT"),
+        )
+        return DEFAULT_BUDGET_WARN_PCT
+    return pct
+
+
+def _total_tokens(costs: SessionCosts) -> int:
+    return (
+        costs.total_input_tokens
+        + costs.total_output_tokens
+        + costs.total_cache_read_tokens
+        + costs.total_cache_creation_tokens
+    )
+
+
+def _budget_warning(costs: SessionCosts) -> tuple[str, str] | None:
+    warn_pct = _budget_warn_pct()
+    warn_fraction = warn_pct / 100
+    last_entry = costs.entries[-1]
+
+    cost_budget = _positive_float_from_env("GPTME_SESSION_BUDGET_USD")
+    if cost_budget is not None:
+        total_cost = costs.total_cost
+        prev_cost = total_cost - last_entry.cost
+        warn_at = cost_budget * warn_fraction
+        if prev_cost < warn_at <= total_cost:
+            cache_hit_pct = costs.cache_hit_rate * 100
+            return (
+                (
+                    f"<system_warning>Session cost reached ${total_cost:.2f} "
+                    f"({warn_pct:.0f}% of ${cost_budget:.2f} budget; "
+                    f"tokens: {costs.total_input_tokens:,}/{costs.total_output_tokens:,} in/out, "
+                    f"cache hit: {cache_hit_pct:.1f}%)</system_warning>"
+                ),
+                (
+                    f"Session cost reached ${total_cost:.2f} "
+                    f"({warn_pct:.0f}% of ${cost_budget:.2f} budget)"
+                ),
+            )
+
+    token_budget = _positive_int_from_env("GPTME_SESSION_BUDGET_TOKENS")
+    if token_budget is not None:
+        total_tokens = _total_tokens(costs)
+        last_tokens = (
+            last_entry.input_tokens
+            + last_entry.output_tokens
+            + last_entry.cache_read_tokens
+            + last_entry.cache_creation_tokens
+        )
+        prev_tokens = total_tokens - last_tokens
+        warn_at_tokens = token_budget * warn_fraction
+        if prev_tokens < warn_at_tokens <= total_tokens:
+            return (
+                (
+                    f"<system_warning>Session token usage reached {total_tokens:,} "
+                    f"({warn_pct:.0f}% of {token_budget:,} token budget)</system_warning>"
+                ),
+                (
+                    f"Session token usage reached {total_tokens:,} "
+                    f"({warn_pct:.0f}% of {token_budget:,} token budget)"
+                ),
+            )
+
+    return None
 
 
 def anthropic_cache_cold_warning(
@@ -186,6 +292,13 @@ def cost_warning_hook(
     # Find if we crossed any threshold with the last request
     last_entry = costs.entries[-1]
     prev_cost = total - last_entry.cost
+
+    if budget_warning := _budget_warning(costs):
+        warning_text, log_text = budget_warning
+        _pending_warning_var.set(warning_text)
+        logger.info(log_text)
+        yield from ()
+        return
 
     for threshold in COST_WARNING_THRESHOLDS:
         if prev_cost < threshold <= total:

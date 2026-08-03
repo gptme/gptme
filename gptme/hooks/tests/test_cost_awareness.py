@@ -184,6 +184,67 @@ class TestCostWarningHook:
         for i in range(len(COST_WARNING_THRESHOLDS) - 1):
             assert COST_WARNING_THRESHOLDS[i] < COST_WARNING_THRESHOLDS[i + 1]
 
+    def test_budget_cost_warning_uses_env_budget(self, monkeypatch: pytest.MonkeyPatch):
+        """Cost budget warning fires at GPTME_BUDGET_WARN_PCT of budget."""
+        monkeypatch.setenv("GPTME_SESSION_BUDGET_USD", "1.00")
+        monkeypatch.setenv("GPTME_BUDGET_WARN_PCT", "80")
+        CostTracker.start_session("test")
+        self._record_cost(0.79)
+        list(cost_warning_hook(self._make_manager()))
+        assert _pending_warning_var.get() is not None  # fixed $0.10 threshold
+
+        _pending_warning_var.set(None)
+        self._record_cost(0.02)
+        list(cost_warning_hook(self._make_manager()))
+        warning = _pending_warning_var.get()
+        assert warning is not None
+        assert "80% of $1.00 budget" in warning
+        assert "Session cost reached $0.81" in warning
+
+    def test_budget_token_warning_uses_env_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Token budget warning fires when total tokens cross the configured pct."""
+        monkeypatch.setenv("GPTME_SESSION_BUDGET_TOKENS", "1000")
+        monkeypatch.setenv("GPTME_BUDGET_WARN_PCT", "80")
+        CostTracker.start_session("test")
+        self._record_cost(0.0, input_tokens=500, output_tokens=299)
+        list(cost_warning_hook(self._make_manager()))
+        assert _pending_warning_var.get() is None
+
+        self._record_cost(0.0, input_tokens=1, output_tokens=0)
+        list(cost_warning_hook(self._make_manager()))
+        warning = _pending_warning_var.get()
+        assert warning is not None
+        assert "Session token usage reached 800" in warning
+        assert "80% of 1,000 token budget" in warning
+
+    def test_invalid_budget_warn_pct_falls_back_to_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Invalid GPTME_BUDGET_WARN_PCT falls back to the 80% default."""
+        monkeypatch.setenv("GPTME_SESSION_BUDGET_USD", "1.00")
+        monkeypatch.setenv("GPTME_BUDGET_WARN_PCT", "150")
+        CostTracker.start_session("test")
+        self._record_cost(0.81)
+        list(cost_warning_hook(self._make_manager()))
+        warning = _pending_warning_var.get()
+        assert warning is not None
+        assert "80% of $1.00 budget" in warning
+
+    def test_budget_warning_precedes_fixed_threshold(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Configured budget warning is more actionable than fixed milestones."""
+        monkeypatch.setenv("GPTME_SESSION_BUDGET_USD", "0.50")
+        monkeypatch.setenv("GPTME_BUDGET_WARN_PCT", "50")
+        CostTracker.start_session("test")
+        self._record_cost(0.60)
+        list(cost_warning_hook(self._make_manager()))
+        warning = _pending_warning_var.get()
+        assert warning is not None
+        assert "50% of $0.50 budget" in warning
+
 
 class TestInjectPendingWarning:
     """Tests for inject_pending_warning hook."""
