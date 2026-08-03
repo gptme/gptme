@@ -138,6 +138,54 @@ def test_run_task_retries_after_gptme_failure(
     assert call_count == 2
 
 
+def test_run_task_does_not_validate_stale_summary_after_retry(
+    tutorial_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    call_count = 0
+
+    def fake_run(args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            (tutorial_dir / "summary.md").write_text("stale partial output\n")
+            return subprocess.CompletedProcess(args, 1)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("click.getchar", Mock(side_effect=["\n", "\n", "s"]))
+
+    result = _run_task(TASKS[0], tutorial_dir, 1, len(TASKS))
+
+    assert result is TaskResult.SKIPPED
+    assert call_count == 2
+    assert not (tutorial_dir / "summary.md").exists()
+
+
+def test_run_task_does_not_validate_stale_test_after_retry(
+    tutorial_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    call_count = 0
+
+    def fake_run(args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            (tutorial_dir / "test_add.py").write_text(
+                "def test_add():\n    assert 1 + 1 == 2\n"
+            )
+            return subprocess.CompletedProcess(args, 1)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("click.getchar", Mock(side_effect=["\n", "\n", "s"]))
+
+    result = _run_task(TASKS[1], tutorial_dir, 2, len(TASKS))
+
+    assert result is TaskResult.SKIPPED
+    assert call_count == 2
+    assert not (tutorial_dir / "test_add.py").exists()
+
+
 def test_run_task_reports_skip_separately(
     tutorial_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

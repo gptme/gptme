@@ -50,6 +50,7 @@ class TutorialTask:
     prompt: str
     hint: str
     validate_fn: Callable[[Path], tuple[bool, str]]
+    generated_files: tuple[str, ...]
 
 
 def _validate_summarize(tmpdir: Path) -> tuple[bool, str]:
@@ -102,6 +103,7 @@ TASKS: list[TutorialTask] = [
         prompt="Summarize the contents of README.md and write the summary to summary.md",
         hint='Try: gptme "Summarize README.md and write the summary to summary.md"',
         validate_fn=_validate_summarize,
+        generated_files=("summary.md",),
     ),
     TutorialTask(
         title="Write a test",
@@ -112,12 +114,14 @@ TASKS: list[TutorialTask] = [
         ),
         hint='Try: gptme "Write a pytest test for add(a, b) and save to test_add.py"',
         validate_fn=_validate_write_test,
+        generated_files=("test_add.py",),
     ),
     TutorialTask(
         title="Fix a bug",
         prompt="Find and fix the bug in buggy.py so it runs without errors",
         hint='Try: gptme "Fix the bug in buggy.py"',
         validate_fn=_validate_fix_bug,
+        generated_files=(),
     ),
 ]
 
@@ -146,6 +150,11 @@ def _run_task(task: TutorialTask, tmpdir: Path, num: int, total: int) -> TaskRes
         if choice in ("s", "S"):
             click.echo("Skipping task.")
             return TaskResult.SKIPPED
+
+        # An unsuccessful attempt may leave a plausible-looking artifact behind.
+        # Remove generated files before retrying so validation only sees this run.
+        for generated_file in task.generated_files:
+            (tmpdir / generated_file).unlink(missing_ok=True)
 
         # Run gptme non-interactively in the tutorial directory
         click.echo(f'\n$ gptme --non-interactive "{task.prompt}"\n')
