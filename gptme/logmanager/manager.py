@@ -511,14 +511,18 @@ class LogManager:
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
-        """Make directory-entry changes durable where the platform supports it."""
+        """Best-effort sync of directory-entry changes on POSIX filesystems."""
         if os.name == "nt":
             return
-        directory_fd = os.open(path, os.O_RDONLY)
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
         try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+            directory_fd = os.open(path, flags)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError as error:
+            logger.warning("Could not fsync log directory %s: %s", path, error)
 
     _TRACE_FILENAME = "model_selection_trace.json"
 

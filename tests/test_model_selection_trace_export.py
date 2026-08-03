@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -150,6 +151,26 @@ class TestLogManagerTracePersistence:
 
         expected_calls = 2 if os.name == "nt" else 3
         assert fsync.call_count == expected_calls
+
+    def test_unsupported_directory_fsync_does_not_fail_save(
+        self, tmp_path: Path
+    ) -> None:
+        from gptme.logmanager.manager import LogManager
+
+        set_selection_trace(make_trace())
+        lm = LogManager(logdir=tmp_path, lock=False)
+        real_fsync = os.fsync
+
+        def reject_directory(fd: int) -> None:
+            if stat.S_ISDIR(os.fstat(fd).st_mode):
+                raise OSError("directory fsync unsupported")
+            real_fsync(fd)
+
+        with patch.object(os, "fsync", side_effect=reject_directory):
+            lm.write(sync=True)
+
+        assert lm.logfile.exists()
+        assert (tmp_path / "model_selection_trace.json").exists()
 
 
 # ---------------------------------------------------------------------------
