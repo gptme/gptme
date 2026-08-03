@@ -356,6 +356,41 @@ def test_handle_tools_buffers_non_tool_system_between_tool_calls_and_response():
     assert first_part["text"] == "Shellcheck found potential issues: SC2086"
 
 
+def test_handle_tools_buffers_system_until_all_parallel_tool_responses():
+    """Buffered messages must not interrupt parallel tool responses."""
+    init_tools(allowlist=["shell"])
+
+    messages = [
+        Message(role="user", content="Run two shell commands"),
+        Message(
+            role="assistant",
+            content=(
+                '@shell(call_001): {"command": "echo one"}\n'
+                '@shell(call_002): {"command": "echo two"}'
+            ),
+        ),
+        Message(role="system", content="Shellcheck warning"),
+        Message(role="system", content="Output: one", call_id="call_001"),
+        Message(role="system", content="Output: two", call_id="call_002"),
+    ]
+
+    tool_shell = get_tool("shell")
+    assert tool_shell
+
+    model = get_model("openai/gpt-4o")
+    messages_dicts, _ = _prepare_messages_for_api(messages, model.full, [tool_shell])
+
+    assert [message["role"] for message in messages_dicts] == [
+        "user",
+        "assistant",
+        "tool",
+        "tool",
+        "system",
+    ]
+    assert messages_dicts[2]["tool_call_id"] == "call_001"
+    assert messages_dicts[3]["tool_call_id"] == "call_002"
+
+
 def test_message_conversion_tool_response_with_image():
     """Tool responses with image files should use follow-up user messages for images.
 
