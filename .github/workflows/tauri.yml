@@ -949,11 +949,19 @@ jobs:
           for apk in "${apks[@]}"; do
             echo "Verifying APK: $apk"
             "$APKSIGNER" verify --verbose "$apk"
-            ACTUAL_CERT_SHA256=$("$APKSIGNER" verify --print-certs "$apk" \
-              | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+            PRINT_CERTS_OUT=$("$APKSIGNER" verify --print-certs "$apk")
+            ACTUAL_CERT_SHA256=$(printf '%s' "$PRINT_CERTS_OUT" \
+              | sed -n 's/.*SHA-256 digest: *//p' \
               | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')
+            if [ -z "$ACTUAL_CERT_SHA256" ]; then
+              echo "::error::Could not extract certificate SHA-256 fingerprint from: $apk"
+              printf '%s\n' "$PRINT_CERTS_OUT" | sed 's/^/  /'
+              exit 1
+            fi
             if [ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then
               echo "::error::APK signer certificate does not match ANDROID_CERT_SHA256: $apk"
+              echo "::error::  expected: $EXPECTED_CERT_SHA256"
+              echo "::error::  actual:   $ACTUAL_CERT_SHA256"
               exit 1
             fi
           done
