@@ -495,10 +495,49 @@ class LogManager:
                     view_path = views_dir / f"{view_name}.jsonl"
                     log.write_jsonl(view_path)
 
+        # Persist model selection trace alongside the conversation
+        self.write_model_trace()
+
         # Force sync to disk if requested
         if sync:
             with open(self.logfile, "rb") as f:
                 os.fsync(f.fileno())
+
+    _TRACE_FILENAME = "model_selection_trace.json"
+
+    def write_model_trace(self) -> None:
+        """Persist the active ModelSelectionTrace to logdir/model_selection_trace.json.
+
+        Called automatically by write(). No-op when no trace is active in the
+        current context (e.g. tests or sessions that pre-date Phase 0).
+        """
+        from ..model_attestation import get_selection_trace
+
+        trace = get_selection_trace()
+        if trace is None:
+            return
+        trace_path = self.logdir / self._TRACE_FILENAME
+        trace_path.write_text(trace.to_json() + "\n")
+
+    def read_model_trace(self):
+        """Read the persisted ModelSelectionTrace from logdir, or None if absent.
+
+        Returns:
+            ModelSelectionTrace if model_selection_trace.json exists, else None.
+        """
+        from ..model_attestation import ModelSelectionTrace
+
+        trace_path = self.logdir / self._TRACE_FILENAME
+        if not trace_path.exists():
+            return None
+        try:
+            data = json.loads(trace_path.read_text())
+            return ModelSelectionTrace.from_dict(data)
+        except (json.JSONDecodeError, ValueError):
+            logger.warning(
+                "Failed to parse model_selection_trace.json in %s", self.logdir
+            )
+            return None
 
     def _save_backup_branch(self, type="edit") -> None:
         """backup the current log to a new branch, usually before editing/undoing"""

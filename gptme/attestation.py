@@ -140,6 +140,8 @@ def _build_payload(
     output_path: str | None,
     url: str | None,
 ) -> dict[str, Any]:
+    from .model_attestation import get_selection_trace
+
     model_id, model_provider = get_model_identity()
     output: dict[str, Any] = {
         "type": output_type,
@@ -150,6 +152,14 @@ def _build_payload(
     if url is not None:
         output["url"] = url
 
+    model_block: dict[str, Any] = {
+        "id": model_id,
+        "provider": model_provider,
+    }
+    trace = get_selection_trace()
+    if trace is not None:
+        model_block["selection_trace"] = trace.to_dict()
+
     return {
         "gptme_id": "v1",
         "issued_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
@@ -159,10 +169,7 @@ def _build_payload(
             "gptme_version": __version__,
             "session_id": get_session_id(),
         },
-        "model": {
-            "id": model_id,
-            "provider": model_provider,
-        },
+        "model": model_block,
         "output": output,
     }
 
