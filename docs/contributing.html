@@ -505,7 +505,10 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multiple-instances">Multiple Instances</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#android-release-signing">Android release signing</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#issue-labels">Issue Labels</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#difficulty">Difficulty</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#status">Status</a></li>
@@ -708,6 +711,50 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 <section id="release">
 <h2>Release<a class="headerlink" href="#release" title="Link to this heading">#</a></h2>
 <p>To make a release, simply run <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">release</span></code> and follow the instructions.</p>
+<section id="android-release-signing">
+<h3>Android release signing<a class="headerlink" href="#android-release-signing" title="Link to this heading">#</a></h3>
+<p>Android releases are signed with a long-lived upload key in the
+<code class="docutils literal notranslate"><span class="pre">tauri-autoupdater-signing</span></code> GitHub environment. Configure these secrets before
+running a tagged release:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ANDROID_KEYSTORE</span></code>: base64-encoded JKS or PKCS12 keystore</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ANDROID_KEY_ALIAS</span></code>: alias of the signing key</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ANDROID_KEY_PASSWORD</span></code>: password for the key entry</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ANDROID_STORE_PASSWORD</span></code>: password for the keystore</p></li>
+</ul>
+<p>Also set the non-secret environment variable <code class="docutils literal notranslate"><span class="pre">ANDROID_CERT_SHA256</span></code> to the
+signing certificate’s SHA-256 fingerprint. Generate a key and obtain that value
+with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>keytool<span class="w"> </span>-genkeypair<span class="w"> </span>-keystore<span class="w"> </span>release.jks<span class="w"> </span>-alias<span class="w"> </span>gptme-release<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-keyalg<span class="w"> </span>RSA<span class="w"> </span>-keysize<span class="w"> </span><span class="m">4096</span><span class="w"> </span>-validity<span class="w"> </span><span class="m">10000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-dname<span class="w"> </span><span class="s2">&quot;CN=gptme, OU=release, O=gptme, C=SE&quot;</span>
+keytool<span class="w"> </span>-list<span class="w"> </span>-v<span class="w"> </span>-keystore<span class="w"> </span>release.jks<span class="w"> </span>-alias<span class="w"> </span>gptme-release
+</pre></div>
+</div>
+<p>Store the keystore and passwords in the project’s offline recovery vault before
+provisioning GitHub. Losing this key prevents future releases from retaining the
+same Android signing identity.</p>
+<p>The release workflow refuses to upload Android artifacts when any signing value
+is missing, signature verification fails, or the APK certificate does not match
+<code class="docutils literal notranslate"><span class="pre">ANDROID_CERT_SHA256</span></code>. To rotate the key, first archive the old keystore,
+create and back up the replacement, update all four secrets and the fingerprint
+in one maintenance window, then verify the first release’s APK with
+<code class="docutils literal notranslate"><span class="pre">apksigner</span> <span class="pre">verify</span> <span class="pre">--verbose</span> <span class="pre">--print-certs</span></code>. Keep the previous public
+fingerprint in the release notes so downstream metadata consumers can recognize
+the intentional identity transition.</p>
+<p>This signing strategy is intentionally shared with
+<a class="reference external" href="https://github.com/ActivityWatch/aw-android">ActivityWatch/aw-android</a>
+(see <code class="docutils literal notranslate"><span class="pre">scripts/sign_apk.sh</span></code> and <code class="docutils literal notranslate"><span class="pre">.github/workflows/build.yml</span></code> there):
+zipalign before signing, apksigner for APKs, jarsigner for AABs, and passwords
+passed via environment variables. When changing the signing approach in either
+project, apply the same change to the other to keep them consistent.</p>
+<p>Note that gptme’s Android app is built by Tauri (<code class="docutils literal notranslate"><span class="pre">tauri</span> <span class="pre">android</span> <span class="pre">build</span></code>, a
+generated Gradle project) while aw-android is a native Android app — this does
+not affect signing, since both sign the standard unsigned Gradle outputs after
+the build. Signing deliberately happens in the tag-gated release job rather
+than via a Gradle <code class="docutils literal notranslate"><span class="pre">signingConfig</span></code> or Tauri’s keystore hooks in the build job,
+so signing secrets are never exposed to PR-triggered builds.</p>
+</section>
 </section>
 <section id="issue-labels">
 <h2>Issue Labels<a class="headerlink" href="#issue-labels" title="Link to this heading">#</a></h2>
@@ -822,7 +869,10 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multiple-instances">Multiple Instances</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#android-release-signing">Android release signing</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#issue-labels">Issue Labels</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#difficulty">Difficulty</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#status">Status</a></li>

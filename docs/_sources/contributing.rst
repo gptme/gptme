@@ -201,6 +201,56 @@ Release
 
 To make a release, simply run ``make release`` and follow the instructions.
 
+Android release signing
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Android releases are signed with a long-lived upload key in the
+``tauri-autoupdater-signing`` GitHub environment. Configure these secrets before
+running a tagged release:
+
+- ``ANDROID_KEYSTORE``: base64-encoded JKS or PKCS12 keystore
+- ``ANDROID_KEY_ALIAS``: alias of the signing key
+- ``ANDROID_KEY_PASSWORD``: password for the key entry
+- ``ANDROID_STORE_PASSWORD``: password for the keystore
+
+Also set the non-secret environment variable ``ANDROID_CERT_SHA256`` to the
+signing certificate's SHA-256 fingerprint. Generate a key and obtain that value
+with:
+
+.. code-block:: bash
+
+   keytool -genkeypair -keystore release.jks -alias gptme-release \
+     -keyalg RSA -keysize 4096 -validity 10000 \
+     -dname "CN=gptme, OU=release, O=gptme, C=SE"
+   keytool -list -v -keystore release.jks -alias gptme-release
+
+Store the keystore and passwords in the project's offline recovery vault before
+provisioning GitHub. Losing this key prevents future releases from retaining the
+same Android signing identity.
+
+The release workflow refuses to upload Android artifacts when any signing value
+is missing, signature verification fails, or the APK certificate does not match
+``ANDROID_CERT_SHA256``. To rotate the key, first archive the old keystore,
+create and back up the replacement, update all four secrets and the fingerprint
+in one maintenance window, then verify the first release's APK with
+``apksigner verify --verbose --print-certs``. Keep the previous public
+fingerprint in the release notes so downstream metadata consumers can recognize
+the intentional identity transition.
+
+This signing strategy is intentionally shared with
+`ActivityWatch/aw-android <https://github.com/ActivityWatch/aw-android>`_
+(see ``scripts/sign_apk.sh`` and ``.github/workflows/build.yml`` there):
+zipalign before signing, apksigner for APKs, jarsigner for AABs, and passwords
+passed via environment variables. When changing the signing approach in either
+project, apply the same change to the other to keep them consistent.
+
+Note that gptme's Android app is built by Tauri (``tauri android build``, a
+generated Gradle project) while aw-android is a native Android app — this does
+not affect signing, since both sign the standard unsigned Gradle outputs after
+the build. Signing deliberately happens in the tag-gated release job rather
+than via a Gradle ``signingConfig`` or Tauri's keystore hooks in the build job,
+so signing secrets are never exposed to PR-triggered builds.
+
 Issue Labels
 ------------
 
