@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..hooks import HookType, StopPropagation, register_hook
 from ..message import Message
-from ..util.cost_tracker import CostTracker, SessionCosts
+from ..util.cost_tracker import CostEntry, CostTracker, SessionCosts
 
 if TYPE_CHECKING:
     from ..logmanager import LogManager
@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 # Thread-safe storage for pending warning to inject on next user message
 _pending_warning_var: ContextVar[str | None] = ContextVar(
     "pending_warning", default=None
+)
+_turn_start_entry_count_var: ContextVar[int | None] = ContextVar(
+    "turn_start_entry_count", default=None
 )
 
 # Anthropic prompt cache TTL (5 minutes)
@@ -118,17 +121,26 @@ def _total_tokens(costs: SessionCosts) -> int:
     )
 
 
-def _budget_warning(costs: SessionCosts) -> tuple[str, str] | None:
+def _budget_warning(
+    costs: SessionCosts, turn_entries: list[CostEntry]
+) -> tuple[str, str] | None:
     warn_pct = _budget_warn_pct()
     warn_fraction = warn_pct / 100
-    last_entry = costs.entries[-1]
+    turn_cost = sum(entry.cost for entry in turn_entries)
+    turn_tokens = sum(
+        entry.input_tokens
+        + entry.output_tokens
+        + entry.cache_read_tokens
+        + entry.cache_creation_tokens
+        for entry in turn_entries
+    )
     warning_parts: list[str] = []
     log_parts: list[str] = []
 
     cost_budget = _positive_float_from_env("GPTME_SESSION_BUDGET_USD")
     if cost_budget is not None:
         total_cost = costs.total_cost
-        prev_cost = total_cost - last_entry.cost
+        prev_cost = total_cost - turn_cost
         warn_at = cost_budget * warn_fraction
         if prev_cost < warn_at <= total_cost:
             cache_hit_pct = costs.cache_hit_rate * 100
@@ -146,13 +158,7 @@ def _budget_warning(costs: SessionCosts) -> tuple[str, str] | None:
     token_budget = _positive_int_from_env("GPTME_SESSION_BUDGET_TOKENS")
     if token_budget is not None:
         total_tokens = _total_tokens(costs)
-        last_tokens = (
-            last_entry.input_tokens
-            + last_entry.output_tokens
-            + last_entry.cache_read_tokens
-            + last_entry.cache_creation_tokens
-        )
-        prev_tokens = total_tokens - last_tokens
+        prev_tokens = total_tokens - turn_tokens
         warn_at_tokens = token_budget * warn_fraction
         if prev_tokens < warn_at_tokens <= total_tokens:
             warning_parts.append(
@@ -268,6 +274,15 @@ def session_start_cost_tracking(
     yield from ()
 
 
+def record_turn_start_costs(
+    manager: "LogManager",
+) -> Generator[Message | StopPropagation, None, None]:
+    """Remember how many cost entries existed before the current turn."""
+    costs = CostTracker.get_session_costs()
+    _turn_start_entry_count_var.set(len(costs.entries) if costs else 0)
+    yield from ()
+
+
 def cost_warning_hook(
     manager: "LogManager",
 ) -> Generator[Message | StopPropagation, None, None]:
@@ -289,12 +304,20 @@ def cost_warning_hook(
         return
 
     total = costs.total_cost
+    turn_start = _turn_start_entry_count_var.get()
+    if turn_start is None:
+        turn_start = len(costs.entries) - 1
+    turn_start = min(turn_start, len(costs.entries))
+    turn_entries = costs.entries[turn_start:]
+    if not turn_entries:
+        return
 
-    # Find if we crossed any threshold with the last request
-    last_entry = costs.entries[-1]
-    prev_cost = total - last_entry.cost
+    # Find whether the completed turn crossed any threshold. A turn may contain
+    # multiple LLM requests when the assistant uses tools.
+    turn_cost = sum(entry.cost for entry in turn_entries)
+    prev_cost = total - turn_cost
 
-    if budget_warning := _budget_warning(costs):
+    if budget_warning := _budget_warning(costs, turn_entries):
         warning_text, log_text = budget_warning
         _pending_warning_var.set(warning_text)
         logger.info(log_text)
@@ -435,6 +458,12 @@ def register() -> None:
         HookType.GENERATION_PRE,
         cache_cold_warning_hook,
         priority=7,  # Must run before inject_pending_warning (priority=5) so warning is set before injection
+    )
+    register_hook(
+        "cost_awareness.turn_start",
+        HookType.TURN_PRE,
+        record_turn_start_costs,
+        priority=0,
     )
     register_hook(
         "cost_awareness.cost_warning",

@@ -11,9 +11,11 @@ from gptme.hooks.cost_awareness import (
     ANTHROPIC_CACHE_TTL_SECS,
     COST_WARNING_THRESHOLDS,
     _pending_warning_var,
+    _turn_start_entry_count_var,
     anthropic_cache_cold_warning,
     cost_warning_hook,
     inject_pending_warning,
+    record_turn_start_costs,
     session_end_cost_summary,
     session_start_cost_tracking,
 )
@@ -26,9 +28,11 @@ def reset_cost_state():
     """Reset cost tracker and pending warning before each test."""
     CostTracker.reset()
     _pending_warning_var.set(None)
+    _turn_start_entry_count_var.set(None)
     yield
     CostTracker.reset()
     _pending_warning_var.set(None)
+    _turn_start_entry_count_var.set(None)
 
 
 class TestSessionStartCostTracking:
@@ -244,6 +248,26 @@ class TestCostWarningHook:
         warning = _pending_warning_var.get()
         assert warning is not None
         assert "50% of $0.50 budget" in warning
+
+    def test_budget_crossing_in_earlier_request_of_turn_is_reported(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Budget crossings in multi-request turns are not lost."""
+        monkeypatch.setenv("GPTME_SESSION_BUDGET_USD", "1.00")
+        monkeypatch.setenv("GPTME_SESSION_BUDGET_TOKENS", "1000")
+        monkeypatch.setenv("GPTME_BUDGET_WARN_PCT", "80")
+        CostTracker.start_session("test")
+        self._record_cost(0.70, input_tokens=600, output_tokens=100)
+        list(record_turn_start_costs(self._make_manager()))
+        self._record_cost(0.11, input_tokens=100, output_tokens=0)
+        self._record_cost(0.01, input_tokens=1, output_tokens=0)
+
+        list(cost_warning_hook(self._make_manager()))
+
+        warning = _pending_warning_var.get()
+        assert warning is not None
+        assert "80% of $1.00 budget" in warning
+        assert "80% of 1,000 token budget" in warning
 
     def test_cost_and_token_budget_crossing_combines_warnings(
         self, monkeypatch: pytest.MonkeyPatch
