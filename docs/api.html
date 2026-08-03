@@ -554,12 +554,14 @@ document.write(`
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.load"><code class="docutils literal notranslate"><span class="pre">LogManager.load()</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.master_log"><code class="docutils literal notranslate"><span class="pre">LogManager.master_log</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.name"><code class="docutils literal notranslate"><span class="pre">LogManager.name</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.read_model_trace"><code class="docutils literal notranslate"><span class="pre">LogManager.read_model_trace()</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.switch_to_master"><code class="docutils literal notranslate"><span class="pre">LogManager.switch_to_master()</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.switch_view"><code class="docutils literal notranslate"><span class="pre">LogManager.switch_view()</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.to_dict"><code class="docutils literal notranslate"><span class="pre">LogManager.to_dict()</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.undo"><code class="docutils literal notranslate"><span class="pre">LogManager.undo()</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.workspace"><code class="docutils literal notranslate"><span class="pre">LogManager.workspace</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.write"><code class="docutils literal notranslate"><span class="pre">LogManager.write()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.write_model_trace"><code class="docutils literal notranslate"><span class="pre">LogManager.write_model_trace()</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.check_for_modifications"><code class="docutils literal notranslate"><span class="pre">check_for_modifications()</span></code></a></li>
@@ -1072,6 +1074,17 @@ pass</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="gptme.logmanager.LogManager.read_model_trace">
+<span class="sig-name descname"><span class="pre">read_model_trace</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#gptme.logmanager.LogManager.read_model_trace" title="Link to this definition">#</a></dt>
+<dd><p>Read the persisted ModelSelectionTrace from logdir, or None if absent.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ModelSelectionTrace if model_selection_trace.json exists, else None.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="gptme.logmanager.LogManager.switch_to_master">
 <span class="sig-name descname"><span class="pre">switch_to_master</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.logmanager.LogManager.switch_to_master" title="Link to this definition">#</a></dt>
 <dd><p>Switch back to master (full uncompacted history).</p>
@@ -1118,6 +1131,14 @@ pass</p>
 </ul>
 </dd>
 </dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.logmanager.LogManager.write_model_trace">
+<span class="sig-name descname"><span class="pre">write_model_trace</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.logmanager.LogManager.write_model_trace" title="Link to this definition">#</a></dt>
+<dd><p>Persist the active ModelSelectionTrace and return its path.</p>
+<p>Called automatically by write(). No-op when no trace is active in the
+current context (e.g. tests or sessions that pre-date Phase 0).</p>
 </dd></dl>
 
 </dd></dl>
@@ -2110,12 +2131,14 @@ backend-selection policy without requiring the client to set it.</p></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.load"><code class="docutils literal notranslate"><span class="pre">LogManager.load()</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.master_log"><code class="docutils literal notranslate"><span class="pre">LogManager.master_log</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.name"><code class="docutils literal notranslate"><span class="pre">LogManager.name</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.read_model_trace"><code class="docutils literal notranslate"><span class="pre">LogManager.read_model_trace()</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.switch_to_master"><code class="docutils literal notranslate"><span class="pre">LogManager.switch_to_master()</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.switch_view"><code class="docutils literal notranslate"><span class="pre">LogManager.switch_view()</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.to_dict"><code class="docutils literal notranslate"><span class="pre">LogManager.to_dict()</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.undo"><code class="docutils literal notranslate"><span class="pre">LogManager.undo()</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.workspace"><code class="docutils literal notranslate"><span class="pre">LogManager.workspace</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.write"><code class="docutils literal notranslate"><span class="pre">LogManager.write()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.write_model_trace"><code class="docutils literal notranslate"><span class="pre">LogManager.write_model_trace()</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.check_for_modifications"><code class="docutils literal notranslate"><span class="pre">check_for_modifications()</span></code></a></li>
