@@ -1495,24 +1495,21 @@ def execute_shell_impl(
         logdir=logdir,
     )
     # Workspace-awareness: notify when cd enters a directory with gptme.toml.
-    # Yield BEFORE the command output so that the command output is the last
-    # message from this generator.  base.py stamps call_id on the last yielded
-    # message (the actual tool result); earlier messages become plain system
-    # context with no call_id.  If the workspace hint were last, it — not the
-    # command output — would receive the call_id, making it the nominal tool
-    # response.  Strict providers (e.g. Moonshot AI / kimi-k2.6) then reject
-    # the conversation because the actual command output arrives as a bare
-    # system message between the assistant tool_calls and the tool response.
-    workspace_hint: Message | None = None
+    # Append hint text directly to the command output (single yield) so no
+    # separate message is interleaved between the assistant tool_calls entry
+    # and the tool response.  The serializer converts system messages without
+    # a call_id to user-role messages; any message interleaved between
+    # tool_calls and the tool result causes strict providers (e.g. Moonshot AI
+    # / kimi-k2.6) to reject the conversation with a 400 error.
+    workspace_hint_content = ""
     if returncode == 0 and not interrupted:
         cmd_stripped = cmd.strip()
         if cmd_stripped.startswith("cd ") or cmd_stripped == "cd":
-            workspace_hint = _check_workspace_config()
+            hint = _check_workspace_config()
+            if hint:
+                workspace_hint_content = "\n\n" + hint.content
 
-    if workspace_hint:
-        yield workspace_hint  # first: no call_id → becomes system context
-
-    yield Message("system", msg)  # last: receives call_id stamp → correct tool response
+    yield Message("system", msg + workspace_hint_content)
 
     if interrupted:
         raise KeyboardInterrupt from None

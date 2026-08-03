@@ -1938,16 +1938,17 @@ def test_check_workspace_config_hint_includes_workdir_param(tmp_path):
         _hinted_workspaces.discard(str(tmp_path.resolve()))
 
 
-def test_workspace_hint_yielded_before_command_output(tmp_path):
-    """Workspace hint is the FIRST yielded message, command output is LAST.
+def test_workspace_hint_in_command_output(tmp_path):
+    """Workspace hint is appended to the command output in a single message.
 
-    base.py stamps call_id only on the last message from a tool generator so
-    that the actual tool result becomes the function_call_output, not earlier
-    context/warning messages.  If the workspace hint were last, it would
-    receive the call_id instead of the command output, and strict providers
-    (e.g. Moonshot AI) would reject the conversation because the actual shell
-    output then arrives as a bare ``system`` role message between the assistant
-    ``tool_calls`` entry and its expected ``tool`` response.
+    Strict providers (e.g. Moonshot AI / kimi-k2.6) require that an assistant
+    ``tool_calls`` entry is immediately followed by ``tool`` role responses —
+    any interleaved message causes a 400 error.  The serializer converts system
+    messages without a call_id to user-role messages, so a separate hint yield
+    would appear as a user message between the tool_call and its result.
+    The fix: append the hint directly to the output so the generator yields a
+    single message that receives the call_id stamp and becomes a clean tool
+    response with no interleaved content.
     """
     from gptme.tools.shell import _hinted_workspaces, execute_shell
 
@@ -1961,16 +1962,14 @@ def test_workspace_hint_yielded_before_command_output(tmp_path):
         os.chdir(original_cwd)
         _hinted_workspaces.discard(str(tmp_path.resolve()))
 
-    assert len(messages) == 2, (
-        f"Expected 2 messages (hint + output), got {len(messages)}"
+    assert len(messages) == 1, (
+        f"Expected 1 message (output + appended hint), got {len(messages)}"
     )
 
-    hint_msg, output_msg = messages
-    assert "gptme.toml" in hint_msg.content, (
-        "First message should be the workspace hint"
-    )
-    assert output_msg.content.startswith("Ran"), (
-        "Second message should be the command output"
+    msg = messages[0]
+    assert msg.content.startswith("Ran"), "Message should start with the command output"
+    assert "gptme.toml" in msg.content, (
+        "Workspace hint should be appended to the output"
     )
 
 
