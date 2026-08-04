@@ -13,7 +13,7 @@ pytest.importorskip(
 
 
 @pytest.mark.timeout(20)
-def test_event_stream(event_listener, wait_for_event):
+def test_event_stream(event_listener, wait_for_event, auth_headers):
     """Test the event stream endpoint."""
     port = event_listener["port"]
     conversation_id = event_listener["conversation_id"]
@@ -22,6 +22,7 @@ def test_event_stream(event_listener, wait_for_event):
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
         json={"role": "user", "content": "Test message"},
+        headers=auth_headers,
     )
 
     # Wait for events
@@ -31,6 +32,7 @@ def test_event_stream(event_listener, wait_for_event):
     # Verify message content
     resp = requests.get(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers=auth_headers,
     )
     assert resp.status_code == 200
     messages = resp.json()["log"]
@@ -45,7 +47,7 @@ def test_event_stream(event_listener, wait_for_event):
 @pytest.mark.timeout(20)
 @pytest.mark.slow
 @pytest.mark.requires_api
-def test_event_stream_with_generation(event_listener, wait_for_event):
+def test_event_stream_with_generation(event_listener, wait_for_event, auth_headers):
     """Test that the event stream receives generation events."""
     port = event_listener["port"]
     conversation_id = event_listener["conversation_id"]
@@ -55,12 +57,14 @@ def test_event_stream_with_generation(event_listener, wait_for_event):
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
         json={"role": "user", "content": "Say hello"},
+        headers=auth_headers,
     )
 
     # Use a real model
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
         json={"session_id": session_id},
+        headers=auth_headers,
     )
 
     # Wait for events
@@ -71,6 +75,7 @@ def test_event_stream_with_generation(event_listener, wait_for_event):
     # Verify the response
     resp = requests.get(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers=auth_headers,
     )
     assert resp.status_code == 200
     messages = resp.json()["log"]
@@ -83,7 +88,7 @@ def test_event_stream_with_generation(event_listener, wait_for_event):
 
 @pytest.mark.timeout(10)
 def test_generation_complete_before_auto_naming(
-    setup_conversation, event_listener, mock_generation, wait_for_event
+    setup_conversation, event_listener, mock_generation, wait_for_event, auth_headers
 ):
     """generation_complete must be emitted before _try_auto_name_and_notify runs.
 
@@ -100,6 +105,7 @@ def test_generation_complete_before_auto_naming(
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
         json={"role": "user", "content": "Hello"},
+        headers=auth_headers,
     )
 
     mock_stream = mock_generation(["Hello!"])
@@ -126,6 +132,7 @@ def test_generation_complete_before_auto_naming(
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
             json={"session_id": session_id, "model": "openai/mock-model"},
+            headers=auth_headers,
         )
 
         assert wait_for_event(event_listener, "generation_complete", timeout=5), (

@@ -14,7 +14,12 @@ logger = logging.getLogger(__name__)
 
 @pytest.mark.timeout(30)
 def test_auto_stepping(
-    init_, setup_conversation, event_listener, mock_generation, wait_for_event
+    init_,
+    setup_conversation,
+    event_listener,
+    mock_generation,
+    wait_for_event,
+    auth_headers,
 ):
     """Test auto-stepping and auto-confirm functionality with multiple tools in sequence."""
     port, conversation_id, session_id = setup_conversation
@@ -28,6 +33,7 @@ def test_auto_stepping(
             "role": "user",
             "content": f"Create a directory named {test_dir} and list its contents",
         },
+        headers=auth_headers,
     )
 
     # Define tools that will be used
@@ -64,6 +70,7 @@ def test_auto_stepping(
                 "model": "openai/mock-model",
                 "auto_confirm": 2,
             },
+            headers=auth_headers,
         )
 
         # Wait for first tool execution and verify directory creation
@@ -87,6 +94,7 @@ def test_auto_stepping(
     # Verify conversation state
     resp = requests.get(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers=auth_headers,
     )
     assert resp.status_code == 200
 
@@ -131,7 +139,7 @@ def test_auto_stepping(
 
 @pytest.mark.timeout(30)
 def test_generation_error_persists_system_message(
-    setup_conversation, event_listener, wait_for_event
+    setup_conversation, event_listener, wait_for_event, auth_headers
 ):
     """Generation failures should be visible in the conversation log, not SSE-only."""
     port, conversation_id, session_id = setup_conversation
@@ -139,6 +147,7 @@ def test_generation_error_persists_system_message(
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
         json={"role": "user", "content": "Say hello"},
+        headers=auth_headers,
     )
 
     with unittest.mock.patch(
@@ -151,6 +160,7 @@ def test_generation_error_persists_system_message(
                 "session_id": session_id,
                 "model": "openai/mock-model",
             },
+            headers=auth_headers,
         )
 
         # Step now returns 500 when it detects the LLM error (instead of
@@ -162,6 +172,7 @@ def test_generation_error_persists_system_message(
 
     resp = requests.get(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers=auth_headers,
     )
     assert resp.status_code == 200
 
@@ -175,7 +186,7 @@ def test_generation_error_persists_system_message(
 
 @pytest.mark.timeout(30)
 def test_append_write_failure_blocks_generation_complete_and_persists_error(
-    setup_conversation, event_listener, mock_generation, wait_for_event
+    setup_conversation, event_listener, mock_generation, wait_for_event, auth_headers
 ):
     """A failed assistant append must not emit generation_complete."""
     from gptme.logmanager.manager import LogManager
@@ -186,6 +197,7 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
         json={"role": "user", "content": "Say hello"},
+        headers=auth_headers,
     )
 
     original_write = LogManager.write
@@ -217,6 +229,7 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
                 "session_id": session_id,
                 "model": "openai/mock-model",
             },
+            headers=auth_headers,
         )
 
         assert wait_for_event(event_listener, "generation_started")
@@ -228,6 +241,7 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
 
     resp = requests.get(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers=auth_headers,
     )
     assert resp.status_code == 200
 
@@ -243,7 +257,13 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
 @pytest.mark.timeout(60)
 @pytest.mark.no_retry
 def test_multi_tool_per_message(
-    init_, setup_conversation, event_listener, mock_generation, wait_for_event, tmp_path
+    init_,
+    setup_conversation,
+    event_listener,
+    mock_generation,
+    wait_for_event,
+    tmp_path,
+    auth_headers,
 ):
     """Test multiple tool uses in a single assistant message.
 
@@ -298,6 +318,7 @@ def test_multi_tool_per_message(
                 "role": "user",
                 "content": "Run two commands",
             },
+            headers=auth_headers,
         )
 
         requests.post(
@@ -307,6 +328,7 @@ def test_multi_tool_per_message(
                 "model": "openai/mock-model",
                 "auto_confirm": 2,
             },
+            headers=auth_headers,
         )
 
         # Generation produces a single message with two tools.
@@ -344,6 +366,7 @@ def test_multi_tool_per_message(
     # Verify conversation has the expected messages
     resp = requests.get(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers=auth_headers,
     )
     assert resp.status_code == 200
     messages = resp.json()["log"]

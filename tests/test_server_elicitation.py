@@ -147,7 +147,7 @@ class TestResolveHookElicitation:
 
 @pytest.mark.skipif(not _has_flask, reason="flask not installed (server extra)")
 @pytest.mark.timeout(10)
-def test_elicit_respond_endpoint_validation(init_, setup_conversation):
+def test_elicit_respond_endpoint_validation(init_, setup_conversation, auth_headers):
     """Test that the elicit respond endpoint validates required fields."""
     port, conversation_id, _ = setup_conversation
 
@@ -155,6 +155,7 @@ def test_elicit_respond_endpoint_validation(init_, setup_conversation):
     resp = requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/elicit/respond",
         json={"action": "accept", "value": "hello"},
+        headers=auth_headers,
     )
     assert resp.status_code == 400
 
@@ -162,6 +163,7 @@ def test_elicit_respond_endpoint_validation(init_, setup_conversation):
     resp = requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/elicit/respond",
         json={"elicit_id": "test-123", "value": "hello"},
+        headers=auth_headers,
     )
     assert resp.status_code == 400
 
@@ -169,13 +171,14 @@ def test_elicit_respond_endpoint_validation(init_, setup_conversation):
     resp = requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/elicit/respond",
         json={"elicit_id": "test-123", "action": "invalid"},
+        headers=auth_headers,
     )
     assert resp.status_code == 400
 
 
 @pytest.mark.skipif(not _has_flask, reason="flask not installed (server extra)")
 @pytest.mark.timeout(10)
-def test_elicit_respond_endpoint_accept(init_, setup_conversation):
+def test_elicit_respond_endpoint_accept(init_, setup_conversation, auth_headers):
     """Test that the elicit respond endpoint resolves a pending elicitation."""
     port, conversation_id, _ = setup_conversation
 
@@ -191,6 +194,7 @@ def test_elicit_respond_endpoint_accept(init_, setup_conversation):
             "action": "accept",
             "value": "test-value",
         },
+        headers=auth_headers,
     )
     assert resp.status_code == 200
 
