@@ -389,15 +389,17 @@ export function ApiProvider({
   );
 
   useEffect(() => {
-    if (!activeServer || !tauriServerBaseUrl || !tauriServerStatus?.auth_token) return;
+    if (!activeServer || !tauriServerBaseUrl) return;
     if (!isDefaultLoopbackTarget(connectionConfig.baseUrl)) return;
+    if (!needsTauriServerUrlSync && !tauriServerStatus?.auth_token) return;
 
-    const updates: Partial<ServerConfig> = {
-      authToken: tauriServerStatus.auth_token,
-      useAuthToken: true,
-    };
+    const updates: Partial<ServerConfig> = {};
     if (needsTauriServerUrlSync) {
       updates.baseUrl = tauriServerBaseUrl;
+    }
+    if (tauriServerStatus?.auth_token) {
+      updates.authToken = tauriServerStatus.auth_token;
+      updates.useAuthToken = true;
     }
     updateServer(activeServer.id, updates);
   }, [
