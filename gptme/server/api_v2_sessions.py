@@ -805,10 +805,13 @@ def api_conversation_rerun(conversation_id: str):
             }
         ), 403
 
-    # Check under the conversation lock so the check is atomic against
-    # reservation sites (/step, skip continuation), and check all sessions for
-    # the conversation — another client's session generating into the same log
-    # must also block a rerun (same class of bug as the /step guard).
+    # Hold the conversation lock from the guard through pending-tool
+    # registration and execution scheduling, so a concurrent /step (or another
+    # reservation site) cannot reserve generation between the check and the
+    # rerun's shared-state work. The check is conversation-wide — another
+    # client's session generating into the same log must also block a rerun
+    # (same class of bug as the /step guard). All work inside the lock is fast
+    # and local (log read, parsing, thread spawn) — no LLM or tool execution.
     with SessionManager.conversation_lock(conversation_id), session.step_lock:
         if SessionManager.conversation_generating(
             conversation_id
@@ -817,86 +820,88 @@ def api_conversation_rerun(conversation_id: str):
                 {"error": "Cannot rerun while generation is in progress"}
             ), 409
 
-    # Load conversation and find the last assistant message
-    try:
-        manager = LogManager.load(conversation_id, lock=False)
-    except FileNotFoundError:
-        return flask.jsonify(
-            {"error": f"Conversation not found: {conversation_id}"}
-        ), 404
+        # Load conversation and find the last assistant message
+        try:
+            manager = LogManager.load(conversation_id, lock=False)
+        except FileNotFoundError:
+            return flask.jsonify(
+                {"error": f"Conversation not found: {conversation_id}"}
+            ), 404
 
-    # Find the last assistant message
-    last_assistant = None
-    for msg in reversed(list(manager.log.messages)):
-        if msg.role == "assistant":
-            last_assistant = msg
-            break
+        # Find the last assistant message
+        last_assistant = None
+        for msg in reversed(list(manager.log.messages)):
+            if msg.role == "assistant":
+                last_assistant = msg
+                break
 
-    if not last_assistant:
-        return flask.jsonify({"error": "No assistant message found"}), 400
+        if not last_assistant:
+            return flask.jsonify({"error": "No assistant message found"}), 400
 
-    # Parse tool uses from the message content
-    tooluses = list(ToolUse.iter_from_content(last_assistant.content))
-    if not tooluses:
-        return flask.jsonify(
-            {"error": "No tool uses found in the last assistant message"}
-        ), 400
+        # Parse tool uses from the message content
+        tooluses = list(ToolUse.iter_from_content(last_assistant.content))
+        if not tooluses:
+            return flask.jsonify(
+                {"error": "No tool uses found in the last assistant message"}
+            ), 400
 
-    # Set them as pending (same flow as step() tool detection)
-    first_auto_id: str | None = None
-    logdir = get_logs_dir() / conversation_id
-    chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
-    default_model = get_default_model()
-    model = chat_config.model or (default_model.full if default_model else "anthropic")
-
-    for tooluse in tooluses:
-        tool_id = str(uuid.uuid4())
-        tool_exec = ToolExecution(
-            tool_id=tool_id,
-            tooluse=tooluse,
-            auto_confirm=session.auto_confirm_count > 0,
+        # Set them as pending (same flow as step() tool detection)
+        first_auto_id: str | None = None
+        logdir = get_logs_dir() / conversation_id
+        chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+        default_model = get_default_model()
+        model = chat_config.model or (
+            default_model.full if default_model else "anthropic"
         )
-        session.pending_tools[tool_id] = tool_exec
 
-        SessionManager.add_event(
-            conversation_id,
-            {
-                "type": "tool_pending",
-                "tool_id": tool_id,
-                "tooluse": {
-                    "tool": tooluse.tool,
-                    "args": tooluse.args,
-                    "content": tooluse.content,
+        for tooluse in tooluses:
+            tool_id = str(uuid.uuid4())
+            tool_exec = ToolExecution(
+                tool_id=tool_id,
+                tooluse=tooluse,
+                auto_confirm=session.auto_confirm_count > 0,
+            )
+            session.pending_tools[tool_id] = tool_exec
+
+            SessionManager.add_event(
+                conversation_id,
+                {
+                    "type": "tool_pending",
+                    "tool_id": tool_id,
+                    "tooluse": {
+                        "tool": tooluse.tool,
+                        "args": tooluse.args,
+                        "content": tooluse.content,
+                    },
+                    "auto_confirm": tool_exec.auto_confirm,
                 },
-                "auto_confirm": tool_exec.auto_confirm,
-            },
+            )
+
+            if tool_exec.auto_confirm:
+                if session.auto_confirm_count > 0:
+                    session.auto_confirm_count -= 1
+                if first_auto_id is None:
+                    first_auto_id = tool_id
+
+        # Start execution for only the first auto-confirm tool.
+        # execute_tool_thread will chain the remaining tools serially (same as step()).
+        if first_auto_id is not None:
+            start_tool_execution(
+                conversation_id,
+                session,
+                first_auto_id,
+                session.pending_tools[first_auto_id].tooluse,
+                model,
+                chat_config,
+            )
+
+        return flask.jsonify(
+            {
+                "status": "ok",
+                "message": f"Re-running {len(tooluses)} tool(s)",
+                "tool_ids": list(session.pending_tools),
+            }
         )
-
-        if tool_exec.auto_confirm:
-            if session.auto_confirm_count > 0:
-                session.auto_confirm_count -= 1
-            if first_auto_id is None:
-                first_auto_id = tool_id
-
-    # Start execution for only the first auto-confirm tool.
-    # execute_tool_thread will chain the remaining tools serially (same as step()).
-    if first_auto_id is not None:
-        start_tool_execution(
-            conversation_id,
-            session,
-            first_auto_id,
-            session.pending_tools[first_auto_id].tooluse,
-            model,
-            chat_config,
-        )
-
-    return flask.jsonify(
-        {
-            "status": "ok",
-            "message": f"Re-running {len(tooluses)} tool(s)",
-            "tool_ids": list(session.pending_tools),
-        }
-    )
 
 
 @sessions_api.route(
