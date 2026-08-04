@@ -141,6 +141,17 @@ const demoMessages: Record<string, Message[]> = {
       timestamp: DEMO_EPOCH_ISO,
     },
   ],
+  // Stress-test conversation: 200 alternating user/assistant messages.
+  // Used by the virtualization regression e2e test to verify that only a
+  // bounded subset of messages is mounted in the DOM regardless of total
+  // conversation length. Generated programmatically to keep the file readable.
+  // Timestamps use the fixed epoch (not Date.now()) so the entry always shows
+  // as historical rather than "just now".
+  'stress-test': Array.from({ length: 200 }, (_, i) => ({
+    role: (i % 2 === 0 ? 'user' : 'assistant') as Message['role'],
+    content: `Stress message ${i + 1}: ${'Lorem ipsum dolor sit amet. '.repeat(3)}`,
+    timestamp: DEMO_EPOCH_ISO,
+  })),
 };
 
 // Demo conversations (as ConversationSummary objects)
@@ -150,6 +161,14 @@ export const demoConversations: ConversationSummary[] = [
     name: 'Introduction to gptme',
     modified: DEMO_EPOCH_UNIX, // Fixed historical timestamp — demo content should not show as "just now"
     messages: demoMessages.introduction.length,
+    readonly: true,
+    workspace: '/demo/workspace',
+  },
+  {
+    id: 'stress-test',
+    name: 'Stress test (200 messages)',
+    modified: DEMO_EPOCH_UNIX,
+    messages: demoMessages['stress-test'].length,
     readonly: true,
     workspace: '/demo/workspace',
   },
