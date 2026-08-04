@@ -2402,6 +2402,28 @@ def test_v2_step_rejected_while_conversation_command_is_active(client: FlaskClie
     assert response.get_json()["error"] == "Generation already in progress"
 
 
+def test_v2_step_rejected_while_other_session_generating(client: FlaskClient):
+    """Step is rejected when a *different* session for the same conversation is generating."""
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    with unittest.mock.patch(
+        "gptme.server.api_v2_sessions.SessionManager.get_sessions_for_conversation"
+    ) as mock_get:
+        other_session = unittest.mock.MagicMock()
+        other_session.generating = True
+        mock_get.return_value = [other_session]
+
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={"session_id": session_id},
+        )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "Generation already in progress"
+
+
 @pytest.mark.parametrize(
     ("method", "path", "json"),
     [

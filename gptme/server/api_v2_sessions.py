@@ -383,7 +383,10 @@ def api_conversation_step(conversation_id: str):
     # config PATCH. A PATCH completed before this acquisition must affect the
     # worker; one arriving afterward sees generating=True and returns 409.
     with SessionManager.conversation_lock(conversation_id), session.step_lock:
-        if session.generating or SessionManager.command_is_active(conversation_id):
+        conv_sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+        if any(s.generating for s in conv_sessions) or SessionManager.command_is_active(
+            conversation_id
+        ):
             return flask.jsonify({"error": "Generation already in progress"}), 409
         chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
         if stream is None:
