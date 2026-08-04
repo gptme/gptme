@@ -2424,6 +2424,141 @@ def test_v2_step_rejected_while_other_session_generating(client: FlaskClient):
     assert response.get_json()["error"] == "Generation already in progress"
 
 
+def test_v2_rerun_rejected_while_other_session_generating(client: FlaskClient):
+    """Rerun is rejected when a *different* session for the same conversation is generating."""
+    from gptme.server.session_models import SessionManager
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    other_session = SessionManager.create_session(conversation_id)
+    other_session.generating = True
+    try:
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/rerun",
+            json={"session_id": session_id},
+        )
+        assert response.status_code == 409
+        assert (
+            response.get_json()["error"]
+            == "Cannot rerun while generation is in progress"
+        )
+    finally:
+        other_session.generating = False
+        SessionManager.remove_session(other_session.id)
+
+
+def test_v2_tool_skip_rejected_while_other_session_generating(client: FlaskClient):
+    """Skip is rejected when a *different* session for the same conversation is generating."""
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+
+    tool_id = "tool-skip-cross-session"
+    session.pending_tools[tool_id] = ToolExecution(
+        tool_id=tool_id,
+        tooluse=ToolUse("shell", [], "echo hello", call_id="call-skip-1"),
+    )
+
+    other_session = SessionManager.create_session(conversation_id)
+    other_session.generating = True
+    try:
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/tool/confirm",
+            json={"session_id": session_id, "tool_id": tool_id, "action": "skip"},
+        )
+        assert response.status_code == 409
+        assert response.get_json()["error"] == "Generation already in progress"
+        # The pending tool must remain untouched so the client can retry
+        assert tool_id in session.pending_tools
+    finally:
+        other_session.generating = False
+        SessionManager.remove_session(other_session.id)
+        session.pending_tools.pop(tool_id, None)
+
+
+def test_v2_interrupt_stops_other_sessions_generation(client: FlaskClient):
+    """Interrupt clears generation started by a *different* session for the conversation."""
+    from gptme.server.session_models import SessionManager
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    other_session = SessionManager.create_session(conversation_id)
+    other_session.generating = True
+    other_session.generating_since = datetime.now(tz=timezone.utc)
+    try:
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/interrupt",
+            json={"session_id": session_id},
+        )
+        assert response.status_code == 200
+        assert response.get_json()["message"] == "Interrupted"
+        assert other_session.generating is False
+        assert other_session.generating_since is None
+    finally:
+        other_session.generating = False
+        SessionManager.remove_session(other_session.id)
+
+
+def test_start_step_thread_rejected_while_other_session_generating(v2_conv):
+    """Tool-continuation steps must not start while a sibling session is generating."""
+    from gptme.server.session_models import SessionManager
+    from gptme.server.session_step import _start_step_thread
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+
+    other_session = SessionManager.create_session(conversation_id)
+    other_session.generating = True
+    try:
+        started = _start_step_thread(
+            conversation_id,
+            session,
+            "openai/mock-model",
+            Path("/tmp"),
+            reserved=False,
+        )
+        assert started is False
+        assert session.generating is False
+    finally:
+        other_session.generating = False
+        SessionManager.remove_session(other_session.id)
+
+
+def test_start_acp_step_thread_rejected_while_other_session_generating(v2_conv):
+    """ACP steps must not start while a sibling session is generating."""
+    from gptme.server.session_models import SessionManager
+    from gptme.server.session_step import _start_acp_step_thread
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+
+    other_session = SessionManager.create_session(conversation_id)
+    other_session.generating = True
+    try:
+        started = _start_acp_step_thread(
+            conversation_id=conversation_id,
+            session=session,
+            workspace=Path("/tmp"),
+            reserved=False,
+        )
+        assert started is False
+        assert session.generating is False
+    finally:
+        other_session.generating = False
+        SessionManager.remove_session(other_session.id)
+
+
 @pytest.mark.parametrize(
     ("method", "path", "json"),
     [

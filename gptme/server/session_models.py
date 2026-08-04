@@ -203,6 +203,19 @@ class SessionManager:
             ]
 
     @classmethod
+    def conversation_generating(cls, conversation_id: str) -> bool:
+        """Return whether any session for the conversation is generating.
+
+        The ``generating`` flag is session-scoped, but generation writes to the
+        conversation's shared log — so reservation checks must consider all
+        sessions for the conversation, not just the requesting one.
+        """
+        return any(
+            session.generating
+            for session in cls.get_sessions_for_conversation(conversation_id)
+        )
+
+    @classmethod
     def add_event(cls, conversation_id: str, event: EventType) -> None:
         """Add an event to all sessions for a conversation."""
         sessions = cls.get_sessions_for_conversation(conversation_id)

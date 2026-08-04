@@ -514,7 +514,9 @@ def _start_acp_step_thread(
     """Start an ACP-backed step unless another operation has reserved it."""
     if not reserved:
         with SessionManager.conversation_lock(conversation_id), session.step_lock:
-            if session.generating or SessionManager.command_is_active(conversation_id):
+            if SessionManager.conversation_generating(
+                conversation_id
+            ) or SessionManager.command_is_active(conversation_id):
                 return False
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
@@ -920,8 +922,10 @@ def start_tool_execution(
             # Reload the conversation to pick up outputs from prior tools
             manager = LogManager.load(conversation_id, lock=False)
 
-            # Use .get() to atomically retrieve and handle concurrent removal
-            tool_exec = session.pending_tools.get(current_tool_id)
+            # Atomically claim the tool with pop(): a get-then-pop sequence
+            # leaves a window where two threads (e.g. two concurrent confirm
+            # requests) both see the tool and both execute it.
+            tool_exec = session.pending_tools.pop(current_tool_id, None)
             if tool_exec is None:
                 logger.warning(
                     f"Tool {current_tool_id} not found in pending tools "
@@ -932,9 +936,6 @@ def start_tool_execution(
 
             # use explicit tooluse if set (may be modified), else from pending
             tooluse: ToolUse = current_edited_tooluse or tool_exec.tooluse
-
-            # Remove the tool from pending
-            session.pending_tools.pop(current_tool_id, None)
 
             # Record start time and notify about tool execution
             tool_exec.started_at = time.monotonic()
@@ -1049,7 +1050,9 @@ def _start_step_thread(
     # identifies that reservation explicitly to avoid rejecting itself.
     if not reserved:
         with SessionManager.conversation_lock(conversation_id), session.step_lock:
-            if session.generating or SessionManager.command_is_active(conversation_id):
+            if SessionManager.conversation_generating(
+                conversation_id
+            ) or SessionManager.command_is_active(conversation_id):
                 return False
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)

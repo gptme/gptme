@@ -383,10 +383,9 @@ def api_conversation_step(conversation_id: str):
     # config PATCH. A PATCH completed before this acquisition must affect the
     # worker; one arriving afterward sees generating=True and returns 409.
     with SessionManager.conversation_lock(conversation_id), session.step_lock:
-        conv_sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(s.generating for s in conv_sessions) or SessionManager.command_is_active(
+        if SessionManager.conversation_generating(
             conversation_id
-        ):
+        ) or SessionManager.command_is_active(conversation_id):
             return flask.jsonify({"error": "Generation already in progress"}), 409
         chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
         if stream is None:
@@ -692,7 +691,9 @@ def api_conversation_tool_confirm(conversation_id: str):
             current_tool = session.pending_tools.get(tool_id)
             if current_tool is None:
                 return flask.jsonify({"error": f"Tool not found: {tool_id}"}), 404
-            if session.generating:
+            # Check all sessions for the conversation (not just this one) —
+            # another client's session may be generating into the same log.
+            if SessionManager.conversation_generating(conversation_id):
                 return (
                     flask.jsonify({"error": "Generation already in progress"}),
                     409,
@@ -804,10 +805,17 @@ def api_conversation_rerun(conversation_id: str):
             }
         ), 403
 
-    if session.generating:
-        return flask.jsonify(
-            {"error": "Cannot rerun while generation is in progress"}
-        ), 409
+    # Check under the conversation lock so the check is atomic against
+    # reservation sites (/step, skip continuation), and check all sessions for
+    # the conversation — another client's session generating into the same log
+    # must also block a rerun (same class of bug as the /step guard).
+    with SessionManager.conversation_lock(conversation_id), session.step_lock:
+        if SessionManager.conversation_generating(
+            conversation_id
+        ) or SessionManager.command_is_active(conversation_id):
+            return flask.jsonify(
+                {"error": "Cannot rerun while generation is in progress"}
+            ), 409
 
     # Load conversation and find the last assistant message
     try:
@@ -1093,19 +1101,28 @@ def api_conversation_interrupt(conversation_id: str):
             }
         ), 403
 
-    with session.step_lock:
-        if not session.generating and not session.pending_tools:
-            # Idempotent: if nothing is generating, treat as already interrupted
-            return flask.jsonify(
-                {"status": "ok", "message": "Already interrupted or not generating"}
-            )
+    # Interrupt conversation-wide: generation may have been started by a
+    # *different* session for the same conversation (e.g. another connected
+    # client). Only clearing the requesting session's flag would leave that
+    # sibling generation running and report "Already interrupted".
+    # Hold the conversation lock so a concurrent reservation can't slip in
+    # between clearing one session and the next.
+    interrupted = False
+    with SessionManager.conversation_lock(conversation_id):
+        for sess in SessionManager.get_sessions_for_conversation(conversation_id):
+            with sess.step_lock:
+                if sess.generating or sess.pending_tools:
+                    interrupted = True
+                # Mark session as not generating and clear pending tools
+                sess.generating = False
+                sess.generating_since = None
+                sess.pending_tools.clear()
 
-        # Mark session as not generating
-        session.generating = False
-        session.generating_since = None
-
-        # Clear pending tools
-        session.pending_tools.clear()
+    if not interrupted:
+        # Idempotent: if nothing is generating, treat as already interrupted
+        return flask.jsonify(
+            {"status": "ok", "message": "Already interrupted or not generating"}
+        )
 
     # Notify about interruption
     SessionManager.add_event(conversation_id, {"type": "interrupted"})
