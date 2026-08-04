@@ -913,142 +913,156 @@ def start_tool_execution(
         current_conversation_id.set(conversation_id)
         current_session_id.set(session.id)
 
-        # Prepare execution environment (config, tools, hooks, .env)
-        prepare_execution_environment(
-            workspace=chat_config.workspace,
-            tools=None,
-            chat_config=chat_config,
-        )
-
-        # Execute tools serially. When break_on_tooluse=False, a single
-        # assistant message may contain multiple tool uses. After completing
-        # each tool we chain to the next pending auto-confirm tool (if any)
-        # to guarantee serial execution order.
-        current_tool_id: str = tool_id
-        current_edited_tooluse: ToolUse | None = edited_tooluse
-
-        while True:
-            # Reload the conversation to pick up outputs from prior tools
-            manager = LogManager.load(conversation_id, lock=False)
-
-            # Atomically claim the tool with pop(): a get-then-pop sequence
-            # leaves a window where two threads (e.g. two concurrent confirm
-            # requests) both see the tool and both execute it.
-            tool_exec = session.pending_tools.pop(current_tool_id, None)
-            if tool_exec is None:
-                logger.warning(
-                    f"Tool {current_tool_id} not found in pending tools "
-                    "(may have been handled by another thread)"
-                )
-                # Release any pre-reserved generation slot so the conversation
-                # is not permanently blocked.
-                if reserved:
-                    session.generating = False
-                    session.generating_since = None
-                return  # another thread claimed this tool; don't trigger auto-step
-            tool_exec.status = ToolStatus.EXECUTING
-
-            # use explicit tooluse if set (may be modified), else from pending
-            tooluse: ToolUse = current_edited_tooluse or tool_exec.tooluse
-
-            # Record start time and notify about tool execution
-            tool_exec.started_at = time.monotonic()
-            SessionManager.add_event(
-                conversation_id,
-                {"type": "tool_executing", "tool_id": current_tool_id},
+        try:
+            # Prepare execution environment (config, tools, hooks, .env)
+            prepare_execution_environment(
+                workspace=chat_config.workspace,
+                tools=None,
+                chat_config=chat_config,
             )
-            logger.info(f"Tool {current_tool_id} executing")
 
-            # Execute the tool
-            try:
-                logger.info(f"Executing tool: {tooluse.tool}")
-                stream_tool_id = current_tool_id
+            # Execute tools serially. When break_on_tooluse=False, a single
+            # assistant message may contain multiple tool uses. After completing
+            # each tool we chain to the next pending auto-confirm tool (if any)
+            # to guarantee serial execution order.
+            current_tool_id: str = tool_id
+            current_edited_tooluse: ToolUse | None = edited_tooluse
 
-                def stream_tool_output(
-                    tool_output: Message, tool_id: str = stream_tool_id
-                ) -> None:
-                    if (
-                        tool_output.role == "system"
-                        and not tool_output.hide
-                        and not tool_output.quiet
-                    ):
-                        SessionManager.add_event(
-                            conversation_id,
-                            {
-                                "type": "tool_output",
-                                "tool_id": tool_id,
-                                "output": tool_output.content,
-                            },
-                        )
+            while True:
+                # Reload the conversation to pick up outputs from prior tools
+                manager = LogManager.load(conversation_id, lock=False)
 
-                tool_outputs = list(
-                    tooluse.execute(
-                        log=manager.log,
-                        workspace=manager.workspace,
-                        on_result_message=stream_tool_output,
+                # Atomically claim the tool with pop(): a get-then-pop sequence
+                # leaves a window where two threads (e.g. two concurrent confirm
+                # requests) both see the tool and both execute it.
+                tool_exec = session.pending_tools.pop(current_tool_id, None)
+                if tool_exec is None:
+                    logger.warning(
+                        f"Tool {current_tool_id} not found in pending tools "
+                        "(may have been handled by another thread)"
                     )
-                )
-                logger.info(f"Tool execution complete, outputs: {len(tool_outputs)}")
+                    # Release any pre-reserved generation slot so the conversation
+                    # is not permanently blocked.
+                    if reserved:
+                        session.generating = False
+                        session.generating_since = None
+                    return  # another thread claimed this tool; don't trigger auto-step
+                tool_exec.status = ToolStatus.EXECUTING
 
-                # Store the tool outputs. call_id is already assigned in
-                # ToolUse.execute() for real results; hook messages intentionally
-                # have no call_id — don't re-stamp here or hook messages become
-                # duplicate function_call_output entries (Responses API 400).
-                for tool_output in tool_outputs:
-                    _append_and_notify(manager, session, tool_output)
-            except Exception as e:
-                logger.exception(f"Error executing tool {tooluse.tool}: {e}")
-                tool_exec.status = ToolStatus.FAILED
+                # use explicit tooluse if set (may be modified), else from pending
+                tooluse: ToolUse = current_edited_tooluse or tool_exec.tooluse
 
-                msg = Message("system", f"Error: {e!s}", call_id=tooluse.call_id)
-                _append_and_notify(manager, session, msg)
-
-            # Emit tool_complete with duration
-            if tool_exec.started_at is not None:
-                duration_ms = (time.monotonic() - tool_exec.started_at) * 1000
+                # Record start time and notify about tool execution
+                tool_exec.started_at = time.monotonic()
                 SessionManager.add_event(
                     conversation_id,
-                    {
-                        "type": "tool_complete",
-                        "tool_id": current_tool_id,
-                        "duration_ms": duration_ms,
-                        "success": tool_exec.status != ToolStatus.FAILED,
-                    },
+                    {"type": "tool_executing", "tool_id": current_tool_id},
                 )
+                logger.info(f"Tool {current_tool_id} executing")
 
-            # Persist tool outputs to disk
-            manager.write()
+                # Execute the tool
+                try:
+                    logger.info(f"Executing tool: {tooluse.tool}")
+                    stream_tool_id = current_tool_id
 
-            # Chain to next pending auto-confirm tool (serial execution)
-            next_auto_id: str | None = None
-            for tid, texec in list(session.pending_tools.items()):
-                if texec.auto_confirm:
-                    next_auto_id = tid
+                    def stream_tool_output(
+                        tool_output: Message, tool_id: str = stream_tool_id
+                    ) -> None:
+                        if (
+                            tool_output.role == "system"
+                            and not tool_output.hide
+                            and not tool_output.quiet
+                        ):
+                            SessionManager.add_event(
+                                conversation_id,
+                                {
+                                    "type": "tool_output",
+                                    "tool_id": tool_id,
+                                    "output": tool_output.content,
+                                },
+                            )
+
+                    tool_outputs = list(
+                        tooluse.execute(
+                            log=manager.log,
+                            workspace=manager.workspace,
+                            on_result_message=stream_tool_output,
+                        )
+                    )
+                    logger.info(
+                        f"Tool execution complete, outputs: {len(tool_outputs)}"
+                    )
+
+                    # Store the tool outputs. call_id is already assigned in
+                    # ToolUse.execute() for real results; hook messages intentionally
+                    # have no call_id — don't re-stamp here or hook messages become
+                    # duplicate function_call_output entries (Responses API 400).
+                    for tool_output in tool_outputs:
+                        _append_and_notify(manager, session, tool_output)
+                except Exception as e:
+                    logger.exception(f"Error executing tool {tooluse.tool}: {e}")
+                    tool_exec.status = ToolStatus.FAILED
+
+                    msg = Message("system", f"Error: {e!s}", call_id=tooluse.call_id)
+                    _append_and_notify(manager, session, msg)
+
+                # Emit tool_complete with duration
+                if tool_exec.started_at is not None:
+                    duration_ms = (time.monotonic() - tool_exec.started_at) * 1000
+                    SessionManager.add_event(
+                        conversation_id,
+                        {
+                            "type": "tool_complete",
+                            "tool_id": current_tool_id,
+                            "duration_ms": duration_ms,
+                            "success": tool_exec.status != ToolStatus.FAILED,
+                        },
+                    )
+
+                # Persist tool outputs to disk
+                manager.write()
+
+                # Chain to next pending auto-confirm tool (serial execution)
+                next_auto_id: str | None = None
+                for tid, texec in list(session.pending_tools.items()):
+                    if texec.auto_confirm:
+                        next_auto_id = tid
+                        break
+
+                if next_auto_id is not None:
+                    current_tool_id = next_auto_id
+                    current_edited_tooluse = None
+                else:
                     break
 
-            if next_auto_id is not None:
-                current_tool_id = next_auto_id
-                current_edited_tooluse = None
-            else:
-                break
-
-        # Only auto-step when all pending tools have been executed.
-        # With multiple tools per message, we must wait until every tool
-        # has run before asking the model for a continuation.
-        if not session.pending_tools:
-            _start_step_thread(
-                conversation_id,
-                session,
-                model,
-                chat_config.workspace,
-                reserved=reserved,
+            # Only auto-step when all pending tools have been executed.
+            # With multiple tools per message, we must wait until every tool
+            # has run before asking the model for a continuation.
+            if not session.pending_tools:
+                _start_step_thread(
+                    conversation_id,
+                    session,
+                    model,
+                    chat_config.workspace,
+                    reserved=reserved,
+                )
+            elif reserved:
+                # Pending non-auto-confirm tools remain; those need explicit client
+                # confirmation.  Release the pre-reserved generation slot so the
+                # conversation is not permanently blocked.
+                session.generating = False
+                session.generating_since = None
+        except Exception:
+            logger.exception(
+                f"Unhandled error in tool execution thread for {conversation_id}"
             )
-        elif reserved:
-            # Pending non-auto-confirm tools remain; those need explicit client
-            # confirmation.  Release the pre-reserved generation slot so the
-            # conversation is not permanently blocked.
-            session.generating = False
-            session.generating_since = None
+            if reserved:
+                # A crash anywhere before the reservation is transferred to
+                # _start_step_thread (or explicitly released above) must not
+                # permanently strand the conversation in a generating state.
+                session.generating = False
+                session.generating_since = None
+            raise
 
     # Propagate ContextVars from the request context into the execution thread.
     ctx = contextvars.copy_context()
