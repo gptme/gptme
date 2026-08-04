@@ -2005,10 +2005,9 @@ coercion inside the function body.</p>
 A comma-separated string allows multiple origins, e.g.
 “tauri://localhost,http://tauri.localhost”. Whitespace around
 entries is ignored.</p></li>
-<li><p><strong>allowed_hosts</strong> – Extra hostnames to accept in the Host header when Host
-validation is active (loopback binds without auth). Adds to the
-built-in localhost/127.0.0.1/[::1] allow-list, for users who proxy
-the local server behind a hostname. See init_host_validation.</p></li>
+<li><p><strong>allowed_hosts</strong> – Extra hostnames to accept in the Host header when auth is
+explicitly disabled. Adds to the built-in
+localhost/127.0.0.1/[::1] allow-list. See init_host_validation.</p></li>
 <li><p><strong>webui_dir</strong> – Optional directory containing a web UI build to serve
 instead of the bundled modern UI. Falls back to the
 <code class="docutils literal notranslate"><span class="pre">GPTME_WEBUI_DIR</span></code> environment variable, then to the bundled UI

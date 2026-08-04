@@ -581,18 +581,11 @@ local-to-local request.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><strong>Host-header validation (DNS-rebinding protection).</strong>
-On loopback binds the server runs without an auth token, so it validates
-the request <code class="docutils literal notranslate"><span class="pre">Host</span></code> header to block DNS-rebinding attacks (a malicious page
-whose hostname re-resolves to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> would otherwise become
-same-origin with your local server and gain full unauthenticated API
-access, including shell execution via the agent). <code class="docutils literal notranslate"><span class="pre">localhost</span></code>,
-<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> and <code class="docutils literal notranslate"><span class="pre">[::1]</span></code> (any port) are always allowed. If you proxy the
-local server behind a hostname, allow it with
-<code class="docutils literal notranslate"><span class="pre">gptme-server</span> <span class="pre">serve</span> <span class="pre">--allowed-hosts</span> <span class="pre">gptme.local</span></code> (comma-separated, or via
-<code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_ALLOWED_HOSTS</span></code>). Validation is skipped when auth is enabled
-(network binds) or explicitly disabled with <code class="docutils literal notranslate"><span class="pre">GPTME_DISABLE_AUTH</span></code> — those
-operators own their own access control (e.g. an authenticated ingress).</p>
+<p><strong>Host-header validation.</strong> Bearer authentication is enabled for loopback
+and network binds alike. If an operator explicitly disables authentication
+with <code class="docutils literal notranslate"><span class="pre">GPTME_DISABLE_AUTH</span></code>, they can still opt into Host-header validation
+with <code class="docutils literal notranslate"><span class="pre">gptme-server</span> <span class="pre">serve</span> <span class="pre">--allowed-hosts</span> <span class="pre">gptme.local</span></code> (comma-separated,
+or via <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_ALLOWED_HOSTS</span></code>).</p>
 </div>
 </section>
 <section id="self-hosting-with-docker-compose">
@@ -740,7 +733,7 @@ sudo<span class="w"> </span>-u<span class="w"> </span>gptme<span class="w"> </sp
 <span class="w">                       </span>/home/gptme/.local/share/gptme<span class="w"> </span><span class="se">\</span>
 <span class="w">                       </span>/home/gptme/.local/state/gptme
 
-<span class="c1"># Secrets file (provider keys, optional GPTME_SERVER_TOKEN), not world-readable</span>
+<span class="c1"># Secrets file (provider keys + GPTME_SERVER_TOKEN), not world-readable</span>
 sudo<span class="w"> </span>install<span class="w"> </span>-d<span class="w"> </span>-m<span class="w"> </span><span class="m">750</span><span class="w"> </span>-o<span class="w"> </span>gptme<span class="w"> </span>-g<span class="w"> </span>gptme<span class="w"> </span>/etc/gptme
 sudo<span class="w"> </span>install<span class="w"> </span>-m<span class="w"> </span><span class="m">640</span><span class="w"> </span>-o<span class="w"> </span>gptme<span class="w"> </span>-g<span class="w"> </span>gptme<span class="w"> </span>/dev/null<span class="w"> </span>/etc/gptme/server.env
 sudoedit<span class="w"> </span>/etc/gptme/server.env<span class="w">   </span><span class="c1"># add ANTHROPIC_API_KEY=... etc.</span>
@@ -753,9 +746,11 @@ sudo<span class="w"> </span>systemctl<span class="w"> </span><span class="nb">en
 </pre></div>
 </div>
 <p>Tail logs with <code class="docutils literal notranslate"><span class="pre">journalctl</span> <span class="pre">-u</span> <span class="pre">gptme-server</span> <span class="pre">-f</span></code>. Because the unit binds
-<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>, pair it with the nginx reverse proxy above to expose it over TLS;
-on loopback the auth token is optional (set <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_TOKEN</span></code> in the env
-file if you change the bind to a public interface).</p>
+<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>, pair it with the nginx reverse proxy above to expose it over TLS.
+Set <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_TOKEN</span></code> in the env file to a stable secret so clients have a
+persistent credential across restarts. This is <strong>required for persistent
+deployments</strong>: if omitted the server generates a new random token at each startup,
+invalidating any client already configured with the previous token.</p>
 </section>
 <section id="basic-web-ui">
 <h2>Basic Web UI<a class="headerlink" href="#basic-web-ui" title="Link to this heading">#</a></h2>
@@ -840,28 +835,22 @@ parent context smaller:</p>
 <p>This section describes the security model of gptme-server and the threat vectors it is designed (and not designed) to address.</p>
 <section id="authentication-model">
 <span id="server-auth-model"></span><h3>Authentication Model<a class="headerlink" href="#authentication-model" title="Link to this heading">#</a></h3>
-<p>gptme-server uses a tiered authentication model based on the bind address:</p>
+<p>gptme-server requires bearer authentication for capability-bearing API routes
+regardless of bind address. Loopback is a transport boundary, not an identity
+boundary: another local process must not gain shell and config access merely by
+reaching <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>. A small set of public routes remain unauthenticated: the
+API root (<code class="docutils literal notranslate"><span class="pre">/api/v2</span></code>), version info (<code class="docutils literal notranslate"><span class="pre">/api/v2/version</span></code>), config metadata
+(<code class="docutils literal notranslate"><span class="pre">/api/v2/config</span></code>), Prometheus metrics (<code class="docutils literal notranslate"><span class="pre">/api/v0/metrics</span></code>), and the API
+documentation at <code class="docutils literal notranslate"><span class="pre">/api/docs/</span></code>. Set <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_TOKEN</span></code> to a fixed value;
+if unset the server generates one and prints it at startup.</p>
 <ul class="simple">
-<li><p><strong>Loopback bind</strong> (<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> / <code class="docutils literal notranslate"><span class="pre">localhost</span></code> / <code class="docutils literal notranslate"><span class="pre">::1</span></code>, the default):
-Bearer auth is <strong>disabled</strong> — a random token is generated on startup but
-the server does not require it for API access. The assumption is that any
-process on the same machine is the legitimate user.</p></li>
-<li><p><strong>Network bind</strong> (<code class="docutils literal notranslate"><span class="pre">0.0.0.0</span></code> or an external IP): Bearer auth is
-<strong>enabled</strong> and required for capability-bearing API requests (conversation
-endpoints, tool execution, config writes). A small set of public routes
-remain unauthenticated: the API root (<code class="docutils literal notranslate"><span class="pre">/api/v2</span></code>), version info
-(<code class="docutils literal notranslate"><span class="pre">/api/v2/version</span></code>), config metadata (<code class="docutils literal notranslate"><span class="pre">/api/v2/config</span></code>), Prometheus
-metrics (<code class="docutils literal notranslate"><span class="pre">/api/v0/metrics</span></code>), and the API documentation at
-<code class="docutils literal notranslate"><span class="pre">/api/docs/</span></code>. Set <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_TOKEN</span></code>
-to a fixed value; if unset the server generates one and prints it at
-startup.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_DISABLE_AUTH</span></code> overrides both: disables bearer checks entirely
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_DISABLE_AUTH</span></code> disables bearer checks entirely
 regardless of bind address. Use only behind an authenticated ingress.</p></li>
 </ul>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>An authorized API client (anyone who can reach the server with a valid
-token, or the local user on a loopback bind) can execute arbitrary shell
+token) can execute arbitrary shell
 commands through the agent. There is no additional sandboxing at the
 API layer. The security boundary is <strong>access to the server</strong>, not any
 individual endpoint.</p>
@@ -869,8 +858,8 @@ individual endpoint.</p>
 </section>
 <section id="threat-model">
 <span id="server-threat-model"></span><h3>Threat Model<a class="headerlink" href="#threat-model" title="Link to this heading">#</a></h3>
-<p>The server is hardened against two classes of browser-originating attack that
-apply to the default unauthenticated loopback setup:</p>
+<p>The server is hardened against browser-originating attacks that apply to local
+server access:</p>
 <p><strong>1. Cross-Site Request Forgery (CSRF)</strong></p>
 <p>A malicious web page cannot send credentialed cross-origin JSON requests
 to the local server because the browser’s CORS preflight blocks them: the
@@ -879,13 +868,11 @@ origins (only for the configured <code class="docutils literal notranslate"><spa
 without CORS, but cannot set <code class="docutils literal notranslate"><span class="pre">Content-Type:</span> <span class="pre">application/json</span></code>, so the
 server rejects them as malformed.</p>
 <p><strong>2. DNS Rebinding</strong></p>
-<p>A malicious site can re-resolve its hostname to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> after the
-page loads. That makes the browser consider it <em>same-origin</em> with the local
-server, bypassing CORS entirely. The direct mitigation is <strong>Host-header
-validation</strong> (see the note in the <a class="reference internal" href="#server-gptme-webui"><span class="std std-ref">gptme-webui</span></a>
-section): the server rejects requests whose <code class="docutils literal notranslate"><span class="pre">Host</span></code> does not match
-<code class="docutils literal notranslate"><span class="pre">localhost</span></code>, <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>, <code class="docutils literal notranslate"><span class="pre">::1</span></code>, the configured bind address, or any
-explicitly allowed hostname (<code class="docutils literal notranslate"><span class="pre">--allowed-hosts</span></code>).</p>
+<p>A malicious site can re-resolve its hostname to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> after the page
+loads and thereby bypass CORS. Bearer authentication still blocks access to
+capability-bearing routes because the page does not possess the token. If an
+operator explicitly disables bearer auth, <code class="docutils literal notranslate"><span class="pre">--allowed-hosts</span></code> can add
+Host-header validation as defense in depth.</p>
 <p><strong>What is NOT in scope:</strong></p>
 <ul class="simple">
 <li><p><em>An authorized client redirecting the agent to sensitive files:</em> An

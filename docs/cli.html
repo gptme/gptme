@@ -926,7 +926,7 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-server-serve-allowed-hosts">
 <span class="sig-name descname"><span class="pre">--allowed-hosts</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;allowed_hosts&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-serve-allowed-hosts" title="Link to this definition">#</a></dt>
-<dd><p>Comma-separated hostnames to accept in the Host header, in addition to the built-in localhost/127.0.0.1/[::1] allow-list. Only relevant for unauthenticated loopback binds, where the server validates the Host header to block DNS-rebinding attacks. Set this if you proxy the local server behind a hostname (e.g. ‘gptme.local’). Can also be set via the GPTME_SERVER_ALLOWED_HOSTS environment variable.</p>
+<dd><p>Comma-separated hostnames to accept in the Host header, in addition to the built-in localhost/127.0.0.1/[::1] allow-list. Relevant when bearer auth is explicitly disabled with GPTME_DISABLE_AUTH. Can also be set via the GPTME_SERVER_ALLOWED_HOSTS environment variable.</p>
 </dd></dl>
 
 <dl class="std option">
