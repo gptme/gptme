@@ -398,9 +398,17 @@ export function ApiProvider({
       updates.baseUrl = tauriServerBaseUrl;
     }
     if (tauriServerStatus?.auth_token) {
-      updates.authToken = tauriServerStatus.auth_token;
-      updates.useAuthToken = true;
+      // Only inject the sidecar token when Tauri manages the server.  If an
+      // independently-running server was detected on the same port, its own
+      // credential is already configured and must not be overwritten.
+      const tokenAlreadySet =
+        activeServer.authToken === tauriServerStatus.auth_token && activeServer.useAuthToken;
+      if (!tokenAlreadySet && !tauriServerStatus.existing_server_detected) {
+        updates.authToken = tauriServerStatus.auth_token;
+        updates.useAuthToken = true;
+      }
     }
+    if (Object.keys(updates).length === 0) return;
     updateServer(activeServer.id, updates);
   }, [
     activeServer,
@@ -408,6 +416,7 @@ export function ApiProvider({
     needsTauriServerUrlSync,
     tauriServerBaseUrl,
     tauriServerStatus?.auth_token,
+    tauriServerStatus?.existing_server_detected,
   ]);
 
   const shouldSkipInitialMobileAutoConnect =

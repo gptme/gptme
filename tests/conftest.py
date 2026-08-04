@@ -494,14 +494,22 @@ def cleanup_tmux_sessions():
 
 
 @pytest.fixture
-def server_thread():
+def server_thread(monkeypatch):
     """Start a server in a thread for testing."""
     # Skip if flask not installed
     pytest.importorskip(
         "flask", reason="flask not installed, install server extras (-E server)"
     )
 
+    from gptme.server import auth as _auth_mod  # fmt: skip
     from gptme.server.app import create_app  # fmt: skip
+
+    # Set a known token so setup_conversation/event_listener can authenticate.
+    monkeypatch.setenv("GPTME_SERVER_TOKEN", "test-token-for-server-thread")
+    # Reset the cached token so get_server_token() picks up the env var above
+    # (it's a module-level singleton that persists between tests).
+    monkeypatch.setattr(_auth_mod, "_server_token", None)
+    monkeypatch.setattr(_auth_mod, "_auth_enabled", True)
 
     app = create_app()
 

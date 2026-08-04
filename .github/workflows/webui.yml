@@ -183,6 +183,7 @@ jobs:
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy-ci-key' }}
         MODEL: anthropic/claude-3-5-haiku-latest
+        GPTME_DISABLE_AUTH: "1"
       run: |
         gptme-server --cors-origin="http://127.0.0.1:5701,http://localhost:5701" &
         echo $! > /tmp/gptme-server.pid

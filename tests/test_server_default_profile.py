@@ -17,6 +17,16 @@ pytest.importorskip(
 from flask.testing import FlaskClient  # fmt: skip
 
 # ---------------------------------------------------------------------------
+# Auth disable (all tests in this module use raw create_app() helpers)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _disable_auth(monkeypatch):
+    monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

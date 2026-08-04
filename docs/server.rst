@@ -257,9 +257,10 @@ The template runs the server as a dedicated ``gptme`` user, reads secrets from
     sudo systemctl enable --now gptme-server
 
 Tail logs with ``journalctl -u gptme-server -f``. Because the unit binds
-``127.0.0.1``, pair it with the nginx reverse proxy above to expose it over TLS;
-on loopback the auth token is optional (set ``GPTME_SERVER_TOKEN`` in the env
-file if you change the bind to a public interface).
+``127.0.0.1``, pair it with the nginx reverse proxy above to expose it over TLS.
+Set ``GPTME_SERVER_TOKEN`` in the env file to a stable secret so clients have a
+persistent credential across restarts; if omitted the server auto-generates a
+random token and prints it at startup.
 
 Basic Web UI
 ------------
