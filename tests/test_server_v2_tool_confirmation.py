@@ -13,7 +13,12 @@ logger = logging.getLogger(__name__)
 
 @pytest.mark.timeout(60)
 def test_tool_confirmation_flow(
-    init_, setup_conversation, event_listener, mock_generation, wait_for_event
+    init_,
+    setup_conversation,
+    event_listener,
+    mock_generation,
+    wait_for_event,
+    auth_headers,
 ):
     """Test the tool confirmation flow."""
     port, conversation_id, session_id = setup_conversation
@@ -21,6 +26,7 @@ def test_tool_confirmation_flow(
     # Add a user message requesting a command
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers=auth_headers,
         json={"role": "user", "content": "List files in the current directory"},
     )
 
@@ -50,6 +56,7 @@ def test_tool_confirmation_flow(
         # Request a step
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+            headers=auth_headers,
             json={"session_id": session_id, "model": "openai/mock-model"},
         )
 
@@ -62,6 +69,7 @@ def test_tool_confirmation_flow(
         # Confirm the tool execution
         resp = requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/tool/confirm",
+            headers=auth_headers,
             json={"session_id": session_id, "tool_id": tool_id, "action": "confirm"},
         )
         assert resp.status_code == 200
@@ -80,6 +88,7 @@ def test_tool_confirmation_flow(
     # Verify conversation state
     resp = requests.get(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers=auth_headers,
     )
     assert resp.status_code == 200
 
@@ -125,7 +134,12 @@ def test_tool_confirmation_flow(
 
 @pytest.mark.timeout(60)
 def test_tool_confirmation_without_session_id(
-    init_, setup_conversation, event_listener, mock_generation, wait_for_event
+    init_,
+    setup_conversation,
+    event_listener,
+    mock_generation,
+    wait_for_event,
+    auth_headers,
 ):
     """Test that tool confirmation works without session_id (server finds tool across sessions)."""
     port, conversation_id, session_id = setup_conversation
@@ -133,6 +147,7 @@ def test_tool_confirmation_without_session_id(
     # Add a user message requesting a command
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers=auth_headers,
         json={"role": "user", "content": "Echo hello world"},
     )
 
@@ -161,6 +176,7 @@ def test_tool_confirmation_without_session_id(
         # Request a step
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+            headers=auth_headers,
             json={"session_id": session_id, "model": "openai/mock-model"},
         )
 
@@ -173,6 +189,7 @@ def test_tool_confirmation_without_session_id(
         # Confirm the tool WITHOUT session_id - server should find it
         resp = requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/tool/confirm",
+            headers=auth_headers,
             json={"tool_id": tool_id, "action": "confirm"},  # No session_id!
         )
         assert resp.status_code == 200, (
@@ -188,13 +205,16 @@ def test_tool_confirmation_without_session_id(
 
 
 @pytest.mark.timeout(10)
-def test_tool_confirmation_without_session_id_tool_not_found(init_, setup_conversation):
+def test_tool_confirmation_without_session_id_tool_not_found(
+    init_, setup_conversation, auth_headers
+):
     """Test that confirming a non-existent tool without session_id returns 404."""
     port, conversation_id, session_id = setup_conversation
 
     # Try to confirm a non-existent tool without session_id
     resp = requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/tool/confirm",
+        headers=auth_headers,
         json={"tool_id": "non-existent-tool-id", "action": "confirm"},  # No session_id
     )
     assert resp.status_code == 404
