@@ -101,7 +101,8 @@ def _minimal_png_bytes() -> bytes:
 
 
 @pytest.fixture()
-def client():
+def client(monkeypatch):
+    monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
     app = create_app(cors_origin=None)
     app.config["TESTING"] = True
     with app.test_client() as c:

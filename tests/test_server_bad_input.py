@@ -40,6 +40,7 @@ def _start_server():
 
     from gptme.server.app import create_app  # fmt: skip
 
+    os.environ["GPTME_DISABLE_AUTH"] = "true"
     app = create_app()
     app.config["TESTING"] = True
 
