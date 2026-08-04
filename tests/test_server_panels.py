@@ -592,8 +592,9 @@ class TestLiveAppPanels:
 
 
 @pytest.fixture()
-def app():
+def app(monkeypatch):
     pytest.importorskip("flask")
+    monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
     from gptme.server.app import create_app
 
     application = create_app()
