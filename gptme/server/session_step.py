@@ -891,8 +891,17 @@ def start_tool_execution(
     edited_tooluse: ToolUse | None,
     model: str,
     chat_config: ChatConfig,
+    *,
+    reserved: bool = False,
 ) -> threading.Thread:
-    """Execute a tool and handle its output."""
+    """Execute a tool and handle its output.
+
+    If ``reserved`` is True, the caller has already set ``session.generating``
+    inside the conversation lock.  The generation reservation is transferred to
+    ``_start_step_thread`` (via ``reserved=True``) when a continuation is
+    started; if the thread exits without starting a continuation, it clears the
+    reservation so subsequent requests are not permanently blocked.
+    """
 
     # This function would ideally run asynchronously to not block the request
     # For simplicity, we'll run it in a thread
@@ -931,6 +940,11 @@ def start_tool_execution(
                     f"Tool {current_tool_id} not found in pending tools "
                     "(may have been handled by another thread)"
                 )
+                # Release any pre-reserved generation slot so the conversation
+                # is not permanently blocked.
+                if reserved:
+                    session.generating = False
+                    session.generating_since = None
                 return  # another thread claimed this tool; don't trigger auto-step
             tool_exec.status = ToolStatus.EXECUTING
 
@@ -1022,7 +1036,19 @@ def start_tool_execution(
         # With multiple tools per message, we must wait until every tool
         # has run before asking the model for a continuation.
         if not session.pending_tools:
-            _start_step_thread(conversation_id, session, model, chat_config.workspace)
+            _start_step_thread(
+                conversation_id,
+                session,
+                model,
+                chat_config.workspace,
+                reserved=reserved,
+            )
+        elif reserved:
+            # Pending non-auto-confirm tools remain; those need explicit client
+            # confirmation.  Release the pre-reserved generation slot so the
+            # conversation is not permanently blocked.
+            session.generating = False
+            session.generating_since = None
 
     # Propagate ContextVars from the request context into the execution thread.
     ctx = contextvars.copy_context()

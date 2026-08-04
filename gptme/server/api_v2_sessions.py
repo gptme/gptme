@@ -885,7 +885,14 @@ def api_conversation_rerun(conversation_id: str):
 
         # Start execution for only the first auto-confirm tool.
         # execute_tool_thread will chain the remaining tools serially (same as step()).
+        # Pre-reserve generation inside the lock so no concurrent /step can slip
+        # in between the guard check above and the tool worker's own call to
+        # _start_step_thread.  The worker transfers the reservation to
+        # _start_step_thread (reserved=True) when it starts the continuation, or
+        # releases it itself if the continuation is not needed.
         if first_auto_id is not None:
+            session.generating = True
+            session.generating_since = datetime.now(tz=timezone.utc)
             start_tool_execution(
                 conversation_id,
                 session,
@@ -893,6 +900,7 @@ def api_conversation_rerun(conversation_id: str):
                 session.pending_tools[first_auto_id].tooluse,
                 model,
                 chat_config,
+                reserved=True,
             )
 
         return flask.jsonify(
