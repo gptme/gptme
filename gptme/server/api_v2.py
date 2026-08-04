@@ -580,8 +580,7 @@ def _get_user_config_file_response(content: str) -> dict[str, str | bool]:
     """Return raw config text with the same path metadata as user settings.
 
     Secret values (API keys etc.) are redacted with ``***`` before being
-    included in the response — even when the auth bypass is active for
-    local-only servers.
+    included in the response as defense in depth.
     """
     runtime_info = get_user_config_runtime_info()
     return {

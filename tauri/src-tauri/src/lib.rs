@@ -20,6 +20,7 @@ use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
 
 const GPTME_SERVER_PORT: u16 = 5700;
+const SERVER_TOKEN_ENV: &str = "GPTME_SERVER_TOKEN";
 
 /// Returns the port gptme-server should bind to.
 /// Override at run time with `GPTME_SERVER_PORT=<port>` for development or
@@ -29,6 +30,13 @@ fn server_port() -> u16 {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(GPTME_SERVER_PORT)
+}
+
+#[cfg(desktop)]
+fn generate_server_token() -> String {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).expect("OS randomness unavailable");
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 #[cfg(not(desktop))]
 const LOCAL_SERVER_UNSUPPORTED: &str =
@@ -129,6 +137,8 @@ struct ServerProcess {
     // (port occupied by an unresponsive foreign process).  Used in cleanup to
     // avoid killing a process that we never owned.
     owns_port: Arc<AtomicBool>,
+    // Bearer token shared only with the sidecar and the Tauri webview.
+    token: String,
     // Held at app setup so #[tauri::command] functions that need the handle
     // can fetch it from state instead of taking AppHandle as a command
     // parameter — the latter would break tests because AppHandle does not
@@ -143,6 +153,7 @@ struct ServerStatus {
     port_available: bool,
     manages_local_server: bool,
     existing_server_detected: bool,
+    auth_token: Option<String>,
 }
 
 #[cfg(desktop)]
@@ -164,6 +175,7 @@ async fn get_server_status(state: tauri::State<'_, ServerProcess>) -> Result<Ser
         port_available,
         manages_local_server: true,
         existing_server_detected,
+        auth_token: Some(state.token.clone()),
     })
 }
 
@@ -176,6 +188,7 @@ fn get_server_status() -> ServerStatus {
         port_available: false,
         manages_local_server: false,
         existing_server_detected: false,
+        auth_token: None,
     }
 }
 
@@ -227,7 +240,13 @@ async fn start_server(state: tauri::State<'_, ServerProcess>) -> Result<u16, Str
         .map_err(|e| format!("Lock error: {}", e))?
         .clone()
         .ok_or_else(|| "ServerProcess.app_handle not set".to_string())?;
-    spawn_server_sidecar(&app, state.child.clone(), state.owns_port.clone()).await?;
+    spawn_server_sidecar(
+        &app,
+        state.child.clone(),
+        state.owns_port.clone(),
+        &state.token,
+    )
+    .await?;
     Ok(server_port())
 }
 
@@ -258,6 +277,7 @@ async fn spawn_server_sidecar(
     app: &tauri::AppHandle,
     state_arc: Arc<Mutex<Option<CommandChild>>>,
     owns_port: Arc<AtomicBool>,
+    token: &str,
 ) -> Result<(), String> {
     if !is_port_available(server_port()) {
         // Port is occupied — probe whether we can actually use the server there.
@@ -330,7 +350,8 @@ async fn spawn_server_sidecar(
             port_str.as_str(),
             "--watch-pid",
             tauri_pid.as_str(),
-        ]);
+        ])
+        .env(SERVER_TOKEN_ENV, token);
 
     let (mut rx, child) = sidecar_command
         .spawn()
@@ -612,16 +633,18 @@ pub fn run() {
             {
                 let child_handle: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(None));
                 let owns_port: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+                let token = generate_server_token();
                 app.manage(ServerProcess {
                     child: child_handle.clone(),
                     owns_port: owns_port.clone(),
+                    token: token.clone(),
                     app_handle: Arc::new(Mutex::new(Some(app.handle().clone()))),
                 });
 
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(err) =
-                        spawn_server_sidecar(&app_handle, child_handle, owns_port).await
+                        spawn_server_sidecar(&app_handle, child_handle, owns_port, &token).await
                     {
                         log::error!("Failed to start gptme-server: {}", err);
                         if err.contains("already in use") {
@@ -881,6 +904,7 @@ mod tests {
             .manage(ServerProcess {
                 child: Arc::new(Mutex::new(None)),
                 owns_port: Arc::new(AtomicBool::new(false)),
+                token: "test-tauri-server-token".to_string(),
                 // app_handle left as None: no test calls start_server
                 // in a way that reads it (all tests seed first, causing
                 // start_server to return early).  A future test that
@@ -1104,6 +1128,7 @@ mod tests {
             port_available: true,
             manages_local_server: true,
             existing_server_detected: false,
+            auth_token: Some("test-token".to_string()),
         };
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("\"running\":false"));
@@ -1111,6 +1136,7 @@ mod tests {
         assert!(json.contains("\"port_available\":true"));
         assert!(json.contains("\"manages_local_server\":true"));
         assert!(json.contains("\"existing_server_detected\":false"));
+        assert!(json.contains("\"auth_token\":\"test-token\""));
     }
 
     #[test]

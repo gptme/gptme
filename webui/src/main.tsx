@@ -4,6 +4,7 @@ import App from './App.tsx';
 import './index.css';
 import { isDemoMode } from './utils/connectionConfig';
 import { setupLogging } from './utils/logging';
+import { isTauriEnvironment } from './utils/tauri';
 
 // Initialize logging as early as possible
 setupLogging()
@@ -19,7 +20,7 @@ setupLogging()
 // See: gptme/gptme#2236
 (function probeLocalhost() {
   // Only probe in Tauri desktop app; skip in regular browsers
-  if (typeof window === 'undefined' || !window.__TAURI__ || isDemoMode()) {
+  if (typeof window === 'undefined' || !isTauriEnvironment() || isDemoMode()) {
     return;
   }
 

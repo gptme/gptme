@@ -1,10 +1,7 @@
-"""Tests for Host-header validation (DNS-rebinding hardening) in gptme-server.
+"""Tests for optional Host-header validation in gptme-server.
 
-gptme-server disables bearer auth for loopback binds. CORS preflight blocks
-plain cross-origin JSON, but DNS rebinding defeats CORS: a malicious page whose
-hostname re-resolves to 127.0.0.1 becomes same-origin with the local server and
-gains full unauthenticated API access (which includes shell execution via the
-agent). Validating the Host header blocks that vector.
+Bearer auth now protects every bind address. Host validation remains available
+for operators that explicitly disable auth and supply ``--allowed-hosts``.
 
 See issue #3320.
 """
@@ -38,7 +35,11 @@ def _get(client: FlaskClient, host_header: str):
 
 
 class TestLoopbackAllowed:
-    """Loopback binds enforce validation but allow the standard local hosts."""
+    """Explicitly unauthenticated loopback binds allow standard local hosts."""
+
+    @pytest.fixture(autouse=True)
+    def _disable_auth(self, monkeypatch):
+        monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
 
     def test_localhost_with_port_allowed(self):
         resp = _get(_client(), "localhost:5700")
@@ -68,10 +69,14 @@ class TestLoopbackAllowed:
 
 
 class TestRebindingRejected:
-    """A Host that isn't on the allow-list is rejected with a clear 403."""
+    """A Host outside an explicit allow-list is rejected with a clear 403."""
+
+    @pytest.fixture(autouse=True)
+    def _disable_auth(self, monkeypatch):
+        monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
 
     def test_evil_host_rejected(self):
-        resp = _get(_client(), "attacker.example.com")
+        resp = _get(_client(allowed_hosts=["localhost"]), "attacker.example.com")
         assert resp.status_code == 403
         error = resp.get_json()["error"]
         # Error must name the offending host and how to allow it.
@@ -79,12 +84,16 @@ class TestRebindingRejected:
         assert "--allowed-hosts" in error
 
     def test_evil_host_with_port_rejected(self):
-        resp = _get(_client(), "attacker.example.com:5700")
+        resp = _get(_client(allowed_hosts=["localhost"]), "attacker.example.com:5700")
         assert resp.status_code == 403
 
 
 class TestAllowedHostsExtension:
     """--allowed-hosts / allowed_hosts extends the allow-list for proxied setups."""
+
+    @pytest.fixture(autouse=True)
+    def _disable_auth(self, monkeypatch):
+        monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
 
     def test_configured_host_allowed(self):
         client = _client(allowed_hosts=["gptme.local"])
@@ -111,9 +120,8 @@ class TestAllowedHostsExtension:
 class TestConfiguredBindHost:
     """A concrete (non-wildcard) bind host is added to the allow-list."""
 
-    def test_bind_host_allowed(self):
-        # Binding to a concrete host enables auth (non-loopback), so validation
-        # is skipped there; but a loopback bind with a custom host stays enforced.
+    def test_bind_host_allowed(self, monkeypatch):
+        monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
         client = _client(host="127.0.0.1", allowed_hosts=["myhost.internal"])
         assert _get(client, "myhost.internal").status_code == 200
 

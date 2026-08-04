@@ -185,11 +185,9 @@ def main():
     envvar="GPTME_SERVER_ALLOWED_HOSTS",
     help=(
         "Comma-separated hostnames to accept in the Host header, in addition "
-        "to the built-in localhost/127.0.0.1/[::1] allow-list. Only relevant "
-        "for unauthenticated loopback binds, where the server validates the "
-        "Host header to block DNS-rebinding attacks. Set this if you proxy the "
-        "local server behind a hostname (e.g. 'gptme.local'). Can also be set "
-        "via the GPTME_SERVER_ALLOWED_HOSTS environment variable."
+        "to the built-in localhost/127.0.0.1/[::1] allow-list. Relevant when "
+        "bearer auth is explicitly disabled with GPTME_DISABLE_AUTH. Can also "
+        "be set via the GPTME_SERVER_ALLOWED_HOSTS environment variable."
     ),
 )
 @click.option(

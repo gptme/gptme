@@ -8,6 +8,7 @@ interface TauriServerStatus {
   port_available: boolean;
   manages_local_server: boolean;
   existing_server_detected: boolean;
+  auth_token: string | null;
 }
 
 let cachedServerStatus: TauriServerStatus | null = null;
@@ -69,6 +70,7 @@ export function useTauriServerStatus() {
           port_available: false,
           manages_local_server: false,
           existing_server_detected: false,
+          auth_token: null,
         });
       })
       .finally(() => {

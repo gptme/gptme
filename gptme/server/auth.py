@@ -1,8 +1,8 @@
 """
 Authentication middleware for gptme-server.
 
-Provides bearer token authentication for API access.
-Authentication is only required when binding to network interfaces.
+Provides bearer token authentication for API access. Authentication is required
+for every bind address unless explicitly disabled with ``GPTME_DISABLE_AUTH``.
 
 Supports three authentication methods (checked in order):
 1. Authorization header (preferred for normal API calls)
@@ -23,15 +23,12 @@ logger = logging.getLogger(__name__)
 # Token storage (in-memory, generated on startup)
 _server_token: str | None = None
 
-# Auth state (disabled for local-only binding)
+# Auth state (enabled by default for every bind address)
 _auth_enabled: bool = True
 
-# Host-header validation state (DNS-rebinding hardening).
-# Only enforced when auth is disabled for a loopback bind: a malicious page
-# whose hostname re-resolves to 127.0.0.1 becomes same-origin with the local
-# server and bypasses CORS entirely, gaining full unauthenticated API access
-# (which includes shell execution via the agent). Validating the Host header
-# blocks that vector without affecting legitimate localhost/127.0.0.1 clients.
+# Host-header validation state. This is normally redundant with bearer auth, but
+# remains available when an operator explicitly disables auth and supplies an
+# allow-list.
 _host_validation_enabled: bool = False
 _allowed_hosts: set[str] = set()
 
@@ -53,18 +50,6 @@ def generate_token() -> str:
         A URL-safe random string of 32+ characters.
     """
     return secrets.token_urlsafe(32)
-
-
-def is_local_host(host: str) -> bool:
-    """Check if host is a local-only address.
-
-    Args:
-        host: The host address to check.
-
-    Returns:
-        True if host is localhost or 127.0.0.1, False otherwise.
-    """
-    return host in ("127.0.0.1", "localhost", "::1")
 
 
 def _extract_hostname(host_header: str) -> str:
@@ -113,16 +98,10 @@ def init_host_validation(
 
     Must be called after :func:`init_auth` (it reads ``_auth_enabled``).
 
-    Validation is only enabled when auth is disabled for a loopback bind — the
-    one case where a DNS-rebinding page can reach the API without credentials.
-    It is skipped when:
-
-    - Auth is enabled (network bind): the bearer token already gates access.
-    - ``GPTME_DISABLE_AUTH`` is explicitly set and no ``--allowed-hosts`` was
-      given: the operator owns security here (e.g. gptme-cloud pods bind
-      ``0.0.0.0`` behind an authenticated ingress). We must not break those
-      setups. If the operator *does* pass ``--allowed-hosts``, we honor it and
-      enforce the check against the given hosts.
+    Validation is skipped while bearer auth is enabled. When
+    ``GPTME_DISABLE_AUTH`` is explicitly set, the operator owns security (for
+    example, gptme-cloud pods bind ``0.0.0.0`` behind an authenticated ingress),
+    so validation remains disabled unless ``--allowed-hosts`` is also supplied.
 
     Args:
         host: The host the server is binding to. A concrete (non-wildcard)
@@ -152,7 +131,6 @@ def init_host_validation(
         _allowed_hosts = set()
         return
 
-    # Auth disabled for a loopback bind (the DNS-rebinding vector), or
     # GPTME_DISABLE_AUTH with an explicit allow-list. Enforce Host validation.
     allowed = set(_DEFAULT_ALLOWED_HOSTS)
     if host and host not in ("0.0.0.0", "::"):
@@ -243,9 +221,8 @@ def set_server_token(token: str) -> None:
 def require_auth(f):
     """Decorator to require bearer token authentication.
 
-    Authentication is only required when binding to network interfaces.
-    When binding to localhost (127.0.0.1), authentication is disabled
-    for seamless local development.
+    Authentication is required for every bind address unless explicitly
+    disabled with ``GPTME_DISABLE_AUTH``.
 
     Checks authentication in order of preference:
     1. Authorization header (most secure, use for normal API calls)
@@ -256,17 +233,15 @@ def require_auth(f):
         Decorated function that validates bearer token before execution.
 
     Raises:
-        401 Unauthorized: Missing or invalid authentication credentials
-            (only when auth is enabled for network binding).
+        401 Unauthorized: Missing or invalid authentication credentials.
     """
 
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # Skip authentication for local-only binding
+        # Skip authentication only after an explicit operator override.
         if not _auth_enabled:
             return f(*args, **kwargs)
 
-        # Authentication is required for network binding
         server_token = get_server_token()
         if not server_token:
             logger.error("Server token not available but auth is enabled")
@@ -321,8 +296,7 @@ def init_auth(host: str = "127.0.0.1", display: bool = True) -> str | None:
         display: Whether to display the token in logs (default: True).
 
     Returns:
-        The server token (only generated when binding to network,
-        None for local-only binding).
+        The server token, or ``None`` when auth is explicitly disabled.
     """
     global _auth_enabled
 
@@ -343,22 +317,8 @@ def init_auth(host: str = "127.0.0.1", display: bool = True) -> str | None:
             logger.info("=" * 60)
         return None
 
-    # Disable auth for local-only binding
-    if is_local_host(host):
-        _auth_enabled = False
-        if display:
-            logger.info("=" * 60)
-            logger.info("gptme-server (Local Mode)")
-            logger.info("=" * 60)
-            logger.info(f"Binding to: {host} (local-only)")
-            logger.info("Authentication: DISABLED")
-            logger.info("")
-            logger.info("This is safe for local development.")
-            logger.info("For network access, use --host 0.0.0.0 (enables auth)")
-            logger.info("=" * 60)
-        return None
-
-    # Enable auth for network binding
+    # Require authentication for every bind address, including loopback. A local
+    # process is not inherently trusted and must prove possession of the token.
     _auth_enabled = True
     token = get_server_token()
 

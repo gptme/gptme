@@ -1,7 +1,7 @@
 """Comprehensive tests for LLM authentication helpers.
 
 Covers pure-function auth logic that doesn't require API calls:
-- Server auth helpers (is_local_host, generate_token, get_server_token, init_auth)
+- Server auth helpers (generate_token, get_server_token, init_auth)
 - Server auth middleware edge cases (invalid scheme, cookie auth, query param)
 - OpenAI subscription auth (PKCE, JWT decode, token I/O, port check)
 - gptme provider edge cases (near-expiry boundary, malformed JSON, URL normalization)
@@ -23,45 +23,6 @@ import pytest
 pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
-
-
-class TestIsLocalHost:
-    """Tests for is_local_host() hostname detection."""
-
-    def test_localhost(self):
-        from gptme.server.auth import is_local_host
-
-        assert is_local_host("localhost") is True
-
-    def test_ipv4_loopback(self):
-        from gptme.server.auth import is_local_host
-
-        assert is_local_host("127.0.0.1") is True
-
-    def test_ipv6_loopback(self):
-        from gptme.server.auth import is_local_host
-
-        assert is_local_host("::1") is True
-
-    def test_all_interfaces(self):
-        from gptme.server.auth import is_local_host
-
-        assert is_local_host("0.0.0.0") is False
-
-    def test_external_host(self):
-        from gptme.server.auth import is_local_host
-
-        assert is_local_host("192.168.1.1") is False
-
-    def test_hostname(self):
-        from gptme.server.auth import is_local_host
-
-        assert is_local_host("myserver.example.com") is False
-
-    def test_empty_string(self):
-        from gptme.server.auth import is_local_host
-
-        assert is_local_host("") is False
 
 
 class TestGenerateToken:
@@ -143,17 +104,21 @@ class TestGetServerToken:
 class TestInitAuth:
     """Tests for init_auth() state management."""
 
-    def test_local_host_disables_auth(self):
+    def test_local_host_enables_auth(self):
         import gptme.server.auth
 
-        original = gptme.server.auth._auth_enabled
+        original_enabled = gptme.server.auth._auth_enabled
+        original_token = gptme.server.auth._server_token
         try:
-            gptme.server.auth._auth_enabled = True
-            result = gptme.server.auth.init_auth("127.0.0.1", display=False)
-            assert gptme.server.auth._auth_enabled is False
-            assert result is None
+            gptme.server.auth._auth_enabled = False
+            gptme.server.auth._server_token = None
+            with patch.dict(os.environ, {"GPTME_SERVER_TOKEN": "local-token"}):
+                result = gptme.server.auth.init_auth("127.0.0.1", display=False)
+                assert gptme.server.auth._auth_enabled is True
+                assert result == "local-token"
         finally:
-            gptme.server.auth._auth_enabled = original
+            gptme.server.auth._auth_enabled = original_enabled
+            gptme.server.auth._server_token = original_token
 
     def test_network_host_enables_auth(self):
         import gptme.server.auth

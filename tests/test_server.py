@@ -788,12 +788,14 @@ def test_debug_errors_enabled(monkeypatch):
         )
 
 
-def test_default_model_propagation():
+def test_default_model_propagation(monkeypatch):
     """Test that the server's default model is propagated to request contexts.
 
     This tests the before_request hook that propagates the default model
     from the startup context to each request context (ContextVar fix).
     """
+    monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
+
     # Set a default model before creating the app (simulates server startup with --model)
     # Use a mock model object that matches what get_default_model returns
     from gptme.llm.models import ModelMeta, set_default_model
@@ -1150,7 +1152,7 @@ def test_api_v2_conversation_post_tools_validation(conv, client: FlaskClient):
 
 @pytest.fixture
 def auth_app():
-    """Create an app with auth enabled (network binding)."""
+    """Create an app with bearer auth enabled."""
     from gptme.server.app import create_app
     from gptme.server.auth import (
         AUTH_COOKIE_NAME,

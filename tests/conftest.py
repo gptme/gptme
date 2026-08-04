@@ -531,12 +531,15 @@ def server_thread():
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     from gptme.server.app import create_app  # fmt: skip
+
+    # Disable auth for the generic test client so existing tests don't need tokens.
+    # Auth-specific coverage lives in test_server_auth.py.
+    monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
 
     app = create_app()
 
-    # Create a test client without authentication by default
     with app.test_client() as test_client:
         yield test_client
 

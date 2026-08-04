@@ -26,7 +26,7 @@ def auth_token():
     os.environ["GPTME_SERVER_TOKEN"] = token
     gptme.server.auth._server_token = None  # Force regeneration
 
-    # Enable auth for tests (simulate network binding)
+    # Enable auth for tests.
     gptme.server.auth.init_auth("0.0.0.0")
 
     yield token
@@ -116,7 +116,7 @@ def test_auth_disabled_via_env():
         # Set environment variable to disable auth
         os.environ["GPTME_DISABLE_AUTH"] = "true"
 
-        # Re-initialize auth with network binding (would normally enable auth)
+        # Re-initialize auth with an explicit disable override.
         gptme.server.auth._auth_enabled = True  # Reset state
         gptme.server.auth.init_auth("0.0.0.0", display=False)
 

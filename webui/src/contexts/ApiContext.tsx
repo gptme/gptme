@@ -389,9 +389,24 @@ export function ApiProvider({
   );
 
   useEffect(() => {
-    if (!needsTauriServerUrlSync || !activeServer || !tauriServerBaseUrl) return;
-    updateServer(activeServer.id, { baseUrl: tauriServerBaseUrl });
-  }, [activeServer, needsTauriServerUrlSync, tauriServerBaseUrl]);
+    if (!activeServer || !tauriServerBaseUrl || !tauriServerStatus?.auth_token) return;
+    if (!isDefaultLoopbackTarget(connectionConfig.baseUrl)) return;
+
+    const updates: Partial<ServerConfig> = {
+      authToken: tauriServerStatus.auth_token,
+      useAuthToken: true,
+    };
+    if (needsTauriServerUrlSync) {
+      updates.baseUrl = tauriServerBaseUrl;
+    }
+    updateServer(activeServer.id, updates);
+  }, [
+    activeServer,
+    connectionConfig.baseUrl,
+    needsTauriServerUrlSync,
+    tauriServerBaseUrl,
+    tauriServerStatus?.auth_token,
+  ]);
 
   const shouldSkipInitialMobileAutoConnect =
     isTauri && managesLocalServer === false && isDefaultLoopbackTarget(connectionConfig.baseUrl);

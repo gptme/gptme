@@ -72,18 +72,11 @@ When Vite runs separately on port 5701, allow that development origin:
 
 .. note::
 
-    **Host-header validation (DNS-rebinding protection).**
-    On loopback binds the server runs without an auth token, so it validates
-    the request ``Host`` header to block DNS-rebinding attacks (a malicious page
-    whose hostname re-resolves to ``127.0.0.1`` would otherwise become
-    same-origin with your local server and gain full unauthenticated API
-    access, including shell execution via the agent). ``localhost``,
-    ``127.0.0.1`` and ``[::1]`` (any port) are always allowed. If you proxy the
-    local server behind a hostname, allow it with
-    ``gptme-server serve --allowed-hosts gptme.local`` (comma-separated, or via
-    ``GPTME_SERVER_ALLOWED_HOSTS``). Validation is skipped when auth is enabled
-    (network binds) or explicitly disabled with ``GPTME_DISABLE_AUTH`` — those
-    operators own their own access control (e.g. an authenticated ingress).
+    **Host-header validation.** Bearer authentication is enabled for loopback
+    and network binds alike. If an operator explicitly disables authentication
+    with ``GPTME_DISABLE_AUTH``, they can still opt into Host-header validation
+    with ``gptme-server serve --allowed-hosts gptme.local`` (comma-separated,
+    or via ``GPTME_SERVER_ALLOWED_HOSTS``).
 
 Self-Hosting with Docker Compose
 --------------------------------
@@ -364,30 +357,22 @@ This section describes the security model of gptme-server and the threat vectors
 Authentication Model
 ~~~~~~~~~~~~~~~~~~~~
 
-gptme-server uses a tiered authentication model based on the bind address:
+gptme-server requires bearer authentication for capability-bearing API routes
+regardless of bind address. Loopback is a transport boundary, not an identity
+boundary: another local process must not gain shell and config access merely by
+reaching ``127.0.0.1``. A small set of public routes remain unauthenticated: the
+API root (``/api/v2``), version info (``/api/v2/version``), config metadata
+(``/api/v2/config``), Prometheus metrics (``/api/v0/metrics``), and the API
+documentation at ``/api/docs/``. Set ``GPTME_SERVER_TOKEN`` to a fixed value;
+if unset the server generates one and prints it at startup.
 
-- **Loopback bind** (``127.0.0.1`` / ``localhost`` / ``::1``, the default):
-  Bearer auth is **disabled** — a random token is generated on startup but
-  the server does not require it for API access. The assumption is that any
-  process on the same machine is the legitimate user.
-
-- **Network bind** (``0.0.0.0`` or an external IP): Bearer auth is
-  **enabled** and required for capability-bearing API requests (conversation
-  endpoints, tool execution, config writes). A small set of public routes
-  remain unauthenticated: the API root (``/api/v2``), version info
-  (``/api/v2/version``), config metadata (``/api/v2/config``), Prometheus
-  metrics (``/api/v0/metrics``), and the API documentation at
-  ``/api/docs/``. Set ``GPTME_SERVER_TOKEN``
-  to a fixed value; if unset the server generates one and prints it at
-  startup.
-
-- ``GPTME_DISABLE_AUTH`` overrides both: disables bearer checks entirely
+- ``GPTME_DISABLE_AUTH`` disables bearer checks entirely
   regardless of bind address. Use only behind an authenticated ingress.
 
 .. warning::
 
    An authorized API client (anyone who can reach the server with a valid
-   token, or the local user on a loopback bind) can execute arbitrary shell
+   token) can execute arbitrary shell
    commands through the agent. There is no additional sandboxing at the
    API layer. The security boundary is **access to the server**, not any
    individual endpoint.
@@ -397,8 +382,8 @@ gptme-server uses a tiered authentication model based on the bind address:
 Threat Model
 ~~~~~~~~~~~~
 
-The server is hardened against two classes of browser-originating attack that
-apply to the default unauthenticated loopback setup:
+The server is hardened against browser-originating attacks that apply to local
+server access:
 
 **1. Cross-Site Request Forgery (CSRF)**
 
@@ -411,13 +396,11 @@ server rejects them as malformed.
 
 **2. DNS Rebinding**
 
-A malicious site can re-resolve its hostname to ``127.0.0.1`` after the
-page loads. That makes the browser consider it *same-origin* with the local
-server, bypassing CORS entirely. The direct mitigation is **Host-header
-validation** (see the note in the :ref:`gptme-webui <server:gptme-webui>`
-section): the server rejects requests whose ``Host`` does not match
-``localhost``, ``127.0.0.1``, ``::1``, the configured bind address, or any
-explicitly allowed hostname (``--allowed-hosts``).
+A malicious site can re-resolve its hostname to ``127.0.0.1`` after the page
+loads and thereby bypass CORS. Bearer authentication still blocks access to
+capability-bearing routes because the page does not possess the token. If an
+operator explicitly disables bearer auth, ``--allowed-hosts`` can add
+Host-header validation as defense in depth.
 
 **What is NOT in scope:**
 
