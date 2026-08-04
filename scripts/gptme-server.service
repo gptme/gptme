@@ -24,8 +24,10 @@
 #
 # The server binds to loopback (127.0.0.1) by design: terminate TLS and expose
 # it with a reverse proxy (see the "Production Deployment" section of
-# docs/server.rst). On loopback, gptme-server does not require an auth token;
-# set GPTME_SERVER_TOKEN in the EnvironmentFile if you bind a public interface.
+# docs/server.rst). gptme-server requires bearer authentication on every bind
+# address. Set GPTME_SERVER_TOKEN to a stable secret in the EnvironmentFile so
+# clients keep a persistent credential across restarts — omitting it generates
+# a new random token at each startup, which invalidates existing client configs.
 #
 # Inspect logs with:  journalctl -u gptme-server -f
 
@@ -40,9 +42,11 @@ Type=simple
 User=gptme
 Group=gptme
 
-# Provider keys (OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY) and an
-# optional GPTME_SERVER_TOKEN live here, one KEY=value per line. Keep it 0640
-# and owned by the service user so secrets are not world-readable.
+# Provider keys (OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY) and
+# GPTME_SERVER_TOKEN live here, one KEY=value per line. Set GPTME_SERVER_TOKEN
+# to a stable secret; omitting it generates a fresh random token at each startup
+# which breaks any client already configured with the previous token. Keep the
+# file 0640 and owned by the service user so secrets are not world-readable.
 EnvironmentFile=-/etc/gptme/server.env
 
 # Adjust the path to wherever pipx installed the entrypoint for User= above.

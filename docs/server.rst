@@ -245,7 +245,7 @@ The template runs the server as a dedicated ``gptme`` user, reads secrets from
                            /home/gptme/.local/share/gptme \
                            /home/gptme/.local/state/gptme
 
-    # Secrets file (provider keys, optional GPTME_SERVER_TOKEN), not world-readable
+    # Secrets file (provider keys + GPTME_SERVER_TOKEN), not world-readable
     sudo install -d -m 750 -o gptme -g gptme /etc/gptme
     sudo install -m 640 -o gptme -g gptme /dev/null /etc/gptme/server.env
     sudoedit /etc/gptme/server.env   # add ANTHROPIC_API_KEY=... etc.
@@ -259,8 +259,9 @@ The template runs the server as a dedicated ``gptme`` user, reads secrets from
 Tail logs with ``journalctl -u gptme-server -f``. Because the unit binds
 ``127.0.0.1``, pair it with the nginx reverse proxy above to expose it over TLS.
 Set ``GPTME_SERVER_TOKEN`` in the env file to a stable secret so clients have a
-persistent credential across restarts; if omitted the server auto-generates a
-random token and prints it at startup.
+persistent credential across restarts. This is **required for persistent
+deployments**: if omitted the server generates a new random token at each startup,
+invalidating any client already configured with the previous token.
 
 Basic Web UI
 ------------
