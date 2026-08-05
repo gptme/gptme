@@ -6,6 +6,7 @@ Covers:
 - step() attaches timing to the assistant message before yielding it.
 """
 
+import importlib
 import json
 from unittest.mock import patch
 
@@ -142,7 +143,13 @@ def test_step_attaches_timings_to_assistant_message():
     mock_meta: MessageMetadata = {"model": "mock/model", "timings": mock_timings}
     mock_response = Message("assistant", "Hello!", metadata=mock_meta)
 
-    with patch("gptme.chat.reply", return_value=mock_response):
+    # Use patch.object on the module object (via importlib) rather than the
+    # string form patch("gptme.chat.reply"): gptme/__init__.py lazily exports
+    # the `chat` *function* as the `gptme.chat` package attribute, which can
+    # shadow the `gptme.chat` submodule and break string-path attribute
+    # lookup depending on test collection order.
+    chat_module = importlib.import_module("gptme.chat")
+    with patch.object(chat_module, "reply", return_value=mock_response):
         yielded = list(step(messages, stream=False))
 
     # The first yielded message should be the assistant response
@@ -176,7 +183,8 @@ def test_step_attaches_tool_timings():
         "assistant", "```shell\necho timing-test\n```", metadata=mock_meta
     )
 
-    with patch("gptme.chat.reply", return_value=mock_response):
+    chat_module = importlib.import_module("gptme.chat")
+    with patch.object(chat_module, "reply", return_value=mock_response):
         yielded = list(step(messages, stream=False))
 
     assistant_msgs = [m for m in yielded if m.role == "assistant"]
