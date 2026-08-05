@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Bot, ExternalLink, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { extractAgentsFromConversations, type Agent } from '@/utils/workspaceUtils';
@@ -22,7 +23,7 @@ export const AgentsList: FC<AgentsListProps> = ({
 }) => {
   const { connectionConfig } = useApi();
   const baseUrl = connectionConfig.baseUrl.replace(/\/+$/, '');
-  const agents = extractAgentsFromConversations(conversations);
+  const agents = useMemo(() => extractAgentsFromConversations(conversations), [conversations]);
   const selectedAgent = use$(selectedAgent$);
 
   const handleSelectAgent = (agent: Agent) => {

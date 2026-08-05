@@ -43,12 +43,6 @@ export function useWorkspaces(enabled = true): {
   const workspaces = useMemo(() => {
     const conversationSummaries = infiniteData?.pages?.flatMap((page) => page.conversations) || [];
 
-    console.log(
-      '[useWorkspaces] Extracted workspaces from cache:',
-      conversationSummaries.length,
-      'conversations'
-    );
-
     const conversationWorkspaces = extractWorkspacesFromConversations(conversationSummaries);
 
     // Combine custom workspaces with conversation workspaces, removing duplicates

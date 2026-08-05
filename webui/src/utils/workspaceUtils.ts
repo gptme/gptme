@@ -33,8 +33,6 @@ export function extractWorkspacesFromConversations(
 ): WorkspaceProject[] {
   const workspaceMap = new Map<string, WorkspaceProject>();
 
-  console.log('[workspaceUtils] Processing conversations:', conversations.length);
-
   // Extract workspace information from conversation summaries
   for (const conversation of conversations) {
     // Skip demo conversations (readonly)
@@ -65,7 +63,6 @@ export function extractWorkspacesFromConversations(
     (a, b) => new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
   );
 
-  console.log('[workspaceUtils] Extracted workspaces:', result);
   return result;
 }
 
@@ -97,8 +94,6 @@ export function formatPath(path: string): string {
 // Extract unique agents from conversation summaries
 export function extractAgentsFromConversations(conversations: ConversationSummary[]): Agent[] {
   const agentMap = new Map<string, Agent>();
-
-  console.log('[workspaceUtils] Processing conversations for agents:', conversations.length);
 
   // Extract agent information from conversation summaries
   for (const conversation of conversations) {
@@ -140,6 +135,5 @@ export function extractAgentsFromConversations(conversations: ConversationSummar
     (a, b) => new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
   );
 
-  console.log('[workspaceUtils] Extracted agents:', result);
   return result;
 }

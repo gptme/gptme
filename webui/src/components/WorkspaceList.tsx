@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Folder, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,7 +17,10 @@ interface WorkspaceListProps {
 }
 
 export const WorkspaceList: FC<WorkspaceListProps> = ({ conversations }) => {
-  const workspaces = extractWorkspacesFromConversations(conversations);
+  const workspaces = useMemo(
+    () => extractWorkspacesFromConversations(conversations),
+    [conversations]
+  );
   const selectedWorkspace = use$(selectedWorkspace$);
 
   const handleSelectWorkspace = (workspace: WorkspaceProject) => {
