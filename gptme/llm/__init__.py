@@ -969,6 +969,19 @@ def _reply_stream(
             # Emit as one chunk; ACP batching callback handles downstream chunking.
             # Display/ACP only — not a chunk hook event (don't speak the suffix).
             on_token(suffix)
+        # Attach partial LLM timings to stream.metadata *before* constructing
+        # the Message — the finally block runs after this return but too late
+        # to affect a Message that has already been built from stream.metadata.
+        if first_token_time:
+            _end = time.time()
+            _gen = max(_end - first_token_time, 0.001)
+            _timings: MessageTimings = {
+                "ttft_ms": round((first_token_time - start_time) * 1000, 1),
+                "gen_ms": round(_gen * 1000, 1),
+            }
+            _meta = dict(stream.metadata) if stream.metadata else {}
+            _meta["timings"] = _timings
+            stream.metadata = cast(MessageMetadata, _meta)
         return Message("assistant", output + suffix, metadata=stream.metadata)
     finally:
         # Explicitly close the underlying generator to release resources
@@ -989,13 +1002,16 @@ def _reply_stream(
             # Attach timing breakdown to message metadata so it is persisted in
             # conversation.jsonl and available for bottleneck analysis.
             # Reuse end_time / gen_time already computed above for the debug log.
-            timings: MessageTimings = {
-                "ttft_ms": round((first_token_time - start_time) * 1000, 1),
-                "gen_ms": round(gen_time * 1000, 1),
-            }
-            meta = dict(stream.metadata) if stream.metadata else {}
-            meta["timings"] = timings
-            stream.metadata = cast(MessageMetadata, meta)
+            # Skip if already set by the KeyboardInterrupt handler above.
+            _existing_meta = dict(stream.metadata) if stream.metadata else {}
+            if "timings" not in _existing_meta:
+                timings: MessageTimings = {
+                    "ttft_ms": round((first_token_time - start_time) * 1000, 1),
+                    "gen_ms": round(gen_time * 1000, 1),
+                }
+                meta = dict(stream.metadata) if stream.metadata else {}
+                meta["timings"] = timings
+                stream.metadata = cast(MessageMetadata, meta)
 
     return Message("assistant", output, metadata=stream.metadata)
 

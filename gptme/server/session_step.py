@@ -251,10 +251,17 @@ def _attach_tool_timings(
                 MessageTimings,
                 dict(_raw_timings) if isinstance(_raw_timings, dict) else {},
             )
-            existing_timings["tool_ms"] = round(sum(tool_ms_by_name.values()), 1)
-            existing_timings["tool_ms_by_name"] = {
-                k: round(v, 1) for k, v in tool_ms_by_name.items()
+            # Merge with any tool timings already recorded by prior confirmation
+            # threads — each thread only has its own local measurements, so we
+            # must accumulate rather than replace to avoid losing earlier tools.
+            prior = {
+                k: round(v, 1)
+                for k, v in (existing_timings.get("tool_ms_by_name") or {}).items()
             }
+            for k, v in tool_ms_by_name.items():
+                prior[k] = round(prior.get(k, 0.0) + v, 1)
+            existing_timings["tool_ms"] = round(sum(prior.values()), 1)
+            existing_timings["tool_ms_by_name"] = prior
             existing_meta["timings"] = existing_timings
             updated_msg = msg.replace(metadata=cast(MessageMetadata, existing_meta))
             manager.log.messages[i] = updated_msg
