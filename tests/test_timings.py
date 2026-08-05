@@ -11,7 +11,20 @@ import json
 import threading
 from unittest.mock import patch
 
+import pytest
+
 from gptme.message import Message, MessageMetadata, MessageTimings
+
+
+def _has_flask() -> bool:
+    """Check if flask is available (required for server components)."""
+    try:
+        import flask  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
 
 # ---------------------------------------------------------------------------
 # MessageTimings round-trip tests
@@ -209,6 +222,9 @@ def test_step_attaches_tool_timings():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    not _has_flask(), reason="flask not installed, install server extras (-E server)"
+)
 def test_attach_tool_timings_concurrent_threads_do_not_lose_updates(
     monkeypatch, tmp_path
 ):
