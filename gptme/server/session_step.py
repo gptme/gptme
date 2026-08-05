@@ -1147,12 +1147,28 @@ def start_tool_execution(
 
                 # Chain to next pending auto-confirm tool (serial execution)
                 next_auto_id: str | None = None
+                next_auto_ts: datetime | None = None
                 for tid, texec in list(session.pending_tools.items()):
                     if texec.auto_confirm:
                         next_auto_id = tid
+                        next_auto_ts = texec.assistant_msg_timestamp
                         break
 
                 if next_auto_id is not None:
+                    # If the next chained tool belongs to a different assistant
+                    # message (e.g. added by a rerun while this thread is
+                    # running), flush accumulated timings for the current target
+                    # before switching — otherwise those durations would be
+                    # attached to the wrong step.
+                    if next_auto_ts != assistant_msg_timestamp and tool_ms_by_name:
+                        _attach_tool_timings(
+                            conversation_id,
+                            dict(tool_ms_by_name),
+                            assistant_msg_timestamp,
+                            branch=branch,
+                        )
+                        tool_ms_by_name.clear()
+                        assistant_msg_timestamp = next_auto_ts
                     current_tool_id = next_auto_id
                     current_edited_tooluse = None
                 else:
