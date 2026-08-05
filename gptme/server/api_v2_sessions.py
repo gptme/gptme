@@ -876,6 +876,7 @@ def api_conversation_rerun(conversation_id: str):
                 tool_id=tool_id,
                 tooluse=tooluse,
                 auto_confirm=session.auto_confirm_count > 0,
+                assistant_msg_timestamp=last_assistant.timestamp,
             )
             session.pending_tools[tool_id] = tool_exec
 

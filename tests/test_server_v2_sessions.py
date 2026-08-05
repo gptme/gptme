@@ -1135,6 +1135,14 @@ class TestRerunEndpoint:
             assert "re-running" in data["message"].lower()
             assert "tool_ids" in data
             assert len(data["tool_ids"]) > initial_pending
+
+            # Regression: rerun-created ToolExecutions must carry the
+            # originating assistant message's timestamp so timing gets
+            # attached to the correct step, not misattributed to whatever
+            # assistant message happens to be last when the tool finishes.
+            for tool_id in data["tool_ids"]:
+                tool_exec = session.pending_tools[tool_id]
+                assert tool_exec.assistant_msg_timestamp is not None
         finally:
             session.pending_tools.clear()
 
