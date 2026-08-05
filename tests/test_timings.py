@@ -17,12 +17,12 @@ from gptme.message import Message, MessageMetadata, MessageTimings
 
 
 def _has_flask() -> bool:
-    """Check if flask is available (required for server components)."""
+    """Check if flask is available and importable (required for server components)."""
     try:
         import flask  # noqa: F401
 
         return True
-    except ImportError:
+    except (ImportError, TypeError):
         return False
 
 
