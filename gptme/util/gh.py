@@ -73,6 +73,46 @@ def is_bot_user(user: dict) -> bool:
     return utype == "Bot" or login.endswith("[bot]")
 
 
+def fetch_pr_reviewer_logins(
+    owner: str, repo: str, pr_num: int, *, timeout: float = 15
+) -> frozenset[str] | None:
+    """Return the set of logins that actually submitted a review on this PR.
+
+    Uses the GitHub reviews API — not artifact metadata — so the result is
+    authoritative. Returns ``None`` when the API call fails or ``gh`` is
+    unavailable, letting the caller decide whether to hard-fail or warn.
+
+    Only non-bot reviewers are returned (bots cannot be trusted reviewers).
+    """
+    data = run_gh_json(
+        [
+            "gh",
+            "api",
+            "--paginate",
+            "--slurp",
+            f"/repos/{owner}/{repo}/pulls/{pr_num}/reviews",
+        ],
+        timeout=timeout,
+    )
+    if not isinstance(data, list):
+        return None
+    # --paginate --slurp wraps each page as an element when there are multiple
+    # pages.  Flatten one level so we always iterate over review objects.
+    reviews: list[dict] = []
+    for item in data:
+        if isinstance(item, list):
+            reviews.extend(item)
+        elif isinstance(item, dict):
+            reviews.append(item)
+    return frozenset(
+        r["user"]["login"]
+        for r in reviews
+        if isinstance(r, dict)
+        and isinstance(r.get("user"), dict)
+        and not is_bot_user(r["user"])
+    )
+
+
 def is_trusted_reviewer(comment: dict) -> bool:
     """Return ``True`` when a PR comment comes from a trusted human contributor.
 

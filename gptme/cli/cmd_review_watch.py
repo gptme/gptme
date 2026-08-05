@@ -37,7 +37,7 @@ from pathlib import Path
 
 import click
 
-from ..util.gh import is_trusted_reviewer, run_gh_json
+from ..util.gh import fetch_pr_reviewer_logins, is_trusted_reviewer, run_gh_json
 from ..util.review import FindingStatus, ReviewArtifact, ReviewFinding
 
 logger = logging.getLogger(__name__)
@@ -300,13 +300,23 @@ def _filter_findings_by_trust(
     trusted_reviewers: tuple[str, ...] | frozenset[str],
     *,
     require_trust: bool,
+    github_verified_reviewers: frozenset[str] | None = None,
 ) -> list[ReviewFinding]:
     """Filter artifact findings to only those from trusted reviewers.
 
     When ``trusted_reviewers`` is empty all findings pass (no-op).
     When ``require_trust`` is set, any finding whose ``reviewer`` field is
-    absent or empty raises a :class:`click.ClickException` rather than
-    silently passing or silently being dropped.
+    absent or empty raises a :class:`click.ClickException`.
+
+    ``github_verified_reviewers`` must be provided whenever
+    ``trusted_reviewers`` is non-empty.  It is the set of logins that
+    *actually* submitted a review on the PR according to the GitHub API —
+    the authoritative identity source.  Filtering against artifact-provided
+    ``reviewer`` metadata alone is not a security boundary because the
+    artifact controls that field itself and can forge any login.  Callers
+    must fetch this set via :func:`~gptme.util.gh.fetch_pr_reviewer_logins`
+    and pass it here; failing to do so raises :class:`click.ClickException`
+    so the gap cannot be silently skipped.
     """
     if require_trust:
         missing = [f for f in findings if not f.reviewer]
@@ -321,8 +331,24 @@ def _filter_findings_by_trust(
     if not trusted_reviewers:
         return list(findings)
 
+    if github_verified_reviewers is None:
+        raise click.ClickException(
+            "--trusted-reviewer requires the gh CLI to verify reviewer identity "
+            "against the GitHub PR reviews API.  Artifact-provided reviewer "
+            "metadata is self-reported and cannot authenticate identity.  "
+            "Ensure gh is installed and authenticated, then retry."
+        )
+
     trusted_set = frozenset(trusted_reviewers)
-    return [f for f in findings if f.reviewer in trusted_set]
+    # Only keep findings whose self-reported reviewer is BOTH in the
+    # caller's allowlist AND confirmed by the GitHub API.  This prevents a
+    # crafted artifact from bypassing the guard by forging an allowlisted
+    # login in its reviewer field.
+    return [
+        f
+        for f in findings
+        if f.reviewer in trusted_set and f.reviewer in github_verified_reviewers
+    ]
 
 
 def spawn_review_session(
@@ -538,10 +564,34 @@ def review_watch(
         # can commit and push.  Filtering to trusted reviewers prevents a
         # crafted artifact (e.g. piped from an untrusted CI source) from
         # injecting attacker-controlled instructions.
+        #
+        # When --trusted-reviewer is given we must verify reviewer identity
+        # via the GitHub API — not artifact metadata — because the artifact
+        # controls its own reviewer field and can forge any login.
+        github_verified: frozenset[str] | None = None
+        if trusted_reviewers:
+            if not _gh_available():
+                raise click.ClickException(
+                    "--trusted-reviewer requires the gh CLI to verify reviewer "
+                    "identity against GitHub.  Install and authenticate gh CLI, "
+                    "or omit --trusted-reviewer to process all findings."
+                )
+            github_verified = fetch_pr_reviewer_logins(
+                effective_owner, effective_repo_name, effective_pr_number
+            )
+            if github_verified is None:
+                raise click.ClickException(
+                    f"Could not fetch PR reviews for "
+                    f"{effective_owner}/{effective_repo_name}#{effective_pr_number} "
+                    "from GitHub.  Reviewer identity cannot be verified.  "
+                    "Check gh authentication and retry."
+                )
+
         open_findings = _filter_findings_by_trust(
             open_findings,
             trusted_reviewers,
             require_trust=require_trust,
+            github_verified_reviewers=github_verified,
         )
 
         if not open_findings:
