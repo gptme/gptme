@@ -697,4 +697,59 @@ describe('scroll stability during tool execution (gptme#3440)', () => {
 
     jest.useRealTimers();
   });
+
+  it('overlapping scroll cycles: newer cycle is not interrupted by older cleanup', () => {
+    // Regression test for Greptile P1: when two scrollToBottom cycles overlap,
+    // the older cycle's inner rAF must NOT clear isAutoScrolling$ while the
+    // newer cycle is still in-flight.  Without the generation guard the onScroll
+    // handler would see isAutoScrolling$=false mid-programmatic-scroll and set
+    // autoScrollAborted=true, killing auto-scroll for the rest of the tool run.
+    jest.useFakeTimers();
+
+    mockConversation$.data.log.set([message('user', 'hello'), message('assistant', 'world')]);
+    const { getByTestId } = renderComponent();
+
+    const viewport = getByTestId('message-scroll-viewport');
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, get: () => 600 });
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, get: () => 400 });
+    let capturedScrollTop: number | undefined;
+    Object.defineProperty(viewport, 'scrollTop', {
+      configurable: true,
+      set(v: number) {
+        capturedScrollTop = v;
+      },
+      get() {
+        return capturedScrollTop ?? 0;
+      },
+    });
+
+    // Fire executingTool twice in the same rAF window so their inner cleanup
+    // rAFs can interleave.  The second call (gen=2) must survive; the first
+    // call's cleanup (gen=1) must be a no-op.
+    act(() => {
+      mockConversation$.executingTool.set(makeExecutingTool());
+    });
+    act(() => {
+      mockConversation$.executingTool.set({ ...makeExecutingTool(), id: 'tool-2' });
+    });
+
+    // Advance past all nested rAFs; stay under 100ms to avoid ElapsedTimer loop.
+    act(() => {
+      jest.advanceTimersByTime(50);
+    });
+
+    // scrollToIndex must have been called for both executingTool transitions
+    // (plus initial renders — exact count is intentionally not checked here)
+    expect(mockScrollToIndex).toHaveBeenCalledWith(
+      expect.any(Number),
+      expect.objectContaining({ align: 'end' })
+    );
+    // Final scrollTop must reflect the most recent programmatic scroll —
+    // the key regression guard: the older cycle's cleanup must not have
+    // prematurely cleared isAutoScrolling$ while the newer cycle's rAF was
+    // still pending, which would let onScroll abort auto-scroll.
+    expect(capturedScrollTop).toBe(200);
+
+    jest.useRealTimers();
+  });
 });

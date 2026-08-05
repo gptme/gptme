@@ -369,6 +369,11 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // a burst of log updates queues at most one scroll per animation frame.
   const scrollRAFRef = useRef<number | null>(null);
 
+  // Monotonically-increasing counter: each scrollToBottom call increments it.
+  // The inner rAF checks that its captured gen still matches before clearing
+  // isAutoScrolling$, so an older cycle cannot kill a newer one mid-flight.
+  const scrollGenRef = useRef(0);
+
   // Observable for if the conversation is auto-scrolling
   const isAutoScrolling$ = useObservable(false);
 
@@ -396,6 +401,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     const count = visibleMessageIndicesRef.current.length;
     if (count <= 0) return;
     isAutoScrolling$.set(true);
+    // Capture a generation token so the inner rAF only clears isAutoScrolling$
+    // when no newer scrollToBottom call has started.  Without this, overlapping
+    // rAF chains (e.g. a log update fires while executingTool$ is also
+    // transitioning) let an older cycle unconditionally clear the flag before
+    // the newest cycle reaches the true bottom, causing onScroll to classify
+    // the ongoing programmatic scroll as manual and abort auto-scroll.
+    const gen = ++scrollGenRef.current;
     // scrollToIndex ensures the last virtual item is rendered before measuring.
     virtualizerRef.current.scrollToIndex(count - 1, { align: 'end' });
     // A second rAF scrolls the container to its true bottom so elements below
@@ -409,7 +421,9 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
         container.scrollTop = container.scrollHeight - container.clientHeight;
       }
       requestAnimationFrame(() => {
-        isAutoScrolling$.set(false);
+        if (scrollGenRef.current === gen) {
+          isAutoScrolling$.set(false);
+        }
       });
     });
   }, [isAutoScrolling$, scrollContainerRef]);
