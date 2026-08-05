@@ -48,7 +48,7 @@
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Commands" href="commands.html" />
+    <link rel="next" title="Browser Tool" href="browser.html" />
     <link rel="prev" title="Set Up Text-to-Speech" href="howto/tts-setup.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -184,6 +184,7 @@
 </ul>
 </details></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="browser.html">Browser Tool</a></li>
 <li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
@@ -3591,6 +3592,19 @@ pipx<span class="w"> </span>run<span class="w"> </span><span class="nv">playwrig
 </pre></div>
 </div>
 </li>
+<li><p>To use a custom browser executable (e.g. a fingerprint-patched Firefox build
+such as <a class="reference external" href="https://camoufox.com/">Camoufox</a>):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Absolute or relative filesystem path</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span>/usr/local/bin/camoufox
+
+<span class="c1"># Executable name on PATH (resolved via which)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span>camoufox
+</pre></div>
+</div>
+<p>Custom executables are launched with the Firefox engine so they receive the
+same Playwright context options.  This is the recommended approach for
+evading bot-detection on pages that fingerprint headless browsers.</p>
+</li>
 <li><p>To use an existing Chromium-compatible browser over Chrome DevTools Protocol
 instead of launching Playwright’s bundled Chromium, start it with remote
 debugging enabled and set GPTME_BROWSER_CDP_URL:</p>
@@ -6763,11 +6777,11 @@ spawning subagents programmatically:</p>
       </div>
     </a>
     <a class="right-next"
-       href="commands.html"
+       href="browser.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Commands</p>
+        <p class="prev-next-title">Browser Tool</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

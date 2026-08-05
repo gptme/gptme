@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Glossary &#8212; gptme</title>
+    <title>Browser Tool &#8212; gptme</title>
   
   
   
@@ -43,13 +43,13 @@
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/asciinema-player_3.12.1.js"></script>
     <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'glossary';</script>
-    <link rel="canonical" href="https://gptme.org/docs/glossary.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'browser';</script>
+    <link rel="canonical" href="https://gptme.org/docs/browser.html" />
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Agents" href="agents.html" />
-    <link rel="prev" title="Core Concepts" href="concepts.html" />
+    <link rel="next" title="Commands" href="commands.html" />
+    <link rel="prev" title="Tools" href="tools.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   </head>
@@ -160,7 +160,7 @@
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
@@ -184,7 +184,7 @@
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
-<li class="toctree-l1"><a class="reference internal" href="browser.html">Browser Tool</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Browser Tool</a></li>
 <li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
@@ -199,10 +199,10 @@
 <li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Extensibility</span></p>
-<ul class="current nav bd-sidenav">
+<ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
 <li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="agents.html">Agents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="agent/verifier-profile.html">Verifier Profile</a></li>
 </ul>
@@ -372,7 +372,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/glossary.md" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/browser.md" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -402,7 +402,7 @@
       
       
       
-      <li><a href="_sources/glossary.md" target="_blank"
+      <li><a href="_sources/browser.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -486,7 +486,7 @@ document.write(`
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>Glossary</h1>
+    <h1>Browser Tool</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -496,34 +496,22 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#conversational-concepts">Conversational Concepts</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turn">Turn</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step">Step</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#message-processing">Message Processing</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backends">Backends</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#playwright-recommended">Playwright (recommended)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lynx">Lynx</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#context-and-memory">Context and Memory</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#context-window">Context Window</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#prompt-cache">Prompt Cache</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#token">Token</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#engine-configuration-gptme-browser-engine">Engine Configuration (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_ENGINE</span></code>)</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-firefox-instead-of-chromium">Use Firefox instead of Chromium</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-a-fingerprint-patched-firefox-anti-detection">Use a fingerprint-patched Firefox (anti-detection)</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#example-camoufox-setup">Example: Camoufox setup</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-concepts">Tool Concepts</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool">Tool</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tooluse">ToolUse</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runnable-tool">Runnable Tool</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#session-concepts">Session Concepts</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#log-logmanager">Log / LogManager</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace">Workspace</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model">Model</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-format">Tool Format</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cdp-mode-gptme-browser-cdp-url">CDP Mode (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code>)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#session-persistence-gptme-browser-storage-state">Session Persistence (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_STORAGE_STATE</span></code>)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables-reference">Environment Variables Reference</a></li>
 </ul>
             </nav>
         </div>
@@ -535,97 +523,166 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="glossary">
-<h1>Glossary<a class="headerlink" href="#glossary" title="Link to this heading">#</a></h1>
-<p>This document defines key terminology used throughout the gptme codebase.</p>
-<section id="conversational-concepts">
-<h2>Conversational Concepts<a class="headerlink" href="#conversational-concepts" title="Link to this heading">#</a></h2>
-<section id="turn">
-<span id="id1"></span><h3>Turn<a class="headerlink" href="#turn" title="Link to this heading">#</a></h3>
-<p>A complete conversational exchange between the user and the assistant.</p>
-<p>A turn consists of:</p>
-<ol class="arabic simple">
-<li><p>A user message (input)</p></li>
-<li><p>All assistant responses and tool executions until no more tools are runnable</p></li>
-<li><p>Any system messages generated during processing</p></li>
-</ol>
-<p>In the context of LLMs, “turns” denote the explicit conversational exchanges between a user and the model. A single turn may contain multiple <a class="reference internal" href="#step">steps</a>.</p>
-<p><strong>Code reference</strong>: The <code class="docutils literal notranslate"><span class="pre">_process_user_msg()</span></code> function in <code class="docutils literal notranslate"><span class="pre">gptme/chat.py</span></code> processes a complete turn.</p>
+  <section id="browser-tool">
+<h1>Browser Tool<a class="headerlink" href="#browser-tool" title="Link to this heading">#</a></h1>
+<p>gptme includes a browser tool that lets the assistant load pages, read their
+content, take screenshots, and interact with web pages.</p>
+<section id="backends">
+<h2>Backends<a class="headerlink" href="#backends" title="Link to this heading">#</a></h2>
+<section id="playwright-recommended">
+<h3>Playwright (recommended)<a class="headerlink" href="#playwright-recommended" title="Link to this heading">#</a></h3>
+<p>Full browser automation with screenshots, ARIA snapshots, clicking, form
+filling, and scrolling.</p>
+<p><strong>Installation:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[browser]&#39;</span>
+<span class="nv">PW_VERSION</span><span class="o">=</span><span class="k">$(</span>pipx<span class="w"> </span>runpip<span class="w"> </span>gptme<span class="w"> </span>show<span class="w"> </span>playwright<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>Version<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">&#39; &#39;</span><span class="w"> </span>-f2<span class="k">)</span>
+pipx<span class="w"> </span>run<span class="w"> </span><span class="nv">playwright</span><span class="o">==</span><span class="nv">$PW_VERSION</span><span class="w"> </span>install<span class="w"> </span>chromium-headless-shell
+</pre></div>
+</div>
 </section>
-<section id="step">
-<span id="id2"></span><h3>Step<a class="headerlink" href="#step" title="Link to this heading">#</a></h3>
-<p>A single cycle of LLM generation and tool execution within a turn.</p>
-<p>A step consists of:</p>
-<ol class="arabic simple">
-<li><p>Pre-process hooks execution</p></li>
-<li><p>LLM response generation</p></li>
-<li><p>Tool execution (if tools are present in the response)</p></li>
-</ol>
-<p>In the context of LLMs, “steps” generally refer to an internal reasoning process or a sequence of actions an agent takes to solve a problem. Multiple steps may occur within a single <a class="reference internal" href="#turn">turn</a>.</p>
-<p><strong>Code reference</strong>: The <code class="docutils literal notranslate"><span class="pre">step()</span></code> function in <code class="docutils literal notranslate"><span class="pre">gptme/chat.py</span></code> performs one step.</p>
-</section>
-<section id="message-processing">
-<h3>Message Processing<a class="headerlink" href="#message-processing" title="Link to this heading">#</a></h3>
-<p>The complete handling of a user message, including all steps until no more tools need to run.</p>
-<p><strong>Hooks behavior</strong>:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_PRE_PROCESS</span></code>: Fires before each <a class="reference internal" href="#step">step</a></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_POST_PROCESS</span></code>: Fires once after all steps complete (i.e., once per <a class="reference internal" href="#turn">turn</a>)</p></li>
-</ul>
-<p>For the complete list of hook types and their lifecycle, see the <a class="reference internal" href="hooks.html"><span class="std std-doc">Hooks documentation</span></a>.</p>
+<section id="lynx">
+<h3>Lynx<a class="headerlink" href="#lynx" title="Link to this heading">#</a></h3>
+<p>Text-only fallback for basic page reading and web search.  No screenshot
+support.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Ubuntu / Debian</span>
+sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>lynx
+<span class="c1"># macOS</span>
+brew<span class="w"> </span>install<span class="w"> </span>lynx
+</pre></div>
+</div>
 </section>
 </section>
-<section id="context-and-memory">
-<h2>Context and Memory<a class="headerlink" href="#context-and-memory" title="Link to this heading">#</a></h2>
-<section id="context-window">
-<h3>Context Window<a class="headerlink" href="#context-window" title="Link to this heading">#</a></h3>
-<p>The maximum number of tokens a model can process in a single request. This includes all messages, tool definitions, and system prompts.</p>
+<hr class="docutils" />
+<section id="engine-configuration-gptme-browser-engine">
+<h2>Engine Configuration (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_ENGINE</span></code>)<a class="headerlink" href="#engine-configuration-gptme-browser-engine" title="Link to this heading">#</a></h2>
+<p>The Playwright backend accepts three forms for <code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_ENGINE</span></code>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Value</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">chromium</span></code> (default)</p></td>
+<td><p>Playwright’s bundled Chromium headless shell</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">firefox</span></code></p></td>
+<td><p>Playwright’s bundled Firefox</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/path/to/binary</span></code></p></td>
+<td><p>Custom executable at a filesystem path</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">executable-name</span></code></p></td>
+<td><p>Executable resolved via <code class="docutils literal notranslate"><span class="pre">$PATH</span></code> (<code class="docutils literal notranslate"><span class="pre">shutil.which</span></code>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Custom executables (path or name) are always launched with the <strong>Firefox</strong>
+engine so they receive the same Playwright browser-context options.</p>
+<section id="use-firefox-instead-of-chromium">
+<h3>Use Firefox instead of Chromium<a class="headerlink" href="#use-firefox-instead-of-chromium" title="Link to this heading">#</a></h3>
+<p>Useful for pages that detect and block headless Chromium.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PW_VERSION</span><span class="o">=</span><span class="k">$(</span>pipx<span class="w"> </span>runpip<span class="w"> </span>gptme<span class="w"> </span>show<span class="w"> </span>playwright<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>Version<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">&#39; &#39;</span><span class="w"> </span>-f2<span class="k">)</span>
+pipx<span class="w"> </span>run<span class="w"> </span><span class="nv">playwright</span><span class="o">==</span><span class="nv">$PW_VERSION</span><span class="w"> </span>install<span class="w"> </span>firefox
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span>firefox
+gptme<span class="w"> </span><span class="s2">&quot;read https://example.com&quot;</span>
+</pre></div>
+</div>
 </section>
-<section id="prompt-cache">
-<h3>Prompt Cache<a class="headerlink" href="#prompt-cache" title="Link to this heading">#</a></h3>
-<p>A mechanism to cache and reuse previously processed context, reducing token costs for repeated prefixes. Cache invalidation occurs when the cached portion changes.</p>
-</section>
-<section id="token">
-<h3>Token<a class="headerlink" href="#token" title="Link to this heading">#</a></h3>
-<p>A unit of text processed by the model. Tokens are typically sub-word units (e.g., “unhappy” → “un” + “happy”).</p>
-</section>
-</section>
-<section id="tool-concepts">
-<h2>Tool Concepts<a class="headerlink" href="#tool-concepts" title="Link to this heading">#</a></h2>
-<section id="tool">
-<h3>Tool<a class="headerlink" href="#tool" title="Link to this heading">#</a></h3>
-<p>A function that the assistant can execute to perform actions like reading files, running commands, or making API calls.</p>
-</section>
-<section id="tooluse">
-<h3>ToolUse<a class="headerlink" href="#tooluse" title="Link to this heading">#</a></h3>
-<p>A parsed representation of a tool invocation found in an assistant’s response.</p>
-</section>
-<section id="runnable-tool">
-<h3>Runnable Tool<a class="headerlink" href="#runnable-tool" title="Link to this heading">#</a></h3>
-<p>A tool that can be executed in the current context. Some tools may be defined but not runnable (e.g., disabled or context-restricted).</p>
-</section>
-</section>
-<section id="session-concepts">
-<h2>Session Concepts<a class="headerlink" href="#session-concepts" title="Link to this heading">#</a></h2>
-<section id="log-logmanager">
-<h3>Log / LogManager<a class="headerlink" href="#log-logmanager" title="Link to this heading">#</a></h3>
-<p>The conversation history and its management system. Stores all messages exchanged in a session.</p>
-</section>
-<section id="workspace">
-<h3>Workspace<a class="headerlink" href="#workspace" title="Link to this heading">#</a></h3>
-<p>The directory context in which gptme operates. Tools like file operations are scoped to the workspace.</p>
+<section id="use-a-fingerprint-patched-firefox-anti-detection">
+<h3>Use a fingerprint-patched Firefox (anti-detection)<a class="headerlink" href="#use-a-fingerprint-patched-firefox-anti-detection" title="Link to this heading">#</a></h3>
+<p>Some pages fingerprint headless browsers even when Firefox is used.
+A patched build such as <a class="reference external" href="https://camoufox.com/">Camoufox</a> or
+<a class="reference external" href="https://github.com/QIN2DIM/undetected-playwright">invisible-playwright</a>
+is a drop-in replacement that passes most fingerprint checks.</p>
+<p><strong>By absolute path:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span>/usr/local/bin/camoufox-runner
+gptme<span class="w"> </span><span class="s2">&quot;read https://bot-detection-test.vercel.app&quot;</span>
+</pre></div>
+</div>
+<p><strong>By executable name on <code class="docutils literal notranslate"><span class="pre">$PATH</span></code>:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Assuming camoufox is on your PATH</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span>camoufox
+gptme<span class="w"> </span><span class="s2">&quot;screenshot https://example.com&quot;</span>
+</pre></div>
+</div>
+<p>gptme detects that the value is not a named engine, resolves it via
+<code class="docutils literal notranslate"><span class="pre">shutil.which</span></code>, and passes it to Playwright’s <code class="docutils literal notranslate"><span class="pre">executable_path=</span></code> kwarg when
+launching Firefox.</p>
+<section id="example-camoufox-setup">
+<h4>Example: Camoufox setup<a class="headerlink" href="#example-camoufox-setup" title="Link to this heading">#</a></h4>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install Camoufox (fingerprint-patched Firefox)</span>
+pip<span class="w"> </span>install<span class="w"> </span>camoufox
+python<span class="w"> </span>-m<span class="w"> </span>camoufox<span class="w"> </span>fetch<span class="w">           </span><span class="c1"># downloads the patched Firefox binary</span>
+
+<span class="c1"># Point gptme at it</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span><span class="k">$(</span>python<span class="w"> </span>-m<span class="w"> </span>camoufox<span class="w"> </span>path<span class="k">)</span>
+gptme<span class="w"> </span><span class="s2">&quot;read https://example.com&quot;</span>
+</pre></div>
+</div>
 </section>
 </section>
-<section id="configuration">
-<h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
-<section id="model">
-<h3>Model<a class="headerlink" href="#model" title="Link to this heading">#</a></h3>
-<p>The LLM backend used for generation (e.g., <code class="docutils literal notranslate"><span class="pre">openai/gpt-4</span></code>, <code class="docutils literal notranslate"><span class="pre">anthropic/claude-3</span></code>).</p>
 </section>
-<section id="tool-format">
-<h3>Tool Format<a class="headerlink" href="#tool-format" title="Link to this heading">#</a></h3>
-<p>How tools are presented to the model: <code class="docutils literal notranslate"><span class="pre">&quot;markdown&quot;</span></code> (tool blocks in markdown) or <code class="docutils literal notranslate"><span class="pre">&quot;tool&quot;</span></code> (native function calling).</p>
+<hr class="docutils" />
+<section id="cdp-mode-gptme-browser-cdp-url">
+<h2>CDP Mode (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code>)<a class="headerlink" href="#cdp-mode-gptme-browser-cdp-url" title="Link to this heading">#</a></h2>
+<p>Connect to an already-running Chromium-based browser over the Chrome DevTools
+Protocol instead of launching a new one.  Useful when you want to reuse an
+existing authenticated browser session.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Start Chrome/Chromium with remote debugging</span>
+chromium<span class="w"> </span>--remote-debugging-port<span class="o">=</span><span class="m">9222</span>
+
+<span class="c1"># Connect gptme to it</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_CDP_URL</span><span class="o">=</span>http://127.0.0.1:9222
+gptme<span class="w"> </span><span class="s2">&quot;read https://example.com&quot;</span>
+</pre></div>
+</div>
+<blockquote>
+<div><p><strong>Note:</strong> CDP only works with Chromium-based browsers.  <code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_ENGINE</span></code>
+is ignored in CDP mode.</p>
+</div></blockquote>
 </section>
+<hr class="docutils" />
+<section id="session-persistence-gptme-browser-storage-state">
+<h2>Session Persistence (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_STORAGE_STATE</span></code>)<a class="headerlink" href="#session-persistence-gptme-browser-storage-state" title="Link to this heading">#</a></h2>
+<p>Save login cookies and local storage so authenticated sessions persist across
+restarts.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Log in once and save state</span>
+gptme<span class="w"> </span><span class="s2">&quot;open https://x.com/login and log in with user@example.com / hunter2, then save_browser_state ~/.config/gptme/twitter.json&quot;</span>
+
+<span class="c1"># Reuse in the next session</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_STORAGE_STATE</span><span class="o">=</span>~/.config/gptme/twitter.json
+gptme<span class="w"> </span><span class="s2">&quot;tweet &#39;hello from gptme&#39;&quot;</span>
+</pre></div>
+</div>
+</section>
+<hr class="docutils" />
+<section id="environment-variables-reference">
+<h2>Environment Variables Reference<a class="headerlink" href="#environment-variables-reference" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Variable</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_ENGINE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">chromium</span></code></p></td>
+<td><p>Engine or executable: <code class="docutils literal notranslate"><span class="pre">chromium</span></code>, <code class="docutils literal notranslate"><span class="pre">firefox</span></code>, a path, or a name on <code class="docutils literal notranslate"><span class="pre">$PATH</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code></p></td>
+<td><p><em>(unset)</em></p></td>
+<td><p>WebSocket URL of an existing Chrome DevTools Protocol server</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_STORAGE_STATE</span></code></p></td>
+<td><p><em>(unset)</em></p></td>
+<td><p>Path to a Playwright storage-state JSON file for persistent sessions</p></td>
+</tr>
+</tbody>
+</table>
+</div>
 </section>
 </section>
 
@@ -641,20 +698,20 @@ document.write(`
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="concepts.html"
+       href="tools.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Core Concepts</p>
+        <p class="prev-next-title">Tools</p>
       </div>
     </a>
     <a class="right-next"
-       href="agents.html"
+       href="commands.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Agents</p>
+        <p class="prev-next-title">Commands</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -674,34 +731,22 @@ document.write(`
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#conversational-concepts">Conversational Concepts</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turn">Turn</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step">Step</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#message-processing">Message Processing</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backends">Backends</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#playwright-recommended">Playwright (recommended)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lynx">Lynx</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#context-and-memory">Context and Memory</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#context-window">Context Window</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#prompt-cache">Prompt Cache</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#token">Token</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#engine-configuration-gptme-browser-engine">Engine Configuration (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_ENGINE</span></code>)</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-firefox-instead-of-chromium">Use Firefox instead of Chromium</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-a-fingerprint-patched-firefox-anti-detection">Use a fingerprint-patched Firefox (anti-detection)</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#example-camoufox-setup">Example: Camoufox setup</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-concepts">Tool Concepts</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool">Tool</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tooluse">ToolUse</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runnable-tool">Runnable Tool</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#session-concepts">Session Concepts</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#log-logmanager">Log / LogManager</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace">Workspace</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model">Model</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-format">Tool Format</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cdp-mode-gptme-browser-cdp-url">CDP Mode (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code>)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#session-persistence-gptme-browser-storage-state">Session Persistence (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_STORAGE_STATE</span></code>)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables-reference">Environment Variables Reference</a></li>
 </ul>
   </nav></div>
 
