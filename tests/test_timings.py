@@ -8,6 +8,7 @@ Covers:
 
 import importlib
 import json
+import threading
 from unittest.mock import patch
 
 from gptme.message import Message, MessageMetadata, MessageTimings
@@ -201,3 +202,52 @@ def test_step_attaches_tool_timings():
     assert timings["tool_ms"] > 0
     assert "tool_ms_by_name" in timings
     assert "shell" in timings["tool_ms_by_name"]
+
+
+# ---------------------------------------------------------------------------
+# _attach_tool_timings() concurrent confirmation threads (server path)
+# ---------------------------------------------------------------------------
+
+
+def test_attach_tool_timings_concurrent_threads_do_not_lose_updates(
+    monkeypatch, tmp_path
+):
+    """Two confirmation threads racing to attach tool timings for the same
+    assistant message must both survive — neither read-merge-write should
+    silently discard the other's contribution (lost-update race)."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    from gptme.logmanager import LogManager
+    from gptme.server.session_step import _attach_tool_timings
+
+    conversation_id = "test-concurrent-tool-timings"
+    manager = LogManager.load(conversation_id, create=True, lock=False)
+    manager.append(Message("user", "run two tools"))
+    manager.append(Message("assistant", "running tools"))
+
+    # Force both threads to call _attach_tool_timings at (as close to)
+    # the same instant as possible, to exercise the race.
+    barrier = threading.Barrier(2)
+
+    def run(tool_name: str, value: float) -> None:
+        barrier.wait(timeout=5)
+        _attach_tool_timings(conversation_id, {tool_name: value})
+
+    t1 = threading.Thread(target=run, args=("shell", 100.0))
+    t2 = threading.Thread(target=run, args=("read", 50.0))
+    t1.start()
+    t2.start()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+    assert not t1.is_alive() and not t2.is_alive()
+
+    final = LogManager.load(conversation_id, lock=False)
+    assistant_msgs = [m for m in final.log.messages if m.role == "assistant"]
+    assert assistant_msgs
+    metadata = assistant_msgs[-1].metadata
+    assert metadata is not None
+    timings = metadata.get("timings", {})
+    assert timings.get("tool_ms_by_name") == {"shell": 100.0, "read": 50.0}, (
+        f"expected both threads' timings preserved, got {timings}"
+    )
+    assert timings.get("tool_ms") == 150.0

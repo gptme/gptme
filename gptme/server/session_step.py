@@ -230,7 +230,7 @@ def _append_and_notify(manager: LogManager, session: ConversationSession, msg: M
 
 
 def _attach_tool_timings(
-    manager: LogManager, tool_ms_by_name: dict[str, float]
+    conversation_id: str, tool_ms_by_name: dict[str, float]
 ) -> None:
     """Attach aggregated tool-execution timing to the last assistant message.
 
@@ -238,41 +238,53 @@ def _attach_tool_timings(
     the per-tool timing data into its ``metadata.timings`` dict, and rewrites
     the JSONL file.  This is a best-effort operation — failures are logged but
     do not interrupt tool execution or step continuation.
+
+    Multiple confirmation threads for the same assistant message can call this
+    concurrently, each with only its own local tool durations. Merging alone
+    isn't enough to avoid a lost update: two threads can each read the
+    caller's (possibly stale) in-memory log before either has written, merge
+    against that same stale state, and the later write silently discards the
+    earlier thread's contribution. Serialize the whole read-merge-write under
+    the conversation lock and reload fresh from disk inside it so each thread
+    merges against the latest state, not a snapshot taken before the lock.
     """
     from typing import cast
 
-    messages = manager.log.messages
-    for i in range(len(messages) - 1, -1, -1):
-        if messages[i].role == "assistant":
-            msg = messages[i]
-            existing_meta = dict(msg.metadata) if msg.metadata else {}
-            _raw_timings = existing_meta.get("timings")
-            existing_timings = cast(
-                MessageTimings,
-                dict(_raw_timings) if isinstance(_raw_timings, dict) else {},
-            )
-            # Merge with any tool timings already recorded by prior confirmation
-            # threads — each thread only has its own local measurements, so we
-            # must accumulate rather than replace to avoid losing earlier tools.
-            prior = {
-                k: round(v, 1)
-                for k, v in (existing_timings.get("tool_ms_by_name") or {}).items()
-            }
-            for k, v in tool_ms_by_name.items():
-                prior[k] = round(prior.get(k, 0.0) + v, 1)
-            existing_timings["tool_ms"] = round(sum(prior.values()), 1)
-            existing_timings["tool_ms_by_name"] = prior
-            existing_meta["timings"] = existing_timings
-            updated_msg = msg.replace(metadata=cast(MessageMetadata, existing_meta))
-            manager.log.messages[i] = updated_msg
-            manager.write()
-            logger.debug(
-                "Attached tool timings to assistant message: tool_ms=%.1f, by_name=%s",
-                existing_timings["tool_ms"],
-                existing_timings["tool_ms_by_name"],
-            )
-            return
-    logger.warning("_attach_tool_timings: no assistant message found in log")
+    with SessionManager.conversation_lock(conversation_id):
+        manager = LogManager.load(conversation_id, lock=False)
+        messages = manager.log.messages
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].role == "assistant":
+                msg = messages[i]
+                existing_meta = dict(msg.metadata) if msg.metadata else {}
+                _raw_timings = existing_meta.get("timings")
+                existing_timings = cast(
+                    MessageTimings,
+                    dict(_raw_timings) if isinstance(_raw_timings, dict) else {},
+                )
+                # Merge with any tool timings already recorded by prior
+                # confirmation threads — each thread only has its own local
+                # measurements, so we must accumulate rather than replace to
+                # avoid losing earlier tools.
+                prior = {
+                    k: round(v, 1)
+                    for k, v in (existing_timings.get("tool_ms_by_name") or {}).items()
+                }
+                for k, v in tool_ms_by_name.items():
+                    prior[k] = round(prior.get(k, 0.0) + v, 1)
+                existing_timings["tool_ms"] = round(sum(prior.values()), 1)
+                existing_timings["tool_ms_by_name"] = prior
+                existing_meta["timings"] = existing_timings
+                updated_msg = msg.replace(metadata=cast(MessageMetadata, existing_meta))
+                manager.log.messages[i] = updated_msg
+                manager.write()
+                logger.debug(
+                    "Attached tool timings to assistant message: tool_ms=%.1f, by_name=%s",
+                    existing_timings["tool_ms"],
+                    existing_timings["tool_ms_by_name"],
+                )
+                return
+        logger.warning("_attach_tool_timings: no assistant message found in log")
 
 
 def _persist_generation_error(
@@ -1100,7 +1112,7 @@ def start_tool_execution(
             # Persist aggregated tool timing in the assistant message that
             # triggered these tool calls so it is available in session records.
             if tool_ms_by_name:
-                _attach_tool_timings(manager, tool_ms_by_name)
+                _attach_tool_timings(conversation_id, tool_ms_by_name)
 
             # Only auto-step when all pending tools have been executed.
             # With multiple tools per message, we must wait until every tool

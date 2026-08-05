@@ -638,6 +638,12 @@ def step(
             tool_timings: dict[str, float] = {}
             # Buffer tool outputs so we can attach per-step timing to the
             # assistant message *before* it is yielded (and written to the log).
+            # Trade-off: the assistant message (and any tool output) isn't
+            # exposed or persisted until all tools in this step complete, so a
+            # crash or interrupt mid-tool-execution can lose the step record.
+            # Accepted for the CLI path since most tools finish quickly; the
+            # server path instead persists immediately and patches timings in
+            # after the fact via _attach_tool_timings().
             # list() exhausts execute_msg which populates tool_timings in-place.
             tool_outputs = list(
                 execute_msg(
