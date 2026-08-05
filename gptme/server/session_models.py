@@ -43,6 +43,7 @@ class ToolExecution:
     status: ToolStatus = ToolStatus.PENDING
     auto_confirm: bool = False
     started_at: float | None = None
+    branch: str = "main"
 
 
 @dataclass

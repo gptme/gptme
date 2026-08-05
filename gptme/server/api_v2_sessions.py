@@ -660,7 +660,13 @@ def api_conversation_tool_confirm(conversation_id: str):
 
         logger.info(f"Executing runnable tooluse: {tooluse}")
         start_tool_execution(
-            conversation_id, session, tool_id, tooluse, model, chat_config
+            conversation_id,
+            session,
+            tool_id,
+            tooluse,
+            model,
+            chat_config,
+            branch=tool_exec.branch,
         )
         return flask.jsonify({"status": "ok", "message": "Tool confirmed"})
 
@@ -680,6 +686,7 @@ def api_conversation_tool_confirm(conversation_id: str):
             dataclasses.replace(tool_exec.tooluse, content=edited_content),
             model,
             chat_config,
+            branch=tool_exec.branch,
         )
 
     elif action == "skip":
@@ -720,7 +727,9 @@ def api_conversation_tool_confirm(conversation_id: str):
                     f"User chose not to execute this {tool_name} tool. "
                     "Do not re-suggest the same action unless explicitly requested.",
                 )
-                manager = LogManager.load(conversation_id, lock=False)
+                manager = LogManager.load(
+                    conversation_id, branch=current_tool.branch, lock=False
+                )
                 _append_and_notify(manager, session, msg)
                 manager.write()
 
@@ -730,6 +739,7 @@ def api_conversation_tool_confirm(conversation_id: str):
                     session,
                     model,
                     chat_config.workspace,
+                    branch=current_tool.branch,
                     reserved=True,
                 )
             finally:
@@ -752,7 +762,13 @@ def api_conversation_tool_confirm(conversation_id: str):
 
         # Also confirm this tool
         start_tool_execution(
-            conversation_id, session, tool_id, tool_exec.tooluse, model, chat_config
+            conversation_id,
+            session,
+            tool_id,
+            tool_exec.tooluse,
+            model,
+            chat_config,
+            branch=tool_exec.branch,
         )
 
     return flask.jsonify({"status": "ok", "message": f"Tool {action}ed"})

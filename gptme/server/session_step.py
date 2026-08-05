@@ -831,6 +831,7 @@ def step(
                 tool_id=tool_id,
                 tooluse=tooluse,
                 auto_confirm=session.auto_confirm_count > 0 or auto_confirm,
+                branch=branch,
             )
             session.pending_tools[tool_id] = tool_exec
 
