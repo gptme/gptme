@@ -30,6 +30,21 @@ Playwright backend:
        pipx run playwright==$PW_VERSION install firefox
        export GPTME_BROWSER_ENGINE=firefox
 
+ - To use a custom browser executable (e.g. a fingerprint-patched Firefox build
+   such as `Camoufox <https://camoufox.com/>`_):
+
+   .. code-block:: bash
+
+       # Absolute or relative filesystem path
+       export GPTME_BROWSER_ENGINE=/usr/local/bin/camoufox
+
+       # Executable name on PATH (resolved via which)
+       export GPTME_BROWSER_ENGINE=camoufox
+
+   Custom executables are launched with the Firefox engine so they receive the
+   same Playwright context options.  This is the recommended approach for
+   evading bot-detection on pages that fingerprint headless browsers.
+
  - To use an existing Chromium-compatible browser over Chrome DevTools Protocol
    instead of launching Playwright's bundled Chromium, start it with remote
    debugging enabled and set GPTME_BROWSER_CDP_URL:

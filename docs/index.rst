@@ -32,6 +32,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    cookbook
    howto/index
    tools
+   browser
    commands
    cli
    tui

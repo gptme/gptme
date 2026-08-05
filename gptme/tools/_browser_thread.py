@@ -1,5 +1,6 @@
 import importlib
 import logging
+import shutil
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -20,6 +21,8 @@ TIMEOUT = 20  # seconds - accounts for retry attempts with browser restarts
 
 # Supported browser engines for the Playwright backend.
 # Set GPTME_BROWSER_ENGINE=firefox to use Firefox instead of Chromium.
+# Set GPTME_BROWSER_ENGINE to a filesystem path or executable name to use a
+# custom browser binary (e.g. a fingerprint-patched Firefox build).
 BrowserEngine = Literal["chromium", "firefox"]
 _VALID_ENGINES: tuple[BrowserEngine, ...] = ("chromium", "firefox")
 
@@ -125,10 +128,61 @@ class Command:
 Action = Literal["stop"]
 
 
+def _parse_engine_env(raw: str) -> tuple[BrowserEngine, str | None]:
+    """Parse a GPTME_BROWSER_ENGINE value into (engine, executable_path).
+
+    Handles three forms:
+
+    - **Named engine** — ``"chromium"`` or ``"firefox"`` → ``(engine, None)``
+    - **Filesystem path** — value containing ``"/"`` or ``"\\"`` →
+      ``("firefox", path)``
+    - **PATH-resident executable** — resolved via :func:`shutil.which` →
+      ``("firefox", resolved_path)``
+
+    Custom executables default to the ``"firefox"`` engine because
+    fingerprint-patched builds (e.g. Camoufox, invisible-playwright) are
+    Firefox-based.  Returns ``("chromium", None)`` with a warning for
+    unrecognised values.
+    """
+    lower = raw.lower()
+    if lower in _VALID_ENGINES:
+        return cast(BrowserEngine, lower), None
+
+    # Filesystem path: contains a directory separator → treat as-is.
+    if "/" in raw or "\\" in raw:
+        logger.info(
+            "GPTME_BROWSER_ENGINE='%s' looks like a path; "
+            "using firefox engine with custom executable_path",
+            raw,
+        )
+        return "firefox", raw
+
+    # Executable name on PATH: resolve to absolute path.
+    resolved = shutil.which(raw)
+    if resolved:
+        logger.info(
+            "GPTME_BROWSER_ENGINE='%s' resolved to '%s' on PATH; "
+            "using firefox engine with custom executable_path",
+            raw,
+            resolved,
+        )
+        return "firefox", resolved
+
+    logger.warning(
+        "Invalid GPTME_BROWSER_ENGINE='%s'; falling back to 'chromium'. "
+        "Valid named engines: %s. "
+        "Or set to a filesystem path or executable name for a custom binary.",
+        raw,
+        ", ".join(_VALID_ENGINES),
+    )
+    return "chromium", None
+
+
 def _connect_or_launch_browser(
     playwright: Playwright,
     cdp_url: str | None,
     engine: BrowserEngine = "chromium",
+    executable_path: str | None = None,
 ) -> Browser:
     if cdp_url:
         # CDP is only supported for Chromium-based browsers.
@@ -142,32 +196,40 @@ def _connect_or_launch_browser(
         return browser
 
     browser_launcher = getattr(playwright, engine)
-    browser = browser_launcher.launch()
-    logger.info("Browser launched (engine=%s)", engine)
+    launch_kwargs: dict[str, Any] = {}
+    if executable_path:
+        launch_kwargs["executable_path"] = executable_path
+    browser = browser_launcher.launch(**launch_kwargs)
+    if executable_path:
+        logger.info(
+            "Browser launched (engine=%s, executable=%s)", engine, executable_path
+        )
+    else:
+        logger.info("Browser launched (engine=%s)", engine)
     return browser
 
 
 class BrowserThread:
     def __init__(
-        self, cdp_url: str | None = None, engine: BrowserEngine | None = None
+        self,
+        cdp_url: str | None = None,
+        engine: BrowserEngine | None = None,
+        executable_path: str | None = None,
     ) -> None:
         self.cdp_url = cdp_url or get_config().get_env("BROWSER_CDP_URL")
 
-        # Resolve engine: explicit arg > env var > default "chromium"
+        # Resolve engine and executable_path: explicit args > env var > default "chromium"
         if engine is None:
-            raw = (get_config().get_env("BROWSER_ENGINE") or "").strip().lower()
-            if raw in _VALID_ENGINES:
-                engine = cast(BrowserEngine, raw)
+            raw = (get_config().get_env("BROWSER_ENGINE") or "").strip()
+            if raw:
+                parsed_engine, parsed_executable = _parse_engine_env(raw)
+                engine = parsed_engine
+                if executable_path is None:
+                    executable_path = parsed_executable
             else:
-                if raw:
-                    logger.warning(
-                        "Invalid GPTME_BROWSER_ENGINE='%s'; falling back to 'chromium'. "
-                        "Valid values: %s",
-                        raw,
-                        ", ".join(_VALID_ENGINES),
-                    )
                 engine = "chromium"
         self.engine: BrowserEngine = engine
+        self.executable_path: str | None = executable_path
         self.queue: Queue[tuple[Command | Action, object]] = Queue()
         self.results: dict[object, tuple[Any, Exception | None]] = {}
         self.lock = Lock()
@@ -210,7 +272,7 @@ class BrowserThread:
                         pass
                     self._session_context = None
                 browser = _connect_or_launch_browser(
-                    playwright, self.cdp_url, self.engine
+                    playwright, self.cdp_url, self.engine, self.executable_path
                 )
                 # For CDP, (re)create an isolated session context so parallel
                 # gptme instances don't share cookies/tabs. Recreated on every
@@ -224,15 +286,21 @@ class BrowserThread:
                 error: Exception
 
                 if "Executable doesn't exist" in str(e):
-                    pw_version = importlib.metadata.version("playwright")
-                    install_target = (
-                        "chromium-headless-shell"
-                        if self.engine == "chromium"
-                        else self.engine
-                    )
-                    error = RuntimeError(
-                        f"Browser executable not found. Run: pipx run playwright=={pw_version} install {install_target}"
-                    )
+                    if self.executable_path:
+                        error = RuntimeError(
+                            f"Custom browser executable not found: {self.executable_path}. "
+                            "Ensure the path exists and is executable."
+                        )
+                    else:
+                        pw_version = importlib.metadata.version("playwright")
+                        install_target = (
+                            "chromium-headless-shell"
+                            if self.engine == "chromium"
+                            else self.engine
+                        )
+                        error = RuntimeError(
+                            f"Browser executable not found. Run: pipx run playwright=={pw_version} install {install_target}"
+                        )
                 else:
                     error = e
                 logger.error(f"Failed to launch browser: {e}", exc_info=True)
