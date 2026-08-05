@@ -64,7 +64,6 @@ def test_gather_global_stats_empty(tmp_path: Path, monkeypatch: Any) -> None:
     assert summary.by_model == []
 
 
-
 def test_gather_global_stats_aggregation(tmp_path: Path, monkeypatch: Any) -> None:
     """Test gathering stats across multiple conversation logs with different models."""
     monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
@@ -122,9 +121,7 @@ def test_gather_global_stats_aggregation(tmp_path: Path, monkeypatch: Any) -> No
     assert abs(openai_stats.cost - 0.07) < 1e-6
 
 
-def test_gather_global_stats_time_filtering(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
+def test_gather_global_stats_time_filtering(tmp_path: Path, monkeypatch: Any) -> None:
     """Test filtering stats by N days."""
     monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
 
@@ -225,7 +222,9 @@ def test_display_stats_empty(capsys: Any) -> None:
     assert "No conversation logs found" in captured.out
 
 
-def test_gather_global_stats_mixed_model_session(tmp_path: Path, monkeypatch: Any) -> None:
+def test_gather_global_stats_mixed_model_session(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
     """Test exact per-message model attribution for cost and tokens in multi-model sessions."""
     monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
 
@@ -279,4 +278,46 @@ def test_gather_global_stats_mixed_model_session(tmp_path: Path, monkeypatch: An
     assert claude.output_tokens == 200
 
 
+def test_display_stats_marks_cache_as_subset_of_input():
+    """Cache-read tokens are counted inside input tokens, so the display must
+    say so explicitly rather than listing `cache` as a third additive term."""
+    from rich.console import Console
 
+    from gptme.cli.cmd_stats import StatsSummary, display_stats
+
+    summary = StatsSummary(
+        total_sessions=1,
+        total_cost=0.5,
+        total_input_tokens=150,
+        total_output_tokens=50,
+        total_cache_read_tokens=50,
+    )
+    # total is in + out only; cache is already inside in
+    assert summary.total_tokens == 200
+
+    console = Console(record=True, width=200, no_color=True)
+    display_stats(summary, console=console)
+    output = console.export_text()
+
+    # cache figure is nested inside the input term, marked as included
+    assert "incl. 50 cached" in output
+    # and is not presented as a separate additive term
+    assert "/ cache: 50" not in output
+
+
+def test_stats_json_documents_cache_subset_relationship():
+    """JSON output keeps cache_read alongside input; the two must not be
+    expected to sum to total."""
+    from gptme.cli.cmd_stats import StatsSummary
+
+    summary = StatsSummary(
+        total_sessions=1,
+        total_cost=0.5,
+        total_input_tokens=150,
+        total_output_tokens=50,
+        total_cache_read_tokens=50,
+    )
+    d = summary.to_dict()
+    tokens = d["total_tokens"]
+    assert tokens["total"] == tokens["input"] + tokens["output"]
+    assert tokens["cache_read"] <= tokens["input"]

@@ -1,4 +1,10 @@
-"""CLI command for global LLM usage and cost analytics."""
+"""CLI command for global LLM usage and cost analytics.
+
+Aggregates usage across gptme's own stored conversation logs.
+
+See also: ``gptme-sessions cost`` (gptme-contrib) for cross-backend analytics
+(Claude Code, OpenRouter, Bedrock, etc.) and ``gptme-usage`` for pricing tables.
+"""
 
 from __future__ import annotations
 
@@ -54,7 +60,6 @@ class StatsSummary:
         """Total tokens across all conversations."""
         return self.total_input_tokens + self.total_output_tokens
 
-
     @property
     def avg_cost_per_session(self) -> float:
         """Average cost per session in USD."""
@@ -63,7 +68,11 @@ class StatsSummary:
         return self.total_cost / self.total_sessions
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert StatsSummary to a dictionary for JSON serialization."""
+        """Convert StatsSummary to a dictionary for JSON serialization.
+
+        Note: ``cache_read`` is a *subset* of ``input`` (cache reads are counted
+        as input tokens), so the fields do not sum to ``total``.
+        """
         return {
             "total_sessions": self.total_sessions,
             "total_cost": round(self.total_cost, 4),
@@ -180,9 +189,9 @@ def display_stats(summary: StatsSummary, console: Console | None = None) -> None
     summary_table.add_row(
         "Total Tokens",
         f"{_format_tokens(summary.total_tokens)} "
-        f"([dim]in: {_format_tokens(summary.total_input_tokens)} / "
-        f"out: {_format_tokens(summary.total_output_tokens)} / "
-        f"cache: {_format_tokens(summary.total_cache_read_tokens)}[/dim])",
+        f"([dim]in: {_format_tokens(summary.total_input_tokens)} "
+        f"(incl. {_format_tokens(summary.total_cache_read_tokens)} cached) / "
+        f"out: {_format_tokens(summary.total_output_tokens)}[/dim])",
     )
     summary_table.add_row(
         "Avg Cost/Session", _format_cost(summary.avg_cost_per_session)
@@ -238,7 +247,14 @@ def display_stats(summary: StatsSummary, console: Console | None = None) -> None
     help="Output statistics as JSON.",
 )
 def stats(days: int | None, include_test: bool, output_json: bool) -> None:
-    """Show global LLM usage and cost statistics across all conversation logs."""
+    """Show global LLM usage and cost statistics across all conversation logs.
+
+    Cache-read tokens are included in the input-token count, not added on top.
+
+    See also: ``gptme-sessions cost`` (gptme-contrib) for cross-backend
+    analytics (Claude Code, OpenRouter, Bedrock, etc.) and ``gptme-usage`` for
+    pricing tables.
+    """
     summary = gather_global_stats(days=days, include_test=include_test)
 
     if output_json:
