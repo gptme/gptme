@@ -123,7 +123,7 @@ class TestProvidersTest:
         result = runner.invoke(main, ["providers", "test", "nonexistent"])
         assert result.exit_code == 1
         assert "not found" in result.output
-        assert "gptme.toml" in result.output
+        assert "gptme providers add" in result.output
 
     def test_missing_api_key_env(self, mock_config, make_provider, monkeypatch):
         """Test when API key env var is not set."""
@@ -335,3 +335,24 @@ class TestProvidersTest:
         assert "Connected" in result.output
         # No default model message
         assert "Default model" not in result.output
+
+
+class TestProvidersAdd:
+    """Tests for 'providers add' command."""
+
+    def test_add_invokes_setup_wizard(self):
+        """Test that 'providers add' calls the interactive setup wizard."""
+        with patch("gptme.cli.setup._setup_custom_provider") as mock_setup:
+            mock_setup.return_value = ("my-provider", "sk-test")
+            runner = CliRunner()
+            result = runner.invoke(main, ["providers", "add"])
+
+        assert result.exit_code == 0
+        mock_setup.assert_called_once()
+
+    def test_list_empty_mentions_add_command(self, mock_config):
+        """Test that empty providers list mentions 'gptme providers add'."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["providers", "list"])
+        assert result.exit_code == 0
+        assert "gptme providers add" in result.output

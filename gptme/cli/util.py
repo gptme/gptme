@@ -145,7 +145,8 @@ def providers_list():
     if not config.user.providers:
         click.echo("📭 No custom providers configured")
         click.echo()
-        click.echo("To add a custom provider, add to your gptme.toml:")
+        click.echo("Run `gptme providers add` to configure one interactively, or")
+        click.echo("add manually to your gptme.toml:")
         click.echo()
         click.echo("[[providers]]")
         click.echo('name = "my-provider"')
@@ -197,11 +198,10 @@ def providers_test(provider_name: str):
             names = [p.name for p in config.user.providers]
             click.echo(f"Available providers: {', '.join(names)}")
         else:
-            click.echo("No custom providers configured. Add one to your gptme.toml:")
-            click.echo()
-            click.echo("[[providers]]")
-            click.echo(f'name = "{provider_name}"')
-            click.echo('base_url = "http://localhost:8000/v1"')
+            click.echo(
+                "No custom providers configured. Run `gptme providers add` "
+                "to configure one interactively."
+            )
         sys.exit(1)
 
     click.echo(f"🔌 Testing provider: {provider_name}")
@@ -267,6 +267,21 @@ def providers_test(provider_name: str):
     except Exception as e:
         click.echo(f"   ❌ Connection failed: {e}")
         sys.exit(1)
+
+
+@providers.command("add")
+def providers_add():
+    """Interactively add a custom OpenAI-compatible provider.
+
+    Prompts for provider name, base URL, API key, and default model, then
+    writes the configuration to gptme.toml.
+
+    Example providers: Ollama (http://localhost:11434/v1), LM Studio
+    (http://localhost:1234/v1), vLLM, or any OpenAI-compatible relay.
+    """
+    from .setup import _setup_custom_provider  # local import to avoid circular dep
+
+    _setup_custom_provider()
 
 
 @main.group()
