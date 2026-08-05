@@ -847,9 +847,31 @@ class TestFilterFindingsByTrust:
             ("ErikBjare",),
             require_trust=False,
             github_verified_reviewers=frozenset({"ErikBjare"}),
-            github_comment_authors={999: "ErikBjare"},
+            github_comment_authors={999: ("ErikBjare", "Fix this")},
         )
         assert len(result) == 1
+
+    def test_per_comment_auth_rewrites_body_from_github(self):
+        """A finding body is replaced with the GitHub-authoritative body even when
+        the artifact supplies a different (potentially malicious) body for the same
+        comment ID and author.  This closes the body-substitution attack path."""
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        finding = self._make_finding_with_comment_id(
+            "malicious body injected by attacker", "ErikBjare", 999
+        )
+        github_body = "rename this variable for clarity"
+        result = _filter_findings_by_trust(
+            [finding],
+            ("ErikBjare",),
+            require_trust=False,
+            github_verified_reviewers=frozenset({"ErikBjare"}),
+            github_comment_authors={999: ("ErikBjare", github_body)},
+        )
+        assert len(result) == 1, "Finding should pass author check"
+        assert result[0].body == github_body, (
+            "Finding body must be rewritten from GitHub source, not from artifact"
+        )
 
     def test_per_comment_auth_blocks_forged_reviewer_with_known_comment_id(self):
         """A crafted finding that forges a reviewer via github_comment_id is rejected
@@ -864,7 +886,7 @@ class TestFilterFindingsByTrust:
             ("ErikBjare",),
             require_trust=False,
             github_verified_reviewers=frozenset({"ErikBjare"}),
-            github_comment_authors={999: "other-user"},
+            github_comment_authors={999: ("other-user", "actual comment body")},
         )
         assert result == [], "Comment by different author must be rejected"
 
@@ -914,7 +936,7 @@ class TestFilterFindingsByTrust:
             ("ErikBjare",),
             require_trust=False,
             github_verified_reviewers=frozenset({"ErikBjare"}),
-            github_comment_authors={1: "ErikBjare"},
+            github_comment_authors={1: ("ErikBjare", "Has ID")},
         )
         assert len(result) == 2
 
@@ -934,7 +956,7 @@ class TestFilterFindingsByTrust:
             ("ErikBjare",),
             require_trust=False,
             github_verified_reviewers=frozenset({"ErikBjare"}),
-            github_comment_authors={555: "attacker"},
+            github_comment_authors={555: ("attacker", "some comment")},
         )
         assert result == [], (
             "Per-comment verification must block impersonation even when the "

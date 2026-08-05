@@ -26,6 +26,7 @@ Full pipeline example::
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import shutil
@@ -306,7 +307,7 @@ def _filter_findings_by_trust(
     *,
     require_trust: bool,
     github_verified_reviewers: frozenset[str] | None = None,
-    github_comment_authors: dict[int, str] | None = None,
+    github_comment_authors: dict[int, tuple[str, str]] | None = None,
 ) -> list[ReviewFinding]:
     """Filter artifact findings to only those from trusted reviewers.
 
@@ -324,16 +325,15 @@ def _filter_findings_by_trust(
     and pass it here; failing to do so raises :class:`click.ClickException`
     so the gap cannot be silently skipped.
 
-    ``github_comment_authors`` is an optional ``{comment_id: author_login}``
+    ``github_comment_authors`` is an optional ``{comment_id: (author_login, body)}``
     mapping obtained from
     :func:`~gptme.util.gh.fetch_pr_review_comment_authors`.  When provided,
     findings that carry a ``github_comment_id`` are verified at the
     *per-comment* level: the comment's actual author (from the API) must
-    match the finding's ``reviewer`` field.  This closes the residual
-    impersonation window where a crafted artifact could forge a reviewer who
-    happened to submit any review on the PR but did not author that specific
-    finding.  Findings without a ``github_comment_id`` fall back to the
-    PR-level reviewer check.
+    match the finding's ``reviewer`` field.  Accepted findings have their
+    ``body`` rewritten with the GitHub-fetched body, eliminating the attack
+    where a crafted artifact reuses a real comment ID and trusted author but
+    substitutes a malicious finding body.
 
     .. note::
         The ``reviewer`` field is artifact-reported for findings that lack a
@@ -365,29 +365,39 @@ def _filter_findings_by_trust(
         )
 
     trusted_set = frozenset(trusted_reviewers)
+    result: list[ReviewFinding] = []
 
-    def _is_trusted(f: ReviewFinding) -> bool:
+    for f in findings:
         if f.reviewer not in trusted_set:
-            return False
-        # Per-comment verification: when the finding carries a GitHub comment
-        # ID, require the comment-author map and reject if the ID's actual
-        # author does not match.  Falling back to the PR-level reviewer check
-        # when the map is absent would allow a crafted artifact to survive by
-        # supplying any allowlisted reviewer's login alongside a real or
-        # non-existent comment ID.
+            continue
+
         if f.github_comment_id is not None:
+            # Per-comment verification: require the comment-author map and
+            # reject if the ID's actual author does not match.  Falling back
+            # to the PR-level reviewer check when the map is absent would
+            # allow a crafted artifact to survive by supplying any allowlisted
+            # reviewer's login alongside a real or non-existent comment ID.
             if github_comment_authors is None:
                 # Map unavailable — cannot verify per-comment identity; reject.
-                return False
-            actual_author = github_comment_authors.get(f.github_comment_id)
-            if actual_author is None:
+                continue
+            entry = github_comment_authors.get(f.github_comment_id)
+            if entry is None:
                 # Comment ID not found in PR review comments — reject.
-                return False
-            return actual_author == f.reviewer
-        # Fallback: PR-level reviewer check for findings without a comment ID.
-        return f.reviewer in github_verified_reviewers
+                continue
+            actual_author, github_body = entry
+            if actual_author != f.reviewer:
+                continue
+            # Rewrite the finding body with the GitHub-authoritative body so
+            # an attacker cannot inject instructions by pairing a real comment
+            # ID and matching author with a substituted malicious body.
+            result.append(dataclasses.replace(f, body=github_body.strip()))
+            continue
 
-    return [f for f in findings if _is_trusted(f)]
+        # Fallback: PR-level reviewer check for findings without a comment ID.
+        if f.reviewer in github_verified_reviewers:
+            result.append(f)
+
+    return result
 
 
 def spawn_review_session(
@@ -608,7 +618,7 @@ def review_watch(
         # via the GitHub API — not artifact metadata — because the artifact
         # controls its own reviewer field and can forge any login.
         github_verified: frozenset[str] | None = None
-        github_comment_authors: dict[int, str] | None = None
+        github_comment_authors: dict[int, tuple[str, str]] | None = None
         if trusted_reviewers:
             if not _gh_available():
                 raise click.ClickException(
