@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Bot, ExternalLink, Plus, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { extractAgentsFromConversations } from '@/utils/workspaceUtils';
@@ -20,7 +20,7 @@ export const AgentsView: FC<AgentsViewProps> = ({ conversations }) => {
   const { api, connectionConfig } = useApi();
   const baseUrl = connectionConfig.baseUrl.replace(/\/+$/, '');
   const navigate = useNavigate();
-  const agents = extractAgentsFromConversations(conversations);
+  const agents = useMemo(() => extractAgentsFromConversations(conversations), [conversations]);
   const demoMode = isDemoMode();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 

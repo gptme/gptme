@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Folder, MessageSquare } from 'lucide-react';
 import { extractWorkspacesFromConversations, formatPath } from '@/utils/workspaceUtils';
 import { formatDistanceToNow } from 'date-fns';
@@ -13,7 +14,10 @@ interface WorkspacesViewProps {
 
 export const WorkspacesView: FC<WorkspacesViewProps> = ({ conversations }) => {
   const navigate = useNavigate();
-  const workspaces = extractWorkspacesFromConversations(conversations);
+  const workspaces = useMemo(
+    () => extractWorkspacesFromConversations(conversations),
+    [conversations]
+  );
 
   const handleWorkspaceClick = (path: string) => {
     selectedWorkspace$.set(path);
