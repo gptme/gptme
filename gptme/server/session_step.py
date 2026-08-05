@@ -866,6 +866,7 @@ def step(
                 None,  # no edit for auto-confirm
                 model,
                 chat_config,
+                branch=branch,
             )
 
     except Exception as e:
@@ -893,6 +894,7 @@ def start_tool_execution(
     chat_config: ChatConfig,
     *,
     reserved: bool = False,
+    branch: str = "main",
 ) -> threading.Thread:
     """Execute a tool and handle its output.
 
@@ -901,6 +903,11 @@ def start_tool_execution(
     ``_start_step_thread`` (via ``reserved=True``) when a continuation is
     started; if the thread exits without starting a continuation, it clears the
     reservation so subsequent requests are not permanently blocked.
+
+    ``branch`` must match the branch used by the originating ``step()`` call so
+    that tool execution reads from and writes to the correct branch, and so that
+    the continuation step (started after all tools finish) also runs on the same
+    branch.  Defaults to ``"main"`` to match the default in ``step()``.
     """
 
     # This function would ideally run asynchronously to not block the request
@@ -929,8 +936,10 @@ def start_tool_execution(
             current_edited_tooluse: ToolUse | None = edited_tooluse
 
             while True:
-                # Reload the conversation to pick up outputs from prior tools
-                manager = LogManager.load(conversation_id, lock=False)
+                # Reload the conversation to pick up outputs from prior tools.
+                # Use the same branch as the originating step() call so we read
+                # the correct message history, not always the "main" branch.
+                manager = LogManager.load(conversation_id, branch=branch, lock=False)
 
                 # Atomically claim the tool with pop(): a get-then-pop sequence
                 # leaves a window where two threads (e.g. two concurrent confirm
@@ -1044,6 +1053,7 @@ def start_tool_execution(
                     session,
                     model,
                     chat_config.workspace,
+                    branch=branch,
                     reserved=reserved,
                 )
             elif reserved:

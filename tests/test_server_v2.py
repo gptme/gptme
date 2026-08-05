@@ -156,6 +156,96 @@ def test_start_tool_execution_streams_only_real_tool_output(
     assert "post hook chatter" in system_messages
 
 
+def test_start_tool_execution_uses_branch_for_reload_and_continuation(
+    v2_conv, client: FlaskClient, monkeypatch
+):
+    """Tool execution must reload from and continue on the branch used by /step.
+
+    Regression: execute_tool_thread always loaded from "main" (the default),
+    so tool execution on a non-main branch would read the wrong conversation
+    state and start the continuation step on the wrong branch.
+    """
+    import gptme.server.session_step as _step_mod
+    from gptme.logmanager import LogManager
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools import ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+
+    tool_id = "tool-branch-test"
+    session.pending_tools[tool_id] = ToolExecution(
+        tool_id=tool_id,
+        tooluse=ToolUse("shell", [], "echo hi", call_id="call-branch-1"),
+    )
+
+    # Track which branch LogManager.load was called with inside execute_tool_thread.
+    # Always delegate to the real "main" branch (which exists) so tool execution
+    # doesn't fail on a missing branch file — the test only cares that the
+    # branch argument is forwarded correctly, not that the branch file exists.
+    load_calls: list[dict] = []
+    _real_load = LogManager.load.__func__  # type: ignore[attr-defined]
+
+    @classmethod  # type: ignore[misc]
+    def _recording_load(cls, logdir, branch="main", **kwargs):
+        load_calls.append({"logdir": str(logdir), "branch": branch})
+        # Always load from "main" so the thread can proceed even when the
+        # requested branch file doesn't exist in the test conversation.
+        return _real_load(cls, logdir, branch="main", **kwargs)
+
+    monkeypatch.setattr(LogManager, "load", _recording_load)
+
+    step_thread_calls: list[dict] = []
+
+    def _recording_start_step_thread(*args, **kwargs):
+        step_thread_calls.append(kwargs)
+        return
+
+    monkeypatch.setattr(_step_mod, "_start_step_thread", _recording_start_step_thread)
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment",
+        lambda workspace, tools, chat_config: None,
+    )
+
+    from gptme.message import Message
+
+    def fake_execute(self, log=None, workspace=None, on_result_message=None):
+        yield Message("system", "ok")
+
+    monkeypatch.setattr("gptme.tools.base.ToolUse.execute", fake_execute)
+
+    thread = start_tool_execution(
+        conversation_id=conversation_id,
+        session=session,
+        tool_id=tool_id,
+        edited_tooluse=None,
+        model="openai/mock-model",
+        chat_config=ChatConfig(),
+        branch="feature-branch",
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+    # execute_tool_thread must forward the branch when reloading the conversation.
+    conv_load_branches = [
+        c["branch"] for c in load_calls if conversation_id in c["logdir"]
+    ]
+    assert conv_load_branches, "LogManager.load was never called for the conversation"
+    assert all(b == "feature-branch" for b in conv_load_branches), (
+        f"Expected reload on 'feature-branch', got: {conv_load_branches}"
+    )
+
+    # The continuation step must also be started on the same branch.
+    assert step_thread_calls, "_start_step_thread was never called"
+    assert step_thread_calls[0].get("branch") == "feature-branch", (
+        f"Continuation step used branch {step_thread_calls[0].get('branch')!r},"
+        " expected 'feature-branch'"
+    )
+
+
 def test_v2_api_root_provider_configured(client: FlaskClient, monkeypatch):
     """provider_configured reflects whether get_default_model() returns a model."""
     from gptme.llm.models.types import ModelMeta
