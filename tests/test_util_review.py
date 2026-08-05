@@ -434,6 +434,34 @@ class TestBuildReviewPromptFromFindings:
         assert "Rename this variable for clarity." in prompt
         assert "Add a docstring." in prompt
 
+    def test_multiline_finding_body_all_lines_quoted(self):
+        from gptme.cli.cmd_review_watch import _build_review_prompt_from_findings
+        from gptme.util.review import FindingSeverity, FindingStatus, ReviewFinding
+
+        finding = ReviewFinding(
+            body="Line one.\nLine two.\nLine three.",
+            file="src/foo.py",
+            line=10,
+            severity=FindingSeverity.WARNING,
+            status=FindingStatus.OPEN,
+            reviewer="reviewer",
+        )
+        prompt = _build_review_prompt_from_findings(
+            owner="o",
+            repo="r",
+            pr_num=1,
+            pr_branch="fix-branch",
+            findings=[finding],
+        )
+        # Every body line must be blockquote-prefixed; unquoted continuations break
+        # the authoritative-instruction boundary defined in the prompt header.
+        assert "> Line one." in prompt
+        assert "> Line two." in prompt
+        assert "> Line three." in prompt
+        for line in prompt.splitlines():
+            if line.strip() in ("Line two.", "Line three."):
+                raise AssertionError(f"Unquoted body continuation found: {line!r}")
+
     def test_empty_findings_no_section_headers(self):
         from gptme.cli.cmd_review_watch import _build_review_prompt_from_findings
 

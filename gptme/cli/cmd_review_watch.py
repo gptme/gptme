@@ -269,7 +269,7 @@ def _build_review_prompt_from_findings(
             if f.line is not None:
                 loc += f" line {f.line}"
             lines.append(f"**{reviewer}** on {loc} [{severity}]:")
-            lines.append(f"> {f.body}")
+            lines.append("\n".join(f"> {line}" for line in f.body.splitlines()))
             lines.append("")
 
     if pr_level_findings:
@@ -279,7 +279,7 @@ def _build_review_prompt_from_findings(
             reviewer = f.reviewer or "reviewer"
             severity = f.severity.value.upper()
             lines.append(f"**{reviewer}** [{severity}]:")
-            lines.append(f"> {f.body}")
+            lines.append("\n".join(f"> {line}" for line in f.body.splitlines()))
             lines.append("")
 
     lines.append("After committing and pushing the fixes, report what you changed.")
