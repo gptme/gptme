@@ -416,8 +416,12 @@ def review_watch(
     iterations = 0
     # Dedup guard for the cursor overlap window below: without it, comments
     # re-fetched during the overlap would be reprocessed (and re-spawn a fix
-    # session) every poll instead of being skipped as already-handled.
-    processed_ids: set[int] = set()
+    # session) every poll instead of being skipped as already-handled. Maps
+    # comment id -> the `updated_at` it had when last processed, rather than
+    # a bare id set, so a reviewer *editing* a comment after it was already
+    # handled (same id, new updated_at) is picked up again instead of being
+    # silently discarded forever.
+    processed: dict[int, str] = {}
 
     while True:
         # --- Check PR state ---
@@ -466,13 +470,22 @@ def review_watch(
             inline = [c for c in inline if _is_trusted(c)]
             conversation = [c for c in conversation if _is_trusted(c)]
 
-            # Drop comments already handled in a prior iteration. Needed
-            # because the cursor is advanced with a safety-margin overlap
-            # (see below) to avoid permanently dropping same-second
-            # feedback, which means the overlapped comment(s) get re-fetched
-            # on the next poll.
-            inline = [c for c in inline if c.get("id") not in processed_ids]
-            conversation = [c for c in conversation if c.get("id") not in processed_ids]
+            # Drop comments already handled in a prior iteration *and
+            # unchanged since*. Needed because the cursor is advanced with a
+            # safety-margin overlap (see below) to avoid permanently
+            # dropping same-second feedback, which means the overlapped
+            # comment(s) get re-fetched on the next poll. Comparing
+            # `updated_at` (not just id) ensures a comment a reviewer edits
+            # after it was processed is treated as new feedback rather than
+            # silently discarded — GitHub's `since` filter matches on
+            # `updated_at`, so edits are already being fetched; only the
+            # dedup step was dropping them.
+            def _is_unchanged(c: dict) -> bool:
+                cid = c.get("id")
+                return cid in processed and processed[cid] == c.get("updated_at", "")
+
+            inline = [c for c in inline if not _is_unchanged(c)]
+            conversation = [c for c in conversation if not _is_unchanged(c)]
 
             new_count = len(inline) + len(conversation)
             click.echo(
@@ -529,7 +542,7 @@ def review_watch(
                     for c in (*inline, *conversation):
                         cid = c.get("id")
                         if cid is not None:
-                            processed_ids.add(cid)
+                            processed[cid] = c.get("updated_at", "")
                     # Back the cursor off by one second so a comment created
                     # in the same wall-clock second as session_start_ts (the
                     # GitHub `since` filter has second granularity and treats

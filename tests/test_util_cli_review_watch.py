@@ -764,3 +764,59 @@ def test_review_watch_cursor_overlap_does_not_reprocess_comment(monkeypatch):
     assert spawn_calls[0] == 1, (
         "Comment re-fetched inside the cursor overlap must not re-spawn a session"
     )
+
+
+def test_review_watch_reprocesses_edited_comment(monkeypatch):
+    """A comment a reviewer edits *after* it was already processed must be
+    treated as new feedback (matching `updated_at`, not just `id`) rather
+    than silently dropped forever by the dedup guard."""
+    poll_count = [0]
+    spawn_calls = [0]
+    # Same id, but `updated_at` changes on the second poll to simulate the
+    # reviewer editing their comment after the first fix session ran.
+    comment_v1 = {
+        "id": 999,
+        "path": "f.py",
+        "original_line": 1,
+        "body": "needs fix",
+        "user": {"login": "maintainer", "type": "User"},
+        "author_association": "MEMBER",
+        "updated_at": "2026-08-05T00:00:00Z",
+    }
+    comment_v2 = {
+        **comment_v1,
+        "body": "actually needs a different fix",
+        "updated_at": "2026-08-05T00:05:00Z",
+    }
+
+    def fake_state(*a):
+        poll_count[0] += 1
+        if poll_count[0] > 3:
+            return _make_pr_state(state="CLOSED")
+        return _make_pr_state()
+
+    def fake_spawn(**kw):
+        spawn_calls[0] += 1
+        return {"exit_reason": "done", "duration_s": 0.1}
+
+    def fake_comments(*a, **kw):
+        return [comment_v1] if spawn_calls[0] == 0 else [comment_v2]
+
+    monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: True)
+    monkeypatch.setattr(cmd_review_watch, "get_pr_state", fake_state)
+    monkeypatch.setattr(cmd_review_watch, "get_new_review_comments", fake_comments)
+    monkeypatch.setattr(cmd_review_watch, "get_new_issue_comments", lambda *a, **kw: [])
+    monkeypatch.setattr(cmd_review_watch.time, "sleep", lambda s: None)
+    monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        util_main, ["review-watch", "1", "--repo", "o/r", "--poll-interval", "5"]
+    )
+    assert result.exit_code == 0
+    # First poll processes comment_v1; once that session is "done", the
+    # comment is edited (comment_v2, same id, new updated_at) and must
+    # trigger a second fix session rather than being dropped as a duplicate.
+    assert spawn_calls[0] == 2, (
+        "Editing a comment after it was processed must re-spawn a fix session"
+    )
