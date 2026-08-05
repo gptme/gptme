@@ -28,8 +28,8 @@ def review() -> None:
 
 
 # Attach the ``watch`` subcommand from cmd_review_watch, renamed for the group.
-# We import lazily inside the function to match the rest of the CLI pattern
-# and avoid importing heavy deps at module import time.
+# The import runs at module initialization (via the add_command call below);
+# the watch module currently has no heavy import-time dependencies.
 def _get_watch_command() -> click.Command:
     from .cmd_review_watch import review_watch
 
@@ -50,7 +50,6 @@ def _get_watch_command() -> click.Command:
     return cmd
 
 
-# Register the watch command eagerly so ``gptme-util review --help`` lists it.
-# The callback itself does a lazy import so the actual implementation is only
-# loaded when the subcommand is actually invoked.
+# Register the watch command at import time so ``gptme-util review --help``
+# lists it without needing to invoke the subcommand first.
 review.add_command(_get_watch_command())
