@@ -332,7 +332,10 @@ describe('Model selector (gptme#3440)', () => {
   });
 
   it('updates the model badge when chatConfig arrives asynchronously', async () => {
-    // Phase 1: chatConfig not yet loaded — badge shows fallback
+    // Phase 1: chatConfig not yet loaded — badge shows the client-side fallback.
+    // The fallback is intentional (better to show something than a blank selector),
+    // but we pin WHICH fallback is expected so regressions where the fallback changes
+    // to an unexpected or empty string are caught before the async update path runs.
     mockConversation$.set({
       isGenerating: false,
       executingTool: null,
@@ -343,6 +346,12 @@ describe('Model selector (gptme#3440)', () => {
     render(<ChatInput conversationId="conv-a" onSend={jest.fn()} autoFocus$={autoFocus$} />);
 
     const badge = screen.getByTestId('model-selector');
+
+    // The hardcoded fallback in ChatInput.tsx is 'anthropic/claude-sonnet-4-6';
+    // displayName strips the provider prefix via model.split('/').pop().
+    // This assertion fails if the fallback is removed, blanked, or changed to an
+    // unrelated model — catching that class of regression at the loading-state level.
+    expect(badge).toHaveTextContent('claude-sonnet-4-6');
     const initialText = badge.textContent ?? '';
 
     // Phase 2: simulate the API response landing — chatConfig updates with real model
@@ -350,12 +359,12 @@ describe('Model selector (gptme#3440)', () => {
       mockConversation$.chatConfig.set({ chat: { model: 'anthropic/claude-haiku-4-5' } });
     });
 
-    // Badge must reflect the now-known model
+    // Badge must reflect the now-known model (not the loading-state fallback)
     await waitFor(() => {
       expect(screen.getByTestId('model-selector')).toHaveTextContent('claude-haiku-4-5');
     });
 
-    // And must differ from the pre-load fallback that was shown
+    // Must no longer show the pre-load fallback
     expect(screen.getByTestId('model-selector').textContent).not.toBe(initialText);
   });
 
