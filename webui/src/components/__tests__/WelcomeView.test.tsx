@@ -356,6 +356,46 @@ describe('WelcomeView', () => {
     });
   });
 
+  it('keeps a "Run setup" CTA for returning users so onboarding stays reachable after skip', async () => {
+    // Skipping the wizard sets hasCompletedSetup=true; the wizard must remain
+    // reachable from the disconnected banner (regression: skip left no way back).
+    seedReturningUser();
+    isConnected$.set(false);
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(screen.queryByRole('button', { name: /get started/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /run setup/i }));
+
+    await waitFor(() => {
+      expect(setupWizard$.get()).toMatchObject({ open: true, step: 'welcome' });
+    });
+  });
+
+  it('shows the wizard CTA on remote-only Tauri (mobile) builds', () => {
+    // Mobile Tauri builds don't manage a local server; the wizard is the primary
+    // way to configure a server URL, so the CTA must not be hidden there.
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: false,
+      serverStatus: null,
+    });
+    isConnected$.set(false);
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByRole('button', { name: /get started/i })).toBeInTheDocument();
+  });
+
   it('shows docs link (but not install step) when a non-default server is disconnected', () => {
     mockBaseUrl = 'http://my-server.example.com:5700';
     isConnected$.set(false);

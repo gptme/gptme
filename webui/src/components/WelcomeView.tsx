@@ -206,6 +206,12 @@ export const WelcomeView = () => {
   // their disconnected banner is left unchanged.
   const isFirstVisit = !settings.hasCompletedSetup;
   const showGuidedSetup = isDefaultLocalServer && isFirstVisit && !demoMode;
+  // Wizard CTA stays available after setup was skipped/completed so onboarding
+  // remains reachable, and on remote-only Tauri (mobile) where the wizard is the
+  // primary way to configure a server URL. Desktop Tauri manages its own server
+  // and keeps the CTA hidden (#3407).
+  const isRemoteOnlyTauri = isTauri && managesLocalServer === false;
+  const showWizardCta = isDefaultLocalServer && !demoMode && (!isTauri || isRemoteOnlyTauri);
 
   // Classify the last connection failure into actionable buckets for targeted guidance.
   const errorBucket = (() => {
@@ -435,7 +441,7 @@ export const WelcomeView = () => {
                       </div>
                     )}
                   <div className="flex flex-wrap gap-2">
-                    {showGuidedSetup && !isTauri && (
+                    {showWizardCta && (
                       <Button
                         type="button"
                         size="sm"
@@ -444,7 +450,7 @@ export const WelcomeView = () => {
                           setupWizard$.open.set(true);
                         }}
                       >
-                        Get started
+                        {isFirstVisit ? 'Get started' : 'Run setup'}
                       </Button>
                     )}
                     {isTauri && managesLocalServer && (
