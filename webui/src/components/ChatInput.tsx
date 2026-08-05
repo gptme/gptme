@@ -625,7 +625,9 @@ export const ChatInput: FC<Props> = ({
   const conversationModel = chatConfig?.chat?.model;
   // True only while we're waiting for chatConfig to arrive for an existing
   // conversation — prevents showing the wrong fallback model during the fetch.
-  const isChatConfigLoading = !!conversationId && chatConfig === null;
+  // Skip the skeleton for read-only (demo) conversations: they never fetch
+  // chatConfig, so chatConfig stays null forever and would give a permanent skeleton.
+  const isChatConfigLoading = !!conversationId && !isReadOnly && chatConfig === null;
 
   // Initialize message from localStorage for persistence across page reloads
   // Skip localStorage in edit mode — content comes from the message being edited
