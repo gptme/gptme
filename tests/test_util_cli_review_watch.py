@@ -127,9 +127,9 @@ def test_build_review_prompt_contains_pr_identifier():
         conversation_comments=[],
     )
     assert "owner/repo#42" in prompt
-    # The prompt must tell the session how to fetch the diff rather than
-    # embedding author-supplied content.
-    assert "gh pr diff" in prompt
+    # The prompt must not invite the session to pull the full PR diff — that
+    # content is author-controlled and gets auto-confirmed tool execution.
+    assert "gh pr diff" not in prompt
 
 
 def test_build_review_prompt_includes_inline_comment():
@@ -174,7 +174,7 @@ def test_build_review_prompt_includes_conversation_comment():
 
 
 def test_build_review_prompt_does_not_embed_diff():
-    """Prompt must NOT embed the diff — it tells the session to fetch it via gh."""
+    """Prompt must NOT embed diff content, and must not tell the session to fetch it."""
     prompt = cmd_review_watch._build_review_prompt(
         owner="o",
         repo="r",
@@ -183,9 +183,11 @@ def test_build_review_prompt_does_not_embed_diff():
         inline_comments=[],
         conversation_comments=[],
     )
-    # No embedded diff content; instead a gh command is provided
+    # No embedded diff content, and no invitation to pull it via `gh pr diff`
+    # either — both are author-controlled input into a privileged session.
     assert "```diff" not in prompt
-    assert "gh pr diff" in prompt
+    assert "gh pr diff" not in prompt
+    assert "SECURITY" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -645,7 +647,7 @@ def test_get_new_review_comments_flattens_slurp_pages(monkeypatch):
 
 
 def test_build_review_prompt_excludes_diff_content():
-    """Prompt must NOT embed diff content — instructs session to fetch via gh instead."""
+    """Prompt must NOT embed diff content, nor tell the session to fetch it."""
     prompt = cmd_review_watch._build_review_prompt(
         owner="o",
         repo="r",
@@ -654,14 +656,15 @@ def test_build_review_prompt_excludes_diff_content():
         inline_comments=[],
         conversation_comments=[],
     )
-    # No embedded diff: the PR diff is author-controlled and can contain
-    # prompt-injection instructions.  Instead the session is told to run
-    # `gh pr diff` itself when it needs context.
+    # No embedded diff, and no `gh pr diff` invitation either: the PR diff is
+    # author-controlled and pulling it wholesale into the same privileged,
+    # auto-confirmed session is itself the prompt-injection risk (not just
+    # embedding it directly).
     assert "```diff" not in prompt, (
         "Diff content must not be embedded in the prompt (prompt injection risk)"
     )
-    assert "gh pr diff 42" in prompt, (
-        "Prompt must tell the session how to fetch the diff safely"
+    assert "gh pr diff" not in prompt, (
+        "Prompt must not invite the session to pull the full PR diff"
     )
 
 
@@ -713,4 +716,51 @@ def test_review_watch_cursor_not_advanced_on_session_error(monkeypatch):
     # The cursor must not advance when the session fails
     assert since_values[0] == since_values[1], (
         "Cursor must not advance after a failed session"
+    )
+
+
+def test_review_watch_cursor_overlap_does_not_reprocess_comment(monkeypatch):
+    """A comment re-fetched in the cursor's 1s safety-margin overlap must not
+    re-trigger a fix session — the dedup guard should skip it as already handled."""
+    poll_count = [0]
+    spawn_calls = [0]
+    # Same comment is returned by every poll to simulate it falling inside the
+    # 1-second overlap window created when the cursor is backed off.
+    comment = {
+        "id": 999,
+        "path": "f.py",
+        "original_line": 1,
+        "body": "needs fix",
+        "user": {"login": "maintainer", "type": "User"},
+        "author_association": "MEMBER",
+    }
+
+    def fake_state(*a):
+        poll_count[0] += 1
+        if poll_count[0] > 3:
+            return _make_pr_state(state="CLOSED")
+        return _make_pr_state()
+
+    def fake_spawn(**kw):
+        spawn_calls[0] += 1
+        return {"exit_reason": "done", "duration_s": 0.1}
+
+    monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: True)
+    monkeypatch.setattr(cmd_review_watch, "get_pr_state", fake_state)
+    monkeypatch.setattr(
+        cmd_review_watch, "get_new_review_comments", lambda *a, **kw: [comment]
+    )
+    monkeypatch.setattr(cmd_review_watch, "get_new_issue_comments", lambda *a, **kw: [])
+    monkeypatch.setattr(cmd_review_watch.time, "sleep", lambda s: None)
+    monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        util_main, ["review-watch", "1", "--repo", "o/r", "--poll-interval", "5"]
+    )
+    assert result.exit_code == 0
+    # The same comment id keeps being "returned" (simulating the overlap
+    # window), but a fix session must only spawn for it once.
+    assert spawn_calls[0] == 1, (
+        "Comment re-fetched inside the cursor overlap must not re-spawn a session"
     )
