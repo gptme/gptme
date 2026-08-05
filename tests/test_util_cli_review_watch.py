@@ -117,21 +117,19 @@ def test_get_pr_state_happy_path(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_build_review_prompt_contains_pr_title():
+def test_build_review_prompt_contains_pr_identifier():
     prompt = cmd_review_watch._build_review_prompt(
         owner="owner",
         repo="repo",
         pr_num=42,
-        pr_title="Add feature X",
         pr_branch="feat/x",
         inline_comments=[],
         conversation_comments=[],
-        diff_snippet="",
     )
-    assert "Add feature X" in prompt
     assert "owner/repo#42" in prompt
-    # Title and diff must be clearly labelled as author-supplied / untrusted
-    assert "author-supplied" in prompt.lower() or "security notice" in prompt.lower()
+    # The prompt must tell the session how to fetch the diff rather than
+    # embedding author-supplied content.
+    assert "gh pr diff" in prompt
 
 
 def test_build_review_prompt_includes_inline_comment():
@@ -147,11 +145,9 @@ def test_build_review_prompt_includes_inline_comment():
         owner="o",
         repo="r",
         pr_num=1,
-        pr_title="T",
         pr_branch="b",
         inline_comments=inline,
         conversation_comments=[],
-        diff_snippet="",
     )
     assert "src/app.py" in prompt
     assert "reviewer1" in prompt
@@ -169,30 +165,27 @@ def test_build_review_prompt_includes_conversation_comment():
         owner="o",
         repo="r",
         pr_num=1,
-        pr_title="T",
         pr_branch="b",
         inline_comments=[],
         conversation_comments=convo,
-        diff_snippet="",
     )
     assert "Please add a test." in prompt
     assert "maintainer" in prompt
 
 
-def test_build_review_prompt_includes_diff():
-    diff = "--- a/file.py\n+++ b/file.py\n@@ -1 +1 @@\n-old\n+new"
+def test_build_review_prompt_does_not_embed_diff():
+    """Prompt must NOT embed the diff — it tells the session to fetch it via gh."""
     prompt = cmd_review_watch._build_review_prompt(
         owner="o",
         repo="r",
         pr_num=1,
-        pr_title="T",
         pr_branch="b",
         inline_comments=[],
         conversation_comments=[],
-        diff_snippet=diff,
     )
-    assert "```diff" in prompt
-    assert "-old" in prompt
+    # No embedded diff content; instead a gh command is provided
+    assert "```diff" not in prompt
+    assert "gh pr diff" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +385,6 @@ def test_review_watch_spawns_session_on_new_comment(monkeypatch):
         ],
     )
     monkeypatch.setattr(cmd_review_watch, "get_new_issue_comments", lambda *a, **kw: [])
-    monkeypatch.setattr(cmd_review_watch, "get_pr_diff", lambda *a: "")
 
     spawn_calls: list[dict] = []
 
@@ -429,7 +421,6 @@ def test_review_watch_filters_bot_comments(monkeypatch):
         ],
     )
     monkeypatch.setattr(cmd_review_watch, "get_new_issue_comments", lambda *a, **kw: [])
-    monkeypatch.setattr(cmd_review_watch, "get_pr_diff", lambda *a: "")
 
     spawn_calls: list[dict] = []
 
@@ -467,7 +458,6 @@ def test_review_watch_max_iterations_stops_loop(monkeypatch):
     monkeypatch.setattr(cmd_review_watch, "get_pr_state", fake_state)
     monkeypatch.setattr(cmd_review_watch, "get_new_review_comments", fake_inline)
     monkeypatch.setattr(cmd_review_watch, "get_new_issue_comments", lambda *a, **kw: [])
-    monkeypatch.setattr(cmd_review_watch, "get_pr_diff", lambda *a: "")
     monkeypatch.setattr(cmd_review_watch.time, "sleep", lambda s: None)
 
     def fake_spawn(**kw):
@@ -531,7 +521,6 @@ def test_review_watch_filters_untrusted_human_comments(monkeypatch):
         ],
     )
     monkeypatch.setattr(cmd_review_watch, "get_new_issue_comments", lambda *a, **kw: [])
-    monkeypatch.setattr(cmd_review_watch, "get_pr_diff", lambda *a: "")
 
     spawn_calls: list[dict] = []
 
@@ -571,7 +560,6 @@ def test_review_watch_once_includes_existing_comments(monkeypatch):
         cmd_review_watch, "get_new_review_comments", fake_review_comments
     )
     monkeypatch.setattr(cmd_review_watch, "get_new_issue_comments", lambda *a, **kw: [])
-    monkeypatch.setattr(cmd_review_watch, "get_pr_diff", lambda *a: "")
     monkeypatch.setattr(
         cmd_review_watch,
         "spawn_review_session",
@@ -588,8 +576,13 @@ def test_review_watch_once_includes_existing_comments(monkeypatch):
     )
 
 
-def test_get_new_review_comments_uses_paginate(monkeypatch):
-    """get_new_review_comments should pass --paginate to gh api."""
+def test_get_new_review_comments_uses_paginate_slurp(monkeypatch):
+    """get_new_review_comments must pass both --paginate and --slurp to gh api.
+
+    Without --slurp, gh api --paginate writes each page as a separate JSON
+    object; json.loads fails on the concatenated output and returns None,
+    causing silent truncation of all comments beyond the first 100.
+    """
     captured_args: list[list[str]] = []
 
     def fake_gh_json(args, **kwargs):
@@ -601,12 +594,20 @@ def test_get_new_review_comments_uses_paginate(monkeypatch):
 
     assert captured_args, "Expected _gh_json to be called"
     assert "--paginate" in captured_args[0], (
-        "get_new_review_comments must use --paginate to avoid 100-comment truncation"
+        "get_new_review_comments must use --paginate to fetch all pages"
+    )
+    assert "--slurp" in captured_args[0], (
+        "get_new_review_comments must use --slurp so pages are merged into one JSON array"
     )
 
 
-def test_get_new_issue_comments_uses_paginate(monkeypatch):
-    """get_new_issue_comments should pass --paginate to gh api."""
+def test_get_new_issue_comments_uses_paginate_slurp(monkeypatch):
+    """get_new_issue_comments must pass both --paginate and --slurp to gh api.
+
+    Without --slurp, gh api --paginate writes each page as a separate JSON
+    object; json.loads fails on the concatenated output and returns None,
+    causing silent truncation of all comments beyond the first 100.
+    """
     captured_args: list[list[str]] = []
 
     def fake_gh_json(args, **kwargs):
@@ -618,25 +619,49 @@ def test_get_new_issue_comments_uses_paginate(monkeypatch):
 
     assert captured_args, "Expected _gh_json to be called"
     assert "--paginate" in captured_args[0], (
-        "get_new_issue_comments must use --paginate to avoid 100-comment truncation"
+        "get_new_issue_comments must use --paginate to fetch all pages"
+    )
+    assert "--slurp" in captured_args[0], (
+        "get_new_issue_comments must use --slurp so pages are merged into one JSON array"
     )
 
 
-def test_build_review_prompt_labels_diff_as_author_supplied():
-    """Diff section must be labelled as author-supplied to prevent prompt injection."""
-    diff = "--- a/file.py\n+++ b/file.py\n@@ -1 +1 @@\n-old\n+new"
+def test_get_new_review_comments_flattens_slurp_pages(monkeypatch):
+    """Multi-page --slurp output ([[page1], [page2]]) must be flattened to a flat list."""
+    page1 = [{"id": 1, "body": "comment 1"}]
+    page2 = [{"id": 2, "body": "comment 2"}]
+
+    def fake_gh_json(args, **kwargs):
+        # Simulate gh api --paginate --slurp: outer list wraps each page
+        return [page1, page2]
+
+    monkeypatch.setattr(cmd_review_watch, "_gh_json", fake_gh_json)
+    result = cmd_review_watch.get_new_review_comments(
+        "o", "r", 1, "2026-01-01T00:00:00Z"
+    )
+    assert result == [{"id": 1, "body": "comment 1"}, {"id": 2, "body": "comment 2"}], (
+        "Multi-page slurp output must be flattened to a single list of comment dicts"
+    )
+
+
+def test_build_review_prompt_excludes_diff_content():
+    """Prompt must NOT embed diff content — instructs session to fetch via gh instead."""
     prompt = cmd_review_watch._build_review_prompt(
         owner="o",
         repo="r",
-        pr_num=1,
-        pr_title="T",
+        pr_num=42,
         pr_branch="b",
         inline_comments=[],
         conversation_comments=[],
-        diff_snippet=diff,
     )
-    assert "author-supplied" in prompt.lower(), (
-        "Diff section must be labelled as author-supplied to guard against prompt injection"
+    # No embedded diff: the PR diff is author-controlled and can contain
+    # prompt-injection instructions.  Instead the session is told to run
+    # `gh pr diff` itself when it needs context.
+    assert "```diff" not in prompt, (
+        "Diff content must not be embedded in the prompt (prompt injection risk)"
+    )
+    assert "gh pr diff 42" in prompt, (
+        "Prompt must tell the session how to fetch the diff safely"
     )
 
 
@@ -669,7 +694,6 @@ def test_review_watch_cursor_not_advanced_on_session_error(monkeypatch):
         cmd_review_watch, "get_new_review_comments", fake_review_comments
     )
     monkeypatch.setattr(cmd_review_watch, "get_new_issue_comments", lambda *a, **kw: [])
-    monkeypatch.setattr(cmd_review_watch, "get_pr_diff", lambda *a: "")
     monkeypatch.setattr(cmd_review_watch.time, "sleep", lambda s: None)
     # Session always errors
     monkeypatch.setattr(
