@@ -23,6 +23,10 @@ from gptme.util.review import (
 )
 
 # ---------------------------------------------------------------------------
+# NOTE: FindingStatus is used in artifact-mode tests below (TestArtifactMode).
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
 # gptme.util.gh shared helpers
 # ---------------------------------------------------------------------------
 
@@ -328,3 +332,292 @@ class TestReviewCommandGroup:
         result = runner.invoke(util_main, ["review", "watch", "1", "--repo", "o/r"])
         assert result.exit_code != 0
         assert "gh" in result.output.lower()
+
+    def test_review_watch_requires_pr_without_artifact(self, monkeypatch):
+        """Without --artifact, PR number is required."""
+        from gptme.cli import cmd_review_watch
+
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: True)
+        runner = CliRunner()
+        result = runner.invoke(util_main, ["review", "watch", "--repo", "o/r"])
+        assert result.exit_code != 0
+        assert "PR" in result.output or "artifact" in result.output.lower()
+
+    def test_review_watch_help_shows_artifact_option(self):
+        """``--artifact`` option should appear in the help text."""
+        runner = CliRunner()
+        result = runner.invoke(util_main, ["review", "watch", "--help"])
+        assert result.exit_code == 0
+        assert "--artifact" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Artifact mode: _build_review_prompt_from_findings
+# ---------------------------------------------------------------------------
+
+
+class TestBuildReviewPromptFromFindings:
+    def _make_findings(self):
+        from gptme.util.review import FindingSeverity, FindingStatus, ReviewFinding
+
+        return [
+            ReviewFinding(
+                body="Rename this variable for clarity.",
+                file="gptme/util/review.py",
+                line=42,
+                severity=FindingSeverity.WARNING,
+                status=FindingStatus.OPEN,
+                reviewer="ErikBjare",
+            ),
+            ReviewFinding(
+                body="Add a docstring.",
+                file="",
+                severity=FindingSeverity.NOTE,
+                status=FindingStatus.OPEN,
+                reviewer="ErikBjare",
+            ),
+        ]
+
+    def test_prompt_contains_file_and_line(self):
+        from gptme.cli.cmd_review_watch import _build_review_prompt_from_findings
+
+        findings = self._make_findings()
+        prompt = _build_review_prompt_from_findings(
+            owner="o",
+            repo="r",
+            pr_num=1,
+            pr_branch="fix-branch",
+            findings=findings,
+        )
+        assert "gptme/util/review.py" in prompt
+        assert "line 42" in prompt
+
+    def test_prompt_contains_severity(self):
+        from gptme.cli.cmd_review_watch import _build_review_prompt_from_findings
+
+        findings = self._make_findings()
+        prompt = _build_review_prompt_from_findings(
+            owner="o",
+            repo="r",
+            pr_num=1,
+            pr_branch="fix-branch",
+            findings=findings,
+        )
+        assert "WARNING" in prompt
+        assert "NOTE" in prompt
+
+    def test_prompt_separates_inline_and_pr_level(self):
+        from gptme.cli.cmd_review_watch import _build_review_prompt_from_findings
+
+        findings = self._make_findings()
+        prompt = _build_review_prompt_from_findings(
+            owner="o",
+            repo="r",
+            pr_num=1,
+            pr_branch="fix-branch",
+            findings=findings,
+        )
+        assert "Inline code review findings" in prompt
+        assert "PR-level findings" in prompt
+
+    def test_prompt_includes_finding_bodies(self):
+        from gptme.cli.cmd_review_watch import _build_review_prompt_from_findings
+
+        findings = self._make_findings()
+        prompt = _build_review_prompt_from_findings(
+            owner="o",
+            repo="r",
+            pr_num=1,
+            pr_branch="fix-branch",
+            findings=findings,
+        )
+        assert "Rename this variable for clarity." in prompt
+        assert "Add a docstring." in prompt
+
+    def test_empty_findings_no_section_headers(self):
+        from gptme.cli.cmd_review_watch import _build_review_prompt_from_findings
+
+        prompt = _build_review_prompt_from_findings(
+            owner="o",
+            repo="r",
+            pr_num=1,
+            pr_branch="fix-branch",
+            findings=[],
+        )
+        assert "Inline code review findings" not in prompt
+        assert "PR-level findings" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# Artifact mode: CLI integration
+# ---------------------------------------------------------------------------
+
+
+class TestArtifactMode:
+    def _make_artifact_file(self, tmp_path, *, has_open=True):
+        from gptme.util.review import FindingSeverity, FindingStatus, ReviewFinding
+
+        findings = []
+        if has_open:
+            findings.append(
+                ReviewFinding(
+                    body="Fix this bug.",
+                    file="gptme/util/review.py",
+                    line=10,
+                    severity=FindingSeverity.ERROR,
+                    status=FindingStatus.OPEN,
+                    reviewer="ErikBjare",
+                )
+            )
+        findings.append(
+            ReviewFinding(
+                body="Already fixed.",
+                file="",
+                severity=FindingSeverity.NOTE,
+                status=FindingStatus.CONFIRMED,
+                reviewer="ErikBjare",
+            )
+        )
+        artifact = ReviewArtifact(
+            pr_owner="gptme",
+            pr_repo="gptme",
+            pr_number=1234,
+            findings=findings,
+        )
+        path = tmp_path / "artifact.json"
+        artifact.save(path)
+        return path
+
+    def test_artifact_mode_no_gh_needed(self, tmp_path, monkeypatch):
+        """With --artifact, gh is not called even when not available."""
+        from gptme.cli import cmd_review_watch
+
+        artifact_path = self._make_artifact_file(tmp_path)
+
+        # Patch spawn so we don't actually run gptme
+        monkeypatch.setattr(
+            cmd_review_watch,
+            "spawn_review_session",
+            lambda **_: {"exit_reason": "done", "duration_s": 0.1},
+        )
+        # gh is unavailable — artifact mode should still work
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            ["review", "watch", "--artifact", str(artifact_path)],
+        )
+        assert result.exit_code == 0, result.output
+
+    def test_artifact_mode_empty_artifact_exits_cleanly(self, tmp_path, monkeypatch):
+        """Artifact with no open findings should exit with informational message."""
+        artifact_path = self._make_artifact_file(tmp_path, has_open=False)
+
+        from gptme.cli import cmd_review_watch
+
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            ["review", "watch", "--artifact", str(artifact_path)],
+        )
+        assert result.exit_code == 0
+        assert "no open findings" in result.output.lower()
+
+    def test_artifact_mode_infers_pr_from_artifact(self, tmp_path, monkeypatch):
+        """Artifact mode infers owner/repo/number from the artifact."""
+        from gptme.cli import cmd_review_watch
+
+        artifact_path = self._make_artifact_file(tmp_path)
+
+        calls = []
+
+        def fake_spawn(**kwargs):
+            calls.append(kwargs)
+            return {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            ["review", "watch", "--artifact", str(artifact_path)],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1
+        # PR metadata from artifact should appear in the prompt
+        prompt = calls[0]["prompt"]
+        assert "gptme/gptme#1234" in prompt
+
+    def test_artifact_mode_repo_flag_overrides_artifact(self, tmp_path, monkeypatch):
+        """--repo flag takes precedence over artifact's owner/repo."""
+        from gptme.cli import cmd_review_watch
+
+        artifact_path = self._make_artifact_file(tmp_path)
+
+        calls = []
+
+        def fake_spawn(**kwargs):
+            calls.append(kwargs)
+            return {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review",
+                "watch",
+                "--artifact",
+                str(artifact_path),
+                "--repo",
+                "other/repo",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        prompt = calls[0]["prompt"]
+        assert "other/repo" in prompt
+
+    def test_artifact_updates_finding_status_on_success(self, tmp_path, monkeypatch):
+        """After a successful session, the artifact file is updated."""
+        from gptme.cli import cmd_review_watch
+
+        artifact_path = self._make_artifact_file(tmp_path)
+
+        monkeypatch.setattr(
+            cmd_review_watch,
+            "spawn_review_session",
+            lambda **_: {"exit_reason": "done", "duration_s": 0.1},
+        )
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        runner.invoke(
+            util_main,
+            ["review", "watch", "--artifact", str(artifact_path)],
+        )
+
+        updated = ReviewArtifact.load(artifact_path)
+        in_progress = [
+            f for f in updated.findings if f.status == FindingStatus.IN_PROGRESS
+        ]
+        assert len(in_progress) == 1  # the previously-open finding
+
+    def test_artifact_mode_invalid_path_errors(self, monkeypatch):
+        """Invalid artifact path should produce a clear error."""
+        from gptme.cli import cmd_review_watch
+
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            ["review", "watch", "--artifact", "/nonexistent/path/artifact.json"],
+        )
+        assert result.exit_code != 0
+        assert "artifact" in result.output.lower()
