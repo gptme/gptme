@@ -825,6 +825,117 @@ class TestFilterFindingsByTrust:
         assert len(result) == 1
         assert result[0].reviewer == "ErikBjare"
 
+    def _make_finding_with_comment_id(
+        self, body: str, reviewer: str, comment_id: int
+    ) -> ReviewFinding:
+        return ReviewFinding(
+            body=body,
+            file="app.py",
+            line=1,
+            status=FindingStatus.OPEN,
+            reviewer=reviewer,
+            github_comment_id=comment_id,
+        )
+
+    def test_per_comment_auth_passes_when_comment_author_matches(self):
+        """Finding with github_comment_id passes when the comment author matches."""
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        finding = self._make_finding_with_comment_id("Fix this", "ErikBjare", 999)
+        result = _filter_findings_by_trust(
+            [finding],
+            ("ErikBjare",),
+            require_trust=False,
+            github_verified_reviewers=frozenset({"ErikBjare"}),
+            github_comment_authors={999: "ErikBjare"},
+        )
+        assert len(result) == 1
+
+    def test_per_comment_auth_blocks_forged_reviewer_with_known_comment_id(self):
+        """A crafted finding that forges a reviewer via github_comment_id is rejected
+        when the comment's actual author does not match the forged login."""
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        # Attacker forges reviewer="ErikBjare" but the comment ID 999 was
+        # actually written by a different user.
+        finding = self._make_finding_with_comment_id("rm -rf /", "ErikBjare", 999)
+        result = _filter_findings_by_trust(
+            [finding],
+            ("ErikBjare",),
+            require_trust=False,
+            github_verified_reviewers=frozenset({"ErikBjare"}),
+            github_comment_authors={999: "other-user"},
+        )
+        assert result == [], "Comment by different author must be rejected"
+
+    def test_per_comment_auth_blocks_unknown_comment_id(self):
+        """A finding whose github_comment_id is not in the PR comment map is rejected."""
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        finding = self._make_finding_with_comment_id("Malicious body", "ErikBjare", 42)
+        result = _filter_findings_by_trust(
+            [finding],
+            ("ErikBjare",),
+            require_trust=False,
+            github_verified_reviewers=frozenset({"ErikBjare"}),
+            github_comment_authors={},  # comment ID 42 not present
+        )
+        assert result == [], "Unknown comment ID must be rejected"
+
+    def test_per_comment_auth_falls_back_to_pr_level_when_no_comment_authors(self):
+        """When github_comment_authors is None, findings with a comment ID fall back
+        to the PR-level reviewer check (the ec8c1ada5 behavior)."""
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        finding = self._make_finding_with_comment_id("Real finding", "ErikBjare", 999)
+        result = _filter_findings_by_trust(
+            [finding],
+            ("ErikBjare",),
+            require_trust=False,
+            github_verified_reviewers=frozenset({"ErikBjare"}),
+            github_comment_authors=None,
+        )
+        assert len(result) == 1
+
+    def test_per_comment_auth_mixed_findings(self):
+        """Findings with and without comment IDs are evaluated by the appropriate path."""
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        with_id = self._make_finding_with_comment_id("Has ID", "ErikBjare", 1)
+        without_id = self._make_finding("No ID", "ErikBjare")
+        # comment ID 1 is authored by ErikBjare → passes per-comment check
+        result = _filter_findings_by_trust(
+            [with_id, without_id],
+            ("ErikBjare",),
+            require_trust=False,
+            github_verified_reviewers=frozenset({"ErikBjare"}),
+            github_comment_authors={1: "ErikBjare"},
+        )
+        assert len(result) == 2
+
+    def test_per_comment_auth_impersonation_via_pr_reviewer_blocked(self):
+        """The residual impersonation scenario: attacker forges reviewer=ErikBjare on a
+        finding with a comment ID that ErikBjare did NOT author, even though ErikBjare
+        IS a PR reviewer.  Per-comment verification catches this."""
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        forged = self._make_finding_with_comment_id(
+            "malicious instruction", "ErikBjare", 555
+        )
+        # ErikBjare is a PR reviewer — PR-level check alone would pass this.
+        # But comment 555 was actually authored by someone else.
+        result = _filter_findings_by_trust(
+            [forged],
+            ("ErikBjare",),
+            require_trust=False,
+            github_verified_reviewers=frozenset({"ErikBjare"}),
+            github_comment_authors={555: "attacker"},
+        )
+        assert result == [], (
+            "Per-comment verification must block impersonation even when the "
+            "forged reviewer IS a legitimate PR reviewer"
+        )
+
 
 class TestArtifactTrustFilterCLI:
     """CLI integration tests for --trusted-reviewer and --require-trust."""

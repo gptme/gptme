@@ -113,6 +113,50 @@ def fetch_pr_reviewer_logins(
     )
 
 
+def fetch_pr_review_comment_authors(
+    owner: str, repo: str, pr_num: int, *, timeout: float = 15
+) -> dict[int, str] | None:
+    """Return a mapping of {comment_id: author_login} for PR review comments.
+
+    Uses ``GET /repos/{owner}/{repo}/pulls/{pr_num}/comments`` — the PR review
+    *comments* endpoint (inline/diff comments), not the reviews endpoint.  This
+    provides per-comment authorship that can be used to verify a finding's
+    ``github_comment_id`` against the comment's actual author, which is a
+    stronger identity guarantee than the PR-level reviewer set alone.
+
+    Returns ``None`` when the API call fails or ``gh`` is unavailable.
+    """
+    data = run_gh_json(
+        [
+            "gh",
+            "api",
+            "--paginate",
+            "--slurp",
+            f"/repos/{owner}/{repo}/pulls/{pr_num}/comments",
+        ],
+        timeout=timeout,
+    )
+    if not isinstance(data, list):
+        return None
+    comments: list[dict] = []
+    for item in data:
+        if isinstance(item, list):
+            comments.extend(item)
+        elif isinstance(item, dict):
+            comments.append(item)
+    result: dict[int, str] = {}
+    for c in comments:
+        if not isinstance(c, dict):
+            continue
+        cid = c.get("id")
+        user = c.get("user")
+        if isinstance(cid, int) and isinstance(user, dict):
+            login = user.get("login", "")
+            if login:
+                result[cid] = login
+    return result
+
+
 def is_trusted_reviewer(comment: dict) -> bool:
     """Return ``True`` when a PR comment comes from a trusted human contributor.
 
