@@ -44,6 +44,11 @@ class ToolExecution:
     auto_confirm: bool = False
     started_at: float | None = None
     branch: str = "main"
+    # Timestamp of the assistant message that requested this tool. Used to
+    # target the correct message when persisting timing data, since by the
+    # time execution completes a later assistant message may already exist
+    # (see _attach_tool_timings in session_step.py).
+    assistant_msg_timestamp: datetime | None = None
 
 
 @dataclass
