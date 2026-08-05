@@ -448,9 +448,16 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // removed from the scroll container outside the virtualizer.  Fire an explicit
   // scroll-to-bottom on those transitions so the card stays in view and the
   // onScroll handler does not abort auto-scroll from a stale intermediate position.
+  // Re-check autoScrollAborted$ inside the rAF (not just when scheduling it): a
+  // manual scroll can land in the gap between scheduling and the frame firing,
+  // and without the recheck the queued scrollToBottom would override it.
   useObserveEffect(conversation$?.executingTool, () => {
     if (!autoScrollAborted$.get()) {
-      requestAnimationFrame(scrollToBottom);
+      requestAnimationFrame(() => {
+        if (!autoScrollAborted$.get()) {
+          scrollToBottom();
+        }
+      });
     }
   });
 
