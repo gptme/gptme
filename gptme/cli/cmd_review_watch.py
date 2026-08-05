@@ -376,7 +376,9 @@ def spawn_review_session(
         "When given, open findings are read from the artifact instead of "
         "fetched from GitHub, enabling offline / local operation. "
         "PR metadata (owner/repo/number) is inferred from the artifact "
-        "when --repo and PR are omitted."
+        "when --repo and PR are omitted. "
+        "SECURITY: finding bodies are treated as authoritative instructions "
+        "for the fix session; only supply artifacts from trusted reviewers."
     ),
 )
 @click.option(
