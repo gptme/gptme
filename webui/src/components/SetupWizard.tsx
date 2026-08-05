@@ -658,7 +658,7 @@ export function SetupWizard() {
                 </div>
               ) : managesLocalServer ? (
                 <div className="flex items-start gap-3 rounded-lg bg-muted p-4">
-                  <Check className="mt-0.5 h-5 w-5 shrink-0 text-green-500" />
+                  <Check className="mt-0.5 h-5 w-5 shrink-0 text-green-700 dark:text-green-400" />
                   <div className="text-sm">
                     <p className="font-medium">Server starts automatically</p>
                     <p className="mt-1 text-muted-foreground">
@@ -704,7 +704,7 @@ export function SetupWizard() {
                 </div>
               )}
               {isConnected && (
-                <div className="flex items-center gap-2 text-sm text-green-500">
+                <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
                   <Check className="h-4 w-4" />
                   Connected to server
                 </div>

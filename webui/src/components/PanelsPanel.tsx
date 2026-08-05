@@ -27,7 +27,7 @@ interface PanelsPanelProps {
 function statusTextColor(status: LiveAppStatus): string {
   switch (status) {
     case 'running':
-      return 'text-green-500';
+      return 'text-green-700 dark:text-green-400';
     case 'error':
       return 'text-destructive';
     case 'stopped':

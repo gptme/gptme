@@ -36,7 +36,7 @@ const TaskDetails: FC<Props> = ({ task }) => {
       case 'active':
         return <RefreshCw className="h-5 w-5 animate-spin text-blue-500" />;
       case 'completed':
-        return <CheckCircle className="h-5 w-5 text-green-500" />;
+        return <CheckCircle className="h-5 w-5 text-green-700 dark:text-green-400" />;
       case 'failed':
         return <XCircle className="h-5 w-5 text-red-500" />;
     }
@@ -49,7 +49,7 @@ const TaskDetails: FC<Props> = ({ task }) => {
       case 'active':
         return 'text-blue-600';
       case 'completed':
-        return 'text-green-600';
+        return 'text-green-700 dark:text-green-400';
       case 'failed':
         return 'text-red-600';
     }
@@ -349,7 +349,7 @@ const TaskDetails: FC<Props> = ({ task }) => {
                             <div className="text-muted-foreground">Files</div>
                           </div>
                           <div className="text-center">
-                            <div className="font-bold text-green-600">
+                            <div className="font-bold text-green-700 dark:text-green-400">
                               +{task.git.diff_stats.lines_added}
                             </div>
                             <div className="text-muted-foreground">Added</div>
@@ -384,10 +384,14 @@ const TaskDetails: FC<Props> = ({ task }) => {
                   {task.git && (
                     <div className="flex items-center gap-2 text-sm">
                       <CheckCircle
-                        className={`h-4 w-4 ${task.git.clean ? 'text-green-500' : 'text-yellow-500'}`}
+                        className={`h-4 w-4 ${task.git.clean ? 'text-green-700 dark:text-green-400' : 'text-yellow-500'}`}
                       />
                       <span className="text-muted-foreground">Status:</span>
-                      <span className={task.git.clean ? 'text-green-600' : 'text-yellow-600'}>
+                      <span
+                        className={
+                          task.git.clean ? 'text-green-700 dark:text-green-400' : 'text-yellow-600'
+                        }
+                      >
                         {task.git.clean ? 'Clean' : `${task.git.files?.length || 0} modified files`}
                       </span>
                     </div>

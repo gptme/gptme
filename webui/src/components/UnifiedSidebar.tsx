@@ -42,7 +42,7 @@ const TaskListItem: FC<{ task: Task; isSelected: boolean; onClick: () => void }>
       case 'active':
         return <RefreshCw className="h-3 w-3 animate-spin text-blue-500" />;
       case 'completed':
-        return <CheckCircle className="h-3 w-3 text-green-500" />;
+        return <CheckCircle className="h-3 w-3 text-green-700 dark:text-green-400" />;
       case 'failed':
         return <XCircle className="h-3 w-3 text-red-500" />;
     }

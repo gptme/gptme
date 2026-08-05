@@ -220,7 +220,7 @@ export const ComputerPreview: FC = () => {
           title={isPolling ? 'Pause live view' : 'Resume live view'}
         >
           {isPolling ? (
-            <Wifi className="h-4 w-4 text-green-500" />
+            <Wifi className="h-4 w-4 text-green-700 dark:text-green-400" />
           ) : (
             <WifiOff className="h-4 w-4 text-muted-foreground" />
           )}

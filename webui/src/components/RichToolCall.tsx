@@ -94,7 +94,7 @@ export const RichToolCall: FC<RichToolCallProps> = ({
   const statusBadge = isExecuting ? (
     <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
   ) : completed === true ? (
-    <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+    <CheckCircle className="h-3.5 w-3.5 text-green-700 dark:text-green-400" />
   ) : completed === false ? (
     <XCircle className="h-3.5 w-3.5 text-red-500" />
   ) : null;

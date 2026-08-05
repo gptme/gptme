@@ -430,7 +430,9 @@ export default function ExtensionChat() {
     <div className="flex h-dvh flex-col bg-background text-foreground">
       {/* Status bar */}
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 text-xs">
-        <span className={state.online ? 'text-green-500' : 'text-muted-foreground'}>
+        <span
+          className={state.online ? 'text-green-700 dark:text-green-400' : 'text-muted-foreground'}
+        >
           {state.status}
         </span>
         <div className="ml-auto flex min-w-0 items-center gap-1">
