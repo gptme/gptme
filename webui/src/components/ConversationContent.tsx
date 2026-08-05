@@ -396,13 +396,23 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     const count = visibleMessageIndicesRef.current.length;
     if (count <= 0) return;
     isAutoScrolling$.set(true);
-    // scrollToIndex ensures the last item is actually rendered before measuring,
-    // which is more reliable than container.scrollHeight with virtual lists.
+    // scrollToIndex ensures the last virtual item is rendered before measuring.
     virtualizerRef.current.scrollToIndex(count - 1, { align: 'end' });
+    // A second rAF scrolls the container to its true bottom so elements below
+    // the virtual list (InlineToolExecution card, completion badge, bottom pad)
+    // are also in view.  isAutoScrolling$ stays true across both frames so the
+    // onScroll handler does not mistake the intermediate position for a manual
+    // scroll and abort auto-scroll.
     requestAnimationFrame(() => {
-      isAutoScrolling$.set(false);
+      const container = scrollContainerRef.current;
+      if (container) {
+        container.scrollTop = container.scrollHeight - container.clientHeight;
+      }
+      requestAnimationFrame(() => {
+        isAutoScrolling$.set(false);
+      });
     });
-  }, [isAutoScrolling$]);
+  }, [isAutoScrolling$, scrollContainerRef]);
 
   // Auto-scroll when the conversation is updated (e.g., streaming response).
   // Cancel any pending rAF before scheduling a new one so rapid log updates
@@ -417,6 +427,16 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
         scrollRAFRef.current = null;
         scrollToBottom();
       });
+    }
+  });
+
+  // When the executing-tool card appears or disappears its height is added to /
+  // removed from the scroll container outside the virtualizer.  Fire an explicit
+  // scroll-to-bottom on those transitions so the card stays in view and the
+  // onScroll handler does not abort auto-scroll from a stale intermediate position.
+  useObserveEffect(conversation$?.executingTool, () => {
+    if (!autoScrollAborted$.get()) {
+      requestAnimationFrame(scrollToBottom);
     }
   });
 
