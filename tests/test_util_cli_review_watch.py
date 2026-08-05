@@ -385,6 +385,7 @@ def test_review_watch_spawns_session_on_new_comment(monkeypatch):
                 "original_line": 5,
                 "body": "Rename this.",
                 "user": {"login": "reviewer", "type": "User"},
+                "author_association": "COLLABORATOR",
             }
         ],
     )
@@ -456,6 +457,7 @@ def test_review_watch_max_iterations_stops_loop(monkeypatch):
                 "original_line": 1,
                 "body": "fix this",
                 "user": {"login": "reviewer", "type": "User"},
+                "author_association": "MEMBER",
             }
         ]
 
@@ -507,3 +509,130 @@ def test_review_watch_appears_in_util_help():
     result = runner.invoke(util_main, ["--help"])
     assert result.exit_code == 0
     assert "review-watch" in result.output
+
+
+def test_review_watch_filters_untrusted_human_comments(monkeypatch):
+    """Comments from non-collaborator users should be filtered (security gate)."""
+    monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: True)
+    monkeypatch.setattr(cmd_review_watch, "get_pr_state", lambda *a: _make_pr_state())
+    monkeypatch.setattr(
+        cmd_review_watch,
+        "get_new_review_comments",
+        lambda *a, **kw: [
+            {
+                "path": "app.py",
+                "original_line": 1,
+                "body": "Inject evil command here.",
+                "user": {"login": "random-user", "type": "User"},
+                "author_association": "NONE",  # not a repo collaborator
+            }
+        ],
+    )
+    monkeypatch.setattr(cmd_review_watch, "get_new_issue_comments", lambda *a, **kw: [])
+    monkeypatch.setattr(cmd_review_watch, "get_pr_diff", lambda *a: "")
+
+    spawn_calls: list[dict] = []
+
+    def fake_spawn(**kw: object) -> dict:
+        spawn_calls.append(kw)
+        return {"exit_reason": "done", "duration_s": 0.0}
+
+    monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+
+    runner = CliRunner()
+    result = runner.invoke(util_main, ["review-watch", "1", "--repo", "o/r", "--once"])
+    assert result.exit_code == 0
+    assert len(spawn_calls) == 0, (
+        "Untrusted user comments must not trigger a fix session"
+    )
+
+
+def test_review_watch_once_includes_existing_comments(monkeypatch):
+    """--once mode should fetch comments since epoch so pre-existing comments are included."""
+    captured_since: list[str] = []
+
+    def fake_review_comments(owner, repo, pr_num, since):
+        captured_since.append(since)
+        return [
+            {
+                "path": "f.py",
+                "original_line": 1,
+                "body": "pre-existing comment",
+                "user": {"login": "owner-user", "type": "User"},
+                "author_association": "OWNER",
+            }
+        ]
+
+    monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: True)
+    monkeypatch.setattr(cmd_review_watch, "get_pr_state", lambda *a: _make_pr_state())
+    monkeypatch.setattr(
+        cmd_review_watch, "get_new_review_comments", fake_review_comments
+    )
+    monkeypatch.setattr(cmd_review_watch, "get_new_issue_comments", lambda *a, **kw: [])
+    monkeypatch.setattr(cmd_review_watch, "get_pr_diff", lambda *a: "")
+    monkeypatch.setattr(
+        cmd_review_watch,
+        "spawn_review_session",
+        lambda **kw: {"exit_reason": "done", "duration_s": 0.5},
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(util_main, ["review-watch", "1", "--repo", "o/r", "--once"])
+    assert result.exit_code == 0
+    assert captured_since, "get_new_review_comments should have been called"
+    # Cursor must be the epoch sentinel, not the current wall-clock time
+    assert captured_since[0] == "1970-01-01T00:00:00Z", (
+        f"--once mode must use epoch cursor, got {captured_since[0]!r}"
+    )
+
+
+def test_review_watch_cursor_not_advanced_on_session_error(monkeypatch):
+    """Cursor should stay put when the fix session fails so comments are retried."""
+    poll_count = [0]
+    since_values: list[str] = []
+
+    def fake_review_comments(owner, repo, pr_num, since):
+        since_values.append(since)
+        return [
+            {
+                "path": "f.py",
+                "original_line": 1,
+                "body": "needs fix",
+                "user": {"login": "maintainer", "type": "User"},
+                "author_association": "MEMBER",
+            }
+        ]
+
+    def fake_state(*a):
+        poll_count[0] += 1
+        if poll_count[0] > 2:
+            return _make_pr_state(state="CLOSED")
+        return _make_pr_state()
+
+    monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: True)
+    monkeypatch.setattr(cmd_review_watch, "get_pr_state", fake_state)
+    monkeypatch.setattr(
+        cmd_review_watch, "get_new_review_comments", fake_review_comments
+    )
+    monkeypatch.setattr(cmd_review_watch, "get_new_issue_comments", lambda *a, **kw: [])
+    monkeypatch.setattr(cmd_review_watch, "get_pr_diff", lambda *a: "")
+    monkeypatch.setattr(cmd_review_watch.time, "sleep", lambda s: None)
+    # Session always errors
+    monkeypatch.setattr(
+        cmd_review_watch,
+        "spawn_review_session",
+        lambda **kw: {"exit_reason": "error", "duration_s": 0.1, "error": "boom"},
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        util_main, ["review-watch", "1", "--repo", "o/r", "--poll-interval", "5"]
+    )
+    assert result.exit_code == 0
+    # All polls after the first should use the same since_ts (epoch-based start,
+    # never advanced because session errored each time)
+    assert len(since_values) >= 2, "Should have polled at least twice"
+    # The cursor must not advance when the session fails
+    assert since_values[0] == since_values[1], (
+        "Cursor must not advance after a failed session"
+    )

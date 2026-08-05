@@ -19,6 +19,10 @@ import click
 
 logger = logging.getLogger(__name__)
 
+# author_association values that indicate the commenter has write access.
+# Used to gate autonomous fix sessions against prompt injection from untrusted users.
+_TRUSTED_ASSOCIATIONS: frozenset[str] = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
 
 # ---------------------------------------------------------------------------
 # GitHub helpers
@@ -388,9 +392,12 @@ def review_watch(
         err=True,
     )
 
-    # Record the wall-clock time at startup; we'll only care about comments
-    # posted after this point.
-    since_ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # In --once mode use epoch so *all* existing PR comments are included.
+    # In polling mode start from now so we only react to future comments.
+    if once:
+        since_ts = "1970-01-01T00:00:00Z"
+    else:
+        since_ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     iterations = 0
 
@@ -426,14 +433,21 @@ def review_watch(
             inline = get_new_review_comments(owner, repo_name, pr_number, since_ts)
             conversation = get_new_issue_comments(owner, repo_name, pr_number, since_ts)
 
-            # Filter bot/automated comments to avoid self-loops
-            def _is_human(comment: dict) -> bool:
+            # Only process comments from trusted repository collaborators.
+            # This prevents prompt injection: untrusted users who can comment on
+            # a public PR would otherwise be able to direct the autonomous fix
+            # session to make attacker-controlled commits and push them.
+            # Bot/automated accounts are also excluded to avoid self-loops.
+            def _is_trusted(comment: dict) -> bool:
                 login = comment.get("user", {}).get("login", "")
                 utype = comment.get("user", {}).get("type", "")
-                return utype != "Bot" and not login.endswith("[bot]")
+                if utype == "Bot" or login.endswith("[bot]"):
+                    return False
+                assoc = comment.get("author_association", "")
+                return assoc in _TRUSTED_ASSOCIATIONS
 
-            inline = [c for c in inline if _is_human(c)]
-            conversation = [c for c in conversation if _is_human(c)]
+            inline = [c for c in inline if _is_trusted(c)]
+            conversation = [c for c in conversation if _is_trusted(c)]
 
             new_count = len(inline) + len(conversation)
             click.echo(
@@ -462,6 +476,13 @@ def review_watch(
                     diff_snippet=diff_snippet,
                 )
 
+                # Snapshot the time BEFORE spawning so comments that arrive
+                # *during* the fix session (timestamp > session_start_ts) are
+                # picked up on the next poll rather than dropped.
+                session_start_ts = datetime.now(tz=timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                )
+
                 summary = spawn_review_session(
                     prompt=prompt,
                     model=model,
@@ -481,8 +502,16 @@ def review_watch(
                         err=True,
                     )
 
-                # Advance the since-timestamp so we don't re-process handled comments
-                since_ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                # Only advance the cursor when the session succeeded.  On
+                # timeout or error the comments were not fixed; leaving the
+                # cursor in place lets the next poll retry them.
+                if summary.get("exit_reason") == "done":
+                    since_ts = session_start_ts
+                else:
+                    click.echo(
+                        "  ↩️  Session did not complete — comments will be retried.",
+                        err=True,
+                    )
 
                 if iterations >= max_iterations:
                     click.echo(
