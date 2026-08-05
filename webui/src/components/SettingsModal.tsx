@@ -47,7 +47,15 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
     return (
       <Dialog open={open} onOpenChange={handleOpenChange}>
         {children !== undefined && <DialogTrigger asChild>{children}</DialogTrigger>}
-        <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:max-h-[80vh] sm:max-w-4xl">
+        {/* Full-screen on mobile; fixed (not content-sized) height on desktop so the
+            dialog doesn't resize when switching tabs or expanding sections. */}
+        <DialogContent
+          className="flex h-dvh w-screen max-w-none flex-col overflow-hidden border-0 p-0 sm:h-[80vh] sm:w-full sm:max-w-4xl sm:border"
+          style={{
+            paddingTop: 'env(safe-area-inset-top, 0px)',
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          }}
+        >
           <DialogHeader className="border-b px-6 py-3">
             <DialogTitle className="flex items-center gap-2">
               <Settings className="h-5 w-5" />
