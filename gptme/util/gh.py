@@ -16,6 +16,80 @@ from .git_cmd import GIT_CMD
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Low-level shared helpers (used by review-watch and other gh-backed tools)
+# ---------------------------------------------------------------------------
+
+#: author_association values that indicate the commenter has write access.
+#: Used to gate autonomous sessions against prompt injection from untrusted users.
+TRUSTED_ASSOCIATIONS: frozenset[str] = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
+
+def run_gh_json(
+    args: list[str],
+    *,
+    timeout: float = 30,
+) -> dict | list | None:
+    """Run a ``gh`` command and parse its JSON output.
+
+    Returns ``None`` on error so callers can handle gracefully.
+    This is a shared primitive used by review-watch and other GitHub-backed
+    tools to avoid duplicating subprocess/JSON boilerplate.
+    """
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.debug("gh command failed: %s", exc)
+        return None
+
+    if result.returncode != 0:
+        logger.debug("gh exited %d: %s", result.returncode, result.stderr.strip())
+        return None
+
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        logger.debug("gh returned non-JSON output")
+        return None
+
+
+def is_bot_user(user: dict) -> bool:
+    """Return ``True`` when a GitHub user dict describes a bot account.
+
+    GitHub bots can be detected by either ``type == "Bot"`` or a login
+    that ends with ``[bot]`` (e.g. ``dependabot[bot]``, ``greptile-ai[bot]``).
+    This check is used by review-watch (and any future autonomous session that
+    consumes PR comments) to exclude bot-generated noise from trusted-reviewer
+    filtering.
+    """
+    utype = user.get("type", "")
+    login = user.get("login", "")
+    return utype == "Bot" or login.endswith("[bot]")
+
+
+def is_trusted_reviewer(comment: dict) -> bool:
+    """Return ``True`` when a PR comment comes from a trusted human contributor.
+
+    A comment is trusted when:
+    - The author is NOT a bot account (``is_bot_user``).
+    - The ``author_association`` is one of OWNER / MEMBER / COLLABORATOR.
+
+    Used by review-watch to gate autonomous fix sessions against prompt
+    injection from untrusted users who can comment on a public PR.
+    """
+    user = comment.get("user", {})
+    if is_bot_user(user):
+        return False
+    assoc = comment.get("author_association", "")
+    return assoc in TRUSTED_ASSOCIATIONS
+
+
 # Default threshold for truncating long comment bodies
 # Based on empirical sampling: human comments typically <500 tokens,
 # verbose bot comments (Greptile, Ellipsis) can reach 900+ tokens

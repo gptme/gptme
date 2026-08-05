@@ -2,11 +2,14 @@
 
 Polls a GitHub PR for new review comments and spawns a continuation gptme session
 to address feedback automatically — enabling a fully autonomous review loop.
+
+This module is part of the unified review pipeline described in gptme#3442.
+Shared GitHub helpers live in ``gptme.util.gh``; this module owns the
+polling loop and fix-session spawning logic.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import shutil
@@ -17,11 +20,9 @@ from datetime import datetime, timedelta, timezone
 
 import click
 
-logger = logging.getLogger(__name__)
+from ..util.gh import is_trusted_reviewer, run_gh_json
 
-# author_association values that indicate the commenter has write access.
-# Used to gate autonomous fix sessions against prompt injection from untrusted users.
-_TRUSTED_ASSOCIATIONS: frozenset[str] = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -38,31 +39,12 @@ def _gh_json(
     *,
     timeout: float = 30,
 ) -> dict | list | None:
-    """Run a ``gh`` command and parse its JSON output.
+    """Thin alias for ``gptme.util.gh.run_gh_json``.
 
-    Returns ``None`` on error so callers can handle gracefully.
+    Kept for backward compatibility so existing tests that monkeypatch
+    ``cmd_review_watch._gh_json`` continue to work unchanged.
     """
-    try:
-        result = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout,
-        )
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        logger.debug("gh command failed: %s", exc)
-        return None
-
-    if result.returncode != 0:
-        logger.debug("gh exited %d: %s", result.returncode, result.stderr.strip())
-        return None
-
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        logger.debug("gh returned non-JSON output")
-        return None
+    return run_gh_json(args, timeout=timeout)
 
 
 def get_pr_state(owner: str, repo: str, pr_num: int) -> dict | None:
@@ -459,16 +441,9 @@ def review_watch(
             # a public PR would otherwise be able to direct the autonomous fix
             # session to make attacker-controlled commits and push them.
             # Bot/automated accounts are also excluded to avoid self-loops.
-            def _is_trusted(comment: dict) -> bool:
-                login = comment.get("user", {}).get("login", "")
-                utype = comment.get("user", {}).get("type", "")
-                if utype == "Bot" or login.endswith("[bot]"):
-                    return False
-                assoc = comment.get("author_association", "")
-                return assoc in _TRUSTED_ASSOCIATIONS
-
-            inline = [c for c in inline if _is_trusted(c)]
-            conversation = [c for c in conversation if _is_trusted(c)]
+            # The trust gate is implemented in gptme.util.gh.is_trusted_reviewer.
+            inline = [c for c in inline if is_trusted_reviewer(c)]
+            conversation = [c for c in conversation if is_trusted_reviewer(c)]
 
             # Drop comments already handled in a prior iteration *and
             # unchanged since*. Needed because the cursor is advanced with a

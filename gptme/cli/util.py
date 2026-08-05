@@ -55,6 +55,9 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "hooks": (".cmd_hooks", "hooks"),
     "mcp": (".cmd_mcp", "mcp"),
     "resume": (".cmd_resume", "resume"),
+    # Unified review group (gptme#3442): ``gptme-util review watch``
+    "review": (".cmd_review", "review"),
+    # Backward-compat alias kept so existing scripts are not broken.
     "review-watch": (".cmd_review_watch", "review_watch"),
     "skills": (".cmd_skills", "skills"),
     "slop": (".cmd_slop", "slop"),
