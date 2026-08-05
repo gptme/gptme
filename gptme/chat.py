@@ -23,6 +23,7 @@ from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
 from .message import (
     Message,
+    MessageTimings,
     get_output_format,
     is_output_json,
     is_output_quiet,
@@ -634,8 +635,45 @@ def step(
 
         # log response and run tools
         if msg_response:
+            tool_timings: dict[str, float] = {}
+            # Buffer tool outputs so we can attach per-step timing to the
+            # assistant message *before* it is yielded (and written to the log).
+            # list() exhausts execute_msg which populates tool_timings in-place.
+            tool_outputs = list(
+                execute_msg(
+                    msg_response,
+                    log=log,
+                    workspace=workspace,
+                    tool_timings=tool_timings,
+                )
+            )
+            if tool_timings:
+                # Attach aggregated tool timing to the assistant message metadata
+                # so it is persisted in the session record alongside LLM timings.
+                from typing import cast
+
+                from .message import (
+                    MessageMetadata,
+                )
+
+                existing_meta = (
+                    dict(msg_response.metadata) if msg_response.metadata else {}
+                )
+                _raw_timings = existing_meta.get("timings")
+                existing_timings = cast(
+                    MessageTimings,
+                    dict(_raw_timings) if isinstance(_raw_timings, dict) else {},
+                )
+                existing_timings["tool_ms"] = round(sum(tool_timings.values()), 1)
+                existing_timings["tool_ms_by_name"] = {
+                    k: round(v, 1) for k, v in tool_timings.items()
+                }
+                existing_meta["timings"] = existing_timings
+                msg_response = msg_response.replace(
+                    metadata=cast(MessageMetadata, existing_meta)
+                )
             yield msg_response.replace(quiet=True)
-            yield from execute_msg(msg_response, log=log, workspace=workspace)
+            yield from tool_outputs
 
     finally:
         clear_interruptible()
