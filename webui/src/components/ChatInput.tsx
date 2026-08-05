@@ -340,6 +340,8 @@ const ModelBadge: FC<{
           size="sm"
           className="h-5 max-w-[200px] rounded-sm px-1.5 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-muted-foreground hover:opacity-100"
           disabled={isDisabled}
+          data-testid="model-selector"
+          aria-label={`Model: ${displayName}`}
         >
           {modelInfo?.provider && <ProviderIcon provider={modelInfo.provider} size={10} />}
           <span className="ml-1 truncate">{displayName}</span>
