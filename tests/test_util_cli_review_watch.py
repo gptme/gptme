@@ -130,6 +130,8 @@ def test_build_review_prompt_contains_pr_title():
     )
     assert "Add feature X" in prompt
     assert "owner/repo#42" in prompt
+    # Title and diff must be clearly labelled as author-supplied / untrusted
+    assert "author-supplied" in prompt.lower() or "security notice" in prompt.lower()
 
 
 def test_build_review_prompt_includes_inline_comment():
@@ -583,6 +585,58 @@ def test_review_watch_once_includes_existing_comments(monkeypatch):
     # Cursor must be the epoch sentinel, not the current wall-clock time
     assert captured_since[0] == "1970-01-01T00:00:00Z", (
         f"--once mode must use epoch cursor, got {captured_since[0]!r}"
+    )
+
+
+def test_get_new_review_comments_uses_paginate(monkeypatch):
+    """get_new_review_comments should pass --paginate to gh api."""
+    captured_args: list[list[str]] = []
+
+    def fake_gh_json(args, **kwargs):
+        captured_args.append(args)
+        return []
+
+    monkeypatch.setattr(cmd_review_watch, "_gh_json", fake_gh_json)
+    cmd_review_watch.get_new_review_comments("o", "r", 1, "2026-01-01T00:00:00Z")
+
+    assert captured_args, "Expected _gh_json to be called"
+    assert "--paginate" in captured_args[0], (
+        "get_new_review_comments must use --paginate to avoid 100-comment truncation"
+    )
+
+
+def test_get_new_issue_comments_uses_paginate(monkeypatch):
+    """get_new_issue_comments should pass --paginate to gh api."""
+    captured_args: list[list[str]] = []
+
+    def fake_gh_json(args, **kwargs):
+        captured_args.append(args)
+        return []
+
+    monkeypatch.setattr(cmd_review_watch, "_gh_json", fake_gh_json)
+    cmd_review_watch.get_new_issue_comments("o", "r", 1, "2026-01-01T00:00:00Z")
+
+    assert captured_args, "Expected _gh_json to be called"
+    assert "--paginate" in captured_args[0], (
+        "get_new_issue_comments must use --paginate to avoid 100-comment truncation"
+    )
+
+
+def test_build_review_prompt_labels_diff_as_author_supplied():
+    """Diff section must be labelled as author-supplied to prevent prompt injection."""
+    diff = "--- a/file.py\n+++ b/file.py\n@@ -1 +1 @@\n-old\n+new"
+    prompt = cmd_review_watch._build_review_prompt(
+        owner="o",
+        repo="r",
+        pr_num=1,
+        pr_title="T",
+        pr_branch="b",
+        inline_comments=[],
+        conversation_comments=[],
+        diff_snippet=diff,
+    )
+    assert "author-supplied" in prompt.lower(), (
+        "Diff section must be labelled as author-supplied to guard against prompt injection"
     )
 
 
