@@ -408,6 +408,11 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     // the newest cycle reaches the true bottom, causing onScroll to classify
     // the ongoing programmatic scroll as manual and abort auto-scroll.
     const gen = ++scrollGenRef.current;
+    // Snapshot position before programmatic scroll.  scrollToIndex only moves the
+    // viewport downward (toward the last item); if scrollTop drops below this value
+    // in the first rAF, the user dragged the viewport up while isAutoScrolling$
+    // blocked onScroll — honour their position instead of snapping to the bottom.
+    const scrollTopSnapshot = scrollContainerRef.current?.scrollTop ?? 0;
     // scrollToIndex ensures the last virtual item is rendered before measuring.
     virtualizerRef.current.scrollToIndex(count - 1, { align: 'end' });
     // A second rAF scrolls the container to its true bottom so elements below
@@ -418,15 +423,30 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     requestAnimationFrame(() => {
       const container = scrollContainerRef.current;
       if (container) {
+        // If scrollTop regressed below where we started, the user scrolled up
+        // during the isAutoScrolling$ lock window.  Abort without snapping.
+        if (container.scrollTop < scrollTopSnapshot) {
+          autoScrollAborted$.set(true);
+          if (scrollGenRef.current === gen) isAutoScrolling$.set(false);
+          return;
+        }
         container.scrollTop = container.scrollHeight - container.clientHeight;
       }
       requestAnimationFrame(() => {
         if (scrollGenRef.current === gen) {
+          // If scrollTop drifted away from true bottom while isAutoScrolling$
+          // was true, the user scrolled during the lock (onScroll exits early
+          // and can't set autoScrollAborted$ itself).  Honour it here before
+          // releasing the lock so the viewport stays where the user put it.
+          const c = scrollContainerRef.current;
+          if (c && c.scrollHeight - c.scrollTop - c.clientHeight > 1) {
+            autoScrollAborted$.set(true);
+          }
           isAutoScrolling$.set(false);
         }
       });
     });
-  }, [isAutoScrolling$, scrollContainerRef]);
+  }, [autoScrollAborted$, isAutoScrolling$, scrollContainerRef]);
 
   // Auto-scroll when the conversation is updated (e.g., streaming response).
   // Cancel any pending rAF before scheduling a new one so rapid log updates

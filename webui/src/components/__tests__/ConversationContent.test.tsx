@@ -752,4 +752,144 @@ describe('scroll stability during tool execution (gptme#3440)', () => {
 
     jest.useRealTimers();
   });
+
+  it('honours user scroll during isAutoScrolling window (Greptile P1 #3450)', () => {
+    // When the user scrolls up during the two-rAF scrollToBottom window,
+    // isAutoScrolling$ suppresses onScroll so autoScrollAborted$ is never set
+    // by the scroll handler.  The second rAF must detect the position drift
+    // and set autoScrollAborted$ itself before releasing the lock.
+    //
+    // We simulate the user scroll by intercepting the first programmatic
+    // scrollTop assignment (rAF1 → 200) and returning a non-bottom value (50)
+    // from subsequent reads — exactly as if the user scrolled between the two
+    // rAFs.  rAF2 must see 600-50-400=150 > 1 and call autoScrollAborted$.set(true).
+    jest.useFakeTimers();
+
+    mockConversation$.data.log.set([message('user', 'hello'), message('assistant', 'world')]);
+    const { getByTestId } = renderComponent();
+
+    // Drain the initial-mount useEffect rAF (requestAnimationFrame(scrollToBottom))
+    // before installing the scrollTop interceptor.  Without this, two concurrent
+    // scrollToBottom cycles fire in the same advanceTimersByTime below — the
+    // generation counter correctly kills the older cycle's cleanup but also
+    // prevents the drift check from running for that cycle.
+    act(() => {
+      jest.advanceTimersByTime(50);
+    });
+
+    const viewport = getByTestId('message-scroll-viewport');
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, get: () => 600 });
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, get: () => 400 });
+
+    // True bottom = scrollHeight(600) - clientHeight(400) = 200.
+    // The interceptor treats the first programmatic scrollTop assignment
+    // (rAF1 landing at 200) as an immediate user scroll to 50 — exactly the
+    // position the user would land at if they scrolled up between the two rAFs.
+    let programmaticSets = 0;
+    let currentScrollTop = 200; // already at bottom after initial drain
+    Object.defineProperty(viewport, 'scrollTop', {
+      configurable: true,
+      set(v: number) {
+        programmaticSets++;
+        currentScrollTop = programmaticSets === 1 ? 50 : v;
+      },
+      get() {
+        return currentScrollTop;
+      },
+    });
+
+    mockScrollToIndex.mockClear();
+    act(() => {
+      mockConversation$.executingTool.set(makeExecutingTool());
+    });
+    // Advance past all nested rAFs (outer + rAF1 + rAF2).
+    act(() => {
+      jest.advanceTimersByTime(50);
+    });
+
+    // rAF2 detected the drift (scrollTop=50 < true-bottom=200) and set
+    // autoScrollAborted$.  Verify: a second executingTool transition must NOT
+    // call scrollToIndex because the abort guard fires first.
+    mockScrollToIndex.mockClear();
+    act(() => {
+      mockConversation$.executingTool.set({ ...makeExecutingTool(), id: 'tool-2' });
+    });
+    act(() => {
+      jest.advanceTimersByTime(50);
+    });
+
+    expect(mockScrollToIndex).not.toHaveBeenCalled();
+
+    jest.useRealTimers();
+  });
+
+  it('does not snap to bottom when user scrolled up before first rAF fires (Greptile P1 pre-rAF race)', () => {
+    // Covers the pre-rAF1 window: user scrolls between scrollToBottom() setting
+    // isAutoScrolling$=true (which blocks onScroll) and the first inner rAF that
+    // would otherwise assign scrollTop = scrollHeight - clientHeight.
+    //
+    // Mechanism: scrollTopSnapshot is captured before scrollToIndex.  If scrollTop
+    // drops below that snapshot by the time rAF1 fires, the scroll was user-initiated
+    // (scrollToIndex never moves the viewport backward).  rAF1 sets autoScrollAborted$
+    // and returns without snapping — the user's position is preserved.
+    //
+    // We simulate the user scroll via mockScrollToIndex: immediately after the
+    // virtualizer call (still inside the isAutoScrolling$ lock), we set currentScrollTop
+    // below the snapshot value (200 → 50).  rAF1 sees scrollTop=50 < snapshot=200
+    // and must abort without assigning scrollTop.
+    jest.useFakeTimers();
+
+    mockConversation$.data.log.set([message('user', 'hello'), message('assistant', 'world')]);
+    const { getByTestId } = renderComponent();
+    act(() => {
+      jest.advanceTimersByTime(50);
+    });
+
+    const viewport = getByTestId('message-scroll-viewport');
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, get: () => 600 });
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, get: () => 400 });
+
+    // Start at true bottom (snapshot = 200).  scrollToIndex immediately drops
+    // scrollTop to 50 — simulating the user scrolling up during the lock window.
+    let snappedToBottom = false;
+    let currentScrollTop = 200;
+    Object.defineProperty(viewport, 'scrollTop', {
+      configurable: true,
+      set(v: number) {
+        snappedToBottom = true;
+        currentScrollTop = v;
+      },
+      get() {
+        return currentScrollTop;
+      },
+    });
+
+    mockScrollToIndex.mockImplementationOnce(() => {
+      currentScrollTop = 50;
+    });
+
+    mockScrollToIndex.mockClear();
+    act(() => {
+      mockConversation$.executingTool.set(makeExecutingTool());
+    });
+    act(() => {
+      jest.advanceTimersByTime(50);
+    });
+
+    // rAF1 detected backward drift (scrollTop=50 < snapshot=200) and aborted
+    // before touching scrollTop — no snap should have occurred.
+    expect(snappedToBottom).toBe(false);
+
+    // autoScrollAborted$ must be set — a second transition must not auto-scroll.
+    mockScrollToIndex.mockClear();
+    act(() => {
+      mockConversation$.executingTool.set({ ...makeExecutingTool(), id: 'tool-2' });
+    });
+    act(() => {
+      jest.advanceTimersByTime(50);
+    });
+    expect(mockScrollToIndex).not.toHaveBeenCalled();
+
+    jest.useRealTimers();
+  });
 });
