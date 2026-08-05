@@ -829,7 +829,7 @@ class TestToolConfirmEndpoint:
         resolve.assert_called_once_with(tool_id, "skip", None)
         assert start_step.call_count == 1
         assert start_step.call_args.args[:2] == (conv["conversation_id"], session)
-        assert start_step.call_args.kwargs == {"reserved": True}
+        assert start_step.call_args.kwargs == {"branch": "main", "reserved": True}
 
     def test_skip_preserves_tool_when_step_reserved_generation(
         self, conv, client: FlaskClient
