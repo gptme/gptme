@@ -594,7 +594,7 @@ class TestTasksListAPI:
         assert resp.status_code == 200
         assert resp.json == {"tasks": []}
 
-        resp = client.get("/api/v2/tasks?archived=true&status=pending")
+        resp = client.get("/api/v2/tasks?include_archived=true&status=pending")
         assert resp.status_code == 200
         data = resp.json
         assert len(data["tasks"]) == 1

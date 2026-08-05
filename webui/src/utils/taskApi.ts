@@ -39,7 +39,7 @@ export const taskApi = {
 
     const response = await fetch(url.toString(), getFetchOptions());
     if (!response.ok) {
-      throw new Error(`Failed to list tasks: ${response.statusText}`);
+      throw new Error(`Failed to list tasks: ${response.status} ${response.statusText}`);
     }
     const data = await response.json();
     return data.tasks;
