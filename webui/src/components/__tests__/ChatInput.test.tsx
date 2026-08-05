@@ -313,9 +313,11 @@ describe('Model selector (gptme#3440)', () => {
     expect(badge).not.toHaveTextContent('claude-sonnet');
   });
 
-  it('shows a non-empty badge before chatConfig loads (no blank model selector)', () => {
-    // The real conversation starts with chatConfig=null until the API responds.
-    // The badge must still render something (fallback chain), never an empty string.
+  it('shows a loading skeleton before chatConfig loads (not the wrong fallback model)', () => {
+    // Root cause of bug #3440-item-1: before chatConfig arrives the badge was
+    // showing the client-side fallback model (claude-sonnet-4-6) as if it were
+    // the conversation's model, confusing users who started a conversation with
+    // a different model.  Fix: render a skeleton pill until chatConfig is known.
     mockConversation$.set({
       isGenerating: false,
       executingTool: null,
@@ -326,16 +328,15 @@ describe('Model selector (gptme#3440)', () => {
     render(<ChatInput conversationId="conv-a" onSend={jest.fn()} autoFocus$={autoFocus$} />);
 
     const badge = screen.getByTestId('model-selector');
+    // Loading skeleton must be present and must NOT expose the wrong model name.
     expect(badge).toBeInTheDocument();
-    // Badge must display something — an empty model selector is unusable
-    expect((badge.textContent ?? '').trim().length).toBeGreaterThan(0);
+    expect(badge).toHaveAttribute('aria-label', 'Loading model...');
+    expect(badge.textContent ?? '').toBe('');
   });
 
-  it('updates the model badge when chatConfig arrives asynchronously', async () => {
-    // Phase 1: chatConfig not yet loaded — badge shows the client-side fallback.
-    // The fallback is intentional (better to show something than a blank selector),
-    // but we pin WHICH fallback is expected so regressions where the fallback changes
-    // to an unexpected or empty string are caught before the async update path runs.
+  it('transitions from loading skeleton to real model when chatConfig arrives', async () => {
+    // Phase 1: chatConfig not yet loaded — badge shows the skeleton, never the
+    // wrong fallback model name.
     mockConversation$.set({
       isGenerating: false,
       executingTool: null,
@@ -345,27 +346,25 @@ describe('Model selector (gptme#3440)', () => {
     const autoFocus$ = observable(false);
     render(<ChatInput conversationId="conv-a" onSend={jest.fn()} autoFocus$={autoFocus$} />);
 
-    const badge = screen.getByTestId('model-selector');
+    // Loading skeleton is visible.
+    expect(screen.getByTestId('model-selector')).toHaveAttribute('aria-label', 'Loading model...');
+    // No model name text should be visible while loading.
+    expect((screen.getByTestId('model-selector').textContent ?? '').trim()).toBe('');
 
-    // The hardcoded fallback in ChatInput.tsx is 'anthropic/claude-sonnet-4-6';
-    // displayName strips the provider prefix via model.split('/').pop().
-    // This assertion fails if the fallback is removed, blanked, or changed to an
-    // unrelated model — catching that class of regression at the loading-state level.
-    expect(badge).toHaveTextContent('claude-sonnet-4-6');
-    const initialText = badge.textContent ?? '';
-
-    // Phase 2: simulate the API response landing — chatConfig updates with real model
+    // Phase 2: simulate the API response landing — chatConfig updates with real model.
     act(() => {
       mockConversation$.chatConfig.set({ chat: { model: 'anthropic/claude-haiku-4-5' } });
     });
 
-    // Badge must reflect the now-known model (not the loading-state fallback)
+    // Badge must switch from skeleton to the actual conversation model.
     await waitFor(() => {
       expect(screen.getByTestId('model-selector')).toHaveTextContent('claude-haiku-4-5');
     });
-
-    // Must no longer show the pre-load fallback
-    expect(screen.getByTestId('model-selector').textContent).not.toBe(initialText);
+    // Aria-label should now show the model, not the loading label.
+    expect(screen.getByTestId('model-selector')).not.toHaveAttribute(
+      'aria-label',
+      'Loading model...'
+    );
   });
 
   it('resets the model badge to the new conversation model when switching conversations', async () => {

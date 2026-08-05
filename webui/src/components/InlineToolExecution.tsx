@@ -1,5 +1,5 @@
 import type { ConversationState, ExecutingTool } from '@/stores/conversations';
-import { Loader2, Cog, CheckCircle, XCircle, Terminal } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, Terminal } from 'lucide-react';
 import { type Observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
 import { useEffect, useState } from 'react';
@@ -100,13 +100,13 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
                 <div className="flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
                   <h3 className="font-medium text-blue-800 dark:text-blue-200">Tool Executing</h3>
+                  <ElapsedTimer startedAt={executingTool.startedAt} />
                 </div>
                 <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
-                  The assistant is currently using
+                  The assistant is currently using{' '}
                   <code className="rounded bg-muted px-2 py-1 font-mono text-sm">
                     {executingTool.tooluse.tool}
                   </code>
-                  <Cog className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
                 </p>
               </div>
 
@@ -153,13 +153,11 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
                   </div>
                 )}
 
-                {/* Status indicator with elapsed timer */}
+                {/* Status indicator */}
                 <div className="flex items-center gap-2 border-t border-blue-200 pt-3 dark:border-blue-800">
-                  <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
                   <span className="text-sm text-blue-700 dark:text-blue-300">
                     Executing tool...
                   </span>
-                  <ElapsedTimer startedAt={executingTool.startedAt} />
                 </div>
               </div>
             </div>

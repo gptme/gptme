@@ -327,10 +327,23 @@ const ModelBadge: FC<{
   models: { id: string; provider: string; model: string }[];
   onModelChange: (model: string) => void;
   isDisabled: boolean;
-}> = ({ model, models, onModelChange, isDisabled }) => {
+  isLoading?: boolean;
+}> = ({ model, models, onModelChange, isDisabled, isLoading }) => {
   const [open, setOpen] = useState(false);
   const modelInfo = models.find((m) => m.id === model);
   const displayName = modelInfo?.model || model.split('/').pop() || model;
+
+  // Show a skeleton pill while the conversation's chatConfig is still loading,
+  // so we never display the wrong fallback model to the user.
+  if (isLoading) {
+    return (
+      <div
+        data-testid="model-selector"
+        className="h-5 w-24 animate-pulse rounded-sm bg-muted"
+        aria-label="Loading model..."
+      />
+    );
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -605,9 +618,14 @@ export const ChatInput: FC<Props> = ({
   // Use dynamic models instead of static list
   const { models: modelInfos, defaultModel: apiDefaultModel } = useModels();
 
-  // Get conversation config to read the actual model
+  // Get conversation config to read the actual model.
+  // chatConfig is null when it hasn't loaded yet (initialised to null in the store).
   const conversation$ = conversationId ? conversations$.get(conversationId) : null;
-  const conversationModel = conversation$?.chatConfig?.get()?.chat?.model;
+  const chatConfig = conversation$?.chatConfig?.get() ?? null;
+  const conversationModel = chatConfig?.chat?.model;
+  // True only while we're waiting for chatConfig to arrive for an existing
+  // conversation — prevents showing the wrong fallback model during the fetch.
+  const isChatConfigLoading = !!conversationId && chatConfig === null;
 
   // Initialize message from localStorage for persistence across page reloads
   // Skip localStorage in edit mode — content comes from the message being edited
@@ -1247,6 +1265,7 @@ export const ChatInput: FC<Props> = ({
                           setHasExplicitModelSelection(true);
                         }}
                         isDisabled={isDisabled}
+                        isLoading={isChatConfigLoading}
                       />
                       {/* File attach button */}
                       <Button
