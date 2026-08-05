@@ -882,9 +882,14 @@ class TestFilterFindingsByTrust:
         )
         assert result == [], "Unknown comment ID must be rejected"
 
-    def test_per_comment_auth_falls_back_to_pr_level_when_no_comment_authors(self):
-        """When github_comment_authors is None, findings with a comment ID fall back
-        to the PR-level reviewer check (the ec8c1ada5 behavior)."""
+    def test_per_comment_auth_rejects_when_no_comment_authors(self):
+        """When github_comment_authors is None, findings with a comment ID are rejected.
+
+        Falling back to the PR-level check would let a crafted artifact survive by
+        supplying an allowlisted reviewer's login alongside any comment ID — the
+        attacker needs only a reviewer who happened to submit any review on the PR.
+        Rejecting instead closes that bypass path.
+        """
         from gptme.cli.cmd_review_watch import _filter_findings_by_trust
 
         finding = self._make_finding_with_comment_id("Real finding", "ErikBjare", 999)
@@ -895,7 +900,7 @@ class TestFilterFindingsByTrust:
             github_verified_reviewers=frozenset({"ErikBjare"}),
             github_comment_authors=None,
         )
-        assert len(result) == 1
+        assert len(result) == 0
 
     def test_per_comment_auth_mixed_findings(self):
         """Findings with and without comment IDs are evaluated by the appropriate path."""

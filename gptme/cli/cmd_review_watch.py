@@ -370,11 +370,15 @@ def _filter_findings_by_trust(
         if f.reviewer not in trusted_set:
             return False
         # Per-comment verification: when the finding carries a GitHub comment
-        # ID and we have the comment-author map, check that the comment's
-        # actual author matches the artifact-reported reviewer.  This prevents
-        # a crafted artifact from forging findings attributed to a reviewer who
-        # happened to submit any review on the PR.
-        if f.github_comment_id is not None and github_comment_authors is not None:
+        # ID, require the comment-author map and reject if the ID's actual
+        # author does not match.  Falling back to the PR-level reviewer check
+        # when the map is absent would allow a crafted artifact to survive by
+        # supplying any allowlisted reviewer's login alongside a real or
+        # non-existent comment ID.
+        if f.github_comment_id is not None:
+            if github_comment_authors is None:
+                # Map unavailable — cannot verify per-comment identity; reject.
+                return False
             actual_author = github_comment_authors.get(f.github_comment_id)
             if actual_author is None:
                 # Comment ID not found in PR review comments — reject.
@@ -624,8 +628,8 @@ def review_watch(
                 )
             # Fetch per-comment authors to enable per-finding identity
             # verification for findings that carry a github_comment_id.  A
-            # None result means the API call failed; the filter falls back to
-            # PR-level reviewer check for all findings in that case.
+            # None result means the API call failed; the filter will reject
+            # any finding that carries a github_comment_id in that case.
             github_comment_authors = fetch_pr_review_comment_authors(
                 effective_owner, effective_repo_name, effective_pr_number
             )
