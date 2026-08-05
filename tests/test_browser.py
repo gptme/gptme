@@ -499,10 +499,12 @@ def test_parse_engine_executable_on_path():
 
     from gptme.tools._browser_thread import _parse_engine_env
 
-    # python3 is guaranteed to be on PATH in the test environment
-    engine, path = _parse_engine_env("python3")
+    # git is required to check out the repo, so it's guaranteed to be on
+    # PATH wherever this test runs (unlike e.g. "python3", which is not the
+    # interpreter name on Windows)
+    engine, path = _parse_engine_env("git")
     assert engine == "firefox"
-    assert path == shutil.which("python3")
+    assert path == shutil.which("git")
 
 
 def test_parse_engine_invalid_falls_back_to_chromium():
