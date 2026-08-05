@@ -90,7 +90,8 @@ export function useConversation(conversationId: string, serverId?: string) {
           `[useConversation] Failed to preload chat config for ${conversationId}:`,
           error
         );
-        // Mark fetch as attempted-and-failed (null) so the loading skeleton clears.
+        // Set chatConfig: null (not undefined) so the model selector skeleton
+        // clears — null means "fetch attempted, no config", not "still loading".
         if (!cancelled) updateConversation(conversationId, { chatConfig: null });
       });
     return () => {

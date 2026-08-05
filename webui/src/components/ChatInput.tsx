@@ -626,7 +626,7 @@ export const ChatInput: FC<Props> = ({
   const conversation$ = conversationId ? conversations$.get(conversationId) : null;
   const chatConfig = conversation$?.chatConfig?.get();
   const conversationModel = chatConfig?.chat?.model;
-  // True only while we're waiting for chatConfig to arrive for an existing
+  // True only while a chatConfig fetch is actively in flight for an existing
   // conversation — prevents showing the wrong fallback model during the fetch.
   // Once the fetch completes (success OR failure), chatConfig transitions from
   // undefined to a non-undefined value and the skeleton clears.
