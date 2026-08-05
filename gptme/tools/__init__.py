@@ -4,6 +4,7 @@ import importlib
 import logging
 import pkgutil
 import threading
+import time
 from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -319,8 +320,21 @@ def execute_msg(
     msg: Message,
     log: Log | None = None,
     workspace: Path | None = None,
+    tool_timings: dict[str, float] | None = None,
 ) -> Generator[Message, None, None]:
-    """Uses any tools called in a message and returns the response."""
+    """Uses any tools called in a message and returns the response.
+
+    Args:
+        msg: The assistant message whose tool uses should be executed.
+        log: Optional conversation log (passed through to tool execution).
+        workspace: Optional workspace path (passed through to tool execution).
+        tool_timings: Optional dict to accumulate per-tool wall-clock durations
+            in milliseconds.  If provided, each executed tool's name is used as
+            the key and its duration (ms) is *added* to any existing value so
+            repeated calls to the same tool accumulate correctly.  Pass an empty
+            dict ``{}`` from the caller and read it back after the generator is
+            exhausted to obtain ``tool_ms_by_name`` for timing metadata.
+    """
     assert msg.role == "assistant", "Only assistant messages can be executed"
 
     # Snapshot runnability once per tool_use. Evaluating `is_runnable` a second
@@ -337,6 +351,7 @@ def execute_msg(
     for tooluse, runnable in remaining:
         if runnable:
             with terminal_state_title(f"🛠️ running {tooluse.tool}"):
+                t0 = time.monotonic()
                 try:
                     yield from tooluse.execute(log=log, workspace=workspace)
                 except KeyboardInterrupt:
@@ -357,6 +372,12 @@ def execute_msg(
                                 call_id=rem_tu.call_id,
                             )
                     return
+                finally:
+                    if tool_timings is not None:
+                        elapsed_ms = (time.monotonic() - t0) * 1000
+                        tool_timings[tooluse.tool] = (
+                            tool_timings.get(tooluse.tool, 0.0) + elapsed_ms
+                        )
         elif tooluse.call_id is not None:
             # A structured (tool-format) tool_use that isn't runnable still needs
             # a paired tool_result, or the next API request dangles it and 400s.

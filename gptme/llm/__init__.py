@@ -15,6 +15,7 @@ from ..constants import prompt_assistant
 from ..message import (
     Message,
     MessageMetadata,
+    MessageTimings,
     format_msgs,
     is_output_json,
     is_output_quiet,
@@ -985,6 +986,16 @@ def _reply_stream(
                 f"gen: {gen_time:.2f}s, "
                 f"tok/s: {len_tokens(output, model) / gen_time:.1f})"
             )
+            # Attach timing breakdown to message metadata so it is persisted in
+            # conversation.jsonl and available for bottleneck analysis.
+            # Reuse end_time / gen_time already computed above for the debug log.
+            timings: MessageTimings = {
+                "ttft_ms": round((first_token_time - start_time) * 1000, 1),
+                "gen_ms": round(gen_time * 1000, 1),
+            }
+            meta = dict(stream.metadata) if stream.metadata else {}
+            meta["timings"] = timings
+            stream.metadata = cast(MessageMetadata, meta)
 
     return Message("assistant", output, metadata=stream.metadata)
 

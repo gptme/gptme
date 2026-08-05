@@ -27,7 +27,7 @@ from ..hooks import HookType, trigger_hook
 from ..hooks.confirm import ConfirmationResult
 from ..llm import _chat_complete, _stream
 from ..logmanager import LogManager, prepare_messages
-from ..message import Message
+from ..message import Message, MessageMetadata, MessageTimings
 from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools
 from ..tools.shell import set_workspace_cwd
@@ -227,6 +227,45 @@ def _append_and_notify(manager: LogManager, session: ConversationSession, msg: M
             "message": msg2dict(msg, manager.workspace, manager.logdir),
         },
     )
+
+
+def _attach_tool_timings(
+    manager: LogManager, tool_ms_by_name: dict[str, float]
+) -> None:
+    """Attach aggregated tool-execution timing to the last assistant message.
+
+    Walks the log backwards to find the most recent assistant message, merges
+    the per-tool timing data into its ``metadata.timings`` dict, and rewrites
+    the JSONL file.  This is a best-effort operation — failures are logged but
+    do not interrupt tool execution or step continuation.
+    """
+    from typing import cast
+
+    messages = manager.log.messages
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].role == "assistant":
+            msg = messages[i]
+            existing_meta = dict(msg.metadata) if msg.metadata else {}
+            _raw_timings = existing_meta.get("timings")
+            existing_timings = cast(
+                MessageTimings,
+                dict(_raw_timings) if isinstance(_raw_timings, dict) else {},
+            )
+            existing_timings["tool_ms"] = round(sum(tool_ms_by_name.values()), 1)
+            existing_timings["tool_ms_by_name"] = {
+                k: round(v, 1) for k, v in tool_ms_by_name.items()
+            }
+            existing_meta["timings"] = existing_timings
+            updated_msg = msg.replace(metadata=cast(MessageMetadata, existing_meta))
+            manager.log.messages[i] = updated_msg
+            manager.write()
+            logger.debug(
+                "Attached tool timings to assistant message: tool_ms=%.1f, by_name=%s",
+                existing_timings["tool_ms"],
+                existing_timings["tool_ms_by_name"],
+            )
+            return
+    logger.warning("_attach_tool_timings: no assistant message found in log")
 
 
 def _persist_generation_error(
@@ -927,6 +966,9 @@ def start_tool_execution(
             # to guarantee serial execution order.
             current_tool_id: str = tool_id
             current_edited_tooluse: ToolUse | None = edited_tooluse
+            # Accumulate per-tool durations across all chained executions so
+            # they can be persisted in the assistant message metadata at the end.
+            tool_ms_by_name: dict[str, float] = {}
 
             while True:
                 # Reload the conversation to pick up outputs from prior tools
@@ -1006,9 +1048,12 @@ def start_tool_execution(
                     msg = Message("system", f"Error: {e!s}", call_id=tooluse.call_id)
                     _append_and_notify(manager, session, msg)
 
-                # Emit tool_complete with duration
+                # Emit tool_complete with duration; also accumulate for metadata.
                 if tool_exec.started_at is not None:
                     duration_ms = (time.monotonic() - tool_exec.started_at) * 1000
+                    tool_ms_by_name[tooluse.tool] = (
+                        tool_ms_by_name.get(tooluse.tool, 0.0) + duration_ms
+                    )
                     SessionManager.add_event(
                         conversation_id,
                         {
@@ -1034,6 +1079,11 @@ def start_tool_execution(
                     current_edited_tooluse = None
                 else:
                     break
+
+            # Persist aggregated tool timing in the assistant message that
+            # triggered these tool calls so it is available in session records.
+            if tool_ms_by_name:
+                _attach_tool_timings(manager, tool_ms_by_name)
 
             # Only auto-step when all pending tools have been executed.
             # With multiple tools per message, we must wait until every tool
