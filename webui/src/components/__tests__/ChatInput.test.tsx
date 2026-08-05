@@ -5,9 +5,11 @@ import { ChatInput } from '../ChatInput';
 
 const mockUploadFiles = jest.fn();
 
-// Allow chatConfig to be null so tests can simulate the pre-load state where
-// the server has not yet returned the conversation's chat configuration.
-type MockChatConfig = { chat: { model?: string } } | null;
+// Three-value sentinel for chatConfig:
+//   undefined = fetch not yet attempted (show loading skeleton)
+//   null      = fetch completed but failed (show fallback model, no skeleton)
+//   ChatConfig = successfully fetched
+type MockChatConfig = { chat: { model?: string } } | null | undefined;
 const mockConversation$ = observable<{
   isGenerating: boolean;
   executingTool: null;
@@ -318,10 +320,11 @@ describe('Model selector (gptme#3440)', () => {
     // showing the client-side fallback model (claude-sonnet-4-6) as if it were
     // the conversation's model, confusing users who started a conversation with
     // a different model.  Fix: render a skeleton pill until chatConfig is known.
+    // undefined = fetch not yet attempted (the true loading state).
     mockConversation$.set({
       isGenerating: false,
       executingTool: null,
-      chatConfig: null,
+      chatConfig: undefined,
     });
 
     const autoFocus$ = observable(false);
@@ -335,12 +338,12 @@ describe('Model selector (gptme#3440)', () => {
   });
 
   it('transitions from loading skeleton to real model when chatConfig arrives', async () => {
-    // Phase 1: chatConfig not yet loaded — badge shows the skeleton, never the
-    // wrong fallback model name.
+    // Phase 1: chatConfig not yet loaded (undefined = fetch not yet attempted) —
+    // badge shows the skeleton, never the wrong fallback model name.
     mockConversation$.set({
       isGenerating: false,
       executingTool: null,
-      chatConfig: null,
+      chatConfig: undefined,
     });
 
     const autoFocus$ = observable(false);
@@ -365,6 +368,26 @@ describe('Model selector (gptme#3440)', () => {
       'aria-label',
       'Loading model...'
     );
+  });
+
+  it('clears the loading skeleton when chatConfig fetch fails (no permanent skeleton)', () => {
+    // Regression guard for the P1 scenario: if the server is unreachable both
+    // getChatConfig requests fail and chatConfig stays null in the store.
+    // null = "fetch attempted, no config" — must NOT show the skeleton.
+    mockConversation$.set({
+      isGenerating: false,
+      executingTool: null,
+      chatConfig: null,
+    });
+
+    const autoFocus$ = observable(false);
+    render(<ChatInput conversationId="conv-a" onSend={jest.fn()} autoFocus$={autoFocus$} />);
+
+    const badge = screen.getByTestId('model-selector');
+    // Skeleton must NOT be shown when fetch failed — badge falls back to default model.
+    expect(badge).not.toHaveAttribute('aria-label', 'Loading model...');
+    // Badge must display some model text, not be empty.
+    expect((badge.textContent ?? '').trim()).not.toBe('');
   });
 
   it('resets the model badge to the new conversation model when switching conversations', async () => {

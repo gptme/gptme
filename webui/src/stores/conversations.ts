@@ -51,8 +51,11 @@ export interface ConversationState {
   lastMessage?: Message;
   // Whether to show the initial system message
   showInitialSystem: boolean;
-  // The chat config
-  chatConfig: ChatConfig | null;
+  // The chat config.
+  // undefined = not yet fetched (show loading skeleton).
+  // null = fetch was attempted but failed (show fallback, no skeleton).
+  // ChatConfig = successfully fetched.
+  chatConfig: ChatConfig | null | undefined;
   // Whether this conversation needs initial step after connecting
   // Used to fix race condition where step() was called before event subscription
   needsInitialStep: boolean;
@@ -108,7 +111,7 @@ export function updateConversation(id: string, update: Partial<ConversationState
       executingTool: null,
       lastCompletedTool: null,
       showInitialSystem: false,
-      chatConfig: null,
+      chatConfig: undefined,
       needsInitialStep: false,
       initialStepStream: undefined,
       currentBranch: 'main',
@@ -282,7 +285,7 @@ export function initConversation(
     executingTool: null,
     lastCompletedTool: null,
     showInitialSystem: false,
-    chatConfig: null,
+    chatConfig: undefined,
     needsInitialStep: options?.needsInitialStep ?? false,
     initialStepStream: options?.initialStepStream,
     currentBranch: 'main',

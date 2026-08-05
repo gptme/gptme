@@ -90,6 +90,8 @@ export function useConversation(conversationId: string, serverId?: string) {
           `[useConversation] Failed to preload chat config for ${conversationId}:`,
           error
         );
+        // Mark fetch as attempted-and-failed (null) so the loading skeleton clears.
+        if (!cancelled) updateConversation(conversationId, { chatConfig: null });
       });
     return () => {
       cancelled = true;
@@ -143,9 +145,11 @@ export function useConversation(conversationId: string, serverId?: string) {
                 `[useConversation] Failed to load chat config for ${conversationId}:`,
                 error
               );
-              // Still update with conversation data even if config fails
+              // Still update with conversation data even if config fails.
+              // Set chatConfig: null (not undefined) so the model selector skeleton
+              // clears — null means "fetch attempted, no config", not "still loading".
               updateConversationData(conversationId, data);
-              updateConversation(conversationId, { loadError: null });
+              updateConversation(conversationId, { chatConfig: null, loadError: null });
             }
           } catch (error) {
             console.warn(

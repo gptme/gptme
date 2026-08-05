@@ -619,15 +619,18 @@ export const ChatInput: FC<Props> = ({
   const { models: modelInfos, defaultModel: apiDefaultModel } = useModels();
 
   // Get conversation config to read the actual model.
-  // chatConfig is null when it hasn't loaded yet (initialised to null in the store).
+  // chatConfig uses a three-value sentinel:
+  //   undefined = fetch not yet attempted (show loading skeleton)
+  //   null      = fetch attempted but failed (clear skeleton, show fallback model)
+  //   ChatConfig = successfully fetched
   const conversation$ = conversationId ? conversations$.get(conversationId) : null;
-  const chatConfig = conversation$?.chatConfig?.get() ?? null;
+  const chatConfig = conversation$?.chatConfig?.get();
   const conversationModel = chatConfig?.chat?.model;
   // True only while we're waiting for chatConfig to arrive for an existing
   // conversation — prevents showing the wrong fallback model during the fetch.
-  // Skip the skeleton for read-only (demo) conversations: they never fetch
-  // chatConfig, so chatConfig stays null forever and would give a permanent skeleton.
-  const isChatConfigLoading = !!conversationId && !isReadOnly && chatConfig === null;
+  // Once the fetch completes (success OR failure), chatConfig transitions from
+  // undefined to a non-undefined value and the skeleton clears.
+  const isChatConfigLoading = !!conversationId && !isReadOnly && chatConfig === undefined;
 
   // Initialize message from localStorage for persistence across page reloads
   // Skip localStorage in edit mode — content comes from the message being edited

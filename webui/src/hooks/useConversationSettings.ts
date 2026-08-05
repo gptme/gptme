@@ -10,7 +10,7 @@ import { use$ } from '@legendapp/state/react';
 import { ToolFormat } from '@/types/api';
 import { demoConversations } from '@/democonversations';
 
-const chatConfigToFormValues = (config: ChatConfig | null): FormSchema => ({
+const chatConfigToFormValues = (config: ChatConfig | null | undefined): FormSchema => ({
   chat: {
     name: config?.chat.name || '',
     model: config?.chat.model || '',
