@@ -233,6 +233,7 @@ def _attach_tool_timings(
     conversation_id: str,
     tool_ms_by_name: dict[str, float],
     target_timestamp: datetime | None = None,
+    branch: str = "main",
 ) -> None:
     """Attach aggregated tool-execution timing to the originating assistant message.
 
@@ -264,7 +265,7 @@ def _attach_tool_timings(
     from typing import cast
 
     with SessionManager.conversation_lock(conversation_id):
-        manager = LogManager.load(conversation_id, lock=False)
+        manager = LogManager.load(conversation_id, branch=branch, lock=False)
         messages = manager.log.messages
 
         target_idx: int | None = None
@@ -1110,7 +1111,9 @@ def start_tool_execution(
                     # rewrite the full JSONL, overwriting concurrent tool-result appends
                     # or timing patches written by other confirmation threads.
                     with SessionManager.conversation_lock(conversation_id):
-                        manager = LogManager.load(conversation_id, lock=False)
+                        manager = LogManager.load(
+                            conversation_id, branch=branch, lock=False
+                        )
                         for tool_output in tool_outputs:
                             _append_and_notify(manager, session, tool_output)
                 except Exception as e:
@@ -1118,7 +1121,9 @@ def start_tool_execution(
                     tool_exec.status = ToolStatus.FAILED
 
                     with SessionManager.conversation_lock(conversation_id):
-                        manager = LogManager.load(conversation_id, lock=False)
+                        manager = LogManager.load(
+                            conversation_id, branch=branch, lock=False
+                        )
                         msg = Message(
                             "system", f"Error: {e!s}", call_id=tooluse.call_id
                         )
@@ -1157,7 +1162,10 @@ def start_tool_execution(
             # triggered these tool calls so it is available in session records.
             if tool_ms_by_name:
                 _attach_tool_timings(
-                    conversation_id, tool_ms_by_name, assistant_msg_timestamp
+                    conversation_id,
+                    tool_ms_by_name,
+                    assistant_msg_timestamp,
+                    branch=branch,
                 )
 
             # Only auto-step when all pending tools have been executed.
