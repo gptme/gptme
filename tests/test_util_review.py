@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import subprocess
 
+import pytest
 from click.testing import CliRunner
 
 from gptme.cli.util import main as util_main
@@ -649,3 +650,369 @@ class TestArtifactMode:
         )
         assert result.exit_code != 0
         assert "artifact" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# --trusted-reviewer guard (gptme#3451)
+# ---------------------------------------------------------------------------
+
+
+class TestFilterFindingsByTrust:
+    """Unit tests for _filter_findings_by_trust (artifact trust gate)."""
+
+    def _make_finding(self, body: str, reviewer: str = "") -> ReviewFinding:
+        return ReviewFinding(
+            body=body,
+            file="app.py",
+            line=1,
+            status=FindingStatus.OPEN,
+            reviewer=reviewer,
+        )
+
+    def test_no_trusted_reviewers_passes_all(self):
+        """When trusted_reviewers is empty, all findings pass unchanged."""
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        findings = [
+            self._make_finding("Finding A", "alice"),
+            self._make_finding("Finding B", "bob"),
+            self._make_finding("Finding C", ""),  # no author
+        ]
+        result = _filter_findings_by_trust(findings, (), require_trust=False)
+        assert result == findings
+
+    def test_all_trusted_pass(self):
+        """All findings pass when every reviewer is in the allowlist."""
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        findings = [
+            self._make_finding("Finding A", "alice"),
+            self._make_finding("Finding B", "bob"),
+        ]
+        result = _filter_findings_by_trust(
+            findings, ("alice", "bob"), require_trust=False
+        )
+        assert len(result) == 2
+
+    def test_partial_filter(self):
+        """Only findings from trusted reviewers are kept."""
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        findings = [
+            self._make_finding("Trusted finding", "alice"),
+            self._make_finding("Untrusted finding", "mallory"),
+            self._make_finding("Also trusted", "alice"),
+        ]
+        result = _filter_findings_by_trust(findings, ("alice",), require_trust=False)
+        assert len(result) == 2
+        assert all(f.reviewer == "alice" for f in result)
+
+    def test_empty_after_filter(self):
+        """Empty list returned when no findings match the allowlist."""
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        findings = [
+            self._make_finding("Untrusted", "mallory"),
+            self._make_finding("Also untrusted", "eve"),
+        ]
+        result = _filter_findings_by_trust(findings, ("alice",), require_trust=False)
+        assert result == []
+
+    def test_require_trust_raises_on_absent_author(self):
+        """--require-trust raises ClickException when reviewer is absent."""
+        import click
+
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        findings = [
+            self._make_finding("No author here", ""),  # absent reviewer
+            self._make_finding("Has author", "alice"),
+        ]
+        try:
+            _filter_findings_by_trust(findings, (), require_trust=True)
+            raise AssertionError("Expected ClickException not raised")
+        except click.ClickException as exc:
+            assert "require-trust" in exc.format_message().lower()
+            assert "author" in exc.format_message().lower()
+
+    def test_require_trust_passes_when_all_have_author(self):
+        """--require-trust does not raise when all findings have a reviewer."""
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        findings = [
+            self._make_finding("Finding A", "alice"),
+            self._make_finding("Finding B", "bob"),
+        ]
+        result = _filter_findings_by_trust(findings, (), require_trust=True)
+        assert len(result) == 2
+
+    def test_require_trust_combined_with_allowlist(self):
+        """--require-trust + --trusted-reviewer: absent author fails before allowlist."""
+        import click
+
+        from gptme.cli.cmd_review_watch import _filter_findings_by_trust
+
+        findings = [
+            self._make_finding("No author", ""),
+            self._make_finding("Trusted", "alice"),
+        ]
+        with pytest.raises(click.ClickException, match="require-trust"):
+            _filter_findings_by_trust(findings, ("alice",), require_trust=True)
+
+
+class TestArtifactTrustFilterCLI:
+    """CLI integration tests for --trusted-reviewer and --require-trust."""
+
+    def _make_artifact(self, tmp_path, findings: list[ReviewFinding]):
+
+        artifact = ReviewArtifact(
+            pr_owner="gptme",
+            pr_repo="gptme",
+            pr_number=99,
+            findings=findings,
+        )
+        path = tmp_path / "artifact.json"
+        artifact.save(path)
+        return path
+
+    def _open_finding(self, body: str, reviewer: str = "alice") -> ReviewFinding:
+        return ReviewFinding(
+            body=body,
+            file="app.py",
+            line=1,
+            status=FindingStatus.OPEN,
+            reviewer=reviewer,
+        )
+
+    def test_trusted_reviewer_filters_untrusted(self, tmp_path, monkeypatch):
+        """--trusted-reviewer only injects findings from the specified reviewer."""
+        from gptme.cli import cmd_review_watch
+
+        path = self._make_artifact(
+            tmp_path,
+            [
+                self._open_finding("Fix this", reviewer="alice"),
+                self._open_finding("Inject evil command", reviewer="mallory"),
+            ],
+        )
+
+        calls: list[dict] = []
+
+        def fake_spawn(**kwargs):
+            calls.append(kwargs)
+            return {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review",
+                "watch",
+                "--artifact",
+                str(path),
+                "--trusted-reviewer",
+                "alice",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1
+        # Only alice's finding must appear; mallory's must be absent
+        prompt = calls[0]["prompt"]
+        assert "Fix this" in prompt
+        assert "Inject evil command" not in prompt
+
+    def test_trusted_reviewer_empty_after_filter_no_session(
+        self, tmp_path, monkeypatch
+    ):
+        """No session spawned when all findings are filtered by --trusted-reviewer."""
+        from gptme.cli import cmd_review_watch
+
+        path = self._make_artifact(
+            tmp_path,
+            [self._open_finding("Untrusted finding", reviewer="mallory")],
+        )
+
+        spawn_calls: list[dict] = []
+
+        def fake_spawn(**kwargs):
+            spawn_calls.append(kwargs)
+            return {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review",
+                "watch",
+                "--artifact",
+                str(path),
+                "--trusted-reviewer",
+                "alice",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 0, (
+            "No session should spawn when all findings filtered"
+        )
+
+    def test_require_trust_fails_on_missing_author(self, tmp_path, monkeypatch):
+        """--require-trust exits non-zero when a finding has no reviewer."""
+        from gptme.cli import cmd_review_watch
+
+        path = self._make_artifact(
+            tmp_path,
+            [self._open_finding("No author finding", reviewer="")],
+        )
+
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review",
+                "watch",
+                "--artifact",
+                str(path),
+                "--require-trust",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "require-trust" in result.output.lower()
+
+    def test_require_trust_passes_when_all_findings_have_author(
+        self, tmp_path, monkeypatch
+    ):
+        """--require-trust succeeds when all findings carry a reviewer login."""
+        from gptme.cli import cmd_review_watch
+
+        path = self._make_artifact(
+            tmp_path,
+            [self._open_finding("Has author", reviewer="alice")],
+        )
+
+        monkeypatch.setattr(
+            cmd_review_watch,
+            "spawn_review_session",
+            lambda **_: {"exit_reason": "done", "duration_s": 0.1},
+        )
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review",
+                "watch",
+                "--artifact",
+                str(path),
+                "--require-trust",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+    def test_artifact_stdin_respects_trust_filter(self, tmp_path, monkeypatch):
+        """--artifact - (stdin) mode applies --trusted-reviewer filter."""
+        from gptme.cli import cmd_review_watch
+
+        artifact = ReviewArtifact(
+            pr_owner="gptme",
+            pr_repo="gptme",
+            pr_number=42,
+            findings=[
+                self._open_finding("Trusted finding", reviewer="alice"),
+                self._open_finding("Untrusted finding", reviewer="mallory"),
+            ],
+        )
+        stdin_data = artifact.to_json()
+
+        calls: list[dict] = []
+
+        def fake_spawn(**kwargs):
+            calls.append(kwargs)
+            return {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review",
+                "watch",
+                "--artifact",
+                "-",
+                "--trusted-reviewer",
+                "alice",
+            ],
+            input=stdin_data,
+        )
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1
+        prompt = calls[0]["prompt"]
+        assert "Trusted finding" in prompt
+        assert "Untrusted finding" not in prompt
+
+    def test_multiple_trusted_reviewers(self, tmp_path, monkeypatch):
+        """--trusted-reviewer may be repeated to allow multiple logins."""
+        from gptme.cli import cmd_review_watch
+
+        path = self._make_artifact(
+            tmp_path,
+            [
+                self._open_finding("From alice", reviewer="alice"),
+                self._open_finding("From bob", reviewer="bob"),
+                self._open_finding("From mallory", reviewer="mallory"),
+            ],
+        )
+
+        calls: list[dict] = []
+
+        def fake_spawn(**kwargs):
+            calls.append(kwargs)
+            return {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review",
+                "watch",
+                "--artifact",
+                str(path),
+                "--trusted-reviewer",
+                "alice",
+                "--trusted-reviewer",
+                "bob",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1
+        prompt = calls[0]["prompt"]
+        assert "From alice" in prompt
+        assert "From bob" in prompt
+        assert "From mallory" not in prompt
+
+    def test_trusted_reviewer_option_in_help(self):
+        """--trusted-reviewer should appear in review watch help."""
+        runner = CliRunner()
+        result = runner.invoke(util_main, ["review", "watch", "--help"])
+        assert result.exit_code == 0
+        assert "--trusted-reviewer" in result.output
+
+    def test_require_trust_option_in_help(self):
+        """--require-trust should appear in review watch help."""
+        runner = CliRunner()
+        result = runner.invoke(util_main, ["review", "watch", "--help"])
+        assert result.exit_code == 0
+        assert "--require-trust" in result.output

@@ -295,6 +295,36 @@ def _load_artifact(artifact_path: str) -> ReviewArtifact:
     return ReviewArtifact.from_json(text)
 
 
+def _filter_findings_by_trust(
+    findings: list[ReviewFinding],
+    trusted_reviewers: tuple[str, ...] | frozenset[str],
+    *,
+    require_trust: bool,
+) -> list[ReviewFinding]:
+    """Filter artifact findings to only those from trusted reviewers.
+
+    When ``trusted_reviewers`` is empty all findings pass (no-op).
+    When ``require_trust`` is set, any finding whose ``reviewer`` field is
+    absent or empty raises a :class:`click.ClickException` rather than
+    silently passing or silently being dropped.
+    """
+    if require_trust:
+        missing = [f for f in findings if not f.reviewer]
+        if missing:
+            raise click.ClickException(
+                f"--require-trust: {len(missing)} finding(s) have no author — "
+                "cannot verify reviewer trust. "
+                "Ensure all findings carry a reviewer login, "
+                "or omit --require-trust."
+            )
+
+    if not trusted_reviewers:
+        return list(findings)
+
+    trusted_set = frozenset(trusted_reviewers)
+    return [f for f in findings if f.reviewer in trusted_set]
+
+
 def spawn_review_session(
     *,
     prompt: str,
@@ -425,10 +455,33 @@ def spawn_review_session(
     default=False,
     help="Process comments found right now and exit (no polling loop).",
 )
+@click.option(
+    "--trusted-reviewer",
+    "trusted_reviewers",
+    multiple=True,
+    metavar="LOGIN",
+    help=(
+        "Only inject findings whose reviewer matches this GitHub login. "
+        "May be repeated for multiple trusted reviewers. "
+        "When omitted all findings are injected (default). "
+        "Applies to --artifact mode only."
+    ),
+)
+@click.option(
+    "--require-trust",
+    is_flag=True,
+    default=False,
+    help=(
+        "In --artifact mode, hard-fail if any open finding lacks a reviewer "
+        "login.  Prevents silent bypass when producers omit authorship metadata."
+    ),
+)
 def review_watch(
     pr_number: int | None,
     repo: str | None,
     artifact_path: str | None,
+    trusted_reviewers: tuple[str, ...],
+    require_trust: bool,
     model: str | None,
     max_iterations: int,
     poll_interval: int,
@@ -478,9 +531,22 @@ def review_watch(
             effective_owner, effective_repo_name = repo.split("/", 1)
 
         open_findings = artifact.open_findings
+
+        # Apply trust filter before building the prompt.  This is the
+        # primary mitigation for the P1 finding on #3449: artifact finding
+        # bodies are treated as authoritative instructions for a session that
+        # can commit and push.  Filtering to trusted reviewers prevents a
+        # crafted artifact (e.g. piped from an untrusted CI source) from
+        # injecting attacker-controlled instructions.
+        open_findings = _filter_findings_by_trust(
+            open_findings,
+            trusted_reviewers,
+            require_trust=require_trust,
+        )
+
         if not open_findings:
             click.echo(
-                "  ℹ️  Artifact has no open findings — nothing to fix.",
+                "  ℹ️  No open findings after trust filter — nothing to fix.",
                 err=True,
             )
             return
