@@ -1104,14 +1104,25 @@ def start_tool_execution(
                     # ToolUse.execute() for real results; hook messages intentionally
                     # have no call_id — don't re-stamp here or hook messages become
                     # duplicate function_call_output entries (Responses API 400).
-                    for tool_output in tool_outputs:
-                        _append_and_notify(manager, session, tool_output)
+                    #
+                    # Reload under conversation_lock before appending: without this,
+                    # a stale in-memory manager (loaded at the top of the loop) would
+                    # rewrite the full JSONL, overwriting concurrent tool-result appends
+                    # or timing patches written by other confirmation threads.
+                    with SessionManager.conversation_lock(conversation_id):
+                        manager = LogManager.load(conversation_id, lock=False)
+                        for tool_output in tool_outputs:
+                            _append_and_notify(manager, session, tool_output)
                 except Exception as e:
                     logger.exception(f"Error executing tool {tooluse.tool}: {e}")
                     tool_exec.status = ToolStatus.FAILED
 
-                    msg = Message("system", f"Error: {e!s}", call_id=tooluse.call_id)
-                    _append_and_notify(manager, session, msg)
+                    with SessionManager.conversation_lock(conversation_id):
+                        manager = LogManager.load(conversation_id, lock=False)
+                        msg = Message(
+                            "system", f"Error: {e!s}", call_id=tooluse.call_id
+                        )
+                        _append_and_notify(manager, session, msg)
 
                 # Emit tool_complete with duration; also accumulate for metadata.
                 if tool_exec.started_at is not None:
@@ -1128,9 +1139,6 @@ def start_tool_execution(
                             "success": tool_exec.status != ToolStatus.FAILED,
                         },
                     )
-
-                # Persist tool outputs to disk
-                manager.write()
 
                 # Chain to next pending auto-confirm tool (serial execution)
                 next_auto_id: str | None = None
