@@ -1570,6 +1570,32 @@ class TestReviewArtifactFromDictMalformedShapes:
         assert a.pr_repo == ""
         assert a.pr_number == 0
 
+    def test_container_valued_owner_field_coerced_to_empty_string(self):
+        """A list/dict-valued pr.owner should not crash; coerced to empty string."""
+        d = {
+            "findings": [],
+            "review_status": "complete",
+            "pr": {"owner": ["bad", "list"], "repo": "r", "number": 1},
+        }
+        a = ReviewArtifact.from_dict(d)
+        # Container-valued owner is coerced to empty string and counted as error
+        assert a.pr_owner == ""
+        assert a.review_status == ReviewStatus.INCOMPLETE
+        assert a.validation_errors > 0
+
+    def test_container_valued_repo_field_coerced_to_empty_string(self):
+        """A list/dict-valued pr.repo should not crash; coerced to empty string."""
+        d = {
+            "findings": [],
+            "review_status": "complete",
+            "pr": {"owner": "o", "repo": {"bad": "dict"}, "number": 1},
+        }
+        a = ReviewArtifact.from_dict(d)
+        # Container-valued repo is coerced to empty string and counted as error
+        assert a.pr_repo == ""
+        assert a.review_status == ReviewStatus.INCOMPLETE
+        assert a.validation_errors > 0
+
     def test_non_dict_finding_entry_counted_as_deserialization_error(self):
         """A non-dict finding entry (e.g. a string) must count as a deser error,
         downgrading the artifact to INCOMPLETE."""
