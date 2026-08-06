@@ -844,13 +844,13 @@ def test_filter_findings_by_trusted_reviewers_all_trusted(monkeypatch):
         if "pulls/comments/11111" in " ".join(args):
             return {
                 "user": {"login": "alice"},
-                "body": "Here is my review:\n\nIssue 1",
+                "body": "Issue 1",
                 "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
             }
         if "pulls/comments/22222" in " ".join(args):
             return {
                 "user": {"login": "bob"},
-                "body": "Here is my review:\n\nIssue 2",
+                "body": "Issue 2",
                 "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
             }
         return None
@@ -883,13 +883,13 @@ def test_filter_findings_by_trusted_reviewers_partial(monkeypatch):
         if "pulls/comments/11111" in " ".join(args):
             return {
                 "user": {"login": "alice"},
-                "body": "Here is my review:\n\nFrom Alice",
+                "body": "From Alice",
                 "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
             }
         if "pulls/comments/33333" in " ".join(args):
             return {
                 "user": {"login": "bob"},
-                "body": "Here is my review:\n\nFrom Bob",
+                "body": "From Bob",
                 "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
             }
         return None
@@ -947,13 +947,13 @@ def test_filter_findings_case_insensitive(monkeypatch):
         if "pulls/comments/11111" in " ".join(args):
             return {
                 "user": {"login": "ErikBjare"},
-                "body": "Here is my review:\n\nUpper-case reviewer",
+                "body": "Upper-case reviewer",
                 "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
             }
         if "pulls/comments/22222" in " ".join(args):
             return {
                 "user": {"login": "alice"},
-                "body": "Here is my review:\n\nLower-case reviewer",
+                "body": "Lower-case reviewer",
                 "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
             }
         return None
@@ -999,7 +999,11 @@ def test_filter_findings_forged_reviewer_rejected(monkeypatch):
 
 
 def test_filter_findings_verified_reviewer_accepted(monkeypatch):
-    """A finding whose github_comment_id confirms the trusted reviewer and body is accepted."""
+    """A finding whose github_comment_id confirms the trusted reviewer and body is accepted.
+
+    Body verification requires exact match (after strip): the artifact must store
+    the full, unmodified comment body — not a substring.
+    """
     from gptme.util.review import ReviewFinding
 
     findings = [
@@ -1010,12 +1014,12 @@ def test_filter_findings_verified_reviewer_accepted(monkeypatch):
         ),
     ]
 
-    # API confirms ErikBjare authored comment 12345 with the matching body.
+    # API confirms ErikBjare authored comment 12345 with an exactly matching body.
     def fake_run_gh_json(args, **kwargs):
         if "pulls/comments/12345" in " ".join(args):
             return {
                 "user": {"login": "ErikBjare"},
-                "body": "Here is my review:\n\nReal review comment\n\nPlease fix this.",
+                "body": "Real review comment",
             }
         return None
 
@@ -1113,12 +1117,12 @@ def test_filter_findings_missing_comment_id_rejected(monkeypatch):
         ),
     ]
 
-    # Mock API to accept the first finding
+    # Mock API to accept the first finding (body matches exactly)
     def fake_run_gh_json(args, **kwargs):
         if "pulls/comments/12345" in " ".join(args):
             return {
                 "user": {"login": "ErikBjare"},
-                "body": "Here is my review:\n\nLegitimate review",
+                "body": "Legitimate review",
             }
         return None
 
@@ -1153,13 +1157,13 @@ def test_filter_findings_cross_pr_injection_rejected(monkeypatch):
         ),
     ]
 
-    # API returns the comment as valid (ErikBjare is trusted, body matches),
+    # API returns the comment as valid (ErikBjare is trusted, body matches exactly),
     # but it belongs to PR #2, not the target PR #1.
     def fake_run_gh_json(args, **kwargs):
         if "pulls/comments/99999" in " ".join(args):
             return {
                 "user": {"login": "ErikBjare"},
-                "body": "Here is my review:\n\nReal comment from ErikBjare",
+                "body": "Real comment from ErikBjare",
                 "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/2",
             }
         return None
@@ -1192,7 +1196,7 @@ def test_filter_findings_pr_bound_accepted_for_correct_pr(monkeypatch):
         if "pulls/comments/12345" in " ".join(args):
             return {
                 "user": {"login": "ErikBjare"},
-                "body": "Here is my review:\n\nReal comment from ErikBjare",
+                "body": "Real comment from ErikBjare",
                 "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
             }
         return None
@@ -1207,6 +1211,135 @@ def test_filter_findings_pr_bound_accepted_for_correct_pr(monkeypatch):
         pr_number=1,  # Comment is on PR #1, target is PR #1 — should pass
     )
     assert len(result) == 1, "Valid comment on correct PR must be accepted"
+
+
+def test_filter_findings_substring_body_rejected(monkeypatch):
+    """A finding whose body is a substring of the real GitHub comment must be rejected.
+
+    This is the exact-match fix: a fragment of a genuine trusted comment can alter
+    meaning by stripping surrounding qualifiers or negation. Verification now requires
+    the artifact body to match the full GitHub comment body exactly (after strip).
+    """
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="add the unsafe flag",  # fragment — strips the "do not" prefix
+            reviewer="ErikBjare",
+            github_comment_id=12345,
+        ),
+    ]
+
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/12345" in " ".join(args):
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "do not add the unsafe flag",  # real comment has negation
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+    )
+    assert len(result) == 0, (
+        "A fragment/substring of the real comment must be rejected "
+        "(exact body match required)"
+    )
+
+
+def test_filter_findings_conversation_comment_accepted(monkeypatch):
+    """A finding whose github_comment_id is a PR conversation (issue) comment ID is
+    accepted when it resolves correctly via the issues/comments endpoint.
+
+    Inline review comments (attached to diff lines) live at pulls/comments/{id}.
+    PR-level conversation comments live at issues/comments/{id} and use a separate
+    ID space.  The verifier must try the issues/comments endpoint as a fallback so
+    valid PR-level findings are not silently discarded.
+    """
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="PR-level conversation comment",
+            reviewer="ErikBjare",
+            github_comment_id=55555,  # lives in issues/comments space
+        ),
+    ]
+
+    def fake_run_gh_json(args, **kwargs):
+        joined = " ".join(args)
+        if "pulls/comments/55555" in joined:
+            # Not an inline comment — endpoint returns nothing
+            return None
+        if "issues/comments/55555" in joined:
+            # Found via conversation-comment endpoint
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "PR-level conversation comment",
+                "issue_url": "https://api.github.com/repos/owner/repo/issues/1",
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+        pr_number=1,
+    )
+    assert len(result) == 1, (
+        "Conversation comment (issue/comment ID) must be accepted via fallback endpoint"
+    )
+
+
+def test_filter_findings_conversation_comment_wrong_pr_rejected(monkeypatch):
+    """A conversation comment from a different PR must be rejected even via the
+    issues/comments fallback endpoint.
+
+    PR-bound check for conversation comments uses ``issue_url`` rather than
+    ``pull_request_url`` (which is absent on issue comments).
+    """
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="Comment from another PR",
+            reviewer="ErikBjare",
+            github_comment_id=55555,
+        ),
+    ]
+
+    def fake_run_gh_json(args, **kwargs):
+        joined = " ".join(args)
+        if "pulls/comments/55555" in joined:
+            return None
+        if "issues/comments/55555" in joined:
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "Comment from another PR",
+                "issue_url": "https://api.github.com/repos/owner/repo/issues/2",  # PR #2
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+        pr_number=1,  # target is PR #1, comment is on PR #2
+    )
+    assert len(result) == 0, (
+        "Conversation comment from a different PR must be rejected (PR-bound check)"
+    )
 
 
 def test_filter_findings_missing_repo_context_rejected():
@@ -1288,17 +1421,18 @@ def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
             return {"exit_reason": "done", "duration_s": 0.1}
 
         def fake_run_gh_json(args, **kwargs):
-            # Mock API: return both comments as if from trusted reviewers on PR #1
+            # Mock API: return both comments as if from trusted reviewers on PR #1.
+            # Body must match the artifact finding body exactly.
             if "pulls/comments/11111" in " ".join(args):
                 return {
                     "user": {"login": "alice"},
-                    "body": "Review:\n\nFrom Alice",
+                    "body": "From Alice",
                     "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
                 }
             if "pulls/comments/22222" in " ".join(args):
                 return {
                     "user": {"login": "eve"},
-                    "body": "Review:\n\nFrom Eve",
+                    "body": "From Eve",
                     "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
                 }
             return None

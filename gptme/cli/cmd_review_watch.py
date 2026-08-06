@@ -308,20 +308,37 @@ def _verify_comment_reviewer(
 
     Fetches the comment and compares:
     1. ``user.login`` case-insensitively (using casefold for proper Unicode handling)
-    2. Comment body contains or matches the artifact finding body (if provided)
+    2. Comment body matches the artifact finding body exactly (if provided)
     3. If target_pr_number is provided, verifies the comment is on that specific PR
+
+    Tries the inline review-comment endpoint first (``pulls/comments``); falls
+    back to the issue-comment endpoint (``issues/comments``) for PR-level
+    conversation comments, which live in a separate ID space.
 
     Returns (verified, body) where verified is True only if login matches and
     body is authentic. When verification fails, body is empty string.
     Fails closed on network errors or mismatches.
     """
+    # Try inline review comment endpoint first.
     data = run_gh_json(
         ["gh", "api", f"repos/{owner}/{repo}/pulls/comments/{comment_id}"],
         timeout=10,
     )
+    is_issue_comment = False
+    if not isinstance(data, dict):
+        # Fall back to the issue/conversation comment endpoint.
+        # PR-level comments (not attached to a diff line) use this endpoint and
+        # have IDs that are independent of the pulls/comments ID space.
+        data = run_gh_json(
+            ["gh", "api", f"repos/{owner}/{repo}/issues/comments/{comment_id}"],
+            timeout=10,
+        )
+        is_issue_comment = True
+
     if not isinstance(data, dict):
         logger.warning(
-            "Could not fetch GitHub comment %d for reviewer verification; "
+            "Could not fetch GitHub comment %d for reviewer verification "
+            "(tried both pulls/comments and issues/comments endpoints); "
             "rejecting finding as unverifiable.",
             comment_id,
         )
@@ -339,16 +356,26 @@ def _verify_comment_reviewer(
         return False, ""
 
     # Verify the comment is on the target PR (prevent cross-PR comment injection).
-    # The GitHub API returns pull_request_url (a string URL) not a nested dict.
-    # Example: "https://api.github.com/repos/owner/repo/pulls/42"
     if target_pr_number is not None:
-        pr_url = data.get("pull_request_url", "")
         comment_pr: int | None = None
-        if pr_url:
-            try:
-                comment_pr = int(pr_url.rstrip("/").split("/")[-1])
-            except (ValueError, IndexError):
-                pass
+        if is_issue_comment:
+            # Issue comments use ``issue_url``:
+            # "https://api.github.com/repos/owner/repo/issues/42"
+            issue_url = data.get("issue_url", "")
+            if issue_url:
+                try:
+                    comment_pr = int(issue_url.rstrip("/").split("/")[-1])
+                except (ValueError, IndexError):
+                    pass
+        else:
+            # Inline review comments use ``pull_request_url``:
+            # "https://api.github.com/repos/owner/repo/pulls/42"
+            pr_url = data.get("pull_request_url", "")
+            if pr_url:
+                try:
+                    comment_pr = int(pr_url.rstrip("/").split("/")[-1])
+                except (ValueError, IndexError):
+                    pass
         if comment_pr != target_pr_number:
             logger.warning(
                 "GitHub comment %d is from PR #%s, but artifact targets PR #%d; "
@@ -359,15 +386,16 @@ def _verify_comment_reviewer(
             )
             return False, ""
 
-    # Verify the comment body if one was expected
+    # Verify the comment body if one was expected.
+    # Require exact match (after stripping leading/trailing whitespace) to prevent
+    # substring manipulation: an attacker who supplies a context-altering fragment
+    # of a genuine trusted comment would otherwise pass a containment check.
     comment_body = data.get("body", "")
     if expected_body:
-        # For security, the artifact body must appear verbatim in the GitHub comment
-        # to prove it came from the reviewer and wasn't fabricated.
-        if expected_body not in comment_body:
+        if expected_body.strip() != comment_body.strip():
             logger.warning(
-                "GitHub comment %d body mismatch: artifact body not found in "
-                "reviewer's actual comment; rejecting finding (prevents forgery).",
+                "GitHub comment %d body mismatch: artifact body does not exactly "
+                "match reviewer's actual comment; rejecting finding (prevents forgery).",
                 comment_id,
             )
             return False, ""
