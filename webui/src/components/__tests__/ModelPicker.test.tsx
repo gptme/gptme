@@ -175,4 +175,23 @@ describe('ModelPicker — custom model ID entry', () => {
       expect(onSelect).toHaveBeenCalledWith(customId);
     });
   });
+
+  it('shows custom entry and passes verbatim input for whitespace-padded known model ID', async () => {
+    const user = userEvent.setup();
+    renderPicker(onSelect);
+
+    const input = screen.getByPlaceholderText('Search models or enter model ID...');
+    const paddedId = '  anthropic/claude-sonnet-4-6  ';
+    await user.type(input, paddedId);
+
+    // Whitespace-padded ID does not match the canonical model.id, so custom entry must appear
+    expect(screen.getByText('Use this model ID directly')).toBeInTheDocument();
+
+    const customItem = screen.getByText('Use this model ID directly');
+    await user.click(customItem);
+
+    await waitFor(() => {
+      expect(onSelect).toHaveBeenCalledWith(paddedId);
+    });
+  });
 });
