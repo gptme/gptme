@@ -6,11 +6,13 @@ import { test, expect } from '@playwright/test';
 // (MODEL=mock/echo), so generation completes without real API credentials.
 // They are skipped automatically when:
 //   - The chat input stays disabled (no server connection), or
-//   - The response is not an echo (different provider configured).
+//   - The /api/v2/models endpoint is not accessible (auth required) or the
+//     configured default is not the mock provider.
 //
-// In CI: the "dev" pass starts gptme-server with MODEL=mock/echo, so these
-// tests always run there. The "stable" pass uses a real model with a dummy
-// key — generation fails gracefully and the tests skip.
+// In CI: the "dev" pass starts gptme-server with MODEL=mock/echo and
+// GPTME_DISABLE_AUTH=1, so these tests always run there.  The "stable" pass
+// uses a real provider with auth enabled — the models endpoint returns 401,
+// checkMockServer returns false, and every test skips gracefully.
 //
 // Three UI-stability bugs from #3440 exercised here:
 //
@@ -31,15 +33,32 @@ const GENERATION_TIMEOUT = 20_000;
 // Fixture: check for a live server and that mock/echo is responding
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Shared helper: returns true when we detect the server is connected and
-// the mock/echo provider is active (response starts with "Echo:").
+// Shared helper: returns true when the server is connected AND the configured
+// default model is the mock/echo provider.
+//
+// Two-step check:
+//   1. UI: chat-input is enabled (server is reachable and a conversation can
+//      be started).
+//   2. API: GET /api/v2/models returns 200 and default contains "mock".
+//      The stable CI pass runs with auth enabled — the endpoint returns 401
+//      there, so the check correctly returns false and all tests skip.
+//      The dev pass sets GPTME_DISABLE_AUTH=1, so the endpoint is open and
+//      returns default="mock/echo".
+//
+// page.request is a Node-side HTTP client (no CORS); it can reach the
+// gptme-server at localhost:5700 regardless of the webui origin.
 async function checkMockServer(page: import('@playwright/test').Page): Promise<boolean> {
   await page.goto('/');
   await page.waitForLoadState('networkidle');
   const input = page.getByTestId('chat-input');
   await expect(input).toBeVisible({ timeout: 10_000 });
   const enabled = await input.isEnabled({ timeout: CONNECT_TIMEOUT }).catch(() => false);
-  return enabled;
+  if (!enabled) return false;
+
+  const resp = await page.request.get('http://localhost:5700/api/v2/models').catch(() => null);
+  if (!resp?.ok()) return false;
+  const data = await resp.json().catch(() => null);
+  return typeof data?.default === 'string' && data.default.includes('mock');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -58,17 +77,23 @@ async function sendMessageAndNavigate(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: wait for generation to complete.
-// Signals: chat-input re-enabled after having been disabled (the busy state
-// while the server is generating).
+// Signal: the .animate-spin generation indicator appears then disappears.
+//
+// The chat textarea is NOT disabled during generation — its disabled state only
+// reflects connection and read-only status, so watching it would race.  The
+// Tailwind .animate-spin class on the Loader2 header icon is the correct signal.
+//
+// If mock/echo responds before the first spinner check (extremely fast round
+// trip), toBeVisible times out and the .catch() swallows it; toBeHidden then
+// passes immediately because the spinner is already gone.  This is correct: if
+// there was no visible spinner, generation was already done.
 // ─────────────────────────────────────────────────────────────────────────────
 async function waitForGenerationDone(page: import('@playwright/test').Page): Promise<void> {
-  const input = page.getByTestId('chat-input');
-  // Wait for the input to go busy (disabled) first — generation has started.
-  // A brief race is fine here; if submit was synchronous the input may already
-  // have gone busy and come back before this line, in which case we proceed.
-  await input.isDisabled({ timeout: 3_000 }).catch(() => null);
-  // Now wait for it to come back (generation complete or error).
-  await expect(input).toBeEnabled({ timeout: GENERATION_TIMEOUT });
+  const spinner = page.locator('.animate-spin').first();
+  await expect(spinner)
+    .toBeVisible({ timeout: 5_000 })
+    .catch(() => null);
+  await expect(spinner).toBeHidden({ timeout: GENERATION_TIMEOUT });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,7 +197,15 @@ test.describe('Live generation: UI stability with mock/echo provider (gptme#3440
     const viewport = page.getByTestId('message-scroll-viewport');
     await expect(viewport).toBeVisible({ timeout: 5_000 });
 
-    // Sample scroll position while generation is in flight.
+    // Gate the first sample on the generation spinner being visible so that
+    // both samples are taken while streaming is actually in flight.  If the
+    // provider is so fast that the spinner is gone before we reach this line,
+    // the .catch() swallows the timeout and both samples land post-generation —
+    // the delta will then be ~0, which still satisfies the assertion.
+    await expect(page.locator('.animate-spin').first())
+      .toBeVisible({ timeout: 5_000 })
+      .catch(() => null);
+
     const pos1 = await viewport.evaluate((el) => ({
       scrollTop: el.scrollTop,
       scrollHeight: el.scrollHeight,
