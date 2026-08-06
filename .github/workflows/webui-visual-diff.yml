@@ -153,11 +153,17 @@ jobs:
           // Build the table rows from summary.json
           const summary = JSON.parse(fs.readFileSync('screenshots/diff/summary.json', 'utf8'));
           const icon = { changed: '⚠️', new: '🆕', removed: '🗑️', same: '✅' };
-          // Escape Markdown metacharacters that could break the table or code span.
-          // Filenames come from fork-controlled artifact content, so we must sanitize.
-          const escapeMd = s => s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\|/g, '\\|');
+          // Sanitize fork-controlled filenames for Markdown table rows.
+          // Backslash-escaping backticks does NOT work inside CommonMark code spans
+          // (the spec renders code-span content verbatim), so we replace backticks
+          // with their HTML entity instead. CR/LF would break the table row, so we
+          // collapse them to space. Pipes are backslash-escaped.
+          const sanitizeMd = s => s
+            .replace(/\r?\n|\r/g, ' ')  // newlines → space (prevent row-break injection)
+            .replace(/`/g, '&#96;')     // backtick → HTML entity (code-span safe)
+            .replace(/\|/g, '\\|');     // pipe → escaped (prevent cell injection)
           const rows = summary.results.map(r =>
-            `| \`${escapeMd(r.name)}\` | ${icon[r.status] ?? '❓'} ${r.status} | ${r.pixels.toLocaleString()} |`
+            `| \`${sanitizeMd(r.name)}\` | ${icon[r.status] ?? '❓'} ${r.status} | ${r.pixels.toLocaleString()} |`
           ).join('\n');
 
           const body = [
