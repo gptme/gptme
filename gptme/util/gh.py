@@ -73,6 +73,66 @@ def is_bot_user(user: dict) -> bool:
     return utype == "Bot" or login.endswith("[bot]")
 
 
+def fetch_pr_review_comment_bodies_by_user(
+    owner: str, repo: str, pr_num: int, *, timeout: float = 30
+) -> dict[str, frozenset[str]] | None:
+    """Return a map of reviewer login → frozenset of their comment bodies on this PR.
+
+    Fetches both inline review comments (``/pulls/{pr_num}/comments``) and
+    conversation-level comments (``/issues/{pr_num}/comments``) and merges them.
+    Bodies are stripped of leading/trailing whitespace.
+
+    Used to bind artifact finding bodies to actual GitHub comment content,
+    closing the forgery window that exists when only reviewer *participation*
+    is checked (``fetch_pr_reviewer_logins``).
+
+    Returns ``None`` when either API call fails, letting callers decide whether
+    to hard-fail or warn.  Logins are returned in lowercase.
+    """
+    bodies_by_user: dict[str, set[str]] = {}
+
+    def _collect(endpoint: str) -> bool:
+        """Fetch one endpoint and accumulate into bodies_by_user.  Returns False on error."""
+        data = run_gh_json(
+            [
+                "gh",
+                "api",
+                "--paginate",
+                "--slurp",
+                endpoint,
+            ],
+            timeout=timeout,
+        )
+        if not isinstance(data, list):
+            return False
+        comments: list[dict] = []
+        for item in data:
+            if isinstance(item, list):
+                comments.extend(item)
+            elif isinstance(item, dict):
+                comments.append(item)
+        for c in comments:
+            if not isinstance(c, dict):
+                continue
+            user = c.get("user")
+            if not isinstance(user, dict):
+                continue
+            body = c.get("body", "")
+            if not isinstance(body, str) or not body.strip():
+                continue
+            login = user.get("login", "").lower()
+            if not login:
+                continue
+            bodies_by_user.setdefault(login, set()).add(body.strip())
+        return True
+
+    ok1 = _collect(f"/repos/{owner}/{repo}/pulls/{pr_num}/comments")
+    ok2 = _collect(f"/repos/{owner}/{repo}/issues/{pr_num}/comments")
+    if not (ok1 and ok2):
+        return None
+    return {login: frozenset(bodies) for login, bodies in bodies_by_user.items()}
+
+
 def fetch_pr_reviewer_logins(
     owner: str, repo: str, pr_num: int, *, timeout: float = 15
 ) -> frozenset[str] | None:

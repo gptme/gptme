@@ -37,7 +37,12 @@ from pathlib import Path
 
 import click
 
-from ..util.gh import fetch_pr_reviewer_logins, is_trusted_reviewer, run_gh_json
+from ..util.gh import (
+    fetch_pr_review_comment_bodies_by_user,
+    fetch_pr_reviewer_logins,
+    is_trusted_reviewer,
+    run_gh_json,
+)
 from ..util.review import FindingStatus, ReviewArtifact, ReviewFinding
 
 logger = logging.getLogger(__name__)
@@ -451,6 +456,21 @@ def spawn_review_session(
         "Only meaningful in --artifact mode."
     ),
 )
+@click.option(
+    "--verify-bodies",
+    is_flag=True,
+    default=False,
+    help=(
+        "Cross-validate each finding's body against the reviewer's actual GitHub "
+        "comment content.  When set alongside --trusted-reviewer, a finding is "
+        "only injected if its body text appears verbatim in one of the claimed "
+        "reviewer's real PR comments.  This closes the forgery window where an "
+        "artifact producer sets reviewer=<allowlisted-login> on a malicious body: "
+        "the body itself must be verifiable on GitHub. Requires the gh CLI. "
+        "Findings whose bodies cannot be matched are skipped with a warning. "
+        "Only meaningful in --artifact mode."
+    ),
+)
 def review_watch(
     pr_number: int | None,
     repo: str | None,
@@ -464,6 +484,7 @@ def review_watch(
     once: bool,
     trusted_reviewers: tuple[str, ...],
     require_trust: bool,
+    verify_bodies: bool,
 ) -> None:
     """Watch a PR for new review comments and iterate automatically.
 
@@ -486,6 +507,8 @@ def review_watch(
         gptme-util review-watch --artifact artifact.json \\
             --trusted-reviewer ErikBjare --trusted-reviewer alice \\
             --require-trust
+        gptme-util review-watch --artifact artifact.json \\
+            --trusted-reviewer ErikBjare --verify-bodies
 
     The watching process is blocking in GitHub mode. Stop it with Ctrl-C.
     In artifact mode the command processes the artifact's open findings once
@@ -528,6 +551,12 @@ def review_watch(
         #  - --require-trust           → additionally drop findings that carry no
         #    reviewer attribution (empty reviewer field).  Without this flag,
         #    un-attributed findings pass through (default = permissive).
+        #  - --verify-bodies           → additionally cross-validate each finding's
+        #    body against the reviewer's actual GitHub PR comments.  This closes
+        #    the window where an artifact forges reviewer=<allowlisted-login> on a
+        #    malicious body: the body itself must appear in a real GitHub comment
+        #    from that reviewer.  Requires the gh CLI.  Findings whose body cannot
+        #    be matched are skipped with a warning.
         #  - No flags                  → all findings pass (original behaviour).
         had_findings_before_filter = bool(open_findings)
         if trusted_reviewers or require_trust:
@@ -560,9 +589,27 @@ def review_watch(
                         "Check gh authentication and retry."
                     )
 
+            # When --verify-bodies is set, fetch each trusted reviewer's actual
+            # comment bodies from GitHub for cross-validation.  This prevents a
+            # forged artifact from passing the reviewer-participation check (above)
+            # while injecting an attacker-controlled body into the fix session.
+            github_bodies: dict[str, frozenset[str]] | None = None
+            if verify_bodies and trusted_set:
+                github_bodies = fetch_pr_review_comment_bodies_by_user(
+                    effective_owner, effective_repo_name, effective_pr_number
+                )
+                if github_bodies is None:
+                    raise click.ClickException(
+                        f"Could not fetch PR review comments for "
+                        f"{effective_owner}/{effective_repo_name}#{effective_pr_number} "
+                        "from GitHub.  Body verification cannot proceed.  "
+                        "Check gh authentication and retry, or omit --verify-bodies."
+                    )
+
             filtered: list[ReviewFinding] = []
             skipped_untrusted = 0
             skipped_no_author = 0
+            skipped_unverified_body = 0
             for f in open_findings:
                 reviewer_lower = (f.reviewer or "").lower()
                 if not reviewer_lower:
@@ -587,6 +634,18 @@ def review_watch(
                     if not (in_allowlist and in_github):
                         skipped_untrusted += 1
                         continue
+
+                    # --verify-bodies: additionally confirm the finding body
+                    # appears verbatim in one of the reviewer's real GitHub
+                    # comments.  This binds the specific body to the claimed
+                    # identity, closing the forgery window where any finding body
+                    # can pass as long as the login is allowlisted.
+                    if github_bodies is not None:
+                        reviewer_bodies = github_bodies.get(reviewer_lower, frozenset())
+                        if f.body.strip() not in reviewer_bodies:
+                            skipped_unverified_body += 1
+                            continue
+
                 filtered.append(f)
 
             if skipped_untrusted:
@@ -599,6 +658,13 @@ def review_watch(
                 click.echo(
                     f"  🔒  Skipped {skipped_no_author} finding(s) with no"
                     " reviewer attribution (--require-trust).",
+                    err=True,
+                )
+            if skipped_unverified_body:
+                click.echo(
+                    f"  🔒  Skipped {skipped_unverified_body} finding(s) whose body"
+                    " could not be verified against the reviewer's GitHub comments"
+                    " (--verify-bodies).",
                     err=True,
                 )
             open_findings = filtered
