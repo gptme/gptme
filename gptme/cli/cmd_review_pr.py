@@ -310,7 +310,11 @@ def _extract_findings_from_output(output: str) -> list[ReviewFinding] | None:
 
         findings: list[ReviewFinding] = []
         for item in data["findings"]:
-            if not isinstance(item, dict) or not item.get("body"):
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("body"), str)
+                or not item["body"]
+            ):
                 continue
             severity_raw = item.get("severity", "warning")
             try:
@@ -535,7 +539,8 @@ def review_pr(
         err=True,
     )
 
-    if exit_reason != "done":
+    session_failed = exit_reason != "done"
+    if session_failed:
         error_msg = summary.get("error", "")
         click.echo(f"  ⚠️  Session did not complete: {error_msg}", err=True)
         # Try to extract findings even from failed sessions — a partial output
@@ -552,6 +557,14 @@ def review_pr(
         )
         click.echo("  Raw session stdout (last 500 chars):", err=True)
         click.echo(f"  {stdout[-500:]!r}", err=True)
+        if session_failed:
+            # The session failed AND produced no parseable findings block.
+            # Emitting an empty artifact here would cause review-watch to treat
+            # a broken review as "nothing to fix".  Fail loudly instead.
+            raise SystemExit(
+                "review pr: session failed and produced no findings block — "
+                "refusing to emit a clean-looking empty artifact"
+            )
         findings = []
 
     click.echo(f"  📋  {len(findings)} finding(s) extracted.", err=True)
