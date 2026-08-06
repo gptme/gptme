@@ -2761,7 +2761,13 @@ class TestMaxTimeWatchdog:
             _subagents_lock,
         )
 
+        # Ensure any leftover threads from prior tests are stopped before clearing.
+        # This prevents "dictionary changed size during iteration" errors when
+        # setup_method clears the shared dicts while threads are still iterating.
         with _subagents_lock:
+            for sa in _subagents:
+                if sa.thread and sa.thread.is_alive():
+                    sa.thread.join(timeout=0.5)
             _subagents.clear()
         with _subagent_results_lock:
             _subagent_results.clear()
