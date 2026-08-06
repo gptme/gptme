@@ -208,4 +208,44 @@ describe('InlineToolConfirmation — Accept All UX (gptme#3440)', () => {
       jest.useRealTimers();
     }
   });
+
+  it('blocks re-submission after timeout when SSE was missed (Greptile P1: Timeout re-enables submitted tool)', async () => {
+    // After the 15 s timeout releases the UI lock (to prevent indefinite freeze),
+    // the same tool must NOT be resubmittable — confirmedToolId is retained and
+    // all handlers check it before sending a POST.
+    jest.useFakeTimers();
+    try {
+      const onConfirm = jest.fn().mockResolvedValue(undefined);
+      renderConfirmation({ onConfirm });
+
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: /execute/i }));
+      });
+
+      // Flush Promise microtasks so onConfirm's await resolves and the timeout is scheduled
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+
+      // Advance past the safety timeout (pendingTool never cleared = SSE missed)
+      act(() => {
+        jest.advanceTimersByTime(15_000);
+      });
+
+      // Timeout unlocks the UI — button re-enables to avoid indefinite freeze
+      const executeBtn = screen.getByRole('button', { name: /execute/i });
+      expect(executeBtn).not.toBeDisabled();
+
+      // But clicking again must NOT send a second POST — the tool was already confirmed
+      fireEvent.click(executeBtn);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

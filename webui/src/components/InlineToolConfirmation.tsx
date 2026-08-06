@@ -66,6 +66,17 @@ export function InlineToolConfirmation({
     setConfirmLoading(false);
   }, []);
 
+  // Timeout-only release: unlocks the UI so it doesn't stay frozen indefinitely
+  // (Greptile P1: "Missed SSE leaves controls locked"), but intentionally retains
+  // confirmedToolId so that all handlers can detect the already-submitted tool and
+  // refuse a second POST (Greptile P1: "Timeout re-enables submitted tool").
+  const releaseOnTimeout = React.useCallback(() => {
+    lockTimeoutRef.current = null;
+    isConfirmingRef.current = false;
+    // confirmedToolId.current kept — handlers check it before each submission.
+    setConfirmLoading(false);
+  }, []);
+
   // Reset state when the pending tool changes (including when it becomes null after confirmation)
   React.useEffect(() => {
     if (pendingTool) {
@@ -91,20 +102,23 @@ export function InlineToolConfirmation({
   const handleConfirm = React.useCallback(async () => {
     // Check synchronously before any async work (prevents render-time race)
     if (isConfirmingRef.current) return;
+    // Block re-submission when the same tool was already confirmed but SSE was missed
+    if (confirmedToolId.current !== null && confirmedToolId.current === pendingTool?.id) return;
     isConfirmingRef.current = true;
     confirmedToolId.current = pendingTool?.id ?? null;
     setConfirmLoading(true);
     try {
       await onConfirm();
       // Lock intentionally held until pendingTool clears via SSE (useEffect releases it).
-      // Safety timeout: if tool_executing SSE is missed during a disconnect, release
-      // the lock after 15 s so the UI doesn't stay frozen indefinitely.
-      lockTimeoutRef.current = setTimeout(releaseLock, 15_000);
+      // Safety timeout: if tool_executing SSE is missed during a disconnect, use
+      // releaseOnTimeout (not releaseLock) so confirmedToolId is retained and blocks
+      // re-submission of the already-confirmed tool.
+      lockTimeoutRef.current = setTimeout(releaseOnTimeout, 15_000);
     } catch (error) {
       console.error('Error confirming tool:', error);
       releaseLock();
     }
-  }, [onConfirm, pendingTool, releaseLock]);
+  }, [onConfirm, pendingTool, releaseLock, releaseOnTimeout]);
 
   // Add keyboard handler for Enter key
   React.useEffect(() => {
@@ -131,12 +145,13 @@ export function InlineToolConfirmation({
   const handleEdit = async () => {
     // Check synchronously before any async work (prevents render-time race)
     if (isConfirmingRef.current) return;
+    if (confirmedToolId.current !== null && confirmedToolId.current === pendingTool?.id) return;
     isConfirmingRef.current = true;
     confirmedToolId.current = pendingTool?.id ?? null;
     setConfirmLoading(true);
     try {
       await onEdit(editedContent);
-      lockTimeoutRef.current = setTimeout(releaseLock, 15_000);
+      lockTimeoutRef.current = setTimeout(releaseOnTimeout, 15_000);
     } catch (error) {
       console.error('Error confirming edited tool:', error);
       releaseLock();
@@ -146,12 +161,13 @@ export function InlineToolConfirmation({
   const handleSkip = async () => {
     // Check synchronously before any async work (prevents render-time race)
     if (isConfirmingRef.current) return;
+    if (confirmedToolId.current !== null && confirmedToolId.current === pendingTool?.id) return;
     isConfirmingRef.current = true;
     confirmedToolId.current = pendingTool?.id ?? null;
     setConfirmLoading(true);
     try {
       await onSkip();
-      lockTimeoutRef.current = setTimeout(releaseLock, 15_000);
+      lockTimeoutRef.current = setTimeout(releaseOnTimeout, 15_000);
     } catch (error) {
       console.error('Error skipping tool:', error);
       releaseLock();
@@ -161,12 +177,13 @@ export function InlineToolConfirmation({
   const handleAcceptAll = async () => {
     // Check synchronously before any async work (prevents render-time race)
     if (isConfirmingRef.current) return;
+    if (confirmedToolId.current !== null && confirmedToolId.current === pendingTool?.id) return;
     isConfirmingRef.current = true;
     confirmedToolId.current = pendingTool?.id ?? null;
     setConfirmLoading(true);
     try {
       await onAuto(999999);
-      lockTimeoutRef.current = setTimeout(releaseLock, 15_000);
+      lockTimeoutRef.current = setTimeout(releaseOnTimeout, 15_000);
     } catch (error) {
       console.error('Error accepting all tools:', error);
       releaseLock();
@@ -177,18 +194,19 @@ export function InlineToolConfirmation({
     async (count: number) => {
       // Check synchronously before any async work (prevents render-time race)
       if (isConfirmingRef.current) return;
+      if (confirmedToolId.current !== null && confirmedToolId.current === pendingTool?.id) return;
       isConfirmingRef.current = true;
       confirmedToolId.current = pendingTool?.id ?? null;
       setConfirmLoading(true);
       try {
         await onAuto(count);
-        lockTimeoutRef.current = setTimeout(releaseLock, 15_000);
+        lockTimeoutRef.current = setTimeout(releaseOnTimeout, 15_000);
       } catch (error) {
         console.error('Error auto-confirming tools:', error);
         releaseLock();
       }
     },
-    [onAuto, pendingTool, releaseLock]
+    [onAuto, pendingTool, releaseLock, releaseOnTimeout]
   );
 
   // Format args for display
