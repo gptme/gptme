@@ -6367,9 +6367,11 @@ keeps repeating an identical action without progress — a silent failing loop
 that would otherwise run until the budget or session timeout is hit.</p>
 <p>Registered as a separate LOOP_CONTINUE hook at higher priority than
 <code class="docutils literal notranslate"><span class="pre">auto_reply_hook</span></code> so it can observe the yes-tool-but-repeating case the
-latter early-returns on. Mutates nothing; only yields a system nudge and,
-after repeated escalations, raises SessionCompleteException.</p>
-<p>See gptme/gptme#2725 and the design note in Bob’s workspace.</p>
+latter early-returns on. Yields a system nudge when stuck; in non-interactive
+mode, raises SessionCompleteException after repeated escalations.</p>
+<p>In interactive mode (e.g. gptme.ai web sessions) the nudge fires normally
+but the session is never force-exited — the human can break the loop.</p>
+<p>See gptme/gptme#2725, gptme/gptme#3459, and the design note in Bob’s workspace.</p>
 </dd></dl>
 
 </section>
