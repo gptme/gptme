@@ -106,7 +106,7 @@ class Log:
         return Log(list(gen))
 
     def write_jsonl(self, path: PathLike) -> None:
-        with open(path, "w") as file:
+        with open(path, "w", encoding="utf-8") as file:
             file.writelines(json.dumps(msg.to_dict()) + "\n" for msg in self.messages)
 
     def print(self, show_hidden: bool = False) -> int:
@@ -1008,7 +1008,7 @@ def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:
     # Pre-compute file mtime as fallback for messages without timestamps
     _file_mtime = datetime.fromtimestamp(Path(path).stat().st_mtime, tz=timezone.utc)
 
-    with open(path) as file:
+    with open(path, encoding="utf-8") as file:
         for line in file:
             line = line.strip()
             if not line:
