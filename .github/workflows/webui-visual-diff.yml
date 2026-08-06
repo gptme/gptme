@@ -153,8 +153,11 @@ jobs:
           // Build the table rows from summary.json
           const summary = JSON.parse(fs.readFileSync('screenshots/diff/summary.json', 'utf8'));
           const icon = { changed: '⚠️', new: '🆕', removed: '🗑️', same: '✅' };
+          // Escape Markdown metacharacters that could break the table or code span.
+          // Filenames come from fork-controlled artifact content, so we must sanitize.
+          const escapeMd = s => s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\|/g, '\\|');
           const rows = summary.results.map(r =>
-            `| \`${r.name}\` | ${icon[r.status] ?? '❓'} ${r.status} | ${r.pixels.toLocaleString()} |`
+            `| \`${escapeMd(r.name)}\` | ${icon[r.status] ?? '❓'} ${r.status} | ${r.pixels.toLocaleString()} |`
           ).join('\n');
 
           const body = [
