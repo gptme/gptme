@@ -1079,6 +1079,80 @@ def test_filter_findings_missing_comment_id_rejected(monkeypatch):
     assert result[0].github_comment_id == 12345
 
 
+def test_filter_findings_cross_pr_injection_rejected(monkeypatch):
+    """A trusted reviewer's comment from a different PR must be rejected.
+
+    This is the PR-bound verification fix for gptme/gptme#3451: an attacker
+    can craft an artifact that claims a trusted reviewer's comment_id from
+    PR #2 as justification for a fix on PR #1. The verification must check
+    that the comment belongs to the target PR.
+    """
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="Real comment from ErikBjare",
+            reviewer="ErikBjare",
+            github_comment_id=99999,
+        ),
+    ]
+
+    # API returns the comment as valid (ErikBjare is trusted, body matches),
+    # but it belongs to PR #2, not the target PR #1.
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/99999" in " ".join(args):
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "Here is my review:\n\nReal comment from ErikBjare",
+                "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/2",
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+        pr_number=1,  # Target is PR #1, but comment is from PR #2
+    )
+    assert len(result) == 0, "Cross-PR comment injection must be rejected"
+
+
+def test_filter_findings_pr_bound_accepted_for_correct_pr(monkeypatch):
+    """A trusted reviewer's comment on the correct PR is accepted."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="Real comment from ErikBjare",
+            reviewer="ErikBjare",
+            github_comment_id=12345,
+        ),
+    ]
+
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/12345" in " ".join(args):
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "Here is my review:\n\nReal comment from ErikBjare",
+                "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+        pr_number=1,  # Comment is on PR #1, target is PR #1 — should pass
+    )
+    assert len(result) == 1, "Valid comment on correct PR must be accepted"
+
+
 def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
     """Artifact mode with --trusted-reviewer should filter findings before spawning.
 
@@ -1121,11 +1195,19 @@ def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
             return {"exit_reason": "done", "duration_s": 0.1}
 
         def fake_run_gh_json(args, **kwargs):
-            # Mock API: return both comments as if from trusted reviewers
+            # Mock API: return both comments as if from trusted reviewers on PR #1
             if "pulls/comments/11111" in " ".join(args):
-                return {"user": {"login": "alice"}, "body": "Review:\n\nFrom Alice"}
+                return {
+                    "user": {"login": "alice"},
+                    "body": "Review:\n\nFrom Alice",
+                    "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
+                }
             if "pulls/comments/22222" in " ".join(args):
-                return {"user": {"login": "eve"}, "body": "Review:\n\nFrom Eve"}
+                return {
+                    "user": {"login": "eve"},
+                    "body": "Review:\n\nFrom Eve",
+                    "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
+                }
             return None
 
         monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)

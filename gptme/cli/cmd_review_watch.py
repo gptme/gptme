@@ -338,9 +338,17 @@ def _verify_comment_reviewer(
         )
         return False, ""
 
-    # Verify the comment is on the target PR (prevent cross-PR comment injection)
+    # Verify the comment is on the target PR (prevent cross-PR comment injection).
+    # The GitHub API returns pull_request_url (a string URL) not a nested dict.
+    # Example: "https://api.github.com/repos/owner/repo/pulls/42"
     if target_pr_number is not None:
-        comment_pr = data.get("pull_request", {}).get("number")
+        pr_url = data.get("pull_request_url", "")
+        comment_pr: int | None = None
+        if pr_url:
+            try:
+                comment_pr = int(pr_url.rstrip("/").split("/")[-1])
+            except (ValueError, IndexError):
+                pass
         if comment_pr != target_pr_number:
             logger.warning(
                 "GitHub comment %d is from PR #%s, but artifact targets PR #%d; "
