@@ -37,7 +37,7 @@ from pathlib import Path
 
 import click
 
-from ..util.gh import is_trusted_reviewer, run_gh_json
+from ..util.gh import fetch_pr_reviewer_logins, is_trusted_reviewer, run_gh_json
 from ..util.review import FindingStatus, ReviewArtifact, ReviewFinding
 
 logger = logging.getLogger(__name__)
@@ -529,13 +529,43 @@ def review_watch(
         #    reviewer attribution (empty reviewer field).  Without this flag,
         #    un-attributed findings pass through (default = permissive).
         #  - No flags                  → all findings pass (original behaviour).
+        had_findings_before_filter = bool(open_findings)
         if trusted_reviewers or require_trust:
-            trusted_set = set(trusted_reviewers)
+            # Lowercase the allowlist for case-insensitive comparison.
+            # GitHub logins are case-insensitive by convention; comparing with
+            # exact case drops legitimate findings when casing differs between
+            # the CLI flag and the artifact's reviewer field.
+            trusted_set = frozenset(r.lower() for r in trusted_reviewers)
+
+            # When an allowlist is given, verify reviewer identity against the
+            # GitHub reviews API before trusting the artifact's self-reported
+            # reviewer field.  The artifact controls its own reviewer field and
+            # can forge any login; the API is the authoritative source.
+            github_verified: frozenset[str] | None = None
+            if trusted_set:
+                if not _gh_available():
+                    raise click.ClickException(
+                        "--trusted-reviewer requires the gh CLI to verify reviewer "
+                        "identity against GitHub.  Install and authenticate gh CLI, "
+                        "or omit --trusted-reviewer to process all findings."
+                    )
+                github_verified = fetch_pr_reviewer_logins(
+                    effective_owner, effective_repo_name, effective_pr_number
+                )
+                if github_verified is None:
+                    raise click.ClickException(
+                        f"Could not fetch PR reviews for "
+                        f"{effective_owner}/{effective_repo_name}#{effective_pr_number} "
+                        "from GitHub.  Reviewer identity cannot be verified.  "
+                        "Check gh authentication and retry."
+                    )
+
             filtered: list[ReviewFinding] = []
             skipped_untrusted = 0
             skipped_no_author = 0
             for f in open_findings:
-                if not f.reviewer:
+                reviewer_lower = (f.reviewer or "").lower()
+                if not reviewer_lower:
                     # Finding has no reviewer attribution.
                     if require_trust:
                         # Hard-fail mode: skip finding, count for summary.
@@ -545,9 +575,18 @@ def review_watch(
                     if trusted_set:
                         skipped_untrusted += 1
                         continue
-                elif trusted_set and f.reviewer not in trusted_set:
-                    skipped_untrusted += 1
-                    continue
+                elif trusted_set:
+                    # Require the finding's reviewer to be BOTH in the caller's
+                    # allowlist AND confirmed by the GitHub API.  Checking only
+                    # the artifact field is not a security boundary.
+                    in_allowlist = reviewer_lower in trusted_set
+                    in_github = (
+                        github_verified is not None
+                        and reviewer_lower in github_verified
+                    )
+                    if not (in_allowlist and in_github):
+                        skipped_untrusted += 1
+                        continue
                 filtered.append(f)
 
             if skipped_untrusted:
@@ -565,6 +604,15 @@ def review_watch(
             open_findings = filtered
 
         if not open_findings:
+            if had_findings_before_filter and (trusted_reviewers or require_trust):
+                # The trust policy rejected all findings.  Signal this
+                # explicitly so callers (CI, automation) can distinguish
+                # "artifact already clean" from "artifact rejected by policy".
+                raise click.ClickException(
+                    "Trust policy rejected all findings — no fix session spawned.  "
+                    "Verify that --trusted-reviewer logins match the PR's actual "
+                    "reviewers and that the artifact's reviewer fields are set."
+                )
             click.echo(
                 "  ℹ️  Artifact has no open findings — nothing to fix.",
                 err=True,

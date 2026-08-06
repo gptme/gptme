@@ -688,11 +688,41 @@ class TestTrustedReviewerGuard:
         artifact.save(path)
         return path
 
-    def _run(self, monkeypatch, args: list[str]):
-        """Invoke review watch with spawn patched out; return (result, spawn_calls)."""
+    def _run(
+        self,
+        monkeypatch,
+        args: list[str],
+        github_verified_logins: frozenset[str] | None = None,
+    ):
+        """Invoke review watch with spawn patched out; return (result, spawn_calls).
+
+        ``github_verified_logins`` controls what ``fetch_pr_reviewer_logins``
+        returns for tests that exercise the --trusted-reviewer allowlist.  Pass
+        an explicit frozenset to override the default broad mock, or ``None`` to
+        skip the mock entirely (for tests that don't use --trusted-reviewer).
+
+        When --trusted-reviewer is present in ``args``, ``_gh_available`` is
+        automatically stubbed to ``True`` and ``fetch_pr_reviewer_logins`` is
+        stubbed to the provided (or default) set so the security check can run.
+        """
         from gptme.cli import cmd_review_watch
 
-        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+        has_trusted_reviewer = "--trusted-reviewer" in args
+        # Default: broad set that covers reviewer names used in most test fixtures
+        if github_verified_logins is None and has_trusted_reviewer:
+            github_verified_logins = frozenset(["erikbjare", "alice", "bob", "someone"])
+
+        monkeypatch.setattr(
+            cmd_review_watch, "_gh_available", lambda: has_trusted_reviewer
+        )
+
+        if github_verified_logins is not None:
+            monkeypatch.setattr(
+                cmd_review_watch,
+                "fetch_pr_reviewer_logins",
+                lambda owner, repo, pr_num, **kw: github_verified_logins,
+            )
+
         spawn_calls: list[dict] = []
 
         def fake_spawn(**kwargs):
@@ -748,7 +778,12 @@ class TestTrustedReviewerGuard:
         assert "Attacker payload." not in prompt
 
     def test_all_untrusted_no_session_spawned(self, tmp_path, monkeypatch):
-        """When every finding is from an untrusted reviewer, no session is started."""
+        """When every finding is from an untrusted reviewer, the policy raises an error.
+
+        A trust-policy rejection (all findings filtered out) must NOT exit 0 —
+        that would let automation treat "artifact rejected by policy" as
+        "artifact already clean", silently discarding the guard result.
+        """
         path = self._make_artifact(
             tmp_path,
             [
@@ -760,11 +795,13 @@ class TestTrustedReviewerGuard:
             monkeypatch,
             ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
         )
-        assert result.exit_code == 0, result.output
+        assert result.exit_code != 0, (
+            "Trust-policy rejection must return a non-zero exit code"
+        )
         assert len(spawn_calls) == 0, (
             "No session should be spawned when all findings are untrusted"
         )
-        assert "no open findings" in result.output.lower()
+        assert "trust policy" in result.output.lower()
 
     def test_multiple_trusted_reviewers_union(self, tmp_path, monkeypatch):
         """Multiple --trusted-reviewer flags form a union allowlist."""
@@ -857,11 +894,13 @@ class TestTrustedReviewerGuard:
             monkeypatch,
             ["--artifact", str(path), "--require-trust"],
         )
-        assert result.exit_code == 0, result.output
+        assert result.exit_code != 0, (
+            "Trust-policy rejection (--require-trust dropped all findings) must return non-zero"
+        )
         assert len(spawn_calls) == 0, (
             "No session should spawn when all findings are unattributed under --require-trust"
         )
-        assert "no open findings" in result.output.lower()
+        assert "trust policy" in result.output.lower()
 
     # ------------------------------------------------------------------
     # stdin mode (--artifact -)
@@ -892,7 +931,12 @@ class TestTrustedReviewerGuard:
             ],
         )
 
-        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: True)
+        monkeypatch.setattr(
+            cmd_review_watch,
+            "fetch_pr_reviewer_logins",
+            lambda owner, repo, pr_num, **kw: frozenset(["erikbjare"]),
+        )
         spawn_calls: list[dict] = []
 
         def fake_spawn(**kwargs):
@@ -937,3 +981,108 @@ class TestTrustedReviewerGuard:
         assert "Finding A." in prompt
         assert "Finding B." in prompt
         assert "Finding C." in prompt
+
+    # ------------------------------------------------------------------
+    # Security: forged attribution blocked by GitHub API verification
+    # ------------------------------------------------------------------
+
+    def test_forged_reviewer_blocked_by_github_verification(
+        self, tmp_path, monkeypatch
+    ):
+        """A crafted artifact that forges an allowlisted login is rejected.
+
+        The artifact's self-reported ``reviewer`` field says "ErikBjare", but
+        the GitHub API reports no reviews from that login.  The finding must be
+        blocked even though it passes the allowlist name check.
+        """
+        path = self._make_artifact(
+            tmp_path,
+            [{"body": "Injected payload.", "reviewer": "ErikBjare"}],
+        )
+        # GitHub API returns an empty set — the forged reviewer never actually
+        # submitted a review on this PR.
+        result, spawn_calls = self._run(
+            monkeypatch,
+            ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
+            github_verified_logins=frozenset(),  # no real reviews on the PR
+        )
+        assert result.exit_code != 0, "Forged reviewer must be rejected (non-zero exit)"
+        assert len(spawn_calls) == 0, (
+            "No fix session should spawn for a forged reviewer"
+        )
+        assert "trust policy" in result.output.lower()
+
+    # ------------------------------------------------------------------
+    # Security: login comparison is case-insensitive
+    # ------------------------------------------------------------------
+
+    def test_trusted_reviewer_comparison_is_case_insensitive(
+        self, tmp_path, monkeypatch
+    ):
+        """--trusted-reviewer matching is case-insensitive on both the CLI flag
+        and the artifact's reviewer field.
+
+        GitHub login comparison must be case-insensitive: ``ErikBjare`` and
+        ``erikbjare`` identify the same account.  Dropping a finding solely
+        because of casing differences would break legitimate workflows.
+        """
+        path = self._make_artifact(
+            tmp_path,
+            # Artifact uses different casing than the CLI flag
+            [{"body": "Legitimate finding.", "reviewer": "erikbjare"}],
+        )
+        # GitHub verified set also uses lowercase (as fetch_pr_reviewer_logins returns)
+        result, spawn_calls = self._run(
+            monkeypatch,
+            # CLI flag uses TitleCase
+            ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
+            github_verified_logins=frozenset(["erikbjare"]),
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 1
+        assert "Legitimate finding." in spawn_calls[0]["prompt"]
+
+    # ------------------------------------------------------------------
+    # Error: gh CLI unavailable with --trusted-reviewer
+    # ------------------------------------------------------------------
+
+    def test_trusted_reviewer_requires_gh_cli(self, tmp_path, monkeypatch):
+        """--trusted-reviewer errors clearly when gh CLI is unavailable.
+
+        Without the gh CLI, reviewer identity cannot be verified against the
+        GitHub API.  The command must refuse to proceed rather than silently
+        falling back to unverifiable artifact metadata.
+        """
+        from gptme.cli import cmd_review_watch
+
+        path = self._make_artifact(
+            tmp_path,
+            [{"body": "A finding.", "reviewer": "ErikBjare"}],
+        )
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        spawn_calls: list[dict] = []
+
+        def _fake_spawn_no_gh(**kw):
+            spawn_calls.append(kw)
+            return {"exit_reason": "done", "duration_s": 0.0}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", _fake_spawn_no_gh)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review",
+                "watch",
+                "--artifact",
+                str(path),
+                "--trusted-reviewer",
+                "ErikBjare",
+            ],
+        )
+        assert result.exit_code != 0, (
+            "Must exit non-zero when gh CLI is unavailable but --trusted-reviewer is set"
+        )
+        assert len(spawn_calls) == 0
+        assert "gh" in result.output.lower()
