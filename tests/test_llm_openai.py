@@ -15,6 +15,7 @@ from gptme.llm.llm_openai import (
     _content_to_responses_input,
     _make_responses_text_config,
     _maybe_apply_verbosity,
+    _merge_tool_results_with_same_call_id,
     _messages_dicts_to_responses_input,
     _prepare_messages_for_api,
     _should_use_responses_api,
@@ -228,13 +229,90 @@ def test_message_conversion_with_tools():
         },
         {
             "role": "tool",
-            "content": [
-                {"type": "text", "text": "Saved to toto.txt"},
-                {"type": "text", "text": "(Modified by user)"},
-            ],
+            # Multiple tool messages with the same call_id are merged; when all
+            # parts are plain text the result is flattened to a string so that
+            # strict providers (e.g. DeepSeek) accept the message.
+            "content": "Saved to toto.txt\n\n(Modified by user)",
             "tool_call_id": "tool_call_id",
         },
     ]
+
+
+def test_merge_tool_results_flattens_text_to_string():
+    """Merged tool results with all-text parts must produce a plain string.
+
+    DeepSeek (and DeepSeek via OpenRouter) requires tool message content to be a
+    string, not an array of content parts.  When a single tool call yields
+    multiple messages (e.g. stdout + stderr from pip install), the merge function
+    must collapse pure-text arrays to a single "\n\n"-joined string.
+
+    Regression test for https://github.com/gptme/gptme/issues/3459
+    """
+    call_id = "call_abc123"
+    messages = [
+        {"role": "tool", "content": "stdout output", "tool_call_id": call_id},
+        {
+            "role": "tool",
+            "content": "WARNING: running pip as root",
+            "tool_call_id": call_id,
+        },
+    ]
+    result = _merge_tool_results_with_same_call_id(iter(messages))
+
+    assert len(result) == 1, "Two messages with same call_id should be merged into one"
+    merged = result[0]
+    assert merged["role"] == "tool"
+    assert merged["tool_call_id"] == call_id
+    # Content must be a plain string (not a list) for strict providers like DeepSeek
+    assert isinstance(merged["content"], str), (
+        f"Merged tool content should be a string, got {type(merged['content'])}"
+    )
+    assert "stdout output" in merged["content"]
+    assert "WARNING: running pip as root" in merged["content"]
+
+
+def test_merge_tool_results_keeps_list_when_non_text_parts():
+    """When merged parts include non-text content (e.g. images), keep array form."""
+    call_id = "call_img456"
+    image_part = {
+        "type": "image_url",
+        "image_url": {"url": "data:image/png;base64,abc"},
+    }
+    messages = [
+        {
+            "role": "tool",
+            "content": [{"type": "text", "text": "see image:"}],
+            "tool_call_id": call_id,
+        },
+        {"role": "tool", "content": [image_part], "tool_call_id": call_id},
+    ]
+    result = _merge_tool_results_with_same_call_id(iter(messages))
+
+    assert len(result) == 1
+    merged = result[0]
+    # When a non-text part is present the content MUST stay as a list so the
+    # image survives the round-trip.
+    assert isinstance(merged["content"], list), (
+        "Content with image parts should remain a list"
+    )
+    assert len(merged["content"]) == 2
+
+
+def test_merge_tool_results_single_message_unchanged():
+    """A single tool message (no merging needed) is passed through as-is."""
+    call_id = "call_solo"
+    messages = [
+        {
+            "role": "tool",
+            "content": [{"type": "text", "text": "only output"}],
+            "tool_call_id": call_id,
+        },
+    ]
+    result = _merge_tool_results_with_same_call_id(iter(messages))
+
+    assert len(result) == 1
+    # Single-message case: content format is not changed by the merge function
+    assert result[0] == messages[0]
 
 
 def test_message_conversion_with_tool_and_non_tool():

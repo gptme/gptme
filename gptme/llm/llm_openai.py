@@ -1537,10 +1537,26 @@ def _merge_tool_results_with_same_call_id(
             if not isinstance(current_content, list):
                 current_content = [{"type": "text", "text": current_content or ""}]
 
+            merged_parts = prev_content + current_content
+
+            # If all parts are plain text, flatten to a single string.
+            # Strict providers (e.g. DeepSeek) require tool message content to be a
+            # string, not an array, and an array of text parts carries no extra
+            # information that a concatenated string doesn't.  Only keep the list
+            # form when at least one part is non-text (e.g. an image).
+            if all(
+                isinstance(p, dict) and p.get("type") == "text" for p in merged_parts
+            ):
+                merged_content: str | list[dict[str, Any]] = "\n\n".join(
+                    p["text"] for p in merged_parts if isinstance(p, dict)
+                )
+            else:
+                merged_content = merged_parts
+
             # Create merged message (conforms to MessageDict structure)
             messages_new[-1] = {
                 "role": "tool",
-                "content": prev_content + current_content,
+                "content": merged_content,
                 "tool_call_id": prev_msg.get("tool_call_id"),
             }
         else:
