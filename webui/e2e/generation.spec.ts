@@ -70,6 +70,11 @@ async function sendMessageAndNavigate(page: Page, message: string): Promise<void
   await input.fill(message);
   await input.press('Enter');
   await page.waitForURL(/\/chat\//, { timeout: NAV_TIMEOUT });
+  // Wait for ConversationContent to actually mount.  MainLayout returns null when
+  // the conversationId is in the URL but the conversation hasn't been loaded into
+  // the store yet — without this wait, message-scroll-viewport and model-selector
+  // are not yet in the DOM, causing all subsequent element checks to time out.
+  await expect(page.getByTestId('message-scroll-viewport')).toBeVisible({ timeout: NAV_TIMEOUT });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,10 +109,14 @@ test.describe('Live generation: UI stability with mock/echo provider (gptme#3440
 
     await sendMessageAndNavigate(page, 'hello');
 
-    // Capture the badge text immediately after navigation (before chatConfig
-    // arrives from the server).  Must be non-empty (skeleton or real model).
+    // Capture the badge text once it shows an actual model name.  The badge
+    // renders a loading skeleton (no text content) while chatConfig is being
+    // fetched; textContent() on the skeleton returns '' and the length check
+    // below would fail.  toHaveText waits until the skeleton clears and the
+    // button with the real model name is rendered.
     const badge = page.getByTestId('model-selector');
     await expect(badge).toBeVisible({ timeout: 5_000 });
+    await expect(badge).toHaveText(/\S+/, { timeout: 10_000 });
     const modelAtStart = (await badge.textContent()) ?? '';
     expect(modelAtStart.trim().length).toBeGreaterThan(0);
 
