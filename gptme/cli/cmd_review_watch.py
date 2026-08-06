@@ -580,11 +580,14 @@ def review_watch(
                 )
 
             # When an allowlist is given, verify reviewer identity against the
-            # GitHub reviews API before trusting the artifact's self-reported
-            # reviewer field.  The artifact controls its own reviewer field and
-            # can forge any login; the API is the authoritative source.
-            # Note: --require-trust alone (without --trusted-reviewer) does not
-            # need GitHub verification; it's just a local filter.
+            # GitHub reviews/comments APIs before trusting the artifact's
+            # self-reported reviewer field.  The artifact controls its own
+            # reviewer field and can forge any login; the API is authoritative.
+            #
+            # When --require-trust is used alone (no allowlist), we still do
+            # best-effort identity verification when the gh CLI is available and
+            # PR context is known — a forged reviewer login would otherwise pass
+            # through unchecked.  If gh CLI is unavailable we warn and accept.
             github_verified: frozenset[str] | None = None
             if trusted_set:
                 if not _gh_available():
@@ -602,6 +605,21 @@ def review_watch(
                         f"{effective_owner}/{effective_repo_name}#{effective_pr_number} "
                         "from GitHub.  Reviewer identity cannot be verified.  "
                         "Check gh authentication and retry."
+                    )
+            elif require_trust and _gh_available() and effective_pr_number:
+                # Best-effort: verify reviewer identity via GitHub when possible.
+                # Hard-fail is intentionally skipped here — --require-trust is
+                # designed to work offline; we only upgrade to verification when
+                # the gh CLI is already present.
+                github_verified = fetch_pr_reviewer_logins(
+                    effective_owner, effective_repo_name, effective_pr_number
+                )
+                if github_verified is None:
+                    click.echo(
+                        "  ⚠️  Could not verify reviewer identities via GitHub "
+                        "(--require-trust). Attributed findings will be accepted "
+                        "without GitHub confirmation.",
+                        err=True,
                     )
 
             # When --verify-bodies is set, fetch each trusted reviewer's actual
@@ -662,9 +680,15 @@ def review_watch(
                             continue
                 elif require_trust:
                     # --require-trust without an allowlist: finding has a reviewer.
-                    # Accept it; the --require-trust filter already dropped
-                    # unattributed findings above (line 632-635).
-                    pass
+                    # When we have GitHub participants (best-effort fetch above),
+                    # verify the reviewer actually participated in the PR to
+                    # prevent forged attribution from passing through.
+                    if (
+                        github_verified is not None
+                        and reviewer_lower not in github_verified
+                    ):
+                        skipped_untrusted += 1
+                        continue
 
                 filtered.append(f)
 

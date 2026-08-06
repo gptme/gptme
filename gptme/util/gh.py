@@ -136,43 +136,59 @@ def fetch_pr_review_comment_bodies_by_user(
 def fetch_pr_reviewer_logins(
     owner: str, repo: str, pr_num: int, *, timeout: float = 15
 ) -> frozenset[str] | None:
-    """Return the set of logins that actually submitted a review on this PR.
+    """Return the set of logins that participated in this PR.
 
-    Uses the GitHub reviews API — not artifact metadata — so the result is
-    authoritative. Returns ``None`` when the API call fails or ``gh`` is
+    Includes both formal reviewers (PR reviews API) and conversation-level
+    commenters (issues/comments API). This prevents legitimate contributors
+    who commented without submitting a formal review from failing identity
+    verification.
+
+    Uses the GitHub APIs — not artifact metadata — so the result is
+    authoritative. Returns ``None`` when any API call fails or ``gh`` is
     unavailable, letting the caller decide whether to hard-fail or warn.
 
     Logins are returned in lowercase to support case-insensitive comparison
-    (GitHub logins are case-insensitive by convention). Only non-bot reviewers
+    (GitHub logins are case-insensitive by convention). Only non-bot participants
     are returned (bots cannot be trusted reviewers).
     """
-    data = run_gh_json(
-        [
-            "gh",
-            "api",
-            "--paginate",
-            "--slurp",
-            f"/repos/{owner}/{repo}/pulls/{pr_num}/reviews",
-        ],
-        timeout=timeout,
-    )
-    if not isinstance(data, list):
+    logins: set[str] = set()
+
+    def _collect_logins(endpoint: str) -> bool:
+        data = run_gh_json(
+            [
+                "gh",
+                "api",
+                "--paginate",
+                "--slurp",
+                endpoint,
+            ],
+            timeout=timeout,
+        )
+        if not isinstance(data, list):
+            return False
+        items: list[dict] = []
+        for item in data:
+            if isinstance(item, list):
+                items.extend(item)
+            elif isinstance(item, dict):
+                items.append(item)
+        for r in items:
+            if isinstance(r, dict):
+                user = r.get("user")
+                if isinstance(user, dict) and not is_bot_user(user):
+                    login = user.get("login", "")
+                    if login:
+                        logins.add(login.lower())
+        return True
+
+    # Formal PR reviews (submitted via GitHub review UI)
+    if not _collect_logins(f"/repos/{owner}/{repo}/pulls/{pr_num}/reviews"):
         return None
-    # --paginate --slurp wraps each page as an element when there are multiple
-    # pages.  Flatten one level so we always iterate over review objects.
-    reviews: list[dict] = []
-    for item in data:
-        if isinstance(item, list):
-            reviews.extend(item)
-        elif isinstance(item, dict):
-            reviews.append(item)
-    return frozenset(
-        r["user"]["login"].lower()
-        for r in reviews
-        if isinstance(r, dict)
-        and isinstance(r.get("user"), dict)
-        and not is_bot_user(r["user"])
-    )
+    # Conversation-level comments (issue comments endpoint for the PR)
+    if not _collect_logins(f"/repos/{owner}/{repo}/issues/{pr_num}/comments"):
+        return None
+
+    return frozenset(logins)
 
 
 def is_trusted_reviewer(comment: dict) -> bool:

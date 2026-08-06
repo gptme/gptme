@@ -83,6 +83,116 @@ class TestRunGhJson:
         assert gh_util.run_gh_json(["gh", "pr", "view", "1"]) is None
 
 
+class TestFetchPrReviewerLogins:
+    """Tests for fetch_pr_reviewer_logins, including conversation-level commenters."""
+
+    def _mock_subprocess(self, monkeypatch, review_logins, comment_logins):
+        """Stub subprocess.run to return different user lists per endpoint."""
+
+        def fake_run(args, **kwargs):
+            endpoint = args[-1] if args else ""
+            if "/reviews" in endpoint:
+                data = [
+                    {"user": {"login": login, "type": "User"}, "state": "APPROVED"}
+                    for login in review_logins
+                ]
+            else:
+                data = [
+                    {"user": {"login": login, "type": "User"}, "body": "LGTM"}
+                    for login in comment_logins
+                ]
+            return subprocess.CompletedProcess(
+                args, returncode=0, stdout=json.dumps(data), stderr=""
+            )
+
+        monkeypatch.setattr(gh_util.subprocess, "run", fake_run)
+
+    def test_includes_formal_reviewers(self, monkeypatch):
+        self._mock_subprocess(monkeypatch, ["ErikBjare"], [])
+        result = gh_util.fetch_pr_reviewer_logins("owner", "repo", 42)
+        assert result == frozenset(["erikbjare"])
+
+    def test_includes_conversation_commenters(self, monkeypatch):
+        """Contributors who comment without a formal review must be included."""
+        self._mock_subprocess(monkeypatch, [], ["alice"])
+        result = gh_util.fetch_pr_reviewer_logins("owner", "repo", 42)
+        assert result == frozenset(["alice"])
+
+    def test_merges_both_sources(self, monkeypatch):
+        """Formal reviewers and conversation commenters are combined."""
+        self._mock_subprocess(monkeypatch, ["ErikBjare"], ["alice"])
+        result = gh_util.fetch_pr_reviewer_logins("owner", "repo", 42)
+        assert result == frozenset(["erikbjare", "alice"])
+
+    def test_excludes_bots_from_both_sources(self, monkeypatch):
+        """Bot accounts are excluded regardless of which endpoint they come from."""
+
+        def fake_run(args, **kwargs):
+            endpoint = args[-1] if args else ""
+            if "/reviews" in endpoint:
+                data = [
+                    {
+                        "user": {"login": "ErikBjare", "type": "User"},
+                        "state": "APPROVED",
+                    },
+                    {
+                        "user": {"login": "greptile-ai[bot]", "type": "Bot"},
+                        "state": "COMMENTED",
+                    },
+                ]
+            else:
+                data = [
+                    {"user": {"login": "alice", "type": "User"}, "body": "ok"},
+                    {
+                        "user": {"login": "dependabot[bot]", "type": "Bot"},
+                        "body": "bump",
+                    },
+                ]
+            return subprocess.CompletedProcess(
+                args, returncode=0, stdout=json.dumps(data), stderr=""
+            )
+
+        monkeypatch.setattr(gh_util.subprocess, "run", fake_run)
+        result = gh_util.fetch_pr_reviewer_logins("owner", "repo", 42)
+        assert result is not None
+        assert "greptile-ai[bot]" not in result
+        assert "dependabot[bot]" not in result
+        assert "erikbjare" in result
+        assert "alice" in result
+
+    def test_returns_none_when_reviews_api_fails(self, monkeypatch):
+        call_count = [0]
+
+        def fake_run(args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return subprocess.CompletedProcess(
+                    args, returncode=1, stdout="", stderr="err"
+                )
+            return subprocess.CompletedProcess(
+                args, returncode=0, stdout="[]", stderr=""
+            )
+
+        monkeypatch.setattr(gh_util.subprocess, "run", fake_run)
+        assert gh_util.fetch_pr_reviewer_logins("owner", "repo", 42) is None
+
+    def test_returns_none_when_comments_api_fails(self, monkeypatch):
+        call_count = [0]
+
+        def fake_run(args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return subprocess.CompletedProcess(
+                    args, returncode=0, stdout="[]", stderr=""
+                )
+            return subprocess.CompletedProcess(
+                args, returncode=1, stdout="", stderr="err"
+            )
+
+        monkeypatch.setattr(gh_util.subprocess, "run", fake_run)
+        assert gh_util.fetch_pr_reviewer_logins("owner", "repo", 42) is None
+
+
 class TestIsBotUser:
     def test_bot_type(self):
         assert gh_util.is_bot_user({"type": "Bot", "login": "some-bot"})
@@ -1280,3 +1390,67 @@ class TestTrustedReviewerGuard:
             "Must exit non-zero when --verify-bodies but GitHub API fails"
         )
         assert len(spawn_calls) == 0
+
+    # ------------------------------------------------------------------
+    # --require-trust + gh CLI available (best-effort identity verification)
+    # ------------------------------------------------------------------
+
+    def test_require_trust_alone_rejects_forged_reviewer_when_gh_available(
+        self, tmp_path, monkeypatch
+    ):
+        """When gh CLI is available, --require-trust alone verifies that the
+        reviewer actually participated in the GitHub PR.  A forged login that
+        isn't in the GitHub participant set must be rejected.
+        """
+        from gptme.cli import cmd_review_watch
+
+        path = self._make_artifact(
+            tmp_path,
+            [
+                {"body": "Forged finding.", "reviewer": "attacker"},
+                {"body": "Real finding.", "reviewer": "erikbjare"},
+            ],
+        )
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: True)
+        monkeypatch.setattr(
+            cmd_review_watch,
+            "fetch_pr_reviewer_logins",
+            lambda owner, repo, pr_num, **kw: frozenset(["erikbjare"]),
+        )
+
+        spawn_calls: list[dict] = []
+
+        def fake_spawn(**kwargs):
+            spawn_calls.append(kwargs)
+            return {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+        result = CliRunner().invoke(
+            util_main,
+            ["review", "watch", "--artifact", str(path), "--require-trust"],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 1
+        prompt = spawn_calls[0]["prompt"]
+        assert "Real finding." in prompt
+        assert "Forged finding." not in prompt
+
+    def test_require_trust_alone_warns_and_accepts_when_gh_unavailable(
+        self, tmp_path, monkeypatch
+    ):
+        """When gh CLI is unavailable, --require-trust alone warns and accepts
+        attributed findings (offline / no-gh mode is a supported use case).
+        """
+        # The standard _run helper sets _gh_available = False for --require-trust alone.
+        # This verifies the offline behavior is preserved and produces no error.
+        path = self._make_artifact(
+            tmp_path,
+            [{"body": "Attributed finding.", "reviewer": "someone"}],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            ["--artifact", str(path), "--require-trust"],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 1
+        assert "Attributed finding." in spawn_calls[0]["prompt"]
