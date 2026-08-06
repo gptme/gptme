@@ -308,8 +308,12 @@ def _extract_findings_from_output(output: str) -> list[ReviewFinding] | None:
         if not isinstance(data, dict) or "findings" not in data:
             continue
 
+        findings_data = data["findings"]
+        if not isinstance(findings_data, list):
+            continue
+
         findings: list[ReviewFinding] = []
-        for item in data["findings"]:
+        for item in findings_data:
             if (
                 not isinstance(item, dict)
                 or not isinstance(item.get("body"), str)
@@ -557,15 +561,14 @@ def review_pr(
         )
         click.echo("  Raw session stdout (last 500 chars):", err=True)
         click.echo(f"  {stdout[-500:]!r}", err=True)
-        if session_failed:
-            # The session failed AND produced no parseable findings block.
-            # Emitting an empty artifact here would cause review-watch to treat
-            # a broken review as "nothing to fix".  Fail loudly instead.
-            raise SystemExit(
-                "review pr: session failed and produced no findings block — "
-                "refusing to emit a clean-looking empty artifact"
-            )
-        findings = []
+        # Whether the session succeeded or failed, no parseable findings block
+        # means we cannot distinguish "nothing to fix" from a broken review.
+        # Emitting an empty artifact would cause review-watch to silently treat
+        # this as a clean review.  Fail loudly instead.
+        raise SystemExit(
+            "review pr: session produced no valid findings block — "
+            "refusing to emit a clean-looking empty artifact"
+        )
 
     click.echo(f"  📋  {len(findings)} finding(s) extracted.", err=True)
     for f in findings:
