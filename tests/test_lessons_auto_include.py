@@ -412,3 +412,192 @@ def test_dropout_empty_matches_still_logs_when_epsilon_positive(monkeypatch, tmp
     assert records[0]["session_id"] == "sess-empty"
     assert records[0]["epsilon"] == 0.25
     assert records[0]["withheld"] == []  # empty withheld list
+
+
+# --- Lesson policy manifest (Stage 1 shadow logging) ---
+
+import gptme.lessons.auto_include as _auto_include_mod
+from gptme.lessons.auto_include import (
+    _classify_lesson,
+    _get_policy_manifest_path,
+    _load_policy_manifest,
+)
+
+
+def _write_manifest(path: Path, content: str) -> None:
+    path.write_text(content)
+
+
+def _reset_manifest_cache(monkeypatch) -> None:
+    monkeypatch.setattr(_auto_include_mod, "_policy_manifest_cache", None)
+
+
+def test_policy_manifest_path_default(monkeypatch):
+    monkeypatch.delenv("LESSON_POLICY_MANIFEST_PATH", raising=False)
+    assert _get_policy_manifest_path() == Path("state/lesson-policy/manifest.yaml")
+
+
+def test_policy_manifest_path_override(monkeypatch, tmp_path):
+    override = str(tmp_path / "custom.yaml")
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", override)
+    assert _get_policy_manifest_path() == Path(override)
+
+
+def test_load_policy_manifest_missing_returns_default(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    monkeypatch.setenv(
+        "LESSON_POLICY_MANIFEST_PATH", str(tmp_path / "nonexistent.yaml")
+    )
+    manifest = _load_policy_manifest()
+    assert manifest["version"] == 1
+    assert manifest["validated_core"] == []
+    assert manifest["holdout_population"] == []
+
+
+def test_load_policy_manifest_valid(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    _write_manifest(
+        manifest_file,
+        """\
+version: 2
+updated_at: '2026-08-01T00:00:00Z'
+validated_core:
+- patterns/persistent-learning
+exempt:
+- safety/critical-rule
+holdout_population:
+- code/some-lesson
+""",
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    manifest = _load_policy_manifest()
+    assert manifest["version"] == 2
+    assert "patterns/persistent-learning" in manifest["validated_core"]
+    assert "safety/critical-rule" in manifest["exempt"]
+    assert "code/some-lesson" in manifest["holdout_population"]
+
+
+def _make_manifest_file(tmp_path: Path, **categories) -> Path:
+    """Write a minimal manifest YAML and return its path."""
+    lines = ["version: 1", "updated_at: ''"]
+    for cat in ("validated_core", "exempt", "holdout_population"):
+        lines.append(f"{cat}:")
+        lines.extend(f"- {item}" for item in categories.get(cat, []))
+    p = tmp_path / "manifest.yaml"
+    p.write_text("\n".join(lines) + "\n")
+    return p
+
+
+def test_classify_lesson_holdout(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    p = _make_manifest_file(
+        tmp_path, holdout_population=["patterns/persistent-learning"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    policy_class, version = _classify_lesson(
+        "/home/bob/lessons/patterns/persistent-learning.md"
+    )
+    assert policy_class == "holdout"
+    assert version == 1
+
+
+def test_classify_lesson_validated_core(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    p = _make_manifest_file(tmp_path, validated_core=["code/important"])
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    policy_class, version = _classify_lesson("lessons/code/important.md")
+    assert policy_class == "validated_core"
+
+
+def test_classify_lesson_exempt(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    p = _make_manifest_file(tmp_path, exempt=["safety/critical"])
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    policy_class, _ = _classify_lesson("/tmp/lessons/safety/critical.md")
+    assert policy_class == "exempt"
+
+
+def test_classify_lesson_unknown(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    p = _make_manifest_file(tmp_path)  # empty manifest
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    policy_class, _ = _classify_lesson("lessons/new/brand-new.md")
+    assert policy_class == "unknown"
+
+
+def test_dropout_log_withheld_has_policy_fields(monkeypatch, tmp_path):
+    """Withheld entries in dropout log carry policy_class and policy_version."""
+    import random as _random
+
+    _reset_manifest_cache(monkeypatch)
+    log_dir = tmp_path / "drop"
+    p = _make_manifest_file(
+        tmp_path, holdout_population=["category/lesson-a", "category/lesson-b"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "1.0")  # withhold all
+    monkeypatch.setenv("LESSON_DROPOUT_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("GPTME_SESSION_ID", "sess-withheld-policy")
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+
+    matches = [
+        _MockMatch(_make_lesson("A", "body", "lessons/category/lesson-a.md")),
+        _MockMatch(_make_lesson("B", "body", "lessons/category/lesson-b.md")),
+    ]
+    _random.seed(0)
+    kept = _apply_lesson_dropout(matches)
+    assert kept == []  # all withheld at epsilon=1.0
+
+    records = [
+        json.loads(line)
+        for line in (log_dir / "sess-withheld-policy.jsonl").read_text().splitlines()
+        if line
+    ]
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["matched"] == []
+    assert len(rec["withheld"]) == 2
+    for entry in rec["withheld"]:
+        assert entry["policy_class"] == "holdout"
+        assert entry["policy_version"] == 1
+        assert "path" in entry
+        assert "title" in entry
+
+
+def test_dropout_log_matched_has_policy_fields(monkeypatch, tmp_path):
+    """Kept (matched) entries in dropout log carry policy_class and policy_version."""
+    import random as _random
+
+    _reset_manifest_cache(monkeypatch)
+    log_dir = tmp_path / "drop"
+    p = _make_manifest_file(tmp_path, validated_core=["category/kept"])
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "0.25")
+    monkeypatch.setenv("LESSON_DROPOUT_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("GPTME_SESSION_ID", "sess-matched-policy")
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+
+    # Patch random to always keep (return > epsilon)
+    monkeypatch.setattr(_random, "random", lambda: 0.9)
+
+    matches = [
+        _MockMatch(_make_lesson("Kept", "body", "lessons/category/kept.md")),
+    ]
+    kept = _apply_lesson_dropout(matches)
+    assert len(kept) == 1  # not withheld
+
+    records = [
+        json.loads(line)
+        for line in (log_dir / "sess-matched-policy.jsonl").read_text().splitlines()
+        if line
+    ]
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["withheld"] == []
+    assert len(rec["matched"]) == 1
+    entry = rec["matched"][0]
+    assert entry["policy_class"] == "validated_core"
+    assert entry["policy_version"] == 1
+    assert "path" in entry
+    assert "title" in entry

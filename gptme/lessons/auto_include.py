@@ -7,7 +7,7 @@ import random
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .index import LessonIndex
 from .matcher import LessonMatcher, MatchContext
@@ -107,6 +107,106 @@ def _get_dropout_log_dir() -> Path:
     return Path(os.environ.get("LESSON_DROPOUT_LOG_DIR", "state/lesson-dropout"))
 
 
+# --- Lesson policy manifest (Stage 1 shadow logging) ---
+
+_policy_manifest_cache: "dict[str, Any] | None" = None
+
+
+def _get_policy_manifest_path() -> Path:
+    """Return path to lesson-policy manifest.
+
+    Overridable via ``LESSON_POLICY_MANIFEST_PATH`` for testing.
+    Defaults to ``state/lesson-policy/manifest.yaml`` relative to cwd.
+    """
+    return Path(
+        os.environ.get(
+            "LESSON_POLICY_MANIFEST_PATH", "state/lesson-policy/manifest.yaml"
+        )
+    )
+
+
+def _load_policy_manifest() -> "dict[str, Any]":
+    """Load and cache the lesson-policy manifest (YAML).
+
+    Returns dict with keys: version, updated_at, validated_core, exempt, holdout_population.
+    On load failure or missing file, returns a safe default (all lessons in holdout).
+    Failures are swallowed — manifest loading must never break lesson injection.
+    """
+    global _policy_manifest_cache
+    if _policy_manifest_cache is not None:
+        return _policy_manifest_cache
+
+    manifest_path = _get_policy_manifest_path()
+    _default: dict[str, Any] = {
+        "version": 1,
+        "updated_at": "",
+        "validated_core": [],
+        "exempt": [],
+        "holdout_population": [],
+    }
+
+    if not manifest_path.exists():
+        _policy_manifest_cache = _default
+        return _policy_manifest_cache
+
+    try:
+        import yaml
+
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest: dict[str, Any] = yaml.safe_load(f) or {}
+    except ImportError:
+        logger.warning(
+            "yaml not available; lesson-policy manifest at %s ignored", manifest_path
+        )
+        manifest = _default
+    except Exception as e:
+        logger.warning("Failed to load lesson-policy manifest: %s", e)
+        manifest = _default
+
+    _policy_manifest_cache = manifest
+    return _policy_manifest_cache
+
+
+def _classify_lesson(lesson_path: str) -> tuple[str, int]:
+    """Classify a lesson by its path against the policy manifest.
+
+    Args:
+        lesson_path: Filesystem path to the lesson file, e.g.
+            ``/home/bob/lessons/patterns/foo.md`` or ``lessons/patterns/foo.md``.
+
+    Returns:
+        ``(policy_class, policy_version)`` where policy_class is one of:
+
+        - ``"validated_core"``: high-ROI, recommended for all sessions
+        - ``"exempt"``: safety/retention policy, exempt from dropout
+        - ``"holdout"``: under evaluation (default)
+        - ``"unknown"``: not in manifest (created after manifest timestamp)
+    """
+    manifest = _load_policy_manifest()
+    policy_version = int(manifest.get("version", 1))
+
+    # Normalize: extract the category/name part after the "lessons" directory,
+    # dropping the .md suffix to match manifest key format.
+    path = Path(lesson_path)
+    parts = path.parts
+    try:
+        lessons_idx = list(parts).index("lessons")
+        key = "/".join(parts[lessons_idx + 1 :])
+    except ValueError:
+        key = path.stem  # fallback: just the filename stem
+    key = key.removesuffix(".md")
+
+    for category, class_name in [
+        ("validated_core", "validated_core"),
+        ("exempt", "exempt"),
+        ("holdout_population", "holdout"),
+    ]:
+        if key in (manifest.get(category) or []):
+            return class_name, policy_version
+
+    return "unknown", policy_version
+
+
 def _apply_lesson_dropout(matches: list) -> list:
     """Randomly withhold matched lessons for causal LOO measurement.
 
@@ -137,13 +237,17 @@ def _apply_lesson_dropout(matches: list) -> list:
         else:
             kept.append(match)
 
-    _log_dropout(epsilon, withheld)
+    _log_dropout(epsilon, kept, withheld)
 
     return kept
 
 
-def _log_dropout(epsilon: float, withheld: list[dict]) -> None:
+def _log_dropout(epsilon: float, kept: list, withheld: list[dict]) -> None:
     """Append a randomized-dropout record for causal LOO analysis.
+
+    Stage 1 shadow logging: includes ``policy_class`` and ``policy_version``
+    for every lesson (both kept and withheld) so manifest classification can
+    be verified without changing dropout behavior.
 
     Failures are logged and swallowed — dropout logging must never break lesson
     injection.
@@ -152,11 +256,39 @@ def _log_dropout(epsilon: float, withheld: list[dict]) -> None:
         session_id = _get_dropout_session_id()
         log_dir = _get_dropout_log_dir()
         log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Enrich withheld entries with policy classification (Stage 1 shadow).
+        enriched_withheld = []
+        for entry in withheld:
+            policy_class, policy_version = _classify_lesson(entry.get("path", ""))
+            enriched_withheld.append(
+                {
+                    **entry,
+                    "policy_class": policy_class,
+                    "policy_version": policy_version,
+                }
+            )
+
+        # Log kept (matched) lessons for treatment-assignment verification.
+        enriched_matched = []
+        for match in kept:
+            lesson = match.lesson
+            policy_class, policy_version = _classify_lesson(str(lesson.path))
+            enriched_matched.append(
+                {
+                    "path": str(lesson.path),
+                    "title": lesson.title,
+                    "policy_class": policy_class,
+                    "policy_version": policy_version,
+                }
+            )
+
         record = {
             "ts": time.time(),
             "session_id": session_id,
             "epsilon": epsilon,
-            "withheld": withheld,
+            "withheld": enriched_withheld,
+            "matched": enriched_matched,
         }
         with open(log_dir / f"{session_id}.jsonl", "a") as f:
             f.write(json.dumps(record) + "\n")
