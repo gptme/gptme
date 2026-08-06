@@ -243,7 +243,8 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
         if not isinstance(category_list, list):
             continue
         for k in category_list:
-            key_to_class.setdefault(k, class_name)
+            if isinstance(k, str):  # skip non-string (YAML mappings, nested lists)
+                key_to_class.setdefault(k, class_name)
 
     # Iterate candidate keys longest-first: the most specific match wins.
     for key in sorted(candidate_keys, key=len, reverse=True):

@@ -606,6 +606,30 @@ def test_classify_lesson_custom_root_nested_category(monkeypatch, tmp_path):
     assert policy_class == "holdout"
 
 
+def test_classify_lesson_non_string_category_entries_ignored(monkeypatch, tmp_path):
+    """Non-string category list elements (YAML mappings, nested lists) are skipped
+    without raising TypeError, so dropout records are not suppressed."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    # A YAML list that mixes strings with a mapping entry (malformed but valid YAML)
+    manifest_file.write_text(
+        "version: 1\n"
+        "updated_at: ''\n"
+        "validated_core:\n"
+        "- code/important\n"
+        "- {nested: mapping}\n"  # non-string element — must not raise
+        "exempt: []\n"
+        "holdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # The valid string entry must still match; the mapping entry must be silently skipped
+    policy_class, _ = _classify_lesson("lessons/code/important.md")
+    assert policy_class == "validated_core"
+    # A lesson not in any category resolves to unknown (no TypeError raised)
+    policy_class2, _ = _classify_lesson("lessons/other/foo.md")
+    assert policy_class2 == "unknown"
+
+
 def test_classify_lesson_custom_root_overlapping_suffix(monkeypatch, tmp_path):
     """Longer (more specific) suffix wins over shorter suffix in a higher-priority class.
 
