@@ -226,6 +226,41 @@ def _build_review_prompt(
     return "\n".join(lines)
 
 
+def _finding_location_matches_record(finding: ReviewFinding, record: dict) -> bool:
+    """Return True when *finding*'s location is consistent with *record*.
+
+    A finding without a file (PR-level note) is always location-compatible.
+    A finding with a file is compatible only when the record is an inline review
+    comment on the **same file** (and, when the finding also has a line, the same
+    line).  Conversation-level comments have ``path=None`` and therefore cannot
+    authenticate a file-targeted finding.
+
+    This closes the residual forgery window that survives body-text verification:
+    an attacker could replay a real comment body while substituting an
+    attacker-controlled ``file`` / ``line`` to redirect the fix session to a
+    different code location.
+    """
+    if not finding.file:
+        return True  # PR-level finding; no location to validate
+    if record.get("path") != finding.file:
+        return False
+    return finding.line is None or record.get("line") == finding.line
+
+
+def _finding_matches_any_record(finding: ReviewFinding, records: list[dict]) -> bool:
+    """Return True when *finding* is authenticated by at least one GitHub comment record.
+
+    A finding is authenticated when its body appears verbatim in a record AND
+    the record's location metadata (path/line) is consistent with the finding's
+    file/line — see :func:`_finding_location_matches_record`.
+    """
+    body_needle = finding.body.strip()
+    return any(
+        r["body"] == body_needle and _finding_location_matches_record(finding, r)
+        for r in records
+    )
+
+
 def _build_review_prompt_from_findings(
     *,
     owner: str,
@@ -626,7 +661,7 @@ def review_watch(
             # comment bodies from GitHub for cross-validation.  This prevents a
             # forged artifact from passing the reviewer-participation check (above)
             # while injecting an attacker-controlled body into the fix session.
-            github_bodies: dict[str, frozenset[str]] | None = None
+            github_bodies: dict[str, list[dict]] | None = None
             if verify_bodies and trusted_set:
                 github_bodies = fetch_pr_review_comment_bodies_by_user(
                     effective_owner, effective_repo_name, effective_pr_number
@@ -668,14 +703,15 @@ def review_watch(
                         skipped_untrusted += 1
                         continue
 
-                    # --verify-bodies: additionally confirm the finding body
-                    # appears verbatim in one of the reviewer's real GitHub
-                    # comments.  This binds the specific body to the claimed
-                    # identity, closing the forgery window where any finding body
-                    # can pass as long as the login is allowlisted.
+                    # --verify-bodies: confirm the finding body appears verbatim
+                    # in one of the reviewer's real GitHub comments AND that the
+                    # comment's location (file/line) matches the finding's
+                    # location metadata.  Body-only verification is insufficient:
+                    # an attacker can replay a legitimate body with a forged
+                    # file/line to redirect the fix session to arbitrary code.
                     if github_bodies is not None:
-                        reviewer_bodies = github_bodies.get(reviewer_lower, frozenset())
-                        if f.body.strip() not in reviewer_bodies:
+                        reviewer_records = github_bodies.get(reviewer_lower, [])
+                        if not _finding_matches_any_record(f, reviewer_records):
                             skipped_unverified_body += 1
                             continue
                 elif require_trust:

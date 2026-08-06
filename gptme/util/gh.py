@@ -75,24 +75,29 @@ def is_bot_user(user: dict) -> bool:
 
 def fetch_pr_review_comment_bodies_by_user(
     owner: str, repo: str, pr_num: int, *, timeout: float = 30
-) -> dict[str, frozenset[str]] | None:
-    """Return a map of reviewer login → frozenset of their comment bodies on this PR.
+) -> dict[str, list[dict]] | None:
+    """Return a map of reviewer login → list of comment records on this PR.
+
+    Each record is a dict with:
+
+    - ``body``: comment text (stripped of leading/trailing whitespace)
+    - ``path``: file path for inline review comments, ``None`` for conversation comments
+    - ``line``: line number for inline review comments, ``None`` otherwise
 
     Fetches both inline review comments (``/pulls/{pr_num}/comments``) and
     conversation-level comments (``/issues/{pr_num}/comments``) and merges them.
-    Bodies are stripped of leading/trailing whitespace.
-
-    Used to bind artifact finding bodies to actual GitHub comment content,
-    closing the forgery window that exists when only reviewer *participation*
-    is checked (``fetch_pr_reviewer_logins``).
+    Inline comments carry ``path``/``line`` so callers can verify that the
+    artifact's file/line metadata is consistent with the actual GitHub comment
+    location — closing the forgery window where a real body is replayed against
+    an attacker-chosen code location.
 
     Returns ``None`` when either API call fails, letting callers decide whether
     to hard-fail or warn.  Logins are returned in lowercase.
     """
-    bodies_by_user: dict[str, set[str]] = {}
+    records_by_user: dict[str, list[dict]] = {}
 
-    def _collect(endpoint: str) -> bool:
-        """Fetch one endpoint and accumulate into bodies_by_user.  Returns False on error."""
+    def _collect(endpoint: str, *, inline: bool) -> bool:
+        """Fetch one endpoint and accumulate into records_by_user.  Returns False on error."""
         data = run_gh_json(
             [
                 "gh",
@@ -123,14 +128,22 @@ def fetch_pr_review_comment_bodies_by_user(
             login = user.get("login", "").lower()
             if not login:
                 continue
-            bodies_by_user.setdefault(login, set()).add(body.strip())
+            record: dict = {"body": body.strip(), "path": None, "line": None}
+            if inline:
+                path = c.get("path")
+                if isinstance(path, str) and path:
+                    record["path"] = path
+                line = c.get("original_line") or c.get("line")
+                if isinstance(line, int):
+                    record["line"] = line
+            records_by_user.setdefault(login, []).append(record)
         return True
 
-    ok1 = _collect(f"/repos/{owner}/{repo}/pulls/{pr_num}/comments")
-    ok2 = _collect(f"/repos/{owner}/{repo}/issues/{pr_num}/comments")
+    ok1 = _collect(f"/repos/{owner}/{repo}/pulls/{pr_num}/comments", inline=True)
+    ok2 = _collect(f"/repos/{owner}/{repo}/issues/{pr_num}/comments", inline=False)
     if not (ok1 and ok2):
         return None
-    return {login: frozenset(bodies) for login, bodies in bodies_by_user.items()}
+    return records_by_user
 
 
 def fetch_pr_reviewer_logins(

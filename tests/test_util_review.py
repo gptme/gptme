@@ -819,10 +819,16 @@ class TestTrustedReviewerGuard:
 
         ``github_comment_bodies`` controls what ``fetch_pr_review_comment_bodies_by_user``
         returns for tests that exercise the --verify-bodies flag.  Pass a dict
-        (login → frozenset of bodies) to mock a successful API call, ``None`` to
+        (login → list of comment records) to mock a successful API call, ``None`` to
         mock an API failure (function returns None), or leave as the sentinel
         ``_BODIES_NOT_MOCKED`` to skip the mock entirely (for tests that don't use
         --verify-bodies).
+
+        Each comment record is a dict with ``body``, ``path`` (file path for inline
+        review comments, ``None`` for conversation comments), and ``line`` (int or
+        ``None``).  When a finding has a file, the matching record must be an inline
+        comment on the same file — this validates the artifact's location metadata
+        against the GitHub-authoritative source.
 
         When --trusted-reviewer is present in ``args``, ``_gh_available`` is
         automatically stubbed to ``True`` and ``fetch_pr_reviewer_logins`` is
@@ -887,7 +893,10 @@ class TestTrustedReviewerGuard:
             monkeypatch,
             ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
             github_comment_bodies={
-                "erikbjare": frozenset(["Fix typo.", "Add docstring."])
+                "erikbjare": [
+                    {"body": "Fix typo.", "path": "app.py", "line": None},
+                    {"body": "Add docstring.", "path": "app.py", "line": None},
+                ]
             },
         )
         assert result.exit_code == 0, result.output
@@ -909,7 +918,11 @@ class TestTrustedReviewerGuard:
         result, spawn_calls = self._run(
             monkeypatch,
             ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
-            github_comment_bodies={"erikbjare": frozenset(["Trusted finding."])},
+            github_comment_bodies={
+                "erikbjare": [
+                    {"body": "Trusted finding.", "path": "app.py", "line": None}
+                ]
+            },
         )
         assert result.exit_code == 0, result.output
         assert len(spawn_calls) == 1
@@ -934,7 +947,7 @@ class TestTrustedReviewerGuard:
         result, spawn_calls = self._run(
             monkeypatch,
             ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
-            github_comment_bodies={"erikbjare": frozenset()},  # No bodies for erikbjare
+            github_comment_bodies={"erikbjare": []},  # No bodies for erikbjare
         )
         assert result.exit_code != 0, (
             "Trust-policy rejection must return a non-zero exit code"
@@ -965,8 +978,8 @@ class TestTrustedReviewerGuard:
                 "bob",
             ],
             github_comment_bodies={
-                "alice": frozenset(["From alice."]),
-                "bob": frozenset(["From bob."]),
+                "alice": [{"body": "From alice.", "path": "app.py", "line": None}],
+                "bob": [{"body": "From bob.", "path": "app.py", "line": None}],
             },
         )
         assert result.exit_code == 0, result.output
@@ -998,7 +1011,9 @@ class TestTrustedReviewerGuard:
                 "ErikBjare",
                 "--require-trust",
             ],
-            github_comment_bodies={"erikbjare": frozenset(["Has reviewer."])},
+            github_comment_bodies={
+                "erikbjare": [{"body": "Has reviewer.", "path": "app.py", "line": None}]
+            },
         )
         assert result.exit_code == 0, result.output
         assert len(spawn_calls) == 1
@@ -1087,7 +1102,9 @@ class TestTrustedReviewerGuard:
             cmd_review_watch,
             "fetch_pr_review_comment_bodies_by_user",
             lambda owner, repo, pr_num, **kw: {
-                "erikbjare": frozenset(["Trusted finding."])
+                "erikbjare": [
+                    {"body": "Trusted finding.", "path": "app.py", "line": None}
+                ]
             },
         )
         spawn_calls: list[dict] = []
@@ -1158,7 +1175,7 @@ class TestTrustedReviewerGuard:
             monkeypatch,
             ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
             github_verified_logins=frozenset(),  # no real reviews on the PR
-            github_comment_bodies=frozenset(),  # no comments from the forged reviewer
+            github_comment_bodies={},  # no comments from the forged reviewer
         )
         assert result.exit_code != 0, "Forged reviewer must be rejected (non-zero exit)"
         assert len(spawn_calls) == 0, (
@@ -1191,7 +1208,11 @@ class TestTrustedReviewerGuard:
             # CLI flag uses TitleCase
             ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
             github_verified_logins=frozenset(["erikbjare"]),
-            github_comment_bodies={"erikbjare": frozenset(["Legitimate finding."])},
+            github_comment_bodies={
+                "erikbjare": [
+                    {"body": "Legitimate finding.", "path": "app.py", "line": None}
+                ]
+            },
         )
         assert result.exit_code == 0, result.output
         assert len(spawn_calls) == 1
@@ -1268,7 +1289,13 @@ class TestTrustedReviewerGuard:
             ],
             github_verified_logins=frozenset(["erikbjare"]),
             github_comment_bodies={
-                "erikbjare": frozenset(["This variable name is unclear."])
+                "erikbjare": [
+                    {
+                        "body": "This variable name is unclear.",
+                        "path": "app.py",
+                        "line": None,
+                    }
+                ]
             },
         )
         assert result.exit_code == 0, result.output
@@ -1300,7 +1327,11 @@ class TestTrustedReviewerGuard:
             ],
             github_verified_logins=frozenset(["erikbjare"]),
             # ErikBjare's real comments do not contain the forged body
-            github_comment_bodies={"erikbjare": frozenset(["LGTM. Nice work."])},
+            github_comment_bodies={
+                "erikbjare": [
+                    {"body": "LGTM. Nice work.", "path": "app.py", "line": None}
+                ]
+            },
         )
         # All findings rejected → trust policy error (non-zero exit)
         assert result.exit_code != 0, (
@@ -1329,7 +1360,11 @@ class TestTrustedReviewerGuard:
                 "--verify-bodies",
             ],
             github_verified_logins=frozenset(["erikbjare"]),
-            github_comment_bodies={"erikbjare": frozenset(["Legitimate comment."])},
+            github_comment_bodies={
+                "erikbjare": [
+                    {"body": "Legitimate comment.", "path": "app.py", "line": None}
+                ]
+            },
         )
         assert result.exit_code == 0, result.output
         assert len(spawn_calls) == 1
@@ -1390,6 +1425,94 @@ class TestTrustedReviewerGuard:
             "Must exit non-zero when --verify-bodies but GitHub API fails"
         )
         assert len(spawn_calls) == 0
+
+    # ------------------------------------------------------------------
+    # Location metadata forgery: file / line cross-validation
+    # ------------------------------------------------------------------
+
+    def test_verify_bodies_blocks_forged_file(self, tmp_path, monkeypatch):
+        """--verify-bodies blocks a finding whose body matches a real comment
+        but whose ``file`` field points at a different file than the comment's
+        actual location.
+
+        Attack: attacker takes a legitimate body from ErikBjare's inline review
+        comment on ``app.py`` and replays it in the artifact with
+        ``file="sensitive_file.py"``.  Body verification alone would pass
+        (body text matches), but the file differs, so the finding must be blocked.
+        """
+        path = self._make_artifact(
+            tmp_path,
+            # Finding claims to be on sensitive_file.py …
+            [
+                {
+                    "body": "Remove unused import.",
+                    "file": "sensitive_file.py",
+                    "reviewer": "ErikBjare",
+                }
+            ],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            [
+                "--artifact",
+                str(path),
+                "--trusted-reviewer",
+                "ErikBjare",
+                "--verify-bodies",
+            ],
+            github_verified_logins=frozenset(["erikbjare"]),
+            # … but the real comment was on app.py
+            github_comment_bodies={
+                "erikbjare": [
+                    {"body": "Remove unused import.", "path": "app.py", "line": None}
+                ]
+            },
+        )
+        assert result.exit_code != 0, (
+            "Forged file metadata must be blocked by --verify-bodies (non-zero exit)"
+        )
+        assert len(spawn_calls) == 0
+
+    def test_verify_bodies_allows_matching_file_and_line(self, tmp_path, monkeypatch):
+        """--verify-bodies allows a finding whose body, file, and line all
+        match the reviewer's real inline review comment.
+
+        Happy path for precise inline findings: every axis of the artifact
+        (body, file, line) is confirmed against the GitHub-authoritative source.
+        """
+        path = self._make_artifact(
+            tmp_path,
+            [
+                {
+                    "body": "Null pointer risk here.",
+                    "file": "src/main.py",
+                    "reviewer": "ErikBjare",
+                }
+            ],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            [
+                "--artifact",
+                str(path),
+                "--trusted-reviewer",
+                "ErikBjare",
+                "--verify-bodies",
+            ],
+            github_verified_logins=frozenset(["erikbjare"]),
+            github_comment_bodies={
+                "erikbjare": [
+                    {
+                        "body": "Null pointer risk here.",
+                        "path": "src/main.py",
+                        "line": None,
+                    }
+                ]
+            },
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 1
+        assert "Null pointer risk here." in spawn_calls[0]["prompt"]
 
     # ------------------------------------------------------------------
     # --require-trust + gh CLI available (best-effort identity verification)
