@@ -163,17 +163,17 @@ def _load_policy_manifest() -> "dict[str, Any]":
                 manifest_path,
                 type(raw).__name__,
             )
-            manifest: dict[str, Any] = _default
+            manifest: dict[str, Any] = _missing_default
         else:
-            manifest = raw or _default
+            manifest = raw or _missing_default
     except ImportError:
         logger.warning(
             "yaml not available; lesson-policy manifest at %s ignored", manifest_path
         )
-        manifest = _default
+        manifest = _missing_default
     except Exception as e:
         logger.warning("Failed to load lesson-policy manifest: %s", e)
-        manifest = _default
+        manifest = _missing_default
 
     _policy_manifest_cache = manifest
     return _policy_manifest_cache
@@ -219,7 +219,8 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
         ("exempt", "exempt"),
         ("holdout_population", "holdout"),
     ]:
-        if key in (manifest.get(category) or []):
+        category_list = manifest.get(category)
+        if isinstance(category_list, list) and key in category_list:
             return class_name, policy_version
 
     # No manifest on disk → default evaluation population is "holdout".

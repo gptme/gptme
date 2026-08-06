@@ -537,7 +537,7 @@ def test_classify_lesson_no_manifest_defaults_to_holdout(monkeypatch, tmp_path):
 
 
 def test_load_policy_manifest_invalid_yaml_structure(monkeypatch, tmp_path):
-    """Non-dict manifest YAML falls back to defaults without raising."""
+    """Non-dict manifest YAML falls back to missing-default (holdout, not unknown)."""
     _reset_manifest_cache(monkeypatch)
     manifest_file = tmp_path / "manifest.yaml"
     manifest_file.write_text("- just\n- a\n- list\n")
@@ -546,6 +546,36 @@ def test_load_policy_manifest_invalid_yaml_structure(monkeypatch, tmp_path):
     assert manifest["version"] == 1
     assert manifest["validated_core"] == []
     assert manifest["holdout_population"] == []
+    # Load failures should also default to holdout (not unknown)
+    assert manifest.get("_manifest_missing") is True
+
+
+def test_classify_lesson_load_failure_defaults_to_holdout(monkeypatch, tmp_path):
+    """When manifest exists but can't be parsed, lessons default to holdout."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("- just\n- a\n- list\n")  # non-dict YAML
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    policy_class, _ = _classify_lesson("lessons/any/lesson.md")
+    assert policy_class == "holdout"
+
+
+def test_classify_lesson_malformed_category_value(monkeypatch, tmp_path):
+    """Non-list category values are skipped safely; lesson falls through to holdout/unknown."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    # validated_core is a string (malformed), holdout_population is correct
+    manifest_file.write_text(
+        "version: 1\nupdated_at: ''\nvalidated_core: 'not-a-list'\nexempt: []\nholdout_population:\n- patterns/foo\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # The malformed validated_core is skipped; holdout_population matches correctly
+    policy_class, _ = _classify_lesson("lessons/patterns/foo.md")
+    assert policy_class == "holdout"
+    # A non-matching lesson gets unknown (manifest loaded successfully)
+    _reset_manifest_cache(monkeypatch)
+    policy_class2, _ = _classify_lesson("lessons/other/bar.md")
+    assert policy_class2 == "unknown"
 
 
 def test_classify_lesson_custom_root_parent_key(monkeypatch, tmp_path):
