@@ -217,7 +217,7 @@ export function InlineToolConfirmation({
                     </Button>
                   </div>
 
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {/* Accept All — direct one-click action */}
                     {!isEditing && (
                       <Button
