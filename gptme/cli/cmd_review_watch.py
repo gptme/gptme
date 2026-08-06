@@ -579,17 +579,17 @@ def review_watch(
                     err=True,
                 )
 
-            # When an allowlist is given, verify reviewer identity against the
-            # GitHub reviews API before trusting the artifact's self-reported
-            # reviewer field.  The artifact controls its own reviewer field and
-            # can forge any login; the API is the authoritative source.
+            # When an allowlist is given (or --require-trust is used), verify reviewer
+            # identity against the GitHub reviews API before trusting the artifact's
+            # self-reported reviewer field.  The artifact controls its own reviewer
+            # field and can forge any login; the API is the authoritative source.
             github_verified: frozenset[str] | None = None
-            if trusted_set:
+            if trusted_set or require_trust:
                 if not _gh_available():
                     raise click.ClickException(
-                        "--trusted-reviewer requires the gh CLI to verify reviewer "
-                        "identity against GitHub.  Install and authenticate gh CLI, "
-                        "or omit --trusted-reviewer to process all findings."
+                        "Reviewer verification requires the gh CLI to check GitHub.  "
+                        "Install and authenticate gh CLI, or omit --trusted-reviewer "
+                        "and --require-trust to process all findings."
                     )
                 github_verified = fetch_pr_reviewer_logins(
                     effective_owner, effective_repo_name, effective_pr_number
@@ -658,6 +658,17 @@ def review_watch(
                         if f.body.strip() not in reviewer_bodies:
                             skipped_unverified_body += 1
                             continue
+                elif require_trust:
+                    # --require-trust without an allowlist: verify the reviewer
+                    # actually participated in the GitHub PR. This prevents forged
+                    # reviewer attribution in the artifact from being accepted.
+                    in_github = (
+                        github_verified is not None
+                        and reviewer_lower in github_verified
+                    )
+                    if not in_github:
+                        skipped_untrusted += 1
+                        continue
 
                 filtered.append(f)
 
