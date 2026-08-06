@@ -466,6 +466,16 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                         toast.error('No messages to copy');
                         return;
                       }
+
+                      // Check if all messages are loaded (conversationState.hasMoreBefore indicates if there are earlier messages not yet loaded)
+                      const conversationState = conversations$.get(conversationId);
+                      if (conversationState?.hasMoreBefore?.get?.()) {
+                        toast.error(
+                          'Not all messages are loaded. Scroll up to load earlier messages before copying.'
+                        );
+                        return;
+                      }
+
                       const exportableMessages = getExportableMessages(conv.data.log, {
                         includeTools,
                       });

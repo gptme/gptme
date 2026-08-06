@@ -36,12 +36,27 @@ export function getExportableMessages(
   options?: Pick<ExportMarkdownOptions, 'includeSystem' | 'includeTools'>
 ): Message[] {
   const { includeSystem = false, includeTools = true } = options ?? {};
-  return messages.filter(
-    (msg) =>
-      !msg.hide &&
-      (includeSystem || msg.role !== 'system') &&
-      (includeTools || (msg.role !== 'tool' && msg.role !== 'tool_result'))
-  );
+  return messages.filter((msg) => {
+    if (msg.hide) return false;
+
+    // Check if this is a tool-metadata system message
+    const isToolSystemMessage =
+      msg.role === 'system' &&
+      msg.content &&
+      (msg.content.includes('[Tool:') ||
+        msg.content.includes('```tool') ||
+        msg.content.includes('<tool'));
+
+    // Filter tool-related messages (tool, tool_result, and tool-metadata system messages)
+    if (!includeTools) {
+      if (msg.role === 'tool' || msg.role === 'tool_result' || isToolSystemMessage) return false;
+    }
+
+    // Filter regular system messages (those not containing tool metadata)
+    if (!includeSystem && msg.role === 'system' && !isToolSystemMessage) return false;
+
+    return true;
+  });
 }
 
 function getImportableMessages(messages: Message[]): Message[] {
@@ -58,11 +73,16 @@ export function formatConversationAsMarkdown(
   messages: Message[],
   options?: ExportMarkdownOptions
 ): string {
-  const { includeTimestamps = true, includeThinking = false } = options ?? {};
+  const {
+    includeTimestamps = true,
+    includeThinking = false,
+    includeSystem = false,
+    includeTools = true,
+  } = options ?? {};
 
   const lines: string[] = [`# ${name}`, ''];
 
-  for (const msg of getExportableMessages(messages, options)) {
+  for (const msg of getExportableMessages(messages, { includeSystem, includeTools })) {
     const roleLabel = msg.role.charAt(0).toUpperCase() + msg.role.slice(1);
     let header = `## ${roleLabel}`;
     if (includeTimestamps && msg.timestamp) {
