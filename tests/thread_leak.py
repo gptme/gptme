@@ -50,12 +50,11 @@ _IGNORED_THREAD_NAMES = frozenset(
     }
 )
 
-#: Prefixes for pooled/shared executors that are intentionally reused across
-#: tests rather than torn down per test.
-_IGNORED_THREAD_PREFIXES = (
-    "ThreadPoolExecutor-",
-    "asyncio_",
-)
+# Note: no prefix-based ignore list.  Per-test executor workers (ThreadPoolExecutor-*,
+# asyncio_*) are real leaks when they outlive teardown — silencing them by prefix
+# prevents the detector from reporting them.  The before-snapshot already suppresses
+# threads that were alive before the test started (including shared executors that
+# persisted from earlier tests), so no additional prefix guard is needed.
 
 
 class _ThreadLike(Protocol):
@@ -79,18 +78,24 @@ class LeakedThread:
 
 
 def _is_ignored(name: str) -> bool:
-    if name in _IGNORED_THREAD_NAMES:
-        return True
-    return name.startswith(_IGNORED_THREAD_PREFIXES)
+    return name in _IGNORED_THREAD_NAMES
 
 
-def snapshot_threads() -> set[int]:
-    """Return the idents of all threads currently alive."""
-    return {t.ident for t in threading.enumerate() if t.ident is not None}
+def snapshot_threads() -> frozenset[tuple[int, int]]:
+    """Return (ident, object-id) pairs for all currently alive threads.
+
+    Pairing the ident with ``id(thread)`` catches the ident-reuse case: CPython
+    thread identifiers are unique among *living* threads but may be reused once a
+    thread exits.  A replacement thread has a different object id even when it
+    inherits the same integer ident.
+    """
+    return frozenset(
+        (t.ident, id(t)) for t in threading.enumerate() if t.ident is not None
+    )
 
 
 def diff_threads(
-    before: set[int],
+    before: frozenset[tuple[int, int]],
     *,
     threads: Sequence[_ThreadLike] | None = None,
     frames: Mapping[int, FrameType] | None = None,
@@ -107,7 +112,9 @@ def diff_threads(
     leaked: list[LeakedThread] = []
     for thread in live:
         ident = thread.ident
-        if ident is None or ident in before:
+        if ident is None:
+            continue
+        if (ident, id(thread)) in before:
             continue
         if not thread.is_alive():
             continue

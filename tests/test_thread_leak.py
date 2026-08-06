@@ -28,13 +28,16 @@ def _frame():
 
 
 def test_snapshot_includes_main_thread():
-    assert threading.current_thread().ident in snapshot_threads()
+    snap = snapshot_threads()
+    main_ident = threading.current_thread().ident
+    assert any(ident == main_ident for ident, _ in snap)
 
 
 def test_diff_reports_only_new_live_threads():
-    before = {1}
+    old = FakeThread("old", 1)
+    before = frozenset({(1, id(old))})
     threads = [
-        FakeThread("old", 1),
+        old,
         FakeThread("new-leaker", 2),
         FakeThread("finished", 3, alive=False),
     ]
@@ -45,28 +48,49 @@ def test_diff_reports_only_new_live_threads():
 
 
 def test_diff_ignores_known_long_lived_threads():
+    """MainThread and pytest watchdog are suppressed unconditionally."""
     threads = [
         FakeThread("MainThread", 1, daemon=False),
         FakeThread("pytest-timeout thread", 2),
+    ]
+    assert diff_threads(frozenset(), threads=threads, frames={}) == []
+
+
+def test_diff_reports_executor_threads_as_leaks():
+    """Per-test executor workers that outlive teardown are reported, not suppressed."""
+    threads = [
         FakeThread("ThreadPoolExecutor-0_1", 3),
         FakeThread("asyncio_0", 4),
     ]
-    assert diff_threads(set(), threads=threads, frames={}) == []
+    leaks = diff_threads(frozenset(), threads=threads, frames={})
+    leak_names = {leak.name for leak in leaks}
+    assert "ThreadPoolExecutor-0_1" in leak_names
+    assert "asyncio_0" in leak_names
+
+
+def test_diff_catches_ident_reuse():
+    """A replacement thread that reuses a prior thread's ident is still reported."""
+    dead = FakeThread("dead-thread", 1, alive=False)
+    replacement = FakeThread("replacement-thread", 1)  # same ident, different object
+    # before-snapshot captured the dead thread; replacement was started during the test
+    before = frozenset({(1, id(dead))})
+    leaks = diff_threads(before, threads=[replacement], frames={})
+    assert [leak.name for leak in leaks] == ["replacement-thread"]
 
 
 def test_diff_captures_stack_when_frame_available():
     threads = [FakeThread("leaker", 7)]
-    leaks = diff_threads(set(), threads=threads, frames={7: _frame()})
+    leaks = diff_threads(frozenset(), threads=threads, frames={7: _frame()})
     assert "test_diff_captures_stack_when_frame_available" in leaks[0].stack
 
 
 def test_diff_tolerates_missing_frame():
-    leaks = diff_threads(set(), threads=[FakeThread("leaker", 7)], frames={})
+    leaks = diff_threads(frozenset(), threads=[FakeThread("leaker", 7)], frames={})
     assert leaks[0].stack == ""
 
 
 def test_format_leaks_names_test_and_threads():
-    leaks = diff_threads(set(), threads=[FakeThread("acp-close", 9)], frames={})
+    leaks = diff_threads(frozenset(), threads=[FakeThread("acp-close", 9)], frames={})
     out = format_leaks("tests/test_x.py::test_y", leaks)
     assert "tests/test_x.py::test_y" in out
     assert "acp-close" in out
