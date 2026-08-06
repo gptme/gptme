@@ -269,11 +269,14 @@ def _spawn_review_session(
             stdin=subprocess.DEVNULL,
             check=False,
         )
-    except subprocess.TimeoutExpired:
-        return "", {
+    except subprocess.TimeoutExpired as exc:
+        # Recover partial output that was captured before timeout, if any.
+        # With text=True, exc.stdout is str or None (not bytes).
+        partial_output: str = exc.stdout or ""
+        return partial_output, {
             "exit_reason": "timeout",
             "duration_s": round(time.monotonic() - start, 3),
-            "error": f"timed out after {timeout:g}s",
+            "error": f"timed out after {timeout:g}s (recovered {len(partial_output)} chars of partial output)",
         }
 
     duration_s = time.monotonic() - start
