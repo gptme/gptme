@@ -259,7 +259,13 @@ class ReviewArtifact:
         stored_validation_errors = int(d.get("validation_errors", 0))
         deserialization_errors = 0
         findings: list[ReviewFinding] = []
-        for f_raw in d.get("findings", []):
+        findings_raw = d.get("findings", [])
+        if not isinstance(findings_raw, list):
+            # Non-list findings container (null, int, dict …): treat as a deserialization
+            # error so the artifact is marked INCOMPLETE instead of crashing.
+            findings_raw = []
+            deserialization_errors += 1
+        for f_raw in findings_raw:
             try:
                 findings.append(ReviewFinding.from_dict(f_raw))
             except (ValueError, TypeError, KeyError):
