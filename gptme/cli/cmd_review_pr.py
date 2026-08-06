@@ -430,8 +430,13 @@ def _extract_findings_from_output(
             severity_raw = item.get("severity", "warning")
             try:
                 severity = FindingSeverity(severity_raw)
-            except ValueError:
+            except (TypeError, ValueError):
+                # TypeError if severity_raw is a container (list, dict …);
+                # ValueError if it is an unknown string.  Both are treated as
+                # malformed — count against validation_errors so the artifact
+                # is marked INCOMPLETE rather than silently emitted as COMPLETE.
                 severity = FindingSeverity.WARNING
+                validation_errors += 1
             findings.append(
                 ReviewFinding(
                     body=body.strip(),
