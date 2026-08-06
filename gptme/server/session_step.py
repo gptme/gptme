@@ -999,19 +999,22 @@ def start_tool_execution(
     branch.  Defaults to ``"main"`` to match the default in ``step()``.
     """
 
+    # Snapshot step_seq NOW (at tool-queue time), before the thread is created.
+    # If /interrupt + /step fires between here and when the thread actually
+    # starts executing, the thread's my_seq still reflects the original step
+    # that queued this tool — not the new /step's sequence number.  This closes
+    # Race 3: a late-starting thread can no longer steal the new /step's
+    # reservation by snapshotting step_seq after the sequence already advanced.
+    my_seq = session.step_seq
+
     # This function would ideally run asynchronously to not block the request
     # For simplicity, we'll run it in a thread
     @trace_function("api_v2.execute_tool", attributes={"component": "api_v2"})
     def execute_tool_thread() -> None:
         # reserved is a closure variable from execute_tool_thread_maker; we
         # may reassign it to False when we detect a stale reservation (Race 1).
+        # my_seq is a closure variable captured in the outer scope at queue time.
         nonlocal reserved
-
-        # Snapshot the step sequence number at thread start so we can detect a
-        # stale reserved=True later: if /interrupt fires and then /step runs
-        # before this thread finishes, step_seq will have advanced and our
-        # reserved=True no longer owns the generation slot (Race 1).
-        my_seq = session.step_seq
 
         # Set context vars for hook-based confirmation
         from ..hooks import current_conversation_id, current_session_id
