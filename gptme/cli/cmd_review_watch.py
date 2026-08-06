@@ -694,7 +694,9 @@ def review_watch(
     if artifact_path is not None:
         try:
             artifact = _load_artifact(artifact_path)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, TypeError) as exc:
+            # TypeError covers non-dict JSON roots (null, list, scalar) that
+            # pass json.loads() but fail ReviewArtifact.from_dict's type guard.
             raise click.ClickException(f"Could not load artifact: {exc}") from exc
 
         # Resolve PR coordinates: CLI flags take precedence over artifact metadata.
