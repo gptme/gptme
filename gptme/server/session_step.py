@@ -1060,10 +1060,22 @@ def start_tool_execution(
                         "(may have been handled by another thread)"
                     )
                     # Release any pre-reserved generation slot so the conversation
-                    # is not permanently blocked.
+                    # is not permanently blocked — but only if we still own the
+                    # reservation. After /interrupt clears pending_tools and a new
+                    # /step re-reserves generating with a fresh step_seq, touching
+                    # session.generating here would release the slot we no longer own.
                     if reserved:
-                        session.generating = False
-                        session.generating_since = None
+                        with session.step_lock:
+                            if session.step_seq == my_seq:
+                                session.generating = False
+                                session.generating_since = None
+                            else:
+                                logger.debug(
+                                    "Skipping generating=False in missing-tool path: "
+                                    "reservation superseded (seq %d→%d)",
+                                    my_seq,
+                                    session.step_seq,
+                                )
                     return  # another thread claimed this tool; don't trigger auto-step
                 # The claim is registered above but the try/finally that releases
                 # it only starts below, so anything that raises in between (most
