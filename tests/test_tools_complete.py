@@ -1144,11 +1144,16 @@ class TestStuckDetectHook:
     _SAVE_A = "```save a.txt\nhello\n```"
     _SAVE_B = "```save b.txt\nworld\n```"
 
-    def test_interactive_noop(self):
-        """No action in interactive mode, even with identical repeats."""
+    def test_interactive_nudges_when_stuck(self):
+        """In interactive mode, nudge is still injected when stuck (but no force-exit)."""
         manager = _mock_manager([_assistant(self._SAVE_A)] * 3)
         results = list(stuck_detect_hook(manager, interactive=True, prompt_queue=None))
-        assert results == []
+        assert len(results) == 1
+        msg = results[0]
+        assert isinstance(msg, Message)
+        assert msg.role == "user"
+        assert "appear stuck" in msg.content.lower()
+        assert "save" in msg.content
 
     def test_disabled_via_env_noop(self, monkeypatch):
         """No action when GPTME_STUCK_DETECT is turned off."""
@@ -1254,6 +1259,25 @@ class TestStuckDetectHook:
         )
         with pytest.raises(SessionCompleteException, match="escalations"):
             list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
+
+    def test_interactive_does_not_raise_after_escalations(self):
+        """After escalate_max escalations in interactive mode, returns quietly (no force-exit).
+
+        The user can break the loop manually by stopping generation or replying.
+        """
+        marker = "<system>You appear stuck: same action repeated.</system>"
+        manager = _mock_manager(
+            [
+                _assistant(self._SAVE_A),
+                _user(marker),
+                _assistant(self._SAVE_A),
+                _user(marker),
+                _assistant(self._SAVE_A),
+            ]
+        )
+        # Must NOT raise in interactive mode — user can break the loop
+        results = list(stuck_detect_hook(manager, interactive=True, prompt_queue=None))
+        assert results == []
 
     def test_custom_threshold_via_env(self, monkeypatch):
         """Repeat threshold is configurable; 2 identical turns trip a lower one."""
