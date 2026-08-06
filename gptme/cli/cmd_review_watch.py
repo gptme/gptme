@@ -425,6 +425,17 @@ def spawn_review_session(
     default=False,
     help="Process comments found right now and exit (no polling loop).",
 )
+@click.option(
+    "--force-incomplete",
+    "force_incomplete",
+    is_flag=True,
+    default=False,
+    help=(
+        "Process an INCOMPLETE artifact despite the risk of missing findings. "
+        "By default, INCOMPLETE artifacts are rejected — re-run ``review pr`` "
+        "to obtain a complete review instead of using this flag."
+    ),
+)
 def review_watch(
     pr_number: int | None,
     repo: str | None,
@@ -436,6 +447,7 @@ def review_watch(
     session_timeout: float,
     workspace: str | None,
     once: bool,
+    force_incomplete: bool,
 ) -> None:
     """Watch a PR for new review comments and iterate automatically.
 
@@ -485,26 +497,31 @@ def review_watch(
             )
             return
 
-        # Check if the review was incomplete — warn before proceeding
+        # Check if the review was incomplete — reject by default; require --force-incomplete.
+        # Processing partial findings silently leaves issues undiscovered: the fix session
+        # runs on what it has and treats it as a complete review. Failing loudly forces the
+        # caller to either re-run review pr or make an explicit opt-in decision.
         if artifact.review_status == ReviewStatus.INCOMPLETE:
-            click.echo(
-                "  ⚠️  Warning: This review is marked INCOMPLETE.",
-                err=True,
-            )
+            details: list[str] = []
             if artifact.session_exit_reason and artifact.session_exit_reason != "done":
-                click.echo(
-                    f"      Session {artifact.session_exit_reason}; "
-                    f"findings may be partial.",
-                    err=True,
-                )
+                details.append(f"session {artifact.session_exit_reason}")
             if artifact.validation_errors > 0:
-                click.echo(
-                    f"      {artifact.validation_errors} finding(s) were "
-                    f"skipped due to validation errors.",
-                    err=True,
+                details.append(
+                    f"{artifact.validation_errors} finding(s) skipped due to validation errors"
                 )
+            detail_str = "; ".join(details) if details else "partial review"
+
+            if not force_incomplete:
+                raise click.ClickException(
+                    f"Artifact is marked INCOMPLETE ({detail_str}). "
+                    "Processing partial findings may leave issues undiscovered. "
+                    "Re-run `gptme-util review pr` to get a complete review, or pass "
+                    "--force-incomplete to process the partial artifact anyway."
+                )
+
             click.echo(
-                "      Proceeding with caution — not all issues may have been reviewed.",
+                f"  ⚠️  Warning: Processing INCOMPLETE artifact ({detail_str}). "
+                "Not all issues may have been reviewed.",
                 err=True,
             )
 

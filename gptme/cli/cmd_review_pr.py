@@ -271,10 +271,13 @@ def _spawn_review_session(
         )
     except subprocess.TimeoutExpired as exc:
         # Recover partial output captured before timeout. With text=True, exc.stdout
-        # is str|None, but mypy types TimeoutExpired.stdout as AnyStr|None and can't
-        # narrow the ternary — use an explicit if/else block instead.
+        # is str|None in Python 3.12+, but bytes|None in older versions even with
+        # text=True (CPython bug). Use isinstance narrowing; decode bytes so the
+        # findings parser (which expects str) can recover findings from partial output.
         if isinstance(exc.stdout, str):
             partial_output = exc.stdout or ""
+        elif isinstance(exc.stdout, bytes):
+            partial_output = exc.stdout.decode("utf-8", errors="replace")
         else:
             partial_output = ""
         return partial_output, {
