@@ -828,12 +828,15 @@ def test_review_watch_reprocesses_edited_comment(monkeypatch):
 
 
 def test_filter_findings_by_trusted_reviewers_all_trusted():
-    """When all findings are from trusted reviewers, all should be returned."""
+    """When all findings are from trusted reviewers with comment IDs, all should be returned.
+
+    Findings without github_comment_id are rejected even if reviewer matches (fail-closed).
+    """
     from gptme.util.review import ReviewFinding
 
     findings = [
-        ReviewFinding(body="Issue 1", reviewer="alice"),
-        ReviewFinding(body="Issue 2", reviewer="bob"),
+        ReviewFinding(body="Issue 1", reviewer="alice", github_comment_id=11111),
+        ReviewFinding(body="Issue 2", reviewer="bob", github_comment_id=22222),
     ]
     result = cmd_review_watch._filter_findings_by_trusted_reviewers(
         findings, ("alice", "bob")
@@ -844,13 +847,16 @@ def test_filter_findings_by_trusted_reviewers_all_trusted():
 
 
 def test_filter_findings_by_trusted_reviewers_partial():
-    """When some findings are from untrusted reviewers, they should be filtered."""
+    """When some findings are from untrusted reviewers, they should be filtered.
+
+    Findings without github_comment_id are rejected even if reviewer is trusted.
+    """
     from gptme.util.review import ReviewFinding
 
     findings = [
-        ReviewFinding(body="From Alice", reviewer="alice"),
-        ReviewFinding(body="From Eve", reviewer="eve"),
-        ReviewFinding(body="From Bob", reviewer="bob"),
+        ReviewFinding(body="From Alice", reviewer="alice", github_comment_id=11111),
+        ReviewFinding(body="From Eve", reviewer="eve", github_comment_id=22222),
+        ReviewFinding(body="From Bob", reviewer="bob", github_comment_id=33333),
     ]
     result = cmd_review_watch._filter_findings_by_trusted_reviewers(
         findings, ("alice", "bob")
@@ -877,8 +883,8 @@ def test_filter_findings_by_trusted_reviewers_all_filtered():
     from gptme.util.review import ReviewFinding
 
     findings = [
-        ReviewFinding(body="From Eve", reviewer="eve"),
-        ReviewFinding(body="From Mallory", reviewer="mallory"),
+        ReviewFinding(body="From Eve", reviewer="eve", github_comment_id=22222),
+        ReviewFinding(body="From Mallory", reviewer="mallory", github_comment_id=33333),
     ]
     result = cmd_review_watch._filter_findings_by_trusted_reviewers(
         findings, ("alice", "bob")
@@ -891,8 +897,12 @@ def test_filter_findings_case_insensitive():
     from gptme.util.review import ReviewFinding
 
     findings = [
-        ReviewFinding(body="Upper-case reviewer", reviewer="ErikBjare"),
-        ReviewFinding(body="Lower-case reviewer", reviewer="alice"),
+        ReviewFinding(
+            body="Upper-case reviewer", reviewer="ErikBjare", github_comment_id=11111
+        ),
+        ReviewFinding(
+            body="Lower-case reviewer", reviewer="alice", github_comment_id=22222
+        ),
     ]
     # Allowlist uses different casing from the artifact reviewer fields.
     result = cmd_review_watch._filter_findings_by_trusted_reviewers(
@@ -1022,11 +1032,57 @@ def test_filter_findings_forged_body_rejected(monkeypatch):
     assert len(result) == 0, "Forged finding body must be rejected"
 
 
+def test_filter_findings_missing_comment_id_rejected(monkeypatch):
+    """When trusted-reviewer filtering is enabled, findings without a
+    github_comment_id must be rejected (fail-closed) to prevent forged findings
+    from bypassing verification.
+
+    This is the critical fix for the ID-less path bypass identified in
+    gptme/gptme#3470.
+    """
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        # Finding with comment_id: will be accepted if reviewer matches
+        ReviewFinding(
+            body="Legitimate review",
+            reviewer="ErikBjare",
+            github_comment_id=12345,
+        ),
+        # Finding without comment_id: must be rejected even if reviewer matches
+        ReviewFinding(
+            body="Forged finding without verification",
+            reviewer="ErikBjare",
+            github_comment_id=None,  # Explicitly no ID
+        ),
+    ]
+
+    # Mock API to accept the first finding
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/12345" in " ".join(args):
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "Here is my review:\n\nLegitimate review",
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+    )
+    # Only the finding WITH github_comment_id should remain
+    assert len(result) == 1, "Findings without github_comment_id must be rejected"
+    assert result[0].github_comment_id == 12345
+
+
 def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
     """Artifact mode with --trusted-reviewer should filter findings before spawning.
 
-    When repo context is available (owner/repo), findings must have github_comment_id
-    and pass GitHub verification. This test mocks the verification to succeed.
+    Findings must have github_comment_id to be accepted (fail-closed security policy).
     """
     from gptme.util.review import FindingStatus, ReviewArtifact, ReviewFinding
 
@@ -1039,25 +1095,16 @@ def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
                 body="From Alice",
                 reviewer="alice",
                 status=FindingStatus.OPEN,
-                github_comment_id=100,  # Findings must have IDs in live-repo mode
+                github_comment_id=11111,  # Required for verification
             ),
             ReviewFinding(
                 body="From Eve",
                 reviewer="eve",
                 status=FindingStatus.OPEN,
-                github_comment_id=101,
+                github_comment_id=22222,  # Required for verification
             ),
         ],
     )
-
-    # Mock GitHub comment verification to succeed
-    def fake_verify(*, owner, repo, comment_id, expected_reviewer, expected_body=""):
-        # Simulate successful verification for alice's comment
-        if comment_id == 100 and expected_reviewer.lower() == "alice":
-            return True, "From Alice"
-        return False, ""
-
-    monkeypatch.setattr(cmd_review_watch, "_verify_comment_reviewer", fake_verify)
 
     # Write artifact to temp file
     import tempfile
@@ -1073,7 +1120,16 @@ def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
             spawn_calls.append(kw)
             return {"exit_reason": "done", "duration_s": 0.1}
 
+        def fake_run_gh_json(args, **kwargs):
+            # Mock API: return both comments as if from trusted reviewers
+            if "pulls/comments/11111" in " ".join(args):
+                return {"user": {"login": "alice"}, "body": "Review:\n\nFrom Alice"}
+            if "pulls/comments/22222" in " ".join(args):
+                return {"user": {"login": "eve"}, "body": "Review:\n\nFrom Eve"}
+            return None
+
         monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+        monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -1088,7 +1144,7 @@ def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
         )
         assert result.exit_code == 0
         assert len(spawn_calls) == 1
-        # Prompt should only mention Alice's finding
+        # Prompt should only mention Alice's finding (Eve is filtered out)
         prompt = spawn_calls[0]["prompt"]
         assert "From Alice" in prompt
         assert "From Eve" not in prompt
@@ -1101,8 +1157,9 @@ def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
 def test_review_watch_artifact_with_trusted_reviewer_no_match(monkeypatch):
     """Artifact mode with --trusted-reviewer should exit if no findings match.
 
-    When repo context is available, findings must have github_comment_id.
-    This test includes an unverified finding to test filtering.
+    Findings can be filtered for two reasons:
+    1. Reviewer not in allowlist (different reviewer)
+    2. Missing github_comment_id (fail-closed security policy)
     """
     from gptme.util.review import FindingStatus, ReviewArtifact, ReviewFinding
 
@@ -1115,16 +1172,10 @@ def test_review_watch_artifact_with_trusted_reviewer_no_match(monkeypatch):
                 body="From Eve",
                 reviewer="eve",
                 status=FindingStatus.OPEN,
-                github_comment_id=101,
+                github_comment_id=99999,  # Has ID, but wrong reviewer
             ),
         ],
     )
-
-    # Mock GitHub verification to reject eve's comment
-    def fake_verify(*, owner, repo, comment_id, expected_reviewer, expected_body=""):
-        return False, ""  # Reject all verification
-
-    monkeypatch.setattr(cmd_review_watch, "_verify_comment_reviewer", fake_verify)
 
     import tempfile
 
@@ -1149,7 +1200,7 @@ def test_review_watch_artifact_with_trusted_reviewer_no_match(monkeypatch):
                 "--artifact",
                 artifact_path,
                 "--trusted-reviewer",
-                "alice",
+                "alice",  # Only alice is trusted, eve is not
             ],
         )
         assert result.exit_code == 0
