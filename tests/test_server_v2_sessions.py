@@ -612,6 +612,30 @@ class TestInterruptEndpoint:
 
         assert session.interrupted is False
 
+    def test_step_increments_step_seq(self, conv, client: FlaskClient):
+        """Each /step increments step_seq so tool threads can detect stale reservations.
+
+        This guards Race 1: if /interrupt fires and then /step runs while an
+        old tool thread is still executing, the old thread must not start a
+        duplicate continuation step after /step has already reserved the slot.
+        The tool thread compares its captured step_seq against the current value;
+        a mismatch means the reservation is stale.
+        """
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        initial_seq = session.step_seq
+
+        with patch("gptme.server.api_v2_sessions.get_default_model", return_value=None):
+            client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/step",
+                json={
+                    "session_id": conv["session_id"],
+                    "model": "openai/gpt-4o",
+                },
+            )
+
+        assert session.step_seq == initial_seq + 1
+
 
 # --- Tool confirm endpoint tests ---
 

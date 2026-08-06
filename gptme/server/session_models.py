@@ -98,6 +98,10 @@ class ConversationSession(BaseSession):
     # Lock for atomic check-and-set of the generating flag in /step.
     # Prevents concurrent requests from both reading False before either writes True.
     step_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # Monotonically increasing counter incremented by each /step reservation.
+    # Tool threads capture this at start and compare on completion to detect
+    # a stale reserved=True after interrupt+re-step (Race 1).
+    step_seq: int = 0
 
     # ACP-backed subprocess session (opt-in via use_acp=True in step request)
     use_acp: bool = False
