@@ -93,10 +93,20 @@ class ReviewFinding:
 
     @classmethod
     def from_dict(cls, d: dict) -> ReviewFinding:
+        file_raw = d.get("file", "")
+        if not isinstance(file_raw, str):
+            raise ValueError(
+                f"ReviewFinding.file must be a string, got {type(file_raw).__name__!r}: {file_raw!r}"
+            )
+        line_raw = d.get("line")
+        if line_raw is not None and not isinstance(line_raw, int):
+            raise ValueError(
+                f"ReviewFinding.line must be an int or None, got {type(line_raw).__name__!r}: {line_raw!r}"
+            )
         return cls(
             body=d.get("body", ""),
-            file=d.get("file", ""),
-            line=d.get("line"),
+            file=file_raw,
+            line=line_raw,
             severity=FindingSeverity(d.get("severity", FindingSeverity.WARNING.value)),
             status=FindingStatus(d.get("status", FindingStatus.OPEN.value)),
             github_comment_id=d.get("github_comment_id"),
@@ -239,17 +249,35 @@ class ReviewArtifact:
         try:
             review_status = ReviewStatus(review_status_raw)
         except ValueError:
-            review_status = ReviewStatus.COMPLETE
+            # Fail-safe: an unrecognised status value is treated as INCOMPLETE rather
+            # than COMPLETE so that the review-watch guard is not silently bypassed
+            # when an artifact was produced by a newer tool version with new status values.
+            review_status = ReviewStatus.INCOMPLETE
+
+        # Deserialise findings one-by-one so a malformed entry does not crash the
+        # whole load.  Each validation error downgrades the artifact to INCOMPLETE.
+        stored_validation_errors = int(d.get("validation_errors", 0))
+        deserialization_errors = 0
+        findings: list[ReviewFinding] = []
+        for f_raw in d.get("findings", []):
+            try:
+                findings.append(ReviewFinding.from_dict(f_raw))
+            except (ValueError, TypeError, KeyError):
+                deserialization_errors += 1
+
+        if deserialization_errors > 0 and review_status == ReviewStatus.COMPLETE:
+            review_status = ReviewStatus.INCOMPLETE
+
         return cls(
             pr_owner=pr.get("owner", ""),
             pr_repo=pr.get("repo", ""),
             pr_number=int(pr.get("number", 0)),
-            findings=[ReviewFinding.from_dict(f) for f in d.get("findings", [])],
+            findings=findings,
             review_status=review_status,
             session_exit_reason=d.get("session_exit_reason", ""),
             session_error=d.get("session_error", ""),
             review_duration_s=float(d.get("review_duration_s", 0.0)),
-            validation_errors=int(d.get("validation_errors", 0)),
+            validation_errors=stored_validation_errors + deserialization_errors,
         )
 
     @classmethod

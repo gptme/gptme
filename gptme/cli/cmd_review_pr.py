@@ -342,6 +342,19 @@ def _extract_findings_from_output(
             if not isinstance(body, str) or not body.strip():
                 validation_errors += 1
                 continue
+
+            # Validate location fields; coerce to safe defaults and count each
+            # malformed field as a validation error so the artifact is marked INCOMPLETE.
+            file_raw = item.get("file", "")
+            if not isinstance(file_raw, str):
+                file_raw = ""
+                validation_errors += 1
+
+            line_raw = item.get("line")
+            if line_raw is not None and not isinstance(line_raw, int):
+                line_raw = None
+                validation_errors += 1
+
             severity_raw = item.get("severity", "warning")
             try:
                 severity = FindingSeverity(severity_raw)
@@ -350,8 +363,8 @@ def _extract_findings_from_output(
             findings.append(
                 ReviewFinding(
                     body=body.strip(),
-                    file=item.get("file", ""),
-                    line=item.get("line"),
+                    file=file_raw,
+                    line=line_raw,
                     severity=severity,
                     status=FindingStatus.OPEN,
                     reviewer="gptme-review",
