@@ -1393,6 +1393,39 @@ def stream(
     return captured_metadata
 
 
+def _extract_and_strip_reasoning(
+    content: str | None,
+) -> tuple[str, str]:
+    """Extract reasoning from <think>/<thinking> tags and return cleaned content.
+
+    Returns:
+        Tuple of (reasoning_content, cleaned_content_without_think_tags)
+    """
+    if not content:
+        return "", ""
+
+    # Extract content from <think>...</think> and <thinking>...</thinking> blocks
+    think_matches = re.findall(r"<think>(.*?)</think>", content, flags=re.DOTALL)
+    thinking_matches = re.findall(
+        r"<thinking>(.*?)</thinking>", content, flags=re.DOTALL
+    )
+    all_reasoning = think_matches + thinking_matches
+    reasoning = (
+        "\n".join(r.strip() for r in all_reasoning if r.strip())
+        if all_reasoning
+        else ""
+    )
+
+    # Remove <think> and <thinking> tags from content to prevent duplication
+    cleaned_content = re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL)
+    cleaned_content = re.sub(
+        r"<thinking>.*?</thinking>\s*", "", cleaned_content, flags=re.DOTALL
+    )
+    cleaned_content = cleaned_content.strip()
+
+    return reasoning, cleaned_content
+
+
 def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
     # Non-tool system messages between an assistant tool_calls message and the
     # corresponding tool responses break strict APIs like DeepSeek. Buffer them
@@ -1657,15 +1690,16 @@ def _transform_msgs_for_special_provider(
         result: list[MessageDict] = []
         for msg in messages_dicts:
             content = msg.get("content")
-            # Handle messages without content (e.g., tool call messages)
+            is_assistant_tool_call = (
+                model.provider == "deepseek"
+                and msg.get("role") == "assistant"
+                and msg.get("tool_calls")
+            )
+            # Handle messages without content (e.g., tool call messages with no text)
             if content is None:
                 # DeepSeek requires reasoning_content for assistant messages with tool_calls
-                # Since we don't store reasoning_content in Message objects, add empty reasoning_content field
-                if (
-                    model.provider == "deepseek"
-                    and msg.get("role") == "assistant"
-                    and msg.get("tool_calls")
-                ):
+                # since we don't store reasoning_content in Message objects, add empty field
+                if is_assistant_tool_call:
                     result.append(cast(MessageDict, {**msg, "reasoning_content": ""}))
                 else:
                     result.append(cast(MessageDict, msg))
@@ -1678,12 +1712,39 @@ def _transform_msgs_for_special_provider(
                     if isinstance(part, dict) and part.get("type") == "text"
                 ]
                 # Use placeholder if all parts are non-text (e.g., images only)
-                transformed = (
+                text_content = (
                     "\n\n".join(text_parts) if text_parts else "[non-text content]"
                 )
-                result.append(cast(MessageDict, {**msg, "content": transformed}))
+                # For DeepSeek reasoner with tool calls: extract <think> into reasoning_content.
+                # deepseek-reasoner embeds reasoning in <think> tags in gptme's log;
+                # the API expects it in a separate reasoning_content field.
+                if is_assistant_tool_call and model.supports_reasoning:
+                    reasoning, cleaned = _extract_and_strip_reasoning(text_content)
+                    result_msg: dict[str, Any] = {**msg, "reasoning_content": reasoning}
+                    if cleaned:
+                        result_msg["content"] = cleaned
+                    else:
+                        result_msg.pop("content", None)
+                    result.append(cast(MessageDict, result_msg))
+                else:
+                    result.append(cast(MessageDict, {**msg, "content": text_content}))
             else:
-                result.append(cast(MessageDict, msg))
+                # content is a string
+                # For DeepSeek reasoner with tool calls: extract <think> into reasoning_content
+                if (
+                    is_assistant_tool_call
+                    and model.supports_reasoning
+                    and ("<think>" in content or "<thinking>" in content)
+                ):
+                    reasoning, cleaned = _extract_and_strip_reasoning(content)
+                    result_msg = {**msg, "reasoning_content": reasoning}
+                    if cleaned:
+                        result_msg["content"] = cleaned
+                    else:
+                        result_msg.pop("content", None)
+                    result.append(cast(MessageDict, result_msg))
+                else:
+                    result.append(cast(MessageDict, msg))
         return result
 
     # Reasoning models need the structured field restored from gptme's <think>
@@ -1693,43 +1754,6 @@ def _transform_msgs_for_special_provider(
     if (model.provider == "openrouter" and model.supports_reasoning) or (
         preserve_all_reasoning
     ):
-
-        def _extract_and_strip_reasoning(
-            content: str | None,
-        ) -> tuple[str, str]:
-            """Extract reasoning from <think>/<thinking> tags and return cleaned content.
-
-            Returns:
-                Tuple of (reasoning_content, cleaned_content_without_think_tags)
-            """
-            if not content:
-                return "", ""
-
-            # Extract content from <think>...</think> and <thinking>...</thinking> blocks
-            think_matches = re.findall(
-                r"<think>(.*?)</think>", content, flags=re.DOTALL
-            )
-            thinking_matches = re.findall(
-                r"<thinking>(.*?)</thinking>", content, flags=re.DOTALL
-            )
-            all_reasoning = think_matches + thinking_matches
-            reasoning = (
-                "\n".join(r.strip() for r in all_reasoning if r.strip())
-                if all_reasoning
-                else ""
-            )
-
-            # Remove <think> and <thinking> tags from content to prevent duplication
-            cleaned_content = re.sub(
-                r"<think>.*?</think>\s*", "", content, flags=re.DOTALL
-            )
-            cleaned_content = re.sub(
-                r"<thinking>.*?</thinking>\s*", "", cleaned_content, flags=re.DOTALL
-            )
-            cleaned_content = cleaned_content.strip()
-
-            return reasoning, cleaned_content
-
         openrouter_result: list[MessageDict] = []
         for msg in messages_dicts:
             if (
@@ -1752,17 +1776,17 @@ def _transform_msgs_for_special_provider(
                     content = "\n".join(text_parts)
 
                 reasoning, cleaned_content = _extract_and_strip_reasoning(content)
-                result_msg: dict[str, Any] = {
+                openrouter_msg: dict[str, Any] = {
                     **msg,
                     "reasoning_content": reasoning,
                 }
                 if cleaned_content:
-                    result_msg["content"] = cleaned_content
+                    openrouter_msg["content"] = cleaned_content
                 else:
                     # Remove empty content to avoid provider errors (e.g. Z.AI/GLM
                     # rejects messages with empty text content)
-                    result_msg.pop("content", None)
-                openrouter_result.append(cast(MessageDict, result_msg))
+                    openrouter_msg.pop("content", None)
+                openrouter_result.append(cast(MessageDict, openrouter_msg))
             else:
                 openrouter_result.append(cast(MessageDict, msg))
         return openrouter_result
