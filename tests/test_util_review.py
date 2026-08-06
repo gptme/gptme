@@ -649,3 +649,291 @@ class TestArtifactMode:
         )
         assert result.exit_code != 0
         assert "artifact" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Trusted-reviewer guard (--trusted-reviewer / --require-trust)
+# ---------------------------------------------------------------------------
+
+
+class TestTrustedReviewerGuard:
+    """Tests for the --trusted-reviewer / --require-trust artifact-mode guard."""
+
+    def _make_artifact(
+        self,
+        tmp_path,
+        findings_spec: list[dict],
+    ):
+        """Build an artifact JSON file from a list of finding spec dicts.
+
+        Each spec may contain: body, file, reviewer (str|None), status.
+        """
+        findings = [
+            ReviewFinding(
+                body=spec.get("body", "A finding."),
+                file=spec.get("file", "app.py"),
+                severity=FindingSeverity.WARNING,
+                status=FindingStatus(spec.get("status", "open")),
+                reviewer=spec.get("reviewer", ""),
+            )
+            for spec in findings_spec
+        ]
+        artifact = ReviewArtifact(
+            pr_owner="gptme",
+            pr_repo="gptme",
+            pr_number=42,
+            findings=findings,
+        )
+        path = tmp_path / "artifact.json"
+        artifact.save(path)
+        return path
+
+    def _run(self, monkeypatch, args: list[str]):
+        """Invoke review watch with spawn patched out; return (result, spawn_calls)."""
+        from gptme.cli import cmd_review_watch
+
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+        spawn_calls: list[dict] = []
+
+        def fake_spawn(**kwargs):
+            spawn_calls.append(kwargs)
+            return {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+        runner = CliRunner()
+        result = runner.invoke(util_main, ["review", "watch"] + args)
+        return result, spawn_calls
+
+    # ------------------------------------------------------------------
+    # --trusted-reviewer
+    # ------------------------------------------------------------------
+
+    def test_all_trusted_findings_are_injected(self, tmp_path, monkeypatch):
+        """All findings from the trusted reviewer pass through unchanged."""
+        path = self._make_artifact(
+            tmp_path,
+            [
+                {"body": "Fix typo.", "reviewer": "ErikBjare"},
+                {"body": "Add docstring.", "reviewer": "ErikBjare"},
+            ],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
+        )
+        assert result.exit_code == 0, result.output
+        # Both trusted findings → session spawned with both bodies in the prompt
+        assert len(spawn_calls) == 1
+        prompt = spawn_calls[0]["prompt"]
+        assert "Fix typo." in prompt
+        assert "Add docstring." in prompt
+
+    def test_untrusted_findings_are_skipped(self, tmp_path, monkeypatch):
+        """Findings from a non-whitelisted reviewer are not injected."""
+        path = self._make_artifact(
+            tmp_path,
+            [
+                {"body": "Trusted finding.", "reviewer": "ErikBjare"},
+                {"body": "Attacker payload.", "reviewer": "attacker"},
+            ],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 1
+        prompt = spawn_calls[0]["prompt"]
+        assert "Trusted finding." in prompt
+        assert "Attacker payload." not in prompt
+
+    def test_all_untrusted_no_session_spawned(self, tmp_path, monkeypatch):
+        """When every finding is from an untrusted reviewer, no session is started."""
+        path = self._make_artifact(
+            tmp_path,
+            [
+                {"body": "Evil instruction 1.", "reviewer": "attacker"},
+                {"body": "Evil instruction 2.", "reviewer": "attacker"},
+            ],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 0, (
+            "No session should be spawned when all findings are untrusted"
+        )
+        assert "no open findings" in result.output.lower()
+
+    def test_multiple_trusted_reviewers_union(self, tmp_path, monkeypatch):
+        """Multiple --trusted-reviewer flags form a union allowlist."""
+        path = self._make_artifact(
+            tmp_path,
+            [
+                {"body": "From alice.", "reviewer": "alice"},
+                {"body": "From bob.", "reviewer": "bob"},
+                {"body": "From attacker.", "reviewer": "attacker"},
+            ],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            [
+                "--artifact",
+                str(path),
+                "--trusted-reviewer",
+                "alice",
+                "--trusted-reviewer",
+                "bob",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 1
+        prompt = spawn_calls[0]["prompt"]
+        assert "From alice." in prompt
+        assert "From bob." in prompt
+        assert "From attacker." not in prompt
+
+    # ------------------------------------------------------------------
+    # --require-trust
+    # ------------------------------------------------------------------
+
+    def test_require_trust_skips_findings_without_reviewer(self, tmp_path, monkeypatch):
+        """--require-trust drops findings whose reviewer field is empty."""
+        path = self._make_artifact(
+            tmp_path,
+            [
+                {"body": "Has reviewer.", "reviewer": "ErikBjare"},
+                {"body": "No reviewer.", "reviewer": ""},
+            ],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            [
+                "--artifact",
+                str(path),
+                "--trusted-reviewer",
+                "ErikBjare",
+                "--require-trust",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 1
+        prompt = spawn_calls[0]["prompt"]
+        assert "Has reviewer." in prompt
+        assert "No reviewer." not in prompt
+
+    def test_require_trust_alone_skips_unattributed_findings(
+        self, tmp_path, monkeypatch
+    ):
+        """--require-trust without --trusted-reviewer still drops un-attributed findings."""
+        path = self._make_artifact(
+            tmp_path,
+            [
+                {"body": "Attributed finding.", "reviewer": "someone"},
+                {"body": "Unattributed finding.", "reviewer": ""},
+            ],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            ["--artifact", str(path), "--require-trust"],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 1
+        prompt = spawn_calls[0]["prompt"]
+        assert "Attributed finding." in prompt
+        assert "Unattributed finding." not in prompt
+
+    def test_require_trust_all_unattributed_no_session(self, tmp_path, monkeypatch):
+        """When all findings lack reviewer + --require-trust, no session is spawned."""
+        path = self._make_artifact(
+            tmp_path,
+            [
+                {"body": "No reviewer 1.", "reviewer": ""},
+                {"body": "No reviewer 2.", "reviewer": ""},
+            ],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            ["--artifact", str(path), "--require-trust"],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 0, (
+            "No session should spawn when all findings are unattributed under --require-trust"
+        )
+        assert "no open findings" in result.output.lower()
+
+    # ------------------------------------------------------------------
+    # stdin mode (--artifact -)
+    # ------------------------------------------------------------------
+
+    def test_trusted_reviewer_filter_applies_to_stdin_mode(self, tmp_path, monkeypatch):
+        """--trusted-reviewer guard applies equally when artifact is read from stdin."""
+
+        from gptme.cli import cmd_review_watch
+
+        artifact = ReviewArtifact(
+            pr_owner="gptme",
+            pr_repo="gptme",
+            pr_number=99,
+            findings=[
+                ReviewFinding(
+                    body="Trusted finding.",
+                    file="app.py",
+                    status=FindingStatus.OPEN,
+                    reviewer="ErikBjare",
+                ),
+                ReviewFinding(
+                    body="Untrusted finding.",
+                    file="app.py",
+                    status=FindingStatus.OPEN,
+                    reviewer="attacker",
+                ),
+            ],
+        )
+
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+        spawn_calls: list[dict] = []
+
+        def fake_spawn(**kwargs):
+            spawn_calls.append(kwargs)
+            return {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            ["review", "watch", "--artifact", "-", "--trusted-reviewer", "ErikBjare"],
+            input=artifact.to_json(),
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 1
+        prompt = spawn_calls[0]["prompt"]
+        assert "Trusted finding." in prompt
+        assert "Untrusted finding." not in prompt
+
+    # ------------------------------------------------------------------
+    # No flags → existing behaviour unchanged
+    # ------------------------------------------------------------------
+
+    def test_no_flags_all_findings_pass(self, tmp_path, monkeypatch):
+        """Without --trusted-reviewer/--require-trust all findings pass (regression guard)."""
+        path = self._make_artifact(
+            tmp_path,
+            [
+                {"body": "Finding A.", "reviewer": "ErikBjare"},
+                {"body": "Finding B.", "reviewer": ""},
+                {"body": "Finding C.", "reviewer": "unknown"},
+            ],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            ["--artifact", str(path)],
+        )
+        assert result.exit_code == 0, result.output
+        assert len(spawn_calls) == 1
+        prompt = spawn_calls[0]["prompt"]
+        assert "Finding A." in prompt
+        assert "Finding B." in prompt
+        assert "Finding C." in prompt

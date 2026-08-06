@@ -425,6 +425,32 @@ def spawn_review_session(
     default=False,
     help="Process comments found right now and exit (no polling loop).",
 )
+@click.option(
+    "--trusted-reviewer",
+    "trusted_reviewers",
+    multiple=True,
+    metavar="LOGIN",
+    help=(
+        "GitHub login allowed to contribute findings to the fix session. "
+        "May be specified multiple times. "
+        "When given, only findings whose reviewer matches one of these logins "
+        "are injected as instructions; others are silently skipped. "
+        "Applies to --artifact mode only. "
+        "Without this flag all open findings are injected (current default)."
+    ),
+)
+@click.option(
+    "--require-trust",
+    is_flag=True,
+    default=False,
+    help=(
+        "Hard-fail if a finding has no reviewer attribution. "
+        "When set, findings with an absent or empty reviewer field are skipped "
+        "rather than injected. If all open findings are skipped the command "
+        "exits with an error instead of spawning an empty fix session. "
+        "Only meaningful in --artifact mode."
+    ),
+)
 def review_watch(
     pr_number: int | None,
     repo: str | None,
@@ -436,6 +462,8 @@ def review_watch(
     session_timeout: float,
     workspace: str | None,
     once: bool,
+    trusted_reviewers: tuple[str, ...],
+    require_trust: bool,
 ) -> None:
     """Watch a PR for new review comments and iterate automatically.
 
@@ -451,6 +479,13 @@ def review_watch(
     Local / artifact mode (no gh CLI required):
         gptme-util review-watch --artifact artifact.json
         cat artifact.json | gptme-util review-watch --artifact -
+
+    \b
+    Trusted-reviewer guard (artifact mode only):
+        gptme-util review-watch --artifact artifact.json --trusted-reviewer ErikBjare
+        gptme-util review-watch --artifact artifact.json \\
+            --trusted-reviewer ErikBjare --trusted-reviewer alice \\
+            --require-trust
 
     The watching process is blocking in GitHub mode. Stop it with Ctrl-C.
     In artifact mode the command processes the artifact's open findings once
@@ -478,6 +513,57 @@ def review_watch(
             effective_owner, effective_repo_name = repo.split("/", 1)
 
         open_findings = artifact.open_findings
+
+        # ------------------------------------------------------------------
+        # Trusted-reviewer guard (artifact mode)
+        # ------------------------------------------------------------------
+        # Apply the trust filter when --trusted-reviewer or --require-trust is
+        # given.  Finding bodies become authoritative instructions executed by a
+        # repo-capable session with push access; only admit reviewers the caller
+        # explicitly whitelisted.
+        #
+        # Filter semantics:
+        #  - --trusted-reviewer LOGIN  → keep only findings from that reviewer.
+        #    May be specified multiple times (union).
+        #  - --require-trust           → additionally drop findings that carry no
+        #    reviewer attribution (empty reviewer field).  Without this flag,
+        #    un-attributed findings pass through (default = permissive).
+        #  - No flags                  → all findings pass (original behaviour).
+        if trusted_reviewers or require_trust:
+            trusted_set = set(trusted_reviewers)
+            filtered: list[ReviewFinding] = []
+            skipped_untrusted = 0
+            skipped_no_author = 0
+            for f in open_findings:
+                if not f.reviewer:
+                    # Finding has no reviewer attribution.
+                    if require_trust:
+                        # Hard-fail mode: skip finding, count for summary.
+                        skipped_no_author += 1
+                        continue
+                    # Permissive: no reviewer = allow unless an allowlist is set.
+                    if trusted_set:
+                        skipped_untrusted += 1
+                        continue
+                elif trusted_set and f.reviewer not in trusted_set:
+                    skipped_untrusted += 1
+                    continue
+                filtered.append(f)
+
+            if skipped_untrusted:
+                click.echo(
+                    f"  🔒  Skipped {skipped_untrusted} finding(s) from"
+                    " untrusted reviewer(s).",
+                    err=True,
+                )
+            if skipped_no_author:
+                click.echo(
+                    f"  🔒  Skipped {skipped_no_author} finding(s) with no"
+                    " reviewer attribution (--require-trust).",
+                    err=True,
+                )
+            open_findings = filtered
+
         if not open_findings:
             click.echo(
                 "  ℹ️  Artifact has no open findings — nothing to fix.",
