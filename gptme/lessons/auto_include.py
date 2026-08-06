@@ -144,16 +144,28 @@ def _load_policy_manifest() -> "dict[str, Any]":
         "exempt": [],
         "holdout_population": [],
     }
+    # Sentinel used by _classify_lesson to distinguish "no manifest" (→ holdout)
+    # from "manifest exists but lesson not listed" (→ unknown).
+    _missing_default = {**_default, "_manifest_missing": True}
 
     if not manifest_path.exists():
-        _policy_manifest_cache = _default
+        _policy_manifest_cache = _missing_default
         return _policy_manifest_cache
 
     try:
         import yaml
 
         with open(manifest_path, encoding="utf-8") as f:
-            manifest: dict[str, Any] = yaml.safe_load(f) or {}
+            raw = yaml.safe_load(f)
+        if not isinstance(raw, dict):
+            logger.warning(
+                "Lesson-policy manifest at %s has unexpected type (%s); using defaults",
+                manifest_path,
+                type(raw).__name__,
+            )
+            manifest: dict[str, Any] = _default
+        else:
+            manifest = raw or _default
     except ImportError:
         logger.warning(
             "yaml not available; lesson-policy manifest at %s ignored", manifest_path
@@ -183,7 +195,10 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
         - ``"unknown"``: not in manifest (created after manifest timestamp)
     """
     manifest = _load_policy_manifest()
-    policy_version = int(manifest.get("version", 1))
+    try:
+        policy_version = int(manifest.get("version", 1))
+    except (TypeError, ValueError):
+        policy_version = 1
 
     # Normalize: extract the category/name part after the "lessons" directory,
     # dropping the .md suffix to match manifest key format.
@@ -193,7 +208,10 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
         lessons_idx = list(parts).index("lessons")
         key = "/".join(parts[lessons_idx + 1 :])
     except ValueError:
-        key = path.stem  # fallback: just the filename stem
+        # No "lessons" dir component; use parent/stem so manifest keys like
+        # "category/name" can match custom lesson roots without a literal
+        # "lessons" directory (e.g. /opt/guidance/patterns/foo.md → patterns/foo).
+        key = f"{parts[-2]}/{path.stem}" if len(parts) >= 2 else path.stem
     key = key.removesuffix(".md")
 
     for category, class_name in [
@@ -204,6 +222,10 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
         if key in (manifest.get(category) or []):
             return class_name, policy_version
 
+    # No manifest on disk → default evaluation population is "holdout".
+    # Manifest exists but lesson not listed → "unknown" (added after manifest stamp).
+    if manifest.get("_manifest_missing"):
+        return "holdout", policy_version
     return "unknown", policy_version
 
 

@@ -520,10 +520,44 @@ def test_classify_lesson_exempt(monkeypatch, tmp_path):
 
 def test_classify_lesson_unknown(monkeypatch, tmp_path):
     _reset_manifest_cache(monkeypatch)
-    p = _make_manifest_file(tmp_path)  # empty manifest
+    p = _make_manifest_file(tmp_path)  # empty manifest (manifest EXISTS, lesson absent)
     monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
     policy_class, _ = _classify_lesson("lessons/new/brand-new.md")
     assert policy_class == "unknown"
+
+
+def test_classify_lesson_no_manifest_defaults_to_holdout(monkeypatch, tmp_path):
+    """No manifest file → default evaluation population is holdout, not unknown."""
+    _reset_manifest_cache(monkeypatch)
+    monkeypatch.setenv(
+        "LESSON_POLICY_MANIFEST_PATH", str(tmp_path / "nonexistent.yaml")
+    )
+    policy_class, _ = _classify_lesson("lessons/any/lesson.md")
+    assert policy_class == "holdout"
+
+
+def test_load_policy_manifest_invalid_yaml_structure(monkeypatch, tmp_path):
+    """Non-dict manifest YAML falls back to defaults without raising."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("- just\n- a\n- list\n")
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    manifest = _load_policy_manifest()
+    assert manifest["version"] == 1
+    assert manifest["validated_core"] == []
+    assert manifest["holdout_population"] == []
+
+
+def test_classify_lesson_custom_root_parent_key(monkeypatch, tmp_path):
+    """Custom lesson roots without a 'lessons' dir component match via parent/stem."""
+    _reset_manifest_cache(monkeypatch)
+    p = _make_manifest_file(
+        tmp_path, holdout_population=["patterns/persistent-learning"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    # Path has no 'lessons' component — parent dir is 'patterns'
+    policy_class, _ = _classify_lesson("/opt/guidance/patterns/persistent-learning.md")
+    assert policy_class == "holdout"
 
 
 def test_dropout_log_withheld_has_policy_fields(monkeypatch, tmp_path):
