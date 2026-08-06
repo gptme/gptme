@@ -93,6 +93,10 @@ class ReviewFinding:
 
     @classmethod
     def from_dict(cls, d: dict) -> ReviewFinding:
+        if not isinstance(d, dict):
+            raise TypeError(
+                f"ReviewFinding.from_dict expects a dict, got {type(d).__name__!r}"
+            )
         file_raw = d.get("file", "")
         if not isinstance(file_raw, str):
             raise ValueError(
@@ -103,12 +107,20 @@ class ReviewFinding:
             raise ValueError(
                 f"ReviewFinding.line must be an int or None, got {type(line_raw).__name__!r}: {line_raw!r}"
             )
+        try:
+            severity = FindingSeverity(d.get("severity", FindingSeverity.WARNING.value))
+        except (TypeError, ValueError):
+            severity = FindingSeverity.WARNING
+        try:
+            status = FindingStatus(d.get("status", FindingStatus.OPEN.value))
+        except (TypeError, ValueError):
+            status = FindingStatus.OPEN
         return cls(
             body=d.get("body", ""),
             file=file_raw,
             line=line_raw,
-            severity=FindingSeverity(d.get("severity", FindingSeverity.WARNING.value)),
-            status=FindingStatus(d.get("status", FindingStatus.OPEN.value)),
+            severity=severity,
+            status=status,
             github_comment_id=d.get("github_comment_id"),
             reviewer=d.get("reviewer", ""),
         )
@@ -244,7 +256,13 @@ class ReviewArtifact:
 
     @classmethod
     def from_dict(cls, d: dict) -> ReviewArtifact:
+        if not isinstance(d, dict):
+            raise TypeError(
+                f"ReviewArtifact.from_dict expects a dict, got {type(d).__name__!r}"
+            )
         pr = d.get("pr", {})
+        if not isinstance(pr, dict):
+            pr = {}
         review_status_raw = d.get("review_status", ReviewStatus.COMPLETE.value)
         try:
             review_status = ReviewStatus(review_status_raw)
@@ -273,7 +291,7 @@ class ReviewArtifact:
         for f_raw in findings_raw:
             try:
                 findings.append(ReviewFinding.from_dict(f_raw))
-            except (ValueError, TypeError, KeyError):
+            except (ValueError, TypeError, KeyError, AttributeError):
                 deserialization_errors += 1
 
         if deserialization_errors > 0 and review_status == ReviewStatus.COMPLETE:
