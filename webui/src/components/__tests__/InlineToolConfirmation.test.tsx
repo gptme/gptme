@@ -5,7 +5,7 @@
  * in a dropdown), and that action callbacks fire correctly.
  */
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import { InlineToolConfirmation } from '../InlineToolConfirmation';
 import type { PendingTool } from '@/stores/conversations';
@@ -153,5 +153,59 @@ describe('InlineToolConfirmation — Accept All UX (gptme#3440)', () => {
     // Second click before pendingTool clears (SSE hasn't fired yet) — must be ignored
     fireEvent.click(acceptAllBtn);
     expect(onAuto).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains the lock when reconnect restores the same pending tool (same id)', async () => {
+    // Regression guard for Greptile P1: "Reconnect releases confirmation lock".
+    // When SSE reconnects and the backend restores the same pending tool with a
+    // fresh object reference, the lock must NOT be released — otherwise a second
+    // click can submit the already-confirmed tool before the backend clears it.
+    const onConfirm = jest.fn().mockResolvedValue(undefined);
+    const { pendingTool$ } = renderConfirmation({ onConfirm });
+
+    fireEvent.click(screen.getByRole('button', { name: /execute/i }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+
+    // Simulate reconnect restoring the same tool with a fresh object (same id = 'tool-1')
+    act(() => {
+      pendingTool$.set(makePendingTool());
+    });
+
+    // Lock must NOT be released — buttons still disabled
+    expect(screen.getByRole('button', { name: /execute/i })).toBeDisabled();
+  });
+
+  it('releases the lock after 15 s when tool_executing SSE is missed (safety timeout)', async () => {
+    // Regression guard for Greptile P1: "Missed SSE leaves controls locked".
+    // If the POST succeeds but the tool_executing SSE is lost during a disconnect,
+    // the lock must eventually release so the UI doesn't stay frozen indefinitely.
+    jest.useFakeTimers();
+    try {
+      const onConfirm = jest.fn().mockResolvedValue(undefined);
+      renderConfirmation({ onConfirm });
+
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: /execute/i }));
+      });
+
+      // Flush the Promise microtask chain so onConfirm's await resolves
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+      // Lock is held — button disabled while waiting for SSE
+      expect(screen.getByRole('button', { name: /execute/i })).toBeDisabled();
+
+      // Advance past the 15 s safety timeout (pendingTool never cleared = SSE missed)
+      act(() => {
+        jest.advanceTimersByTime(15_000);
+      });
+
+      // Lock released by timeout — UI is no longer frozen
+      expect(screen.getByRole('button', { name: /execute/i })).not.toBeDisabled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

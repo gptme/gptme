@@ -49,37 +49,62 @@ export function InlineToolConfirmation({
 
   // Use a ref to track pending requests synchronously (prevents render-time race conditions)
   const isConfirmingRef = React.useRef(false);
+  // Track which tool was being confirmed so reconnect restoring the same tool doesn't
+  // prematurely clear the lock (Greptile: "Reconnect releases confirmation lock").
+  const confirmedToolId = React.useRef<string | null>(null);
+  // Safety timeout ref — releases the lock if tool_executing SSE is missed after a
+  // successful POST (Greptile: "Missed SSE leaves controls locked").
+  const lockTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const releaseLock = React.useCallback(() => {
+    if (lockTimeoutRef.current !== null) {
+      clearTimeout(lockTimeoutRef.current);
+      lockTimeoutRef.current = null;
+    }
+    isConfirmingRef.current = false;
+    confirmedToolId.current = null;
+    setConfirmLoading(false);
+  }, []);
 
   // Reset state when the pending tool changes (including when it becomes null after confirmation)
   React.useEffect(() => {
     if (pendingTool) {
-      setEditedContent(pendingTool.tooluse.content);
-      setIsEditing(false);
-      setShowCustomInput(false);
+      // Only release the lock when a genuinely new tool arrives (different ID).
+      // If reconnect restores the same pending tool with a fresh object reference,
+      // pendingTool.id matches confirmedToolId — retain the lock to prevent a
+      // duplicate submission on that already-confirmed tool.
+      const isNewTool =
+        confirmedToolId.current === null || pendingTool.id !== confirmedToolId.current;
+      if (isNewTool) {
+        setEditedContent(pendingTool.tooluse.content);
+        setIsEditing(false);
+        setShowCustomInput(false);
+        releaseLock();
+      }
+      // else: same tool restored by reconnect — lock retained intentionally
+    } else {
+      // pendingTool became null — tool_executing SSE arrived, canonical release point.
+      releaseLock();
     }
-    // Always release the lock when the tool lifecycle ends (null) or a new tool arrives.
-    // This is the canonical release point for successful confirmations — the lock is held
-    // intentionally between POST resolve and SSE clear to prevent duplicate submissions.
-    setConfirmLoading(false);
-    isConfirmingRef.current = false;
-  }, [pendingTool]);
+  }, [pendingTool, releaseLock]);
 
   const handleConfirm = React.useCallback(async () => {
     // Check synchronously before any async work (prevents render-time race)
     if (isConfirmingRef.current) return;
     isConfirmingRef.current = true;
+    confirmedToolId.current = pendingTool?.id ?? null;
     setConfirmLoading(true);
     try {
       await onConfirm();
-      // Lock intentionally NOT released here — held until pendingTool clears via SSE
-      // (useEffect releases it). Releasing early creates a window where a second click
-      // can submit the already-confirmed tool before the backend clears it.
+      // Lock intentionally held until pendingTool clears via SSE (useEffect releases it).
+      // Safety timeout: if tool_executing SSE is missed during a disconnect, release
+      // the lock after 15 s so the UI doesn't stay frozen indefinitely.
+      lockTimeoutRef.current = setTimeout(releaseLock, 15_000);
     } catch (error) {
       console.error('Error confirming tool:', error);
-      isConfirmingRef.current = false;
-      setConfirmLoading(false);
+      releaseLock();
     }
-  }, [onConfirm]);
+  }, [onConfirm, pendingTool, releaseLock]);
 
   // Add keyboard handler for Enter key
   React.useEffect(() => {
@@ -107,14 +132,14 @@ export function InlineToolConfirmation({
     // Check synchronously before any async work (prevents render-time race)
     if (isConfirmingRef.current) return;
     isConfirmingRef.current = true;
+    confirmedToolId.current = pendingTool?.id ?? null;
     setConfirmLoading(true);
     try {
       await onEdit(editedContent);
-      // Lock held until pendingTool clears via SSE (see handleConfirm)
+      lockTimeoutRef.current = setTimeout(releaseLock, 15_000);
     } catch (error) {
       console.error('Error confirming edited tool:', error);
-      isConfirmingRef.current = false;
-      setConfirmLoading(false);
+      releaseLock();
     }
   };
 
@@ -122,14 +147,14 @@ export function InlineToolConfirmation({
     // Check synchronously before any async work (prevents render-time race)
     if (isConfirmingRef.current) return;
     isConfirmingRef.current = true;
+    confirmedToolId.current = pendingTool?.id ?? null;
     setConfirmLoading(true);
     try {
       await onSkip();
-      // Lock held until pendingTool clears via SSE (see handleConfirm)
+      lockTimeoutRef.current = setTimeout(releaseLock, 15_000);
     } catch (error) {
       console.error('Error skipping tool:', error);
-      isConfirmingRef.current = false;
-      setConfirmLoading(false);
+      releaseLock();
     }
   };
 
@@ -137,14 +162,14 @@ export function InlineToolConfirmation({
     // Check synchronously before any async work (prevents render-time race)
     if (isConfirmingRef.current) return;
     isConfirmingRef.current = true;
+    confirmedToolId.current = pendingTool?.id ?? null;
     setConfirmLoading(true);
     try {
       await onAuto(999999);
-      // Lock held until pendingTool clears via SSE (see handleConfirm)
+      lockTimeoutRef.current = setTimeout(releaseLock, 15_000);
     } catch (error) {
       console.error('Error accepting all tools:', error);
-      isConfirmingRef.current = false;
-      setConfirmLoading(false);
+      releaseLock();
     }
   };
 
@@ -153,17 +178,17 @@ export function InlineToolConfirmation({
       // Check synchronously before any async work (prevents render-time race)
       if (isConfirmingRef.current) return;
       isConfirmingRef.current = true;
+      confirmedToolId.current = pendingTool?.id ?? null;
       setConfirmLoading(true);
       try {
         await onAuto(count);
-        // Lock held until pendingTool clears via SSE (see handleConfirm)
+        lockTimeoutRef.current = setTimeout(releaseLock, 15_000);
       } catch (error) {
         console.error('Error auto-confirming tools:', error);
-        isConfirmingRef.current = false;
-        setConfirmLoading(false);
+        releaseLock();
       }
     },
-    [onAuto]
+    [onAuto, pendingTool, releaseLock]
   );
 
   // Format args for display
