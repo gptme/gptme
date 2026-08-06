@@ -59,7 +59,8 @@ jobs:
         PR_NUMBER="${PR_NUMBER_FROM_EVENT}"
         if [ -z "$PR_NUMBER" ]; then
           echo "pull_requests[] empty (likely fork PR) — looking up by head SHA"
-          PR_NUMBER=$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&head_sha=${HEAD_SHA}&per_page=10" \
+          PR_NUMBER=$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" \
+            --paginate \
             --jq ".[] | select(.head.sha == \"${HEAD_SHA}\") | .number" 2>/dev/null | head -1 || true)
         fi
         if [ -z "$PR_NUMBER" ]; then
