@@ -50,16 +50,18 @@ export function InlineToolConfirmation({
   // Use a ref to track pending requests synchronously (prevents render-time race conditions)
   const isConfirmingRef = React.useRef(false);
 
-  // Reset state when the pending tool changes
+  // Reset state when the pending tool changes (including when it becomes null after confirmation)
   React.useEffect(() => {
     if (pendingTool) {
-      const content = pendingTool.tooluse.content;
-      setEditedContent(content);
+      setEditedContent(pendingTool.tooluse.content);
       setIsEditing(false);
-      setConfirmLoading(false);
       setShowCustomInput(false);
-      isConfirmingRef.current = false;
     }
+    // Always release the lock when the tool lifecycle ends (null) or a new tool arrives.
+    // This is the canonical release point for successful confirmations — the lock is held
+    // intentionally between POST resolve and SSE clear to prevent duplicate submissions.
+    setConfirmLoading(false);
+    isConfirmingRef.current = false;
   }, [pendingTool]);
 
   const handleConfirm = React.useCallback(async () => {
@@ -69,11 +71,13 @@ export function InlineToolConfirmation({
     setConfirmLoading(true);
     try {
       await onConfirm();
+      // Lock intentionally NOT released here — held until pendingTool clears via SSE
+      // (useEffect releases it). Releasing early creates a window where a second click
+      // can submit the already-confirmed tool before the backend clears it.
     } catch (error) {
       console.error('Error confirming tool:', error);
-    } finally {
-      setConfirmLoading(false);
       isConfirmingRef.current = false;
+      setConfirmLoading(false);
     }
   }, [onConfirm]);
 
@@ -106,11 +110,11 @@ export function InlineToolConfirmation({
     setConfirmLoading(true);
     try {
       await onEdit(editedContent);
+      // Lock held until pendingTool clears via SSE (see handleConfirm)
     } catch (error) {
       console.error('Error confirming edited tool:', error);
-    } finally {
-      setConfirmLoading(false);
       isConfirmingRef.current = false;
+      setConfirmLoading(false);
     }
   };
 
@@ -121,11 +125,11 @@ export function InlineToolConfirmation({
     setConfirmLoading(true);
     try {
       await onSkip();
+      // Lock held until pendingTool clears via SSE (see handleConfirm)
     } catch (error) {
       console.error('Error skipping tool:', error);
-    } finally {
-      setConfirmLoading(false);
       isConfirmingRef.current = false;
+      setConfirmLoading(false);
     }
   };
 
@@ -136,11 +140,11 @@ export function InlineToolConfirmation({
     setConfirmLoading(true);
     try {
       await onAuto(999999);
+      // Lock held until pendingTool clears via SSE (see handleConfirm)
     } catch (error) {
       console.error('Error accepting all tools:', error);
-    } finally {
-      setConfirmLoading(false);
       isConfirmingRef.current = false;
+      setConfirmLoading(false);
     }
   };
 
@@ -152,11 +156,11 @@ export function InlineToolConfirmation({
       setConfirmLoading(true);
       try {
         await onAuto(count);
+        // Lock held until pendingTool clears via SSE (see handleConfirm)
       } catch (error) {
         console.error('Error auto-confirming tools:', error);
-      } finally {
-        setConfirmLoading(false);
         isConfirmingRef.current = false;
+        setConfirmLoading(false);
       }
     },
     [onAuto]

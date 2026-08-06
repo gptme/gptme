@@ -138,4 +138,20 @@ describe('InlineToolConfirmation — Accept All UX (gptme#3440)', () => {
     renderConfirmation();
     expect(screen.getByText(/press enter to execute/i)).toBeInTheDocument();
   });
+
+  it('prevents duplicate submissions between POST resolve and pendingTool SSE clear', async () => {
+    // Regression guard for Greptile P1: "Confirmation lock releases too early".
+    // The POST may resolve before the SSE event clears pendingTool. Without the
+    // fix, a second click in that window would submit the already-confirmed tool.
+    const onAuto = jest.fn().mockResolvedValue(undefined);
+    renderConfirmation({ onAuto });
+
+    const acceptAllBtn = screen.getByRole('button', { name: /accept all/i });
+    fireEvent.click(acceptAllBtn);
+    await waitFor(() => expect(onAuto).toHaveBeenCalledTimes(1));
+
+    // Second click before pendingTool clears (SSE hasn't fired yet) — must be ignored
+    fireEvent.click(acceptAllBtn);
+    expect(onAuto).toHaveBeenCalledTimes(1);
+  });
 });
