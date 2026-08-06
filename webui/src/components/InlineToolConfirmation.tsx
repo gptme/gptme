@@ -43,6 +43,9 @@ export function InlineToolConfirmation({
   const [editedContent, setEditedContent] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
+  // True when POST succeeded but tool_executing SSE hasn't arrived (missed-SSE timeout path).
+  // Replaces action buttons with a status message so the UI never looks interactive-but-broken.
+  const [isConfirmed, setIsConfirmed] = useState(false);
   const [customCount, setCustomCount] = useState(10);
   const [showCustomInput, setShowCustomInput] = useState(false);
   const pendingTool = use$(pendingTool$);
@@ -64,17 +67,19 @@ export function InlineToolConfirmation({
     isConfirmingRef.current = false;
     confirmedToolId.current = null;
     setConfirmLoading(false);
+    setIsConfirmed(false);
   }, []);
 
-  // Timeout-only release: unlocks the UI so it doesn't stay frozen indefinitely
-  // (Greptile P1: "Missed SSE leaves controls locked"), but intentionally retains
-  // confirmedToolId so that all handlers can detect the already-submitted tool and
-  // refuse a second POST (Greptile P1: "Timeout re-enables submitted tool").
+  // Timeout-only release: fires when POST succeeded but tool_executing SSE was missed.
+  // Unlocks the UI (avoids frozen-forever) and shows isConfirmed banner instead of
+  // re-enabling the action buttons — those would appear clickable but silently no-op
+  // (Greptile P1: "Timeout leaves inert controls").
+  // confirmedToolId is retained so any stray handler still exits early (belt-and-suspenders).
   const releaseOnTimeout = React.useCallback(() => {
     lockTimeoutRef.current = null;
     isConfirmingRef.current = false;
-    // confirmedToolId.current kept — handlers check it before each submission.
     setConfirmLoading(false);
+    setIsConfirmed(true);
   }, []);
 
   // Reset state when the pending tool changes (including when it becomes null after confirmation)
@@ -127,6 +132,7 @@ export function InlineToolConfirmation({
         pendingTool &&
         !isEditing &&
         !confirmLoading &&
+        !isConfirmed &&
         !isConfirmingRef.current &&
         e.key === 'Enter' &&
         !e.shiftKey &&
@@ -140,7 +146,7 @@ export function InlineToolConfirmation({
 
     window.addEventListener('keypress', handleKeyPress);
     return () => window.removeEventListener('keypress', handleKeyPress);
-  }, [pendingTool, isEditing, confirmLoading, handleConfirm]);
+  }, [pendingTool, isEditing, confirmLoading, isConfirmed, handleConfirm]);
 
   const handleEdit = async () => {
     // Check synchronously before any async work (prevents render-time race)
@@ -284,118 +290,131 @@ export function InlineToolConfirmation({
 
                 {/* Action buttons */}
                 <div className="flex flex-wrap items-center justify-between gap-y-2 border-t border-amber-200 pt-2 dark:border-amber-800">
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsEditing(!isEditing)}
-                      disabled={confirmLoading}
-                      className="h-7 px-2 text-xs"
-                    >
-                      <Edit className="mr-1 h-3.5 w-3.5" />
-                      {isEditing ? 'Cancel' : 'Edit'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleSkip}
-                      disabled={confirmLoading}
-                      className="h-7 px-2 text-xs"
-                    >
-                      <SkipForward className="mr-1 h-3.5 w-3.5" />
-                      Skip
-                    </Button>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {/* Accept All — direct one-click action */}
-                    {!isEditing && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleAcceptAll}
-                        disabled={confirmLoading}
-                        className="h-7 px-2 text-xs text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30"
-                        title="Auto-accept all remaining tool confirmations"
-                      >
-                        <ChevronsRight className="mr-1 h-3.5 w-3.5" />
-                        Accept All
-                      </Button>
-                    )}
-
-                    {/* Execute (primary) + dropdown for 5x/10x/custom */}
-                    <div className="flex items-center">
-                      <Button
-                        onClick={isEditing ? handleEdit : handleConfirm}
-                        disabled={confirmLoading}
-                        size="sm"
-                        className="h-7 rounded-r-none border-r-0 bg-amber-600 px-2 text-xs text-white hover:bg-amber-700"
-                      >
-                        {confirmLoading && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                        <Play className="mr-1 h-3.5 w-3.5" />
-                        {isEditing ? 'Save & Execute' : 'Execute'}
-                      </Button>
-
-                      {!isEditing && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              disabled={confirmLoading}
-                              size="sm"
-                              className="h-7 rounded-l-none border-l border-amber-500 bg-amber-600 px-1.5 text-white hover:bg-amber-700"
-                              title="Auto-confirm multiple tools"
-                            >
-                              <ChevronDown className="h-3.5 w-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem onClick={() => handleAuto(5)}>
-                              Auto-confirm 5×
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleAuto(10)}>
-                              Auto-confirm 10×
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => setShowCustomInput(!showCustomInput)}
-                              className="flex items-center justify-between"
-                            >
-                              Custom count
-                              {showCustomInput && (
-                                <div
-                                  className="ml-2 flex items-center gap-1.5"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <Input
-                                    type="number"
-                                    min="1"
-                                    max="50"
-                                    value={customCount}
-                                    onChange={(e) =>
-                                      setCustomCount(parseInt(e.target.value, 10) || 1)
-                                    }
-                                    className="h-6 w-14 px-1 text-xs"
-                                    autoFocus
-                                  />
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-6 px-2 text-xs"
-                                    onClick={() => {
-                                      handleAuto(customCount);
-                                      setShowCustomInput(false);
-                                    }}
-                                  >
-                                    Go
-                                  </Button>
-                                </div>
-                              )}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
+                  {isConfirmed ? (
+                    /* Missed-SSE timeout path: POST succeeded but tool_executing event was lost.
+                       Show a status message instead of re-enabling buttons that would silently no-op. */
+                    <div className="flex w-full items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Confirmed — waiting for server… (refresh if this persists)
                     </div>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsEditing(!isEditing)}
+                          disabled={confirmLoading}
+                          className="h-7 px-2 text-xs"
+                        >
+                          <Edit className="mr-1 h-3.5 w-3.5" />
+                          {isEditing ? 'Cancel' : 'Edit'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleSkip}
+                          disabled={confirmLoading}
+                          className="h-7 px-2 text-xs"
+                        >
+                          <SkipForward className="mr-1 h-3.5 w-3.5" />
+                          Skip
+                        </Button>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {/* Accept All — direct one-click action */}
+                        {!isEditing && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleAcceptAll}
+                            disabled={confirmLoading}
+                            className="h-7 px-2 text-xs text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                            title="Auto-accept all remaining tool confirmations"
+                          >
+                            <ChevronsRight className="mr-1 h-3.5 w-3.5" />
+                            Accept All
+                          </Button>
+                        )}
+
+                        {/* Execute (primary) + dropdown for 5x/10x/custom */}
+                        <div className="flex items-center">
+                          <Button
+                            onClick={isEditing ? handleEdit : handleConfirm}
+                            disabled={confirmLoading}
+                            size="sm"
+                            className="h-7 rounded-r-none border-r-0 bg-amber-600 px-2 text-xs text-white hover:bg-amber-700"
+                          >
+                            {confirmLoading && (
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            )}
+                            <Play className="mr-1 h-3.5 w-3.5" />
+                            {isEditing ? 'Save & Execute' : 'Execute'}
+                          </Button>
+
+                          {!isEditing && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  disabled={confirmLoading}
+                                  size="sm"
+                                  className="h-7 rounded-l-none border-l border-amber-500 bg-amber-600 px-1.5 text-white hover:bg-amber-700"
+                                  title="Auto-confirm multiple tools"
+                                >
+                                  <ChevronDown className="h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuItem onClick={() => handleAuto(5)}>
+                                  Auto-confirm 5×
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleAuto(10)}>
+                                  Auto-confirm 10×
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => setShowCustomInput(!showCustomInput)}
+                                  className="flex items-center justify-between"
+                                >
+                                  Custom count
+                                  {showCustomInput && (
+                                    <div
+                                      className="ml-2 flex items-center gap-1.5"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <Input
+                                        type="number"
+                                        min="1"
+                                        max="50"
+                                        value={customCount}
+                                        onChange={(e) =>
+                                          setCustomCount(parseInt(e.target.value, 10) || 1)
+                                        }
+                                        className="h-6 w-14 px-1 text-xs"
+                                        autoFocus
+                                      />
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-6 px-2 text-xs"
+                                        onClick={() => {
+                                          handleAuto(customCount);
+                                          setShowCustomInput(false);
+                                        }}
+                                      >
+                                        Go
+                                      </Button>
+                                    </div>
+                                  )}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

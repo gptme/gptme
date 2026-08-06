@@ -202,17 +202,19 @@ describe('InlineToolConfirmation — Accept All UX (gptme#3440)', () => {
         jest.advanceTimersByTime(15_000);
       });
 
-      // Lock released by timeout — UI is no longer frozen
-      expect(screen.getByRole('button', { name: /execute/i })).not.toBeDisabled();
+      // After timeout: action buttons are replaced by a "Confirmed — waiting for server" banner
+      // so the UI doesn't appear interactive-but-broken (Greptile P1: "Timeout leaves inert controls").
+      expect(screen.queryByRole('button', { name: /execute/i })).not.toBeInTheDocument();
+      expect(screen.getByText(/confirmed.*waiting for server/i)).toBeInTheDocument();
     } finally {
       jest.useRealTimers();
     }
   });
 
-  it('blocks re-submission after timeout when SSE was missed (Greptile P1: Timeout re-enables submitted tool)', async () => {
-    // After the 15 s timeout releases the UI lock (to prevent indefinite freeze),
-    // the same tool must NOT be resubmittable — confirmedToolId is retained and
-    // all handlers check it before sending a POST.
+  it('shows confirmed banner and blocks re-submission after timeout when SSE was missed (Greptile P1: Timeout leaves inert controls)', async () => {
+    // After the 15 s timeout, the action buttons are replaced by a "Confirmed — waiting"
+    // banner. This prevents the card from looking interactive when clicks would silently
+    // no-op (confirmedToolId guard). No second POST is possible.
     jest.useFakeTimers();
     try {
       const onConfirm = jest.fn().mockResolvedValue(undefined);
@@ -234,15 +236,11 @@ describe('InlineToolConfirmation — Accept All UX (gptme#3440)', () => {
         jest.advanceTimersByTime(15_000);
       });
 
-      // Timeout unlocks the UI — button re-enables to avoid indefinite freeze
-      const executeBtn = screen.getByRole('button', { name: /execute/i });
-      expect(executeBtn).not.toBeDisabled();
+      // Action buttons replaced by banner — no interactive-but-broken state
+      expect(screen.queryByRole('button', { name: /execute/i })).not.toBeInTheDocument();
+      expect(screen.getByText(/confirmed.*waiting for server/i)).toBeInTheDocument();
 
-      // But clicking again must NOT send a second POST — the tool was already confirmed
-      fireEvent.click(executeBtn);
-      await act(async () => {
-        await Promise.resolve();
-      });
+      // No second POST possible — buttons are gone
       expect(onConfirm).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();
