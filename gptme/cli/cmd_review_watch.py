@@ -38,7 +38,7 @@ from pathlib import Path
 import click
 
 from ..util.gh import is_trusted_reviewer, run_gh_json
-from ..util.review import FindingStatus, ReviewArtifact, ReviewFinding
+from ..util.review import FindingStatus, ReviewArtifact, ReviewFinding, ReviewStatus
 
 logger = logging.getLogger(__name__)
 
@@ -704,6 +704,29 @@ def review_watch(
                 err=True,
             )
             return
+
+        # Check if the review was incomplete — warn before proceeding
+        if artifact.review_status == ReviewStatus.INCOMPLETE:
+            click.echo(
+                "  ⚠️  Warning: This review is marked INCOMPLETE.",
+                err=True,
+            )
+            if artifact.session_exit_reason and artifact.session_exit_reason != "done":
+                click.echo(
+                    f"      Session {artifact.session_exit_reason}; "
+                    f"findings may be partial.",
+                    err=True,
+                )
+            if artifact.validation_errors > 0:
+                click.echo(
+                    f"      {artifact.validation_errors} finding(s) were "
+                    f"skipped due to validation errors.",
+                    err=True,
+                )
+            click.echo(
+                "      Proceeding with caution — not all issues may have been reviewed.",
+                err=True,
+            )
 
         click.echo(
             f"  📋  Loaded artifact for {effective_owner}/{effective_repo_name}"
