@@ -173,7 +173,7 @@ def _load_policy_manifest() -> "dict[str, Any]":
             # classifies nothing — distinct from a missing manifest, so lessons
             # should resolve to "unknown" rather than the missing-manifest
             # "holdout" default. Don't conflate the two via truthiness.
-            manifest = raw or _default
+            manifest = raw
     except ImportError:
         logger.warning(
             "yaml not available; lesson-policy manifest at %s ignored", manifest_path
