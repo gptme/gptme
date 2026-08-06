@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 // Server-backed regression suite for gptme/gptme#3440.
 //
@@ -47,7 +47,7 @@ const GENERATION_TIMEOUT = 20_000;
 //
 // page.request is a Node-side HTTP client (no CORS); it can reach the
 // gptme-server at localhost:5700 regardless of the webui origin.
-async function checkMockServer(page: import('@playwright/test').Page): Promise<boolean> {
+async function checkMockServer(page: Page): Promise<boolean> {
   await page.goto('/');
   await page.waitForLoadState('networkidle');
   const input = page.getByTestId('chat-input');
@@ -64,10 +64,7 @@ async function checkMockServer(page: import('@playwright/test').Page): Promise<b
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: send a message and navigate, returning a short conversation ID token
 // ─────────────────────────────────────────────────────────────────────────────
-async function sendMessageAndNavigate(
-  page: import('@playwright/test').Page,
-  message: string
-): Promise<void> {
+async function sendMessageAndNavigate(page: Page, message: string): Promise<void> {
   const input = page.getByTestId('chat-input');
   await expect(input).toBeEnabled({ timeout: CONNECT_TIMEOUT });
   await input.fill(message);
@@ -88,7 +85,7 @@ async function sendMessageAndNavigate(
 // passes immediately because the spinner is already gone.  This is correct: if
 // there was no visible spinner, generation was already done.
 // ─────────────────────────────────────────────────────────────────────────────
-async function waitForGenerationDone(page: import('@playwright/test').Page): Promise<void> {
+async function waitForGenerationDone(page: Page): Promise<void> {
   const spinner = page.locator('.animate-spin').first();
   await expect(spinner)
     .toBeVisible({ timeout: 5_000 })
