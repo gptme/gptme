@@ -377,8 +377,12 @@ def transform_github_url(url: str) -> str:
     """
     if "/blob/" in url and "github.com" in url:
         # Replace only the first occurrence: the leading /blob/ is the
-        # owner/repo separator; a later /blob/ may be a real path segment
-        # (e.g. .../blob/main/blob/handler.py) and must be preserved.
+        # owner/repo separator, while a later /blob/ may be a real path
+        # segment (e.g. .../blob/main/blob/handler.py) that must be kept.
+        # This relies on the first /blob/ being the separator, which holds
+        # for any realistic owner/repo name. If owner or repo is literally
+        # named "blob" the heuristic still misfires — a pre-existing
+        # limitation, unchanged by this fix.
         return url.replace("/blob/", "/raw/", 1)
     return url
 

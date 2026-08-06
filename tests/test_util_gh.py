@@ -124,6 +124,11 @@ def test_transform_github_url_leaves_other_urls_unchanged():
     assert transform_github_url("https://example.com/x/blob/y") == (
         "https://example.com/x/blob/y"
     )
+    # An already-raw URL has no /blob/ to rewrite and is returned verbatim.
+    assert (
+        transform_github_url("https://github.com/o/r/raw/main/foo")
+        == "https://github.com/o/r/raw/main/foo"
+    )
 
 
 # --- Tests for parse_github_ref ---
