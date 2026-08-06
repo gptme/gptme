@@ -827,10 +827,11 @@ def test_review_watch_reprocesses_edited_comment(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_filter_findings_by_trusted_reviewers_all_trusted():
+def test_filter_findings_by_trusted_reviewers_all_trusted(monkeypatch):
     """When all findings are from trusted reviewers with comment IDs, all should be returned.
 
     Findings without github_comment_id are rejected even if reviewer matches (fail-closed).
+    Repo context (owner/repo) must be provided; without it all findings are rejected.
     """
     from gptme.util.review import ReviewFinding
 
@@ -838,18 +839,37 @@ def test_filter_findings_by_trusted_reviewers_all_trusted():
         ReviewFinding(body="Issue 1", reviewer="alice", github_comment_id=11111),
         ReviewFinding(body="Issue 2", reviewer="bob", github_comment_id=22222),
     ]
+
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/11111" in " ".join(args):
+            return {
+                "user": {"login": "alice"},
+                "body": "Here is my review:\n\nIssue 1",
+                "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
+            }
+        if "pulls/comments/22222" in " ".join(args):
+            return {
+                "user": {"login": "bob"},
+                "body": "Here is my review:\n\nIssue 2",
+                "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
     result = cmd_review_watch._filter_findings_by_trusted_reviewers(
-        findings, ("alice", "bob")
+        findings, ("alice", "bob"), owner="owner", repo="repo"
     )
     assert len(result) == 2
     assert result[0].body == "Issue 1"
     assert result[1].body == "Issue 2"
 
 
-def test_filter_findings_by_trusted_reviewers_partial():
+def test_filter_findings_by_trusted_reviewers_partial(monkeypatch):
     """When some findings are from untrusted reviewers, they should be filtered.
 
     Findings without github_comment_id are rejected even if reviewer is trusted.
+    Repo context (owner/repo) must be provided; without it all findings are rejected.
     """
     from gptme.util.review import ReviewFinding
 
@@ -858,8 +878,26 @@ def test_filter_findings_by_trusted_reviewers_partial():
         ReviewFinding(body="From Eve", reviewer="eve", github_comment_id=22222),
         ReviewFinding(body="From Bob", reviewer="bob", github_comment_id=33333),
     ]
+
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/11111" in " ".join(args):
+            return {
+                "user": {"login": "alice"},
+                "body": "Here is my review:\n\nFrom Alice",
+                "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
+            }
+        if "pulls/comments/33333" in " ".join(args):
+            return {
+                "user": {"login": "bob"},
+                "body": "Here is my review:\n\nFrom Bob",
+                "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
     result = cmd_review_watch._filter_findings_by_trusted_reviewers(
-        findings, ("alice", "bob")
+        findings, ("alice", "bob"), owner="owner", repo="repo"
     )
     assert len(result) == 2
     assert result[0].body == "From Alice"
@@ -892,7 +930,7 @@ def test_filter_findings_by_trusted_reviewers_all_filtered():
     assert len(result) == 0
 
 
-def test_filter_findings_case_insensitive():
+def test_filter_findings_case_insensitive(monkeypatch):
     """Reviewer matching must be case-insensitive (GitHub logins are case-insensitive)."""
     from gptme.util.review import ReviewFinding
 
@@ -904,9 +942,27 @@ def test_filter_findings_case_insensitive():
             body="Lower-case reviewer", reviewer="alice", github_comment_id=22222
         ),
     ]
+
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/11111" in " ".join(args):
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "Here is my review:\n\nUpper-case reviewer",
+                "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
+            }
+        if "pulls/comments/22222" in " ".join(args):
+            return {
+                "user": {"login": "alice"},
+                "body": "Here is my review:\n\nLower-case reviewer",
+                "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/1",
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
     # Allowlist uses different casing from the artifact reviewer fields.
     result = cmd_review_watch._filter_findings_by_trusted_reviewers(
-        findings, ("erikbjare", "ALICE")
+        findings, ("erikbjare", "ALICE"), owner="owner", repo="repo"
     )
     assert len(result) == 2, "Both findings should match case-insensitively"
 
@@ -1151,6 +1207,43 @@ def test_filter_findings_pr_bound_accepted_for_correct_pr(monkeypatch):
         pr_number=1,  # Comment is on PR #1, target is PR #1 — should pass
     )
     assert len(result) == 1, "Valid comment on correct PR must be accepted"
+
+
+def test_filter_findings_missing_repo_context_rejected():
+    """When trusted-reviewer filtering is enabled but no repo context is provided,
+    all findings must be rejected (fail-closed) regardless of comment_id presence.
+
+    This is the fix for the empty-repository bypass: an attacker can strip
+    pr_owner/pr_repo from the artifact, causing effective_owner/effective_repo_name
+    to be empty strings, which previously fell through to the offline-mode path
+    that accepted findings on name match alone (skipping body verification).
+    """
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="Legitimate review",
+            reviewer="ErikBjare",
+            github_comment_id=12345,
+        ),
+        ReviewFinding(
+            body="Another finding",
+            reviewer="ErikBjare",
+            github_comment_id=99999,
+        ),
+    ]
+
+    # No owner or repo provided — simulates artifact with missing pr metadata.
+    # Must reject all findings (fail-closed) even though comment_id is present.
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="",
+        repo="",
+    )
+    assert len(result) == 0, (
+        "All findings must be rejected when repo context is missing in trusted-reviewer mode"
+    )
 
 
 def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):

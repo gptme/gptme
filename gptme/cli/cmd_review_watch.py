@@ -402,9 +402,10 @@ def _filter_findings_by_trusted_reviewers(
     they are on the target PR (prevents cross-PR comment injection).
 
     When ``owner`` and ``repo`` are omitted but ``trusted_reviewers`` is
-    enabled, findings with ``github_comment_id`` are accepted on name match
-    alone (accommodates offline/local mode while logging a notice).  Findings
-    without a ``github_comment_id`` are still rejected to prevent forged findings.
+    enabled, ALL findings are rejected (fail-closed).  Without repository
+    context the comment body cannot be cross-checked against GitHub, so
+    accepting any finding would allow an attacker to strip pr metadata from
+    the artifact and bypass body verification entirely.
     """
     if not trusted_reviewers:
         return findings
@@ -443,15 +444,20 @@ def _filter_findings_by_trusted_reviewers(
             if not verified:
                 continue
         else:
-            # No repo context: accept on name match + comment_id presence alone.
-            # Logs a notice since the body cannot be verified offline.
-            logger.debug(
-                "Finding has github_comment_id=%d but no repo context for "
-                "API verification; accepting based on artifact reviewer field '%s'. "
-                "(In production, provide owner and repo for full verification.)",
-                f.github_comment_id,
+            # Fail-closed: trusted-reviewer mode requires repo context for body
+            # verification. Without owner/repo the comment body cannot be
+            # cross-checked against GitHub, so accepting would allow an attacker
+            # to omit repository metadata from the artifact and bypass verification.
+            # Provide --repo on the CLI or ensure the artifact includes pr_owner/pr_repo.
+            logger.warning(
+                "Finding from trusted reviewer '%s' (github_comment_id=%d) "
+                "cannot be verified: no repository context (owner/repo) available. "
+                "Rejecting to prevent unverified content from reaching the fix session. "
+                "Pass --repo owner/repo or ensure the artifact includes pr metadata.",
                 f.reviewer,
+                f.github_comment_id,
             )
+            continue
 
         filtered.append(f)
 
