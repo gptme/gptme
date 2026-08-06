@@ -183,6 +183,14 @@ def _load_policy_manifest() -> "dict[str, Any]":
         logger.warning("Failed to load lesson-policy manifest: %s", e)
         manifest = _missing_default
 
+    # Resolve the manifest path once at load time and store it as a meta key.
+    # _classify_lesson uses this to anchor relative `root:` values without
+    # re-resolving against the process CWD — which may have changed since the
+    # manifest was first cached (the Greptile "cached manifest loses its anchor"
+    # finding).
+    if not manifest.get("_manifest_missing"):
+        manifest["_manifest_abs_path"] = manifest_path.resolve()
+
     _policy_manifest_cache = manifest
     return _policy_manifest_cache
 
@@ -244,7 +252,14 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
             # the manifest is always found at an absolute path, so its parent is stable.
             manifest_root = Path(manifest_root_str)
             if not manifest_root.is_absolute():
-                manifest_file_abs = _get_policy_manifest_path().resolve()
+                # Use the path resolved at manifest-load time, not now — the
+                # process CWD may have changed since the manifest was cached,
+                # and re-resolving a relative manifest path against the new CWD
+                # would anchor the relative `root:` to the wrong directory.
+                manifest_file_abs = (
+                    manifest.get("_manifest_abs_path")
+                    or _get_policy_manifest_path().resolve()
+                )
                 manifest_root = (manifest_file_abs.parent / manifest_root_str).resolve()
             abs_path = path if path.is_absolute() else path.resolve()
             rel = abs_path.relative_to(manifest_root)

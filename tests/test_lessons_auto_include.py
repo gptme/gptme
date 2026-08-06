@@ -953,3 +953,58 @@ def test_classify_lesson_relative_root_cwd_independent(monkeypatch, tmp_path):
 
     policy_class, _ = _classify_lesson(str(lesson))
     assert policy_class == "validated_core"
+
+
+def test_classify_lesson_cached_manifest_cwd_change_stable(monkeypatch, tmp_path):
+    """CWD change after manifest is cached must not break relative-root anchoring.
+
+    Regression for: when LESSON_POLICY_MANIFEST_PATH is relative and the process
+    CWD changes between manifest-load time and classify time, the old
+    `_get_policy_manifest_path().resolve()` call at classify time resolved against
+    the *new* CWD, producing the wrong anchor directory and misclassifying every
+    in-root lesson as `unknown`.
+
+    The fix: resolve the manifest path once at load time and store it as
+    `_manifest_abs_path` in the cached dict. Classify time reads that stored path.
+
+    Layout: manifest at workspace root (so `root: lessons` anchors to workspace/lessons).
+    The manifest PATH env var is relative — that is the precondition that triggers the bug.
+    """
+    _reset_manifest_cache(monkeypatch)
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    lessons_dir = workspace / "lessons"
+    (lessons_dir / "patterns").mkdir(parents=True)
+    lesson = lessons_dir / "patterns" / "foo.md"
+    lesson.write_text("# Foo\n")
+
+    # Manifest at workspace root; `root: lessons` resolves to workspace/lessons
+    # when anchored to manifest_file.parent = workspace.
+    manifest_file = workspace / "manifest.yaml"
+    manifest_file.write_text(
+        "version: 1\nupdated_at: ''\nroot: lessons\n"
+        "validated_core:\n- patterns/foo\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+
+    # Use a RELATIVE manifest path — the bug only triggers when the path is relative.
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", "manifest.yaml")
+    monkeypatch.chdir(
+        workspace
+    )  # CWD = workspace: "manifest.yaml" resolves correctly here
+
+    # Load and cache the manifest while CWD = workspace.
+    _load_policy_manifest()
+
+    # Simulate CWD change (e.g. hook is called later from a different directory).
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    monkeypatch.chdir(other_dir)
+
+    # Without the fix: `_get_policy_manifest_path().resolve()` now resolves to
+    # `<other_dir>/manifest.yaml` (wrong base), so
+    # `manifest_root = <other_dir>/lessons` and `relative_to` raises ValueError →
+    # lesson is classified as "unknown" instead of "validated_core".
+    policy_class, _ = _classify_lesson(str(lesson))
+    assert policy_class == "validated_core"
