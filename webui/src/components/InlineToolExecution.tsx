@@ -85,7 +85,7 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
   if (!executingTool) return null;
 
   return (
-    <div className="role-system mb-4 mt-4">
+    <div className="role-system mb-2 mt-2">
       <div className="mx-auto max-w-3xl px-4">
         <div className="relative">
           <MessageAvatar
@@ -96,38 +96,36 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
           />
           <div className="md:px-12">
             <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/20">
-              <div className="border-b border-blue-200 px-4 py-3 dark:border-blue-800">
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
-                  <h3 className="font-medium text-blue-800 dark:text-blue-200">Tool Executing</h3>
-                  <ElapsedTimer startedAt={executingTool.startedAt} />
-                </div>
-                <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
-                  The assistant is currently using{' '}
-                  <code className="rounded bg-muted px-2 py-1 font-mono text-sm">
+              {/* Compact header */}
+              <div className="flex items-center gap-2 border-b border-blue-200 px-3 py-2 dark:border-blue-800">
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-600 dark:text-blue-400" />
+                <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                  Running{' '}
+                  <code className="rounded bg-blue-100 px-1.5 py-0.5 font-mono text-xs dark:bg-blue-900/40">
                     {executingTool.tooluse.tool}
                   </code>
-                </p>
+                </span>
+                <ElapsedTimer startedAt={executingTool.startedAt} />
               </div>
 
-              <div className="space-y-4 p-4">
+              <div className="space-y-3 p-3">
                 {/* Arguments */}
                 {executingTool.tooluse.args.length > 0 && (
-                  <div className="space-y-2">
-                    <span className="text-sm font-medium text-muted-foreground">Arguments:</span>
+                  <div className="space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground">Arguments:</span>
                     <CodeDisplay
                       code={formatArgs(executingTool.tooluse.args)}
-                      maxHeight="120px"
+                      maxHeight="80px"
                       showLineNumbers={false}
                     />
                   </div>
                 )}
 
                 {/* Code */}
-                <div className="space-y-2">
+                <div className="space-y-1">
                   <CodeDisplay
                     code={executingTool.tooluse.content}
-                    maxHeight="240px"
+                    maxHeight="200px"
                     showLineNumbers={true}
                     language={detectToolLanguage(
                       executingTool.tooluse.tool,
@@ -139,26 +137,19 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
 
                 {/* Partial output */}
                 {executingTool.partialOutput && executingTool.partialOutput.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                       <Terminal className="h-3.5 w-3.5" />
                       Output
                     </div>
                     <CodeDisplay
                       code={executingTool.partialOutput}
-                      maxHeight="200px"
+                      maxHeight="160px"
                       showLineNumbers={false}
                       language=""
                     />
                   </div>
                 )}
-
-                {/* Status indicator */}
-                <div className="flex items-center gap-2 border-t border-blue-200 pt-3 dark:border-blue-800">
-                  <span className="text-sm text-blue-700 dark:text-blue-300">
-                    Executing tool...
-                  </span>
-                </div>
               </div>
             </div>
           </div>
