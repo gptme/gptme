@@ -1268,19 +1268,24 @@ def start_tool_execution(
             elif reserved:
                 # Pending non-auto-confirm tools remain; those need explicit client
                 # confirmation.  Release the pre-reserved generation slot so the
-                # conversation is not permanently blocked.
-                session.generating = False
-                session.generating_since = None
+                # conversation is not permanently blocked — but only if we still
+                # own it.  A newer /step may have incremented step_seq and
+                # re-reserved generating; touching it here would cancel that step.
+                if session.step_seq == my_seq:
+                    session.generating = False
+                    session.generating_since = None
         except Exception:
             logger.exception(
                 f"Unhandled error in tool execution thread for {conversation_id}"
             )
             if reserved:
-                # A crash anywhere before the reservation is transferred to
+                # A crash before the reservation is transferred to
                 # _start_step_thread (or explicitly released above) must not
-                # permanently strand the conversation in a generating state.
-                session.generating = False
-                session.generating_since = None
+                # permanently strand the conversation in generating state.
+                # Only release if we still own the reservation.
+                if session.step_seq == my_seq:
+                    session.generating = False
+                    session.generating_since = None
             raise
 
     # Propagate ContextVars from the request context into the execution thread.
