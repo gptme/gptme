@@ -566,6 +566,19 @@ def review_watch(
             # the CLI flag and the artifact's reviewer field.
             trusted_set = frozenset(r.lower() for r in trusted_reviewers)
 
+            # When --trusted-reviewer is used, body verification is mandatory.
+            # Without it, an attacker-controlled artifact can forge reviewer=<allowlisted-login>
+            # and inject an arbitrary body — the allowlist only validates that the login
+            # is known to the PR, not that the body is authentic. Auto-enable to provide
+            # secure-by-default behavior.
+            if trusted_set and not verify_bodies:
+                verify_bodies = True
+                click.echo(
+                    "  🔒  Auto-enabling --verify-bodies (required for --trusted-reviewer "
+                    "to be secure).",
+                    err=True,
+                )
+
             # When an allowlist is given, verify reviewer identity against the
             # GitHub reviews API before trusting the artifact's self-reported
             # reviewer field.  The artifact controls its own reviewer field and

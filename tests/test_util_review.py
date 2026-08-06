@@ -776,6 +776,9 @@ class TestTrustedReviewerGuard:
         result, spawn_calls = self._run(
             monkeypatch,
             ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
+            github_comment_bodies={
+                "erikbjare": frozenset(["Fix typo.", "Add docstring."])
+            },
         )
         assert result.exit_code == 0, result.output
         # Both trusted findings → session spawned with both bodies in the prompt
@@ -796,6 +799,7 @@ class TestTrustedReviewerGuard:
         result, spawn_calls = self._run(
             monkeypatch,
             ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
+            github_comment_bodies={"erikbjare": frozenset(["Trusted finding."])},
         )
         assert result.exit_code == 0, result.output
         assert len(spawn_calls) == 1
@@ -820,6 +824,7 @@ class TestTrustedReviewerGuard:
         result, spawn_calls = self._run(
             monkeypatch,
             ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
+            github_comment_bodies={"erikbjare": frozenset()},  # No bodies for erikbjare
         )
         assert result.exit_code != 0, (
             "Trust-policy rejection must return a non-zero exit code"
@@ -849,6 +854,10 @@ class TestTrustedReviewerGuard:
                 "--trusted-reviewer",
                 "bob",
             ],
+            github_comment_bodies={
+                "alice": frozenset(["From alice."]),
+                "bob": frozenset(["From bob."]),
+            },
         )
         assert result.exit_code == 0, result.output
         assert len(spawn_calls) == 1
@@ -879,6 +888,7 @@ class TestTrustedReviewerGuard:
                 "ErikBjare",
                 "--require-trust",
             ],
+            github_comment_bodies={"erikbjare": frozenset(["Has reviewer."])},
         )
         assert result.exit_code == 0, result.output
         assert len(spawn_calls) == 1
@@ -963,6 +973,13 @@ class TestTrustedReviewerGuard:
             "fetch_pr_reviewer_logins",
             lambda owner, repo, pr_num, **kw: frozenset(["erikbjare"]),
         )
+        monkeypatch.setattr(
+            cmd_review_watch,
+            "fetch_pr_review_comment_bodies_by_user",
+            lambda owner, repo, pr_num, **kw: {
+                "erikbjare": frozenset(["Trusted finding."])
+            },
+        )
         spawn_calls: list[dict] = []
 
         def fake_spawn(**kwargs):
@@ -1031,6 +1048,7 @@ class TestTrustedReviewerGuard:
             monkeypatch,
             ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
             github_verified_logins=frozenset(),  # no real reviews on the PR
+            github_comment_bodies=frozenset(),  # no comments from the forged reviewer
         )
         assert result.exit_code != 0, "Forged reviewer must be rejected (non-zero exit)"
         assert len(spawn_calls) == 0, (
@@ -1063,6 +1081,7 @@ class TestTrustedReviewerGuard:
             # CLI flag uses TitleCase
             ["--artifact", str(path), "--trusted-reviewer", "ErikBjare"],
             github_verified_logins=frozenset(["erikbjare"]),
+            github_comment_bodies={"erikbjare": frozenset(["Legitimate finding."])},
         )
         assert result.exit_code == 0, result.output
         assert len(spawn_calls) == 1
