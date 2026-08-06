@@ -302,12 +302,14 @@ def _verify_comment_reviewer(
     comment_id: int,
     expected_reviewer: str,
     expected_body: str = "",
+    target_pr_number: int | None = None,
 ) -> tuple[bool, str]:
     """Verify a PR review comment belongs to the claimed reviewer and has matching body.
 
     Fetches the comment and compares:
-    1. ``user.login`` case-insensitively
+    1. ``user.login`` case-insensitively (using casefold for proper Unicode handling)
     2. Comment body contains or matches the artifact finding body (if provided)
+    3. If target_pr_number is provided, verifies the comment is on that specific PR
 
     Returns (verified, body) where verified is True only if login matches and
     body is authentic. When verification fails, body is empty string.
@@ -326,7 +328,7 @@ def _verify_comment_reviewer(
         return False, ""
 
     actual_login = data.get("user", {}).get("login", "")
-    if actual_login.lower() != expected_reviewer.lower():
+    if actual_login.casefold() != expected_reviewer.casefold():
         logger.warning(
             "GitHub comment %d reviewer mismatch: artifact claims '%s', "
             "API returned '%s'; rejecting finding.",
@@ -335,6 +337,19 @@ def _verify_comment_reviewer(
             actual_login,
         )
         return False, ""
+
+    # Verify the comment is on the target PR (prevent cross-PR comment injection)
+    if target_pr_number is not None:
+        comment_pr = data.get("pull_request", {}).get("number")
+        if comment_pr != target_pr_number:
+            logger.warning(
+                "GitHub comment %d is from PR #%s, but artifact targets PR #%d; "
+                "rejecting finding (prevents unrelated feedback injection).",
+                comment_id,
+                comment_pr,
+                target_pr_number,
+            )
+            return False, ""
 
     # Verify the comment body if one was expected
     comment_body = data.get("body", "")
@@ -358,13 +373,14 @@ def _filter_findings_by_trusted_reviewers(
     *,
     owner: str = "",
     repo: str = "",
+    pr_number: int | None = None,
 ) -> list[ReviewFinding]:
     """Filter findings to only those authored by trusted reviewers.
 
     If ``trusted_reviewers`` is empty, all findings are returned unchanged.
     If ``trusted_reviewers`` is non-empty, only findings whose ``reviewer``
     field matches one of the allowed logins are returned (comparison is
-    case-insensitive — GitHub logins are case-preserving but not
+    case-insensitive using casefold — GitHub logins are case-preserving but not
     case-sensitive).
 
     When ``owner`` and ``repo`` are provided (artifact mode with live repo
@@ -374,6 +390,9 @@ def _filter_findings_by_trusted_reviewers(
     without that reviewer having actually authored the comment. Findings
     without ``github_comment_id`` in live-repo mode are rejected (fail-closed).
 
+    When ``pr_number`` is provided, verified comments are checked to ensure
+    they are on the target PR (prevents cross-PR comment injection).
+
     When ``owner`` and ``repo`` are NOT provided (offline artifact mode),
     findings without ``github_comment_id`` are accepted on name match alone
     (no GitHub verification available). This accommodates manually crafted
@@ -382,12 +401,13 @@ def _filter_findings_by_trusted_reviewers(
     if not trusted_reviewers:
         return findings
 
-    # Normalise allowlist to lowercase; GitHub logins are case-insensitive.
-    trusted_set_lower = {r.lower() for r in trusted_reviewers}
+    # Normalise allowlist using casefold for proper Unicode case handling.
+    # GitHub logins are case-insensitive.
+    trusted_set_lower = {r.casefold() for r in trusted_reviewers}
 
     filtered: list[ReviewFinding] = []
     for f in findings:
-        if f.reviewer.lower() not in trusted_set_lower:
+        if f.reviewer.casefold() not in trusted_set_lower:
             continue
 
         if owner and repo:
@@ -408,6 +428,7 @@ def _filter_findings_by_trusted_reviewers(
                 comment_id=f.github_comment_id,
                 expected_reviewer=f.reviewer,
                 expected_body=f.body,  # Verify the finding body matches the comment
+                target_pr_number=pr_number,  # Verify comment is on target PR
             )
             if not verified:
                 continue
@@ -653,6 +674,7 @@ def review_watch(
                 trusted_reviewers,
                 owner=effective_owner,
                 repo=effective_repo_name,
+                pr_number=effective_pr_number,
             )
             if not open_findings:
                 click.echo(
