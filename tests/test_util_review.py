@@ -258,6 +258,52 @@ class TestReviewArtifact:
         assert loaded.pr_number == 1234
         assert len(loaded.findings) == 3
 
+    def test_from_dict_invalid_file_type_raises(self):
+        """ReviewFinding.from_dict raises ValueError when file is not a string."""
+        import pytest
+
+        with pytest.raises(ValueError, match="file must be a string"):
+            ReviewFinding.from_dict({"body": "a bug", "file": 42, "line": 1})
+
+    def test_from_dict_invalid_line_type_raises(self):
+        """ReviewFinding.from_dict raises ValueError when line is not an int."""
+        import pytest
+
+        with pytest.raises(ValueError, match="line must be an int"):
+            ReviewFinding.from_dict({"body": "a bug", "file": "a.py", "line": "abc"})
+
+    def test_artifact_from_dict_unknown_status_becomes_incomplete(self):
+        """Unknown review_status in JSON is deserialized as INCOMPLETE (fail-safe)."""
+        data = {
+            "schema_version": 2,
+            "pr": {"owner": "o", "repo": "r", "number": 1},
+            "review_status": "future_unknown_status",
+            "findings": [],
+        }
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+
+    def test_artifact_from_dict_malformed_finding_location_downgrades_to_incomplete(
+        self,
+    ):
+        """Malformed file/line in a finding causes the artifact to be INCOMPLETE."""
+        data = {
+            "schema_version": 2,
+            "pr": {"owner": "o", "repo": "r", "number": 1},
+            "review_status": "complete",
+            "validation_errors": 0,
+            "findings": [
+                {"body": "good finding", "file": "a.py", "line": 1},
+                {"body": "bad location", "file": 42, "line": "not-int"},
+            ],
+        }
+        artifact = ReviewArtifact.from_dict(data)
+        # One finding with malformed fields is dropped during deserialization.
+        assert len(artifact.findings) == 1
+        # Status is downgraded from COMPLETE to INCOMPLETE.
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.validation_errors == 1
+
     def test_from_github_comments(self):
         inline = [
             {
@@ -893,6 +939,30 @@ Reviewed the diff carefully.
         findings2, validation_errors2 = _extract_findings_from_output(output2)
         assert findings2 == []
         assert validation_errors2 == 1
+
+    def test_extract_findings_non_string_file_coerced_and_counted(self):
+        """A non-string file field is coerced to '' and counted as a validation error."""
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        output = (
+            '```json\n{"findings": [{"body": "a bug", "file": 42, "line": 1}]}\n```'
+        )
+        findings, validation_errors = _extract_findings_from_output(output)
+        assert findings is not None
+        assert len(findings) == 1
+        assert findings[0].file == ""  # coerced
+        assert validation_errors == 1  # counted as error → artifact will be INCOMPLETE
+
+    def test_extract_findings_non_int_line_coerced_and_counted(self):
+        """A non-int line field is coerced to None and counted as a validation error."""
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        output = '```json\n{"findings": [{"body": "a bug", "file": "a.py", "line": "bad"}]}\n```'
+        findings, validation_errors = _extract_findings_from_output(output)
+        assert findings is not None
+        assert len(findings) == 1
+        assert findings[0].line is None  # coerced
+        assert validation_errors == 1  # counted as error → artifact will be INCOMPLETE
 
     def test_extract_findings_non_list_container_skips_block(self):
         """When findings key is not a list (null, int, dict), the block is skipped."""
