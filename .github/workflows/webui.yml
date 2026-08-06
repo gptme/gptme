@@ -11,6 +11,8 @@ on:
       - 'Makefile'
       - 'scripts/validate_release_package.py'
       - '.github/workflows/webui.yml'
+      - '.github/workflows/webui-visual-diff.yml'
+      - '.github/scripts/diff-screenshots.sh'
 
 defaults:
   run:
@@ -218,3 +220,46 @@ jobs:
         dev="${{ steps.e2e-dev.outcome }}"
         echo "stable: $stable  dev: $dev"
         [ "$stable" = "success" ] && [ "$dev" = "success" ]
+
+  # ── Visual snapshot capture (PRs only) ───────────────────────────────────────
+  # Takes UI screenshots of the PR branch so that webui-visual-diff.yml can
+  # compare them against a master baseline and post a before/after comment
+  # when visual changes are detected.  No gptme server is needed — the webui
+  # runs in demo mode via `npm run dev`.
+  screenshots:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Use Node.js 20
+      uses: actions/setup-node@v7
+      with:
+        node-version: 20
+        cache: 'npm'
+        cache-dependency-path: webui/package-lock.json
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Playwright browsers
+      run: npx playwright install --with-deps chromium
+
+    - name: Take visual snapshots (PR branch — "after")
+      working-directory: webui
+      env:
+        SCREENSHOTS_DIR: ${{ github.workspace }}/visual-snapshots
+      run: npx playwright test e2e/visual-snapshots.spec.ts --reporter=dot
+
+    - name: Save PR number for downstream workflow
+      run: echo "${{ github.event.pull_request.number }}" > "${{ github.workspace }}/visual-snapshots/pr-number.txt"
+
+    - name: Upload visual snapshots
+      uses: actions/upload-artifact@v7
+      with:
+        # Fixed name: the downstream workflow_run job scopes the download by
+        # run_id, so we don't need the PR number in the artifact name here.
+        name: webui-visual-snapshots
+        path: visual-snapshots/
+        retention-days: 7

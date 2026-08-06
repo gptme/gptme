@@ -1,0 +1,191 @@
+name: WebUI Visual Diff
+
+# Trusted context: triggered after the WebUI workflow completes on a PR.
+# Downloads the "after" screenshots captured on the PR branch, takes "before"
+# screenshots from master, diffs them pixel-by-pixel, and posts a PR comment
+# only when at least one view has changed visually.
+#
+# Security model: this workflow runs in the base-repo context (not the fork),
+# so github.token has write access to post PR comments even on fork PRs.  The
+# "after" screenshots come from the untrusted fork run as artifacts — we never
+# execute fork code here.
+# See: https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
+
+on:
+  workflow_run:
+    workflows: ["WebUI"]
+    types: [completed]
+
+jobs:
+  visual-diff:
+    # Only for pull_request-triggered WebUI runs; skip cancelled runs because
+    # the screenshots job may not have had time to upload its artifacts.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+    # Download the "after" screenshots from the triggering PR run.
+    # We scope by run_id so we always get exactly this PR's artifacts.
+    - name: Download "after" screenshots
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        run_id: ${{ github.event.workflow_run.id }}
+        name: webui-visual-snapshots
+        path: screenshots/after
+        if_no_artifact_found: warn
+
+    - name: Check for after screenshots and read PR number
+      id: setup
+      run: |
+        # Check that screenshots were uploaded
+        PNG_COUNT=$(find screenshots/after -name '*.png' 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$PNG_COUNT" -eq 0 ]; then
+          echo "No screenshots found in artifact — skipping diff"
+          echo "skip=true" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        echo "screenshots_found=true" >> $GITHUB_OUTPUT
+
+        # PR number: written by the screenshots job into the artifact.
+        # For non-fork PRs we can also fall back to the event payload.
+        if [ -f "screenshots/after/pr-number.txt" ]; then
+          PR_NUMBER=$(cat screenshots/after/pr-number.txt | tr -d '[:space:]')
+        else
+          PR_NUMBER="${PR_NUMBER_FROM_EVENT}"
+        fi
+        if [ -z "$PR_NUMBER" ]; then
+          echo "Could not determine PR number — skipping"
+          echo "skip=true" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+        echo "skip=false" >> $GITHUB_OUTPUT
+      env:
+        PR_NUMBER_FROM_EVENT: ${{ github.event.workflow_run.pull_requests[0].number }}
+
+    - uses: actions/checkout@v7
+      if: steps.setup.outputs.skip != 'true'
+      with:
+        ref: master
+
+    - name: Use Node.js 20
+      if: steps.setup.outputs.skip != 'true'
+      uses: actions/setup-node@v7
+      with:
+        node-version: 20
+        cache: 'npm'
+        cache-dependency-path: webui/package-lock.json
+
+    - name: Install dependencies (master)
+      if: steps.setup.outputs.skip != 'true'
+      working-directory: webui
+      run: npm ci
+
+    - name: Install Playwright browsers
+      if: steps.setup.outputs.skip != 'true'
+      working-directory: webui
+      run: npx playwright install --with-deps chromium
+
+    - name: Take "before" screenshots (master branch)
+      id: before
+      if: steps.setup.outputs.skip != 'true'
+      working-directory: webui
+      env:
+        SCREENSHOTS_DIR: ${{ github.workspace }}/screenshots/before
+      run: |
+        # The snapshot spec may not exist in master when this is the very first
+        # PR that adds the screenshot infrastructure.  Skip gracefully so the
+        # PR itself is not blocked.
+        if [ ! -f "e2e/visual-snapshots.spec.ts" ]; then
+          echo "No baseline spec in master yet — skipping visual diff"
+          echo "skip=true" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        npx playwright test e2e/visual-snapshots.spec.ts --reporter=dot
+        echo "skip=false" >> $GITHUB_OUTPUT
+
+    - name: Diff screenshots
+      id: diff
+      if: >-
+        steps.setup.outputs.skip != 'true' &&
+        steps.before.outputs.skip != 'true'
+      run: |
+        bash .github/scripts/diff-screenshots.sh \
+          screenshots/before \
+          screenshots/after \
+          screenshots/diff
+        CHANGED=$(python3 -c "import json; d=json.load(open('screenshots/diff/summary.json')); print(d['changed'])")
+        TOTAL=$(python3  -c "import json; d=json.load(open('screenshots/diff/summary.json')); print(d['total'])")
+        echo "changed=$CHANGED" >> $GITHUB_OUTPUT
+        echo "total=$TOTAL"     >> $GITHUB_OUTPUT
+
+    - name: Upload diff artifacts
+      if: steps.diff.outputs.changed > 0
+      uses: actions/upload-artifact@v7
+      with:
+        name: webui-visual-diff-pr-${{ steps.setup.outputs.pr_number }}
+        path: screenshots/diff/
+        retention-days: 14
+
+    - name: Build and post PR comment
+      if: steps.diff.outputs.changed > 0
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const changed = parseInt('${{ steps.diff.outputs.changed }}', 10);
+          const total   = parseInt('${{ steps.diff.outputs.total }}',   10);
+          const prNumber = parseInt('${{ steps.setup.outputs.pr_number }}', 10);
+          const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+          // Build the table rows from summary.json
+          const summary = JSON.parse(fs.readFileSync('screenshots/diff/summary.json', 'utf8'));
+          const icon = { changed: '⚠️', new: '🆕', same: '✅' };
+          const rows = summary.results.map(r =>
+            `| \`${r.name}\` | ${icon[r.status] ?? '❓'} ${r.status} | ${r.pixels.toLocaleString()} |`
+          ).join('\n');
+
+          const body = [
+            '## 🎨 WebUI Visual Changes Detected',
+            '',
+            `**${changed} of ${total} screenshots changed** on this PR.`,
+            '',
+            '| View | Status | Pixels changed |',
+            '|------|--------|----------------|',
+            rows,
+            '',
+            `📦 Download [before/after/diff images](${runUrl}) from the workflow artifacts (GitHub sign-in required).`,
+            '',
+            '> _This comment is posted automatically when webui screenshots differ from master. No comment means no visual changes._',
+          ].join('\n');
+
+          const marker = '## 🎨 WebUI Visual Changes Detected';
+
+          // Update existing comment if present, otherwise create one
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber,
+          });
+          const existing = comments.find(c => c.body && c.body.includes(marker));
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body,
+            });
+          }
