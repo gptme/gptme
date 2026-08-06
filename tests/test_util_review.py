@@ -790,6 +790,21 @@ Reviewed the diff carefully.
         # Item has no body → skipped → empty list, not None
         assert findings == []
 
+    def test_extract_findings_non_string_body_skips_item(self):
+        """A truthy non-string body (e.g. integer) must not crash .strip()."""
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        # body is an integer — truthy but not a string; .strip() would raise
+        output = '```json\n{"findings": [{"body": 42, "file": "foo.py"}]}\n```'
+        findings = _extract_findings_from_output(output)
+        # Non-string body → skipped → empty list, not AttributeError
+        assert findings == []
+
+        # body is a list — also truthy non-string
+        output2 = '```json\n{"findings": [{"body": ["line1", "line2"]}]}\n```'
+        findings2 = _extract_findings_from_output(output2)
+        assert findings2 == []
+
     # ------------------------------------------------------------------
     # _build_review_prompt
     # ------------------------------------------------------------------
@@ -1000,6 +1015,63 @@ Reviewed the diff carefully.
         assert spawned == []  # session must NOT be spawned for empty diff
         artifact = self._parse_artifact(result.output)
         assert artifact.findings == []
+
+    def test_failed_session_with_no_findings_block_errors(self, tmp_path, monkeypatch):
+        """A failed session that produces no JSON findings block must not emit a clean artifact."""
+        from gptme.cli import cmd_review_pr
+
+        def fake_spawn_failed(**kwargs):
+            # Session crashed — no findings block in output
+            return "Session crashed unexpectedly.", {
+                "exit_reason": "error",
+                "error": "timeout",
+            }
+
+        monkeypatch.setattr(cmd_review_pr, "_spawn_review_session", fake_spawn_failed)
+
+        diff_file = tmp_path / "pr.diff"
+        diff_file.write_text(self._SAMPLE_DIFF)
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            ["review", "pr", "7", "--repo", "owner/repo", "--diff", str(diff_file)],
+        )
+        # Must exit non-zero — emitting an empty artifact here would silently
+        # mask the failure to review-watch, which would treat it as "nothing to fix".
+        assert result.exit_code != 0
+
+    def test_failed_session_with_partial_findings_block_emits_artifact(
+        self, tmp_path, monkeypatch
+    ):
+        """A failed session that still produced a parseable findings block should succeed.
+
+        Partial output (e.g. timeout mid-run) may contain a valid JSON block —
+        those findings are still usable and should not be discarded.
+        """
+        from gptme.cli import cmd_review_pr
+
+        def fake_spawn_partial(**kwargs):
+            # Session timed out but partial output has a valid findings block
+            return self._SESSION_OUTPUT_WITH_FINDINGS, {
+                "exit_reason": "timeout",
+                "error": "max_turns",
+            }
+
+        monkeypatch.setattr(cmd_review_pr, "_spawn_review_session", fake_spawn_partial)
+
+        diff_file = tmp_path / "pr.diff"
+        diff_file.write_text(self._SAMPLE_DIFF)
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            ["review", "pr", "8", "--repo", "owner/repo", "--diff", str(diff_file)],
+        )
+        # Partial output with a valid block → still usable
+        assert result.exit_code == 0, result.output
+        artifact = self._parse_artifact(result.output)
+        assert len(artifact.findings) == 1
 
     # ------------------------------------------------------------------
     # Pipeline integration: review pr → review watch
