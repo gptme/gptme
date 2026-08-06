@@ -376,7 +376,10 @@ def transform_github_url(url: str) -> str:
     SHA-based, so those are common).
     """
     if "/blob/" in url and "github.com" in url:
-        return url.replace("/blob/", "/raw/")
+        # Replace only the first occurrence: the leading /blob/ is the
+        # owner/repo separator; a later /blob/ may be a real path segment
+        # (e.g. .../blob/main/blob/handler.py) and must be preserved.
+        return url.replace("/blob/", "/raw/", 1)
     return url
 
 

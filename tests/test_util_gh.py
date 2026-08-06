@@ -67,6 +67,37 @@ def test_transform_github_url_branch():
     )
 
 
+def test_transform_github_url_blob_in_path():
+    """Only the first ``/blob/`` (the owner/repo separator) is replaced.
+
+    A file path may itself contain a ``blob`` segment, e.g.
+    ``.../blob/main/blob/handler.py``. The old ``url.replace("/blob/", "/raw/")``
+    replaced *every* occurrence, flipping path segments too and pointing the
+    fetch at the wrong resource (404 / wrong content). Only the separator
+    should become ``raw``; the rest of the path is kept verbatim.
+    """
+    # Regression: a path that itself contains a /blob/ segment.
+    assert (
+        transform_github_url("https://github.com/o/r/blob/main/blob/handler.py")
+        == "https://github.com/o/r/raw/main/blob/handler.py"
+    )
+    # Nested case: a blob deeper in the path stays intact.
+    assert (
+        transform_github_url("https://github.com/o/r/blob/main/pkg/blob/util.py")
+        == "https://github.com/o/r/raw/main/pkg/blob/util.py"
+    )
+    # Regression guard: a plain single-/blob/ URL still transforms correctly.
+    assert (
+        transform_github_url("https://github.com/o/r/blob/main/README.md")
+        == "https://github.com/o/r/raw/main/README.md"
+    )
+    # Regression guard: a URL without /blob/ in the path is unchanged.
+    assert (
+        transform_github_url("https://github.com/o/r/tree/main/src")
+        == "https://github.com/o/r/tree/main/src"
+    )
+
+
 def test_transform_github_url_keeps_tags_and_shas_intact():
     """A tag or commit SHA must be left as the ref.
 
