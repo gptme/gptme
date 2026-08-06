@@ -783,6 +783,16 @@ def step(
     if tool_format == "tool":
         tools = [t for t in get_tools() if t.is_runnable]
 
+    # Snapshot the step sequence at entry. The finally block uses this to detect
+    # whether the tool-continuation path has taken ownership of `generating`:
+    # if a fast tool completes and the tool worker increments step_seq (inside
+    # step_lock) before our finally runs, we skip the clear and leave the
+    # continuation's reservation intact. Without this guard the originating
+    # step's unconditional `generating = False` would race and clear the
+    # reservation the continuation just set (Race 5 — "originating step clears
+    # continuation reservation").
+    my_step_seq = session.step_seq
+
     try:
         # Stream tokens from the model
         output = ""
@@ -970,8 +980,24 @@ def step(
             conversation_id, {"type": "error", "error": error_message}
         )
     finally:
-        session.generating = False
-        session.generating_since = None
+        # Only release generating if this step still owns the reservation.
+        # A fast tool may finish, increment step_seq, set generating=True for
+        # the continuation, and return BEFORE we reach here. If we clear
+        # unconditionally we erase the continuation's reservation (Race 5).
+        # The tool worker increments step_seq inside step_lock before handing
+        # off, so the compare-and-clear below is atomic with respect to that
+        # handoff.
+        with session.step_lock:
+            if session.step_seq == my_step_seq:
+                session.generating = False
+                session.generating_since = None
+            else:
+                logger.debug(
+                    "step() finally: skipping generating=False — "
+                    "reservation transferred to continuation (seq %d→%d)",
+                    my_step_seq,
+                    session.step_seq,
+                )
 
 
 def start_tool_execution(
@@ -1255,6 +1281,14 @@ def start_tool_execution(
                         # step_lock when reserved=True).
                         # Since we're calling under step_lock, set generating=True
                         # and pass reserved=True to avoid re-acquiring the lock.
+                        #
+                        # Advance step_seq BEFORE setting generating=True (Race 5).
+                        # The originating step()'s finally block checks
+                        # step_seq == my_step_seq; incrementing here signals
+                        # that ownership transferred to the continuation, so
+                        # the originating step's finally will skip the clear
+                        # rather than erasing our new reservation.
+                        session.step_seq += 1
                         session.generating = True
                         session.generating_since = datetime.now(tz=timezone.utc)
                         _start_step_thread(
