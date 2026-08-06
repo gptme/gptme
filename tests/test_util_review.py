@@ -298,6 +298,21 @@ class TestReviewArtifact:
             assert artifact.review_status == ReviewStatus.INCOMPLETE
             assert artifact.validation_errors >= 1
 
+    def test_artifact_from_dict_non_int_validation_errors_does_not_crash(self):
+        """Non-int validation_errors (list, dict) must not raise TypeError."""
+        for bad_val_err in [[], {}, [1, 2]]:
+            data = {
+                "schema_version": 2,
+                "pr": {"owner": "o", "repo": "r", "number": 1},
+                "review_status": "complete",
+                "validation_errors": bad_val_err,
+                "findings": [{"body": "a finding", "file": "x.py", "line": 1}],
+            }
+            artifact = ReviewArtifact.from_dict(data)
+            # Bad validation_errors counts as a deserialization error → INCOMPLETE.
+            assert artifact.review_status == ReviewStatus.INCOMPLETE
+            assert artifact.validation_errors >= 1
+
     def test_artifact_from_dict_malformed_finding_location_downgrades_to_incomplete(
         self,
     ):
