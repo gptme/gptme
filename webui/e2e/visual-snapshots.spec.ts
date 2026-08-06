@@ -20,14 +20,14 @@ test.beforeAll(() => {
 });
 
 test('01-home', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?demo=1');
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(SCREENSHOTS_DIR, '01-home.png') });
 });
 
 test('02-demo-conversation', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?demo=1');
   await page.waitForLoadState('networkidle');
   await page.getByText('Introduction to gptme').click();
   await page.waitForLoadState('networkidle');

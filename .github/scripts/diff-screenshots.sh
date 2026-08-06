@@ -52,6 +52,21 @@ for after_file in "$AFTER_DIR"/*.png; do
   fi
 done
 
+# Also report screenshots that were removed in the PR branch (exist only in before).
+for before_file in "$BEFORE_DIR"/*.png; do
+  [ -f "$before_file" ] || continue
+  name=$(basename "$before_file")
+  after_file="$AFTER_DIR/$name"
+  [ -f "$after_file" ] && continue  # already handled above
+  TOTAL=$((TOTAL + 1))
+  [ "$FIRST" -eq 0 ] && RESULTS="$RESULTS,"
+  FIRST=0
+  echo "REMOVED: $name"
+  cp "$before_file" "$OUTPUT_DIR/before-$name"
+  RESULTS="$RESULTS{\"name\":\"$name\",\"status\":\"removed\",\"pixels\":0}"
+  CHANGED=$((CHANGED + 1))
+done
+
 RESULTS="$RESULTS]"
 SAME=$((TOTAL - CHANGED))
 

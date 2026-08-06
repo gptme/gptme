@@ -51,15 +51,12 @@ jobs:
         fi
         echo "screenshots_found=true" >> $GITHUB_OUTPUT
 
-        # PR number: written by the screenshots job into the artifact.
-        # For non-fork PRs we can also fall back to the event payload.
-        if [ -f "screenshots/after/pr-number.txt" ]; then
-          PR_NUMBER=$(cat screenshots/after/pr-number.txt | tr -d '[:space:]')
-        else
-          PR_NUMBER="${PR_NUMBER_FROM_EVENT}"
-        fi
+        # Always derive PR number from trusted event data, never from the artifact.
+        # github.event.workflow_run.pull_requests[0].number is populated by GitHub
+        # from the triggering workflow's event, not from fork-supplied content.
+        PR_NUMBER="${PR_NUMBER_FROM_EVENT}"
         if [ -z "$PR_NUMBER" ]; then
-          echo "Could not determine PR number — skipping"
+          echo "Could not determine PR number from event — skipping"
           echo "skip=true" >> $GITHUB_OUTPUT
           exit 0
         fi
@@ -145,7 +142,7 @@ jobs:
 
           // Build the table rows from summary.json
           const summary = JSON.parse(fs.readFileSync('screenshots/diff/summary.json', 'utf8'));
-          const icon = { changed: '⚠️', new: '🆕', same: '✅' };
+          const icon = { changed: '⚠️', new: '🆕', removed: '🗑️', same: '✅' };
           const rows = summary.results.map(r =>
             `| \`${r.name}\` | ${icon[r.status] ?? '❓'} ${r.status} | ${r.pixels.toLocaleString()} |`
           ).join('\n');
