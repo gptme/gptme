@@ -229,6 +229,11 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
             for depth in range(0, max_dirs + 1)
         ]
 
+    # Build a lookup from manifest key → policy class so we can pick the
+    # most specific (longest) matching suffix first, regardless of class order.
+    # Without this, a shorter suffix in validated_core would shadow the intended
+    # longer key in holdout_population (the Greptile-identified suffix-priority bug).
+    key_to_class: dict[str, str] = {}
     for category, class_name in [
         ("validated_core", "validated_core"),
         ("exempt", "exempt"),
@@ -237,8 +242,13 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
         category_list = manifest.get(category)
         if not isinstance(category_list, list):
             continue
-        if any(key in category_list for key in candidate_keys):
-            return class_name, policy_version
+        for k in category_list:
+            key_to_class.setdefault(k, class_name)
+
+    # Iterate candidate keys longest-first: the most specific match wins.
+    for key in sorted(candidate_keys, key=len, reverse=True):
+        if key in key_to_class:
+            return key_to_class[key], policy_version
 
     # No manifest on disk → default evaluation population is "holdout".
     # Manifest exists but lesson not listed → "unknown" (added after manifest stamp).

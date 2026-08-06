@@ -606,6 +606,28 @@ def test_classify_lesson_custom_root_nested_category(monkeypatch, tmp_path):
     assert policy_class == "holdout"
 
 
+def test_classify_lesson_custom_root_overlapping_suffix(monkeypatch, tmp_path):
+    """Longer (more specific) suffix wins over shorter suffix in a higher-priority class.
+
+    Regression test for the suffix-priority bug: if 'sub/foo' is in validated_core
+    and the intended 'patterns/sub/foo' is in holdout_population, the full nested key
+    must win, not the shorter one from the earlier class.
+    """
+    _reset_manifest_cache(monkeypatch)
+    p = _make_manifest_file(
+        tmp_path,
+        validated_core=["sub/persistent-learning"],
+        holdout_population=["patterns/sub/persistent-learning"],
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    policy_class, _ = _classify_lesson(
+        "/opt/guidance/patterns/sub/persistent-learning.md"
+    )
+    # The longer key 'patterns/sub/persistent-learning' is more specific and must win
+    # over the shorter 'sub/persistent-learning' even though validated_core has priority.
+    assert policy_class == "holdout"
+
+
 def test_load_policy_manifest_empty_mapping_is_not_missing(monkeypatch, tmp_path):
     """A valid-but-empty manifest ({}) exists, so lessons should classify as
     'unknown', not fall back to the missing-manifest 'holdout' default."""
