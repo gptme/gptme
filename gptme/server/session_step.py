@@ -1271,9 +1271,15 @@ def start_tool_execution(
                 # conversation is not permanently blocked — but only if we still
                 # own it.  A newer /step may have incremented step_seq and
                 # re-reserved generating; touching it here would cancel that step.
-                if session.step_seq == my_seq:
-                    session.generating = False
-                    session.generating_since = None
+                # Acquire step_lock so the check-and-clear is atomic with respect
+                # to a concurrent /step that increments step_seq and re-sets
+                # generating=True — without the lock the stale worker can observe
+                # step_seq==my_seq, get preempted, watch /step reserve generating,
+                # then clear that newer reservation.
+                with session.step_lock:
+                    if session.step_seq == my_seq:
+                        session.generating = False
+                        session.generating_since = None
         except Exception:
             logger.exception(
                 f"Unhandled error in tool execution thread for {conversation_id}"
@@ -1282,10 +1288,12 @@ def start_tool_execution(
                 # A crash before the reservation is transferred to
                 # _start_step_thread (or explicitly released above) must not
                 # permanently strand the conversation in generating state.
-                # Only release if we still own the reservation.
-                if session.step_seq == my_seq:
-                    session.generating = False
-                    session.generating_since = None
+                # Only release if we still own the reservation.  Same atomicity
+                # requirement as the elif-reserved path above.
+                with session.step_lock:
+                    if session.step_seq == my_seq:
+                        session.generating = False
+                        session.generating_since = None
             raise
 
     # Propagate ContextVars from the request context into the execution thread.
