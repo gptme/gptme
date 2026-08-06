@@ -649,3 +649,407 @@ class TestArtifactMode:
         )
         assert result.exit_code != 0
         assert "artifact" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# gptme-util review pr (cmd_review_pr)
+# ---------------------------------------------------------------------------
+
+
+class TestReviewPrCommand:
+    """Tests for ``gptme-util review pr``."""
+
+    _SAMPLE_DIFF = """\
+diff --git a/gptme/util/review.py b/gptme/util/review.py
+index 1234abc..abcd123 100644
+--- a/gptme/util/review.py
++++ b/gptme/util/review.py
+@@ -1,5 +1,8 @@
+ def foo(x):
+-    return x
++    if x is None:
++        return None
++    return x * 2
+"""
+
+    _SESSION_OUTPUT_WITH_FINDINGS = """\
+Some preamble text from the model.
+
+```json
+{
+  "findings": [
+    {
+      "body": "The function returns None without documentation.",
+      "file": "gptme/util/review.py",
+      "line": 3,
+      "severity": "warning"
+    }
+  ]
+}
+```
+"""
+
+    _SESSION_OUTPUT_NO_FINDINGS = """\
+Reviewed the diff carefully.
+
+```json
+{"findings": []}
+```
+"""
+
+    _SESSION_OUTPUT_NO_BLOCK = "I reviewed the code and it looks fine."
+
+    def _make_spawn_patch(self, monkeypatch, stdout: str) -> list[dict]:
+        """Monkeypatch _spawn_review_session to return a fixed stdout."""
+        from gptme.cli import cmd_review_pr
+
+        calls: list[dict] = []
+
+        def fake_spawn(**kwargs):
+            calls.append(kwargs)
+            return stdout, {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_pr, "_spawn_review_session", fake_spawn)
+        return calls
+
+    def _runner(self) -> CliRunner:
+        """Return a CliRunner for ``review pr`` tests."""
+        return CliRunner()
+
+    @staticmethod
+    def _parse_artifact(output: str) -> ReviewArtifact:
+        """Extract the ReviewArtifact JSON from mixed CLI output.
+
+        ``review pr`` writes progress messages to stderr and the JSON artifact
+        to stdout, but CliRunner combines them.  The artifact is always a JSON
+        object starting at the first ``{`` that begins a line.
+        """
+        # Find the first line that starts a top-level JSON object.
+        for i, line in enumerate(output.splitlines()):
+            if line.startswith("{"):
+                json_text = "\n".join(output.splitlines()[i:])
+                # Trim trailing non-JSON lines (there shouldn't be any, but
+                # be defensive).
+                return ReviewArtifact.from_json(json_text)
+        raise ValueError(f"No JSON object found in output:\n{output!r}")
+
+    # ------------------------------------------------------------------
+    # _extract_findings_from_output
+    # ------------------------------------------------------------------
+
+    def test_extract_findings_parses_valid_block(self):
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        findings = _extract_findings_from_output(self._SESSION_OUTPUT_WITH_FINDINGS)
+        assert findings is not None
+        assert len(findings) == 1
+        f = findings[0]
+        assert "None without documentation" in f.body
+        assert f.file == "gptme/util/review.py"
+        assert f.line == 3
+        assert f.severity == FindingSeverity.WARNING
+
+    def test_extract_findings_empty_array(self):
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        findings = _extract_findings_from_output(self._SESSION_OUTPUT_NO_FINDINGS)
+        assert findings == []
+
+    def test_extract_findings_no_block_returns_none(self):
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        result = _extract_findings_from_output(self._SESSION_OUTPUT_NO_BLOCK)
+        assert result is None
+
+    def test_extract_findings_invalid_json_returns_none(self):
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        result = _extract_findings_from_output("```json\nnot json\n```")
+        assert result is None
+
+    def test_extract_findings_wrong_schema_skips_block(self):
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        # JSON block without "findings" key is skipped.
+        result = _extract_findings_from_output('```json\n{"other": true}\n```')
+        assert result is None
+
+    def test_extract_findings_bad_severity_defaults_to_warning(self):
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        output = '```json\n{"findings": [{"body": "x", "severity": "bogus"}]}\n```'
+        findings = _extract_findings_from_output(output)
+        assert findings is not None
+        assert findings[0].severity == FindingSeverity.WARNING
+
+    def test_extract_findings_missing_body_skips_item(self):
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        output = '```json\n{"findings": [{"file": "foo.py", "line": 1}]}\n```'
+        findings = _extract_findings_from_output(output)
+        # Item has no body → skipped → empty list, not None
+        assert findings == []
+
+    # ------------------------------------------------------------------
+    # _build_review_prompt
+    # ------------------------------------------------------------------
+
+    def test_build_review_prompt_includes_diff(self):
+        from gptme.cli.cmd_review_pr import _build_review_prompt
+
+        prompt = _build_review_prompt(
+            owner="owner",
+            repo="repo",
+            pr_number=42,
+            pr_title="Test PR",
+            pr_body="",
+            diff=self._SAMPLE_DIFF,
+            extra_instructions=None,
+        )
+        assert "owner/repo#42" in prompt
+        assert "def foo" in prompt
+        assert "SECURITY" in prompt
+
+    def test_build_review_prompt_truncates_large_diff(self):
+        from gptme.cli.cmd_review_pr import _MAX_DIFF_CHARS, _build_review_prompt
+
+        huge_diff = "+" + "x" * (_MAX_DIFF_CHARS + 10_000)
+        prompt = _build_review_prompt(
+            owner="o",
+            repo="r",
+            pr_number=1,
+            pr_title="Big",
+            pr_body="",
+            diff=huge_diff,
+            extra_instructions=None,
+        )
+        assert "truncated" in prompt.lower()
+        # The prompt should not grow unboundedly.
+        assert len(prompt) < _MAX_DIFF_CHARS + 5_000
+
+    def test_build_review_prompt_includes_extra_instructions(self):
+        from gptme.cli.cmd_review_pr import _build_review_prompt
+
+        prompt = _build_review_prompt(
+            owner="o",
+            repo="r",
+            pr_number=1,
+            pr_title="T",
+            pr_body="",
+            diff="",
+            extra_instructions="Focus on security.",
+        )
+        assert "Focus on security." in prompt
+
+    def test_build_review_prompt_security_notice_present(self):
+        from gptme.cli.cmd_review_pr import _build_review_prompt
+
+        prompt = _build_review_prompt(
+            owner="o",
+            repo="r",
+            pr_number=1,
+            pr_title="T",
+            pr_body="Body",
+            diff="+ evil code",
+            extra_instructions=None,
+        )
+        # Security notice must tell the model the diff is data, not instructions.
+        assert "SECURITY" in prompt
+        assert "data" in prompt.lower()
+
+    # ------------------------------------------------------------------
+    # CLI integration (local/offline mode via --diff)
+    # ------------------------------------------------------------------
+
+    def test_diff_mode_produces_artifact(self, tmp_path, monkeypatch):
+        """--diff path produces a valid ReviewArtifact on stdout."""
+        self._make_spawn_patch(monkeypatch, self._SESSION_OUTPUT_WITH_FINDINGS)
+
+        diff_file = tmp_path / "pr.diff"
+        diff_file.write_text(self._SAMPLE_DIFF)
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review",
+                "pr",
+                "42",
+                "--repo",
+                "owner/repo",
+                "--diff",
+                str(diff_file),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        artifact = self._parse_artifact(result.output)
+        assert artifact.pr_number == 42
+        assert artifact.pr_owner == "owner"
+        assert artifact.pr_repo == "repo"
+        assert len(artifact.findings) == 1
+
+    def test_diff_mode_no_findings(self, tmp_path, monkeypatch):
+        """Empty findings array is handled gracefully."""
+        self._make_spawn_patch(monkeypatch, self._SESSION_OUTPUT_NO_FINDINGS)
+
+        diff_file = tmp_path / "pr.diff"
+        diff_file.write_text(self._SAMPLE_DIFF)
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            ["review", "pr", "1", "--repo", "owner/repo", "--diff", str(diff_file)],
+        )
+        assert result.exit_code == 0, result.output
+        artifact = self._parse_artifact(result.output)
+        assert artifact.findings == []
+
+    def test_diff_mode_saves_artifact_to_file(self, tmp_path, monkeypatch):
+        """--save writes the artifact JSON to disk."""
+        self._make_spawn_patch(monkeypatch, self._SESSION_OUTPUT_WITH_FINDINGS)
+
+        diff_file = tmp_path / "pr.diff"
+        diff_file.write_text(self._SAMPLE_DIFF)
+        save_path = tmp_path / "artifact.json"
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review",
+                "pr",
+                "99",
+                "--repo",
+                "owner/repo",
+                "--diff",
+                str(diff_file),
+                "--save",
+                str(save_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert save_path.exists()
+        saved = ReviewArtifact.load(save_path)
+        assert saved.pr_number == 99
+        assert len(saved.findings) == 1
+
+    def test_diff_stdin_mode(self, monkeypatch):
+        """--diff - reads the diff from stdin."""
+        self._make_spawn_patch(monkeypatch, self._SESSION_OUTPUT_NO_FINDINGS)
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            ["review", "pr", "5", "--repo", "owner/repo", "--diff", "-"],
+            input=self._SAMPLE_DIFF,
+        )
+        assert result.exit_code == 0, result.output
+        artifact = self._parse_artifact(result.output)
+        assert artifact.pr_number == 5
+
+    def test_missing_repo_in_diff_mode_errors(self, tmp_path, monkeypatch):
+        """--diff without --repo fails with a usage error."""
+        diff_file = tmp_path / "pr.diff"
+        diff_file.write_text(self._SAMPLE_DIFF)
+
+        # Prevent infer_owner_repo from succeeding.
+        from gptme.cli import cmd_review_pr
+
+        monkeypatch.setattr(cmd_review_pr, "_infer_owner_repo", lambda: None)
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            ["review", "pr", "1", "--diff", str(diff_file)],
+        )
+        assert result.exit_code != 0
+
+    def test_diff_mode_requires_pr_number(self, tmp_path, monkeypatch):
+        """--diff without PR number fails with a usage error."""
+        diff_file = tmp_path / "pr.diff"
+        diff_file.write_text(self._SAMPLE_DIFF)
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            ["review", "pr", "--repo", "owner/repo", "--diff", str(diff_file)],
+        )
+        assert result.exit_code != 0
+
+    def test_empty_diff_skips_session(self, tmp_path, monkeypatch):
+        """An empty diff skips the review session and emits an empty artifact."""
+        from gptme.cli import cmd_review_pr
+
+        spawned: list[dict] = []
+
+        def fake_spawn_empty(**kw):
+            spawned.append(kw)
+            return "", {"exit_reason": "done"}
+
+        monkeypatch.setattr(cmd_review_pr, "_spawn_review_session", fake_spawn_empty)
+
+        diff_file = tmp_path / "empty.diff"
+        diff_file.write_text("   ")  # whitespace only
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            ["review", "pr", "7", "--repo", "owner/repo", "--diff", str(diff_file)],
+        )
+        assert result.exit_code == 0
+        assert spawned == []  # session must NOT be spawned for empty diff
+        artifact = self._parse_artifact(result.output)
+        assert artifact.findings == []
+
+    # ------------------------------------------------------------------
+    # Pipeline integration: review pr → review watch
+    # ------------------------------------------------------------------
+
+    def test_artifact_from_pr_is_consumable_by_watch(self, tmp_path, monkeypatch):
+        """An artifact produced by ``review pr`` can be consumed by ``review watch``."""
+        from gptme.cli import cmd_review_watch
+
+        # Stage 1: produce an artifact with one finding.
+        self._make_spawn_patch(monkeypatch, self._SESSION_OUTPUT_WITH_FINDINGS)
+
+        diff_file = tmp_path / "pr.diff"
+        diff_file.write_text(self._SAMPLE_DIFF)
+        artifact_path = tmp_path / "artifact.json"
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review",
+                "pr",
+                "1234",
+                "--repo",
+                "gptme/gptme",
+                "--diff",
+                str(diff_file),
+                "--save",
+                str(artifact_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert artifact_path.exists()
+
+        # Stage 2: consume the artifact in review-watch.
+        watch_calls: list[dict] = []
+
+        def fake_watch_spawn(**kwargs):
+            watch_calls.append(kwargs)
+            return {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_watch_spawn)
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        result2 = runner.invoke(
+            util_main,
+            ["review", "watch", "--artifact", str(artifact_path)],
+        )
+        assert result2.exit_code == 0, result2.output
+        assert len(watch_calls) == 1
+        # The fix-session prompt should contain the finding body.
+        prompt = watch_calls[0]["prompt"]
+        assert "None without documentation" in prompt
