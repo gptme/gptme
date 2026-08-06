@@ -219,7 +219,13 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
     #      suffix enumeration would accept unrelated custom-root lessons.
     path = Path(lesson_path)
     parts = path.parts
-    manifest_root_str = manifest.get("root") if isinstance(manifest, dict) else None
+    # Validate `root` is a string before using it — a malformed YAML value
+    # (int, list, dict) would raise TypeError in Path(), which the outer
+    # _log_dropout handler would catch, suppressing the entire dropout record.
+    manifest_root_raw = manifest.get("root") if isinstance(manifest, dict) else None
+    manifest_root_str = (
+        manifest_root_raw if isinstance(manifest_root_raw, str) else None
+    )
 
     if manifest_root_str:
         # Declared root: use exact relative-path matching for ALL paths (including

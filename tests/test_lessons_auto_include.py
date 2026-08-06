@@ -779,6 +779,28 @@ def _make_manifest_file_with_root(tmp_path: Path, root: str, **categories) -> Pa
     return p
 
 
+def test_classify_lesson_malformed_root_is_ignored(monkeypatch, tmp_path):
+    """A non-string `root` value in the manifest (e.g. integer, list) must not raise
+    TypeError — it should be treated as if no root was declared, falling through to
+    the lessons-component heuristic or conservative unknown return."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    # root is an integer — invalid but legal YAML
+    manifest_file.write_text(
+        "version: 1\nupdated_at: ''\nroot: 42\n"
+        "validated_core:\n- category/lesson\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # Should not raise; malformed root is skipped → falls through to lessons heuristic
+    policy_class, _ = _classify_lesson("lessons/category/lesson.md")
+    assert policy_class == "validated_core"
+    # Path with no lessons component → conservative unknown (no suffix enumeration)
+    _reset_manifest_cache(monkeypatch)
+    policy_class2, _ = _classify_lesson("/opt/custom/category/lesson.md")
+    assert policy_class2 == "unknown"
+
+
 def test_classify_lesson_root_check_precedes_lessons_component(monkeypatch, tmp_path):
     """When manifest declares a root, it takes precedence over the 'lessons' heuristic.
 
