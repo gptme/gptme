@@ -100,6 +100,9 @@ export function InlineToolConfirmation({
   }, [pendingTool, isEditing, confirmLoading, handleConfirm]);
 
   const handleEdit = async () => {
+    // Check synchronously before any async work (prevents render-time race)
+    if (isConfirmingRef.current) return;
+    isConfirmingRef.current = true;
     setConfirmLoading(true);
     try {
       await onEdit(editedContent);
@@ -107,14 +110,22 @@ export function InlineToolConfirmation({
       console.error('Error confirming edited tool:', error);
     } finally {
       setConfirmLoading(false);
+      isConfirmingRef.current = false;
     }
   };
 
   const handleSkip = async () => {
+    // Check synchronously before any async work (prevents render-time race)
+    if (isConfirmingRef.current) return;
+    isConfirmingRef.current = true;
+    setConfirmLoading(true);
     try {
       await onSkip();
     } catch (error) {
       console.error('Error skipping tool:', error);
+    } finally {
+      setConfirmLoading(false);
+      isConfirmingRef.current = false;
     }
   };
 
