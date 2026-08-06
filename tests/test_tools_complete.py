@@ -1144,8 +1144,10 @@ class TestStuckDetectHook:
     _SAVE_A = "```save a.txt\nhello\n```"
     _SAVE_B = "```save b.txt\nworld\n```"
 
-    def test_interactive_nudges_when_stuck(self):
+    def test_interactive_nudges_when_stuck(self, monkeypatch):
         """In interactive mode, nudge is still injected when stuck (but no force-exit)."""
+        monkeypatch.setenv("GPTME_STUCK_REPEAT_THRESHOLD", "3")
+        monkeypatch.setenv("GPTME_STUCK_DETECT", "1")
         manager = _mock_manager([_assistant(self._SAVE_A)] * 3)
         results = list(stuck_detect_hook(manager, interactive=True, prompt_queue=None))
         assert len(results) == 1
@@ -1260,11 +1262,14 @@ class TestStuckDetectHook:
         with pytest.raises(SessionCompleteException, match="escalations"):
             list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
 
-    def test_interactive_does_not_raise_after_escalations(self):
+    def test_interactive_does_not_raise_after_escalations(self, monkeypatch):
         """After escalate_max escalations in interactive mode, returns quietly (no force-exit).
 
         The user can break the loop manually by stopping generation or replying.
         """
+        monkeypatch.setenv("GPTME_STUCK_REPEAT_THRESHOLD", "3")
+        monkeypatch.setenv("GPTME_STUCK_ESCALATE_MAX", "2")
+        monkeypatch.setenv("GPTME_STUCK_DETECT", "1")
         marker = "<system>You appear stuck: same action repeated.</system>"
         manager = _mock_manager(
             [
