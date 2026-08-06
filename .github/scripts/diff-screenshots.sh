@@ -17,9 +17,13 @@ CHANGED=0
 RESULTS="["
 FIRST=1
 
+# JSON-encode a string value (handles quotes, backslashes, control chars).
+json_str() { python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$1"; }
+
 for after_file in "$AFTER_DIR"/*.png; do
   [ -f "$after_file" ] || continue
   name=$(basename "$after_file")
+  name_json=$(json_str "$name")
   before_file="$BEFORE_DIR/$name"
   TOTAL=$((TOTAL + 1))
   [ "$FIRST" -eq 0 ] && RESULTS="$RESULTS,"
@@ -28,7 +32,7 @@ for after_file in "$AFTER_DIR"/*.png; do
   if [ ! -f "$before_file" ]; then
     echo "NEW: $name"
     cp "$after_file" "$OUTPUT_DIR/after-$name"
-    RESULTS="$RESULTS{\"name\":\"$name\",\"status\":\"new\",\"pixels\":0}"
+    RESULTS="$RESULTS{\"name\":$name_json,\"status\":\"new\",\"pixels\":0}"
     CHANGED=$((CHANGED + 1))
     continue
   fi
@@ -44,11 +48,11 @@ for after_file in "$AFTER_DIR"/*.png; do
     echo "CHANGED: $name (${diff_count} pixels)"
     cp "$before_file" "$OUTPUT_DIR/before-$name"
     cp "$after_file" "$OUTPUT_DIR/after-$name"
-    RESULTS="$RESULTS{\"name\":\"$name\",\"status\":\"changed\",\"pixels\":$diff_count}"
+    RESULTS="$RESULTS{\"name\":$name_json,\"status\":\"changed\",\"pixels\":$diff_count}"
     CHANGED=$((CHANGED + 1))
   else
     echo "SAME: $name"
-    RESULTS="$RESULTS{\"name\":\"$name\",\"status\":\"same\",\"pixels\":0}"
+    RESULTS="$RESULTS{\"name\":$name_json,\"status\":\"same\",\"pixels\":0}"
   fi
 done
 
@@ -56,6 +60,7 @@ done
 for before_file in "$BEFORE_DIR"/*.png; do
   [ -f "$before_file" ] || continue
   name=$(basename "$before_file")
+  name_json=$(json_str "$name")
   after_file="$AFTER_DIR/$name"
   [ -f "$after_file" ] && continue  # already handled above
   TOTAL=$((TOTAL + 1))
@@ -63,7 +68,7 @@ for before_file in "$BEFORE_DIR"/*.png; do
   FIRST=0
   echo "REMOVED: $name"
   cp "$before_file" "$OUTPUT_DIR/before-$name"
-  RESULTS="$RESULTS{\"name\":\"$name\",\"status\":\"removed\",\"pixels\":0}"
+  RESULTS="$RESULTS{\"name\":$name_json,\"status\":\"removed\",\"pixels\":0}"
   CHANGED=$((CHANGED + 1))
 done
 

@@ -179,7 +179,10 @@ jobs:
             repo: context.repo.repo,
             issue_number: prNumber,
           });
-          const existing = comments.find(c => c.body && c.body.includes(marker));
+          const existing = comments.find(c =>
+            c.user.login === 'github-actions[bot]' &&
+            c.body && c.body.includes(marker)
+          );
 
           if (existing) {
             await github.rest.issues.updateComment({
