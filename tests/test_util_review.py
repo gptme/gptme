@@ -283,6 +283,21 @@ class TestReviewArtifact:
         artifact = ReviewArtifact.from_dict(data)
         assert artifact.review_status == ReviewStatus.INCOMPLETE
 
+    def test_artifact_from_dict_non_list_findings_container_does_not_crash(self):
+        """Non-list findings value (null, int, dict) must not crash from_dict."""
+        for bad_findings in [None, 42, {"body": "a problem"}]:
+            data = {
+                "schema_version": 2,
+                "pr": {"owner": "o", "repo": "r", "number": 1},
+                "review_status": "complete",
+                "validation_errors": 0,
+                "findings": bad_findings,
+            }
+            artifact = ReviewArtifact.from_dict(data)
+            assert artifact.findings == []
+            assert artifact.review_status == ReviewStatus.INCOMPLETE
+            assert artifact.validation_errors >= 1
+
     def test_artifact_from_dict_malformed_finding_location_downgrades_to_incomplete(
         self,
     ):
