@@ -3,6 +3,10 @@ import type { Message } from '@/types/conversation';
 export interface ExportMarkdownOptions {
   includeSystem?: boolean;
   includeTimestamps?: boolean;
+  /** Include <thinking>/<think> reasoning blocks in assistant messages. Default: false. */
+  includeThinking?: boolean;
+  /** Include tool messages (tool calls + results). Default: true. */
+  includeTools?: boolean;
 }
 
 export interface ImportedConversationData {
@@ -16,12 +20,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Strip <thinking> / <think> blocks from assistant message content.
+ * Matches the same pattern used by the TTS pipeline and markdown renderer.
+ */
+function stripThinkingBlocks(content: string): string {
+  return content
+    .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/g, '')
+    .replace(/^\n+/, '')
+    .trim();
+}
+
 export function getExportableMessages(
   messages: Message[],
-  options?: Pick<ExportMarkdownOptions, 'includeSystem'>
+  options?: Pick<ExportMarkdownOptions, 'includeSystem' | 'includeTools'>
 ): Message[] {
-  const { includeSystem = false } = options ?? {};
-  return messages.filter((msg) => !msg.hide && (includeSystem || msg.role !== 'system'));
+  const { includeSystem = false, includeTools = true } = options ?? {};
+  return messages.filter(
+    (msg) =>
+      !msg.hide && (includeSystem || msg.role !== 'system') && (includeTools || msg.role !== 'tool')
+  );
 }
 
 function getImportableMessages(messages: Message[]): Message[] {
@@ -38,7 +56,7 @@ export function formatConversationAsMarkdown(
   messages: Message[],
   options?: ExportMarkdownOptions
 ): string {
-  const { includeTimestamps = true } = options ?? {};
+  const { includeTimestamps = true, includeThinking = false } = options ?? {};
 
   const lines: string[] = [`# ${name}`, ''];
 
@@ -49,10 +67,27 @@ export function formatConversationAsMarkdown(
       header += `  \n*${msg.timestamp}*`;
     }
     lines.push(header, '');
-    lines.push(msg.content, '');
+
+    const content =
+      !includeThinking && msg.role === 'assistant' ? stripThinkingBlocks(msg.content) : msg.content;
+
+    lines.push(content, '');
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Copy a conversation's messages to the clipboard as Markdown.
+ * Returns a promise that resolves when the content is in the clipboard.
+ */
+export async function copyConversationToClipboard(
+  name: string,
+  messages: Message[],
+  options?: ExportMarkdownOptions
+): Promise<void> {
+  const markdown = formatConversationAsMarkdown(name, messages, options);
+  await navigator.clipboard.writeText(markdown);
 }
 
 /**

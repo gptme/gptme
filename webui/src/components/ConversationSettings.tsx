@@ -1,10 +1,11 @@
 import { useState, useEffect, type FC } from 'react';
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
-import { Trash, Loader2, Download } from 'lucide-react';
+import { Trash, Loader2, Download, Clipboard, Check } from 'lucide-react';
 import { conversations$ } from '@/stores/conversations';
 import {
   exportConversationAsMarkdown,
   exportConversationAsJSON,
+  copyConversationToClipboard,
   getExportableMessages,
 } from '@/utils/exportConversation';
 import { toast } from 'sonner';
@@ -107,6 +108,10 @@ interface ConversationSettingsProps {
 
 export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversationId }) => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  // Export detail-level options
+  const [includeThinking, setIncludeThinking] = useState(false);
+  const [includeTools, setIncludeTools] = useState(true);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const {
     form,
     toolFields,
@@ -425,7 +430,74 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
               {/* Export */}
               <div className="mt-8 space-y-4">
                 <h3 className="text-lg font-medium">Export</h3>
-                <div className="flex gap-2">
+
+                {/* Detail level toggles */}
+                <div className="space-y-2 rounded-lg border px-3 py-2 shadow-sm">
+                  <p className="text-xs font-medium text-muted-foreground">Detail level</p>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <p className="text-sm">Include thinking blocks</p>
+                      <p className="text-xs text-muted-foreground">
+                        Show reasoning inside &lt;thinking&gt; tags
+                      </p>
+                    </div>
+                    <Switch checked={includeThinking} onCheckedChange={setIncludeThinking} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <p className="text-sm">Include tool calls &amp; results</p>
+                      <p className="text-xs text-muted-foreground">
+                        Show tool invocations and their output
+                      </p>
+                    </div>
+                    <Switch checked={includeTools} onCheckedChange={setIncludeTools} />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {/* Copy to clipboard */}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      const conv = conversations$.get(conversationId)?.get();
+                      if (!conv?.data?.log?.length) {
+                        toast.error('No messages to copy');
+                        return;
+                      }
+                      const exportableMessages = getExportableMessages(conv.data.log, {
+                        includeTools,
+                      });
+                      if (!exportableMessages.length) {
+                        toast.error('No visible messages to copy');
+                        return;
+                      }
+                      try {
+                        await copyConversationToClipboard(
+                          conv.data.name || conversationId,
+                          exportableMessages,
+                          { includeThinking, includeTools }
+                        );
+                        setCopyState('copied');
+                        toast.success('Copied to clipboard');
+                        setTimeout(() => setCopyState('idle'), 2000);
+                      } catch {
+                        setCopyState('error');
+                        toast.error('Failed to copy — try Download instead');
+                        setTimeout(() => setCopyState('idle'), 2000);
+                      }
+                    }}
+                  >
+                    {copyState === 'copied' ? (
+                      <Check className="mr-2 h-4 w-4 text-green-600" />
+                    ) : (
+                      <Clipboard className="mr-2 h-4 w-4" />
+                    )}
+                    {copyState === 'copied' ? 'Copied!' : 'Copy'}
+                  </Button>
+
+                  {/* Download as Markdown */}
                   <Button
                     type="button"
                     variant="outline"
@@ -437,7 +509,9 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                         return;
                       }
 
-                      const exportableMessages = getExportableMessages(conv.data.log);
+                      const exportableMessages = getExportableMessages(conv.data.log, {
+                        includeTools,
+                      });
                       if (!exportableMessages.length) {
                         toast.error('No visible messages to export');
                         return;
@@ -446,14 +520,17 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                       exportConversationAsMarkdown(
                         conversationId,
                         conv.data.name || conversationId,
-                        exportableMessages
+                        exportableMessages,
+                        { includeThinking, includeTools }
                       );
                       toast.success('Exported as Markdown');
                     }}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    Markdown
+                    Download .md
                   </Button>
+
+                  {/* Download as JSON */}
                   <Button
                     type="button"
                     variant="outline"
@@ -473,7 +550,7 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                     }}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    JSON
+                    Download .json
                   </Button>
                 </div>
               </div>
