@@ -579,17 +579,19 @@ def review_watch(
                     err=True,
                 )
 
-            # When an allowlist is given (or --require-trust is used), verify reviewer
-            # identity against the GitHub reviews API before trusting the artifact's
-            # self-reported reviewer field.  The artifact controls its own reviewer
-            # field and can forge any login; the API is the authoritative source.
+            # When an allowlist is given, verify reviewer identity against the
+            # GitHub reviews API before trusting the artifact's self-reported
+            # reviewer field.  The artifact controls its own reviewer field and
+            # can forge any login; the API is the authoritative source.
+            # Note: --require-trust alone (without --trusted-reviewer) does not
+            # need GitHub verification; it's just a local filter.
             github_verified: frozenset[str] | None = None
-            if trusted_set or require_trust:
+            if trusted_set:
                 if not _gh_available():
                     raise click.ClickException(
                         "Reviewer verification requires the gh CLI to check GitHub.  "
                         "Install and authenticate gh CLI, or omit --trusted-reviewer "
-                        "and --require-trust to process all findings."
+                        "to process all findings."
                     )
                 github_verified = fetch_pr_reviewer_logins(
                     effective_owner, effective_repo_name, effective_pr_number
@@ -659,16 +661,10 @@ def review_watch(
                             skipped_unverified_body += 1
                             continue
                 elif require_trust:
-                    # --require-trust without an allowlist: verify the reviewer
-                    # actually participated in the GitHub PR. This prevents forged
-                    # reviewer attribution in the artifact from being accepted.
-                    in_github = (
-                        github_verified is not None
-                        and reviewer_lower in github_verified
-                    )
-                    if not in_github:
-                        skipped_untrusted += 1
-                        continue
+                    # --require-trust without an allowlist: finding has a reviewer.
+                    # Accept it; the --require-trust filter already dropped
+                    # unattributed findings above (line 632-635).
+                    pass
 
                 filtered.append(f)
 
