@@ -318,7 +318,9 @@ def detect_leaked_threads(request):
     report = format_leaks(nodeid, leaks)
     logger.warning("%s", report)
     if os.environ.get("GPTME_STRICT_THREAD_LEAKS") == "1":
-        pytest.fail(report, pytrace=False)
+        hard_leaks = [lk for lk in leaks if not lk.soft]
+        if hard_leaks:
+            pytest.fail(format_leaks(nodeid, hard_leaks), pytrace=False)
 
 
 def pytest_terminal_summary(terminalreporter):

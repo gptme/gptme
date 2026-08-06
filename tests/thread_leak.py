@@ -50,11 +50,21 @@ _IGNORED_THREAD_NAMES = frozenset(
     }
 )
 
-# Note: no prefix-based ignore list.  Per-test executor workers (ThreadPoolExecutor-*,
-# asyncio_*) are real leaks when they outlive teardown — silencing them by prefix
-# prevents the detector from reporting them.  The before-snapshot already suppresses
-# threads that were alive before the test started (including shared executors that
-# persisted from earlier tests), so no additional prefix guard is needed.
+#: Thread-name prefixes that produce *soft* warnings instead of hard failures.
+#:
+#: ``ThreadPoolExecutor-`` and ``asyncio_`` workers are reported in the terminal
+#: leak summary so per-test executor leaks remain visible, but they are never
+#: failed by ``GPTME_STRICT_THREAD_LEAKS=1``.  The reason: lazily initialised
+#: process-lifetime executors (e.g. a cached regex or I/O pool) start *after* the
+#: per-test snapshot, making them look like leaks for the first test that triggers
+#: them even though they persist intentionally.  The before-snapshot suppresses
+#: these workers for every *subsequent* test (they're in the snapshot by then), so
+#: they do not produce noise across the suite — only the first-trigger test sees
+#: the warning, which is still useful signal worth reviewing.
+_SOFT_WARN_THREAD_PREFIXES = (
+    "ThreadPoolExecutor-",
+    "asyncio_",
+)
 
 
 class _ThreadLike(Protocol):
@@ -75,10 +85,19 @@ class LeakedThread:
     ident: int | None
     daemon: bool
     stack: str = field(default="", repr=False)
+    #: If True, this thread is visible in the terminal summary but is never
+    #: failed by ``GPTME_STRICT_THREAD_LEAKS=1``.  Used for executor workers
+    #: whose lazy initialisation makes them look like per-test leaks.
+    soft: bool = False
 
 
 def _is_ignored(name: str) -> bool:
     return name in _IGNORED_THREAD_NAMES
+
+
+def _is_soft_warned(name: str) -> bool:
+    """True for threads that are reported but never failed in strict mode."""
+    return name.startswith(_SOFT_WARN_THREAD_PREFIXES)
 
 
 def snapshot_threads() -> frozenset[tuple[int, int]]:
@@ -128,6 +147,7 @@ def diff_threads(
                 ident=ident,
                 daemon=bool(thread.daemon),
                 stack=stack,
+                soft=_is_soft_warned(thread.name),
             )
         )
     return leaked

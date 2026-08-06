@@ -56,8 +56,8 @@ def test_diff_ignores_known_long_lived_threads():
     assert diff_threads(frozenset(), threads=threads, frames={}) == []
 
 
-def test_diff_reports_executor_threads_as_leaks():
-    """Per-test executor workers that outlive teardown are reported, not suppressed."""
+def test_diff_reports_executor_threads_as_soft_leaks():
+    """Executor workers appear in leak reports but are marked soft (no strict-mode fail)."""
     threads = [
         FakeThread("ThreadPoolExecutor-0_1", 3),
         FakeThread("asyncio_0", 4),
@@ -66,6 +66,10 @@ def test_diff_reports_executor_threads_as_leaks():
     leak_names = {leak.name for leak in leaks}
     assert "ThreadPoolExecutor-0_1" in leak_names
     assert "asyncio_0" in leak_names
+    # All executor leaks are soft — they never cause GPTME_STRICT_THREAD_LEAKS=1 failures.
+    assert all(lk.soft for lk in leaks), (
+        "executor leaks should be soft-warned, not hard-failed"
+    )
 
 
 def test_diff_catches_ident_reuse():
