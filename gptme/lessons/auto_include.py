@@ -216,18 +216,33 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
         lessons_idx = list(parts).index("lessons")
         candidate_keys = ["/".join(parts[lessons_idx + 1 :]).removesuffix(".md")]
     except ValueError:
-        # No "lessons" dir component (custom lesson root). We don't know where
-        # the configured root ends, so try every suffix depth — stem,
-        # parent/stem, grandparent/parent/stem, ... — and check them all, so
-        # nested categories (e.g. /opt/guidance/patterns/sub/foo.md →
-        # "patterns/sub/foo") match instead of only the immediate parent
-        # (which would collapse to "sub/foo" and lose "patterns").
-        stem = path.stem
-        max_dirs = len(parts) - 1  # directory components available (excludes filename)
-        candidate_keys = [
-            "/".join((*parts[-(depth + 1) : -1], stem)) if depth > 0 else stem
-            for depth in range(0, max_dirs + 1)
-        ]
+        # No "lessons" dir component (custom lesson root).
+        # If the manifest declares its `root`, use exact relative-path matching to
+        # prevent shorter-suffix false positives from unrelated roots.
+        manifest_root_str = manifest.get("root") if isinstance(manifest, dict) else None
+        if manifest_root_str:
+            try:
+                rel = path.relative_to(Path(manifest_root_str))
+                candidate_keys = [str(rel.with_suffix("")).replace("\\", "/")]
+            except ValueError:
+                # Path is outside the declared root — it belongs to a different
+                # lesson tree and must not inherit entries from this manifest.
+                if manifest.get("_manifest_missing"):
+                    return "holdout", policy_version
+                return "unknown", policy_version
+        else:
+            # No root anchor and no "lessons" dir component. Try every suffix
+            # depth so nested categories still match (e.g. /opt/guidance/patterns/
+            # sub/foo.md → "patterns/sub/foo"). Known limitation: a short manifest
+            # key (e.g. "foo") can accidentally match an unrelated lesson at a
+            # different custom root. Set `root:` in the manifest to eliminate
+            # false positives.
+            stem = path.stem
+            max_dirs = len(parts) - 1  # directory components (excludes filename)
+            candidate_keys = [
+                "/".join((*parts[-(depth + 1) : -1], stem)) if depth > 0 else stem
+                for depth in range(0, max_dirs + 1)
+            ]
 
     # Build a lookup from manifest key → policy class so we can pick the
     # most specific (longest) matching suffix first, regardless of class order.

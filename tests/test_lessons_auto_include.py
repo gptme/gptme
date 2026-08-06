@@ -740,3 +740,74 @@ def test_dropout_log_matched_has_policy_fields(monkeypatch, tmp_path):
     assert entry["policy_version"] == 1
     assert "path" in entry
     assert "title" in entry
+
+
+# --- Manifest root-anchored classification (Greptile finding) ---
+
+
+def _make_manifest_file_with_root(tmp_path: Path, root: str, **categories) -> Path:
+    """Write a manifest YAML with a root field and return its path."""
+    lines = ["version: 1", "updated_at: ''", f"root: {root}"]
+    for cat in ("validated_core", "exempt", "holdout_population"):
+        lines.append(f"{cat}:")
+        lines.extend(f"- {item}" for item in categories.get(cat, []))
+    p = tmp_path / "manifest.yaml"
+    p.write_text("\n".join(lines) + "\n")
+    return p
+
+
+def test_classify_lesson_manifest_root_exact_match(monkeypatch, tmp_path):
+    """When manifest declares a root, classify via exact relative-path lookup."""
+    _reset_manifest_cache(monkeypatch)
+    root_dir = tmp_path / "custom-lessons"
+    root_dir.mkdir()
+    p = _make_manifest_file_with_root(
+        tmp_path,
+        root=str(root_dir),
+        validated_core=["patterns/foo"],
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    policy_class, _ = _classify_lesson(str(root_dir / "patterns" / "foo.md"))
+    assert policy_class == "validated_core"
+
+
+def test_classify_lesson_manifest_root_outside_root_returns_unknown(
+    monkeypatch, tmp_path
+):
+    """Path outside the manifest root must not match manifest entries (no suffix false-positive)."""
+    _reset_manifest_cache(monkeypatch)
+    root_a = tmp_path / "root-a"
+    root_a.mkdir()
+    root_b = tmp_path / "root-b"
+    root_b.mkdir()
+    # Manifest is anchored to root_a with key "patterns/foo"
+    p = _make_manifest_file_with_root(
+        tmp_path,
+        root=str(root_a),
+        validated_core=["patterns/foo"],
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    # Lesson at root_b shares the same relative suffix — must NOT inherit the class
+    policy_class, _ = _classify_lesson(str(root_b / "patterns" / "foo.md"))
+    assert policy_class == "unknown"  # manifest exists but path is outside root
+
+
+def test_classify_lesson_manifest_root_prevents_short_key_false_positive(
+    monkeypatch, tmp_path
+):
+    """Short stem-only manifest key must not match a lesson at a different custom root."""
+    _reset_manifest_cache(monkeypatch)
+    root_a = tmp_path / "root-a"
+    root_a.mkdir()
+    root_b = tmp_path / "root-b"
+    root_b.mkdir()
+    # Manifest anchored to root_a with a stem-only key "foo"
+    p = _make_manifest_file_with_root(
+        tmp_path,
+        root=str(root_a),
+        validated_core=["foo"],
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    # A lesson at root_b with the same stem must not inherit validated_core
+    policy_class, _ = _classify_lesson(str(root_b / "sub" / "foo.md"))
+    assert policy_class == "unknown"
