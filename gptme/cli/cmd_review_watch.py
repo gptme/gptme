@@ -301,12 +301,17 @@ def _verify_comment_reviewer(
     repo: str,
     comment_id: int,
     expected_reviewer: str,
-) -> bool:
-    """Verify a PR review comment belongs to the claimed reviewer via GitHub API.
+    expected_body: str = "",
+) -> tuple[bool, str]:
+    """Verify a PR review comment belongs to the claimed reviewer and has matching body.
 
-    Fetches the comment and compares ``user.login`` case-insensitively.
-    Returns ``False`` when the API is unavailable or the login does not match,
-    so callers fail closed on network errors.
+    Fetches the comment and compares:
+    1. ``user.login`` case-insensitively
+    2. Comment body contains or matches the artifact finding body (if provided)
+
+    Returns (verified, body) where verified is True only if login matches and
+    body is authentic. When verification fails, body is empty string.
+    Fails closed on network errors or mismatches.
     """
     data = run_gh_json(
         ["gh", "api", f"repos/{owner}/{repo}/pulls/comments/{comment_id}"],
@@ -318,7 +323,7 @@ def _verify_comment_reviewer(
             "rejecting finding as unverifiable.",
             comment_id,
         )
-        return False
+        return False, ""
 
     actual_login = data.get("user", {}).get("login", "")
     if actual_login.lower() != expected_reviewer.lower():
@@ -329,8 +334,22 @@ def _verify_comment_reviewer(
             expected_reviewer,
             actual_login,
         )
-        return False
-    return True
+        return False, ""
+
+    # Verify the comment body if one was expected
+    comment_body = data.get("body", "")
+    if expected_body:
+        # For security, the artifact body must appear verbatim in the GitHub comment
+        # to prove it came from the reviewer and wasn't fabricated.
+        if expected_body not in comment_body:
+            logger.warning(
+                "GitHub comment %d body mismatch: artifact body not found in "
+                "reviewer's actual comment; rejecting finding (prevents forgery).",
+                comment_id,
+            )
+            return False, ""
+
+    return True, comment_body
 
 
 def _filter_findings_by_trusted_reviewers(
@@ -370,13 +389,15 @@ def _filter_findings_by_trusted_reviewers(
             continue
 
         if f.github_comment_id and owner and repo:
-            # Verify attribution against GitHub — reject on mismatch or API error.
-            if not _verify_comment_reviewer(
+            # Verify attribution and body against GitHub — reject on mismatch or API error.
+            verified, _body = _verify_comment_reviewer(
                 owner=owner,
                 repo=repo,
                 comment_id=f.github_comment_id,
                 expected_reviewer=f.reviewer,
-            ):
+                expected_body=f.body,  # Verify the finding body matches the comment
+            )
+            if not verified:
                 continue
         elif f.github_comment_id and not (owner and repo):
             logger.debug(
