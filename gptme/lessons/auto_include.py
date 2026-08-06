@@ -231,9 +231,17 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
         # Declared root: use exact relative-path matching for ALL paths (including
         # those that happen to contain a "lessons" dir component).
         try:
-            rel = path.relative_to(Path(manifest_root_str))
+            # Resolve to absolute so a relative `root:` value (e.g. `root: lessons`)
+            # works correctly when the lesson path is absolute. Python's
+            # Path.relative_to() raises ValueError if the base is relative but the
+            # target is absolute, misclassifying every valid in-root lesson.
+            manifest_root = Path(manifest_root_str)
+            if not manifest_root.is_absolute():
+                manifest_root = manifest_root.resolve()
+            abs_path = path if path.is_absolute() else path.resolve()
+            rel = abs_path.relative_to(manifest_root)
             candidate_keys = [str(rel.with_suffix("")).replace("\\", "/")]
-        except ValueError:
+        except (ValueError, OSError):
             # Path is outside the declared root — it belongs to a different lesson
             # tree and must not inherit entries from this manifest.
             if manifest.get("_manifest_missing"):

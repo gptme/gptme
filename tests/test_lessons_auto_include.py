@@ -881,3 +881,32 @@ def test_classify_lesson_manifest_root_prevents_short_key_false_positive(
     # A lesson at root_b with the same stem must not inherit validated_core
     policy_class, _ = _classify_lesson(str(root_b / "sub" / "foo.md"))
     assert policy_class == "unknown"
+
+
+def test_classify_lesson_relative_manifest_root(monkeypatch, tmp_path):
+    """A relative `root:` in the manifest is resolved against CWD so absolute
+    lesson paths under that root are classified correctly.
+
+    Regression for: `Path(abs_lesson).relative_to(Path("lessons"))` raises
+    ValueError because an absolute target can't be made relative to a relative
+    base — causing every valid in-root lesson to fall through to 'unknown'.
+    """
+    _reset_manifest_cache(monkeypatch)
+    lessons_dir = tmp_path / "lessons"
+    (lessons_dir / "patterns").mkdir(parents=True)
+    lesson = lessons_dir / "patterns" / "foo.md"
+    lesson.write_text("# Foo\n")
+
+    manifest_file = tmp_path / "manifest.yaml"
+    # `root: lessons` — a relative path, not an absolute one
+    manifest_file.write_text(
+        "version: 1\nupdated_at: ''\nroot: lessons\n"
+        "validated_core:\n- patterns/foo\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # CWD = tmp_path so "lessons" resolves to tmp_path/lessons
+    monkeypatch.chdir(tmp_path)
+
+    policy_class, _ = _classify_lesson(str(lesson))
+    assert policy_class == "validated_core"
