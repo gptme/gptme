@@ -547,6 +547,7 @@ def test_get_toolchain_warns_when_plain_allowlist_excludes_mcp_tools(caplog):
         patch.object(gptme.tools, "_warned_mcp_allowlists", set()),
         caplog.at_level("WARNING", logger="gptme.tools"),
     ):
+        caplog.clear()  # isolate from warnings emitted by prior tests/fixtures
         tools = get_toolchain(["save"], strict=True)
         repeated_tools = get_toolchain(["save"], strict=True)
 
