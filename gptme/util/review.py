@@ -122,6 +122,15 @@ class ReviewFinding:
         )
 
 
+class ReviewStatus(str, Enum):
+    """Status of a review pass indicating whether it completed fully."""
+
+    COMPLETE = "complete"
+    """Review completed successfully and all findings were extracted cleanly."""
+    INCOMPLETE = "incomplete"
+    """Review session failed or timed out, but some findings were extracted from partial output."""
+
+
 @dataclass
 class ReviewArtifact:
     """Structured output of a review pass, consumed by review-watch.
@@ -136,8 +145,9 @@ class ReviewArtifact:
     Example JSON schema::
 
         {
-          "schema_version": 1,
+          "schema_version": 2,
           "pr": {"owner": "gptme", "repo": "gptme", "number": 1234},
+          "review_status": "complete",
           "findings": [
             {
               "body": "This variable name is unclear.",
@@ -160,8 +170,23 @@ class ReviewArtifact:
     #: Findings from the review pass.
     findings: list[ReviewFinding] = field(default_factory=list)
 
+    #: Whether the review completed fully or was interrupted.
+    review_status: ReviewStatus = ReviewStatus.COMPLETE
+
+    #: Exit reason from the reviewer session ("done", "error", "timeout").
+    session_exit_reason: str = ""
+
+    #: Error message from the reviewer session, if any.
+    session_error: str = ""
+
+    #: Duration of the review session in seconds.
+    review_duration_s: float = 0.0
+
+    #: Number of findings entries that were skipped due to validation errors.
+    validation_errors: int = 0
+
     #: Schema version for forward-compatibility.
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
 
     # ------------------------------------------------------------------
     # Derived views
@@ -192,6 +217,11 @@ class ReviewArtifact:
                 "repo": self.pr_repo,
                 "number": self.pr_number,
             },
+            "review_status": self.review_status.value,
+            "session_exit_reason": self.session_exit_reason,
+            "session_error": self.session_error,
+            "review_duration_s": self.review_duration_s,
+            "validation_errors": self.validation_errors,
             "findings": [f.to_dict() for f in self.findings],
         }
 
@@ -205,11 +235,21 @@ class ReviewArtifact:
     @classmethod
     def from_dict(cls, d: dict) -> ReviewArtifact:
         pr = d.get("pr", {})
+        review_status_raw = d.get("review_status", ReviewStatus.COMPLETE.value)
+        try:
+            review_status = ReviewStatus(review_status_raw)
+        except ValueError:
+            review_status = ReviewStatus.COMPLETE
         return cls(
             pr_owner=pr.get("owner", ""),
             pr_repo=pr.get("repo", ""),
             pr_number=int(pr.get("number", 0)),
             findings=[ReviewFinding.from_dict(f) for f in d.get("findings", [])],
+            review_status=review_status,
+            session_exit_reason=d.get("session_exit_reason", ""),
+            session_error=d.get("session_error", ""),
+            review_duration_s=float(d.get("review_duration_s", 0.0)),
+            validation_errors=int(d.get("validation_errors", 0)),
         )
 
     @classmethod

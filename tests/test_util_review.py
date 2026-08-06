@@ -20,6 +20,7 @@ from gptme.util.review import (
     FindingStatus,
     ReviewArtifact,
     ReviewFinding,
+    ReviewStatus,
 )
 
 # ---------------------------------------------------------------------------
@@ -242,7 +243,7 @@ class TestReviewArtifact:
     def test_schema_version(self):
         a = self._make_artifact()
         d = a.to_dict()
-        assert d["schema_version"] == 1
+        assert d["schema_version"] == 2
 
     def test_pr_metadata(self):
         a = self._make_artifact()
@@ -740,9 +741,12 @@ Reviewed the diff carefully.
     def test_extract_findings_parses_valid_block(self):
         from gptme.cli.cmd_review_pr import _extract_findings_from_output
 
-        findings = _extract_findings_from_output(self._SESSION_OUTPUT_WITH_FINDINGS)
+        findings, validation_errors = _extract_findings_from_output(
+            self._SESSION_OUTPUT_WITH_FINDINGS
+        )
         assert findings is not None
         assert len(findings) == 1
+        assert validation_errors == 0
         f = findings[0]
         assert "None without documentation" in f.body
         assert f.file == "gptme/util/review.py"
@@ -752,43 +756,58 @@ Reviewed the diff carefully.
     def test_extract_findings_empty_array(self):
         from gptme.cli.cmd_review_pr import _extract_findings_from_output
 
-        findings = _extract_findings_from_output(self._SESSION_OUTPUT_NO_FINDINGS)
+        findings, validation_errors = _extract_findings_from_output(
+            self._SESSION_OUTPUT_NO_FINDINGS
+        )
         assert findings == []
+        assert validation_errors == 0
 
     def test_extract_findings_no_block_returns_none(self):
         from gptme.cli.cmd_review_pr import _extract_findings_from_output
 
-        result = _extract_findings_from_output(self._SESSION_OUTPUT_NO_BLOCK)
-        assert result is None
+        findings, validation_errors = _extract_findings_from_output(
+            self._SESSION_OUTPUT_NO_BLOCK
+        )
+        assert findings is None
+        assert validation_errors == 0
 
     def test_extract_findings_invalid_json_returns_none(self):
         from gptme.cli.cmd_review_pr import _extract_findings_from_output
 
-        result = _extract_findings_from_output("```json\nnot json\n```")
-        assert result is None
+        findings, validation_errors = _extract_findings_from_output(
+            "```json\nnot json\n```"
+        )
+        assert findings is None
+        assert validation_errors == 0
 
     def test_extract_findings_wrong_schema_skips_block(self):
         from gptme.cli.cmd_review_pr import _extract_findings_from_output
 
         # JSON block without "findings" key is skipped.
-        result = _extract_findings_from_output('```json\n{"other": true}\n```')
-        assert result is None
+        findings, validation_errors = _extract_findings_from_output(
+            '```json\n{"other": true}\n```'
+        )
+        assert findings is None
+        assert validation_errors == 0
 
     def test_extract_findings_bad_severity_defaults_to_warning(self):
         from gptme.cli.cmd_review_pr import _extract_findings_from_output
 
         output = '```json\n{"findings": [{"body": "x", "severity": "bogus"}]}\n```'
-        findings = _extract_findings_from_output(output)
+        findings, validation_errors = _extract_findings_from_output(output)
         assert findings is not None
+        assert len(findings) == 1
+        assert validation_errors == 0
         assert findings[0].severity == FindingSeverity.WARNING
 
     def test_extract_findings_missing_body_skips_item(self):
         from gptme.cli.cmd_review_pr import _extract_findings_from_output
 
         output = '```json\n{"findings": [{"file": "foo.py", "line": 1}]}\n```'
-        findings = _extract_findings_from_output(output)
+        findings, validation_errors = _extract_findings_from_output(output)
         # Item has no body → skipped → empty list, not None
         assert findings == []
+        assert validation_errors == 1
 
     def test_extract_findings_non_string_body_skips_item(self):
         """A truthy non-string body (e.g. integer) must not crash .strip()."""
@@ -796,32 +815,41 @@ Reviewed the diff carefully.
 
         # body is an integer — truthy but not a string; .strip() would raise
         output = '```json\n{"findings": [{"body": 42, "file": "foo.py"}]}\n```'
-        findings = _extract_findings_from_output(output)
+        findings, validation_errors = _extract_findings_from_output(output)
         # Non-string body → skipped → empty list, not AttributeError
         assert findings == []
+        assert validation_errors == 1
 
         # body is a list — also truthy non-string
         output2 = '```json\n{"findings": [{"body": ["line1", "line2"]}]}\n```'
-        findings2 = _extract_findings_from_output(output2)
+        findings2, validation_errors2 = _extract_findings_from_output(output2)
         assert findings2 == []
+        assert validation_errors2 == 1
 
     def test_extract_findings_non_list_container_skips_block(self):
         """When findings key is not a list (null, int, dict), the block is skipped."""
         from gptme.cli.cmd_review_pr import _extract_findings_from_output
 
         # null findings — iterating would raise TypeError
-        result_null = _extract_findings_from_output('```json\n{"findings": null}\n```')
-        assert result_null is None
+        findings_null, errors_null = _extract_findings_from_output(
+            '```json\n{"findings": null}\n```'
+        )
+        assert findings_null is None
+        assert errors_null == 0
 
         # integer findings — also not iterable as items
-        result_int = _extract_findings_from_output('```json\n{"findings": 42}\n```')
-        assert result_int is None
+        findings_int, errors_int = _extract_findings_from_output(
+            '```json\n{"findings": 42}\n```'
+        )
+        assert findings_int is None
+        assert errors_int == 0
 
         # dict findings — iterating gives keys (strings), not finding dicts
-        result_dict = _extract_findings_from_output(
+        findings_dict, errors_dict = _extract_findings_from_output(
             '```json\n{"findings": {"body": "a problem"}}\n```'
         )
-        assert result_dict is None
+        assert findings_dict is None
+        assert errors_dict == 0
 
     # ------------------------------------------------------------------
     # _build_review_prompt
@@ -1118,10 +1146,83 @@ Reviewed the diff carefully.
             util_main,
             ["review", "pr", "8", "--repo", "owner/repo", "--diff", str(diff_file)],
         )
-        # Partial output with a valid block → still usable
+        # Partial output with a valid block → still usable but marked INCOMPLETE
         assert result.exit_code == 0, result.output
         artifact = self._parse_artifact(result.output)
         assert len(artifact.findings) == 1
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.session_exit_reason == "timeout"
+        assert "max_turns" in artifact.session_error
+
+    def test_successful_session_with_malformed_findings_marked_incomplete(
+        self, tmp_path, monkeypatch
+    ):
+        """A successful session with malformed findings is marked INCOMPLETE."""
+        from gptme.cli import cmd_review_pr
+
+        malformed_output = """\
+```json
+{
+  "findings": [
+    {"body": "Good finding", "file": "a.py"},
+    {"body": 42, "file": "b.py"},
+    {"body": "Another good one", "file": "c.py"}
+  ]
+}
+```
+"""
+
+        def fake_spawn_malformed(**kwargs):
+            # Session completed but had malformed entries
+            return malformed_output, {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(
+            cmd_review_pr, "_spawn_review_session", fake_spawn_malformed
+        )
+
+        diff_file = tmp_path / "pr.diff"
+        diff_file.write_text(self._SAMPLE_DIFF)
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            ["review", "pr", "9", "--repo", "owner/repo", "--diff", str(diff_file)],
+        )
+        assert result.exit_code == 0, result.output
+        artifact = self._parse_artifact(result.output)
+        # 2 good findings extracted, 1 malformed skipped
+        assert len(artifact.findings) == 2
+        assert artifact.validation_errors == 1
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        # Session succeeded but validation errors mark it INCOMPLETE
+        assert artifact.session_exit_reason == "done"
+
+    def test_successful_clean_review_marked_complete(self, tmp_path, monkeypatch):
+        """A successful session with no validation errors is marked COMPLETE."""
+        from gptme.cli import cmd_review_pr
+
+        def fake_spawn_clean(**kwargs):
+            # Perfect session: no errors, valid findings
+            return self._SESSION_OUTPUT_WITH_FINDINGS, {
+                "exit_reason": "done",
+                "duration_s": 0.1,
+            }
+
+        monkeypatch.setattr(cmd_review_pr, "_spawn_review_session", fake_spawn_clean)
+
+        diff_file = tmp_path / "pr.diff"
+        diff_file.write_text(self._SAMPLE_DIFF)
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            ["review", "pr", "10", "--repo", "owner/repo", "--diff", str(diff_file)],
+        )
+        assert result.exit_code == 0, result.output
+        artifact = self._parse_artifact(result.output)
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert artifact.session_exit_reason == "done"
+        assert artifact.validation_errors == 0
 
     # ------------------------------------------------------------------
     # Pipeline integration: review pr → review watch
