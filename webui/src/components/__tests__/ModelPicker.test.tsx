@@ -159,4 +159,20 @@ describe('ModelPicker — custom model ID entry', () => {
 
     expect(screen.queryByText('Use this model ID directly')).not.toBeInTheDocument();
   });
+
+  it('calls onSelect with verbatim input including leading/trailing whitespace', async () => {
+    const user = userEvent.setup();
+    renderPicker(onSelect);
+
+    const input = screen.getByPlaceholderText('Search models or enter model ID...');
+    const customId = '  openrouter/deepseek/deepseek-v4  ';
+    await user.type(input, customId);
+
+    const customItem = screen.getByText('Use this model ID directly');
+    await user.click(customItem);
+
+    await waitFor(() => {
+      expect(onSelect).toHaveBeenCalledWith(customId);
+    });
+  });
 });

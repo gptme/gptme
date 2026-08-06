@@ -177,10 +177,11 @@ const ModelCommandList: FC<{
 
         {/* Custom model ID entry — shown when the typed text isn't a known model.
             Useful for specifying exact OpenRouter subproviders or any model not
-            in the curated list. The ID is passed through verbatim. */}
+            in the curated list. The ID is passed through verbatim (including
+            leading/trailing whitespace). */}
         {showCustomEntry && (
           <CommandGroup heading="Custom model ID">
-            <CommandItem value={customId} onSelect={() => onSelect(customId)}>
+            <CommandItem value={customId} onSelect={() => onSelect(search)}>
               <div className="flex items-center gap-2">
                 <Keyboard className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="flex min-w-0 flex-col">
