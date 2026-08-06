@@ -256,8 +256,12 @@ class ReviewArtifact:
 
         # Deserialise findings one-by-one so a malformed entry does not crash the
         # whole load.  Each validation error downgrades the artifact to INCOMPLETE.
-        stored_validation_errors = int(d.get("validation_errors", 0))
         deserialization_errors = 0
+        try:
+            stored_validation_errors = int(d.get("validation_errors", 0))
+        except (TypeError, ValueError):
+            stored_validation_errors = 0
+            deserialization_errors += 1
         findings: list[ReviewFinding] = []
         findings_raw = d.get("findings", [])
         if not isinstance(findings_raw, list):
