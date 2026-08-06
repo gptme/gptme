@@ -573,6 +573,44 @@ class TestInterruptEndpoint:
         assert session.generating is False
         assert len(session.pending_tools) == 0
 
+    def test_interrupt_sets_interrupted_flag(self, conv, client: FlaskClient):
+        """Interrupt sets session.interrupted so execute_tool_thread won't auto-step."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+
+        # Simulate a tool mid-execution: the tool has been pop'd from pending_tools
+        # (so generating=False and pending_tools is empty), but the tool thread
+        # is still running.  Interrupt fires in this window.
+        session.generating = False
+        session.interrupted = False
+
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/interrupt",
+            json={"session_id": conv["session_id"]},
+        )
+
+        assert response.status_code == 200
+        assert session.interrupted is True
+
+    def test_step_clears_interrupted_flag(self, conv, client: FlaskClient):
+        """A new explicit /step request clears the interrupted flag."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.interrupted = True
+
+        # /step will fail (no model), but the flag should be cleared inside the lock
+        # before the error path is reached.
+        with patch("gptme.server.api_v2_sessions.get_default_model", return_value=None):
+            client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/step",
+                json={
+                    "session_id": conv["session_id"],
+                    "model": "openai/gpt-4o",
+                },
+            )
+
+        assert session.interrupted is False
+
 
 # --- Tool confirm endpoint tests ---
 

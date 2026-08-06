@@ -405,6 +405,7 @@ def api_conversation_step(conversation_id: str):
             start_acp_health_monitor()
         session.generating = True
         session.generating_since = datetime.now(tz=timezone.utc)
+        session.interrupted = False  # clear any prior interrupt on explicit /step
 
     # Wrap setup in try/finally so any unexpected exception (get_default_model,
     # config I/O, etc.) resets the flag rather than leaving the session
@@ -1143,9 +1144,12 @@ def api_conversation_interrupt(conversation_id: str):
             with sess.step_lock:
                 if sess.generating or sess.pending_tools:
                     interrupted = True
-                # Mark session as not generating and clear pending tools
+                # Mark session as not generating and clear pending tools.
+                # Also set interrupted so execute_tool_thread won't start a
+                # continuation step after the currently-running tool finishes.
                 sess.generating = False
                 sess.generating_since = None
+                sess.interrupted = True
                 sess.pending_tools.clear()
 
     if not interrupted:

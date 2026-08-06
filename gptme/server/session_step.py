@@ -1188,14 +1188,27 @@ def start_tool_execution(
             # With multiple tools per message, we must wait until every tool
             # has run before asking the model for a continuation.
             if not session.pending_tools:
-                _start_step_thread(
-                    conversation_id,
-                    session,
-                    model,
-                    chat_config.workspace,
-                    branch=branch,
-                    reserved=reserved,
-                )
+                if session.interrupted:
+                    # The user interrupted while this tool was executing.
+                    # The tool can't be stopped mid-execution, but we must not
+                    # start a continuation step — the interrupt should end the
+                    # agent loop here.  Release any pre-reserved generation slot.
+                    logger.debug(
+                        "Skipping auto-step after tool %s: session was interrupted",
+                        current_tool_id,
+                    )
+                    if reserved:
+                        session.generating = False
+                        session.generating_since = None
+                else:
+                    _start_step_thread(
+                        conversation_id,
+                        session,
+                        model,
+                        chat_config.workspace,
+                        branch=branch,
+                        reserved=reserved,
+                    )
             elif reserved:
                 # Pending non-auto-confirm tools remain; those need explicit client
                 # confirmation.  Release the pre-reserved generation slot so the
