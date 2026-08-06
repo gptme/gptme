@@ -1514,6 +1514,101 @@ class TestTrustedReviewerGuard:
         assert len(spawn_calls) == 1
         assert "Null pointer risk here." in spawn_calls[0]["prompt"]
 
+    def test_verify_bodies_blocks_missing_file_wildcard(self, tmp_path, monkeypatch):
+        """--verify-bodies blocks a finding that omits ``file`` when the only
+        matching body is an inline review comment (has path).
+
+        Attack: attacker takes a real inline-comment body and presents it in
+        the artifact as a PR-level finding (no ``file`` field).  A missing
+        file must NOT act as a wildcard that matches inline records — it must
+        only match conversation-level records (path=None).
+        """
+        path = self._make_artifact(
+            tmp_path,
+            [
+                {
+                    "body": "This auth check is bypassable.",
+                    "reviewer": "ErikBjare",
+                    # no 'file' key — artifact claims this is a PR-level finding
+                }
+            ],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            [
+                "--artifact",
+                str(path),
+                "--trusted-reviewer",
+                "ErikBjare",
+                "--verify-bodies",
+            ],
+            github_verified_logins=frozenset(["erikbjare"]),
+            # The real comment is an INLINE review comment (has a path), not a
+            # conversation comment.  A missing file in the artifact must not
+            # match this inline record.
+            github_comment_bodies={
+                "erikbjare": [
+                    {
+                        "body": "This auth check is bypassable.",
+                        "path": "auth.py",
+                        "line": 42,
+                    }
+                ]
+            },
+        )
+        assert result.exit_code != 0, (
+            "A finding with no file must not match an inline review comment "
+            "(missing file must not be a wildcard)"
+        )
+        assert len(spawn_calls) == 0
+
+    def test_verify_bodies_blocks_missing_line_wildcard(self, tmp_path, monkeypatch):
+        """--verify-bodies blocks a finding whose file matches but whose ``line``
+        field is absent when the real comment pinned a specific line.
+
+        Attack: attacker omits ``line`` from the artifact finding (or sets it
+        to null).  A missing line must NOT act as a wildcard that matches any
+        line in the file — it must match only records that also have no line
+        (i.e. file-level inline comments).
+        """
+        path = self._make_artifact(
+            tmp_path,
+            [
+                {
+                    "body": "SQL injection risk.",
+                    "reviewer": "ErikBjare",
+                    "file": "db.py",
+                    # no 'line' key — artifact claims file-level scope
+                }
+            ],
+        )
+        result, spawn_calls = self._run(
+            monkeypatch,
+            [
+                "--artifact",
+                str(path),
+                "--trusted-reviewer",
+                "ErikBjare",
+                "--verify-bodies",
+            ],
+            github_verified_logins=frozenset(["erikbjare"]),
+            # The real comment was at a specific line; the artifact omits the line.
+            github_comment_bodies={
+                "erikbjare": [
+                    {
+                        "body": "SQL injection risk.",
+                        "path": "db.py",
+                        "line": 77,
+                    }
+                ]
+            },
+        )
+        assert result.exit_code != 0, (
+            "A finding with no line must not match a line-specific inline comment "
+            "(missing line must not be a wildcard)"
+        )
+        assert len(spawn_calls) == 0
+
     # ------------------------------------------------------------------
     # --require-trust + gh CLI available (best-effort identity verification)
     # ------------------------------------------------------------------

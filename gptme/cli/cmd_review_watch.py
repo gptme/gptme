@@ -229,22 +229,26 @@ def _build_review_prompt(
 def _finding_location_matches_record(finding: ReviewFinding, record: dict) -> bool:
     """Return True when *finding*'s location is consistent with *record*.
 
-    A finding without a file (PR-level note) is always location-compatible.
-    A finding with a file is compatible only when the record is an inline review
-    comment on the **same file** (and, when the finding also has a line, the same
-    line).  Conversation-level comments have ``path=None`` and therefore cannot
-    authenticate a file-targeted finding.
+    **Neither a missing file nor a missing line is treated as a wildcard.**
 
-    This closes the residual forgery window that survives body-text verification:
-    an attacker could replay a real comment body while substituting an
-    attacker-controlled ``file`` / ``line`` to redirect the fix session to a
-    different code location.
+    - A finding with no ``file`` (PR-level note) must match a conversation-level
+      record (``path=None``).  It is *not* always compatible: treating it as a
+      wildcard would let an attacker replay a legitimate inline-comment body as a
+      PR-level finding, bypassing file/line validation.
+    - A finding with a ``file`` must match the record's exact path.
+    - A finding with no ``line`` must match a record that also has no line.
+      Treating a missing line as a wildcard would let an attacker omit the line
+      from the artifact and still authenticate against a line-specific inline
+      comment.
+
+    The combined invariant: ``record.path == finding_path`` and
+    ``record.line == finding.line`` (with ``None`` treated as a concrete value,
+    not a skip signal).
     """
-    if not finding.file:
-        return True  # PR-level finding; no location to validate
-    if record.get("path") != finding.file:
+    finding_path = finding.file or None  # normalise empty string → None
+    if record.get("path") != finding_path:
         return False
-    return finding.line is None or record.get("line") == finding.line
+    return record.get("line") == finding.line
 
 
 def _finding_matches_any_record(finding: ReviewFinding, records: list[dict]) -> bool:
