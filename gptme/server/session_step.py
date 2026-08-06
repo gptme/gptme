@@ -1241,13 +1241,17 @@ def start_tool_execution(
                         # cannot run until after _start_step_thread returns
                         # (which only spawns a thread — it does not re-acquire
                         # step_lock when reserved=True).
+                        # Since we're calling under step_lock, set generating=True
+                        # and pass reserved=True to avoid re-acquiring the lock.
+                        session.generating = True
+                        session.generating_since = datetime.now(tz=timezone.utc)
                         _start_step_thread(
                             conversation_id,
                             session,
                             model,
                             chat_config.workspace,
                             branch=branch,
-                            reserved=reserved,
+                            reserved=True,
                         )
             elif reserved:
                 # Pending non-auto-confirm tools remain; those need explicit client
