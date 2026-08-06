@@ -297,9 +297,9 @@ class ReviewArtifact:
         if deserialization_errors > 0 and review_status == ReviewStatus.COMPLETE:
             review_status = ReviewStatus.INCOMPLETE
 
-        # Coerce numeric metadata fields — guard against container values (list, dict …)
-        # that would otherwise raise TypeError and crash the load before the caller's
-        # (OSError, ValueError) handler can intercept it.
+        # Coerce numeric and string metadata fields — guard against container values
+        # (list, dict …) that would otherwise be stored as-is and cause type errors
+        # downstream when the artifact is used (e.g., string formatting, logging).
         try:
             pr_number_val = int(pr.get("number", 0))
         except (TypeError, ValueError):
@@ -312,14 +312,26 @@ class ReviewArtifact:
             review_duration_s = 0.0
             deserialization_errors += 1
 
-        # Re-evaluate status after coercion errors — a malformed pr.number or
-        # review_duration_s still counts as a deserialization problem.
+        # Coerce pr.owner and pr.repo to strings — if they're containers
+        # (lists, dicts), set them to empty string and count as an error.
+        pr_owner_val = pr.get("owner", "")
+        if not isinstance(pr_owner_val, str):
+            pr_owner_val = ""
+            deserialization_errors += 1
+
+        pr_repo_val = pr.get("repo", "")
+        if not isinstance(pr_repo_val, str):
+            pr_repo_val = ""
+            deserialization_errors += 1
+
+        # Re-evaluate status after coercion errors — a malformed pr.owner,
+        # pr.repo, pr.number or review_duration_s still counts as a deserialization problem.
         if deserialization_errors > 0 and review_status == ReviewStatus.COMPLETE:
             review_status = ReviewStatus.INCOMPLETE
 
         return cls(
-            pr_owner=pr.get("owner", ""),
-            pr_repo=pr.get("repo", ""),
+            pr_owner=pr_owner_val,
+            pr_repo=pr_repo_val,
             pr_number=pr_number_val,
             findings=findings,
             review_status=review_status,
