@@ -578,32 +578,47 @@ def test_classify_lesson_malformed_category_value(monkeypatch, tmp_path):
     assert policy_class2 == "unknown"
 
 
-def test_classify_lesson_custom_root_parent_key(monkeypatch, tmp_path):
-    """Custom lesson roots without a 'lessons' dir component match via parent/stem."""
+def test_classify_lesson_custom_root_no_root_returns_unknown(monkeypatch, tmp_path):
+    """Without a declared root, a path with no 'lessons' component conservatively
+    returns unknown/holdout rather than attempting suffix enumeration (which would
+    accept unrelated custom-root lessons)."""
     _reset_manifest_cache(monkeypatch)
     p = _make_manifest_file(
         tmp_path, holdout_population=["patterns/persistent-learning"]
     )
     monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
-    # Path has no 'lessons' component — parent dir is 'patterns'
+    # Path has no 'lessons' component and no root is declared — suffix enumeration
+    # is unsafe; must return unknown (manifest exists, lesson simply unclassifiable
+    # without a root anchor).
     policy_class, _ = _classify_lesson("/opt/guidance/patterns/persistent-learning.md")
-    assert policy_class == "holdout"
+    assert policy_class == "unknown"
 
 
-def test_classify_lesson_custom_root_nested_category(monkeypatch, tmp_path):
-    """Nested categories under a custom root match on the full category path,
-    not just the immediate parent directory."""
+def test_classify_lesson_custom_root_with_root_declared(monkeypatch, tmp_path):
+    """When the manifest declares a root, custom paths are classified via exact
+    relative-path lookup, including nested categories."""
     _reset_manifest_cache(monkeypatch)
-    p = _make_manifest_file(
-        tmp_path, holdout_population=["patterns/sub/persistent-learning"]
+    root_dir = tmp_path / "guidance"
+    root_dir.mkdir()
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"version: 1\nupdated_at: ''\nroot: {root_dir}\n"
+        "validated_core: []\nexempt: []\nholdout_population:\n"
+        "- patterns/persistent-learning\n"
+        "- patterns/sub/persistent-learning\n"
     )
-    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
-    # Immediate parent alone ('sub') would miss the manifest key; the full
-    # 'patterns/sub/persistent-learning' suffix must be tried too.
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # Flat category
     policy_class, _ = _classify_lesson(
-        "/opt/guidance/patterns/sub/persistent-learning.md"
+        str(root_dir / "patterns" / "persistent-learning.md")
     )
     assert policy_class == "holdout"
+    # Nested category: exact relative path 'patterns/sub/persistent-learning' matches
+    _reset_manifest_cache(monkeypatch)
+    policy_class2, _ = _classify_lesson(
+        str(root_dir / "patterns" / "sub" / "persistent-learning.md")
+    )
+    assert policy_class2 == "holdout"
 
 
 def test_classify_lesson_non_string_category_entries_ignored(monkeypatch, tmp_path):
@@ -630,25 +645,33 @@ def test_classify_lesson_non_string_category_entries_ignored(monkeypatch, tmp_pa
     assert policy_class2 == "unknown"
 
 
-def test_classify_lesson_custom_root_overlapping_suffix(monkeypatch, tmp_path):
-    """Longer (more specific) suffix wins over shorter suffix in a higher-priority class.
+def test_classify_lesson_custom_root_overlapping_suffix_with_root(
+    monkeypatch, tmp_path
+):
+    """With a declared root, exact relative-path lookup is used — 'validated_core'
+    entry 'sub/foo' cannot shadow the intended 'patterns/sub/foo' entry in
+    holdout_population because only one candidate key is produced.
 
-    Regression test for the suffix-priority bug: if 'sub/foo' is in validated_core
-    and the intended 'patterns/sub/foo' is in holdout_population, the full nested key
-    must win, not the shorter one from the earlier class.
+    Regression for the earlier suffix-priority bug: without root anchoring the
+    suffix-enumeration path would check both keys and the shorter one in a
+    higher-priority class could win. With root declared, only the exact relative
+    path is tried, so the correct class is returned.
     """
     _reset_manifest_cache(monkeypatch)
-    p = _make_manifest_file(
-        tmp_path,
-        validated_core=["sub/persistent-learning"],
-        holdout_population=["patterns/sub/persistent-learning"],
+    root_dir = tmp_path / "guidance"
+    root_dir.mkdir()
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"version: 1\nupdated_at: ''\nroot: {root_dir}\n"
+        "validated_core:\n- sub/persistent-learning\n"
+        "exempt: []\n"
+        "holdout_population:\n- patterns/sub/persistent-learning\n"
     )
-    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # Exact relative path from root is 'patterns/sub/persistent-learning' → holdout
     policy_class, _ = _classify_lesson(
-        "/opt/guidance/patterns/sub/persistent-learning.md"
+        str(root_dir / "patterns" / "sub" / "persistent-learning.md")
     )
-    # The longer key 'patterns/sub/persistent-learning' is more specific and must win
-    # over the shorter 'sub/persistent-learning' even though validated_core has priority.
     assert policy_class == "holdout"
 
 
@@ -754,6 +777,31 @@ def _make_manifest_file_with_root(tmp_path: Path, root: str, **categories) -> Pa
     p = tmp_path / "manifest.yaml"
     p.write_text("\n".join(lines) + "\n")
     return p
+
+
+def test_classify_lesson_root_check_precedes_lessons_component(monkeypatch, tmp_path):
+    """When manifest declares a root, it takes precedence over the 'lessons' heuristic.
+
+    A path that contains a 'lessons' component but is outside the declared root
+    must NOT match manifest entries. This prevents a lesson from an outside workspace
+    that happens to have a 'lessons/' directory from inheriting entries intended for
+    this root.
+    """
+    _reset_manifest_cache(monkeypatch)
+    root_dir = tmp_path / "root-a"
+    root_dir.mkdir()
+    p = _make_manifest_file_with_root(
+        tmp_path,
+        root=str(root_dir),
+        validated_core=["patterns/foo"],
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    # This path has a 'lessons' component AND shares the suffix 'patterns/foo',
+    # but it is NOT under the declared root — must return unknown, not validated_core.
+    outside_path = tmp_path / "other-workspace" / "lessons" / "patterns" / "foo.md"
+    outside_path.parent.mkdir(parents=True)
+    policy_class, _ = _classify_lesson(str(outside_path))
+    assert policy_class == "unknown"
 
 
 def test_classify_lesson_manifest_root_exact_match(monkeypatch, tmp_path):
