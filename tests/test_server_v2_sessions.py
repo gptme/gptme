@@ -636,6 +636,76 @@ class TestInterruptEndpoint:
 
         assert session.step_seq == initial_seq + 1
 
+    def test_continuation_reservation_not_cleared_by_originating_step(
+        self, conv, tmp_path
+    ):
+        """Race 5: step() finally must not clear generating when a continuation reserved it.
+
+        The tool worker increments step_seq (inside step_lock) before setting
+        generating=True for the continuation. The originating step()'s finally
+        captures step_seq at entry; a mismatch means the continuation took over
+        and we must not clear its reservation.
+        """
+
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+
+        # step_seq=1 is the value set by the /step API handler before step() runs.
+        # step() will snapshot my_step_seq=1 at entry.
+        session.step_seq = 1
+        session.generating = True
+
+        def advance_seq_then_return(*args, **kwargs):
+            """Simulate: tool continuation advanced step_seq to 2 inside step_lock."""
+            with session.step_lock:
+                session.step_seq += 1  # 1 → 2
+            return iter([])  # no tokens; step() finds no tools, exits normally
+
+        with (
+            patch(
+                "gptme.server.session_step._stream", side_effect=advance_seq_then_return
+            ),
+            patch("gptme.server.session_step.require_workspace_exists"),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", return_value=[]),
+            patch(
+                "gptme.server.session_step.prepare_messages",
+                return_value=[Message("user", "test")],
+            ),
+            patch("gptme.server.session_step._try_auto_name_and_notify"),
+            patch("gptme.server.session_step.set_workspace_cwd"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=tmp_path,
+                    max_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                ),
+            ),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+        ):
+            step(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                model="mock/model",
+                workspace=tmp_path,
+            )
+
+        # step() captured my_step_seq=1 at entry; advance_seq_then_return bumped to 2.
+        # The finally block must have seen 2 != 1 and skipped clearing generating.
+        assert session.generating is True, (
+            "Race 5: originating step() finally must not clear the "
+            "continuation's generating reservation when step_seq advanced"
+        )
+        assert session.step_seq == 2
+
 
 # --- Tool confirm endpoint tests ---
 
