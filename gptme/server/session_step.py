@@ -1201,7 +1201,6 @@ def start_tool_execution(
             # With multiple tools per message, we must wait until every tool
             # has run before asking the model for a continuation.
             if not session.pending_tools:
-                _do_start_step = False
                 with session.step_lock:
                     if session.step_seq != my_seq:
                         # Race 1: a new /step cleared our interrupted flag and
@@ -1232,17 +1231,24 @@ def start_tool_execution(
                             session.generating = False
                             session.generating_since = None
                     else:
-                        _do_start_step = True
-
-                if _do_start_step:
-                    _start_step_thread(
-                        conversation_id,
-                        session,
-                        model,
-                        chat_config.workspace,
-                        branch=branch,
-                        reserved=reserved,
-                    )
+                        # Call _start_step_thread INSIDE step_lock so the
+                        # interrupt handler cannot fire between the interrupted
+                        # check and the continuation startup.  Race 3 (late-
+                        # starting thread stealing the new /step's reservation)
+                        # is already closed by my_seq; this closes the final
+                        # window: /interrupt sets interrupted=True under
+                        # step_lock, so if we reach this branch the handler
+                        # cannot run until after _start_step_thread returns
+                        # (which only spawns a thread — it does not re-acquire
+                        # step_lock when reserved=True).
+                        _start_step_thread(
+                            conversation_id,
+                            session,
+                            model,
+                            chat_config.workspace,
+                            branch=branch,
+                            reserved=reserved,
+                        )
             elif reserved:
                 # Pending non-auto-confirm tools remain; those need explicit client
                 # confirmation.  Release the pre-reserved generation slot so the
