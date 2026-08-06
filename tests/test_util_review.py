@@ -334,6 +334,46 @@ class TestReviewArtifact:
         assert artifact.review_status == ReviewStatus.INCOMPLETE
         assert artifact.validation_errors == 1
 
+    def test_artifact_from_dict_container_status_does_not_crash(self):
+        """Container-valued review_status (list, dict) must not raise TypeError."""
+        for bad_status in [["complete", "incomplete"], {"value": "complete"}, []]:
+            data = {
+                "schema_version": 2,
+                "pr": {"owner": "o", "repo": "r", "number": 1},
+                "review_status": bad_status,
+                "findings": [{"body": "a finding", "file": "x.py", "line": 1}],
+            }
+            artifact = ReviewArtifact.from_dict(data)
+            # Container status cannot be parsed as a valid ReviewStatus → INCOMPLETE.
+            assert artifact.review_status == ReviewStatus.INCOMPLETE
+
+    def test_artifact_from_dict_container_pr_number_does_not_crash(self):
+        """Container-valued pr.number (list, dict) must not raise TypeError."""
+        for bad_number in [[1234], {"n": 1234}]:
+            data = {
+                "schema_version": 2,
+                "pr": {"owner": "o", "repo": "r", "number": bad_number},
+                "review_status": "complete",
+                "findings": [],
+            }
+            artifact = ReviewArtifact.from_dict(data)
+            assert artifact.pr_number == 0
+            assert artifact.review_status == ReviewStatus.INCOMPLETE
+
+    def test_artifact_from_dict_container_review_duration_does_not_crash(self):
+        """Container-valued review_duration_s (list, dict) must not raise TypeError."""
+        for bad_duration in [[300.0], {"seconds": 300}]:
+            data = {
+                "schema_version": 2,
+                "pr": {"owner": "o", "repo": "r", "number": 1},
+                "review_status": "complete",
+                "review_duration_s": bad_duration,
+                "findings": [],
+            }
+            artifact = ReviewArtifact.from_dict(data)
+            assert artifact.review_duration_s == 0.0
+            assert artifact.review_status == ReviewStatus.INCOMPLETE
+
     def test_from_github_comments(self):
         inline = [
             {

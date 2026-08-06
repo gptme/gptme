@@ -248,10 +248,11 @@ class ReviewArtifact:
         review_status_raw = d.get("review_status", ReviewStatus.COMPLETE.value)
         try:
             review_status = ReviewStatus(review_status_raw)
-        except ValueError:
-            # Fail-safe: an unrecognised status value is treated as INCOMPLETE rather
-            # than COMPLETE so that the review-watch guard is not silently bypassed
-            # when an artifact was produced by a newer tool version with new status values.
+        except (TypeError, ValueError):
+            # Fail-safe: an unrecognised or container-typed status value is treated as
+            # INCOMPLETE rather than COMPLETE so that the review-watch guard is not
+            # silently bypassed when an artifact was produced by a newer tool version
+            # with new status values, or when the field holds a malformed non-string value.
             review_status = ReviewStatus.INCOMPLETE
 
         # Deserialise findings one-by-one so a malformed entry does not crash the
@@ -278,15 +279,35 @@ class ReviewArtifact:
         if deserialization_errors > 0 and review_status == ReviewStatus.COMPLETE:
             review_status = ReviewStatus.INCOMPLETE
 
+        # Coerce numeric metadata fields — guard against container values (list, dict …)
+        # that would otherwise raise TypeError and crash the load before the caller's
+        # (OSError, ValueError) handler can intercept it.
+        try:
+            pr_number_val = int(pr.get("number", 0))
+        except (TypeError, ValueError):
+            pr_number_val = 0
+            deserialization_errors += 1
+
+        try:
+            review_duration_s = float(d.get("review_duration_s", 0.0))
+        except (TypeError, ValueError):
+            review_duration_s = 0.0
+            deserialization_errors += 1
+
+        # Re-evaluate status after coercion errors — a malformed pr.number or
+        # review_duration_s still counts as a deserialization problem.
+        if deserialization_errors > 0 and review_status == ReviewStatus.COMPLETE:
+            review_status = ReviewStatus.INCOMPLETE
+
         return cls(
             pr_owner=pr.get("owner", ""),
             pr_repo=pr.get("repo", ""),
-            pr_number=int(pr.get("number", 0)),
+            pr_number=pr_number_val,
             findings=findings,
             review_status=review_status,
             session_exit_reason=d.get("session_exit_reason", ""),
             session_error=d.get("session_error", ""),
-            review_duration_s=float(d.get("review_duration_s", 0.0)),
+            review_duration_s=review_duration_s,
             validation_errors=stored_validation_errors + deserialization_errors,
         )
 
