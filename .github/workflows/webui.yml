@@ -252,9 +252,6 @@ jobs:
         SCREENSHOTS_DIR: ${{ github.workspace }}/visual-snapshots
       run: npx playwright test e2e/visual-snapshots.spec.ts --reporter=dot
 
-    - name: Save PR number for downstream workflow
-      run: echo "${{ github.event.pull_request.number }}" > "${{ github.workspace }}/visual-snapshots/pr-number.txt"
-
     - name: Upload visual snapshots
       uses: actions/upload-artifact@v7
       with:

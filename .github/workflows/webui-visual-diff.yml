@@ -51,19 +51,28 @@ jobs:
         fi
         echo "screenshots_found=true" >> $GITHUB_OUTPUT
 
-        # Always derive PR number from trusted event data, never from the artifact.
-        # github.event.workflow_run.pull_requests[0].number is populated by GitHub
-        # from the triggering workflow's event, not from fork-supplied content.
+        # Derive PR number from trusted event data.
+        # github.event.workflow_run.pull_requests[0].number is populated for
+        # same-repo PRs but is EMPTY for fork PRs (GitHub limitation).
+        # Fall back to a GitHub API lookup by head SHA — the SHA is set by
+        # GitHub's infrastructure, not by user-supplied artifact content.
         PR_NUMBER="${PR_NUMBER_FROM_EVENT}"
         if [ -z "$PR_NUMBER" ]; then
-          echo "Could not determine PR number from event — skipping"
+          echo "pull_requests[] empty (likely fork PR) — looking up by head SHA"
+          PR_NUMBER=$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&head_sha=${HEAD_SHA}&per_page=10" \
+            --jq ".[] | select(.head.sha == \"${HEAD_SHA}\") | .number" 2>/dev/null | head -1 || true)
+        fi
+        if [ -z "$PR_NUMBER" ]; then
+          echo "Could not determine PR number from event or API — skipping"
           echo "skip=true" >> $GITHUB_OUTPUT
           exit 0
         fi
         echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
         echo "skip=false" >> $GITHUB_OUTPUT
       env:
+        GH_TOKEN: ${{ github.token }}
         PR_NUMBER_FROM_EVENT: ${{ github.event.workflow_run.pull_requests[0].number }}
+        HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
 
     - uses: actions/checkout@v7
       if: steps.setup.outputs.skip != 'true'
