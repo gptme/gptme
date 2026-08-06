@@ -42,7 +42,13 @@ from pathlib import Path
 import click
 
 from ..util.gh import run_gh_json
-from ..util.review import FindingSeverity, FindingStatus, ReviewArtifact, ReviewFinding
+from ..util.review import (
+    FindingSeverity,
+    FindingStatus,
+    ReviewArtifact,
+    ReviewFinding,
+    ReviewStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -292,10 +298,14 @@ _JSON_BLOCK_RE = re.compile(
 )
 
 
-def _extract_findings_from_output(output: str) -> list[ReviewFinding] | None:
+def _extract_findings_from_output(
+    output: str,
+) -> tuple[list[ReviewFinding] | None, int]:
     """Parse reviewer session output and extract :class:`ReviewFinding` objects.
 
-    Returns ``None`` when no valid JSON findings block is found.
+    Returns ``(findings, validation_error_count)`` where:
+    - findings: list of extracted findings, or None if no valid JSON block found
+    - validation_error_count: number of finding entries skipped due to validation errors
     """
     # Try each JSON block in order; return first that parses as findings.
     for match in _JSON_BLOCK_RE.finditer(output):
@@ -313,12 +323,14 @@ def _extract_findings_from_output(output: str) -> list[ReviewFinding] | None:
             continue
 
         findings: list[ReviewFinding] = []
+        validation_errors = 0
         for item in findings_data:
-            if (
-                not isinstance(item, dict)
-                or not isinstance(item.get("body"), str)
-                or not item["body"]
-            ):
+            if not isinstance(item, dict):
+                validation_errors += 1
+                continue
+            body = item.get("body")
+            if not isinstance(body, str) or not body.strip():
+                validation_errors += 1
                 continue
             severity_raw = item.get("severity", "warning")
             try:
@@ -327,7 +339,7 @@ def _extract_findings_from_output(output: str) -> list[ReviewFinding] | None:
                 severity = FindingSeverity.WARNING
             findings.append(
                 ReviewFinding(
-                    body=item["body"].strip(),
+                    body=body.strip(),
                     file=item.get("file", ""),
                     line=item.get("line"),
                     severity=severity,
@@ -335,9 +347,9 @@ def _extract_findings_from_output(output: str) -> list[ReviewFinding] | None:
                     reviewer="gptme-review",
                 )
             )
-        return findings
+        return findings, validation_errors
 
-    return None
+    return None, 0
 
 
 # ---------------------------------------------------------------------------
@@ -511,6 +523,9 @@ def review_pr(
             pr_repo=repo_name,
             pr_number=pr_number or 0,
             findings=[],
+            review_status=ReviewStatus.COMPLETE,
+            session_exit_reason="skipped",
+            session_error="diff is empty",
         )
         _emit_artifact(artifact, save_path)
         return
@@ -544,16 +559,18 @@ def review_pr(
     )
 
     session_failed = exit_reason != "done"
+    session_error = summary.get("error", "")
+    duration_s = summary.get("duration_s", 0.0)
+
     if session_failed:
-        error_msg = summary.get("error", "")
-        click.echo(f"  ⚠️  Session did not complete: {error_msg}", err=True)
+        click.echo(f"  ⚠️  Session did not complete: {session_error}", err=True)
         # Try to extract findings even from failed sessions — a partial output
         # may contain a valid JSON block.
 
     # ------------------------------------------------------------------
     # Parse findings
     # ------------------------------------------------------------------
-    findings = _extract_findings_from_output(stdout)
+    findings, validation_errors = _extract_findings_from_output(stdout)
     if findings is None:
         click.echo(
             "  ⚠️  Could not find a JSON findings block in session output.",
@@ -571,6 +588,11 @@ def review_pr(
         )
 
     click.echo(f"  📋  {len(findings)} finding(s) extracted.", err=True)
+    if validation_errors > 0:
+        click.echo(
+            f"  ⚠️  {validation_errors} malformed finding(s) were skipped.",
+            err=True,
+        )
     for f in findings:
         loc = f.file or "<PR level>"
         if f.line is not None:
@@ -580,11 +602,23 @@ def review_pr(
     # ------------------------------------------------------------------
     # Build and emit artifact
     # ------------------------------------------------------------------
+    # Determine review_status: COMPLETE only if session succeeded AND no validation errors
+    review_status = (
+        ReviewStatus.COMPLETE
+        if (not session_failed and validation_errors == 0)
+        else ReviewStatus.INCOMPLETE
+    )
+
     artifact = ReviewArtifact(
         pr_owner=owner,
         pr_repo=repo_name,
         pr_number=pr_number or 0,
         findings=findings,
+        review_status=review_status,
+        session_exit_reason=exit_reason,
+        session_error=session_error,
+        review_duration_s=duration_s,
+        validation_errors=validation_errors,
     )
     _emit_artifact(artifact, save_path)
 
