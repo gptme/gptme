@@ -295,6 +295,32 @@ def _load_artifact(artifact_path: str) -> ReviewArtifact:
     return ReviewArtifact.from_json(text)
 
 
+def _filter_findings_by_trusted_reviewers(
+    findings: list[ReviewFinding],
+    trusted_reviewers: tuple[str, ...],
+) -> list[ReviewFinding]:
+    """Filter findings to only those authored by trusted reviewers.
+
+    If ``trusted_reviewers`` is empty, all findings are returned unchanged.
+    If ``trusted_reviewers`` is non-empty, only findings whose ``reviewer``
+    field matches one of the allowed logins are returned.
+    """
+    if not trusted_reviewers:
+        return findings
+
+    trusted_set = set(trusted_reviewers)
+    filtered = [f for f in findings if f.reviewer in trusted_set]
+
+    if len(filtered) < len(findings):
+        skipped = len(findings) - len(filtered)
+        logger.info(
+            f"Filtered {skipped} finding(s) from untrusted reviewer(s); "
+            f"kept {len(filtered)} from {trusted_set}"
+        )
+
+    return filtered
+
+
 def spawn_review_session(
     *,
     prompt: str,
@@ -382,6 +408,18 @@ def spawn_review_session(
     ),
 )
 @click.option(
+    "--trusted-reviewer",
+    "trusted_reviewers",
+    multiple=True,
+    metavar="LOGIN",
+    help=(
+        "Filter artifact findings to only those authored by these GitHub logins. "
+        "Findings from reviewers not in this allowlist are skipped. "
+        "If not given, all findings are processed (default behavior). "
+        "Can be passed multiple times: --trusted-reviewer ErikBjare --trusted-reviewer alice"
+    ),
+)
+@click.option(
     "--model",
     default=None,
     help="Model override for the continuation gptme session.",
@@ -429,6 +467,7 @@ def review_watch(
     pr_number: int | None,
     repo: str | None,
     artifact_path: str | None,
+    trusted_reviewers: tuple[str, ...],
     model: str | None,
     max_iterations: int,
     poll_interval: int,
@@ -490,6 +529,18 @@ def review_watch(
             f"#{effective_pr_number}: {len(open_findings)} open finding(s).",
             err=True,
         )
+
+        # Filter findings by trusted reviewers if specified
+        if trusted_reviewers:
+            open_findings = _filter_findings_by_trusted_reviewers(
+                open_findings, trusted_reviewers
+            )
+            if not open_findings:
+                click.echo(
+                    "  ℹ️  No findings from trusted reviewers — nothing to fix.",
+                    err=True,
+                )
+                return
 
         prompt = _build_review_prompt_from_findings(
             owner=effective_owner,

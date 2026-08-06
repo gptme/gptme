@@ -820,3 +820,170 @@ def test_review_watch_reprocesses_edited_comment(monkeypatch):
     assert spawn_calls[0] == 2, (
         "Editing a comment after it was processed must re-spawn a fix session"
     )
+
+
+# ---------------------------------------------------------------------------
+# Tests for --trusted-reviewer filtering
+# ---------------------------------------------------------------------------
+
+
+def test_filter_findings_by_trusted_reviewers_all_trusted():
+    """When all findings are from trusted reviewers, all should be returned."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(body="Issue 1", reviewer="alice"),
+        ReviewFinding(body="Issue 2", reviewer="bob"),
+    ]
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings, ("alice", "bob")
+    )
+    assert len(result) == 2
+    assert result[0].body == "Issue 1"
+    assert result[1].body == "Issue 2"
+
+
+def test_filter_findings_by_trusted_reviewers_partial():
+    """When some findings are from untrusted reviewers, they should be filtered."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(body="From Alice", reviewer="alice"),
+        ReviewFinding(body="From Eve", reviewer="eve"),
+        ReviewFinding(body="From Bob", reviewer="bob"),
+    ]
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings, ("alice", "bob")
+    )
+    assert len(result) == 2
+    assert result[0].body == "From Alice"
+    assert result[1].body == "From Bob"
+
+
+def test_filter_findings_by_trusted_reviewers_empty_allowlist():
+    """When no trusted reviewers are specified, all findings should be returned."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(body="Issue 1", reviewer="alice"),
+        ReviewFinding(body="Issue 2", reviewer="eve"),
+    ]
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(findings, ())
+    assert len(result) == 2
+
+
+def test_filter_findings_by_trusted_reviewers_all_filtered():
+    """When all findings are from untrusted reviewers, result should be empty."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(body="From Eve", reviewer="eve"),
+        ReviewFinding(body="From Mallory", reviewer="mallory"),
+    ]
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings, ("alice", "bob")
+    )
+    assert len(result) == 0
+
+
+def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
+    """Artifact mode with --trusted-reviewer should filter findings before spawning."""
+    from gptme.util.review import FindingStatus, ReviewArtifact, ReviewFinding
+
+    artifact = ReviewArtifact(
+        pr_owner="owner",
+        pr_repo="repo",
+        pr_number=1,
+        findings=[
+            ReviewFinding(
+                body="From Alice", reviewer="alice", status=FindingStatus.OPEN
+            ),
+            ReviewFinding(body="From Eve", reviewer="eve", status=FindingStatus.OPEN),
+        ],
+    )
+
+    # Write artifact to temp file
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        f.write(artifact.to_json())
+        artifact_path = f.name
+
+    try:
+        spawn_calls: list[dict] = []
+
+        def fake_spawn(**kw):
+            spawn_calls.append(kw)
+            return {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review-watch",
+                "--artifact",
+                artifact_path,
+                "--trusted-reviewer",
+                "alice",
+            ],
+        )
+        assert result.exit_code == 0
+        assert len(spawn_calls) == 1
+        # Prompt should only mention Alice's finding
+        prompt = spawn_calls[0]["prompt"]
+        assert "From Alice" in prompt
+        assert "From Eve" not in prompt
+    finally:
+        import os
+
+        os.unlink(artifact_path)
+
+
+def test_review_watch_artifact_with_trusted_reviewer_no_match(monkeypatch):
+    """Artifact mode with --trusted-reviewer should exit if no findings match."""
+    from gptme.util.review import FindingStatus, ReviewArtifact, ReviewFinding
+
+    artifact = ReviewArtifact(
+        pr_owner="owner",
+        pr_repo="repo",
+        pr_number=1,
+        findings=[
+            ReviewFinding(body="From Eve", reviewer="eve", status=FindingStatus.OPEN),
+        ],
+    )
+
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        f.write(artifact.to_json())
+        artifact_path = f.name
+
+    try:
+        spawn_calls: list[dict] = []
+
+        def fake_spawn(**kw):
+            spawn_calls.append(kw)
+            return {"exit_reason": "done", "duration_s": 0.1}
+
+        monkeypatch.setattr(cmd_review_watch, "spawn_review_session", fake_spawn)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review-watch",
+                "--artifact",
+                artifact_path,
+                "--trusted-reviewer",
+                "alice",
+            ],
+        )
+        assert result.exit_code == 0
+        assert len(spawn_calls) == 0
+        assert "No findings from trusted reviewers" in result.output
+    finally:
+        import os
+
+        os.unlink(artifact_path)
