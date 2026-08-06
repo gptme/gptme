@@ -288,6 +288,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.55,
             "price_output": 2.19,
             "preferred_edit_format": "diff",
+            "supports_reasoning": True,
         },
     },
     # https://groq.com/pricing/

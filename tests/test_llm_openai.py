@@ -1419,6 +1419,146 @@ def test_transform_msgs_for_deepseek_tool_results():
     assert result[0] == messages[0]
 
 
+def test_transform_msgs_for_deepseek_reasoner_think_content_string():
+    """Test that deepseek-reasoner assistant messages with <think> content and tool_calls
+    get <think> extracted into reasoning_content, not embedded in content.
+
+    This is the root cause of the tool-call loop: sending <think> tags embedded in
+    content instead of the separate reasoning_content field causes deepseek-reasoner
+    to misinterpret the conversation history and retry the same tool call.
+    """
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    deepseek_reasoner_model = ModelMeta(
+        provider="deepseek",
+        model="deepseek-reasoner",
+        context=128_000,
+        supports_reasoning=True,
+    )
+
+    # Typical assistant message after streaming: <think> block + tool call in content
+    # (tool_calls field already extracted by _handle_tools, content retains <think> text)
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "content": "<think>\nLet me install numpy.\n</think>\n\n",
+            "tool_calls": [
+                {
+                    "id": "call_abc",
+                    "type": "function",
+                    "function": {
+                        "name": "shell",
+                        "arguments": '{"command": "pip install numpy"}',
+                    },
+                }
+            ],
+        },
+    ]
+
+    result = list(
+        _transform_msgs_for_special_provider(messages, deepseek_reasoner_model)
+    )
+
+    assert len(result) == 1
+    msg = result[0]
+    # reasoning_content should contain the extracted reasoning, not empty string
+    assert "reasoning_content" in msg
+    assert "Let me install numpy." in msg["reasoning_content"]
+    # content should be cleaned — no <think> tags
+    assert "<think>" not in (msg.get("content") or "")
+    assert "<think>" not in msg.get("reasoning_content", "")
+    # tool_calls must be preserved
+    assert msg["tool_calls"] == messages[0]["tool_calls"]
+
+
+def test_transform_msgs_for_deepseek_reasoner_think_content_list():
+    """Test that deepseek-reasoner assistant messages with list content containing
+    <think> tags and tool_calls get <think> extracted into reasoning_content.
+
+    _handle_tools returns content as a list when there is text before the tool call.
+    """
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    deepseek_reasoner_model = ModelMeta(
+        provider="deepseek",
+        model="deepseek-reasoner",
+        context=128_000,
+        supports_reasoning=True,
+    )
+
+    # content is a list (as produced by _handle_tools when there's text before the call)
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "<think>\nReasoning here.\n</think>\n\n"}
+            ],
+            "tool_calls": [
+                {
+                    "id": "call_xyz",
+                    "type": "function",
+                    "function": {
+                        "name": "shell",
+                        "arguments": '{"command": "pip install numpy"}',
+                    },
+                }
+            ],
+        },
+    ]
+
+    result = list(
+        _transform_msgs_for_special_provider(messages, deepseek_reasoner_model)
+    )
+
+    assert len(result) == 1
+    msg = result[0]
+    assert "reasoning_content" in msg
+    assert "Reasoning here." in msg["reasoning_content"]
+    assert "<think>" not in (msg.get("content") or "")
+    assert msg["tool_calls"] == messages[0]["tool_calls"]
+
+
+def test_transform_msgs_for_deepseek_chat_no_think_unchanged():
+    """Test that deepseek-chat (non-reasoner) messages without <think> are unchanged."""
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    deepseek_chat_model = ModelMeta(
+        provider="deepseek",
+        model="deepseek-chat",
+        context=128_000,
+    )
+
+    # deepseek-chat doesn't generate <think> content; no content here = None case
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "shell", "arguments": '{"command": "ls"}'},
+                }
+            ],
+        },
+    ]
+
+    result = list(_transform_msgs_for_special_provider(messages, deepseek_chat_model))
+
+    assert len(result) == 1
+    # reasoning_content: "" is still required even for deepseek-chat (PR #918)
+    assert result[0]["reasoning_content"] == ""
+    assert result[0]["tool_calls"] == messages[0]["tool_calls"]
+
+
 # Tests for OpenAI retry logic
 class TestOpenAIRetryLogic:
     """Tests for OpenAI API retry logic."""
