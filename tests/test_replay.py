@@ -1,13 +1,20 @@
 """Tests for evidence replay (BM25-based context recovery)."""
 
+import builtins
 import json
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from gptme.llm.models.resolution import _default_model_var
 from gptme.message import Message
-from gptme.util.replay import build_query, inject_relevant_evidence, score_messages_bm25
+from gptme.util.replay import (
+    _read_master_messages,
+    build_query,
+    inject_relevant_evidence,
+    score_messages_bm25,
+)
 
 # --- score_messages_bm25 ---
 
@@ -481,3 +488,87 @@ def test_inject_query_n_turns_1_matches_original_single_query():
 
         # At minimum: n_turns=1 still finds decorator-relevant evidence from the last msg
         assert injected_n1, "n_turns=1 should still inject relevant evidence"
+
+
+# --- _read_master_messages (encoding) ---
+
+# A codec that is the platform default on a stock Windows install but cannot
+# represent non-ASCII. Under the shim below, an `open()` that omits `encoding=`
+# reads the file as ascii and raises UnicodeDecodeError on any non-ASCII byte —
+# which is exactly the crash `_read_master_messages` suffered before the UTF-8
+# fix. CJK and the accented Latin together cover both the cp936 and cp1252
+# blind spots, though under ascii every non-ASCII byte is undecodable anyway.
+NON_ASCII_CONTENT = "我是一名开发者 — drinking café"
+
+
+@contextmanager
+def legacy_default_encoding(codec: str = "ascii"):
+    """Make encoding-less `open()` calls behave as they do under a legacy locale.
+
+    Monkeypatching `locale.getpreferredencoding` does not work: CPython reads the
+    locale encoding at the C level, so `open()` ignores the patched function. This
+    shim supplies a codec in exactly the position CPython would supply the
+    locale's — only when the caller passed no `encoding` — so the test fails on a
+    machine of any locale when `encoding=` is missing, and passes on a machine of
+    any locale when it is present. Mirrors tests/test_config_encoding.py.
+    """
+    real_open = builtins.open
+
+    def shim(file, mode="r", *args, **kwargs):
+        if "b" not in mode and kwargs.get("encoding") is None and len(args) < 2:
+            kwargs["encoding"] = codec
+        return real_open(file, mode, *args, **kwargs)
+
+    with patch.object(builtins, "open", shim):
+        yield
+
+
+def test_read_master_messages_non_ascii_under_legacy_locale(tmp_path: Path):
+    """A non-ASCII master log must read back intact under a legacy (ascii) locale.
+
+    The conversation.jsonl master log holds user text, pasted code and file
+    contents, so it routinely contains non-ASCII. Before the fix,
+    `_read_master_messages` opened it without `encoding=`, so under a non-UTF-8
+    locale CPython decoded with the platform code page and raised
+    UnicodeDecodeError — which escapes both the per-line `json.JSONDecodeError`
+    handler and the outer `FileNotFoundError` handler and propagates through
+    `inject_relevant_evidence` to its unwrapped caller, crashing the session
+    whenever GPTME_EVIDENCE_REPLAY=1.
+    """
+    logfile = tmp_path / "conversation.jsonl"
+    # Pin the bytes on disk to real UTF-8 (the JSON spec's encoding) so the read
+    # side is the only thing the legacy-locale shim stresses. ensure_ascii=False
+    # mirrors the canonical log writer (see gptme/checkpoint.py) and leaves the
+    # non-ASCII as raw bytes instead of \uXXXX escapes — which is what makes the
+    # legacy ascii decode raise on the unfixed open().
+    with open(logfile, "w", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {"role": "user", "content": NON_ASCII_CONTENT}, ensure_ascii=False
+            )
+            + "\n"
+        )
+
+    with legacy_default_encoding("ascii"):
+        messages = _read_master_messages(logfile)
+
+    assert len(messages) == 1
+    assert messages[0]["content"] == NON_ASCII_CONTENT
+
+
+def test_read_master_messages_ascii_log_under_legacy_locale(tmp_path: Path):
+    """Control: an ASCII-only master log still parses under the legacy locale."""
+    logfile = tmp_path / "conversation.jsonl"
+    with open(logfile, "w", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {"role": "user", "content": "Hello, developer!"}, ensure_ascii=False
+            )
+            + "\n"
+        )
+
+    with legacy_default_encoding("ascii"):
+        messages = _read_master_messages(logfile)
+
+    assert len(messages) == 1
+    assert messages[0]["content"] == "Hello, developer!"
