@@ -336,12 +336,11 @@ def _filter_findings_by_trust(
     substitutes a malicious finding body.
 
     .. note::
-        The ``reviewer`` field is artifact-reported for findings that lack a
-        ``github_comment_id``.  For those findings, a crafted artifact can
-        forge any login that appears in ``github_verified_reviewers``.
-        Provenance trust for pipeline-produced findings must be established at
-        the invocation level (i.e. only supply artifacts from pipelines you
-        control).
+        Findings that lack a ``github_comment_id`` are always rejected when
+        ``trusted_reviewers`` is non-empty.  The PR-level reviewer set only
+        proves a login submitted *some* review on the PR; it cannot prove they
+        authored a specific finding.  Only findings backed by a verifiable
+        GitHub comment ID are accepted in trusted-reviewer mode.
     """
     if require_trust:
         missing = [f for f in findings if not f.reviewer]
@@ -393,9 +392,10 @@ def _filter_findings_by_trust(
             result.append(dataclasses.replace(f, body=github_body.strip()))
             continue
 
-        # Fallback: PR-level reviewer check for findings without a comment ID.
-        if f.reviewer in github_verified_reviewers:
-            result.append(f)
+        # No comment_id: the PR-level reviewer set only proves someone left a
+        # review on the PR — it cannot prove they authored this specific finding.
+        # An attacker can forge any login that appears in
+        # github_verified_reviewers.  Reject to close this impersonation path.
 
     return result
 

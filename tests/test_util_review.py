@@ -681,36 +681,43 @@ class TestFilterFindingsByTrust:
         result = _filter_findings_by_trust(findings, (), require_trust=False)
         assert result == findings
 
-    def test_all_trusted_pass(self):
-        """All findings pass when every reviewer is in both allowlist and GitHub set."""
+    def test_all_trusted_with_comment_id_pass(self):
+        """All findings backed by verifiable comment IDs pass when reviewer is trusted."""
         from gptme.cli.cmd_review_watch import _filter_findings_by_trust
 
         findings = [
-            self._make_finding("Finding A", "alice"),
-            self._make_finding("Finding B", "bob"),
+            self._make_finding_with_comment_id("Finding A", "alice", 1),
+            self._make_finding_with_comment_id("Finding B", "bob", 2),
         ]
         result = _filter_findings_by_trust(
             findings,
             ("alice", "bob"),
             require_trust=False,
             github_verified_reviewers=frozenset({"alice", "bob"}),
+            github_comment_authors={1: ("alice", "Finding A"), 2: ("bob", "Finding B")},
         )
         assert len(result) == 2
 
     def test_partial_filter(self):
-        """Only findings from trusted reviewers are kept."""
+        """Only findings from trusted reviewers with verifiable comment IDs are kept."""
         from gptme.cli.cmd_review_watch import _filter_findings_by_trust
 
         findings = [
-            self._make_finding("Trusted finding", "alice"),
-            self._make_finding("Untrusted finding", "mallory"),
-            self._make_finding("Also trusted", "alice"),
+            self._make_finding_with_comment_id("Trusted finding", "alice", 1),
+            self._make_finding(
+                "Untrusted finding", "mallory"
+            ),  # no comment_id + not trusted
+            self._make_finding_with_comment_id("Also trusted", "alice", 2),
         ]
         result = _filter_findings_by_trust(
             findings,
             ("alice",),
             require_trust=False,
             github_verified_reviewers=frozenset({"alice"}),
+            github_comment_authors={
+                1: ("alice", "Trusted finding"),
+                2: ("alice", "Also trusted"),
+            },
         )
         assert len(result) == 2
         assert all(f.reviewer == "alice" for f in result)
@@ -811,8 +818,14 @@ class TestFilterFindingsByTrust:
         )
         assert result == [], "Forged reviewer must be blocked by GitHub verification"
 
-    def test_github_verified_reviewer_passes(self):
-        """A finding whose reviewer is in both allowlist and GitHub set passes."""
+    def test_no_comment_id_rejected_even_if_pr_reviewer(self):
+        """A finding without a comment_id is rejected even when the reviewer is
+        in both the allowlist and the GitHub-verified reviewer set.
+
+        The PR-level reviewer set only proves someone submitted a review on the
+        PR; it cannot prove they authored this specific finding.  Accepting such
+        findings would let an attacker forge any allowlisted login.
+        """
         from gptme.cli.cmd_review_watch import _filter_findings_by_trust
 
         findings = [self._make_finding("Real finding", "ErikBjare")]
@@ -822,8 +835,9 @@ class TestFilterFindingsByTrust:
             require_trust=False,
             github_verified_reviewers=frozenset({"ErikBjare"}),
         )
-        assert len(result) == 1
-        assert result[0].reviewer == "ErikBjare"
+        assert result == [], (
+            "Finding without comment_id must be rejected — no per-finding authorship proof"
+        )
 
     def _make_finding_with_comment_id(
         self, body: str, reviewer: str, comment_id: int
@@ -925,12 +939,13 @@ class TestFilterFindingsByTrust:
         assert len(result) == 0
 
     def test_per_comment_auth_mixed_findings(self):
-        """Findings with and without comment IDs are evaluated by the appropriate path."""
+        """Only findings WITH a comment_id pass; those without are always rejected."""
         from gptme.cli.cmd_review_watch import _filter_findings_by_trust
 
         with_id = self._make_finding_with_comment_id("Has ID", "ErikBjare", 1)
         without_id = self._make_finding("No ID", "ErikBjare")
         # comment ID 1 is authored by ErikBjare → passes per-comment check
+        # without_id has no comment_id → rejected (no per-finding authorship proof)
         result = _filter_findings_by_trust(
             [with_id, without_id],
             ("ErikBjare",),
@@ -938,7 +953,8 @@ class TestFilterFindingsByTrust:
             github_verified_reviewers=frozenset({"ErikBjare"}),
             github_comment_authors={1: ("ErikBjare", "Has ID")},
         )
-        assert len(result) == 2
+        assert len(result) == 1
+        assert result[0].body == "Has ID", "Only the comment-backed finding should pass"
 
     def test_per_comment_auth_impersonation_via_pr_reviewer_blocked(self):
         """The residual impersonation scenario: attacker forges reviewer=ErikBjare on a
