@@ -47,6 +47,9 @@ export function InlineToolConfirmation({
   const [showCustomInput, setShowCustomInput] = useState(false);
   const pendingTool = use$(pendingTool$);
 
+  // Use a ref to track pending requests synchronously (prevents render-time race conditions)
+  const isConfirmingRef = React.useRef(false);
+
   // Reset state when the pending tool changes
   React.useEffect(() => {
     if (pendingTool) {
@@ -55,10 +58,14 @@ export function InlineToolConfirmation({
       setIsEditing(false);
       setConfirmLoading(false);
       setShowCustomInput(false);
+      isConfirmingRef.current = false;
     }
   }, [pendingTool]);
 
   const handleConfirm = React.useCallback(async () => {
+    // Check synchronously before any async work (prevents render-time race)
+    if (isConfirmingRef.current) return;
+    isConfirmingRef.current = true;
     setConfirmLoading(true);
     try {
       await onConfirm();
@@ -66,6 +73,7 @@ export function InlineToolConfirmation({
       console.error('Error confirming tool:', error);
     } finally {
       setConfirmLoading(false);
+      isConfirmingRef.current = false;
     }
   }, [onConfirm]);
 
@@ -76,6 +84,7 @@ export function InlineToolConfirmation({
         pendingTool &&
         !isEditing &&
         !confirmLoading &&
+        !isConfirmingRef.current &&
         e.key === 'Enter' &&
         !e.shiftKey &&
         !e.ctrlKey &&
@@ -110,6 +119,9 @@ export function InlineToolConfirmation({
   };
 
   const handleAcceptAll = async () => {
+    // Check synchronously before any async work (prevents render-time race)
+    if (isConfirmingRef.current) return;
+    isConfirmingRef.current = true;
     setConfirmLoading(true);
     try {
       await onAuto(999999);
@@ -117,11 +129,15 @@ export function InlineToolConfirmation({
       console.error('Error accepting all tools:', error);
     } finally {
       setConfirmLoading(false);
+      isConfirmingRef.current = false;
     }
   };
 
   const handleAuto = React.useCallback(
     async (count: number) => {
+      // Check synchronously before any async work (prevents render-time race)
+      if (isConfirmingRef.current) return;
+      isConfirmingRef.current = true;
       setConfirmLoading(true);
       try {
         await onAuto(count);
@@ -129,6 +145,7 @@ export function InlineToolConfirmation({
         console.error('Error auto-confirming tools:', error);
       } finally {
         setConfirmLoading(false);
+        isConfirmingRef.current = false;
       }
     },
     [onAuto]
