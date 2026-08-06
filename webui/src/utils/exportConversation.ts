@@ -38,7 +38,9 @@ export function getExportableMessages(
   const { includeSystem = false, includeTools = true } = options ?? {};
   return messages.filter(
     (msg) =>
-      !msg.hide && (includeSystem || msg.role !== 'system') && (includeTools || msg.role !== 'tool')
+      !msg.hide &&
+      (includeSystem || msg.role !== 'system') &&
+      (includeTools || (msg.role !== 'tool' && msg.role !== 'tool_result'))
   );
 }
 
@@ -80,6 +82,11 @@ export function formatConversationAsMarkdown(
 /**
  * Copy a conversation's messages to the clipboard as Markdown.
  * Returns a promise that resolves when the content is in the clipboard.
+ *
+ * Note: This copies only the currently loaded messages. For large conversations
+ * with pagination/virtual scrolling, older messages that haven't been loaded yet
+ * will not be included. Call from ConversationSettings after ensuring all messages
+ * have been loaded (or check hasMoreBefore in the conversation state).
  */
 export async function copyConversationToClipboard(
   name: string,

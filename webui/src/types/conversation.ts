@@ -1,4 +1,4 @@
-export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
+export type MessageRole = 'user' | 'assistant' | 'system' | 'tool' | 'tool_result';
 
 export interface MessageUsage {
   input_tokens?: number;

@@ -75,6 +75,26 @@ describe('getExportableMessages', () => {
     const result = getExportableMessages(messages);
     expect(result.some((msg) => msg.role === 'tool')).toBe(true);
   });
+
+  it('excludes tool_result messages when includeTools is false', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'run ls' },
+      { role: 'assistant', content: 'sure' },
+      { role: 'tool_result', content: '$ ls\nfile1.txt\nfile2.txt' },
+    ];
+    const result = getExportableMessages(messages, { includeTools: false });
+    expect(result).toHaveLength(2);
+    expect(result.every((msg) => msg.role !== 'tool_result')).toBe(true);
+  });
+
+  it('includes tool_result messages by default', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'run ls' },
+      { role: 'tool_result', content: '$ ls\nfile1.txt' },
+    ];
+    const result = getExportableMessages(messages);
+    expect(result.some((msg) => msg.role === 'tool_result')).toBe(true);
+  });
 });
 
 describe('formatConversationAsMarkdown', () => {
