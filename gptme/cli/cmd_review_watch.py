@@ -295,27 +295,107 @@ def _load_artifact(artifact_path: str) -> ReviewArtifact:
     return ReviewArtifact.from_json(text)
 
 
+def _verify_comment_reviewer(
+    *,
+    owner: str,
+    repo: str,
+    comment_id: int,
+    expected_reviewer: str,
+) -> bool:
+    """Verify a PR review comment belongs to the claimed reviewer via GitHub API.
+
+    Fetches the comment and compares ``user.login`` case-insensitively.
+    Returns ``False`` when the API is unavailable or the login does not match,
+    so callers fail closed on network errors.
+    """
+    data = run_gh_json(
+        ["gh", "api", f"repos/{owner}/{repo}/pulls/comments/{comment_id}"],
+        timeout=10,
+    )
+    if not isinstance(data, dict):
+        logger.warning(
+            "Could not fetch GitHub comment %d for reviewer verification; "
+            "rejecting finding as unverifiable.",
+            comment_id,
+        )
+        return False
+
+    actual_login = data.get("user", {}).get("login", "")
+    if actual_login.lower() != expected_reviewer.lower():
+        logger.warning(
+            "GitHub comment %d reviewer mismatch: artifact claims '%s', "
+            "API returned '%s'; rejecting finding.",
+            comment_id,
+            expected_reviewer,
+            actual_login,
+        )
+        return False
+    return True
+
+
 def _filter_findings_by_trusted_reviewers(
     findings: list[ReviewFinding],
     trusted_reviewers: tuple[str, ...],
+    *,
+    owner: str = "",
+    repo: str = "",
 ) -> list[ReviewFinding]:
     """Filter findings to only those authored by trusted reviewers.
 
     If ``trusted_reviewers`` is empty, all findings are returned unchanged.
     If ``trusted_reviewers`` is non-empty, only findings whose ``reviewer``
-    field matches one of the allowed logins are returned.
+    field matches one of the allowed logins are returned (comparison is
+    case-insensitive — GitHub logins are case-preserving but not
+    case-sensitive).
+
+    When ``owner`` and ``repo`` are provided and a finding carries a
+    ``github_comment_id``, the reviewer field is cross-checked against the
+    GitHub API before the finding is accepted.  This prevents a forged
+    artifact from bypassing the allowlist by setting the reviewer field to a
+    trusted login without that reviewer having actually authored the comment.
+    Findings that fail API verification are rejected (fail-closed).
+    Findings without a ``github_comment_id`` are accepted on the name match
+    alone — this accommodates manually crafted artifacts while logging a
+    debug-level notice.
     """
     if not trusted_reviewers:
         return findings
 
-    trusted_set = set(trusted_reviewers)
-    filtered = [f for f in findings if f.reviewer in trusted_set]
+    # Normalise allowlist to lowercase; GitHub logins are case-insensitive.
+    trusted_set_lower = {r.lower() for r in trusted_reviewers}
+
+    filtered: list[ReviewFinding] = []
+    for f in findings:
+        if f.reviewer.lower() not in trusted_set_lower:
+            continue
+
+        if f.github_comment_id and owner and repo:
+            # Verify attribution against GitHub — reject on mismatch or API error.
+            if not _verify_comment_reviewer(
+                owner=owner,
+                repo=repo,
+                comment_id=f.github_comment_id,
+                expected_reviewer=f.reviewer,
+            ):
+                continue
+        elif f.github_comment_id and not (owner and repo):
+            logger.debug(
+                "Finding has github_comment_id=%d but no repo context for "
+                "API verification; accepting based on artifact reviewer field '%s'.",
+                f.github_comment_id,
+                f.reviewer,
+            )
+
+        filtered.append(f)
 
     if len(filtered) < len(findings):
         skipped = len(findings) - len(filtered)
         logger.info(
-            f"Filtered {skipped} finding(s) from untrusted reviewer(s); "
-            f"kept {len(filtered)} from {trusted_set}"
+            "Filtered %d finding(s) from untrusted/unverified reviewer(s); "
+            "kept %d from %s.",
+            skipped,
+            len(filtered),
+            set(trusted_reviewers),
         )
 
     return filtered
@@ -530,10 +610,15 @@ def review_watch(
             err=True,
         )
 
-        # Filter findings by trusted reviewers if specified
+        # Filter findings by trusted reviewers if specified.
+        # Pass repo context so findings with a github_comment_id are verified
+        # against the GitHub API (prevents forged-reviewer bypass).
         if trusted_reviewers:
             open_findings = _filter_findings_by_trusted_reviewers(
-                open_findings, trusted_reviewers
+                open_findings,
+                trusted_reviewers,
+                owner=effective_owner,
+                repo=effective_repo_name,
             )
             if not open_findings:
                 click.echo(

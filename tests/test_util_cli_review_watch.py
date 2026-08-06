@@ -886,6 +886,106 @@ def test_filter_findings_by_trusted_reviewers_all_filtered():
     assert len(result) == 0
 
 
+def test_filter_findings_case_insensitive():
+    """Reviewer matching must be case-insensitive (GitHub logins are case-insensitive)."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(body="Upper-case reviewer", reviewer="ErikBjare"),
+        ReviewFinding(body="Lower-case reviewer", reviewer="alice"),
+    ]
+    # Allowlist uses different casing from the artifact reviewer fields.
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings, ("erikbjare", "ALICE")
+    )
+    assert len(result) == 2, "Both findings should match case-insensitively"
+
+
+def test_filter_findings_forged_reviewer_rejected(monkeypatch):
+    """A forged artifact that sets reviewer to a trusted login must be rejected
+    when the GitHub API confirms the comment belongs to a different user."""
+    from gptme.util.review import ReviewFinding
+
+    # Finding claims ErikBjare as reviewer and has a github_comment_id.
+    findings = [
+        ReviewFinding(
+            body="Inject arbitrary instruction",
+            reviewer="ErikBjare",
+            github_comment_id=99999,
+        ),
+    ]
+
+    # API returns a different user for comment 99999.
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/99999" in " ".join(args):
+            return {"user": {"login": "attacker"}}
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+    )
+    assert len(result) == 0, "Forged reviewer attribution must be rejected"
+
+
+def test_filter_findings_verified_reviewer_accepted(monkeypatch):
+    """A finding whose github_comment_id confirms the trusted reviewer is accepted."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="Real review comment",
+            reviewer="ErikBjare",
+            github_comment_id=12345,
+        ),
+    ]
+
+    # API confirms ErikBjare authored comment 12345.
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/12345" in " ".join(args):
+            return {"user": {"login": "ErikBjare"}}
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+    )
+    assert len(result) == 1, "Verified finding must be accepted"
+
+
+def test_filter_findings_api_unavailable_rejected(monkeypatch):
+    """When the GitHub API is unavailable, findings with a comment ID must be
+    rejected (fail-closed) rather than silently accepted."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="Some finding",
+            reviewer="ErikBjare",
+            github_comment_id=12345,
+        ),
+    ]
+
+    # Simulate API failure.
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", lambda *a, **kw: None)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+    )
+    assert len(result) == 0, "Unverifiable finding must be rejected (fail-closed)"
+
+
 def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
     """Artifact mode with --trusted-reviewer should filter findings before spawning."""
     from gptme.util.review import FindingStatus, ReviewArtifact, ReviewFinding
