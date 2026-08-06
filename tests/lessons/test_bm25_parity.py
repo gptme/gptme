@@ -328,6 +328,40 @@ class TestHybridMatcherBm25Fallback:
         results = matcher.match(corpus, ctx)
         assert len(results) == 2
 
+    def test_skill_name_match_in_bm25_path(self):
+        """Skills matched by metadata.name must surface in the no-embedder path.
+
+        Regression guard for the P1 Greptile finding: _match_with_bm25 previously
+        omitted the name-variant matching present in LessonMatcher.match, causing
+        name-only skills to score 0 and disappear from auto-injected lessons.
+        """
+        skill_lesson = Lesson(
+            path=Path("/fake/lessons/python-repl.md"),
+            metadata=LessonMetadata(keywords=[], name="python-repl"),
+            title="Python REPL",
+            description="",
+            category="test",
+            body="# Python REPL",
+        )
+        corpus = [skill_lesson] + self._make_corpus()
+        matcher = make_matcher_no_embedder()
+
+        # Plain name
+        results = matcher.match(
+            corpus, MatchContext(message="use the python-repl skill")
+        )
+        slugs = [r.lesson.path.stem for r in results]
+        assert "python-repl" in slugs, "name match (hyphen) failed"
+
+        # Hyphen→space variant
+        results = matcher.match(corpus, MatchContext(message="run python repl now"))
+        slugs = [r.lesson.path.stem for r in results]
+        assert "python-repl" in slugs, "name match (space variant) failed"
+
+        # Matched_by tag must reflect skill: prefix
+        hit = next(r for r in results if r.lesson.path.stem == "python-repl")
+        assert any(tag.startswith("skill:") for tag in hit.matched_by)
+
     def test_result_count_capped_by_max_lessons(self):
         """Should not exceed config.max_lessons even with a broad query."""
         corpus = [

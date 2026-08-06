@@ -438,6 +438,20 @@ class HybridLessonMatcher(LessonMatcher):
                     score += 1.0
                     matched_by.append(f"pattern:{pattern[:30]}...")
 
+            # Skill name matching (Anthropic format) — parity with LessonMatcher.match
+            if lesson.metadata.name:
+                name_lower = lesson.metadata.name.lower()
+                name_variants = [
+                    name_lower,
+                    name_lower.replace("-", " "),
+                    name_lower.replace("-", ""),
+                ]
+                for variant in name_variants:
+                    if variant in message_lower:
+                        score += 1.5
+                        matched_by.append(f"skill:{lesson.metadata.name}")
+                        break
+
             if context.tools_used and lesson.metadata.tools:
                 tools_lower = {t.lower() for t in context.tools_used}
                 for tool in lesson.metadata.tools:
