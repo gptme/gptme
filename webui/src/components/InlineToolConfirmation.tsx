@@ -75,6 +75,7 @@ export function InlineToolConfirmation({
       if (
         pendingTool &&
         !isEditing &&
+        !confirmLoading &&
         e.key === 'Enter' &&
         !e.shiftKey &&
         !e.ctrlKey &&
@@ -87,7 +88,7 @@ export function InlineToolConfirmation({
 
     window.addEventListener('keypress', handleKeyPress);
     return () => window.removeEventListener('keypress', handleKeyPress);
-  }, [pendingTool, isEditing, handleConfirm]);
+  }, [pendingTool, isEditing, confirmLoading, handleConfirm]);
 
   const handleEdit = async () => {
     setConfirmLoading(true);
@@ -118,6 +119,20 @@ export function InlineToolConfirmation({
       setConfirmLoading(false);
     }
   };
+
+  const handleAuto = React.useCallback(
+    async (count: number) => {
+      setConfirmLoading(true);
+      try {
+        await onAuto(count);
+      } catch (error) {
+        console.error('Error auto-confirming tools:', error);
+      } finally {
+        setConfirmLoading(false);
+      }
+    },
+    [onAuto]
+  );
 
   // Format args for display
   const formatArgs = (args: string[]) => {
@@ -259,10 +274,10 @@ export function InlineToolConfirmation({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem onClick={() => onAuto(5)}>
+                            <DropdownMenuItem onClick={() => handleAuto(5)}>
                               Auto-confirm 5×
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onAuto(10)}>
+                            <DropdownMenuItem onClick={() => handleAuto(10)}>
                               Auto-confirm 10×
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
@@ -292,7 +307,7 @@ export function InlineToolConfirmation({
                                     variant="ghost"
                                     className="h-6 px-2 text-xs"
                                     onClick={() => {
-                                      onAuto(customCount);
+                                      handleAuto(customCount);
                                       setShowCustomInput(false);
                                     }}
                                   >
