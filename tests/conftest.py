@@ -6,6 +6,7 @@ import logging
 import os
 import queue
 import socket
+import sys
 import tempfile
 import threading
 import time
@@ -14,6 +15,13 @@ from contextlib import contextmanager
 
 import pytest
 import requests
+from thread_leak import (
+    diff_threads,
+    format_leaks,
+    format_thread_stacks,
+    is_dict_iteration_race,
+    snapshot_threads,
+)
 
 import gptme.init as _gptme_init
 from gptme.config import get_config, set_config
@@ -125,6 +133,28 @@ def pytest_configure(config):
     os.environ["GPTME_CHECK"] = "false"
     # Disable chat history context during tests for predictable prompts
     os.environ["GPTME_CHAT_HISTORY"] = "false"
+
+
+def pytest_exception_interact(node, call, report):
+    """Dump every live thread's stack when the dict-iteration race fires.
+
+    CI only ever showed a single truncated frame for this failure
+    (``contextlib.py:135`` in ``_GeneratorContextManager.__enter__``), naming
+    neither the generator that was iterating nor the thread that mutated the
+    dict underneath it. Without the thread stacks the class is undiagnosable,
+    which is why five instance-level fixes chased the crash site instead of the
+    leaker. Print them at the moment of failure.
+    """
+    if not is_dict_iteration_race(
+        getattr(call, "excinfo", None) and call.excinfo.value
+    ):
+        return
+    print(
+        f"\n=== dict-iteration race in {node.nodeid} ({report.when}) ===\n"
+        f"{format_thread_stacks()}\n"
+        "=== end thread dump ===",
+        file=sys.stderr,
+    )
 
 
 @pytest.hookimpl(wrapper=True)
@@ -254,6 +284,57 @@ def download_model():
 def auth_headers():
     """Provide authentication headers for HTTP requests to test server."""
     return {"Authorization": "Bearer test-token-for-server-thread"}
+
+
+#: nodeid -> leaked thread names, collected across the session for the summary.
+_thread_leaks: dict[str, list[str]] = {}
+
+
+@pytest.fixture(autouse=True)
+def detect_leaked_threads(request):
+    """Name any thread a test leaves running past teardown.
+
+    A leaked thread that later lazy-imports mutates ``sys.modules`` while an
+    unrelated test's main thread iterates it, producing ``RuntimeError:
+    dictionary changed size during iteration`` in a file that has no threads of
+    its own. #3257 fixed this for registered *subagent* threads; gptme starts
+    threads from ~27 other sites (server, ACP, computer transport, shell, hooks,
+    oauth, sound, tokens), so the class needs a generic detector.
+
+    Defined first among the autouse fixtures so its teardown runs *last* —
+    after ``cleanup_subagents_after`` has had its chance to join.
+
+    Reports only by default. Set ``GPTME_STRICT_THREAD_LEAKS=1`` to fail the
+    offending test instead, which is how a specific leaker gets pinned down
+    once the summary points at it.
+    """
+    before = snapshot_threads()
+    yield
+    leaks = diff_threads(before)
+    if not leaks:
+        return
+    nodeid = request.node.nodeid
+    _thread_leaks[nodeid] = [leak.name for leak in leaks]
+    report = format_leaks(nodeid, leaks)
+    logger.warning("%s", report)
+    if os.environ.get("GPTME_STRICT_THREAD_LEAKS") == "1":
+        pytest.fail(report, pytrace=False)
+
+
+def pytest_terminal_summary(terminalreporter):
+    """List the tests that leaked threads, worst offenders first."""
+    if not _thread_leaks:
+        return
+    terminalreporter.section("thread leaks")
+    ranked = sorted(_thread_leaks.items(), key=lambda kv: -len(kv[1]))
+    for nodeid, names in ranked[:20]:
+        terminalreporter.write_line(f"{len(names):3d}  {nodeid}  {sorted(set(names))}")
+    if len(ranked) > 20:
+        terminalreporter.write_line(f"... and {len(ranked) - 20} more")
+    terminalreporter.write_line(
+        "Leaked threads can race main-thread dict iteration in unrelated files. "
+        "Re-run with GPTME_STRICT_THREAD_LEAKS=1 to fail on leak."
+    )
 
 
 @pytest.fixture(autouse=True)
