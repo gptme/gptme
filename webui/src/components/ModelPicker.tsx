@@ -142,7 +142,7 @@ const ModelCommandList: FC<{
   // `openrouter/deepseek/deepseek-v4-flash-0731@deepseek`) that the curated
   // list doesn't include. The value is passed through verbatim — the
   // `@subprovider` suffix is preserved.
-  const customId = search.trim();
+  const customId = search;
   const showCustomEntry = customId.length > 0 && !models.some((m) => m.id === customId);
 
   const renderItem = (model: ModelInfo, showProvider: boolean) => (
