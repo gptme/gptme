@@ -1023,7 +1023,11 @@ def test_filter_findings_forged_body_rejected(monkeypatch):
 
 
 def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
-    """Artifact mode with --trusted-reviewer should filter findings before spawning."""
+    """Artifact mode with --trusted-reviewer should filter findings before spawning.
+
+    When repo context is available (owner/repo), findings must have github_comment_id
+    and pass GitHub verification. This test mocks the verification to succeed.
+    """
     from gptme.util.review import FindingStatus, ReviewArtifact, ReviewFinding
 
     artifact = ReviewArtifact(
@@ -1032,11 +1036,28 @@ def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
         pr_number=1,
         findings=[
             ReviewFinding(
-                body="From Alice", reviewer="alice", status=FindingStatus.OPEN
+                body="From Alice",
+                reviewer="alice",
+                status=FindingStatus.OPEN,
+                github_comment_id=100,  # Findings must have IDs in live-repo mode
             ),
-            ReviewFinding(body="From Eve", reviewer="eve", status=FindingStatus.OPEN),
+            ReviewFinding(
+                body="From Eve",
+                reviewer="eve",
+                status=FindingStatus.OPEN,
+                github_comment_id=101,
+            ),
         ],
     )
+
+    # Mock GitHub comment verification to succeed
+    def fake_verify(*, owner, repo, comment_id, expected_reviewer, expected_body=""):
+        # Simulate successful verification for alice's comment
+        if comment_id == 100 and expected_reviewer.lower() == "alice":
+            return True, "From Alice"
+        return False, ""
+
+    monkeypatch.setattr(cmd_review_watch, "_verify_comment_reviewer", fake_verify)
 
     # Write artifact to temp file
     import tempfile
@@ -1078,7 +1099,11 @@ def test_review_watch_artifact_with_trusted_reviewer_filter(monkeypatch):
 
 
 def test_review_watch_artifact_with_trusted_reviewer_no_match(monkeypatch):
-    """Artifact mode with --trusted-reviewer should exit if no findings match."""
+    """Artifact mode with --trusted-reviewer should exit if no findings match.
+
+    When repo context is available, findings must have github_comment_id.
+    This test includes an unverified finding to test filtering.
+    """
     from gptme.util.review import FindingStatus, ReviewArtifact, ReviewFinding
 
     artifact = ReviewArtifact(
@@ -1086,9 +1111,20 @@ def test_review_watch_artifact_with_trusted_reviewer_no_match(monkeypatch):
         pr_repo="repo",
         pr_number=1,
         findings=[
-            ReviewFinding(body="From Eve", reviewer="eve", status=FindingStatus.OPEN),
+            ReviewFinding(
+                body="From Eve",
+                reviewer="eve",
+                status=FindingStatus.OPEN,
+                github_comment_id=101,
+            ),
         ],
     )
+
+    # Mock GitHub verification to reject eve's comment
+    def fake_verify(*, owner, repo, comment_id, expected_reviewer, expected_body=""):
+        return False, ""  # Reject all verification
+
+    monkeypatch.setattr(cmd_review_watch, "_verify_comment_reviewer", fake_verify)
 
     import tempfile
 

@@ -367,15 +367,17 @@ def _filter_findings_by_trusted_reviewers(
     case-insensitive — GitHub logins are case-preserving but not
     case-sensitive).
 
-    When ``owner`` and ``repo`` are provided and a finding carries a
-    ``github_comment_id``, the reviewer field is cross-checked against the
-    GitHub API before the finding is accepted.  This prevents a forged
-    artifact from bypassing the allowlist by setting the reviewer field to a
-    trusted login without that reviewer having actually authored the comment.
-    Findings that fail API verification are rejected (fail-closed).
-    Findings without a ``github_comment_id`` are accepted on the name match
-    alone — this accommodates manually crafted artifacts while logging a
-    debug-level notice.
+    When ``owner`` and ``repo`` are provided (artifact mode with live repo
+    context), a finding MUST carry a ``github_comment_id`` and that ID is
+    verified against the GitHub API. This prevents forged artifacts from
+    bypassing the allowlist by setting the reviewer field to a trusted login
+    without that reviewer having actually authored the comment. Findings
+    without ``github_comment_id`` in live-repo mode are rejected (fail-closed).
+
+    When ``owner`` and ``repo`` are NOT provided (offline artifact mode),
+    findings without ``github_comment_id`` are accepted on name match alone
+    (no GitHub verification available). This accommodates manually crafted
+    or cached artifacts in offline environments but logs a warning.
     """
     if not trusted_reviewers:
         return findings
@@ -388,7 +390,17 @@ def _filter_findings_by_trusted_reviewers(
         if f.reviewer.lower() not in trusted_set_lower:
             continue
 
-        if f.github_comment_id and owner and repo:
+        if owner and repo:
+            # Live repo mode: require github_comment_id and verify against GitHub
+            if not f.github_comment_id:
+                logger.warning(
+                    "Finding from '%s' has no github_comment_id in live-repo mode; "
+                    "rejecting for security (forged artifacts cannot be verified). "
+                    "To accept this finding, provide a github_comment_id.",
+                    f.reviewer,
+                )
+                continue
+
             # Verify attribution and body against GitHub — reject on mismatch or API error.
             verified, _body = _verify_comment_reviewer(
                 owner=owner,
@@ -399,13 +411,14 @@ def _filter_findings_by_trusted_reviewers(
             )
             if not verified:
                 continue
-        elif f.github_comment_id and not (owner and repo):
-            logger.debug(
-                "Finding has github_comment_id=%d but no repo context for "
-                "API verification; accepting based on artifact reviewer field '%s'.",
-                f.github_comment_id,
-                f.reviewer,
-            )
+        else:
+            # Offline mode: accept on name match alone (no GitHub available)
+            if not f.github_comment_id:
+                logger.debug(
+                    "Finding has no github_comment_id and no repo context; "
+                    "accepting based on artifact reviewer field '%s' (offline mode).",
+                    f.reviewer,
+                )
 
         filtered.append(f)
 
