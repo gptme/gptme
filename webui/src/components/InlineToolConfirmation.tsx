@@ -109,10 +109,13 @@ export function InlineToolConfirmation({
   };
 
   const handleAcceptAll = async () => {
+    setConfirmLoading(true);
     try {
       await onAuto(999999);
     } catch (error) {
       console.error('Error accepting all tools:', error);
+    } finally {
+      setConfirmLoading(false);
     }
   };
 
@@ -190,7 +193,7 @@ export function InlineToolConfirmation({
                 </div>
 
                 {/* Action buttons */}
-                <div className="flex items-center justify-between border-t border-amber-200 pt-2 dark:border-amber-800">
+                <div className="flex flex-wrap items-center justify-between gap-y-2 border-t border-amber-200 pt-2 dark:border-amber-800">
                   <div className="flex items-center gap-1.5">
                     <Button
                       variant="outline"
