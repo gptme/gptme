@@ -805,6 +805,24 @@ Reviewed the diff carefully.
         findings2 = _extract_findings_from_output(output2)
         assert findings2 == []
 
+    def test_extract_findings_non_list_container_skips_block(self):
+        """When findings key is not a list (null, int, dict), the block is skipped."""
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        # null findings — iterating would raise TypeError
+        result_null = _extract_findings_from_output('```json\n{"findings": null}\n```')
+        assert result_null is None
+
+        # integer findings — also not iterable as items
+        result_int = _extract_findings_from_output('```json\n{"findings": 42}\n```')
+        assert result_int is None
+
+        # dict findings — iterating gives keys (strings), not finding dicts
+        result_dict = _extract_findings_from_output(
+            '```json\n{"findings": {"body": "a problem"}}\n```'
+        )
+        assert result_dict is None
+
     # ------------------------------------------------------------------
     # _build_review_prompt
     # ------------------------------------------------------------------
@@ -1015,6 +1033,38 @@ Reviewed the diff carefully.
         assert spawned == []  # session must NOT be spawned for empty diff
         artifact = self._parse_artifact(result.output)
         assert artifact.findings == []
+
+    def test_successful_session_with_no_findings_block_errors(
+        self, tmp_path, monkeypatch
+    ):
+        """A successful session that produces no JSON findings block must not emit a clean artifact.
+
+        A session can exit cleanly (exit_reason == "done") but still fail to produce
+        a structured findings block — e.g. the model replied in prose instead of JSON.
+        Emitting an empty artifact would cause review-watch to treat this as
+        "nothing to fix", silently masking the incomplete review.
+        """
+        from gptme.cli import cmd_review_pr
+
+        def fake_spawn_no_block(**kwargs):
+            # Session completed normally but output only has prose, no JSON block
+            return "The code looks fine to me. No issues found.", {
+                "exit_reason": "done",
+            }
+
+        monkeypatch.setattr(cmd_review_pr, "_spawn_review_session", fake_spawn_no_block)
+
+        diff_file = tmp_path / "pr.diff"
+        diff_file.write_text(self._SAMPLE_DIFF)
+
+        runner = self._runner()
+        result = runner.invoke(
+            util_main,
+            ["review", "pr", "7", "--repo", "owner/repo", "--diff", str(diff_file)],
+        )
+        # Must exit non-zero — a successful session with no findings block is still
+        # an error: we can't distinguish "clean review" from "broken reviewer output".
+        assert result.exit_code != 0
 
     def test_failed_session_with_no_findings_block_errors(self, tmp_path, monkeypatch):
         """A failed session that produces no JSON findings block must not emit a clean artifact."""
