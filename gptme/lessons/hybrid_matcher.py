@@ -3,7 +3,9 @@
 import importlib.util
 import json
 import logging
+import math
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,6 +14,107 @@ from .matcher import LessonMatcher, MatchContext, MatchResult, _match_keyword
 from .parser import Lesson
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# BM25 semantic scoring (no-embedder fallback)
+# ---------------------------------------------------------------------------
+# Raw BM25 scores scale with query length (a 50-token prompt tops out ~45,
+# a 3000-token prompt ~1200), so an absolute floor cannot separate "relevant"
+# from "shares a few common words."  Gate on how far a lesson *stands out*
+# from the background z-score distribution of this query's own scores instead.
+# Ported from gptme-contrib CC hook (PR #1371, merged 2026-08-05).
+
+_BM25_K1 = 1.2
+_BM25_B = 0.75
+_BM25_WEIGHT = 0.4  # additive weight for the z-score contribution
+_BM25_MIN_Z = 4.0  # minimum z-score to admit a lesson via BM25
+_BM25_MIN_RAW = 40.0  # absolute floor — guards degenerate tiny-corpus cases
+# A z-score over n samples cannot exceed (n-1)/sqrt(n), so a fixed z=4 is
+# unreachable below ~17 scoring lessons.  Scale down proportionally.
+_BM25_STANDOUT_FRACTION = 0.8
+
+
+def _build_bm25_index(lessons: list["Lesson"]) -> dict:
+    """Build BM25 index over lesson descriptions, titles, and keywords."""
+    corpus: list[list[str]] = []
+    for lesson in lessons:
+        desc = lesson.metadata.description or lesson.description or ""
+        doc = " ".join(
+            [
+                desc,
+                lesson.title or "",
+                " ".join(lesson.metadata.keywords or []),
+            ]
+        )
+        corpus.append(re.findall(r"[a-z0-9]+", doc.lower()))
+
+    N = len(corpus)
+    avg_dl = sum(len(d) for d in corpus) / max(N, 1)
+    df: dict[str, int] = {}
+    for doc_tokens in corpus:
+        for term in set(doc_tokens):
+            df[term] = df.get(term, 0) + 1
+
+    return {"corpus": corpus, "df": df, "N": N, "avg_dl": avg_dl}
+
+
+def _bm25_score(query_terms: list[str], doc_terms: list[str], index: dict) -> float:
+    """Compute BM25 score for query_terms against a document's term list."""
+    k1, b = _BM25_K1, _BM25_B
+    N, avg_dl = index["N"], index["avg_dl"]
+    dl = len(doc_terms)
+    if not dl or not query_terms:
+        return 0.0
+
+    tf: dict[str, int] = {}
+    for term in doc_terms:
+        tf[term] = tf.get(term, 0) + 1
+
+    df = index["df"]
+    score = 0.0
+    for term in query_terms:
+        if term not in tf:
+            continue
+        tf_td = tf[term]
+        df_t = df.get(term, 0)
+        idf = math.log((N - df_t + 0.5) / (df_t + 0.5) + 1)
+        tf_norm = (tf_td * (k1 + 1)) / (tf_td + k1 * (1 - b + b * dl / max(avg_dl, 1)))
+        score += idf * tf_norm
+
+    return score
+
+
+def _bm25_min_z(n_nonzero: int) -> float:
+    """Minimum z-score a lesson must reach to count as a semantic match.
+
+    When only 1-2 lessons overlap the query, admits them on the raw floor
+    alone — the gate exists to stop the opposite failure where hundreds of
+    lessons share common words and nothing is actually about the query.
+    """
+    if n_nonzero < 3:
+        return -math.inf
+    max_attainable = (n_nonzero - 1) / math.sqrt(n_nonzero)
+    return min(_BM25_MIN_Z, _BM25_STANDOUT_FRACTION * max_attainable)
+
+
+def _bm25_zscores(scores: list[float]) -> list[float]:
+    """Standardize raw BM25 scores against the nonzero score distribution.
+
+    Lessons with score 0 (no term overlap) get 0.0.  If fewer than two
+    lessons score nonzero, or the spread is degenerate, every z is 0.0.
+    """
+    nonzero = [s for s in scores if s > 0]
+    if len(nonzero) < 2:
+        return [0.0] * len(scores)
+    mean = sum(nonzero) / len(nonzero)
+    var = sum((s - mean) ** 2 for s in nonzero) / len(nonzero)
+    sd = math.sqrt(var)
+    if sd <= 0:
+        return [0.0] * len(scores)
+    return [(s - mean) / sd if s > 0 else 0.0 for s in scores]
+
+
+# ---------------------------------------------------------------------------
 
 # Optional embedding support — availability checked lazily to avoid a 10+ second
 # cumulative import of sentence_transformers/transformers/sklearn at CLI startup.
@@ -221,6 +324,12 @@ class HybridLessonMatcher(LessonMatcher):
         # candidates each turn is wasted compute. See _semantic_score.
         self._lesson_embed_cache: dict[str, Any] = {}
 
+        # BM25 index cache — used as semantic fallback when embeddings are
+        # unavailable.  Keyed on the tuple of lesson paths so it rebuilds
+        # automatically when the lesson set changes.
+        self._bm25_index: dict | None = None
+        self._bm25_index_key: tuple[str, ...] = ()
+
     def match(
         self, lessons: list[Lesson], context: MatchContext, threshold: float = 0.0
     ) -> list[MatchResult]:
@@ -236,9 +345,11 @@ class HybridLessonMatcher(LessonMatcher):
         Returns:
             List of match results, sorted by hybrid score (descending)
         """
-        # Fallback to keyword-only if semantic matching unavailable
+        # Fallback to BM25+keyword when sentence embeddings are unavailable.
+        # This mirrors the CC hook's scoring path so both runtimes apply the
+        # same z-score gate rather than gptme falling back to keyword-only.
         if not self.embedder:
-            return super().match(lessons, context, threshold)
+            return self._match_with_bm25(lessons, context, threshold)
 
         # Stage 1: Fast candidate filtering (keyword + tool)
         candidates = self._get_candidates(lessons, context)
@@ -269,6 +380,94 @@ class HybridLessonMatcher(LessonMatcher):
 
         # Cap at max_lessons to prevent context explosion
         return filtered[: self.config.max_lessons]
+
+    def _get_bm25_index(self, lessons: list[Lesson]) -> dict:
+        """Return a cached BM25 index, rebuilding when the lesson set changes."""
+        key = tuple(str(lesson.path) for lesson in lessons)
+        if self._bm25_index is None or key != self._bm25_index_key:
+            self._bm25_index = _build_bm25_index(lessons)
+            self._bm25_index_key = key
+        return self._bm25_index
+
+    def _match_with_bm25(
+        self,
+        lessons: list[Lesson],
+        context: MatchContext,
+        threshold: float = 0.0,
+    ) -> list[MatchResult]:
+        """Keyword + BM25 z-score scoring — used when embeddings are unavailable.
+
+        Matches the CC hook's scoring contract: each lesson receives a keyword
+        score (1.0 per match) plus a BM25 contribution weighted by
+        _BM25_WEIGHT * z-score, gated on _bm25_min_z.
+        """
+        index = self._get_bm25_index(lessons)
+        query_terms = re.findall(r"[a-z0-9]+", context.message.lower())
+
+        # Compute all BM25 scores up-front (z-gate is per-query, not per-lesson)
+        bm_scores: list[float] = [
+            _bm25_score(query_terms, doc_terms, index) for doc_terms in index["corpus"]
+        ]
+        bm_zs = _bm25_zscores(bm_scores)
+        bm_n_nonzero = sum(1 for s in bm_scores if s > 0)
+        bm_min_z = _bm25_min_z(bm_n_nonzero)
+
+        # Score each lesson with keyword + BM25 (deduplicated by path)
+        seen_paths: set[str] = set()
+        results: list[MatchResult] = []
+        message_lower = context.message.lower()
+
+        for i, lesson in enumerate(lessons):
+            resolved = os.path.realpath(lesson.path)
+            if resolved in seen_paths:
+                continue
+            seen_paths.add(resolved)
+
+            score = 0.0
+            matched_by: list[str] = []
+
+            for keyword in lesson.metadata.keywords:
+                if _match_keyword(keyword, message_lower):
+                    score += 1.0
+                    matched_by.append(f"keyword:{keyword}")
+
+            for pattern in lesson.metadata.patterns:
+                from gptme.util.keyword_matching import _match_pattern
+
+                if _match_pattern(pattern, message_lower):
+                    score += 1.0
+                    matched_by.append(f"pattern:{pattern[:30]}...")
+
+            if context.tools_used and lesson.metadata.tools:
+                tools_lower = {t.lower() for t in context.tools_used}
+                for tool in lesson.metadata.tools:
+                    if tool.lower() in tools_lower:
+                        score += 2.0
+                        matched_by.append(f"tool:{tool}")
+
+            # BM25 contribution (z-score gated, scale-free)
+            bm_score = bm_scores[i]
+            bm_z = bm_zs[i]
+            small_corpus = bm_n_nonzero < 3
+            if bm_z >= bm_min_z and (
+                bm_score >= _BM25_MIN_RAW or (small_corpus and bm_score > 0)
+            ):
+                if bm_n_nonzero >= 3:
+                    bm_contribution = bm_z
+                elif bm_n_nonzero == 2:
+                    bm_contribution = max(bm_z, 0.5)
+                else:
+                    bm_contribution = 1.0
+                score += _BM25_WEIGHT * max(bm_contribution, 0.0)
+                matched_by.append(f"bm25:{bm_score:.2f}")
+
+            if score > threshold:
+                results.append(
+                    MatchResult(lesson=lesson, score=score, matched_by=matched_by)
+                )
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results[: self.config.max_lessons]
 
     def _get_candidates(
         self, lessons: list[Lesson], context: MatchContext
