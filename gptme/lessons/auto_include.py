@@ -157,15 +157,23 @@ def _load_policy_manifest() -> "dict[str, Any]":
 
         with open(manifest_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
-        if not isinstance(raw, dict):
+        if raw is None:
+            # Empty file (e.g. `yaml.safe_load` of a blank/whitespace-only
+            # document) — treat like a missing manifest.
+            manifest: dict[str, Any] = _missing_default
+        elif not isinstance(raw, dict):
             logger.warning(
                 "Lesson-policy manifest at %s has unexpected type (%s); using defaults",
                 manifest_path,
                 type(raw).__name__,
             )
-            manifest: dict[str, Any] = _missing_default
+            manifest = _missing_default
         else:
-            manifest = raw or _missing_default
+            # A valid-but-empty mapping (`{}`) means the manifest *exists* but
+            # classifies nothing — distinct from a missing manifest, so lessons
+            # should resolve to "unknown" rather than the missing-manifest
+            # "holdout" default. Don't conflate the two via truthiness.
+            manifest = raw or _default
     except ImportError:
         logger.warning(
             "yaml not available; lesson-policy manifest at %s ignored", manifest_path
@@ -206,13 +214,20 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
     parts = path.parts
     try:
         lessons_idx = list(parts).index("lessons")
-        key = "/".join(parts[lessons_idx + 1 :])
+        candidate_keys = ["/".join(parts[lessons_idx + 1 :]).removesuffix(".md")]
     except ValueError:
-        # No "lessons" dir component; use parent/stem so manifest keys like
-        # "category/name" can match custom lesson roots without a literal
-        # "lessons" directory (e.g. /opt/guidance/patterns/foo.md → patterns/foo).
-        key = f"{parts[-2]}/{path.stem}" if len(parts) >= 2 else path.stem
-    key = key.removesuffix(".md")
+        # No "lessons" dir component (custom lesson root). We don't know where
+        # the configured root ends, so try every suffix depth — stem,
+        # parent/stem, grandparent/parent/stem, ... — and check them all, so
+        # nested categories (e.g. /opt/guidance/patterns/sub/foo.md →
+        # "patterns/sub/foo") match instead of only the immediate parent
+        # (which would collapse to "sub/foo" and lose "patterns").
+        stem = path.stem
+        max_dirs = len(parts) - 1  # directory components available (excludes filename)
+        candidate_keys = [
+            "/".join((*parts[-(depth + 1) : -1], stem)) if depth > 0 else stem
+            for depth in range(0, max_dirs + 1)
+        ]
 
     for category, class_name in [
         ("validated_core", "validated_core"),
@@ -220,7 +235,9 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
         ("holdout_population", "holdout"),
     ]:
         category_list = manifest.get(category)
-        if isinstance(category_list, list) and key in category_list:
+        if not isinstance(category_list, list):
+            continue
+        if any(key in category_list for key in candidate_keys):
             return class_name, policy_version
 
     # No manifest on disk → default evaluation population is "holdout".

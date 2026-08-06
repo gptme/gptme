@@ -590,6 +590,35 @@ def test_classify_lesson_custom_root_parent_key(monkeypatch, tmp_path):
     assert policy_class == "holdout"
 
 
+def test_classify_lesson_custom_root_nested_category(monkeypatch, tmp_path):
+    """Nested categories under a custom root match on the full category path,
+    not just the immediate parent directory."""
+    _reset_manifest_cache(monkeypatch)
+    p = _make_manifest_file(
+        tmp_path, holdout_population=["patterns/sub/persistent-learning"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    # Immediate parent alone ('sub') would miss the manifest key; the full
+    # 'patterns/sub/persistent-learning' suffix must be tried too.
+    policy_class, _ = _classify_lesson(
+        "/opt/guidance/patterns/sub/persistent-learning.md"
+    )
+    assert policy_class == "holdout"
+
+
+def test_load_policy_manifest_empty_mapping_is_not_missing(monkeypatch, tmp_path):
+    """A valid-but-empty manifest ({}) exists, so lessons should classify as
+    'unknown', not fall back to the missing-manifest 'holdout' default."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("{}\n")
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    manifest = _load_policy_manifest()
+    assert manifest.get("_manifest_missing") is not True
+    policy_class, _ = _classify_lesson("lessons/any/lesson.md")
+    assert policy_class == "unknown"
+
+
 def test_dropout_log_withheld_has_policy_fields(monkeypatch, tmp_path):
     """Withheld entries in dropout log carry policy_class and policy_version."""
     import random as _random
