@@ -1,4 +1,4 @@
-import { Star, Check, ChevronsUpDown } from 'lucide-react';
+import { Star, Check, ChevronsUpDown, Keyboard } from 'lucide-react';
 import { useMemo, useState, type FC } from 'react';
 import {
   Command,
@@ -120,8 +120,15 @@ const ModelCommandList: FC<{
   value?: string;
   onSelect: (modelId: string) => void;
 }> = ({ value, onSelect }) => {
-  const { availableFavorites, availableRecommended, providerGroups, favoriteSet, toggleFavorite } =
-    useModelGroups();
+  const [search, setSearch] = useState('');
+  const {
+    models,
+    availableFavorites,
+    availableRecommended,
+    providerGroups,
+    favoriteSet,
+    toggleFavorite,
+  } = useModelGroups();
 
   // Substring filter instead of cmdk's default fuzzy match
   const filter = (value: string, search: string, keywords?: string[]) => {
@@ -129,6 +136,14 @@ const ModelCommandList: FC<{
     const terms = search.toLowerCase().split(/\s+/);
     return terms.every((term) => haystack.includes(term)) ? 1 : 0;
   };
+
+  // Show "use as custom model ID" when the typed value isn't an exact known model.
+  // This lets users pin specific OpenRouter subproviders (e.g.
+  // `openrouter/deepseek/deepseek-v4-flash-0731@deepseek`) that the curated
+  // list doesn't include. The value is passed through verbatim — the
+  // `@subprovider` suffix is preserved.
+  const customId = search.trim();
+  const showCustomEntry = customId.length > 0 && !models.some((m) => m.id === customId);
 
   const renderItem = (model: ModelInfo, showProvider: boolean) => (
     <CommandItem
@@ -149,12 +164,33 @@ const ModelCommandList: FC<{
 
   return (
     <Command className="rounded-lg" filter={filter}>
-      <CommandInput placeholder="Search models..." />
+      <CommandInput
+        placeholder="Search models or enter model ID..."
+        value={search}
+        onValueChange={setSearch}
+      />
       {/* stopPropagation lets the wheel scroll this list even when rendered
           inside a Radix Dialog, whose react-remove-scroll otherwise eats the
           wheel event on document. Harmless outside a dialog. */}
       <CommandList className="max-h-[350px]" onWheel={(e) => e.stopPropagation()}>
         <CommandEmpty>No models found.</CommandEmpty>
+
+        {/* Custom model ID entry — shown when the typed text isn't a known model.
+            Useful for specifying exact OpenRouter subproviders or any model not
+            in the curated list. The ID is passed through verbatim. */}
+        {showCustomEntry && (
+          <CommandGroup heading="Custom model ID">
+            <CommandItem value={customId} onSelect={() => onSelect(customId)}>
+              <div className="flex items-center gap-2">
+                <Keyboard className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate font-mono text-sm">{customId}</span>
+                  <span className="text-xs text-muted-foreground">Use this model ID directly</span>
+                </div>
+              </div>
+            </CommandItem>
+          </CommandGroup>
+        )}
 
         {availableFavorites.length > 0 && (
           <CommandGroup heading="Favorites">
