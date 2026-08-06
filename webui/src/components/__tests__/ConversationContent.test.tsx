@@ -627,12 +627,14 @@ describe('scroll stability during tool execution (gptme#3440)', () => {
     });
     renderComponent();
     // The card header text appears when executingTool is set
-    expect(screen.getByText(/tool executing/i)).toBeInTheDocument();
+    expect(screen.getByText(/running/i)).toBeInTheDocument();
+    expect(screen.getByText(/shell/i)).toBeInTheDocument();
   });
 
   it('InlineToolExecution is absent when executingTool$ is null', () => {
     renderComponent();
-    expect(screen.queryByText(/tool executing/i)).toBeNull();
+    // The compact "Running <tool>" header must not appear without an executing tool
+    expect(screen.queryByRole('code', { name: /shell/i })).toBeNull();
   });
 
   it('scrollToIndex is called when executingTool$ transitions null → set', () => {

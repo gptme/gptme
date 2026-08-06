@@ -2,7 +2,15 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import type { PendingTool } from '@/stores/conversations';
-import { Loader2, Play, Edit, SkipForward, Settings, ChevronDown } from 'lucide-react';
+import {
+  Loader2,
+  Play,
+  Edit,
+  SkipForward,
+  Settings,
+  ChevronDown,
+  ChevronsRight,
+} from 'lucide-react';
 import { type Observable, observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
 import { CodeDisplay } from '@/components/CodeDisplay';
@@ -100,6 +108,14 @@ export function InlineToolConfirmation({
     }
   };
 
+  const handleAcceptAll = async () => {
+    try {
+      await onAuto(999999);
+    } catch (error) {
+      console.error('Error accepting all tools:', error);
+    }
+  };
+
   // Format args for display
   const formatArgs = (args: string[]) => {
     if (!args || args.length === 0) return 'No arguments';
@@ -110,7 +126,7 @@ export function InlineToolConfirmation({
   if (!pendingTool) return null;
 
   return (
-    <div className="role-system mb-4 mt-4">
+    <div className="role-system mb-2 mt-2">
       <div className="mx-auto max-w-3xl px-4">
         <div className="relative">
           <MessageAvatar
@@ -121,49 +137,48 @@ export function InlineToolConfirmation({
           />
           <div className="md:px-12">
             <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20">
-              <div className="border-b border-amber-200 px-4 py-3 dark:border-amber-800">
-                <div className="flex items-center gap-2">
-                  <Settings className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                  <h3 className="font-medium text-amber-800 dark:text-amber-200">
-                    Tool Execution Confirmation
-                  </h3>
-                </div>
-
-                <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
-                  The assistant wants to use
-                  <code className="rounded bg-muted px-2 py-1 font-mono text-sm">
+              {/* Compact header */}
+              <div className="flex items-center gap-2 border-b border-amber-200 px-3 py-2 dark:border-amber-800">
+                <Settings className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                  Run{' '}
+                  <code className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-xs dark:bg-amber-900/40">
                     {pendingTool.tooluse.tool}
                   </code>
-                </p>
+                  ?
+                </span>
+                <span className="ml-auto text-xs text-amber-600 dark:text-amber-400">
+                  Press Enter to execute
+                </span>
               </div>
 
-              <div className="space-y-4 p-4">
+              <div className="space-y-3 p-3">
                 {/* Arguments */}
                 {pendingTool.tooluse.args.length > 0 && (
-                  <div className="space-y-2">
-                    <span className="text-sm font-medium text-muted-foreground">Arguments:</span>
+                  <div className="space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground">Arguments:</span>
                     <CodeDisplay
                       code={formatArgs(pendingTool.tooluse.args)}
-                      maxHeight="120px"
+                      maxHeight="80px"
                       showLineNumbers={false}
                     />
                   </div>
                 )}
 
                 {/* Code */}
-                <div className="space-y-2">
+                <div className="space-y-1">
                   {isEditing ? (
                     <Textarea
                       value={editedContent}
                       onChange={(e) => setEditedContent(e.target.value)}
-                      rows={Math.min(12, editedContent.split('\n').length + 2)}
+                      rows={Math.min(10, editedContent.split('\n').length + 2)}
                       className="resize-none font-mono text-sm"
                       placeholder="Edit the code to be executed..."
                     />
                   ) : (
                     <CodeDisplay
                       code={pendingTool.tooluse.content}
-                      maxHeight="240px"
+                      maxHeight="200px"
                       showLineNumbers={true}
                       language={detectToolLanguage(
                         pendingTool.tooluse.tool,
@@ -175,15 +190,16 @@ export function InlineToolConfirmation({
                 </div>
 
                 {/* Action buttons */}
-                <div className="flex items-center justify-between border-t border-amber-200 pt-3 dark:border-amber-800">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between border-t border-amber-200 pt-2 dark:border-amber-800">
+                  <div className="flex items-center gap-1.5">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setIsEditing(!isEditing)}
                       disabled={confirmLoading}
+                      className="h-7 px-2 text-xs"
                     >
-                      <Edit className="mr-1 h-4 w-4" />
+                      <Edit className="mr-1 h-3.5 w-3.5" />
                       {isEditing ? 'Cancel' : 'Edit'}
                     </Button>
                     <Button
@@ -191,81 +207,101 @@ export function InlineToolConfirmation({
                       size="sm"
                       onClick={handleSkip}
                       disabled={confirmLoading}
+                      className="h-7 px-2 text-xs"
                     >
-                      <SkipForward className="mr-1 h-4 w-4" />
+                      <SkipForward className="mr-1 h-3.5 w-3.5" />
                       Skip
                     </Button>
                   </div>
 
-                  <div className="flex items-center">
-                    <Button
-                      onClick={isEditing ? handleEdit : handleConfirm}
-                      disabled={confirmLoading}
-                      size="sm"
-                      className="rounded-r-none border-r-0 bg-amber-600 text-white hover:bg-amber-700"
-                    >
-                      {confirmLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      <Play className="mr-1 h-4 w-4" />
-                      {isEditing ? 'Save & Execute' : 'Execute'}
-                    </Button>
+                  <div className="flex items-center gap-1.5">
+                    {/* Accept All — direct one-click action */}
+                    {!isEditing && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleAcceptAll}
+                        disabled={confirmLoading}
+                        className="h-7 px-2 text-xs text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                        title="Auto-accept all remaining tool confirmations"
+                      >
+                        <ChevronsRight className="mr-1 h-3.5 w-3.5" />
+                        Accept All
+                      </Button>
+                    )}
 
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          disabled={confirmLoading}
-                          size="sm"
-                          className="rounded-l-none border-l border-amber-500 bg-amber-600 px-2 text-white hover:bg-amber-700"
-                        >
-                          <ChevronDown className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem onClick={() => onAuto(999999)}>
-                          Auto-accept all
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => onAuto(5)}>
-                          Auto-confirm 5x
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onAuto(10)}>
-                          Auto-confirm 10x
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => setShowCustomInput(!showCustomInput)}
-                          className="flex items-center justify-between"
-                        >
-                          Custom count
-                          {showCustomInput && (
-                            <div
-                              className="ml-2 flex items-center gap-2"
-                              onClick={(e) => e.stopPropagation()}
+                    {/* Execute (primary) + dropdown for 5x/10x/custom */}
+                    <div className="flex items-center">
+                      <Button
+                        onClick={isEditing ? handleEdit : handleConfirm}
+                        disabled={confirmLoading}
+                        size="sm"
+                        className="h-7 rounded-r-none border-r-0 bg-amber-600 px-2 text-xs text-white hover:bg-amber-700"
+                      >
+                        {confirmLoading && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                        <Play className="mr-1 h-3.5 w-3.5" />
+                        {isEditing ? 'Save & Execute' : 'Execute'}
+                      </Button>
+
+                      {!isEditing && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              disabled={confirmLoading}
+                              size="sm"
+                              className="h-7 rounded-l-none border-l border-amber-500 bg-amber-600 px-1.5 text-white hover:bg-amber-700"
+                              title="Auto-confirm multiple tools"
                             >
-                              <Input
-                                type="number"
-                                min="1"
-                                max="50"
-                                value={customCount}
-                                onChange={(e) => setCustomCount(parseInt(e.target.value, 10) || 1)}
-                                className="h-6 w-16 px-1 text-xs"
-                                autoFocus
-                              />
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-2 text-xs"
-                                onClick={() => {
-                                  onAuto(customCount);
-                                  setShowCustomInput(false);
-                                }}
-                              >
-                                Apply
-                              </Button>
-                            </div>
-                          )}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem onClick={() => onAuto(5)}>
+                              Auto-confirm 5×
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onAuto(10)}>
+                              Auto-confirm 10×
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setShowCustomInput(!showCustomInput)}
+                              className="flex items-center justify-between"
+                            >
+                              Custom count
+                              {showCustomInput && (
+                                <div
+                                  className="ml-2 flex items-center gap-1.5"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    max="50"
+                                    value={customCount}
+                                    onChange={(e) =>
+                                      setCustomCount(parseInt(e.target.value, 10) || 1)
+                                    }
+                                    className="h-6 w-14 px-1 text-xs"
+                                    autoFocus
+                                  />
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-xs"
+                                    onClick={() => {
+                                      onAuto(customCount);
+                                      setShowCustomInput(false);
+                                    }}
+                                  >
+                                    Go
+                                  </Button>
+                                </div>
+                              )}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
