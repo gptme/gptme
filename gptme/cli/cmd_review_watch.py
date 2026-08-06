@@ -307,7 +307,7 @@ def _filter_findings_by_trust(
     *,
     require_trust: bool,
     github_verified_reviewers: frozenset[str] | None = None,
-    github_comment_authors: dict[int, tuple[str, str]] | None = None,
+    github_comment_authors: dict[int, tuple[str, str, str]] | None = None,
 ) -> list[ReviewFinding]:
     """Filter artifact findings to only those from trusted reviewers.
 
@@ -325,15 +325,15 @@ def _filter_findings_by_trust(
     and pass it here; failing to do so raises :class:`click.ClickException`
     so the gap cannot be silently skipped.
 
-    ``github_comment_authors`` is an optional ``{comment_id: (author_login, body)}``
+    ``github_comment_authors`` is an optional ``{comment_id: (author_login, body, path)}``
     mapping obtained from
     :func:`~gptme.util.gh.fetch_pr_review_comment_authors`.  When provided,
     findings that carry a ``github_comment_id`` are verified at the
     *per-comment* level: the comment's actual author (from the API) must
     match the finding's ``reviewer`` field.  Accepted findings have their
-    ``body`` rewritten with the GitHub-fetched body, eliminating the attack
-    where a crafted artifact reuses a real comment ID and trusted author but
-    substitutes a malicious finding body.
+    ``body`` and ``file`` rewritten with the GitHub-fetched values, eliminating
+    the attack where a crafted artifact reuses a real comment ID and trusted
+    author but substitutes a malicious body or file path.
 
     .. note::
         Findings that lack a ``github_comment_id`` are always rejected when
@@ -383,13 +383,20 @@ def _filter_findings_by_trust(
             if entry is None:
                 # Comment ID not found in PR review comments — reject.
                 continue
-            actual_author, github_body = entry
+            actual_author, github_body, github_path = entry
             if actual_author != f.reviewer:
                 continue
-            # Rewrite the finding body with the GitHub-authoritative body so
-            # an attacker cannot inject instructions by pairing a real comment
-            # ID and matching author with a substituted malicious body.
-            result.append(dataclasses.replace(f, body=github_body.strip()))
+            # Rewrite body AND file with GitHub-authoritative values so an
+            # attacker cannot inject instructions via a substituted body or a
+            # crafted file path that breaks out of the Markdown code span in
+            # the fix-session prompt.
+            result.append(
+                dataclasses.replace(
+                    f,
+                    body=github_body.strip(),
+                    file=github_path or f.file,
+                )
+            )
             continue
 
         # No comment_id: the PR-level reviewer set only proves someone left a
@@ -618,7 +625,7 @@ def review_watch(
         # via the GitHub API — not artifact metadata — because the artifact
         # controls its own reviewer field and can forge any login.
         github_verified: frozenset[str] | None = None
-        github_comment_authors: dict[int, tuple[str, str]] | None = None
+        github_comment_authors: dict[int, tuple[str, str, str]] | None = None
         if trusted_reviewers:
             if not _gh_available():
                 raise click.ClickException(

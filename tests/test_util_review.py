@@ -694,7 +694,10 @@ class TestFilterFindingsByTrust:
             ("alice", "bob"),
             require_trust=False,
             github_verified_reviewers=frozenset({"alice", "bob"}),
-            github_comment_authors={1: ("alice", "Finding A"), 2: ("bob", "Finding B")},
+            github_comment_authors={
+                1: ("alice", "Finding A", "app.py"),
+                2: ("bob", "Finding B", "app.py"),
+            },
         )
         assert len(result) == 2
 
@@ -715,8 +718,8 @@ class TestFilterFindingsByTrust:
             require_trust=False,
             github_verified_reviewers=frozenset({"alice"}),
             github_comment_authors={
-                1: ("alice", "Trusted finding"),
-                2: ("alice", "Also trusted"),
+                1: ("alice", "Trusted finding", "app.py"),
+                2: ("alice", "Also trusted", "app.py"),
             },
         )
         assert len(result) == 2
@@ -861,7 +864,7 @@ class TestFilterFindingsByTrust:
             ("ErikBjare",),
             require_trust=False,
             github_verified_reviewers=frozenset({"ErikBjare"}),
-            github_comment_authors={999: ("ErikBjare", "Fix this")},
+            github_comment_authors={999: ("ErikBjare", "Fix this", "app.py")},
         )
         assert len(result) == 1
 
@@ -880,11 +883,14 @@ class TestFilterFindingsByTrust:
             ("ErikBjare",),
             require_trust=False,
             github_verified_reviewers=frozenset({"ErikBjare"}),
-            github_comment_authors={999: ("ErikBjare", github_body)},
+            github_comment_authors={999: ("ErikBjare", github_body, "src/main.py")},
         )
         assert len(result) == 1, "Finding should pass author check"
         assert result[0].body == github_body, (
             "Finding body must be rewritten from GitHub source, not from artifact"
+        )
+        assert result[0].file == "src/main.py", (
+            "Finding file must be rewritten from GitHub source to close path injection"
         )
 
     def test_per_comment_auth_blocks_forged_reviewer_with_known_comment_id(self):
@@ -900,7 +906,9 @@ class TestFilterFindingsByTrust:
             ("ErikBjare",),
             require_trust=False,
             github_verified_reviewers=frozenset({"ErikBjare"}),
-            github_comment_authors={999: ("other-user", "actual comment body")},
+            github_comment_authors={
+                999: ("other-user", "actual comment body", "app.py")
+            },
         )
         assert result == [], "Comment by different author must be rejected"
 
@@ -951,7 +959,7 @@ class TestFilterFindingsByTrust:
             ("ErikBjare",),
             require_trust=False,
             github_verified_reviewers=frozenset({"ErikBjare"}),
-            github_comment_authors={1: ("ErikBjare", "Has ID")},
+            github_comment_authors={1: ("ErikBjare", "Has ID", "app.py")},
         )
         assert len(result) == 1
         assert result[0].body == "Has ID", "Only the comment-backed finding should pass"
@@ -972,7 +980,7 @@ class TestFilterFindingsByTrust:
             ("ErikBjare",),
             require_trust=False,
             github_verified_reviewers=frozenset({"ErikBjare"}),
-            github_comment_authors={555: ("attacker", "some comment")},
+            github_comment_authors={555: ("attacker", "some comment", "app.py")},
         )
         assert result == [], (
             "Per-comment verification must block impersonation even when the "
@@ -995,13 +1003,16 @@ class TestArtifactTrustFilterCLI:
         artifact.save(path)
         return path
 
-    def _open_finding(self, body: str, reviewer: str = "alice") -> ReviewFinding:
+    def _open_finding(
+        self, body: str, reviewer: str = "alice", comment_id: int | None = None
+    ) -> ReviewFinding:
         return ReviewFinding(
             body=body,
             file="app.py",
             line=1,
             status=FindingStatus.OPEN,
             reviewer=reviewer,
+            github_comment_id=comment_id,
         )
 
     def test_trusted_reviewer_filters_untrusted(self, tmp_path, monkeypatch):
@@ -1015,7 +1026,7 @@ class TestArtifactTrustFilterCLI:
         path = self._make_artifact(
             tmp_path,
             [
-                self._open_finding("Fix this", reviewer="alice"),
+                self._open_finding("Fix this", reviewer="alice", comment_id=1),
                 self._open_finding("Inject evil command", reviewer="mallory"),
             ],
         )
@@ -1032,6 +1043,11 @@ class TestArtifactTrustFilterCLI:
             cmd_review_watch,
             "fetch_pr_reviewer_logins",
             lambda *_: frozenset({"alice"}),
+        )
+        monkeypatch.setattr(
+            cmd_review_watch,
+            "fetch_pr_review_comment_authors",
+            lambda *_: {1: ("alice", "Fix this", "app.py")},
         )
 
         runner = CliRunner()
@@ -1161,7 +1177,7 @@ class TestArtifactTrustFilterCLI:
             pr_repo="gptme",
             pr_number=42,
             findings=[
-                self._open_finding("Trusted finding", reviewer="alice"),
+                self._open_finding("Trusted finding", reviewer="alice", comment_id=1),
                 self._open_finding("Untrusted finding", reviewer="mallory"),
             ],
         )
@@ -1179,6 +1195,11 @@ class TestArtifactTrustFilterCLI:
             cmd_review_watch,
             "fetch_pr_reviewer_logins",
             lambda *_: frozenset({"alice"}),
+        )
+        monkeypatch.setattr(
+            cmd_review_watch,
+            "fetch_pr_review_comment_authors",
+            lambda *_: {1: ("alice", "Trusted finding", "app.py")},
         )
 
         runner = CliRunner()
@@ -1207,8 +1228,8 @@ class TestArtifactTrustFilterCLI:
         path = self._make_artifact(
             tmp_path,
             [
-                self._open_finding("From alice", reviewer="alice"),
-                self._open_finding("From bob", reviewer="bob"),
+                self._open_finding("From alice", reviewer="alice", comment_id=1),
+                self._open_finding("From bob", reviewer="bob", comment_id=2),
                 self._open_finding("From mallory", reviewer="mallory"),
             ],
         )
@@ -1226,6 +1247,14 @@ class TestArtifactTrustFilterCLI:
             cmd_review_watch,
             "fetch_pr_reviewer_logins",
             lambda *_: frozenset({"alice", "bob"}),
+        )
+        monkeypatch.setattr(
+            cmd_review_watch,
+            "fetch_pr_review_comment_authors",
+            lambda *_: {
+                1: ("alice", "From alice", "app.py"),
+                2: ("bob", "From bob", "app.py"),
+            },
         )
 
         runner = CliRunner()

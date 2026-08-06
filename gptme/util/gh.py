@@ -115,14 +115,14 @@ def fetch_pr_reviewer_logins(
 
 def fetch_pr_review_comment_authors(
     owner: str, repo: str, pr_num: int, *, timeout: float = 15
-) -> dict[int, tuple[str, str]] | None:
-    """Return a mapping of {comment_id: (author_login, body)} for PR review comments.
+) -> dict[int, tuple[str, str, str]] | None:
+    """Return a mapping of {comment_id: (author_login, body, path)} for PR review comments.
 
     Uses ``GET /repos/{owner}/{repo}/pulls/{pr_num}/comments`` — the PR review
     *comments* endpoint (inline/diff comments), not the reviews endpoint.  This
-    provides per-comment authorship and body content that can be used to verify a
-    finding's ``github_comment_id`` against the comment's actual author AND to
-    rewrite the finding body with the authoritative GitHub source.
+    provides per-comment authorship, body content, and file path that can be used
+    to verify a finding's ``github_comment_id`` against the comment's actual author
+    AND to rewrite the finding body and file with the authoritative GitHub source.
 
     Returns ``None`` when the API call fails or ``gh`` is unavailable.
     """
@@ -144,7 +144,7 @@ def fetch_pr_review_comment_authors(
             comments.extend(item)
         elif isinstance(item, dict):
             comments.append(item)
-    result: dict[int, tuple[str, str]] = {}
+    result: dict[int, tuple[str, str, str]] = {}
     for c in comments:
         if not isinstance(c, dict):
             continue
@@ -153,8 +153,9 @@ def fetch_pr_review_comment_authors(
         if isinstance(cid, int) and isinstance(user, dict):
             login = user.get("login", "")
             body = c.get("body", "") or ""
+            path = c.get("path", "") or ""
             if login:
-                result[cid] = (login, body)
+                result[cid] = (login, body, path)
     return result
 
 
