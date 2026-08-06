@@ -270,9 +270,13 @@ def _spawn_review_session(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        # Recover partial output that was captured before timeout, if any.
-        # With text=True, exc.stdout is str or None (not bytes).
-        partial_output: str = exc.stdout or ""
+        # Recover partial output captured before timeout. With text=True, exc.stdout
+        # is str|None, but mypy types TimeoutExpired.stdout as AnyStr|None and can't
+        # narrow the ternary — use an explicit if/else block instead.
+        if isinstance(exc.stdout, str):
+            partial_output = exc.stdout or ""
+        else:
+            partial_output = ""
         return partial_output, {
             "exit_reason": "timeout",
             "duration_s": round(time.monotonic() - start, 3),
