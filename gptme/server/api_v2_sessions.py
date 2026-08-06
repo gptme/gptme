@@ -406,6 +406,9 @@ def api_conversation_step(conversation_id: str):
         session.generating = True
         session.generating_since = datetime.now(tz=timezone.utc)
         session.interrupted = False  # clear any prior interrupt on explicit /step
+        session.step_seq += (
+            1  # advance sequence so in-flight tool threads detect stale reservations
+        )
 
     # Wrap setup in try/finally so any unexpected exception (get_default_model,
     # config I/O, etc.) resets the flag rather than leaving the session

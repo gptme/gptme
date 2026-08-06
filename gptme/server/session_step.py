@@ -1003,6 +1003,16 @@ def start_tool_execution(
     # For simplicity, we'll run it in a thread
     @trace_function("api_v2.execute_tool", attributes={"component": "api_v2"})
     def execute_tool_thread() -> None:
+        # reserved is a closure variable from execute_tool_thread_maker; we
+        # may reassign it to False when we detect a stale reservation (Race 1).
+        nonlocal reserved
+
+        # Snapshot the step sequence number at thread start so we can detect a
+        # stale reserved=True later: if /interrupt fires and then /step runs
+        # before this thread finishes, step_seq will have advanced and our
+        # reserved=True no longer owns the generation slot (Race 1).
+        my_seq = session.step_seq
+
         # Set context vars for hook-based confirmation
         from ..hooks import current_conversation_id, current_session_id
 
@@ -1188,19 +1198,40 @@ def start_tool_execution(
             # With multiple tools per message, we must wait until every tool
             # has run before asking the model for a continuation.
             if not session.pending_tools:
-                if session.interrupted:
-                    # The user interrupted while this tool was executing.
-                    # The tool can't be stopped mid-execution, but we must not
-                    # start a continuation step — the interrupt should end the
-                    # agent loop here.  Release any pre-reserved generation slot.
-                    logger.debug(
-                        "Skipping auto-step after tool %s: session was interrupted",
-                        current_tool_id,
-                    )
-                    if reserved:
-                        session.generating = False
-                        session.generating_since = None
-                else:
+                _do_start_step = False
+                with session.step_lock:
+                    if session.step_seq != my_seq:
+                        # Race 1: a new /step cleared our interrupted flag and
+                        # re-reserved the slot. Our stale reserved=True must not
+                        # start a duplicate continuation alongside that new step.
+                        logger.debug(
+                            "Skipping auto-step after tool %s: reservation"
+                            " superseded (seq %d→%d)",
+                            current_tool_id,
+                            my_seq,
+                            session.step_seq,
+                        )
+                        if reserved:
+                            # Don't touch session.generating — the new /step owns it.
+                            reserved = False
+                    elif session.interrupted:
+                        # The user interrupted while this tool was executing.
+                        # The tool can't be stopped mid-execution, but we must not
+                        # start a continuation step.  Checking under step_lock
+                        # closes Race 2: the interrupt handler also holds step_lock
+                        # when setting interrupted=True, so there is no window
+                        # between this check and the decision not to start a step.
+                        logger.debug(
+                            "Skipping auto-step after tool %s: session was interrupted",
+                            current_tool_id,
+                        )
+                        if reserved:
+                            session.generating = False
+                            session.generating_since = None
+                    else:
+                        _do_start_step = True
+
+                if _do_start_step:
                     _start_step_thread(
                         conversation_id,
                         session,
