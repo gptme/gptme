@@ -235,9 +235,17 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
             # works correctly when the lesson path is absolute. Python's
             # Path.relative_to() raises ValueError if the base is relative but the
             # target is absolute, misclassifying every valid in-root lesson.
+            #
+            # Anchor against the manifest file's directory — NOT the process CWD.
+            # When the hook runs from a workspace subdirectory, CWD-based resolve()
+            # maps `root: lessons` to `<subdirectory>/lessons` while lesson paths are
+            # rooted at the workspace root, misclassifying every in-root lesson as
+            # `unknown`. Anchoring to the manifest file's parent is CWD-independent:
+            # the manifest is always found at an absolute path, so its parent is stable.
             manifest_root = Path(manifest_root_str)
             if not manifest_root.is_absolute():
-                manifest_root = manifest_root.resolve()
+                manifest_file_abs = _get_policy_manifest_path().resolve()
+                manifest_root = (manifest_file_abs.parent / manifest_root_str).resolve()
             abs_path = path if path.is_absolute() else path.resolve()
             rel = abs_path.relative_to(manifest_root)
             candidate_keys = [str(rel.with_suffix("")).replace("\\", "/")]

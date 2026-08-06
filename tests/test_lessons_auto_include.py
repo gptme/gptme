@@ -884,12 +884,50 @@ def test_classify_lesson_manifest_root_prevents_short_key_false_positive(
 
 
 def test_classify_lesson_relative_manifest_root(monkeypatch, tmp_path):
-    """A relative `root:` in the manifest is resolved against CWD so absolute
-    lesson paths under that root are classified correctly.
+    """A relative `root:` in the manifest is resolved against the manifest
+    file's directory (not CWD) so absolute lesson paths under that root are
+    classified correctly regardless of where the hook runs.
 
     Regression for: `Path(abs_lesson).relative_to(Path("lessons"))` raises
     ValueError because an absolute target can't be made relative to a relative
     base — causing every valid in-root lesson to fall through to 'unknown'.
+
+    Second regression (this test): resolving relative roots against CWD causes
+    `unknown` classification when the hook runs from a workspace subdirectory
+    rather than the project root, because CWD/lessons ≠ manifest_parent/lessons.
+    The fix anchors to the manifest file's parent, which is CWD-independent.
+    """
+    _reset_manifest_cache(monkeypatch)
+    # lessons_dir is a sibling of the manifest file (both under tmp_path).
+    # A relative `root: lessons` in the manifest resolves to tmp_path/lessons
+    # when anchored to the manifest's parent — correct regardless of CWD.
+    lessons_dir = tmp_path / "lessons"
+    (lessons_dir / "patterns").mkdir(parents=True)
+    lesson = lessons_dir / "patterns" / "foo.md"
+    lesson.write_text("# Foo\n")
+
+    manifest_file = tmp_path / "manifest.yaml"
+    # `root: lessons` — a relative path; anchored to manifest_file.parent = tmp_path
+    manifest_file.write_text(
+        "version: 1\nupdated_at: ''\nroot: lessons\n"
+        "validated_core:\n- patterns/foo\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # Deliberately do NOT chdir to tmp_path — the fix must work from any CWD.
+
+    policy_class, _ = _classify_lesson(str(lesson))
+    assert policy_class == "validated_core"
+
+
+def test_classify_lesson_relative_root_cwd_independent(monkeypatch, tmp_path):
+    """Relative `root:` resolves against the manifest file's location, not CWD.
+
+    Regression: when the hook runs from a workspace subdirectory, the old
+    `resolve()` (CWD-anchored) mapped `root: lessons` to
+    `<subdirectory>/lessons`, while lesson paths were rooted at the workspace
+    root. Every in-root lesson was misclassified as `unknown`. This test
+    verifies correct classification even when CWD is a subdirectory.
     """
     _reset_manifest_cache(monkeypatch)
     lessons_dir = tmp_path / "lessons"
@@ -898,15 +936,20 @@ def test_classify_lesson_relative_manifest_root(monkeypatch, tmp_path):
     lesson.write_text("# Foo\n")
 
     manifest_file = tmp_path / "manifest.yaml"
-    # `root: lessons` — a relative path, not an absolute one
     manifest_file.write_text(
         "version: 1\nupdated_at: ''\nroot: lessons\n"
         "validated_core:\n- patterns/foo\n"
         "exempt: []\nholdout_population: []\n"
     )
     monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
-    # CWD = tmp_path so "lessons" resolves to tmp_path/lessons
-    monkeypatch.chdir(tmp_path)
+
+    # Simulate running from a workspace subdirectory — CWD ≠ tmp_path.
+    # Under the old CWD-anchored resolve(), `root: lessons` would map to
+    # `<subdir>/lessons`, causing `relative_to` to raise ValueError and
+    # the lesson to be classified as `unknown`.
+    subdir = tmp_path / "gptme" / "lessons"
+    subdir.mkdir(parents=True)
+    monkeypatch.chdir(subdir)
 
     policy_class, _ = _classify_lesson(str(lesson))
     assert policy_class == "validated_core"
