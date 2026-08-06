@@ -8,7 +8,11 @@ from gptme.logmanager import Log
 from gptme.message import Message
 from gptme.tools import todo
 from gptme.tools.base import ToolUse
-from gptme.tools.complete import SessionCompleteException, auto_reply_hook
+from gptme.tools.complete import (
+    SessionCompleteException,
+    auto_reply_hook,
+    stuck_detect_hook,
+)
 
 
 class TestAutoReplyHook:
@@ -408,3 +412,87 @@ class TestTodoHelpers:
             "updated": "2025-01-01T00:00:00",
         }
         assert todo.get_incomplete_todos_summary() == ""
+
+
+# ---------------------------------------------------------------------------
+# TestStuckDetectHook
+# ---------------------------------------------------------------------------
+
+
+def _make_stuck_manager(repeat: int, extra_user_nudges: int = 0):
+    """Build a LogManager mock that looks like a session with `repeat` identical
+    assistant turns (each calling the `shell` tool with the same args)."""
+    shell_content = "```shell\nwhich python3\n```"
+
+    msgs: list[Message] = []
+    for _ in range(repeat):
+        msgs.append(Message("assistant", shell_content))
+        msgs.append(Message("system", "/usr/bin/python3", call_id="call_001"))
+
+    # Prepend any already-injected stuck nudges (simulate prior escalations)
+    for _ in range(extra_user_nudges):
+        msgs.insert(0, Message("user", "<system>You appear stuck: …</system>"))
+
+    log = MagicMock()
+    log.messages = msgs
+    manager = MagicMock()
+    manager.log = log
+    return manager
+
+
+class TestStuckDetectHook:
+    """Tests for stuck_detect_hook behavior in interactive vs non-interactive mode."""
+
+    def test_non_interactive_nudges_when_stuck(self, monkeypatch):
+        """In non-interactive mode, nudge is injected after repeat_threshold repeats."""
+        monkeypatch.setenv("GPTME_STUCK_REPEAT_THRESHOLD", "3")
+        monkeypatch.setenv("GPTME_STUCK_DETECT", "1")
+        manager = _make_stuck_manager(repeat=3)
+        results = list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert "appear stuck" in results[0].content
+
+    def test_non_interactive_raises_after_escalations(self, monkeypatch):
+        """After escalate_max escalations in non-interactive mode, raises SessionCompleteException."""
+        monkeypatch.setenv("GPTME_STUCK_REPEAT_THRESHOLD", "3")
+        monkeypatch.setenv("GPTME_STUCK_ESCALATE_MAX", "1")
+        monkeypatch.setenv("GPTME_STUCK_DETECT", "1")
+        manager = _make_stuck_manager(repeat=3, extra_user_nudges=1)
+        with pytest.raises(SessionCompleteException):
+            list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
+
+    def test_interactive_nudges_when_stuck(self, monkeypatch):
+        """In interactive mode (e.g. web sessions), nudge is still injected when stuck."""
+        monkeypatch.setenv("GPTME_STUCK_REPEAT_THRESHOLD", "3")
+        monkeypatch.setenv("GPTME_STUCK_DETECT", "1")
+        manager = _make_stuck_manager(repeat=3)
+        results = list(stuck_detect_hook(manager, interactive=True, prompt_queue=None))
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert "appear stuck" in results[0].content
+
+    def test_interactive_does_not_raise_after_escalations(self, monkeypatch):
+        """After escalate_max escalations in interactive mode, returns quietly (no force-exit)."""
+        monkeypatch.setenv("GPTME_STUCK_REPEAT_THRESHOLD", "3")
+        monkeypatch.setenv("GPTME_STUCK_ESCALATE_MAX", "1")
+        monkeypatch.setenv("GPTME_STUCK_DETECT", "1")
+        manager = _make_stuck_manager(repeat=3, extra_user_nudges=1)
+        # Must NOT raise — user can break the loop manually
+        results = list(stuck_detect_hook(manager, interactive=True, prompt_queue=None))
+        assert results == []
+
+    def test_below_threshold_no_action(self, monkeypatch):
+        """Below repeat_threshold, no nudge is emitted."""
+        monkeypatch.setenv("GPTME_STUCK_REPEAT_THRESHOLD", "3")
+        monkeypatch.setenv("GPTME_STUCK_DETECT", "1")
+        manager = _make_stuck_manager(repeat=2)
+        results = list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
+        assert results == []
+
+    def test_disabled_via_env_var(self, monkeypatch):
+        """GPTME_STUCK_DETECT=0 disables the hook entirely."""
+        monkeypatch.setenv("GPTME_STUCK_DETECT", "0")
+        manager = _make_stuck_manager(repeat=5)
+        results = list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
+        assert results == []

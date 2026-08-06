@@ -691,15 +691,14 @@ def stuck_detect_hook(
 
     Registered as a separate LOOP_CONTINUE hook at higher priority than
     ``auto_reply_hook`` so it can observe the yes-tool-but-repeating case the
-    latter early-returns on. Mutates nothing; only yields a system nudge and,
-    after repeated escalations, raises SessionCompleteException.
+    latter early-returns on. Yields a system nudge when stuck; in non-interactive
+    mode, raises SessionCompleteException after repeated escalations.
 
-    See gptme/gptme#2725 and the design note in Bob's workspace.
+    In interactive mode (e.g. gptme.ai web sessions) the nudge fires normally
+    but the session is never force-exited — the human can break the loop.
+
+    See gptme/gptme#2725, gptme/gptme#3459, and the design note in Bob's workspace.
     """
-    # Only run in non-interactive mode — a human can break their own loop.
-    if interactive:
-        return
-
     if not _env_flag("GPTME_STUCK_DETECT", "1"):
         return
 
@@ -752,6 +751,10 @@ def stuck_detect_hook(
     repeated_tool_str = "/".join(repeated_tools)
 
     if escalation_count >= escalate_max:
+        if interactive:
+            # In interactive mode (e.g. web sessions), don't force-exit — the
+            # user can break the loop by stopping generation or replying.
+            return
         logger.warning(
             "Stuck loop not broken after %d escalations (repeated `%s`). Exiting.",
             escalate_max,
