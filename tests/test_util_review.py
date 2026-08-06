@@ -651,6 +651,74 @@ class TestArtifactMode:
         assert result.exit_code != 0
         assert "artifact" in result.output.lower()
 
+    def _make_incomplete_artifact_file(self, tmp_path):
+        """Create an INCOMPLETE ReviewArtifact file with one open finding."""
+        from gptme.util.review import FindingSeverity, FindingStatus, ReviewFinding
+
+        finding = ReviewFinding(
+            body="Fix this bug.",
+            file="gptme/util/review.py",
+            line=10,
+            severity=FindingSeverity.ERROR,
+            status=FindingStatus.OPEN,
+            reviewer="ErikBjare",
+        )
+        artifact = ReviewArtifact(
+            pr_owner="gptme",
+            pr_repo="gptme",
+            pr_number=1234,
+            findings=[finding],
+            review_status=ReviewStatus.INCOMPLETE,
+            session_exit_reason="timeout",
+            validation_errors=0,
+        )
+        path = tmp_path / "incomplete_artifact.json"
+        artifact.save(path)
+        return path
+
+    def test_incomplete_artifact_rejected_by_default(self, tmp_path, monkeypatch):
+        """INCOMPLETE artifact without --force-incomplete must exit non-zero."""
+        from gptme.cli import cmd_review_watch
+
+        artifact_path = self._make_incomplete_artifact_file(tmp_path)
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            ["review", "watch", "--artifact", str(artifact_path)],
+        )
+        assert result.exit_code != 0
+        assert "INCOMPLETE" in result.output
+        assert "--force-incomplete" in result.output
+
+    def test_incomplete_artifact_allowed_with_force_flag(self, tmp_path, monkeypatch):
+        """INCOMPLETE artifact is processed when --force-incomplete is given."""
+        from gptme.cli import cmd_review_watch
+
+        artifact_path = self._make_incomplete_artifact_file(tmp_path)
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+        monkeypatch.setattr(
+            cmd_review_watch,
+            "spawn_review_session",
+            lambda **_: {"exit_reason": "done", "duration_s": 0.1},
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            [
+                "review",
+                "watch",
+                "--artifact",
+                str(artifact_path),
+                "--force-incomplete",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        # Warning should still be printed
+        assert "INCOMPLETE" in result.output
+
 
 # ---------------------------------------------------------------------------
 # gptme-util review pr (cmd_review_pr)
