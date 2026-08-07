@@ -366,6 +366,31 @@ class TestExecuteHashlineEdit:
         assert "applied" in msgs[0].lower()
         assert f.read_text() == "world\n"
 
+    def test_insert_into_empty_file(self, tmp_path: Path):
+        """PUT <1: should work on an empty file (P2 fix: empty-file insertion)."""
+        f = tmp_path / "empty.txt"
+        f.write_text("")
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        block = f"[{f.resolve()}#{tag}]\nPUT <1:\n+first line\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower(), msgs
+        assert f.read_text() == "first line"
+
+    def test_live_file_changed_after_snapshot(self, tmp_path: Path):
+        """Edit must be rejected when the live file has changed since read (P1 fix)."""
+        f = tmp_path / "f.txt"
+        original = "alpha\nbeta\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        # Externally mutate the file after the snapshot was captured
+        f.write_text("alpha\nbeta\nextra-line\n")
+        # The stored tag still matches the provided tag — but the live file differs
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "changed since snapshot" in msgs[0].lower(), msgs
+        # File must be untouched
+        assert f.read_text() == "alpha\nbeta\nextra-line\n"
+
 
 # ---------------------------------------------------------------------------
 # Read tool integration — snapshot populated by read

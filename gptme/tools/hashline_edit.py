@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from ..message import Message
-from ._hashline_snapshot import lookup_snapshot, store_snapshot
+from ._hashline_snapshot import compute_tag, lookup_snapshot, store_snapshot
 from .base import Parameter, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
@@ -197,6 +197,9 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
     total = len(file_lines)
 
     for op in ops:
+        # Allow PUT <1 on empty files
+        if total == 0 and op.kind == "insert_before" and op.start == 1:
+            continue
         if op.start < 1 or op.start > total:
             raise ValueError(f"Line {op.start} out of range (file has {total} lines)")
         if op.end < 1 or op.end > total:
@@ -230,7 +233,13 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
 # ---------------------------------------------------------------------------
 
 instructions = """
-Apply snapshot-anchored edits to a file using the tag produced by the ``read`` tool.
+Use after ``read`` to apply precise, safe line edits without re-reading the full file.
+The tag from ``read`` anchors your edits to the exact version you saw — any external
+change to the file on disk is detected and rejected before a single byte is written.
+
+Prefer this tool over ``patch`` when you have exact line numbers and want to avoid
+repeating large context blocks.  You can chain multiple operations in one call;
+line numbers always reference the version ``read`` showed you.
 
 ### Workflow
 
@@ -239,8 +248,11 @@ Apply snapshot-anchored edits to a file using the tag produced by the ``read`` t
 2. Write a ``hashline_edit <path>`` block beginning with the same ``[PATH#TAG]``
    header, followed by one or more operations.
 
-If the file has changed since the ``read`` (tag mismatch), the edit is rejected
-with a clear error so you can re-read and retry.
+### Recovery from rejection
+
+If the file changed between ``read`` and your edit, you will see:
+  ``hashline_edit: file has changed since snapshot was captured…``
+Re-read the file with ``read`` to get a new tag and restate your operations.
 
 ### Operations
 
@@ -344,7 +356,7 @@ def execute_hashline_edit(
         yield Message("system", f"hashline_edit: cannot read file: {e}")
         return
 
-    # Verify snapshot tag against the live file
+    # Verify snapshot tag against the stored snapshot
     tag_matched, _snapshot_content = lookup_snapshot(str(resolved), tag)
     if not tag_matched:
         # Check if we've seen the file at all (vs wrong tag)
@@ -365,11 +377,38 @@ def execute_hashline_edit(
         yield Message("system", msg)
         return
 
+    # Also verify the live file hasn't changed since the snapshot was captured.
+    # A tag match only proves the in-memory snapshot is consistent; the file on
+    # disk may have been modified by another process since `read` was called.
+    live_tag = compute_tag(live_content)
+    if live_tag != tag:
+        yield Message(
+            "system",
+            f"hashline_edit: file has changed since snapshot was captured for {resolved}. "
+            f"Expected #{tag} but live content hashes to #{live_tag}. "
+            "Call `read` again to get a fresh snapshot.",
+        )
+        return
+
     # Apply operations
     try:
         updated = _apply_operations(live_content, ops)
     except ValueError as e:
         yield Message("system", f"hashline_edit: {e}")
+        return
+
+    # Ask for confirmation before writing (matches sibling tools' safety model)
+    from ..hooks import ConfirmAction, get_confirmation
+
+    confirm_result = get_confirmation(
+        preview=updated,
+        default_confirm=True,
+    )
+    if confirm_result.action == ConfirmAction.SKIP:
+        yield Message(
+            "system",
+            confirm_result.message or "hashline_edit: operation cancelled by user",
+        )
         return
 
     # Write result
