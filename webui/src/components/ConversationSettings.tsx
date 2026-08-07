@@ -1,4 +1,5 @@
 import { useState, useEffect, type FC } from 'react';
+import { useApi } from '@/contexts/ApiContext';
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
 import { Trash, Loader2, Download, Clipboard, Check, ChevronDown } from 'lucide-react';
 import { conversations$ } from '@/stores/conversations';
@@ -116,6 +117,7 @@ interface ConversationSettingsProps {
 }
 
 export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversationId }) => {
+  const { api } = useApi();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [copyOptions, setCopyOptions] = useState<ExportMarkdownOptions>({
     includeThinking: false,
@@ -454,9 +456,12 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                           toast.error('No messages to copy');
                           return;
                         }
-                        const log = conv.data.log;
                         const name = conv.data.name || conversationId;
-                        copyConversationAsMarkdown(name, log, copyOptions)
+                        api
+                          .getConversation(conversationId)
+                          .then((fullData) =>
+                            copyConversationAsMarkdown(name, fullData.log, copyOptions)
+                          )
                           .then(() => {
                             setCopyState('copied');
                             toast.success('Copied trajectory to clipboard');

@@ -241,14 +241,19 @@ export function CommandPalette() {
               action: () => {
                 const convId = selectedConversation$.get();
                 const conv = convId ? conversations$.get(convId)?.get() : null;
-                if (!conv?.data?.log?.length) {
+                if (!convId || !conv?.data?.log?.length) {
                   toast.error('No messages to copy');
                   return;
                 }
-                copyConversationAsMarkdown(conv.data.name || convId!, conv.data.log, {
-                  includeThinking: false,
-                  includeToolCalls: false,
-                })
+                const name = conv.data.name || convId;
+                api
+                  .getConversation(convId)
+                  .then((fullData) =>
+                    copyConversationAsMarkdown(name, fullData.log, {
+                      includeThinking: false,
+                      includeToolCalls: false,
+                    })
+                  )
                   .then(() => {
                     toast.success('Trajectory copied to clipboard');
                     setOpen(false);
@@ -274,14 +279,19 @@ export function CommandPalette() {
               action: () => {
                 const convId = selectedConversation$.get();
                 const conv = convId ? conversations$.get(convId)?.get() : null;
-                if (!conv?.data?.log?.length) {
+                if (!convId || !conv?.data?.log?.length) {
                   toast.error('No messages to copy');
                   return;
                 }
-                copyConversationAsMarkdown(conv.data.name || convId!, conv.data.log, {
-                  includeThinking: true,
-                  includeToolCalls: true,
-                })
+                const name = conv.data.name || convId;
+                api
+                  .getConversation(convId)
+                  .then((fullData) =>
+                    copyConversationAsMarkdown(name, fullData.log, {
+                      includeThinking: true,
+                      includeToolCalls: true,
+                    })
+                  )
                   .then(() => {
                     toast.success('Full trajectory copied to clipboard');
                     setOpen(false);

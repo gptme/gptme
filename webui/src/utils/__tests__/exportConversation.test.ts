@@ -179,6 +179,44 @@ describe('formatConversationAsMarkdown', () => {
     expect(result).toContain('<thinking>user wrote this</thinking>');
   });
 
+  it('strips short-form <think> blocks (not just <thinking>) from assistant messages by default', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: '<think>\nshort form reasoning\n</think>\n\nMy answer.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages);
+    expect(result).not.toContain('<think>');
+    expect(result).not.toContain('short form reasoning');
+    expect(result).toContain('My answer.');
+  });
+
+  it('strips assistant-embedded tool-call code blocks when includeToolCalls is false', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'run it' },
+      {
+        role: 'assistant',
+        content: 'Sure, running that now.\n\n```bash\nls -la\n```\n\nLet me know if you need more.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeToolCalls: false });
+    expect(result).not.toContain('ls -la');
+    expect(result).toContain('Sure, running that now.');
+    expect(result).toContain('Let me know if you need more.');
+  });
+
+  it('keeps non-tool code blocks in assistant messages when includeToolCalls is false', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Here is an example:\n\n```typescript\nconst x = 1;\n```',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeToolCalls: false });
+    expect(result).toContain('const x = 1;');
+  });
+
   it('excludes tool messages when includeToolCalls is false', () => {
     const messages: Message[] = [
       { role: 'user', content: 'run it' },

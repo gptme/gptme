@@ -33,9 +33,16 @@ export function getExportableMessages(
   );
 }
 
-/** Strip <thinking>...</thinking> blocks from a string. */
+/** Strip <thinking>...</thinking> and <think>...</think> blocks from a string. */
 function stripThinkingBlocks(content: string): string {
-  return content.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
+  return content.replace(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/g, '').trim();
+}
+
+/** Strip tool-invocation code blocks (bash/python/etc.) from assistant content. */
+function stripToolCallBlocks(content: string): string {
+  return content
+    .replace(/^```(bash|shell|sh|python|ipython|tmux|save)\n[\s\S]*?^```\s*$/gm, '')
+    .trim();
 }
 
 function getImportableMessages(messages: Message[]): Message[] {
@@ -52,7 +59,11 @@ export function formatConversationAsMarkdown(
   messages: Message[],
   options?: ExportMarkdownOptions
 ): string {
-  const { includeTimestamps = true, includeThinking = false } = options ?? {};
+  const {
+    includeTimestamps = true,
+    includeThinking = false,
+    includeToolCalls = true,
+  } = options ?? {};
 
   const lines: string[] = [`# ${name}`, ''];
 
@@ -63,8 +74,11 @@ export function formatConversationAsMarkdown(
       header += `  \n*${msg.timestamp}*`;
     }
     lines.push(header, '');
-    const content =
-      !includeThinking && msg.role === 'assistant' ? stripThinkingBlocks(msg.content) : msg.content;
+    let content = msg.content;
+    if (msg.role === 'assistant') {
+      if (!includeThinking) content = stripThinkingBlocks(content);
+      if (!includeToolCalls) content = stripToolCallBlocks(content);
+    }
     lines.push(content, '');
   }
 
