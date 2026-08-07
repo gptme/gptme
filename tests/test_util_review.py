@@ -981,7 +981,8 @@ Reviewed the diff carefully.
         findings, validation_errors = _extract_findings_from_output(output)
         assert findings is not None
         assert len(findings) == 1
-        assert validation_errors == 0
+        # bad severity is counted as a validation error (finding still emitted with WARNING)
+        assert validation_errors == 1
         assert findings[0].severity == FindingSeverity.WARNING
 
     def test_extract_findings_missing_body_skips_item(self):
