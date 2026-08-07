@@ -1,6 +1,7 @@
 import { useState, useEffect, type FC } from 'react';
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
 import { Trash, Loader2, Download, Copy, Check } from 'lucide-react';
+import { useApi } from '@/contexts/ApiContext';
 import { conversations$ } from '@/stores/conversations';
 import {
   exportConversationAsMarkdown,
@@ -107,6 +108,7 @@ interface ConversationSettingsProps {
 }
 
 export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversationId }) => {
+  const { api } = useApi();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [includeThinking, setIncludeThinking] = useState(false);
@@ -455,11 +457,21 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                         toast.error('No messages to copy');
                         return;
                       }
+                      // The store may only hold the currently-loaded window of a
+                      // long conversation (virtualized pagination). Fetch the
+                      // full history from the server rather than silently
+                      // copying a partial slice.
+                      let fullLog = conv.data.log;
+                      if (!isDemo && conv.hasMoreBefore) {
+                        try {
+                          fullLog = (await api.getConversation(conversationId)).log;
+                        } catch {
+                          toast.error('Failed to load full conversation history');
+                          return;
+                        }
+                      }
                       const exportOptions = { includeThinking, includeTools };
-                      const exportableMessages = getExportableMessages(
-                        conv.data.log,
-                        exportOptions
-                      );
+                      const exportableMessages = getExportableMessages(fullLog, exportOptions);
                       if (!exportableMessages.length) {
                         toast.error('No visible messages to copy');
                         return;
@@ -490,18 +502,27 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => {
+                    onClick={async () => {
                       const conv = conversations$.get(conversationId)?.get();
                       if (!conv?.data?.log?.length) {
                         toast.error('No messages to export');
                         return;
                       }
 
+                      // See the Copy handler above: don't silently export a
+                      // partial window of a long, paginated conversation.
+                      let fullLog = conv.data.log;
+                      if (!isDemo && conv.hasMoreBefore) {
+                        try {
+                          fullLog = (await api.getConversation(conversationId)).log;
+                        } catch {
+                          toast.error('Failed to load full conversation history');
+                          return;
+                        }
+                      }
+
                       const exportOptions = { includeThinking, includeTools };
-                      const exportableMessages = getExportableMessages(
-                        conv.data.log,
-                        exportOptions
-                      );
+                      const exportableMessages = getExportableMessages(fullLog, exportOptions);
                       if (!exportableMessages.length) {
                         toast.error('No visible messages to export');
                         return;

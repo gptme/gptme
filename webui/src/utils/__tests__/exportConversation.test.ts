@@ -358,6 +358,51 @@ describe('stripThinkingBlocks', () => {
     );
     expect(result).toBe('middle');
   });
+
+  it('removes <think redacted> blocks (Anthropic RedactedThinkingBlock)', () => {
+    const result = stripThinkingBlocks(
+      '<think redacted>\nopaque payload\n</think redacted>\n\nVisible text'
+    );
+    expect(result).toBe('Visible text');
+    expect(result).not.toContain('opaque payload');
+  });
+});
+
+describe('formatConversationAsMarkdown - tool invocation stripping', () => {
+  it('strips fenced tool codeblocks embedded in assistant content when includeTools is false', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'List files' },
+      {
+        role: 'assistant',
+        content: 'Sure, checking now.\n\n```shell\nls -la /secret/path\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).not.toContain('/secret/path');
+    expect(result).toContain('Sure, checking now.');
+    expect(result).toContain('Done.');
+  });
+
+  it('keeps fenced codeblocks with non-tool langtags when includeTools is false', () => {
+    const messages: Message[] = [
+      { role: 'assistant', content: 'Example:\n\n```python\nprint("hi")\n```' },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).toContain('print("hi")');
+  });
+
+  it('strips @tool: {...} invocation lines when includeTools is false', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Running it.\n@shell(call_1): {\n  "command": "rm -rf /secret"\n}\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).not.toContain('/secret');
+    expect(result).toContain('Running it.');
+    expect(result).toContain('Done.');
+  });
 });
 
 describe('getExportableMessages - includeTools option', () => {
