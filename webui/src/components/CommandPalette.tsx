@@ -18,6 +18,7 @@ import {
   Home,
   MessageSquare,
   Download,
+  Clipboard,
 } from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
 import type { ConversationSummary } from '@/types/conversation';
@@ -26,6 +27,7 @@ import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import {
   exportConversationAsMarkdown,
   exportConversationAsJSON,
+  copyConversationAsMarkdown,
   getExportableMessages,
 } from '@/utils/exportConversation';
 import { appRoute, chatRoute } from '@/utils/routes';
@@ -230,6 +232,64 @@ export function CommandPalette() {
       // Conversation-specific actions (only when a conversation is selected)
       ...(selectedConversation$.get()
         ? [
+            {
+              id: 'copy-trajectory-markdown',
+              label: 'Copy trajectory as Markdown',
+              description: 'Copy whole conversation to clipboard (excludes thinking & tool output)',
+              icon: <Clipboard className="mr-2 h-4 w-4" />,
+              keywords: ['copy', 'clipboard', 'trajectory', 'markdown', 'transcript', 'share'],
+              action: () => {
+                const convId = selectedConversation$.get();
+                const conv = convId ? conversations$.get(convId)?.get() : null;
+                if (!conv?.data?.log?.length) {
+                  toast.error('No messages to copy');
+                  return;
+                }
+                copyConversationAsMarkdown(conv.data.name || convId!, conv.data.log, {
+                  includeThinking: false,
+                  includeToolCalls: false,
+                })
+                  .then(() => {
+                    toast.success('Trajectory copied to clipboard');
+                    setOpen(false);
+                  })
+                  .catch(() => toast.error('Failed to copy to clipboard'));
+              },
+              group: 'Conversation',
+            },
+            {
+              id: 'copy-trajectory-markdown-full',
+              label: 'Copy trajectory as Markdown (full)',
+              description: 'Copy whole conversation including tool calls & thinking',
+              icon: <Clipboard className="mr-2 h-4 w-4" />,
+              keywords: [
+                'copy',
+                'clipboard',
+                'trajectory',
+                'markdown',
+                'full',
+                'tools',
+                'thinking',
+              ],
+              action: () => {
+                const convId = selectedConversation$.get();
+                const conv = convId ? conversations$.get(convId)?.get() : null;
+                if (!conv?.data?.log?.length) {
+                  toast.error('No messages to copy');
+                  return;
+                }
+                copyConversationAsMarkdown(conv.data.name || convId!, conv.data.log, {
+                  includeThinking: true,
+                  includeToolCalls: true,
+                })
+                  .then(() => {
+                    toast.success('Full trajectory copied to clipboard');
+                    setOpen(false);
+                  })
+                  .catch(() => toast.error('Failed to copy to clipboard'));
+              },
+              group: 'Conversation',
+            },
             {
               id: 'export-markdown',
               label: 'Export as Markdown',

@@ -1,12 +1,22 @@
 import { useState, useEffect, type FC } from 'react';
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
-import { Trash, Loader2, Download } from 'lucide-react';
+import { Trash, Loader2, Download, Clipboard, Check, ChevronDown } from 'lucide-react';
 import { conversations$ } from '@/stores/conversations';
 import {
   exportConversationAsMarkdown,
   exportConversationAsJSON,
+  copyConversationAsMarkdown,
   getExportableMessages,
+  type ExportMarkdownOptions,
 } from '@/utils/exportConversation';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { ModelPickerField } from './ModelPicker';
 import {
@@ -107,6 +117,11 @@ interface ConversationSettingsProps {
 
 export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversationId }) => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [copyOptions, setCopyOptions] = useState<ExportMarkdownOptions>({
+    includeThinking: false,
+    includeToolCalls: true,
+  });
+  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const {
     form,
     toolFields,
@@ -425,7 +440,73 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
               {/* Export */}
               <div className="mt-8 space-y-4">
                 <h3 className="text-lg font-medium">Export</h3>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  {/* Copy as Markdown with detail-level toggles */}
+                  <div className="flex">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-r-none border-r-0"
+                      onClick={() => {
+                        const conv = conversations$.get(conversationId)?.get();
+                        if (!conv?.data?.log?.length) {
+                          toast.error('No messages to copy');
+                          return;
+                        }
+                        const log = conv.data.log;
+                        const name = conv.data.name || conversationId;
+                        copyConversationAsMarkdown(name, log, copyOptions)
+                          .then(() => {
+                            setCopyState('copied');
+                            toast.success('Copied trajectory to clipboard');
+                            setTimeout(() => setCopyState('idle'), 2000);
+                          })
+                          .catch(() => toast.error('Failed to copy to clipboard'));
+                      }}
+                    >
+                      {copyState === 'copied' ? (
+                        <Check className="mr-2 h-4 w-4" />
+                      ) : (
+                        <Clipboard className="mr-2 h-4 w-4" />
+                      )}
+                      Copy
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-l-none px-2"
+                          aria-label="Copy options"
+                        >
+                          <ChevronDown className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuLabel>Copy options</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuCheckboxItem
+                          checked={copyOptions.includeThinking}
+                          onCheckedChange={(checked) =>
+                            setCopyOptions((o) => ({ ...o, includeThinking: checked }))
+                          }
+                        >
+                          Include thinking blocks
+                        </DropdownMenuCheckboxItem>
+                        <DropdownMenuCheckboxItem
+                          checked={copyOptions.includeToolCalls !== false}
+                          onCheckedChange={(checked) =>
+                            setCopyOptions((o) => ({ ...o, includeToolCalls: checked }))
+                          }
+                        >
+                          Include tool calls &amp; output
+                        </DropdownMenuCheckboxItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+
                   <Button
                     type="button"
                     variant="outline"
@@ -476,6 +557,9 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                     JSON
                   </Button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Tool output is verbatim and may contain sensitive data.
+                </p>
               </div>
 
               {/* Danger Zone */}

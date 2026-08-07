@@ -3,6 +3,10 @@ import type { Message } from '@/types/conversation';
 export interface ExportMarkdownOptions {
   includeSystem?: boolean;
   includeTimestamps?: boolean;
+  /** Include <thinking>...</thinking> reasoning blocks in assistant messages. Default: false */
+  includeThinking?: boolean;
+  /** Include tool call messages (role: 'tool'). Default: true */
+  includeToolCalls?: boolean;
 }
 
 export interface ImportedConversationData {
@@ -18,10 +22,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function getExportableMessages(
   messages: Message[],
-  options?: Pick<ExportMarkdownOptions, 'includeSystem'>
+  options?: Pick<ExportMarkdownOptions, 'includeSystem' | 'includeToolCalls'>
 ): Message[] {
-  const { includeSystem = false } = options ?? {};
-  return messages.filter((msg) => !msg.hide && (includeSystem || msg.role !== 'system'));
+  const { includeSystem = false, includeToolCalls = true } = options ?? {};
+  return messages.filter(
+    (msg) =>
+      !msg.hide &&
+      (includeSystem || msg.role !== 'system') &&
+      (includeToolCalls || msg.role !== 'tool')
+  );
+}
+
+/** Strip <thinking>...</thinking> blocks from a string. */
+function stripThinkingBlocks(content: string): string {
+  return content.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
 }
 
 function getImportableMessages(messages: Message[]): Message[] {
@@ -38,7 +52,7 @@ export function formatConversationAsMarkdown(
   messages: Message[],
   options?: ExportMarkdownOptions
 ): string {
-  const { includeTimestamps = true } = options ?? {};
+  const { includeTimestamps = true, includeThinking = false } = options ?? {};
 
   const lines: string[] = [`# ${name}`, ''];
 
@@ -49,10 +63,25 @@ export function formatConversationAsMarkdown(
       header += `  \n*${msg.timestamp}*`;
     }
     lines.push(header, '');
-    lines.push(msg.content, '');
+    const content =
+      !includeThinking && msg.role === 'assistant' ? stripThinkingBlocks(msg.content) : msg.content;
+    lines.push(content, '');
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Copy a conversation's trajectory to the clipboard as Markdown.
+ * Returns true on success, throws on clipboard access failure.
+ */
+export async function copyConversationAsMarkdown(
+  name: string,
+  messages: Message[],
+  options?: ExportMarkdownOptions
+): Promise<void> {
+  const markdown = formatConversationAsMarkdown(name, messages, options);
+  await navigator.clipboard.writeText(markdown);
 }
 
 /**

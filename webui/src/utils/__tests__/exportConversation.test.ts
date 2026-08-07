@@ -3,6 +3,7 @@ import {
   downloadAsFile,
   exportConversationAsMarkdown,
   exportConversationAsJSON,
+  copyConversationAsMarkdown,
   getExportableMessages,
   parseConversationImportJSON,
 } from '../exportConversation';
@@ -53,6 +54,26 @@ describe('getExportableMessages', () => {
       { role: 'assistant', content: 'hidden assistant', hide: true },
     ]);
     expect(result).toEqual([]);
+  });
+
+  it('excludes tool messages when includeToolCalls is false', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'run something' },
+      { role: 'assistant', content: 'running...' },
+      { role: 'tool', content: 'output here' },
+    ];
+    const result = getExportableMessages(messages, { includeToolCalls: false });
+    expect(result).toHaveLength(2);
+    expect(result.every((msg) => msg.role !== 'tool')).toBe(true);
+  });
+
+  it('includes tool messages by default', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'run something' },
+      { role: 'tool', content: 'output here' },
+    ];
+    const result = getExportableMessages(messages);
+    expect(result.some((msg) => msg.role === 'tool')).toBe(true);
   });
 });
 
@@ -123,6 +144,97 @@ describe('formatConversationAsMarkdown', () => {
     expect(result).toContain('## User');
     expect(result).toContain('## Assistant');
     expect(result).toContain('## Tool');
+  });
+
+  it('strips <thinking> blocks from assistant messages by default', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'question' },
+      {
+        role: 'assistant',
+        content: '<thinking>\nmy internal reasoning\n</thinking>\n\nMy answer.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages);
+    expect(result).not.toContain('<thinking>');
+    expect(result).not.toContain('my internal reasoning');
+    expect(result).toContain('My answer.');
+  });
+
+  it('includes <thinking> blocks when includeThinking is true', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: '<thinking>\nmy internal reasoning\n</thinking>\n\nMy answer.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeThinking: true });
+    expect(result).toContain('<thinking>');
+    expect(result).toContain('my internal reasoning');
+    expect(result).toContain('My answer.');
+  });
+
+  it('does not strip <thinking> from non-assistant messages', () => {
+    const messages: Message[] = [{ role: 'user', content: '<thinking>user wrote this</thinking>' }];
+    const result = formatConversationAsMarkdown('Chat', messages);
+    expect(result).toContain('<thinking>user wrote this</thinking>');
+  });
+
+  it('excludes tool messages when includeToolCalls is false', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'run it' },
+      { role: 'assistant', content: 'ok' },
+      { role: 'tool', content: 'stdout: done' },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeToolCalls: false });
+    expect(result).not.toContain('stdout: done');
+    expect(result).toContain('ok');
+  });
+
+  it('includes tool messages by default', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'run it' },
+      { role: 'tool', content: 'stdout: done' },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages);
+    expect(result).toContain('stdout: done');
+  });
+});
+
+describe('copyConversationAsMarkdown', () => {
+  beforeEach(() => {
+    Object.assign(global.navigator, {
+      clipboard: { writeText: jest.fn().mockResolvedValue(undefined) },
+    });
+  });
+
+  it('writes markdown to clipboard', async () => {
+    const messages: Message[] = [{ role: 'user', content: 'hello' }];
+    await copyConversationAsMarkdown('My Chat', messages);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('hello'));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      expect.stringContaining('# My Chat')
+    );
+  });
+
+  it('strips thinking blocks by default', async () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: '<thinking>hidden</thinking>\nvisible',
+      },
+    ];
+    await copyConversationAsMarkdown('Chat', messages);
+    const written = (navigator.clipboard.writeText as jest.Mock).mock.calls[0][0] as string;
+    expect(written).not.toContain('hidden');
+    expect(written).toContain('visible');
+  });
+
+  it('rejects when clipboard write fails', async () => {
+    Object.assign(global.navigator, {
+      clipboard: { writeText: jest.fn().mockRejectedValue(new Error('denied')) },
+    });
+    const messages: Message[] = [{ role: 'user', content: 'hi' }];
+    await expect(copyConversationAsMarkdown('Chat', messages)).rejects.toThrow('denied');
   });
 });
 
