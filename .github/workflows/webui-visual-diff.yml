@@ -141,7 +141,10 @@ jobs:
 
     - name: Setup CML
       if: steps.diff.outputs.changed > 0
-      uses: iterative/setup-cml@v2
+      # Pinned to a full commit SHA (not the mutable `v2` tag) because this
+      # job holds `contents: write` + `pull-requests: write` — see Greptile
+      # review on gptme/gptme#3482.
+      uses: iterative/setup-cml@e5f9f4673e0a8f275c45cc66dbbfd29c8469fb4e # v2.1.0
 
     - name: Build and post PR comment with inline images
       # CML uploads the local image references to a public host (GitHub draft
@@ -195,6 +198,4 @@ jobs:
             f.write('\n'.join(lines) + '\n')
         PYEOF
 
-        cml comment create comment.md \
-          --pr-url "https://github.com/${{ github.repository }}/pull/${PR_NUMBER}" \
-          --update
+        cml comment update comment.md --target "pr/${PR_NUMBER}"
