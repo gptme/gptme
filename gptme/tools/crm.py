@@ -266,6 +266,10 @@ def trycompai_crm_execute(
         yield Message("system", f"**Error**: Invalid JSON in block: {e}")
         return
 
+    if not isinstance(op_args, dict):
+        yield Message("system", "**Error**: JSON block must contain an object")
+        return
+
     operation = op_args.pop("operation", None)
     if not operation:
         yield Message(
@@ -274,6 +278,7 @@ def trycompai_crm_execute(
         )
         return
 
+    client = None
     try:
         client = TrycompaiCrmClient()
 
@@ -294,8 +299,6 @@ def trycompai_crm_execute(
             yield Message("system", f"**Error**: Unknown operation '{operation}'")
             return
 
-        client.close()
-
         yield Message("system", f"```json\n{json.dumps(result, indent=2)}\n```")
 
     except TrycompaiCrmError as e:
@@ -305,6 +308,9 @@ def trycompai_crm_execute(
     except Exception as e:
         logger.exception("Unexpected error in trycompai_crm_execute")
         yield Message("system", f"**Error**: Unexpected error: {e}")
+    finally:
+        if client is not None:
+            client.close()
 
 
 # Tool specification
@@ -312,53 +318,17 @@ tool = ToolSpec(
     name="trycompai_crm",
     desc="Orchestrate CRM workflows: search contacts, identify matches, enrich company data, record facts, schedule follow-ups.",
     instructions="""
-Use this tool to interact with trycompai/crm, an agentic-first CRM platform.
+Use when you need to look up, update, or schedule CRM actions during outreach or research. Requires TRYCOMPAI_API_KEY env var.
 
-**Operations** (specify operation name + args as JSON in the block):
+Block content must be a JSON object with an "operation" field and operation-specific args:
+- search_crm: query (str), filter_type? ('contact'|'company')
+- identify_contact: email?, phone?, name? — at least one required
+- record_fact: contact_id, key, value, evidence? — only observed facts, no confidence scores
+- enrich_company: company_name, domain?
+- schedule_recheck: contact_id, reason, due_in_days?
+- read_crm_history: contact_id, limit?
 
-1. **search_crm** - Query contacts/companies
-   - query (str): Search terms
-   - filter_type (optional): 'contact' or 'company'
-
-2. **identify_contact** - Match contact by identifier
-   - email (optional): Email address
-   - phone (optional): Phone number
-   - name (optional): Person name
-   - At least one identifier required
-
-3. **record_fact** - Write observed data to CRM
-   - contact_id (str): Target contact ID
-   - key (str): Field name (e.g., 'company_name', 'role')
-   - value (str): The observed value
-   - evidence (optional): Where/how you observed it
-   - **Important**: Do NOT include confidence scores. Only record facts you directly observed.
-
-4. **enrich_company** - Fetch company metadata
-   - company_name (str): Company name
-   - domain (optional): Company domain for precise matching
-   - Returns: founding date, stage, headcount, industry, CEO, etc.
-
-5. **schedule_recheck** - Schedule a follow-up task
-   - contact_id (str): Contact to follow up on
-   - reason (str): Why the recheck
-   - due_in_days (optional): Days from now (default: 7)
-
-6. **read_crm_history** - Read past interactions
-   - contact_id (str): Contact ID
-   - limit (optional): Max interactions to return
-
-**Example**: Record that a contact works at Acme Inc
-```trycompai_crm
-{
-  "operation": "record_fact",
-  "contact_id": "contact_123",
-  "key": "company_name",
-  "value": "Acme Inc",
-  "evidence": "From email signature"
-}
-```
-
-**Setup**: Provide TRYCOMPAI_API_KEY environment variable or store in config.
+Prefer identify_contact before record_fact to confirm the right contact_id.
 """.strip(),
     block_types=["trycompai_crm"],
     execute=trycompai_crm_execute,
