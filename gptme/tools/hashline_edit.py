@@ -51,7 +51,9 @@ if TYPE_CHECKING:
 # Operation dataclasses
 # ---------------------------------------------------------------------------
 
-OperationKind = Literal["replace", "insert_before", "insert_after", "delete"]
+OperationKind = Literal[
+    "replace", "insert_before", "insert_after", "delete", "block_replace"
+]
 
 
 @dataclass
@@ -70,6 +72,8 @@ class HashlineOp:
 
 # PUT N.=M:   replace lines N–M
 _RE_PUT_RANGE = re.compile(r"^PUT\s+(\d+)\.=(\d+):\s*$")
+# PUT N*:     replace the syntactic block starting at line N
+_RE_PUT_BLOCK = re.compile(r"^PUT\s+(\d+)\*:\s*$")
 # PUT <N:     insert before line N
 _RE_PUT_BEFORE = re.compile(r"^PUT\s+<(\d+):\s*$")
 # PUT >N:     insert after line N
@@ -137,6 +141,13 @@ def _parse_operations(code: str) -> tuple[str, str, list[HashlineOp]]:
             ops.append(HashlineOp(kind="insert_after", start=n, end=n, text=text))
             continue
 
+        if m := _RE_PUT_BLOCK.match(line):
+            n = int(m.group(1))
+            i, text = _collect_content(lines, i + 1)
+            # end=-1 is a sentinel; resolved against live file in _apply_operations
+            ops.append(HashlineOp(kind="block_replace", start=n, end=-1, text=text))
+            continue
+
         if line.strip() == "" or line.strip().startswith("#"):
             i += 1
             continue
@@ -149,6 +160,7 @@ def _parse_operations(code: str) -> tuple[str, str, list[HashlineOp]]:
 def _is_op_header(line: str) -> bool:
     return bool(
         _RE_PUT_RANGE.match(line)
+        or _RE_PUT_BLOCK.match(line)
         or _RE_PUT_BEFORE.match(line)
         or _RE_PUT_AFTER.match(line)
         or _RE_CUT_RANGE.match(line)
@@ -180,6 +192,47 @@ def _collect_content(lines: list[str], start_idx: int) -> tuple[int, str]:
 
 
 # ---------------------------------------------------------------------------
+# Block resolution
+# ---------------------------------------------------------------------------
+
+
+def _resolve_block_end(file_lines: list[str], start: int) -> int:
+    """Return the 1-indexed last line of the syntactic block starting at *start*.
+
+    Uses an indent-tracking heuristic: the block header is at *start*; the block
+    body is the contiguous sequence of non-blank lines with strictly greater
+    indentation.  The block ends at the last such line (blank lines inside the body
+    are absorbed).  If no body follows, the block is just the header line itself.
+
+    Raises :class:`ValueError` when *start* is out of range.
+    """
+    total = len(file_lines)
+    if start < 1 or start > total:
+        raise ValueError(
+            f"Block start line {start} out of range (file has {total} lines)"
+        )
+
+    header = file_lines[start - 1]
+    header_indent = len(header) - len(header.lstrip())
+
+    end = start
+    in_body = False
+    for i in range(start, total):  # file_lines[start] is the line AFTER the header
+        line = file_lines[i]
+        if not line.strip():
+            continue  # blank lines are absorbed; decide at the next non-blank line
+        indent = len(line) - len(line.lstrip())
+        if indent > header_indent:
+            in_body = True
+            end = i + 1  # 1-indexed
+        else:
+            break  # same or lower indent: block is complete
+
+    _ = in_body  # used implicitly: if we never set it, end == start (single-line block)
+    return end
+
+
+# ---------------------------------------------------------------------------
 # Apply
 # ---------------------------------------------------------------------------
 
@@ -195,6 +248,18 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
     had_trailing_newline = content.endswith("\n")
     file_lines = content.splitlines()
     total = len(file_lines)
+
+    # Resolve block_replace ops to concrete replace ranges before validation/sorting
+    resolved: list[HashlineOp] = []
+    for op in ops:
+        if op.kind == "block_replace":
+            end = _resolve_block_end(file_lines, op.start)
+            resolved.append(
+                HashlineOp(kind="replace", start=op.start, end=end, text=op.text)
+            )
+        else:
+            resolved.append(op)
+    ops = resolved
 
     for op in ops:
         # Allow PUT <1 on empty files
@@ -259,9 +324,16 @@ Re-read the file with ``read`` to get a new tag and restate your operations.
 | Syntax       | Effect                                    |
 |-------------|------------------------------------------|
 | ``PUT N.=M:``| Replace lines N through M with new lines |
+| ``PUT N*:``  | Replace the syntactic block at line N    |
 | ``PUT <N:``  | Insert new lines BEFORE line N           |
 | ``PUT >N:``  | Insert new lines AFTER line N            |
 | ``CUT N.=M`` | Delete lines N through M                 |
+
+``PUT N*:`` uses an indent-tracking heuristic: the block starts at line N and
+ends at the last line with indentation greater than line N's indentation.  This
+works for Python functions, classes, if/for/while blocks, and similar indented
+constructs.  Point the model at the ``def``/``class`` line and the system finds
+the closing line automatically.
 
 New content lines are prefixed with ``+``.  An empty line ends a content block.
 CUT has no content block.  Line numbers reference the version shown by ``read``.

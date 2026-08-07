@@ -23,6 +23,7 @@ from gptme.tools.hashline_edit import (
     ParseError,
     _apply_operations,
     _parse_operations,
+    _resolve_block_end,
     execute_hashline_edit,
     tool,
 )
@@ -487,6 +488,103 @@ class TestReadIntegration:
         tag_v2 = get_stored_tag(str(f.resolve()))
 
         assert tag_v1 != tag_v2
+
+
+# ---------------------------------------------------------------------------
+# Block resolution (_resolve_block_end)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveBlockEnd:
+    def test_python_function(self):
+        content = "def foo():\n    x = 1\n    return x\n\ndef bar():\n    pass\n"
+        lines = content.splitlines()
+        # Block at line 1 (def foo) should end at line 3 (return x)
+        assert _resolve_block_end(lines, 1) == 3
+
+    def test_single_line_block(self):
+        content = "x = 1\ny = 2\n"
+        lines = content.splitlines()
+        # Line 1 has no indented body — block is just line 1
+        assert _resolve_block_end(lines, 1) == 1
+
+    def test_nested_blocks(self):
+        content = "class Foo:\n    def method(self):\n        return 1\n\n    def other(self):\n        return 2\n"
+        lines = content.splitlines()
+        # Block at line 1 (class Foo) ends at line 6 (last method body)
+        assert _resolve_block_end(lines, 1) == 6
+
+    def test_blank_lines_inside_body_absorbed(self):
+        content = (
+            "def foo():\n    x = 1\n\n    y = 2\n    return y\n\ndef bar():\n    pass\n"
+        )
+        lines = content.splitlines()
+        # Blank line (line 3) is inside the body; block ends at line 5
+        assert _resolve_block_end(lines, 1) == 5
+
+    def test_if_block(self):
+        content = "if x:\n    do_a()\n    do_b()\ndo_c()\n"
+        lines = content.splitlines()
+        assert _resolve_block_end(lines, 1) == 3
+
+    def test_last_function_in_file(self):
+        content = "def foo():\n    return 1\n"
+        lines = content.splitlines()
+        assert _resolve_block_end(lines, 1) == 2
+
+    def test_out_of_range_raises(self):
+        lines = ["a", "b"]
+        with pytest.raises(ValueError, match="out of range"):
+            _resolve_block_end(lines, 5)
+
+
+# ---------------------------------------------------------------------------
+# PUT N*: block-aware replace
+# ---------------------------------------------------------------------------
+
+
+class TestBlockReplace:
+    def test_parse_put_block_op(self):
+        code = "[foo.py#A1B2C3D4]\nPUT 1*:\n+def foo():\n+    pass\n"
+        _, _, ops = _parse_operations(code)
+        assert len(ops) == 1
+        assert ops[0].kind == "block_replace"
+        assert ops[0].start == 1
+        assert ops[0].end == -1  # sentinel; resolved at apply time
+
+    def test_apply_block_replace_function(self):
+        content = "def foo():\n    x = 1\n    return x\n\ndef bar():\n    pass\n"
+        ops = [
+            HashlineOp(
+                kind="block_replace", start=1, end=-1, text="def foo():\n    return 42"
+            )
+        ]
+        result = _apply_operations(content, ops)
+        assert "def foo():\n    return 42\n\ndef bar():" in result
+        assert "x = 1" not in result
+
+    def test_apply_block_replace_single_line(self):
+        content = "x = 1\ny = 2\n"
+        ops = [HashlineOp(kind="block_replace", start=1, end=-1, text="x = 99")]
+        result = _apply_operations(content, ops)
+        assert result == "x = 99\ny = 2\n"
+
+    def test_execute_put_block(self, tmp_path: Path):
+        f = tmp_path / "example.py"
+        f.write_text(
+            "def greet(name):\n    print('Hello')\n    return name\n\ndef bye():\n    pass\n"
+        )
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        block = f"[{f.resolve()}#{tag}]\nPUT 1*:\n+def greet(name):\n+    print(f'Hi, {{name}}')\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower()
+        result = f.read_text()
+        assert "Hi, {name}" in result or "Hi," in result
+        assert "Hello" not in result
+        assert "def bye" in result  # other function untouched
+
+    def test_put_block_in_instructions(self):
+        assert "PUT N*:" in tool.instructions
 
 
 # ---------------------------------------------------------------------------
