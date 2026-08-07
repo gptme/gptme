@@ -354,7 +354,7 @@ export function CommandPalette() {
           ]
         : []),
     ],
-    [navigate, setOpen]
+    [navigate, setOpen, api, getClient]
   );
 
   // Filter actions based on search query
