@@ -92,6 +92,7 @@ PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "anthropic/claude-haiku-4-5",
     "openai": "openai/gpt-4o-mini",
     "openrouter": "openrouter/anthropic/claude-haiku-4.5",
+    "orcarouter": "orcarouter/openai/gpt-5.6-luna",
     "requesty": "requesty/openai/gpt-4o-mini",
     "gemini": "gemini/gemini-2.0-flash",
     "groq": "groq/llama-3.3-70b-versatile",
@@ -107,6 +108,7 @@ PROVIDER_API_KEYS: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "orcarouter": "ORCAROUTER_API_KEY",
     "requesty": "REQUESTY_API_KEY",
     "gemini": "GEMINI_API_KEY",
     "groq": "GROQ_API_KEY",
@@ -1163,6 +1165,9 @@ def get_model_from_api_key(api_key: str) -> tuple[str, Provider, str] | None:
         return api_key, "anthropic", "ANTHROPIC_API_KEY"
     if api_key.startswith("sk-or-"):
         return api_key, "openrouter", "OPENROUTER_API_KEY"
+    # Must precede the bare "sk-" check below: OrcaRouter keys are "sk-orca-…"
+    if api_key.startswith("sk-orca-"):
+        return api_key, "orcarouter", "ORCAROUTER_API_KEY"
     if api_key.startswith("sk-"):
         return api_key, "openai", "OPENAI_API_KEY"
     if api_key.startswith("AIza"):
@@ -1185,7 +1190,9 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
         ValueError: If provider doesn't support listing models
         Exception: If API request fails
     """
-    if provider in ("openrouter", "local", "gptme") or is_custom_provider(provider):
+    if provider in ("openrouter", "orcarouter", "local", "gptme") or is_custom_provider(
+        provider
+    ):
         from .llm_openai import get_available_models as get_openai_models
 
         return get_openai_models(provider)

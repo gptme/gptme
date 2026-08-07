@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import Generator, Iterable
+from collections.abc import Callable, Generator, Iterable
 from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, cast
 
@@ -15,7 +15,12 @@ from ..config import Config, get_config
 from ..constants import OPENAI_VERBOSITY, TEMPERATURE, TOP_P
 from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import _calculate_llm_cost, record_llm_request
-from .constants import _MIN_RESPONSE_TOKENS, OPENROUTER_APP_HEADERS
+from .constants import (
+    _MIN_RESPONSE_TOKENS,
+    OPENROUTER_APP_HEADERS,
+    ORCAROUTER_APP_HEADERS,
+    ORCAROUTER_BASE_URL,
+)
 from .models import (
     CustomProvider,
     ModelMeta,
@@ -155,11 +160,20 @@ def _get_top_p(
     callers omit this fixed parameter rather than invoking this helper. All
     others use the caller value or global default. Returns None for models
     that don't support top_p.
+
+    Anthropic upstreams behind OrcaRouter reject requests that carry both
+    ``temperature`` and ``top_p`` (verified live 2026-08-02 with
+    orcarouter/anthropic/claude-haiku-4.5: HTTP 400 "`temperature` and `top_p`
+    cannot both be specified for this model"), so top_p is dropped there and
+    temperature alone steers sampling.
     """
     if model_meta is not None and "gpt-5" in model_meta.model:
         return None
     if provider == "moonshot":
         return 0.95
+    if provider == "orcarouter" and model_meta is not None:
+        if model_meta.model.startswith("anthropic/"):
+            return None
     return top_p if top_p is not None else TOP_P
 
 
@@ -182,7 +196,7 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
     # gptme/openrouter/...), so strip the gptme/ prefix before detecting.
     provider = "openai"
     detect = model.removeprefix("gptme/")
-    if detect.startswith("openrouter/"):
+    if detect.startswith(("openrouter/", "orcarouter/")):
         parts = detect.split("/")
         if len(parts) >= 2:
             # openrouter/anthropic/... -> anthropic
@@ -486,6 +500,15 @@ def init(provider: Provider, config: Config):
         clients[provider] = OpenAI(
             api_key=api_key,
             base_url=proxy_url or "https://openrouter.ai/api/v1",
+            timeout=timeout,
+        )
+    elif provider == "orcarouter":
+        api_key = proxy_key or _get_provider_api_key(
+            config, provider, "ORCAROUTER_API_KEY"
+        )
+        clients[provider] = OpenAI(
+            api_key=api_key,
+            base_url=proxy_url or ORCAROUTER_BASE_URL,
             timeout=timeout,
         )
     elif provider == "requesty":
@@ -1080,12 +1103,18 @@ def extra_headers(provider: Provider) -> dict[str, str]:
     if provider == "openrouter":
         # Shows in rankings on openrouter.ai
         headers |= OPENROUTER_APP_HEADERS
+    if provider == "orcarouter":
+        headers |= ORCAROUTER_APP_HEADERS
     return headers
 
 
 _OPENROUTER_REASONING_DEFAULT = 20000
 _VALID_QUANTIZATIONS = {"fp16", "bf16", "fp8", "int8", "int4", "unknown"}
 _KIMI_K3_REASONING_EFFORTS = {"low", "high", "max"}
+# OrcaRouter takes a flat top-level `reasoning_effort` (the gateway echoes this
+# exact value set back on an unsupported value), not OpenRouter's nested
+# `reasoning` object — so the OpenRouter branch below is deliberately not reused.
+_ORCAROUTER_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
 
 
 def extra_body(
@@ -1102,6 +1131,17 @@ def extra_body(
                 valid = ", ".join(sorted(_KIMI_K3_REASONING_EFFORTS))
                 raise ValueError(
                     f"Invalid Kimi K3 reasoning effort: {effort!r}. "
+                    f"Must be one of: {valid}."
+                )
+            body["reasoning_effort"] = effort
+    if provider == "orcarouter":
+        effort = get_config().get_env("GPTME_THINKING_EFFORT")
+        if effort is not None:
+            effort = effort.strip().lower()
+            if effort not in _ORCAROUTER_REASONING_EFFORTS:
+                valid = ", ".join(sorted(_ORCAROUTER_REASONING_EFFORTS))
+                raise ValueError(
+                    f"Invalid OrcaRouter reasoning effort: {effort!r}. "
                     f"Must be one of: {valid}."
                 )
             body["reasoning_effort"] = effort
@@ -1830,6 +1870,7 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
         "openai",
         "azure",
         "openrouter",
+        "orcarouter",
         "deepseek",
         "moonshot",
         "local",
@@ -1875,6 +1916,17 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
             api_key=get_api_key(config),
         )
 
+    if provider == "orcarouter":
+        # The gateway's /v1/models is OpenAI-shaped. A key is required: without
+        # one it answers 200 but omits the routers (e.g. orcarouter/auto).
+        return _get_openai_compatible_models(
+            config,
+            provider,
+            base_url=ORCAROUTER_BASE_URL,
+            api_key=config.get_env_required("ORCAROUTER_API_KEY"),
+            model_filter=_orcarouter_is_chat_model,
+        )
+
     if provider != "openrouter":
         raise ValueError(f"Provider {provider} does not support listing models")
 
@@ -1915,11 +1967,26 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
         raise
 
 
+def _orcarouter_is_chat_model(model_data: dict) -> bool:
+    """Whether an OrcaRouter catalog entry is reachable over the chat wire.
+
+    The catalog also carries image/video/embedding models, and their ids carry
+    no usable keyword (``kling/kling-v3`` is a video model), so classify on
+    ``supported_endpoint_types``. The field is missing or ``null`` for a few
+    entries — treat that as unclassified and keep the model.
+    """
+    endpoint_types = model_data.get("supported_endpoint_types")
+    if not endpoint_types:
+        return True
+    return bool({"openai", "openai-response"} & set(endpoint_types))
+
+
 def _get_openai_compatible_models(
     config,
     provider_name: str = "local",
     base_url: str | None = None,
     api_key: str | None = None,
+    model_filter: Callable[[dict], bool] | None = None,
 ) -> list[ModelMeta]:
     """Get models from an OpenAI-compatible provider."""
     # Get base URL from parameter (custom provider) or env var (local provider)
@@ -1943,6 +2010,8 @@ def _get_openai_compatible_models(
 
         # OpenAI-compatible format: {"data": [...], "object": "list"}
         raw_models = data.get("data", [])
+        if model_filter is not None:
+            raw_models = [model for model in raw_models if model_filter(model)]
         return [
             _openai_compatible_model_to_modelmeta(model, provider_name)
             for model in raw_models
@@ -1973,6 +2042,8 @@ def _openai_compatible_model_to_modelmeta(
         provider = "local"
     elif provider_name == "gptme":
         provider = "gptme"
+    elif provider_name == "orcarouter":
+        provider = "orcarouter"
     else:
         provider = CustomProvider(provider_name)
 

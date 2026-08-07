@@ -1,7 +1,7 @@
 Providers
 =========
 
-We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Requesty, Deepseek, Azure, and any OpenAI-compatible server (e.g. ``ollama``, ``llama-cpp-python``).
+We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, OrcaRouter, Requesty, Deepseek, Azure, and any OpenAI-compatible server (e.g. ``ollama``, ``llama-cpp-python``).
 
 .. note::
 
@@ -167,6 +167,38 @@ falsy values.
     # Restrict to specific quantization levels (optional)
     # Common values: fp16, bf16, fp8, int8, int4, unknown
     OPENROUTER_QUANTIZATION = "fp16,bf16"
+
+.. rubric:: OrcaRouter
+
+`OrcaRouter <https://www.orcarouter.ai>`_ is an OpenAI-compatible LLM gateway that routes to 150+ models through a single API key, using the same ``provider/model`` naming as OpenRouter (e.g. ``orcarouter/openai/gpt-5.6-luna``, ``orcarouter/anthropic/claude-sonnet-5``). It is reached through the standard OpenAI-compatible client path.
+
+**Configuration:**
+
+.. code-block:: toml
+
+    # In gptme.toml or ~/.config/gptme/config.toml
+    [env]
+    ORCAROUTER_API_KEY = "sk-orca-..."
+
+.. code-block:: sh
+
+    export ORCAROUTER_API_KEY="sk-orca-..."
+    gptme "hello" -m orcarouter/openai/gpt-5.6-luna
+
+Or store the key via the interactive setup:
+
+.. code-block:: sh
+
+    gptme '/account setup orcarouter'
+
+Get an API key at https://www.orcarouter.ai/console. ``gptme --model-list`` fetches the live catalog from the gateway once a key is configured.
+
+**Notes:**
+
+- **Namespaced model ids**: the gateway rejects bare ids, so write ``orcarouter/anthropic/claude-sonnet-5``, not ``orcarouter/claude-sonnet-5``.
+- **Adaptive routing**: the virtual ``orcarouter/auto`` model lets the gateway pick an upstream per request (cost/latency/quality strategies are configured server-side). Because gptme strips the provider prefix before sending, reference it by its full id — ``orcarouter/orcarouter/auto`` — so the gateway receives the namespaced ``orcarouter/auto``. Pin a concrete model when you need a predictable upstream.
+- **Reasoning effort**: set ``GPTME_THINKING_EFFORT`` to ``none``, ``low``, ``medium``, ``high``, or ``xhigh`` to forward a top-level ``reasoning_effort`` with each request.
+- **Anthropic upstreams**: gptme sends only ``temperature`` (not ``top_p``) for ``orcarouter/anthropic/*`` models, because some of them reject both at once.
 
 .. rubric:: Requesty
 

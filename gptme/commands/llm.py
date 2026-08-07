@@ -284,7 +284,7 @@ def cmd_context(ctx: CommandContext) -> None:
     if current_model:
         # Use matching tokenizer for OpenAI models
         if current_model.provider == "openai" or (
-            current_model.provider == "openrouter"
+            current_model.provider in ("openrouter", "orcarouter")
             and current_model.model.startswith("openai/")
         ):
             tokenizer_model = current_model.model.split("/")[-1]

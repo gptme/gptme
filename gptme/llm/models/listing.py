@@ -60,7 +60,8 @@ def _get_models_for_provider(
 
     # Try dynamic fetching first for supported providers
     if dynamic_fetch and (
-        provider in ("openrouter", "local", "gptme") or is_custom_provider(provider)
+        provider in ("openrouter", "orcarouter", "local", "gptme")
+        or is_custom_provider(provider)
     ):
         try:
             dynamic_models = get_available_models(provider)
