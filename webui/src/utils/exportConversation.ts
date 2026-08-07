@@ -109,17 +109,15 @@ const SAFE_LANGUAGES = new Set([
 /**
  * Strip tool-invocation code blocks from assistant content.
  *
- * Matches fences of 3-or-more backticks (not just exactly ```), requiring the
- * closing fence to use the same backtick count as the opening one — CommonMark
- * permits longer fences (e.g. ````) so content containing a literal ``` can be
- * safely wrapped; a fixed 3-backtick-only regex would fail to recognize (and
- * thus fail to strip) such a block.
+ * Matches fences of 3-or-more backticks. The closing fence requires 3+ backticks
+ * rather than an exact backreference match — gptme's parser recovers certain
+ * adjacent-fence forms where opener and closer may differ in backtick count,
+ * so a backreference would leave those blocks intact.
  */
 function stripToolCallBlocks(content: string): string {
   return content
-    .replace(
-      /^(`{3,})([^\s`\n]+)(?:[ \t][^\n]*)?\n[\s\S]*?^\1\s*$/gm,
-      (block, _fence: string, lang: string) => (SAFE_LANGUAGES.has(lang.toLowerCase()) ? block : '')
+    .replace(/^`{3,}([^\s`\n]+)(?:[ \t][^\n]*)?\n[\s\S]*?^`{3,}\s*$/gm, (block, lang: string) =>
+      SAFE_LANGUAGES.has(lang.toLowerCase()) ? block : ''
     )
     .trim();
 }

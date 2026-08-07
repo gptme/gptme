@@ -24,6 +24,8 @@ export type ConversationConnectionStatus =
 export interface ConversationState {
   // The conversation data
   data: ConversationResponse;
+  // Server ID this conversation belongs to (undefined = primary server)
+  serverId?: string;
   // Whether this conversation is currently generating
   isGenerating: boolean;
   // Whether this conversation has an active event stream

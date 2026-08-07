@@ -285,6 +285,20 @@ describe('formatConversationAsMarkdown', () => {
     expect(result).toContain('Done.');
   });
 
+  it('strips tool-call blocks where opener and closer backtick counts differ (recovered adjacent-fence form)', () => {
+    // gptme's parser can recover adjacent fences where opener/closer counts differ
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Saving.\n\n````save\npath/to/file.py\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeToolCalls: false });
+    expect(result).not.toContain('path/to/file.py');
+    expect(result).toContain('Saving.');
+    expect(result).toContain('Done.');
+  });
+
   it('excludes tool messages when includeToolCalls is false', () => {
     const messages: Message[] = [
       { role: 'user', content: 'run it' },

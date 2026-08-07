@@ -49,7 +49,7 @@ export function CommandPalette() {
   const [conversationResults, setConversationResults] = useState<ConversationSummary[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const navigate = useNavigate();
-  const { api } = useApi();
+  const { api, getClient } = useApi();
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync open state bidirectionally with the observable (for external control, e.g. MenuBar search button)
@@ -246,7 +246,9 @@ export function CommandPalette() {
                   return;
                 }
                 const name = conv.data.name || convId;
-                api
+                // Use the server that owns this conversation, not always the primary.
+                const client = conv.serverId ? getClient(conv.serverId) : api;
+                client
                   .getConversation(convId)
                   .then((fullData) =>
                     copyConversationAsMarkdown(name, fullData.log, {
@@ -284,7 +286,9 @@ export function CommandPalette() {
                   return;
                 }
                 const name = conv.data.name || convId;
-                api
+                // Use the server that owns this conversation, not always the primary.
+                const client = conv.serverId ? getClient(conv.serverId) : api;
+                client
                   .getConversation(convId)
                   .then((fullData) =>
                     copyConversationAsMarkdown(name, fullData.log, {

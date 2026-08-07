@@ -66,6 +66,14 @@ export function useConversation(conversationId: string, serverId?: string) {
     }
   }, [conversationId, conversation$]);
 
+  // Track which server this conversation belongs to so copy/export actions
+  // can use the correct server-scoped API client instead of the primary one.
+  useEffect(() => {
+    if (serverId !== undefined) {
+      updateConversation(conversationId, { serverId });
+    }
+  }, [conversationId, serverId]);
+
   // Ensure the conversation's chat config is loaded whenever it's missing.
   // The main load+connect effect below early-returns for already-connected
   // conversations, so without this, switching to a previously-opened

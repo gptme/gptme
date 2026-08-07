@@ -117,7 +117,7 @@ interface ConversationSettingsProps {
 }
 
 export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversationId }) => {
-  const { api } = useApi();
+  const { api, getClient } = useApi();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [copyOptions, setCopyOptions] = useState<ExportMarkdownOptions>({
     includeThinking: false,
@@ -457,7 +457,9 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                           return;
                         }
                         const name = conv.data.name || conversationId;
-                        api
+                        // Use the server that owns this conversation, not always the primary.
+                        const client = conv.serverId ? getClient(conv.serverId) : api;
+                        client
                           .getConversation(conversationId)
                           .then((fullData) =>
                             copyConversationAsMarkdown(name, fullData.log, copyOptions)
