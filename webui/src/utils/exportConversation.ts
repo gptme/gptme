@@ -116,7 +116,7 @@ const SAFE_LANGUAGES = new Set([
  */
 function stripToolCallBlocks(content: string): string {
   return content
-    .replace(/^`{3,}([^\s`\n]+)(?:[ \t][^\n]*)?\n[\s\S]*?^`{3,}\s*$/gm, (block, lang: string) =>
+    .replace(/^`{3,}\s*([^\s`\n]+)(?:[ \t][^\n]*)?\n[\s\S]*?^`{3,}\s*$/gm, (block, lang: string) =>
       SAFE_LANGUAGES.has(lang.toLowerCase()) ? block : ''
     )
     .trim();
@@ -153,8 +153,8 @@ export function formatConversationAsMarkdown(
     lines.push(header, '');
     let content = msg.content;
     if (msg.role === 'assistant') {
-      if (!includeThinking) content = stripThinkingBlocks(content);
       if (!includeToolCalls) content = stripToolCallBlocks(content);
+      if (!includeThinking) content = stripThinkingBlocks(content);
     }
     lines.push(content, '');
   }

@@ -299,6 +299,21 @@ describe('formatConversationAsMarkdown', () => {
     expect(result).toContain('Done.');
   });
 
+  it('strips tool-call blocks where a space precedes the language name (CommonMark-legal fence)', () => {
+    // CommonMark allows optional whitespace between the opening backticks and the language tag.
+    // A fence like "``` bash" (with a leading space) must not bypass tool-output filtering.
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Running.\n\n``` bash\nsecret_token=abc123\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeToolCalls: false });
+    expect(result).not.toContain('secret_token');
+    expect(result).toContain('Running.');
+    expect(result).toContain('Done.');
+  });
+
   it('excludes tool messages when includeToolCalls is false', () => {
     const messages: Message[] = [
       { role: 'user', content: 'run it' },
