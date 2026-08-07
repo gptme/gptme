@@ -3,6 +3,8 @@ import type { Message } from '@/types/conversation';
 export interface ExportMarkdownOptions {
   includeSystem?: boolean;
   includeTimestamps?: boolean;
+  includeThinking?: boolean;
+  includeTools?: boolean;
 }
 
 export interface ImportedConversationData {
@@ -16,12 +18,122 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Strip thinking/reasoning blocks from assistant message content.
+ * Handles <thinking>/<think> tags as well as the `<think redacted>` variant
+ * gptme emits for Anthropic's RedactedThinkingBlock (see llm_anthropic.py).
+ */
+export function stripThinkingBlocks(content: string): string {
+  return content
+    .replace(/<think(?:ing)?(?: redacted)?>[\s\S]*?<\/think(?:ing)?(?: redacted)?>\n?/g, '')
+    .trim();
+}
+
+// Built-in gptme tool block types (markdown codeblock langtags that represent
+// a tool invocation rather than example code). Mirrors block_types across
+// gptme/tools/*.py. MCP server tools register dynamically and aren't covered.
+const TOOL_BLOCK_TYPES = new Set([
+  'clarify',
+  'complete',
+  'choice',
+  'gh',
+  'elicit',
+  'form',
+  'patch',
+  'patch_many',
+  'morph',
+  'view_anchored',
+  'patch_anchored',
+  'progress',
+  'hashline_edit',
+  'ipython',
+  'py',
+  'mcp',
+  'todo',
+  'save',
+  'append',
+  'vent',
+  'shell',
+  'tmux',
+  'read',
+  'restart',
+]);
+
+/**
+ * Strip fenced tool-invocation codeblocks (```shell, ```save path, etc.) from
+ * assistant message content.
+ */
+function stripFencedToolBlocks(content: string): string {
+  return content.replace(/```([^\n`]*)\n[\s\S]*?```/g, (block, langLine: string) => {
+    const tag = langLine.trim().split(/\s+/)[0]?.toLowerCase();
+    return tag && TOOL_BLOCK_TYPES.has(tag) ? '' : block;
+  });
+}
+
+/**
+ * Strip `@tool(id): {...}` / `@tool: {...}` invocation lines (the non-markdown
+ * "tool" format, and the live-streaming shape) from assistant message content.
+ * Scans braces rather than regex-matching JSON so pretty-printed or compact
+ * argument objects are both handled correctly.
+ */
+function stripAtFormatToolCalls(content: string): string {
+  const lines = content.split('\n');
+  const callPrefix = /^@[\w.-]+(?:\([^)\n]*\))?:\s*/;
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const match = lines[i].match(callPrefix);
+    if (!match) {
+      out.push(lines[i]);
+      i++;
+      continue;
+    }
+    const rest = lines[i].slice(match[0].length);
+    if (!rest.startsWith('{')) {
+      i++;
+      continue;
+    }
+    let depth = 0;
+    let sawOpen = false;
+    let j = i;
+    for (; j < lines.length; j++) {
+      const scanLine = j === i ? rest : lines[j];
+      for (const ch of scanLine) {
+        if (ch === '{') {
+          depth++;
+          sawOpen = true;
+        } else if (ch === '}') {
+          depth--;
+        }
+      }
+      if (sawOpen && depth <= 0) {
+        j++;
+        break;
+      }
+    }
+    i = j;
+  }
+  return out.join('\n');
+}
+
+/**
+ * Strip tool invocations embedded directly in assistant message content
+ * (fenced tool codeblocks and `@tool: {...}` calls). Distinct from filtering
+ * `role: 'tool'` result messages, which getExportableMessages handles.
+ */
+function stripToolInvocations(content: string): string {
+  return stripAtFormatToolCalls(stripFencedToolBlocks(content));
+}
+
 export function getExportableMessages(
   messages: Message[],
-  options?: Pick<ExportMarkdownOptions, 'includeSystem'>
+  options?: Pick<ExportMarkdownOptions, 'includeSystem' | 'includeTools'>
 ): Message[] {
-  const { includeSystem = false } = options ?? {};
-  return messages.filter((msg) => !msg.hide && (includeSystem || msg.role !== 'system'));
+  const { includeSystem = false, includeTools = true } = options ?? {};
+  return messages.filter(
+    (msg) =>
+      !msg.hide && (includeSystem || msg.role !== 'system') && (includeTools || msg.role !== 'tool')
+  );
 }
 
 function getImportableMessages(messages: Message[]): Message[] {
@@ -38,7 +150,7 @@ export function formatConversationAsMarkdown(
   messages: Message[],
   options?: ExportMarkdownOptions
 ): string {
-  const { includeTimestamps = true } = options ?? {};
+  const { includeTimestamps = true, includeThinking = true, includeTools = true } = options ?? {};
 
   const lines: string[] = [`# ${name}`, ''];
 
@@ -49,10 +161,28 @@ export function formatConversationAsMarkdown(
       header += `  \n*${msg.timestamp}*`;
     }
     lines.push(header, '');
-    lines.push(msg.content, '');
+    let content = msg.content;
+    if (msg.role === 'assistant') {
+      if (!includeThinking) content = stripThinkingBlocks(content);
+      if (!includeTools) content = stripToolInvocations(content);
+    }
+    lines.push(content, '');
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Copy the full conversation to the clipboard as Markdown.
+ * Reads from the conversation store, not the DOM, so virtualized messages are included.
+ */
+export async function copyConversationToClipboard(
+  name: string,
+  messages: Message[],
+  options?: ExportMarkdownOptions
+): Promise<void> {
+  const markdown = formatConversationAsMarkdown(name, messages, options);
+  await navigator.clipboard.writeText(markdown);
 }
 
 /**

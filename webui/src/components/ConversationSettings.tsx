@@ -1,10 +1,12 @@
 import { useState, useEffect, type FC } from 'react';
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
-import { Trash, Loader2, Download } from 'lucide-react';
+import { Trash, Loader2, Download, Copy, Check } from 'lucide-react';
+import { useApi } from '@/contexts/ApiContext';
 import { conversations$ } from '@/stores/conversations';
 import {
   exportConversationAsMarkdown,
   exportConversationAsJSON,
+  copyConversationToClipboard,
   getExportableMessages,
 } from '@/utils/exportConversation';
 import { toast } from 'sonner';
@@ -106,7 +108,11 @@ interface ConversationSettingsProps {
 }
 
 export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversationId }) => {
+  const { api } = useApi();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [includeThinking, setIncludeThinking] = useState(false);
+  const [includeTools, setIncludeTools] = useState(true);
   const {
     form,
     toolFields,
@@ -425,19 +431,98 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
               {/* Export */}
               <div className="mt-8 space-y-4">
                 <h3 className="text-lg font-medium">Export</h3>
-                <div className="flex gap-2">
+
+                {/* Detail level toggles */}
+                <div className="space-y-2 rounded-lg border px-3 py-2 shadow-sm">
+                  <p className="text-sm font-medium text-muted-foreground">Detail level</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Include thinking blocks</span>
+                    <Switch checked={includeThinking} onCheckedChange={setIncludeThinking} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Include tool calls &amp; results</span>
+                    <Switch checked={includeTools} onCheckedChange={setIncludeTools} />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {/* Copy to clipboard */}
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => {
+                    onClick={async () => {
+                      const conv = conversations$.get(conversationId)?.get();
+                      if (!conv?.data?.log?.length) {
+                        toast.error('No messages to copy');
+                        return;
+                      }
+                      // The store may only hold the currently-loaded window of a
+                      // long conversation (virtualized pagination). Fetch the
+                      // full history from the server rather than silently
+                      // copying a partial slice.
+                      let fullLog = conv.data.log;
+                      if (!isDemo && conv.hasMoreBefore) {
+                        try {
+                          fullLog = (await api.getConversation(conversationId)).log;
+                        } catch {
+                          toast.error('Failed to load full conversation history');
+                          return;
+                        }
+                      }
+                      const exportOptions = { includeThinking, includeTools };
+                      const exportableMessages = getExportableMessages(fullLog, exportOptions);
+                      if (!exportableMessages.length) {
+                        toast.error('No visible messages to copy');
+                        return;
+                      }
+                      try {
+                        await copyConversationToClipboard(
+                          conv.data.name || conversationId,
+                          exportableMessages,
+                          exportOptions
+                        );
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      } catch {
+                        toast.error('Failed to copy to clipboard');
+                      }
+                    }}
+                  >
+                    {copied ? (
+                      <Check className="mr-2 h-4 w-4 text-green-500" />
+                    ) : (
+                      <Copy className="mr-2 h-4 w-4" />
+                    )}
+                    {copied ? 'Copied!' : 'Copy'}
+                  </Button>
+
+                  {/* Download Markdown */}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
                       const conv = conversations$.get(conversationId)?.get();
                       if (!conv?.data?.log?.length) {
                         toast.error('No messages to export');
                         return;
                       }
 
-                      const exportableMessages = getExportableMessages(conv.data.log);
+                      // See the Copy handler above: don't silently export a
+                      // partial window of a long, paginated conversation.
+                      let fullLog = conv.data.log;
+                      if (!isDemo && conv.hasMoreBefore) {
+                        try {
+                          fullLog = (await api.getConversation(conversationId)).log;
+                        } catch {
+                          toast.error('Failed to load full conversation history');
+                          return;
+                        }
+                      }
+
+                      const exportOptions = { includeThinking, includeTools };
+                      const exportableMessages = getExportableMessages(fullLog, exportOptions);
                       if (!exportableMessages.length) {
                         toast.error('No visible messages to export');
                         return;
@@ -446,14 +531,17 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                       exportConversationAsMarkdown(
                         conversationId,
                         conv.data.name || conversationId,
-                        exportableMessages
+                        exportableMessages,
+                        exportOptions
                       );
-                      toast.success('Exported as Markdown');
+                      toast.success('Downloaded as Markdown');
                     }}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    Markdown
+                    Download .md
                   </Button>
+
+                  {/* Download JSON */}
                   <Button
                     type="button"
                     variant="outline"
@@ -469,13 +557,16 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                         conv.data.name || conversationId,
                         conv.data.log
                       );
-                      toast.success('Exported as JSON');
+                      toast.success('Downloaded as JSON');
                     }}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    JSON
+                    Download .json
                   </Button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Note: tool output is included verbatim and may contain sensitive data.
+                </p>
               </div>
 
               {/* Danger Zone */}
