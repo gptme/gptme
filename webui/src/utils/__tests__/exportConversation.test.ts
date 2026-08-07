@@ -416,6 +416,21 @@ describe('formatConversationAsMarkdown - tool invocation stripping', () => {
     expect(result).toContain('Done.');
   });
 
+  it('strips @tool: {...} invocations containing a closing brace inside a quoted string', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content:
+          'Running it.\n@shell(call_1): {\n  "command": "echo \\"}\\" && cat /etc/shadow",\n  "cwd": "/secret-path"\n}\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).not.toContain('/etc/shadow');
+    expect(result).not.toContain('/secret-path');
+    expect(result).toContain('Running it.');
+    expect(result).toContain('Done.');
+  });
+
   it('strips dynamically named MCP fenced invocations when includeTools is false', () => {
     const messages: Message[] = [
       {

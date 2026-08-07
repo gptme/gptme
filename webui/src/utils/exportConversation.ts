@@ -108,10 +108,25 @@ function stripAtFormatToolCalls(content: string): string {
     }
     let depth = 0;
     let sawOpen = false;
+    let inString = false;
+    let escapeNext = false;
     let j = i;
     for (; j < lines.length; j++) {
       const scanLine = j === i ? rest : lines[j];
       for (const ch of scanLine) {
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+        if (ch === '\\' && inString) {
+          escapeNext = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+        if (inString) continue;
         if (ch === '{') {
           depth++;
           sawOpen = true;
