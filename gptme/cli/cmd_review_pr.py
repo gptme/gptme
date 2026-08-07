@@ -167,8 +167,17 @@ def _build_review_prompt(
     if len(diff) > _MAX_DIFF_CHARS:
         diff = diff[:_MAX_DIFF_CHARS] + "\n\n[… diff truncated …]"
 
-    # Truncate PR body to limit injection surface.
+    # Sanitize and truncate PR body to limit the injection attack surface.
     pr_body_text = pr_body.strip() if pr_body else ""
+    # Strip fenced JSON/YAML code blocks — the reviewer output format is JSON,
+    # so a PR body embedding a fake-clean findings block could cause the
+    # reviewer session to copy it verbatim.  Prose context is preserved.
+    pr_body_text = re.sub(
+        r"```(?:json|yaml|yml)\n.*?```",
+        "[code block removed]",
+        pr_body_text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
     if len(pr_body_text) > _MAX_PR_BODY_CHARS:
         pr_body_text = (
             pr_body_text[:_MAX_PR_BODY_CHARS] + "\n\n[… PR description truncated …]"
