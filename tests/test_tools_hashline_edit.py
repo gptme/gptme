@@ -376,6 +376,25 @@ class TestExecuteHashlineEdit:
         assert "applied" in msgs[0].lower(), msgs
         assert f.read_text() == "first line"
 
+    def test_confirmation_edit_uses_edited_content(self, tmp_path: Path):
+        """When confirmation hook returns EDIT, the edited content is written (P1 fix)."""
+        from unittest.mock import patch
+
+        from gptme.hooks.confirm import ConfirmationResult
+
+        f = tmp_path / "f.txt"
+        f.write_text("alpha\nbeta\n")
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
+        edited = "EDITED BY HOOK\nbeta\n"
+        with patch(
+            "gptme.hooks.get_confirmation",
+            return_value=ConfirmationResult.edit(edited),
+        ):
+            msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower(), msgs
+        assert f.read_text() == edited
+
     def test_live_file_changed_after_snapshot(self, tmp_path: Path):
         """Edit must be rejected when the live file has changed since read (P1 fix)."""
         f = tmp_path / "f.txt"

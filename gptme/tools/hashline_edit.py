@@ -411,6 +411,13 @@ def execute_hashline_edit(
         )
         return
 
+    # Use content edited by the user during confirmation (if any)
+    if (
+        confirm_result.action == ConfirmAction.EDIT
+        and confirm_result.edited_content is not None
+    ):
+        updated = confirm_result.edited_content
+
     # Write result
     try:
         resolved.write_text(updated, encoding="utf-8")
