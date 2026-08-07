@@ -146,32 +146,19 @@ jobs:
       # review on gptme/gptme#3482.
       uses: iterative/setup-cml@e5f9f4673e0a8f275c45cc66dbbfd29c8469fb4e # v2.1.0
 
-    - name: Delete previous visual-diff comment
-      # `cml comment update` PATCHes via CML's own comment lookup, which
-      # requires a user-supplied PAT — the default github.token gets rejected
-      # with "commit_id has been locked" (https://cml.dev/doc/ref/comment#github).
-      # Delete-then-create keeps a single comment using only APIs github.token
-      # already has for issue/PR comments (list + delete), avoiding CML's
-      # update path entirely.
-      if: steps.diff.outputs.changed > 0
-      env:
-        GH_TOKEN: ${{ github.token }}
-        PR_NUMBER: ${{ steps.setup.outputs.pr_number }}
-      run: |
-        MARKER='## 🎨 WebUI Visual Changes Detected'
-        gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
-          --jq ".[] | select(.user.login == \"github-actions[bot]\") | select(.body | contains(\"${MARKER}\")) | .id" |
-        while read -r id; do
-          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/comments/${id}"
-        done
-
     - name: Build and post PR comment with inline images
       # CML uploads the local image references to a public host (GitHub draft
       # release assets) so reviewers see before/after screenshots directly in
       # the PR comment without needing to download artifacts.
+      #
+      # Replacement is create-then-prune: the new comment is posted FIRST so
+      # reviewers always have a live visual-diff comment even if the cleanup
+      # step fails.  The prune step deletes older copies by keeping only the
+      # comment with the highest (newest) ID.
       if: steps.diff.outputs.changed > 0
       env:
         REPO_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ github.token }}
         PR_NUMBER: ${{ steps.setup.outputs.pr_number }}
         CHANGED: ${{ steps.diff.outputs.changed }}
         TOTAL: ${{ steps.diff.outputs.total }}
@@ -217,4 +204,13 @@ jobs:
             f.write('\n'.join(lines) + '\n')
         PYEOF
 
+        # Post new comment FIRST — a comment is always visible even if pruning fails.
         cml comment create comment.md --target "pr/${PR_NUMBER}"
+
+        # Prune earlier visual-diff comments; keep only the newest (just created).
+        COMMENT_IDS=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+          --paginate \
+          --jq '[.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("## 🎨 WebUI Visual Changes Detected")) | .id] | sort | .[:-1][]')
+        for id in $COMMENT_IDS; do
+          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/comments/${id}"
+        done
