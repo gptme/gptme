@@ -261,9 +261,13 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
                     or _get_policy_manifest_path().resolve()
                 )
                 manifest_root = (manifest_file_abs.parent / manifest_root_str).resolve()
+            else:
+                # Always resolve absolute roots too so that paths containing `..`
+                # or symlink components compare correctly against lesson paths.
+                manifest_root = manifest_root.resolve()
             abs_path = path if path.is_absolute() else path.resolve()
             rel = abs_path.relative_to(manifest_root)
-            candidate_keys = [str(rel.with_suffix("")).replace("\\", "/")]
+            candidate_keys = [str(rel).replace("\\", "/").removesuffix(".md")]
         except (ValueError, OSError):
             # Path is outside the declared root — it belongs to a different lesson
             # tree and must not inherit entries from this manifest.

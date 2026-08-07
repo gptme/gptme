@@ -1008,3 +1008,33 @@ def test_classify_lesson_cached_manifest_cwd_change_stable(monkeypatch, tmp_path
     # lesson is classified as "unknown" instead of "validated_core".
     policy_class, _ = _classify_lesson(str(lesson))
     assert policy_class == "validated_core"
+
+
+def test_classify_lesson_absolute_root_with_dotdot_resolves(monkeypatch, tmp_path):
+    """Absolute root containing `..` must be resolved before relative_to comparison.
+
+    Without .resolve(), Path('/opt/../lessons').relative_to('/opt/lessons') raises
+    ValueError (lexical comparison, no normalization), misclassifying valid lessons.
+    """
+    _reset_manifest_cache(monkeypatch)
+
+    lessons_dir = tmp_path / "lessons"
+    (lessons_dir / "patterns").mkdir(parents=True)
+    lesson = lessons_dir / "patterns" / "foo.md"
+    lesson.write_text("# Foo\n")
+
+    # Construct an absolute root with a `..` component that resolves to lessons_dir.
+    other = tmp_path / "other"
+    other.mkdir()
+    dotdot_root = str(other / ".." / "lessons")  # absolute but not normalized
+
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"version: 1\nupdated_at: ''\nroot: {dotdot_root}\n"
+        "validated_core:\n- patterns/foo\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+
+    policy_class, _ = _classify_lesson(str(lesson))
+    assert policy_class == "validated_core"
