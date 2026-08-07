@@ -174,6 +174,11 @@ def _read_one(
         yield Message("system", f"Permission denied: {path}")
         return
 
+    # Store snapshot for hashline_edit verification (always uses full content)
+    from ._hashline_snapshot import store_snapshot
+
+    tag = store_snapshot(str(path), content)
+
     lines = content.splitlines()
     total_lines = len(lines)
 
@@ -241,7 +246,9 @@ def _read_one(
         shown = f"{start_idx + 1}-{end_idx}"
         range_info = f" (lines {shown} of {total_lines})"
 
-    body = md_codeblock(f"{path}{range_info}", numbered)
+    # Include snapshot tag header so hashline_edit can verify freshness
+    tag_header = f"[{path}#{tag}]"
+    body = md_codeblock(f"{path}{range_info}", tag_header + "\n" + numbered)
     if pruned_message_prefix:
         body = pruned_message_prefix + "\n\n" + body
 
