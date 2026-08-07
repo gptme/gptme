@@ -366,6 +366,18 @@ describe('stripThinkingBlocks', () => {
     expect(result).toBe('Visible text');
     expect(result).not.toContain('opaque payload');
   });
+
+  it('removes an unclosed trailing <think> block (generation interrupted mid-thinking)', () => {
+    const result = stripThinkingBlocks('Visible text\n<think>\nreasoning that never closed');
+    expect(result).toBe('Visible text');
+    expect(result).not.toContain('reasoning that never closed');
+  });
+
+  it('removes an unclosed trailing <thinking> block with no preceding text', () => {
+    const result = stripThinkingBlocks('<thinking>\ninterrupted reasoning');
+    expect(result).toBe('');
+    expect(result).not.toContain('interrupted reasoning');
+  });
 });
 
 describe('formatConversationAsMarkdown - tool invocation stripping', () => {
@@ -401,6 +413,19 @@ describe('formatConversationAsMarkdown - tool invocation stripping', () => {
     const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
     expect(result).not.toContain('/secret');
     expect(result).toContain('Running it.');
+    expect(result).toContain('Done.');
+  });
+
+  it('strips dynamically named MCP fenced invocations when includeTools is false', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Checking.\n\n```github.create_issue\n{"title": "secret bug"}\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).not.toContain('secret bug');
+    expect(result).toContain('Checking.');
     expect(result).toContain('Done.');
   });
 });
