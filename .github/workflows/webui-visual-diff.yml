@@ -221,13 +221,15 @@ jobs:
         repo   = os.environ['GITHUB_REPOSITORY']
         pr     = os.environ['PR_NUMBER']
         marker = '## 🎨 WebUI Visual Changes Detected'
-        jq     = '[.[] | select(.user.login=="github-actions[bot]") | select(.body | startswith("' + marker + '")) | {id,body}]'
+        # No array wrapper: `--paginate --jq` outputs one result per matching item
+        # across all pages (NDJSON), not one JSON array per page.
+        jq     = '.[] | select(.user.login=="github-actions[bot]") | select(.body | startswith("' + marker + '")) | {id,body}'
 
         out = subprocess.run(
             ['gh', 'api', f'repos/{repo}/issues/{pr}/comments', '--paginate', '--jq', jq],
             capture_output=True, text=True, check=True,
         ).stdout
-        comments = json.loads(out)
+        comments = [json.loads(line) for line in out.strip().split('\n') if line.strip()]
 
         def run_id(c):
             m = re.search(r'visual-diff-run-id:\s*(\d+)', c['body'])
