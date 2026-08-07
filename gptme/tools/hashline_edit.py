@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from ..message import Message
-from ._hashline_snapshot import compute_tag, lookup_snapshot, store_snapshot
+from ._hashline_snapshot import lookup_snapshot, store_snapshot
 from .base import Parameter, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
@@ -357,7 +357,7 @@ def execute_hashline_edit(
         return
 
     # Verify snapshot tag against the stored snapshot
-    tag_matched, _snapshot_content = lookup_snapshot(str(resolved), tag)
+    tag_matched, snapshot_content = lookup_snapshot(str(resolved), tag)
     if not tag_matched:
         # Check if we've seen the file at all (vs wrong tag)
         from ._hashline_snapshot import get_stored_tag
@@ -377,15 +377,15 @@ def execute_hashline_edit(
         yield Message("system", msg)
         return
 
-    # Also verify the live file hasn't changed since the snapshot was captured.
-    # A tag match only proves the in-memory snapshot is consistent; the file on
-    # disk may have been modified by another process since `read` was called.
-    live_tag = compute_tag(live_content)
-    if live_tag != tag:
+    # Verify the live file hasn't changed since the snapshot was captured.
+    # Compare full content (not just truncated tag) to be collision-proof: a
+    # 4-byte SHA-256 prefix could collide on different content, letting a stale
+    # edit silently overwrite the wrong lines.
+    assert snapshot_content is not None
+    if live_content != snapshot_content:
         yield Message(
             "system",
             f"hashline_edit: file has changed since snapshot was captured for {resolved}. "
-            f"Expected #{tag} but live content hashes to #{live_tag}. "
             "Call `read` again to get a fresh snapshot.",
         )
         return

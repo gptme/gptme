@@ -410,6 +410,31 @@ class TestExecuteHashlineEdit:
         # File must be untouched
         assert f.read_text() == "alpha\nbeta\nextra-line\n"
 
+    def test_content_mismatch_rejected_even_with_matching_tag(self, tmp_path: Path):
+        """Full content comparison catches stale content even when truncated tags match.
+
+        Injects the snapshot store directly to simulate a 4-byte SHA-256 prefix
+        collision: the stored tag matches the edit-block tag, but the live file
+        content differs from the captured snapshot content. The old tag-only check
+        would silently accept this; the content comparison correctly rejects it.
+        """
+        from gptme.tools._hashline_snapshot import _store, compute_tag
+
+        f = tmp_path / "f.txt"
+        original = "alpha\nbeta\n"
+        tag = compute_tag(original)
+        # Inject the store so tag maps to original content
+        _store[str(f.resolve())] = (tag, original)
+        # Write DIFFERENT content to disk (simulates the file changing after read,
+        # or — in the collision scenario — different content sharing the same tag prefix)
+        changed = "alpha\nbeta\ngamma\n"
+        f.write_text(changed)
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        # Content comparison catches this; tag-only comparison could miss a collision
+        assert "changed since snapshot" in msgs[0].lower(), msgs
+        assert f.read_text() == changed  # file must be untouched
+
 
 # ---------------------------------------------------------------------------
 # Read tool integration — snapshot populated by read
