@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
-      contents: read
+      contents: write  # CML needs write access to create draft release assets for image hosting
 
     steps:
     # Download the "after" screenshots from the triggering PR run.
@@ -139,72 +139,62 @@ jobs:
         path: screenshots/diff/
         retention-days: 14
 
-    - name: Build and post PR comment
+    - name: Setup CML
       if: steps.diff.outputs.changed > 0
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const fs = require('fs');
-          const changed = parseInt('${{ steps.diff.outputs.changed }}', 10);
-          const total   = parseInt('${{ steps.diff.outputs.total }}',   10);
-          const prNumber = parseInt('${{ steps.setup.outputs.pr_number }}', 10);
-          const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+      uses: iterative/setup-cml@v2
 
-          // Build the table rows from summary.json
-          const summary = JSON.parse(fs.readFileSync('screenshots/diff/summary.json', 'utf8'));
-          const icon = { changed: '⚠️', new: '🆕', removed: '🗑️', same: '✅' };
-          // Sanitize fork-controlled filenames for Markdown table rows.
-          // Backslash-escaping backticks does NOT work inside CommonMark code spans
-          // (the spec renders code-span content verbatim), so we replace backticks
-          // with their HTML entity instead. CR/LF would break the table row, so we
-          // collapse them to space. Pipes are backslash-escaped.
-          const sanitizeMd = s => s
-            .replace(/\r?\n|\r/g, ' ')  // newlines → space (prevent row-break injection)
-            .replace(/`/g, '&#96;')     // backtick → HTML entity (code-span safe)
-            .replace(/\|/g, '\\|');     // pipe → escaped (prevent cell injection)
-          const rows = summary.results.map(r =>
-            `| \`${sanitizeMd(r.name)}\` | ${icon[r.status] ?? '❓'} ${r.status} | ${r.pixels.toLocaleString()} |`
-          ).join('\n');
+    - name: Build and post PR comment with inline images
+      # CML uploads the local image references to a public host (GitHub draft
+      # release assets) so reviewers see before/after screenshots directly in
+      # the PR comment without needing to download artifacts.
+      if: steps.diff.outputs.changed > 0
+      env:
+        REPO_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ steps.setup.outputs.pr_number }}
+        CHANGED: ${{ steps.diff.outputs.changed }}
+        TOTAL: ${{ steps.diff.outputs.total }}
+      run: |
+        python3 - << 'PYEOF'
+        import json, os, re
 
-          const body = [
+        summary = json.load(open('screenshots/diff/summary.json'))
+        changed = os.environ['CHANGED']
+        total   = os.environ['TOTAL']
+
+        ICON = {'changed': '⚠️', 'new': '🆕', 'removed': '🗑️'}
+
+        def label(name):
+            """Escape filename for a Markdown table cell label (no injection vectors)."""
+            return '`' + re.sub(r'[`|\[\]]', lambda m: '&#' + str(ord(m.group())) + ';', name) + '`'
+
+        lines = [
             '## 🎨 WebUI Visual Changes Detected',
             '',
-            `**${changed} of ${total} screenshots changed** on this PR.`,
+            f'**{changed} of {total} screenshots changed** on this PR.',
             '',
-            '| View | Status | Pixels changed |',
-            '|------|--------|----------------|',
-            rows,
+            '| View | Before | After |',
+            '|------|--------|-------|',
+        ]
+        for r in summary['results']:
+            if r['status'] not in ('changed', 'new', 'removed'):
+                continue
+            name   = r['name']
+            status = r['status']
+            icon   = ICON.get(status, '❓') + ' ' + status
+            before = f'![before](screenshots/diff/before-{name})' if status in ('changed', 'removed') else f'_{icon}_'
+            after  = f'![after](screenshots/diff/after-{name})'   if status in ('changed', 'new')     else f'_{icon}_'
+            lines.append(f'| {label(name)} | {before} | {after} |')
+
+        lines += [
             '',
-            `📦 Download [before/after/diff images](${runUrl}) from the workflow artifacts (GitHub sign-in required).`,
-            '',
-            '> _This comment is posted automatically when webui screenshots differ from master. No comment means no visual changes._',
-          ].join('\n');
+            '> _Posted automatically when webui screenshots differ from master. '
+            'No comment = no visual changes._',
+        ]
 
-          const marker = '## 🎨 WebUI Visual Changes Detected';
+        with open('comment.md', 'w') as f:
+            f.write('\n'.join(lines) + '\n')
+        PYEOF
 
-          // Update existing comment if present, otherwise create one
-          const { data: comments } = await github.rest.issues.listComments({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: prNumber,
-          });
-          const existing = comments.find(c =>
-            c.user.login === 'github-actions[bot]' &&
-            c.body && c.body.includes(marker)
-          );
-
-          if (existing) {
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: existing.id,
-              body,
-            });
-          } else {
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body,
-            });
-          }
+        cml comment create comment.md \
+          --pr-url "https://github.com/${{ github.repository }}/pull/${PR_NUMBER}" \
+          --update
