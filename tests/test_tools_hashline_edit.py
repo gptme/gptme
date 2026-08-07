@@ -537,6 +537,32 @@ class TestResolveBlockEnd:
         with pytest.raises(ValueError, match="out of range"):
             _resolve_block_end(lines, 5)
 
+    def test_if_elif_else_absorbed(self):
+        content = "if x:\n    do_a()\nelif y:\n    do_b()\nelse:\n    do_c()\ndo_d()\n"
+        lines = content.splitlines()
+        # Block at line 1 (if x) must absorb elif/else through line 6
+        assert _resolve_block_end(lines, 1) == 6
+
+    def test_try_except_finally_absorbed(self):
+        content = (
+            "try:\n"
+            "    risky()\n"
+            "except ValueError as e:\n"
+            "    handle(e)\n"
+            "finally:\n"
+            "    cleanup()\n"
+            "after()\n"
+        )
+        lines = content.splitlines()
+        assert _resolve_block_end(lines, 1) == 6
+
+    def test_same_indent_non_continuation_not_absorbed(self):
+        # A same-indentation line that is not elif/else/except/finally still
+        # terminates the block (e.g. an unrelated statement after an if).
+        content = "if x:\n    do_a()\nelifish_var = 1\n"
+        lines = content.splitlines()
+        assert _resolve_block_end(lines, 1) == 2
+
 
 # ---------------------------------------------------------------------------
 # PUT N*: block-aware replace
@@ -585,6 +611,16 @@ class TestBlockReplace:
 
     def test_put_block_in_instructions(self):
         assert "PUT N*:" in tool.instructions
+
+    def test_apply_block_replace_if_elif_else(self):
+        content = "if x:\n    do_a()\nelif y:\n    do_b()\nelse:\n    do_c()\ndo_d()\n"
+        ops = [
+            HashlineOp(kind="block_replace", start=1, end=-1, text="if z:\n    do_z()")
+        ]
+        result = _apply_operations(content, ops)
+        assert result == "if z:\n    do_z()\ndo_d()\n"
+        assert "elif" not in result
+        assert "else" not in result
 
 
 # ---------------------------------------------------------------------------

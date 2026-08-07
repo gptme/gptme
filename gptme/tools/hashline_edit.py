@@ -196,6 +196,9 @@ def _collect_content(lines: list[str], start_idx: int) -> tuple[int, str]:
 # ---------------------------------------------------------------------------
 
 
+_RE_CONTINUATION_CLAUSE = re.compile(r"^(elif|else|except|finally)\b")
+
+
 def _resolve_block_end(file_lines: list[str], start: int) -> int:
     """Return the 1-indexed last line of the syntactic block starting at *start*.
 
@@ -203,6 +206,11 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
     body is the contiguous sequence of non-blank lines with strictly greater
     indentation.  The block ends at the last such line (blank lines inside the body
     are absorbed).  If no body follows, the block is just the header line itself.
+
+    A same-indentation continuation clause (``elif``/``else``/``except``/
+    ``finally``) is treated as part of the same compound statement: its header
+    and body are absorbed too, so the resolved range covers the whole
+    ``if``/``try`` statement rather than stopping at the first clause.
 
     Raises :class:`ValueError` when *start* is out of range.
     """
@@ -216,19 +224,22 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
     header_indent = len(header) - len(header.lstrip())
 
     end = start
-    in_body = False
-    for i in range(start, total):  # file_lines[start] is the line AFTER the header
+    i = start  # file_lines[start] is the line AFTER the header (0-indexed)
+    while i < total:
         line = file_lines[i]
         if not line.strip():
+            i += 1
             continue  # blank lines are absorbed; decide at the next non-blank line
         indent = len(line) - len(line.lstrip())
         if indent > header_indent:
-            in_body = True
             end = i + 1  # 1-indexed
+            i += 1
+        elif indent == header_indent and _RE_CONTINUATION_CLAUSE.match(line.lstrip()):
+            end = i + 1  # absorb the continuation clause header itself
+            i += 1
         else:
-            break  # same or lower indent: block is complete
+            break  # same or lower indent, not a continuation clause: block is complete
 
-    _ = in_body  # used implicitly: if we never set it, end == start (single-line block)
     return end
 
 
@@ -329,11 +340,19 @@ Re-read the file with ``read`` to get a new tag and restate your operations.
 | ``PUT >N:``  | Insert new lines AFTER line N            |
 | ``CUT N.=M`` | Delete lines N through M                 |
 
-``PUT N*:`` uses an indent-tracking heuristic: the block starts at line N and
-ends at the last line with indentation greater than line N's indentation.  This
-works for Python functions, classes, if/for/while blocks, and similar indented
-constructs.  Point the model at the ``def``/``class`` line and the system finds
-the closing line automatically.
+``PUT N*:`` replaces a whole indented construct — point it at the ``def``,
+``class``, ``if``, ``for``, ``while``, or ``try`` line and the system finds the
+closing line for you, including any ``elif``/``else``/``except``/``finally``
+clauses attached to that same statement.  Use it instead of ``PUT N.=M:`` when
+you want to replace an entire function/block and don't want to count lines by
+hand.
+
+Point N at the actual header line (e.g. the ``def`` line, not a decorator or a
+comment above it) — the block is resolved from that line's indentation.
+Constructs the heuristic can't reliably reproduce: blocks that mix tabs and
+spaces, or a header followed by a same-indentation line that is *not* a
+continuation clause (e.g. a one-line ``if x: y`` body) — for those, fall back to
+``PUT N.=M:`` with an explicit line range.
 
 New content lines are prefixed with ``+``.  An empty line ends a content block.
 CUT has no content block.  Line numbers reference the version shown by ``read``.
