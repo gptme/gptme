@@ -49,9 +49,14 @@ def test_kimi_k3_sends_configured_reasoning_effort(monkeypatch):
             )
         ],
     )
-    completions_create = Mock(return_value=completion)
+    raw_resp = SimpleNamespace(parse=lambda: completion, headers={})
+    completions_create = Mock(return_value=raw_resp)
     mock_client = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=completions_create))
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                with_raw_response=SimpleNamespace(create=completions_create)
+            )
+        )
     )
     monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
     monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
@@ -89,9 +94,14 @@ def test_chat_completions_forwards_caller_sampling_values(monkeypatch):
             )
         ],
     )
-    completions_create = Mock(return_value=completion)
+    raw_resp = SimpleNamespace(parse=lambda: completion, headers={})
+    completions_create = Mock(return_value=raw_resp)
     mock_client = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=completions_create))
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                with_raw_response=SimpleNamespace(create=completions_create)
+            )
+        )
     )
 
     monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)

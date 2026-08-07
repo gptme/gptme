@@ -927,9 +927,14 @@ def test_chat_completions_embeds_reasoning_content(monkeypatch):
             )
         ],
     )
-    completions_create = Mock(return_value=completion)
+    raw_resp = SimpleNamespace(parse=lambda: completion, headers={})
+    completions_create = Mock(return_value=raw_resp)
     mock_client = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=completions_create))
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                with_raw_response=SimpleNamespace(create=completions_create)
+            )
+        )
     )
 
     monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
