@@ -1038,10 +1038,14 @@ def start_tool_execution(
                 # the correct message history, not always the "main" branch.
                 manager = LogManager.load(conversation_id, branch=branch, lock=False)
 
-                # Atomically claim the tool with pop(): a get-then-pop sequence
-                # leaves a window where two threads (e.g. two concurrent confirm
-                # requests) both see the tool and both execute it.
-                tool_exec = session.pending_tools.pop(current_tool_id, None)
+                # Atomically claim the tool with pop() and register it as
+                # executing — both under conversation_lock so no sibling thread
+                # can see pending_tools empty while this thread hasn't yet
+                # added itself to _executing_tools.
+                with SessionManager.conversation_lock(conversation_id):
+                    tool_exec = session.pending_tools.pop(current_tool_id, None)
+                    if tool_exec is not None:
+                        session._executing_tools.add(current_tool_id)
                 if tool_exec is None:
                     logger.warning(
                         f"Tool {current_tool_id} not found in pending tools "
@@ -1116,6 +1120,7 @@ def start_tool_execution(
                         )
                         for tool_output in tool_outputs:
                             _append_and_notify(manager, session, tool_output)
+                        session._executing_tools.discard(current_tool_id)
                 except Exception as e:
                     logger.exception(f"Error executing tool {tooluse.tool}: {e}")
                     tool_exec.status = ToolStatus.FAILED
@@ -1128,6 +1133,7 @@ def start_tool_execution(
                             "system", f"Error: {e!s}", call_id=tooluse.call_id
                         )
                         _append_and_notify(manager, session, msg)
+                        session._executing_tools.discard(current_tool_id)
 
                 # Emit tool_complete with duration; also accumulate for metadata.
                 if tool_exec.started_at is not None:
@@ -1184,10 +1190,12 @@ def start_tool_execution(
                     branch=branch,
                 )
 
-            # Only auto-step when all pending tools have been executed.
-            # With multiple tools per message, we must wait until every tool
-            # has run before asking the model for a continuation.
-            if not session.pending_tools:
+            # Only auto-step when all pending tools have been executed AND all
+            # concurrent execution threads have written their results.
+            # pending_tools tracks tools awaiting confirmation; _executing_tools
+            # tracks tools that were popped (confirmed) but haven't finished
+            # writing yet — both must be empty before asking the model to continue.
+            if not session.pending_tools and not session._executing_tools:
                 _start_step_thread(
                     conversation_id,
                     session,

@@ -6,6 +6,7 @@ These are unit-level tests using the Flask test client — they don't
 require API keys or LLM calls.
 """
 
+import threading
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -991,6 +992,157 @@ class TestToolConfirmEndpoint:
             assert response.status_code == 200
         finally:
             session.pending_tools.pop(tool_id, None)
+
+
+# --- Concurrent tool confirmation tests (issue #3479) ---
+
+
+class TestConcurrentToolConfirmation:
+    """Regression tests for #3479: concurrent non-auto-confirm tool confirmation
+    must not trigger the continuation step before all tool threads finish writing."""
+
+    def test_executing_tools_field_exists(self, conv, client: FlaskClient):
+        """ConversationSession has _executing_tools set, initially empty."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        assert hasattr(session, "_executing_tools")
+        assert len(session._executing_tools) == 0
+
+    def test_no_premature_step_with_concurrent_confirmations(
+        self, conv, client: FlaskClient
+    ):
+        """Fast tool must not trigger continuation while slow tool is still writing.
+
+        Simulates issue #3479: two non-auto-confirm tools confirmed simultaneously.
+        The fast tool finishes first; without the _executing_tools guard it would
+        see pending_tools empty and fire _start_step_thread prematurely, before the
+        slow tool has written its output.
+        """
+        from gptme.config import ChatConfig
+        from gptme.server.session_step import start_tool_execution
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+
+        tool1_id = str(uuid.uuid4())
+        tool2_id = str(uuid.uuid4())
+
+        # slow_can_proceed gates tool2's write — held until we release it
+        slow_can_proceed = threading.Event()
+
+        step_calls: list[dict] = []
+
+        def mock_start_step(conv_id, sess, *args, **kwargs):
+            # Record whether slow tool is still in _executing_tools
+            step_calls.append(
+                {
+                    "tool2_still_executing": tool2_id in sess._executing_tools,
+                }
+            )
+            return True
+
+        def make_execute(delay_event: threading.Event | None):
+            """Return a tooluse.execute side-effect that optionally waits."""
+
+            def execute(log, workspace, on_result_message=None):
+                if delay_event is not None:
+                    delay_event.wait(timeout=5)
+                return []
+
+            return execute
+
+        # Register two tools: tool1 (fast), tool2 (slow — waits for slow_can_proceed)
+        tool1_exec = ToolExecution(
+            tool_id=tool1_id,
+            tooluse=ToolUse("bash", [], "echo fast"),
+            auto_confirm=False,
+        )
+        tool2_exec = ToolExecution(
+            tool_id=tool2_id,
+            tooluse=ToolUse("bash", [], "echo slow"),
+            auto_confirm=False,
+        )
+        session.pending_tools[tool1_id] = tool1_exec
+        session.pending_tools[tool2_id] = tool2_exec
+
+        tool1_exec.tooluse = MagicMock(
+            tool="bash",
+            args=[],
+            content="echo fast",
+            call_id=tool1_id,
+        )
+        tool1_exec.tooluse.execute = make_execute(None)
+
+        tool2_exec.tooluse = MagicMock(
+            tool="bash",
+            args=[],
+            content="echo slow",
+            call_id=tool2_id,
+        )
+        tool2_exec.tooluse.execute = make_execute(slow_can_proceed)
+
+        chat_config = ChatConfig(model="mock/model")
+
+        with (
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch(
+                "gptme.server.session_step.LogManager.load",
+                return_value=MagicMock(
+                    log=MagicMock(messages=[]),
+                    workspace=MagicMock(),
+                ),
+            ),
+            patch("gptme.server.session_step._append_and_notify"),
+            patch("gptme.server.session_step._attach_tool_timings"),
+            patch(
+                "gptme.server.session_step._start_step_thread",
+                side_effect=mock_start_step,
+            ),
+        ):
+            # Confirm both tools concurrently (same as the UI "confirm all" action)
+            t1 = start_tool_execution(
+                conv["conversation_id"],
+                session,
+                tool1_id,
+                None,
+                "mock/model",
+                chat_config,
+                branch="main",
+            )
+            t2 = start_tool_execution(
+                conv["conversation_id"],
+                session,
+                tool2_id,
+                None,
+                "mock/model",
+                chat_config,
+                branch="main",
+            )
+
+            # Let tool1 finish immediately (it doesn't wait)
+            # Give it time to run and see if it tries to start the step
+            t1.join(timeout=2)
+
+            # Verify tool1 did NOT trigger the step (tool2 is still "executing")
+            assert step_calls == [], (
+                "Fast tool triggered step continuation before slow tool finished writing"
+            )
+
+            # Now let tool2 proceed to write its result
+            slow_can_proceed.set()
+            t2.join(timeout=5)
+
+        # After both threads finish, exactly one step trigger should have fired
+        assert len(step_calls) == 1, (
+            f"Expected exactly 1 step trigger, got {len(step_calls)}"
+        )
+        # And at that point, tool2 must have already been removed from _executing_tools
+        assert not step_calls[0]["tool2_still_executing"], (
+            "Step was triggered while tool2 was still in _executing_tools"
+        )
+        # Both sets are clean
+        assert len(session._executing_tools) == 0
+        assert len(session.pending_tools) == 0
 
 
 # --- Rerun endpoint tests ---

@@ -83,6 +83,10 @@ class ConversationSession(BaseSession):
     events: list[EventType] = field(default_factory=list)
     _events_offset: int = 0  # number of events trimmed from front of list
     pending_tools: dict[str, ToolExecution] = field(default_factory=dict)
+    # Tools that have been popped from pending_tools but not yet written their
+    # results. Used to prevent the continuation step from starting before all
+    # concurrent tool threads have finished writing.
+    _executing_tools: set[str] = field(default_factory=set)
     auto_confirm_count: int = 0
     clients: set[str] = field(default_factory=set)
     event_flag: threading.Event = field(default_factory=threading.Event)
