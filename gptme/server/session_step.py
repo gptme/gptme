@@ -1120,7 +1120,6 @@ def start_tool_execution(
                         )
                         for tool_output in tool_outputs:
                             _append_and_notify(manager, session, tool_output)
-                        session._executing_tools.discard(current_tool_id)
                 except Exception as e:
                     logger.exception(f"Error executing tool {tooluse.tool}: {e}")
                     tool_exec.status = ToolStatus.FAILED
@@ -1133,7 +1132,15 @@ def start_tool_execution(
                             "system", f"Error: {e!s}", call_id=tooluse.call_id
                         )
                         _append_and_notify(manager, session, msg)
-                        session._executing_tools.discard(current_tool_id)
+                finally:
+                    # Unconditional cleanup: whatever happens above (success,
+                    # a caught Exception, a BaseException like KeyboardInterrupt,
+                    # or a failure while persisting the result/error message
+                    # itself), the claim must be released or this tool id stays
+                    # in _executing_tools forever, permanently blocking the
+                    # `not pending_tools and not _executing_tools` continuation
+                    # check for this session.
+                    session._executing_tools.discard(current_tool_id)
 
                 # Emit tool_complete with duration; also accumulate for metadata.
                 if tool_exec.started_at is not None:
