@@ -794,7 +794,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f6328db19e0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f4165fd59e0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1567,6 +1567,71 @@ gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> <
 
 <span class="s">See PR #123 for the implementation.</span>
 <span class="s">EOF</span>
+<span class="sb">```</span>
+
+<span class="gu">## hashline_edit</span>
+
+<span class="gs">**Description:**</span> Apply snapshot-anchored line-range edits to a file (use after <span class="sb">`read`</span>)
+
+<span class="gs">**Instructions:**</span> Use after ``read`` to apply precise, safe line edits without re-reading the full file.
+The tag from ``read`` anchors your edits to the exact version you saw — any external
+change to the file on disk is detected and rejected before a single byte is written.
+
+Prefer this tool over ``patch`` when you have exact line numbers and want to avoid
+repeating large context blocks.  You can chain multiple operations in one call;
+line numbers always reference the version ``read`` showed you.
+
+<span class="gu">### Workflow</span>
+
+<span class="k">1.</span> Call ``read &lt;path&gt;`` — the output starts with ``[PATH#TAG]`` on the first line
+   inside the code block.  Remember this TAG.
+<span class="k">2.</span> Write a ``hashline_edit &lt;path&gt;`` block beginning with the same ``[PATH#TAG]``
+   header, followed by one or more operations.
+
+<span class="gu">### Recovery from rejection</span>
+
+If the file changed between ``read`` and your edit, you will see:
+  ``hashline_edit: file has changed since snapshot was captured…``
+Re-read the file with ``read`` to get a new tag and restate your operations.
+
+<span class="gu">### Operations</span>
+
+| Syntax       | Effect                                    |
+|-------------|------------------------------------------|
+| ``PUT N.=M:``| Replace lines N through M with new lines |
+| ``PUT &lt;N:``  | Insert new lines BEFORE line N           |
+| ``PUT &gt;N:``  | Insert new lines AFTER line N            |
+| ``CUT N.=M`` | Delete lines N through M                 |
+
+New content lines are prefixed with ``+``.  An empty line ends a content block.
+CUT has no content block.  Line numbers reference the version shown by ``read``.
+
+<span class="gu">### Example</span>
+
+<span class="sb">```</span>
+<span class="sb">[greet.py#A1B2C3D4]</span>
+<span class="sb">PUT 2.=3:</span>
+<span class="sb">+    print(f&quot;Hi, {name}&quot;)</span>
+<span class="sb">CUT 4.=4</span>
+<span class="sb">PUT &gt;5:</span>
+<span class="sb">+    return name</span>
+<span class="sb">```</span>
+
+Use a code block with language tag: <span class="sb">`hashline_edit &lt;path&gt;`</span>
+
+<span class="gu">### Examples</span>
+
+<span class="k">&gt; </span><span class="ge">User: update greet.py to use an f-string</span>
+<span class="k">&gt; </span><span class="ge">Assistant: First, read the file:</span>
+<span class="sb">```read</span><span class="w"> </span>greet.py
+
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```hashline_edit</span><span class="w"> </span>greet.py
+<span class="s">[greet.py#A1B2C3D4]</span>
+<span class="s">PUT 2.=3:</span>
+<span class="s">+    print(f&quot;Hi, {name}&quot;)</span>
+
 <span class="sb">```</span>
 
 <span class="gu">## lessons</span>
@@ -2802,7 +2867,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 18397</p>
+<p>Tokens: 18962</p>
 </dd></dl>
 
 <dl class="py function">
