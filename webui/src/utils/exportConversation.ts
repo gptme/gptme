@@ -38,10 +38,46 @@ function stripThinkingBlocks(content: string): string {
   return content.replace(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/g, '').trim();
 }
 
+/**
+ * Fenced-code-block languages that gptme treats as tool invocations.
+ * Mirrors the `block_types` registered by gptme's built-in tools
+ * (see gptme/tools/*.py) so exports strip every tool call, not just shell/python.
+ */
+const TOOL_BLOCK_LANGUAGES = new Set([
+  'bash',
+  'shell',
+  'sh',
+  'tmux',
+  'python',
+  'ipython',
+  'py',
+  'save',
+  'append',
+  'patch',
+  'patch_anchored',
+  'patch_many',
+  'view_anchored',
+  'read',
+  'gh',
+  'mcp',
+  'morph',
+  'complete',
+  'todo',
+  'vent',
+  'restart',
+  'progress',
+  'clarify',
+  'choice',
+  'form',
+  'elicit',
+]);
+
 /** Strip tool-invocation code blocks (bash/python/etc.) from assistant content. */
 function stripToolCallBlocks(content: string): string {
   return content
-    .replace(/^```(bash|shell|sh|python|ipython|tmux|save)\n[\s\S]*?^```\s*$/gm, '')
+    .replace(/^```([^\s`\n]+)(?:[ \t][^\n]*)?\n[\s\S]*?^```\s*$/gm, (block, lang: string) =>
+      TOOL_BLOCK_LANGUAGES.has(lang) ? '' : block
+    )
     .trim();
 }
 

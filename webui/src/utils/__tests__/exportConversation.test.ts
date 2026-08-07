@@ -206,6 +206,36 @@ describe('formatConversationAsMarkdown', () => {
     expect(result).toContain('Let me know if you need more.');
   });
 
+  it('strips tool-call blocks with inline arguments (e.g. `save test.py`)', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Writing the file now.\n\n```save test.py\nprint("hi")\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeToolCalls: false });
+    expect(result).not.toContain('print("hi")');
+    expect(result).toContain('Writing the file now.');
+    expect(result).toContain('Done.');
+  });
+
+  it('strips tool-call blocks for tool names outside the narrow shell/python set', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content:
+          'Reading a file and checking the PR.\n\n```read notes.md\n```\n\n```gh\npr view 1\n```\n\n```patch\nsome patch\n```\n\n```mcp\n{}\n```\n\nAll done.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeToolCalls: false });
+    expect(result).not.toContain('notes.md');
+    expect(result).not.toContain('pr view 1');
+    expect(result).not.toContain('some patch');
+    expect(result).not.toContain('{}');
+    expect(result).toContain('Reading a file and checking the PR.');
+    expect(result).toContain('All done.');
+  });
+
   it('keeps non-tool code blocks in assistant messages when includeToolCalls is false', () => {
     const messages: Message[] = [
       {
