@@ -39,44 +39,87 @@ function stripThinkingBlocks(content: string): string {
 }
 
 /**
- * Fenced-code-block languages that gptme treats as tool invocations.
- * Mirrors the `block_types` registered by gptme's built-in tools
- * (see gptme/tools/*.py) so exports strip every tool call, not just shell/python.
+ * Fenced-code-block languages that are ordinary prose/code examples, never
+ * gptme tool invocations. Deliberately NOT the inverse (a list of known tool
+ * names): gptme's tool set is open-ended — MCP servers register their own
+ * block type per connected server as `${serverName}.${toolName}` (see
+ * `gptme/tools/mcp_adapter.py`), so any fixed list of *tool* names can never
+ * be exhaustive. Matching against a list of known-safe languages instead
+ * fails closed: an unrecognized language (including any MCP tool name) is
+ * treated as a possible tool invocation and stripped.
  */
-const TOOL_BLOCK_LANGUAGES = new Set([
-  'bash',
-  'shell',
-  'sh',
-  'tmux',
-  'python',
-  'ipython',
-  'py',
-  'save',
-  'append',
-  'patch',
-  'patch_anchored',
-  'patch_many',
-  'view_anchored',
-  'read',
-  'gh',
-  'mcp',
-  'morph',
-  'complete',
-  'todo',
-  'vent',
-  'restart',
-  'progress',
-  'clarify',
-  'choice',
-  'form',
-  'elicit',
+const SAFE_LANGUAGES = new Set([
+  'text',
+  'txt',
+  'plaintext',
+  'markdown',
+  'md',
+  'json',
+  'yaml',
+  'yml',
+  'toml',
+  'xml',
+  'csv',
+  'ini',
+  'env',
+  'diff',
+  'javascript',
+  'js',
+  'jsx',
+  'typescript',
+  'ts',
+  'tsx',
+  'html',
+  'css',
+  'scss',
+  'less',
+  'sql',
+  'graphql',
+  'proto',
+  'rust',
+  'go',
+  'golang',
+  'java',
+  'c',
+  'cpp',
+  'c++',
+  'csharp',
+  'cs',
+  'ruby',
+  'rb',
+  'php',
+  'swift',
+  'kotlin',
+  'scala',
+  'elixir',
+  'erlang',
+  'haskell',
+  'clojure',
+  'lua',
+  'perl',
+  'dart',
+  'dockerfile',
+  'makefile',
+  'cmake',
+  'nginx',
+  'vue',
+  'svelte',
 ]);
 
-/** Strip tool-invocation code blocks (bash/python/etc.) from assistant content. */
+/**
+ * Strip tool-invocation code blocks from assistant content.
+ *
+ * Matches fences of 3-or-more backticks (not just exactly ```), requiring the
+ * closing fence to use the same backtick count as the opening one — CommonMark
+ * permits longer fences (e.g. ````) so content containing a literal ``` can be
+ * safely wrapped; a fixed 3-backtick-only regex would fail to recognize (and
+ * thus fail to strip) such a block.
+ */
 function stripToolCallBlocks(content: string): string {
   return content
-    .replace(/^```([^\s`\n]+)(?:[ \t][^\n]*)?\n[\s\S]*?^```\s*$/gm, (block, lang: string) =>
-      TOOL_BLOCK_LANGUAGES.has(lang) ? '' : block
+    .replace(
+      /^(`{3,})([^\s`\n]+)(?:[ \t][^\n]*)?\n[\s\S]*?^\1\s*$/gm,
+      (block, _fence: string, lang: string) => (SAFE_LANGUAGES.has(lang.toLowerCase()) ? block : '')
     )
     .trim();
 }

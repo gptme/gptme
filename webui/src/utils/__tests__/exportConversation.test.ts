@@ -247,6 +247,44 @@ describe('formatConversationAsMarkdown', () => {
     expect(result).toContain('const x = 1;');
   });
 
+  it('strips dynamically-named MCP tool call blocks when includeToolCalls is false', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content:
+          'Calling the linear MCP tool.\n\n```linear.create_issue\n{"title": "secret internal ticket"}\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeToolCalls: false });
+    expect(result).not.toContain('secret internal ticket');
+    expect(result).toContain('Calling the linear MCP tool.');
+    expect(result).toContain('Done.');
+  });
+
+  it('strips unrecognized-language code blocks when includeToolCalls is false (fail closed)', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Running a step.\n\n```some-future-tool\nsensitive output\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeToolCalls: false });
+    expect(result).not.toContain('sensitive output');
+  });
+
+  it('strips tool-call blocks fenced with more than 3 backticks when includeToolCalls is false', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Running shell.\n\n````bash\necho "contains a ``` sequence"\n````\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeToolCalls: false });
+    expect(result).not.toContain('contains a ``` sequence');
+    expect(result).toContain('Running shell.');
+    expect(result).toContain('Done.');
+  });
+
   it('excludes tool messages when includeToolCalls is false', () => {
     const messages: Message[] = [
       { role: 'user', content: 'run it' },
