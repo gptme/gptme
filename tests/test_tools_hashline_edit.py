@@ -563,6 +563,33 @@ class TestResolveBlockEnd:
         lines = content.splitlines()
         assert _resolve_block_end(lines, 1) == 2
 
+    def test_comment_between_clauses_does_not_strand_else(self):
+        # A same-indentation comment before else/except/etc. must not end the
+        # block early — the else clause is still part of the same statement.
+        content = "if x:\n    do_a()\n# comment\nelse:\n    do_b()\ndo_c()\n"
+        lines = content.splitlines()
+        assert _resolve_block_end(lines, 1) == 5
+
+    def test_multiple_comments_between_clauses_absorbed(self):
+        content = (
+            "try:\n"
+            "    risky()\n"
+            "# note 1\n"
+            "# note 2\n"
+            "except ValueError:\n"
+            "    handle()\n"
+            "after()\n"
+        )
+        lines = content.splitlines()
+        assert _resolve_block_end(lines, 1) == 6
+
+    def test_comment_with_no_following_continuation_not_absorbed(self):
+        # A trailing same-indentation comment with no continuation clause after
+        # it must not be pulled into the block, nor extend past it.
+        content = "if x:\n    do_a()\n# trailing comment\nprint('done')\n"
+        lines = content.splitlines()
+        assert _resolve_block_end(lines, 1) == 2
+
 
 # ---------------------------------------------------------------------------
 # PUT N*: block-aware replace
@@ -620,6 +647,16 @@ class TestBlockReplace:
         result = _apply_operations(content, ops)
         assert result == "if z:\n    do_z()\ndo_d()\n"
         assert "elif" not in result
+        assert "else" not in result
+
+    def test_apply_block_replace_comment_between_clauses(self):
+        content = "if x:\n    do_a()\n# comment\nelse:\n    do_b()\ndo_c()\n"
+        ops = [
+            HashlineOp(kind="block_replace", start=1, end=-1, text="if z:\n    do_z()")
+        ]
+        result = _apply_operations(content, ops)
+        assert result == "if z:\n    do_z()\ndo_c()\n"
+        assert "# comment" not in result
         assert "else" not in result
 
 

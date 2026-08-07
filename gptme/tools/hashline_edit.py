@@ -210,7 +210,11 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
     A same-indentation continuation clause (``elif``/``else``/``except``/
     ``finally``) is treated as part of the same compound statement: its header
     and body are absorbed too, so the resolved range covers the whole
-    ``if``/``try`` statement rather than stopping at the first clause.
+    ``if``/``try`` statement rather than stopping at the first clause. A
+    comment line does not end the block by itself — it is skipped while
+    scanning for a following continuation clause, so a comment placed between
+    e.g. an ``if`` body and its ``else`` doesn't strand the ``else`` outside
+    the resolved range.
 
     Raises :class:`ValueError` when *start* is out of range.
     """
@@ -234,6 +238,8 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
         if indent > header_indent:
             end = i + 1  # 1-indexed
             i += 1
+        elif line.lstrip().startswith("#"):
+            i += 1  # comments may separate continuation clauses
         elif indent == header_indent and _RE_CONTINUATION_CLAUSE.match(line.lstrip()):
             end = i + 1  # absorb the continuation clause header itself
             i += 1
