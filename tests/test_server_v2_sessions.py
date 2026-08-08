@@ -1144,6 +1144,79 @@ class TestConcurrentToolConfirmation:
         assert len(session._executing_tools) == 0
         assert len(session.pending_tools) == 0
 
+    def test_claim_released_when_setup_raises_before_execution(
+        self, conv, client: FlaskClient
+    ):
+        """A failure between claiming the tool and entering the execute block
+        must still release the claim.
+
+        The claim is added under conversation_lock, but the try/finally that
+        releases it starts further down. If anything in between raises — most
+        plausibly add_event, which iterates sessions and trims their event
+        buffers — the tool id would be stranded in _executing_tools forever.
+        Nothing else ever clears that set and the continuation gate requires it
+        to be empty, so every later tool in this session would silently stop
+        producing an assistant reply.
+        """
+        from gptme.config import ChatConfig
+        from gptme.server.session_step import start_tool_execution
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+
+        tool_id = str(uuid.uuid4())
+        tool_exec = ToolExecution(
+            tool_id=tool_id,
+            tooluse=ToolUse("bash", [], "echo hi"),
+            auto_confirm=False,
+        )
+        session.pending_tools[tool_id] = tool_exec
+        tool_exec.tooluse = MagicMock(
+            tool="bash", args=[], content="echo hi", call_id=tool_id
+        )
+        tool_exec.tooluse.execute = lambda *a, **kw: []
+
+        real_add_event = SessionManager.add_event
+
+        def failing_add_event(conversation_id, event):
+            # Fail exactly on the setup-phase event, after the claim is taken
+            # but before the execute try/finally is entered.
+            if event.get("type") == "tool_executing":
+                raise RuntimeError("event bus exploded")
+            return real_add_event(conversation_id, event)
+
+        chat_config = ChatConfig(model="mock/model")
+
+        with (
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch(
+                "gptme.server.session_step.LogManager.load",
+                return_value=MagicMock(
+                    log=MagicMock(messages=[]), workspace=MagicMock()
+                ),
+            ),
+            patch("gptme.server.session_step._append_and_notify"),
+            patch("gptme.server.session_step._attach_tool_timings"),
+            patch("gptme.server.session_step._start_step_thread"),
+            patch.object(SessionManager, "add_event", staticmethod(failing_add_event)),
+        ):
+            thread = start_tool_execution(
+                conv["conversation_id"],
+                session,
+                tool_id,
+                None,
+                "mock/model",
+                chat_config,
+                branch="main",
+            )
+            thread.join(timeout=5)
+
+        assert tool_id not in session._executing_tools, (
+            "Tool claim was stranded in _executing_tools after a setup failure — "
+            "the session can never start another continuation step"
+        )
+        assert len(session._executing_tools) == 0
+
 
 # --- Rerun endpoint tests ---
 

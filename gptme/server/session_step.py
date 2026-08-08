@@ -1057,20 +1057,32 @@ def start_tool_execution(
                         session.generating = False
                         session.generating_since = None
                     return  # another thread claimed this tool; don't trigger auto-step
-                if assistant_msg_timestamp is None:
-                    assistant_msg_timestamp = tool_exec.assistant_msg_timestamp
-                tool_exec.status = ToolStatus.EXECUTING
+                # The claim is registered above but the try/finally that releases
+                # it only starts below, so anything that raises in between (most
+                # plausibly add_event, which iterates sessions and trims their
+                # event buffers) would strand current_tool_id in
+                # _executing_tools for the lifetime of the session. Nothing else
+                # ever clears that set, and the continuation gate requires it to
+                # be empty — so a single failure here would silently stop every
+                # later tool in this session from producing an assistant reply.
+                try:
+                    if assistant_msg_timestamp is None:
+                        assistant_msg_timestamp = tool_exec.assistant_msg_timestamp
+                    tool_exec.status = ToolStatus.EXECUTING
 
-                # use explicit tooluse if set (may be modified), else from pending
-                tooluse: ToolUse = current_edited_tooluse or tool_exec.tooluse
+                    # use explicit tooluse if set (may be modified), else from pending
+                    tooluse: ToolUse = current_edited_tooluse or tool_exec.tooluse
 
-                # Record start time and notify about tool execution
-                tool_exec.started_at = time.monotonic()
-                SessionManager.add_event(
-                    conversation_id,
-                    {"type": "tool_executing", "tool_id": current_tool_id},
-                )
-                logger.info(f"Tool {current_tool_id} executing")
+                    # Record start time and notify about tool execution
+                    tool_exec.started_at = time.monotonic()
+                    SessionManager.add_event(
+                        conversation_id,
+                        {"type": "tool_executing", "tool_id": current_tool_id},
+                    )
+                    logger.info(f"Tool {current_tool_id} executing")
+                except BaseException:
+                    session._executing_tools.discard(current_tool_id)
+                    raise
 
                 # Execute the tool
                 try:
