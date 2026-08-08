@@ -374,16 +374,26 @@ def transform_github_url(url: str) -> str:
     all three, so the ref is kept as-is; forcing ``refs/heads/`` in front of it
     only works for branches and 404s on tags and SHAs (GitHub permalinks are
     SHA-based, so those are common).
+
+    Only the ``blob`` view segment is rewritten — the one at path position
+    ``/{owner}/{repo}/blob/``. A substring replace cannot express that: it also
+    rewrites ``blob`` directories inside the file path, and it is not
+    idempotent, which matters because the transform really is applied twice on
+    the normal read path (``util.context`` transforms the URL and then hands it
+    to ``tools.browser.read_url``, which transforms it again). Under a
+    substring replace the second pass would rewrite the surviving path segment
+    and fetch the wrong file.
     """
-    if "/blob/" in url and "github.com" in url:
-        # Replace only the first occurrence: the leading /blob/ is the
-        # owner/repo separator, while a later /blob/ may be a real path
-        # segment (e.g. .../blob/main/blob/handler.py) that must be kept.
-        # This relies on the first /blob/ being the separator, which holds
-        # for any realistic owner/repo name. If owner or repo is literally
-        # named "blob" the heuristic still misfires — a pre-existing
-        # limitation, unchanged by this fix.
-        return url.replace("/blob/", "/raw/", 1)
+    parsed = urllib.parse.urlparse(url)
+    if parsed.netloc not in ("github.com", "www.github.com"):
+        return url
+
+    # Leading "" from the root slash, so the view segment sits at index 3:
+    # ["", owner, repo, view, ref, *path]
+    parts = parsed.path.split("/")
+    if len(parts) > 3 and parts[3] == "blob":
+        parts[3] = "raw"
+        return urllib.parse.urlunparse(parsed._replace(path="/".join(parts)))
     return url
 
 

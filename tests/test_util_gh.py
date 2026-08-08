@@ -98,6 +98,52 @@ def test_transform_github_url_blob_in_path():
     )
 
 
+def test_transform_github_url_is_idempotent():
+    """Applying the transform twice must equal applying it once.
+
+    The normal read path really does apply it twice: ``util.context`` transforms
+    the URL and hands the result to ``tools.browser.read_url``, which transforms
+    it again. With a substring replace the second pass rewrote the surviving
+    ``blob`` *path* segment — ``.../raw/main/pkg/blob/util.py`` became
+    ``.../raw/main/pkg/raw/util.py`` — so the very URLs this function exists to
+    fix were still fetched from the wrong location.
+    """
+    for url in (
+        "https://github.com/o/r/blob/main/pkg/blob/util.py",
+        "https://github.com/o/r/blob/main/blob/handler.py",
+        "https://github.com/o/r/blob/main/README.md",
+    ):
+        once = transform_github_url(url)
+        assert transform_github_url(once) == once, f"not idempotent for {url}"
+
+
+def test_transform_github_url_only_rewrites_the_view_segment():
+    """``blob`` is only special at ``/{owner}/{repo}/blob/``."""
+    # A non-blob view whose file path contains a blob directory: unchanged.
+    assert (
+        transform_github_url("https://github.com/o/r/blame/main/blob/handler.py")
+        == "https://github.com/o/r/blame/main/blob/handler.py"
+    )
+    # An owner literally named "blob": the view segment is still the one rewritten.
+    assert (
+        transform_github_url("https://github.com/blob/r/blob/main/x.py")
+        == "https://github.com/blob/r/raw/main/x.py"
+    )
+    # A lookalike host must not be rewritten.
+    assert (
+        transform_github_url("https://github.com.evil.test/o/r/blob/main/x.py")
+        == "https://github.com.evil.test/o/r/blob/main/x.py"
+    )
+
+
+def test_transform_github_url_preserves_query_and_fragment():
+    """Permalinks routinely carry ``?plain=1`` and ``#L10``."""
+    assert (
+        transform_github_url("https://github.com/o/r/blob/main/a.py?plain=1#L10")
+        == "https://github.com/o/r/raw/main/a.py?plain=1#L10"
+    )
+
+
 def test_transform_github_url_keeps_tags_and_shas_intact():
     """A tag or commit SHA must be left as the ref.
 
