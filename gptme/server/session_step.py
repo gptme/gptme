@@ -999,6 +999,11 @@ def start_tool_execution(
     branch.  Defaults to ``"main"`` to match the default in ``step()``.
     """
 
+    # Capture the generation epoch at queue time, not thread-start time. If an
+    # interrupt and a new step happen before this worker is scheduled, it must
+    # still remain stale.
+    my_seq = session.step_seq
+
     # This function would ideally run asynchronously to not block the request
     # For simplicity, we'll run it in a thread
     @trace_function("api_v2.execute_tool", attributes={"component": "api_v2"})
@@ -1051,11 +1056,13 @@ def start_tool_execution(
                         f"Tool {current_tool_id} not found in pending tools "
                         "(may have been handled by another thread)"
                     )
-                    # Release any pre-reserved generation slot so the conversation
-                    # is not permanently blocked.
+                    # Release only a reservation this worker still owns. A newer
+                    # /step may have reused generating=True under a later epoch.
                     if reserved:
-                        session.generating = False
-                        session.generating_since = None
+                        with session.step_lock:
+                            if session.step_seq == my_seq:
+                                session.generating = False
+                                session.generating_since = None
                     return  # another thread claimed this tool; don't trigger auto-step
                 # The claim is registered above but the try/finally that releases
                 # it only starts below, so anything that raises in between (most
@@ -1213,48 +1220,72 @@ def start_tool_execution(
             # add and remove execution claims. This makes quiescence observation
             # and generation reservation one atomic state transition.
             start_continuation = False
+            continuation_seq: int | None = None
             with SessionManager.conversation_lock(conversation_id), session.step_lock:
-                if not session.pending_tools and not session._executing_tools:
-                    if reserved:
-                        start_continuation = True
-                    elif not SessionManager.conversation_generating(
-                        conversation_id
-                    ) and not SessionManager.command_is_active(conversation_id):
+                owns_reservation = not reserved or session.step_seq == my_seq
+                if session.interrupted or not owns_reservation:
+                    logger.debug(
+                        "Skipping tool continuation: interrupted=%s, seq %d→%d",
+                        session.interrupted,
+                        my_seq,
+                        session.step_seq,
+                    )
+                elif not session.pending_tools and not session._executing_tools:
+                    if reserved or (
+                        not SessionManager.conversation_generating(conversation_id)
+                        and not SessionManager.command_is_active(conversation_id)
+                    ):
+                        session.step_seq += 1
+                        continuation_seq = session.step_seq
                         session.generating = True
                         session.generating_since = datetime.now(tz=timezone.utc)
                         start_continuation = True
                 elif reserved:
-                    # Pending non-auto-confirm tools remain; those need explicit
-                    # confirmation. Release the pre-reserved generation slot.
                     session.generating = False
                     session.generating_since = None
 
             if start_continuation:
-                _start_step_thread(
-                    conversation_id,
-                    session,
-                    model,
-                    chat_config.workspace,
-                    branch=branch,
-                    reserved=True,
-                )
+                try:
+                    _start_step_thread(
+                        conversation_id,
+                        session,
+                        model,
+                        chat_config.workspace,
+                        branch=branch,
+                        reserved=True,
+                    )
+                except Exception:
+                    # Dispatch failed after ownership transfer. Release that new
+                    # epoch unless another operation has already superseded it.
+                    with session.step_lock:
+                        if session.step_seq == continuation_seq:
+                            session.generating = False
+                            session.generating_since = None
+                    raise
         except Exception:
             logger.exception(
                 f"Unhandled error in tool execution thread for {conversation_id}"
             )
             if reserved:
-                # A crash anywhere before the reservation is transferred to
-                # _start_step_thread (or explicitly released above) must not
-                # permanently strand the conversation in a generating state.
-                session.generating = False
-                session.generating_since = None
+                with session.step_lock:
+                    if session.step_seq == my_seq:
+                        session.generating = False
+                        session.generating_since = None
             raise
 
     # Propagate ContextVars from the request context into the execution thread.
     ctx = contextvars.copy_context()
-    thread = threading.Thread(target=ctx.run, args=(execute_tool_thread,))
-    thread.daemon = True
-    thread.start()
+    try:
+        thread = threading.Thread(target=ctx.run, args=(execute_tool_thread,))
+        thread.daemon = True
+        thread.start()
+    except Exception:
+        if reserved:
+            with session.step_lock:
+                if session.step_seq == my_seq:
+                    session.generating = False
+                    session.generating_since = None
+        raise
     return thread
 
 
@@ -1305,9 +1336,17 @@ def _start_step_thread(
     # Propagate ContextVars (model, config) from the caller into the step thread.
     # Each thread gets its own copy so mutations stay isolated between sessions.
     ctx = contextvars.copy_context()
-    thread = threading.Thread(target=ctx.run, args=(step_thread,))
-    thread.daemon = True
-    thread.start()
+    try:
+        thread = threading.Thread(target=ctx.run, args=(step_thread,))
+        thread.daemon = True
+        thread.start()
+    except Exception:
+        # A reserved caller owns this slot; release it if dispatch itself fails.
+        # Non-reserved callers reserved above and need the same rollback.
+        with session.step_lock:
+            session.generating = False
+            session.generating_since = None
+        raise
     return True
 
 

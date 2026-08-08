@@ -405,6 +405,12 @@ def api_conversation_step(conversation_id: str):
             start_acp_health_monitor()
         session.generating = True
         session.generating_since = datetime.now(tz=timezone.utc)
+        # Claim a new generation epoch before dispatch. If later setup fails,
+        # finally rolls it back so an existing worker retains its ownership.
+        previous_interrupted = session.interrupted
+        session.interrupted = False
+        session.step_seq += 1
+        step_seq = session.step_seq
 
     # Wrap setup in try/finally so any unexpected exception (get_default_model,
     # config I/O, etc.) resets the flag rather than leaving the session
@@ -504,8 +510,12 @@ def api_conversation_step(conversation_id: str):
         _step_dispatched = True
     finally:
         if not _step_dispatched:
-            session.generating = False
-            session.generating_since = None
+            with SessionManager.conversation_lock(conversation_id), session.step_lock:
+                if session.step_seq == step_seq:
+                    session.step_seq -= 1
+                    session.interrupted = previous_interrupted
+                    session.generating = False
+                    session.generating_since = None
 
     # Wait briefly for early errors (bad model, auth failure, empty messages, etc.)
     # so we can return them in the HTTP response instead of swallowing silently.
@@ -908,6 +918,10 @@ def api_conversation_rerun(conversation_id: str):
         # _start_step_thread (reserved=True) when it starts the continuation, or
         # releases it itself if the continuation is not needed.
         if first_auto_id is not None:
+            # Rerun starts a new user-authorized generation chain. Clear the old
+            # interrupt marker and advance the generation epoch before queueing it.
+            session.interrupted = False
+            session.step_seq += 1
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
             start_tool_execution(
@@ -1141,12 +1155,21 @@ def api_conversation_interrupt(conversation_id: str):
     with SessionManager.conversation_lock(conversation_id):
         for sess in SessionManager.get_sessions_for_conversation(conversation_id):
             with sess.step_lock:
-                if sess.generating or sess.pending_tools:
+                active = bool(
+                    sess.generating or sess.pending_tools or sess._executing_tools
+                )
+                if active:
                     interrupted = True
-                # Mark session as not generating and clear pending tools
-                sess.generating = False
-                sess.generating_since = None
-                sess.pending_tools.clear()
+                    # Mark session as not generating and clear pending tools.
+                    # Also set interrupted so execute_tool_thread won't start a
+                    # continuation step after the currently-running tool finishes.
+                    sess.generating = False
+                    sess.generating_since = None
+                    sess.interrupted = True
+                    # Revoke every worker queued under the previous epoch, even
+                    # when a later explicit /step clears the boolean marker.
+                    sess.step_seq += 1
+                    sess.pending_tools.clear()
 
     if not interrupted:
         # Idempotent: if nothing is generating, treat as already interrupted

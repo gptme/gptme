@@ -574,6 +574,66 @@ class TestInterruptEndpoint:
         assert session.generating is False
         assert len(session.pending_tools) == 0
 
+    def test_interrupt_marks_epoch_revoked(self, conv, client: FlaskClient):
+        """Interrupt revokes workers queued under the current generation epoch."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.generating = True
+        initial_seq = session.step_seq
+
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/interrupt",
+            json={"session_id": conv["session_id"]},
+        )
+
+        assert response.status_code == 200
+        assert session.interrupted is True
+        assert session.step_seq == initial_seq + 1
+
+    def test_failed_step_preserves_generation_epoch(
+        self, conv, client: FlaskClient, monkeypatch
+    ):
+        """A setup error does not revoke an existing tool worker's epoch."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.step_seq = 7
+        session.interrupted = True
+        monkeypatch.setattr(
+            "gptme.server.api_v2_sessions.get_default_model", lambda: None
+        )
+        monkeypatch.setattr(
+            "gptme.server.api_v2_sessions.Config.from_workspace",
+            lambda **_kwargs: MagicMock(get_env=MagicMock(return_value=None)),
+        )
+
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={"session_id": conv["session_id"]},
+        )
+
+        assert response.status_code == 400
+        assert session.step_seq == 7
+        assert session.interrupted is True
+        assert session.generating is False
+
+    def test_interrupt_idle_session_does_not_poison_next_chain(
+        self, conv, client: FlaskClient
+    ):
+        """An idempotent interrupt must not leave stale interrupt state."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        initial_seq = session.step_seq
+
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/interrupt",
+            json={"session_id": conv["session_id"]},
+        )
+
+        assert response.status_code == 200
+        assert "already interrupted" in response.get_json()["message"].lower()
+        assert session.interrupted is False
+        assert session.step_seq == initial_seq
+
 
 # --- Tool confirm endpoint tests ---
 
@@ -1143,6 +1203,135 @@ class TestConcurrentToolConfirmation:
         # Both sets are clean
         assert len(session._executing_tools) == 0
         assert len(session.pending_tools) == 0
+
+    def test_interrupt_suppresses_tool_continuation(self, conv, client: FlaskClient):
+        """A tool already executing when interrupted must not continue the loop."""
+        from gptme.config import ChatConfig
+        from gptme.server.session_step import start_tool_execution
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        tool_id = str(uuid.uuid4())
+        started = threading.Event()
+        finish = threading.Event()
+
+        def execute(*args, **kwargs):
+            started.set()
+            finish.wait(timeout=5)
+            return []
+
+        tooluse = MagicMock(tool="bash", args=[], content="echo slow", call_id=tool_id)
+        tooluse.execute = execute
+        tool_exec = ToolExecution(
+            tool_id=tool_id,
+            tooluse=tooluse,
+            auto_confirm=True,
+        )
+        session.pending_tools[tool_id] = tool_exec
+        session.generating = True
+        session.step_seq = 1
+
+        with (
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch(
+                "gptme.server.session_step.LogManager.load",
+                return_value=MagicMock(
+                    log=MagicMock(messages=[]), workspace=MagicMock()
+                ),
+            ),
+            patch("gptme.server.session_step._append_and_notify"),
+            patch("gptme.server.session_step._attach_tool_timings"),
+            patch("gptme.server.session_step._start_step_thread") as start_step,
+        ):
+            thread = start_tool_execution(
+                conv["conversation_id"],
+                session,
+                tool_id,
+                None,
+                "mock/model",
+                ChatConfig(model="mock/model"),
+                reserved=True,
+            )
+            assert started.wait(timeout=2)
+
+            response = client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/interrupt",
+                json={"session_id": conv["session_id"]},
+            )
+            assert response.status_code == 200
+            finish.set()
+            thread.join(timeout=5)
+
+        assert not thread.is_alive()
+        start_step.assert_not_called()
+        assert session.generating is False
+
+    def test_stale_worker_does_not_clear_new_step_reservation(
+        self, conv, client: FlaskClient
+    ):
+        """A stale worker cannot release generating owned by a newer epoch."""
+        from gptme.config import ChatConfig
+        from gptme.server.session_step import start_tool_execution
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.generating = True
+        session.step_seq = 4
+
+        with (
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step._start_step_thread"),
+        ):
+            # No pending tool forces the worker's reservation-release path.
+            thread = start_tool_execution(
+                conv["conversation_id"],
+                session,
+                "already-removed",
+                None,
+                "mock/model",
+                ChatConfig(model="mock/model"),
+                reserved=True,
+            )
+            # Simulate a newer /step taking ownership before this worker runs.
+            with session.step_lock:
+                session.step_seq += 1
+                session.generating = True
+            thread.join(timeout=5)
+
+        assert not thread.is_alive()
+        assert session.generating is True
+
+    def test_reserved_tool_dispatch_failure_releases_generation(
+        self, conv, client: FlaskClient
+    ):
+        """A thread-start failure cannot strand a reserved rerun slot."""
+        from gptme.config import ChatConfig
+        from gptme.server.session_step import start_tool_execution
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.generating = True
+        session.step_seq = 3
+
+        with (
+            patch(
+                "gptme.server.session_step.threading.Thread",
+                side_effect=RuntimeError("thread start failed"),
+            ),
+            pytest.raises(RuntimeError, match="thread start failed"),
+        ):
+            start_tool_execution(
+                conv["conversation_id"],
+                session,
+                "tool",
+                None,
+                "mock/model",
+                ChatConfig(model="mock/model"),
+                reserved=True,
+            )
+
+        assert session.generating is False
+        assert session.generating_since is None
 
     def test_completion_bookkeeping_finishes_before_continuation(
         self, conv, client: FlaskClient

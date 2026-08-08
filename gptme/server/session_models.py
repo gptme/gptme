@@ -79,6 +79,10 @@ class ConversationSession(BaseSession):
     generating_since: datetime | None = (
         None  # When generation started (for stuck detection)
     )
+    # Set by an interrupt that actually revokes active work; cleared when a new
+    # user-authorized generation chain is successfully dispatched. Tells tool
+    # workers not to continue the agent loop after their current tool completes.
+    interrupted: bool = False
     last_error: str | None = None
     events: list[EventType] = field(default_factory=list)
     _events_offset: int = 0  # number of events trimmed from front of list
@@ -93,6 +97,10 @@ class ConversationSession(BaseSession):
     # Lock for atomic check-and-set of the generating flag in /step.
     # Prevents concurrent requests from both reading False before either writes True.
     step_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # Monotonically increasing generation epoch. Interrupts revoke the current
+    # epoch; successful user dispatches and tool continuations claim a new one.
+    # Tool workers compare their captured epoch before releasing or continuing.
+    step_seq: int = 0
 
     # ACP-backed subprocess session (opt-in via use_acp=True in step request)
     use_acp: bool = False
