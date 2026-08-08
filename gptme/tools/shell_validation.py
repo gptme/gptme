@@ -301,9 +301,13 @@ def _has_sensitive_args(cmd: str) -> bool:
         # Bare root directory — e.g. `find /` or `ls /`
         if token == "/":
             return True
-        # Path traversal that could escape to a sensitive directory
-        # e.g. /home/user/../../../etc/passwd
-        if token.startswith("/") and ".." in token:
+        # Path traversal that could escape to a sensitive directory.
+        # Catches both absolute traversal (e.g. /home/user/../../../etc/passwd)
+        # and relative traversal (e.g. ../../etc/passwd) — bash resolves the
+        # latter relative to the current working directory, which we cannot
+        # predict at validation time, so any `..` in a path is treated as
+        # potentially sensitive and requires explicit confirmation.
+        if ".." in token:
             return True
         # Sensitive directory prefixes
         if any(token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
@@ -323,24 +327,36 @@ def _has_unquoted_backtick(cmd: str) -> bool:
     - Outside quotes or inside double quotes → command substitution (unsafe)
     - Inside single quotes → literal character (safe)
 
+    P2b fix: single quotes inside a double-quoted string are **literal
+    characters** in bash — they do NOT create a nested single-quote context.
+    The original implementation only tracked single-quote state, so a command
+    like ``echo "it's `cmd`"`` incorrectly set ``in_single=True`` when it saw
+    the apostrophe, then missed the backtick because it appeared to be inside
+    single quotes.  The fix adds ``in_double`` tracking and gates single-quote
+    transitions on ``not in_double``.
+
     Returns True if a command-substituting backtick is found.
     """
-    # Walk the string tracking only single-quote context.
-    # Backticks inside single quotes are literal; everywhere else they expand.
+    # Walk the string tracking both single- and double-quote context.
     in_single = False
+    in_double = False
     i = 0
     while i < len(cmd):
         c = cmd[i]
+        # Escape sequences: only active outside single quotes (bash rule)
         if c == "\\" and not in_single and i + 1 < len(cmd):
-            # Skip the escaped character (only outside single quotes)
             i += 2
             continue
-        if c == "'" and not in_single:
-            in_single = True
-        elif c == "'" and in_single:
-            in_single = False
+        # Single quote: open/close ONLY when not already inside double quotes.
+        # Inside a double-quoted string, ' is a literal character in bash.
+        if c == "'" and not in_double:
+            in_single = not in_single
+        # Double quote: open/close ONLY when not already inside single quotes
+        elif c == '"' and not in_single:
+            in_double = not in_double
+        # Backtick is command substitution when not inside single quotes.
+        # It still substitutes inside double-quoted strings.
         elif c == "`" and not in_single:
-            # Backtick outside single quotes → command substitution
             return True
         i += 1
     return False

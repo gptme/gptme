@@ -651,6 +651,23 @@ class TestSensitiveArgs:
         """`cat /home/bob/../../../etc/passwd` should NOT be auto-approved."""
         assert not is_allowlisted("cat /home/bob/../../../etc/passwd")
 
+    def test_relative_traversal_not_allowlisted(self):
+        """`cat ../../etc/passwd` (relative, no leading /) should NOT be auto-approved.
+
+        Bash resolves relative traversal at runtime relative to the cwd, which
+        we cannot predict at validation time.  Any `..` in a path argument is
+        treated as potentially sensitive and requires confirmation.
+        """
+        assert not is_allowlisted("cat ../../etc/passwd")
+
+    def test_relative_traversal_root_not_allowlisted(self):
+        """`cat ../../../root/.ssh/id_rsa` via relative path should NOT be auto-approved."""
+        assert not is_allowlisted("cat ../../../root/.ssh/id_rsa")
+
+    def test_relative_traversal_dotdot_in_middle_not_allowlisted(self):
+        """`cat subdir/../../etc/shadow` should NOT be auto-approved."""
+        assert not is_allowlisted("cat subdir/../../etc/shadow")
+
     def test_chained_read_sensitive_file_not_allowlisted(self):
         """`ls /tmp/ && cat /etc/passwd` should NOT be auto-approved (P1)."""
         assert not is_allowlisted("ls /tmp/ && cat /etc/passwd")
@@ -694,6 +711,23 @@ class TestUnquotedBacktick:
     def test_backtick_in_double_quotes_not_allowlisted(self):
         """Backtick inside double quotes IS command substitution in bash."""
         assert not is_allowlisted('echo "result: `cat file`"')
+
+    def test_backtick_after_single_quote_in_double_quotes_not_allowlisted(self):
+        """Single quote inside a double-quoted string is a literal in bash.
+
+        P2b fix: ``echo "it's `cmd`"`` — the apostrophe in ``it's`` must NOT
+        be treated as starting a single-quote context; the backtick that follows
+        is still command substitution and must require confirmation.
+        """
+        assert not is_allowlisted('echo "it\'s `cat /etc/passwd`"')
+
+    def test_backtick_apostrophe_possessive_case_not_allowlisted(self):
+        """Another possessive-apostrophe pattern shouldn't hide a backtick."""
+        assert not is_allowlisted('echo "Bob\'s `whoami`"')
+
+    def test_single_quote_in_double_quote_without_backtick_still_allowlisted(self):
+        """Apostrophe inside double quotes with no backtick must not be a false positive."""
+        assert is_allowlisted('echo "it\'s fine"')
 
 
 # ── P3: Pipe-to-shell regex close-paren gap ─────────────────────────────────
