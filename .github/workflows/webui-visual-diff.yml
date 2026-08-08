@@ -165,6 +165,7 @@ jobs:
       run: |
         python3 - << 'PYEOF'
         import json, os, re
+        from urllib.parse import quote
 
         summary = json.load(open('screenshots/diff/summary.json'))
         changed = os.environ['CHANGED']
@@ -174,6 +175,7 @@ jobs:
 
         def label(name):
             """Escape filename for a Markdown table cell label (no injection vectors)."""
+            name = re.sub(r'\r?\n|\r', ' ', name)  # newlines would break the table row
             return '`' + re.sub(r'[`|\[\]]', lambda m: '&#' + str(ord(m.group())) + ';', name) + '`'
 
         lines = [
@@ -190,8 +192,11 @@ jobs:
             name   = r['name']
             status = r['status']
             icon   = ICON.get(status, '❓') + ' ' + status
-            before = f'![before](screenshots/diff/before-{name})' if status in ('changed', 'removed') else f'_{icon}_'
-            after  = f'![after](screenshots/diff/after-{name})'   if status in ('changed', 'new')     else f'_{icon}_'
+            # URL-encode the filename: an unescaped `)` or newline in a fork-controlled
+            # screenshot name could terminate the image URL early and inject markdown.
+            url_name = quote(name)
+            before = f'![before](screenshots/diff/before-{url_name})' if status in ('changed', 'removed') else f'_{icon}_'
+            after  = f'![after](screenshots/diff/after-{url_name})'   if status in ('changed', 'new')     else f'_{icon}_'
             lines.append(f'| {label(name)} | {before} | {after} |')
 
         lines += [
@@ -239,9 +244,13 @@ jobs:
             keep = max(comments, key=lambda c: (run_id(c), c['id']))
             for c in comments:
                 if c['id'] != keep['id']:
-                    subprocess.run(
+                    # A concurrent run may have already deleted this comment (404) —
+                    # the final state (only `keep` surviving) is still correct, so
+                    # don't fail the step over a race.
+                    result = subprocess.run(
                         ['gh', 'api', '-X', 'DELETE',
                          f'repos/{repo}/issues/comments/{c["id"]}'],
-                        check=True,
                     )
+                    if result.returncode != 0:
+                        print(f'note: could not delete comment {c["id"]} (likely already removed by a concurrent run)')
         PRUNE_EOF
