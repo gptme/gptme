@@ -310,12 +310,13 @@ def _has_sensitive_args(cmd: str) -> bool:
         # potentially sensitive and requires explicit confirmation.
         if ".." in token:
             return True
-        # Shell pathname expansion happens after validation. A literal token
-        # such as /e??/shadow can therefore become /etc/shadow at execution
-        # time. Require confirmation whenever a path-like argument contains a
-        # glob metacharacter; ordinary search patterns such as ``*.py`` remain
-        # eligible for auto-approval because they contain no path separator.
-        if "/" in token and any(char in token for char in "*?["):
+        # Shell pathname and brace expansion happen after validation. Literal
+        # tokens such as /e??/shadow or /{etc/shadow,tmp/file} can therefore
+        # become /etc/shadow at execution time. Require confirmation whenever
+        # a path-like argument contains expansion metacharacters; ordinary
+        # search patterns such as ``*.py`` remain eligible for auto-approval
+        # because they contain no path separator.
+        if "/" in token and any(char in token for char in "*?[{"):
             return True
         # Sensitive directory prefixes
         if any(token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):

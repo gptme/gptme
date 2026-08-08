@@ -680,6 +680,18 @@ class TestSensitiveArgs:
         """Path globs are cwd-dependent and therefore require confirmation."""
         assert not is_allowlisted("cat config/*.toml")
 
+    def test_brace_expanded_sensitive_path_not_allowlisted(self):
+        """Brace expansion must not turn an approved token into /etc/shadow."""
+        assert not is_allowlisted("cat /{etc/shadow,tmp/harmless}")
+
+    def test_relative_path_brace_expansion_not_allowlisted(self):
+        """Path-like brace expansions are cwd-dependent and require confirmation."""
+        assert not is_allowlisted("cat config/{prod,dev}.toml")
+
+    def test_non_path_braces_still_allowlisted(self):
+        """Literal braces without a path separator do not expand to a path."""
+        assert is_allowlisted("echo {one,two}")
+
     def test_search_pattern_without_path_separator_still_allowlisted(self):
         """Non-path glob patterns used by find remain safe to auto-approve."""
         assert is_allowlisted("find . -name '*.py'")
