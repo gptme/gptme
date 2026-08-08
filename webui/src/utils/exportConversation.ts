@@ -103,6 +103,8 @@ function stripAtFormatToolCalls(content: string): string {
     }
     const rest = lines[i].slice(match[0].length);
     if (!rest.startsWith('{')) {
+      // Not a JSON tool call — preserve the line as-is.
+      out.push(lines[i]);
       i++;
       continue;
     }
@@ -111,9 +113,11 @@ function stripAtFormatToolCalls(content: string): string {
     let inString = false;
     let escapeNext = false;
     let j = i;
-    for (; j < lines.length; j++) {
+    let trailingText = '';
+    outer: for (; j < lines.length; j++) {
       const scanLine = j === i ? rest : lines[j];
-      for (const ch of scanLine) {
+      for (let k = 0; k < scanLine.length; k++) {
+        const ch = scanLine[k];
         if (escapeNext) {
           escapeNext = false;
           continue;
@@ -133,11 +137,15 @@ function stripAtFormatToolCalls(content: string): string {
         } else if (ch === '}') {
           depth--;
         }
+        if (sawOpen && depth <= 0) {
+          trailingText = scanLine.slice(k + 1).trim();
+          j++;
+          break outer;
+        }
       }
-      if (sawOpen && depth <= 0) {
-        j++;
-        break;
-      }
+    }
+    if (trailingText) {
+      out.push(trailingText);
     }
     i = j;
   }

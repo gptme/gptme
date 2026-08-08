@@ -443,6 +443,32 @@ describe('formatConversationAsMarkdown - tool invocation stripping', () => {
     expect(result).toContain('Checking.');
     expect(result).toContain('Done.');
   });
+
+  it('preserves non-JSON @-prefixed lines when includeTools is false', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Note: @shell: this is just a note, not a call\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).toContain('@shell: this is just a note');
+    expect(result).toContain('Done.');
+  });
+
+  it('preserves trailing text after closing brace of an @tool call when includeTools is false', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Running it.\n@shell(call_1): {"command": "ls"} and more\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).not.toContain('"command"');
+    expect(result).toContain('and more');
+    expect(result).toContain('Running it.');
+    expect(result).toContain('Done.');
+  });
 });
 
 describe('getExportableMessages - includeTools option', () => {
