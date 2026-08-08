@@ -100,6 +100,7 @@ def drain_prompt_queue(logdir: Path, max_items: int | None = None) -> list[Messa
                 record = json.loads(line)
             except json.JSONDecodeError:
                 logger.warning("Skipping malformed queued prompt in %s", queue_path)
+                remaining.append(line)
                 continue
 
             # Steer-flagged records are reserved for mid-turn draining via the
