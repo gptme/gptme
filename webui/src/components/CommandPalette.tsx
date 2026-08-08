@@ -43,6 +43,12 @@ interface CommandAction {
   group: string;
 }
 
+interface CopyTrajectoryOptions {
+  includeThinking: boolean;
+  includeTools: boolean;
+  successMessage: string;
+}
+
 export function CommandPalette() {
   const [open, setOpenState] = useState(false);
   const [search, setSearch] = useState('');
@@ -155,6 +161,35 @@ export function CommandPalette() {
     };
   }, [search, api]);
 
+  const copyTrajectory = useCallback(
+    async ({ includeThinking, includeTools, successMessage }: CopyTrajectoryOptions) => {
+      const convId = selectedConversation$.get();
+      if (!convId) {
+        toast.error('No messages to copy');
+        return;
+      }
+
+      try {
+        const serverId = new URLSearchParams(location.search).get('server');
+        const client = serverId ? getClient(serverId) : api;
+        const fullData = await client.getConversation(convId);
+        if (!fullData.log.length) {
+          toast.error('No messages to copy');
+          return;
+        }
+        await copyConversationToClipboard(fullData.name || convId, fullData.log, {
+          includeThinking,
+          includeTools,
+        });
+        toast.success(successMessage);
+        setOpen(false);
+      } catch {
+        toast.error('Failed to copy to clipboard');
+      }
+    },
+    [api, getClient, location.search, setOpen]
+  );
+
   // Define available actions
   const actions = useMemo<CommandAction[]>(
     () => [
@@ -239,30 +274,12 @@ export function CommandPalette() {
               description: 'Copy whole conversation without thinking or tool output',
               icon: <Clipboard className="mr-2 h-4 w-4" />,
               keywords: ['copy', 'clipboard', 'trajectory', 'markdown', 'transcript', 'share'],
-              action: async () => {
-                const convId = selectedConversation$.get();
-                if (!convId) {
-                  toast.error('No messages to copy');
-                  return;
-                }
-                try {
-                  const serverId = new URLSearchParams(location.search).get('server');
-                  const client = serverId ? getClient(serverId) : api;
-                  const fullData = await client.getConversation(convId);
-                  if (!fullData.log.length) {
-                    toast.error('No messages to copy');
-                    return;
-                  }
-                  await copyConversationToClipboard(fullData.name || convId, fullData.log, {
-                    includeThinking: false,
-                    includeTools: false,
-                  });
-                  toast.success('Trajectory copied to clipboard');
-                  setOpen(false);
-                } catch {
-                  toast.error('Failed to copy to clipboard');
-                }
-              },
+              action: () =>
+                copyTrajectory({
+                  includeThinking: false,
+                  includeTools: false,
+                  successMessage: 'Trajectory copied to clipboard',
+                }),
               group: 'Conversation',
             },
             {
@@ -279,30 +296,12 @@ export function CommandPalette() {
                 'tools',
                 'thinking',
               ],
-              action: async () => {
-                const convId = selectedConversation$.get();
-                if (!convId) {
-                  toast.error('No messages to copy');
-                  return;
-                }
-                try {
-                  const serverId = new URLSearchParams(location.search).get('server');
-                  const client = serverId ? getClient(serverId) : api;
-                  const fullData = await client.getConversation(convId);
-                  if (!fullData.log.length) {
-                    toast.error('No messages to copy');
-                    return;
-                  }
-                  await copyConversationToClipboard(fullData.name || convId, fullData.log, {
-                    includeThinking: true,
-                    includeTools: true,
-                  });
-                  toast.success('Full trajectory copied to clipboard');
-                  setOpen(false);
-                } catch {
-                  toast.error('Failed to copy to clipboard');
-                }
-              },
+              action: () =>
+                copyTrajectory({
+                  includeThinking: true,
+                  includeTools: true,
+                  successMessage: 'Full trajectory copied to clipboard',
+                }),
               group: 'Conversation',
             },
             {
@@ -355,7 +354,7 @@ export function CommandPalette() {
           ]
         : []),
     ],
-    [navigate, setOpen, api, getClient, location.search]
+    [navigate, setOpen, copyTrajectory]
   );
 
   // Filter actions based on search query

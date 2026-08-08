@@ -1,9 +1,9 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import { CommandPalette } from '../CommandPalette';
-import { conversations$, selectedConversation$ } from '@/stores/conversations';
+import { conversations$, selectedConversation$, updateConversation } from '@/stores/conversations';
 import { copyConversationToClipboard } from '@/utils/exportConversation';
-import type { ConversationState } from '@/stores/conversations';
+import { toast } from 'sonner';
 
 const mockApi = {
   searchConversations: jest.fn().mockResolvedValue([]),
@@ -23,6 +23,10 @@ jest.mock('@/utils/exportConversation', () => {
   const actual = jest.requireActual('@/utils/exportConversation');
   return { ...actual, copyConversationToClipboard: jest.fn().mockResolvedValue(undefined) };
 });
+
+jest.mock('sonner', () => ({
+  toast: { success: jest.fn(), error: jest.fn() },
+}));
 
 // Mock commandPalette$ store
 jest.mock('@/stores/commandPalette', () => ({
@@ -111,6 +115,11 @@ describe('CommandPalette', () => {
         <CommandPalette />
       </BrowserRouter>
     );
+  };
+
+  const selectCopyCommand = async (label: string) => {
+    fireEvent.keyDown(document, { key: 'k', metaKey: true });
+    fireEvent.click(await screen.findByText(label));
   };
 
   describe('Keyboard Shortcuts', () => {
@@ -373,8 +382,7 @@ describe('CommandPalette', () => {
           <CommandPalette />
         </MemoryRouter>
       );
-      fireEvent.keyDown(document, { key: 'k', metaKey: true });
-      fireEvent.click(await screen.findByText('Copy trajectory as Markdown'));
+      await selectCopyCommand('Copy trajectory as Markdown');
 
       await waitFor(() => {
         expect(mockGetClient).toHaveBeenCalledWith('secondary');
@@ -392,20 +400,16 @@ describe('CommandPalette', () => {
         name: 'Secondary copy',
         log: [{ role: 'user' as const, content: 'From secondary' }],
       };
-      conversations$.set(
-        new Map([
-          [
-            'shared-chat',
-            {
-              data: {
-                id: 'shared-chat',
-                name: 'Primary copy',
-                log: [{ role: 'user' as const, content: 'From primary' }],
-              },
-            } as ConversationState,
-          ],
-        ])
-      );
+      updateConversation('shared-chat', {
+        data: {
+          id: 'shared-chat',
+          name: 'Primary copy',
+          log: [{ role: 'user' as const, content: 'From primary' }],
+          logfile: 'shared-chat',
+          branches: {},
+          workspace: '.',
+        },
+      });
       selectedConversation$.set('shared-chat');
       const secondaryClient = { getConversation: jest.fn().mockResolvedValue(fullData) };
       mockGetClient.mockReturnValue(secondaryClient);
@@ -415,8 +419,7 @@ describe('CommandPalette', () => {
           <CommandPalette />
         </MemoryRouter>
       );
-      fireEvent.keyDown(document, { key: 'k', metaKey: true });
-      fireEvent.click(await screen.findByText('Copy trajectory as Markdown'));
+      await selectCopyCommand('Copy trajectory as Markdown');
 
       await waitFor(() => {
         expect(mockGetClient).toHaveBeenCalledWith('secondary');
@@ -426,6 +429,58 @@ describe('CommandPalette', () => {
           includeThinking: false,
           includeTools: false,
         });
+      });
+    });
+
+    it('copies the full trajectory through the primary server', async () => {
+      const fullData = {
+        id: 'primary-chat',
+        name: 'Primary chat',
+        log: [{ role: 'user' as const, content: 'Hello' }],
+      };
+      selectedConversation$.set('primary-chat');
+      mockApi.getConversation.mockResolvedValue(fullData);
+
+      renderCommandPalette();
+      await selectCopyCommand('Copy trajectory as Markdown (full)');
+
+      await waitFor(() => {
+        expect(mockGetClient).not.toHaveBeenCalled();
+        expect(mockApi.getConversation).toHaveBeenCalledWith('primary-chat');
+        expect(copyConversationToClipboard).toHaveBeenCalledWith('Primary chat', fullData.log, {
+          includeThinking: true,
+          includeTools: true,
+        });
+      });
+    });
+
+    it('reports a server fetch failure', async () => {
+      selectedConversation$.set('primary-chat');
+      mockApi.getConversation.mockRejectedValue(new Error('network error'));
+
+      renderCommandPalette();
+      await selectCopyCommand('Copy trajectory as Markdown');
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('Failed to copy to clipboard');
+        expect(copyConversationToClipboard).not.toHaveBeenCalled();
+      });
+    });
+
+    it('does not copy an empty server trajectory', async () => {
+      selectedConversation$.set('primary-chat');
+      mockApi.getConversation.mockResolvedValue({
+        id: 'primary-chat',
+        name: 'Primary chat',
+        log: [],
+      });
+
+      renderCommandPalette();
+      await selectCopyCommand('Copy trajectory as Markdown');
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('No messages to copy');
+        expect(copyConversationToClipboard).not.toHaveBeenCalled();
       });
     });
   });
