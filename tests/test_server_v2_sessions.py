@@ -1909,3 +1909,57 @@ class TestInterruptReservationOwnership:
         assert not thread.is_alive()
         assert session.generating is False
         assert session.generating_since is None
+
+    def test_stale_missing_tool_worker_preserves_successor_reservation(
+        self, conv, client: FlaskClient
+    ):
+        """A stale reserved worker cannot clear a newer step's reservation."""
+        from pathlib import Path
+
+        from gptme.config import ChatConfig
+        from gptme.server.session_step import start_tool_execution
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.generating = True
+        session.step_seq += 1
+        worker_seq = session.step_seq
+        tool_id = "test-missing-tool-after-successor"
+        session.pending_tools[tool_id] = ToolExecution(
+            tool_id=tool_id, tooluse=ToolUse("shell", [], "echo ok")
+        )
+        chat_config = ChatConfig()
+        chat_config.workspace = Path("/tmp")
+        release_prepare = threading.Event()
+        prepare_entered = threading.Event()
+
+        def delayed_prepare(**kwargs):
+            prepare_entered.set()
+            release_prepare.wait(timeout=5)
+
+        with patch(
+            "gptme.server.session_step.prepare_execution_environment",
+            side_effect=delayed_prepare,
+        ):
+            thread = start_tool_execution(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                tool_id=tool_id,
+                edited_tooluse=None,
+                model="mock/model",
+                chat_config=chat_config,
+                reserved=True,
+            )
+            assert prepare_entered.wait(timeout=5)
+            with session.step_lock:
+                session.pending_tools.clear()
+                session.step_seq += 1
+                successor_seq = session.step_seq
+                session.generating = True
+            release_prepare.set()
+            thread.join(timeout=5)
+
+        assert not thread.is_alive()
+        assert worker_seq != successor_seq
+        assert session.step_seq == successor_seq
+        assert session.generating is True

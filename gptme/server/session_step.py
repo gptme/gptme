@@ -1078,11 +1078,13 @@ def start_tool_execution(
                         f"Tool {current_tool_id} not found in pending tools "
                         "(may have been handled by another thread)"
                     )
-                    # Release any pre-reserved generation slot so the conversation
-                    # is not permanently blocked.
+                    # Release only this worker's pre-reserved slot. Interrupt or
+                    # another worker may already have transferred ownership.
                     if reserved:
-                        session.generating = False
-                        session.generating_since = None
+                        with session.step_lock:
+                            if session.step_seq == my_step_seq:
+                                session.generating = False
+                                session.generating_since = None
                     return  # another thread claimed this tool; don't trigger auto-step
                 # The claim is registered above but the try/finally that releases
                 # it only starts below, so anything that raises in between (most
