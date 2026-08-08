@@ -1,15 +1,42 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import { CommandPalette } from '../CommandPalette';
+import { conversations$, selectedConversation$, updateConversation } from '@/stores/conversations';
+import { copyConversationToClipboard } from '@/utils/exportConversation';
+import { toast } from 'sonner';
+
+const mockApi = {
+  searchConversations: jest.fn().mockResolvedValue([]),
+  getConversation: jest.fn(),
+};
+const mockGetClient = jest.fn();
+const mockGetClientForServer = jest.fn();
+const mockIsDemoMode = jest.fn(() => false);
 
 // Mock ApiContext with a stable `api` reference to avoid infinite re-render loop.
 // useEffect in CommandPalette has [search, api] as deps — if useApi() returns a
 // new object on every render, api identity changes every render → effect fires
 // every render → setIsSearching(true) triggers re-render → infinite loop / OOM.
-jest.mock('@/contexts/ApiContext', () => {
-  const api = { searchConversations: jest.fn().mockResolvedValue([]) };
-  return { useApi: () => ({ api }) };
+jest.mock('@/contexts/ApiContext', () => ({
+  useApi: () => ({ api: mockApi, getClient: mockGetClient }),
+}));
+
+jest.mock('@/utils/exportConversation', () => {
+  const actual = jest.requireActual('@/utils/exportConversation');
+  return { ...actual, copyConversationToClipboard: jest.fn().mockResolvedValue(undefined) };
 });
+
+jest.mock('@/stores/serverClients', () => ({
+  getClientForServer: (serverId: string) => mockGetClientForServer(serverId),
+}));
+
+jest.mock('@/utils/connectionConfig', () => ({
+  isDemoMode: () => mockIsDemoMode(),
+}));
+
+jest.mock('sonner', () => ({
+  toast: { success: jest.fn(), error: jest.fn() },
+}));
 
 // Mock commandPalette$ store
 jest.mock('@/stores/commandPalette', () => ({
@@ -81,6 +108,13 @@ jest.mock('react-router-dom', () => {
 describe('CommandPalette', () => {
   beforeEach(() => {
     mockNavigate.mockClear();
+    conversations$.set(new Map());
+    selectedConversation$.set('');
+    mockApi.getConversation.mockReset();
+    mockGetClient.mockReset();
+    mockGetClientForServer.mockReset();
+    mockIsDemoMode.mockReset().mockReturnValue(false);
+    (copyConversationToClipboard as jest.Mock).mockClear();
   });
 
   afterEach(() => {
@@ -93,6 +127,11 @@ describe('CommandPalette', () => {
         <CommandPalette />
       </BrowserRouter>
     );
+  };
+
+  const selectCopyCommand = async (label: string) => {
+    fireEvent.keyDown(document, { key: 'k', metaKey: true });
+    fireEvent.click(await screen.findByText(label));
   };
 
   describe('Keyboard Shortcuts', () => {
@@ -335,9 +374,243 @@ describe('CommandPalette', () => {
         expect(screen.queryByPlaceholderText(/type a command/i)).not.toBeInTheDocument();
       });
     });
+
+    it('copies an unhydrated trajectory from the server selected in the route', async () => {
+      const fullData = {
+        id: 'shared-chat',
+        name: 'Secondary chat',
+        log: [
+          { role: 'user' as const, content: 'Hello' },
+          { role: 'assistant' as const, content: 'Hi' },
+        ],
+      };
+      conversations$.set(new Map());
+      selectedConversation$.set('shared-chat');
+      const secondaryClient = { getConversation: jest.fn().mockResolvedValue(fullData) };
+      mockGetClientForServer.mockReturnValue(secondaryClient);
+      mockGetClient.mockReturnValue(secondaryClient);
+
+      render(
+        <MemoryRouter initialEntries={['/chat/shared-chat?server=secondary']}>
+          <CommandPalette />
+        </MemoryRouter>
+      );
+      await selectCopyCommand('Copy trajectory as Markdown');
+
+      await waitFor(() => {
+        expect(mockGetClient).toHaveBeenCalledWith('secondary');
+        expect(secondaryClient.getConversation).toHaveBeenCalledWith('shared-chat');
+        expect(copyConversationToClipboard).toHaveBeenCalledWith('Secondary chat', fullData.log, {
+          includeThinking: false,
+          includeTools: false,
+        });
+      });
+    });
+
+    it('uses the route server when duplicate conversation IDs exist in the local store', async () => {
+      const fullData = {
+        id: 'shared-chat',
+        name: 'Secondary copy',
+        log: [{ role: 'user' as const, content: 'From secondary' }],
+      };
+      updateConversation('shared-chat', {
+        data: {
+          id: 'shared-chat',
+          name: 'Primary copy',
+          log: [{ role: 'user' as const, content: 'From primary' }],
+          logfile: 'shared-chat',
+          branches: {},
+          workspace: '.',
+        },
+      });
+      selectedConversation$.set('shared-chat');
+      const secondaryClient = { getConversation: jest.fn().mockResolvedValue(fullData) };
+      mockGetClientForServer.mockReturnValue(secondaryClient);
+      mockGetClient.mockReturnValue(secondaryClient);
+
+      render(
+        <MemoryRouter initialEntries={['/chat/shared-chat?server=secondary']}>
+          <CommandPalette />
+        </MemoryRouter>
+      );
+      await selectCopyCommand('Copy trajectory as Markdown');
+
+      await waitFor(() => {
+        expect(mockGetClient).toHaveBeenCalledWith('secondary');
+        expect(secondaryClient.getConversation).toHaveBeenCalledWith('shared-chat');
+        expect(mockApi.getConversation).not.toHaveBeenCalled();
+        expect(copyConversationToClipboard).toHaveBeenCalledWith('Secondary copy', fullData.log, {
+          includeThinking: false,
+          includeTools: false,
+        });
+      });
+    });
+
+    it('does not fall back to the primary server for an unknown route server', async () => {
+      selectedConversation$.set('shared-chat');
+      mockGetClientForServer.mockReturnValue(null);
+
+      render(
+        <MemoryRouter initialEntries={['/chat/shared-chat?server=removed-server']}>
+          <CommandPalette />
+        </MemoryRouter>
+      );
+      await selectCopyCommand('Copy trajectory as Markdown');
+
+      await waitFor(() => {
+        expect(mockGetClientForServer).toHaveBeenCalledWith('removed-server');
+        expect(mockGetClient).not.toHaveBeenCalled();
+        expect(mockApi.getConversation).not.toHaveBeenCalled();
+        expect(copyConversationToClipboard).not.toHaveBeenCalled();
+        expect(toast.error).toHaveBeenCalledWith('Server not found');
+      });
+    });
+
+    it('copies a built-in demo trajectory from the local store', async () => {
+      mockIsDemoMode.mockReturnValue(true);
+      const log = [{ role: 'user' as const, content: 'Demo message' }];
+      updateConversation('introduction', {
+        data: {
+          id: 'introduction',
+          name: 'Introduction to gptme',
+          log,
+          logfile: 'introduction',
+          branches: {},
+          workspace: '/demo/workspace',
+        },
+      });
+      selectedConversation$.set('introduction');
+
+      renderCommandPalette();
+      await selectCopyCommand('Copy trajectory as Markdown');
+
+      await waitFor(() => {
+        expect(mockApi.getConversation).not.toHaveBeenCalled();
+        expect(copyConversationToClipboard).toHaveBeenCalledWith('Introduction to gptme', log, {
+          includeThinking: false,
+          includeTools: false,
+        });
+      });
+    });
+
+    it('fetches a server trajectory whose ID matches a built-in demo', async () => {
+      const fullData = {
+        id: 'introduction',
+        name: 'Server introduction',
+        log: [{ role: 'user' as const, content: 'From server' }],
+      };
+      updateConversation('introduction', {
+        data: {
+          id: 'introduction',
+          name: 'Introduction to gptme',
+          log: [{ role: 'user' as const, content: 'From demo' }],
+          logfile: 'introduction',
+          branches: {},
+          workspace: '/demo/workspace',
+        },
+      });
+      selectedConversation$.set('introduction');
+      mockApi.getConversation.mockResolvedValue(fullData);
+
+      render(
+        <MemoryRouter initialEntries={['/chat/introduction']}>
+          <CommandPalette />
+        </MemoryRouter>
+      );
+      await selectCopyCommand('Copy trajectory as Markdown');
+
+      await waitFor(() => {
+        expect(mockApi.getConversation).toHaveBeenCalledWith('introduction');
+        expect(copyConversationToClipboard).toHaveBeenCalledWith(
+          'Server introduction',
+          fullData.log,
+          {
+            includeThinking: false,
+            includeTools: false,
+          }
+        );
+      });
+    });
+
+    it('copies the full trajectory through the primary server', async () => {
+      const fullData = {
+        id: 'primary-chat',
+        name: 'Primary chat',
+        log: [{ role: 'user' as const, content: 'Hello' }],
+      };
+      selectedConversation$.set('primary-chat');
+      mockApi.getConversation.mockResolvedValue(fullData);
+
+      renderCommandPalette();
+      await selectCopyCommand('Copy trajectory as Markdown (full)');
+
+      await waitFor(() => {
+        expect(mockGetClient).not.toHaveBeenCalled();
+        expect(mockApi.getConversation).toHaveBeenCalledWith('primary-chat');
+        expect(copyConversationToClipboard).toHaveBeenCalledWith('Primary chat', fullData.log, {
+          includeThinking: true,
+          includeTools: true,
+        });
+      });
+    });
+
+    it('reports a server fetch failure', async () => {
+      selectedConversation$.set('primary-chat');
+      mockApi.getConversation.mockRejectedValue(new Error('network error'));
+
+      renderCommandPalette();
+      await selectCopyCommand('Copy trajectory as Markdown');
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('Failed to copy to clipboard');
+        expect(copyConversationToClipboard).not.toHaveBeenCalled();
+      });
+    });
+
+    it('does not copy an empty server trajectory', async () => {
+      selectedConversation$.set('primary-chat');
+      mockApi.getConversation.mockResolvedValue({
+        id: 'primary-chat',
+        name: 'Primary chat',
+        log: [],
+      });
+
+      renderCommandPalette();
+      await selectCopyCommand('Copy trajectory as Markdown');
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('No messages to copy');
+        expect(copyConversationToClipboard).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('State Management', () => {
+    it('shows copy commands when conversation is selected after mount', async () => {
+      // Regression test for the useMemo stale-deps bug:
+      // selectedConversation$ was not in the actions deps array, so copy commands
+      // never appeared when a conversation was selected after the component mounted.
+      // Fix: use use$() to track the observable and include it in deps.
+      selectedConversation$.set('');
+      renderCommandPalette();
+      fireEvent.keyDown(document, { key: 'k', metaKey: true });
+
+      // No conversation selected — copy commands must be absent
+      await waitFor(() => {
+        expect(screen.queryByText('Copy trajectory as Markdown')).not.toBeInTheDocument();
+      });
+
+      // Select a conversation post-mount — this is the case the bug missed
+      act(() => {
+        selectedConversation$.set('test-chat');
+      });
+
+      // Copy commands must now appear without remounting
+      await waitFor(() => {
+        expect(screen.getByText('Copy trajectory as Markdown')).toBeInTheDocument();
+      });
+    });
+
     it('resets search when closing', async () => {
       renderCommandPalette();
 

@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   CommandDialog,
   CommandEmpty,
@@ -18,17 +18,23 @@ import {
   Home,
   MessageSquare,
   Download,
+  Clipboard,
 } from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
 import type { ConversationSummary } from '@/types/conversation';
+import { use$ } from '@legendapp/state/react';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
+import { demoConversations } from '@/democonversations';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
+import { getClientForServer } from '@/stores/serverClients';
 import {
   exportConversationAsMarkdown,
   exportConversationAsJSON,
+  copyConversationToClipboard,
   getExportableMessages,
 } from '@/utils/exportConversation';
 import { appRoute, chatRoute } from '@/utils/routes';
+import { isDemoMode } from '@/utils/connectionConfig';
 import { toast } from 'sonner';
 
 interface CommandAction {
@@ -41,13 +47,20 @@ interface CommandAction {
   group: string;
 }
 
+interface CopyTrajectoryOptions {
+  includeThinking: boolean;
+  includeTools: boolean;
+  successMessage: string;
+}
+
 export function CommandPalette() {
   const [open, setOpenState] = useState(false);
   const [search, setSearch] = useState('');
   const [conversationResults, setConversationResults] = useState<ConversationSummary[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const navigate = useNavigate();
-  const { api } = useApi();
+  const location = useLocation();
+  const { api, getClient } = useApi();
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync open state bidirectionally with the observable (for external control, e.g. MenuBar search button)
@@ -152,6 +165,53 @@ export function CommandPalette() {
     };
   }, [search, api]);
 
+  const copyTrajectory = useCallback(
+    async ({ includeThinking, includeTools, successMessage }: CopyTrajectoryOptions) => {
+      const convId = selectedConversation$.get();
+      if (!convId) {
+        toast.error('No messages to copy');
+        return;
+      }
+
+      try {
+        const demoConversation = demoConversations.find(({ id }) => id === convId);
+        let fullData;
+        if (isDemoMode() && demoConversation) {
+          fullData = conversations$.get(convId)?.data.peek();
+        } else {
+          const serverId = new URLSearchParams(location.search).get('server');
+          if (serverId && !getClientForServer(serverId)) {
+            toast.error('Server not found');
+            return;
+          }
+          fullData = await (serverId ? getClient(serverId) : api).getConversation(convId);
+        }
+        if (!fullData) {
+          toast.error('No messages to copy');
+          return;
+        }
+        if (!fullData.log.length) {
+          toast.error('No messages to copy');
+          return;
+        }
+        await copyConversationToClipboard(fullData.name || convId, fullData.log, {
+          includeThinking,
+          includeTools,
+        });
+        toast.success(successMessage);
+        setOpen(false);
+      } catch {
+        toast.error('Failed to copy to clipboard');
+      }
+    },
+    [api, getClient, location.search, setOpen]
+  );
+
+  // Track selected conversation reactively so the actions memo recomputes when it changes.
+  // Without this, the copy-trajectory commands won't appear after navigating to a
+  // conversation post-mount (memo stays stale because selectedConversation$ is not a dep).
+  const selectedConvId = use$(selectedConversation$);
+
   // Define available actions
   const actions = useMemo<CommandAction[]>(
     () => [
@@ -228,8 +288,44 @@ export function CommandPalette() {
         group: 'Navigation',
       },
       // Conversation-specific actions (only when a conversation is selected)
-      ...(selectedConversation$.get()
+      ...(selectedConvId
         ? [
+            {
+              id: 'copy-trajectory-markdown',
+              label: 'Copy trajectory as Markdown',
+              description: 'Copy whole conversation without thinking or tool output',
+              icon: <Clipboard className="mr-2 h-4 w-4" />,
+              keywords: ['copy', 'clipboard', 'trajectory', 'markdown', 'transcript', 'share'],
+              action: () =>
+                copyTrajectory({
+                  includeThinking: false,
+                  includeTools: false,
+                  successMessage: 'Trajectory copied to clipboard',
+                }),
+              group: 'Conversation',
+            },
+            {
+              id: 'copy-trajectory-markdown-full',
+              label: 'Copy trajectory as Markdown (full)',
+              description: 'Copy whole conversation including thinking and tool output',
+              icon: <Clipboard className="mr-2 h-4 w-4" />,
+              keywords: [
+                'copy',
+                'clipboard',
+                'trajectory',
+                'markdown',
+                'full',
+                'tools',
+                'thinking',
+              ],
+              action: () =>
+                copyTrajectory({
+                  includeThinking: true,
+                  includeTools: true,
+                  successMessage: 'Full trajectory copied to clipboard',
+                }),
+              group: 'Conversation',
+            },
             {
               id: 'export-markdown',
               label: 'Export as Markdown',
@@ -280,7 +376,7 @@ export function CommandPalette() {
           ]
         : []),
     ],
-    [navigate, setOpen]
+    [navigate, setOpen, copyTrajectory, selectedConvId]
   );
 
   // Filter actions based on search query
