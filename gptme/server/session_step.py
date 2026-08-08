@@ -1265,14 +1265,23 @@ def start_tool_execution(
                     session.generating_since = None
 
             if start_continuation:
-                _start_step_thread(
-                    conversation_id,
-                    session,
-                    model,
-                    chat_config.workspace,
-                    branch=branch,
-                    reserved=True,
-                )
+                try:
+                    _start_step_thread(
+                        conversation_id,
+                        session,
+                        model,
+                        chat_config.workspace,
+                        branch=branch,
+                        reserved=True,
+                    )
+                except BaseException:
+                    # Thread creation/start failed before the continuation could
+                    # assume ownership. Release exactly the transferred token.
+                    with session.step_lock:
+                        if session.step_seq == continuation_seq:
+                            session.generating = False
+                            session.generating_since = None
+                    raise
         except Exception:
             logger.exception(
                 f"Unhandled error in tool execution thread for {conversation_id}"

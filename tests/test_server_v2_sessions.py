@@ -1867,3 +1867,45 @@ class TestInterruptReservationOwnership:
         assert not thread.is_alive()
         start_step.assert_not_called()
         assert session.generating is False
+
+    def test_failed_continuation_dispatch_releases_transferred_reservation(
+        self, conv, client: FlaskClient
+    ):
+        """A thread-start failure cannot strand the successor reservation."""
+        from pathlib import Path
+
+        from gptme.config import ChatConfig
+        from gptme.server.session_step import start_tool_execution
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.generating = True
+        tool_id = "test-failed-continuation-dispatch"
+        session.pending_tools[tool_id] = ToolExecution(
+            tool_id=tool_id, tooluse=ToolUse("shell", [], "echo ok")
+        )
+        chat_config = ChatConfig()
+        chat_config.workspace = Path("/tmp")
+
+        with (
+            patch(
+                "gptme.server.session_step._start_step_thread",
+                side_effect=RuntimeError("thread start failed"),
+            ),
+            patch.object(ToolUse, "execute", return_value=[]),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.SessionManager.add_event"),
+        ):
+            thread = start_tool_execution(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                tool_id=tool_id,
+                edited_tooluse=None,
+                model="mock/model",
+                chat_config=chat_config,
+            )
+            thread.join(timeout=5)
+
+        assert not thread.is_alive()
+        assert session.generating is False
+        assert session.generating_since is None
