@@ -927,9 +927,14 @@ def test_chat_completions_embeds_reasoning_content(monkeypatch):
             )
         ],
     )
-    completions_create = Mock(return_value=completion)
+    raw_resp = SimpleNamespace(parse=lambda: completion, headers={})
+    completions_create = Mock(return_value=raw_resp)
     mock_client = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=completions_create))
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                with_raw_response=SimpleNamespace(create=completions_create)
+            )
+        )
     )
 
     monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
@@ -3269,3 +3274,55 @@ class TestSpec2ToolStrictSchema:
         )
         result = _spec2tool(spec, model)
         assert result["function"]["strict"] is True
+
+
+class TestMakeResolvedModel:
+    """Tests for _make_resolved_model — the OpenRouter subprovider slug builder."""
+
+    def test_basic_provider_appended(self):
+        from gptme.llm.llm_openai import _make_resolved_model
+
+        result = _make_resolved_model("openrouter/meta-llama/llama-3.1", "Groq")
+        assert result == "openrouter/meta-llama/llama-3.1@groq"
+
+    def test_provider_slug_spaces_to_dashes(self):
+        """'Together AI' → 'together-ai'."""
+        from gptme.llm.llm_openai import _make_resolved_model
+
+        result = _make_resolved_model("openrouter/meta-llama/llama-3.1", "Together AI")
+        assert result == "openrouter/meta-llama/llama-3.1@together-ai"
+
+    def test_provider_slug_lowercased(self):
+        from gptme.llm.llm_openai import _make_resolved_model
+
+        result = _make_resolved_model(
+            "openrouter/anthropic/claude-3.5-sonnet", "Anthropic"
+        )
+        assert result == "openrouter/anthropic/claude-3.5-sonnet@anthropic"
+
+    def test_returns_none_when_already_matches(self):
+        """Returns None when the resolved slug equals the model string — no new info."""
+        from gptme.llm.llm_openai import _make_resolved_model
+
+        result = _make_resolved_model(
+            "openrouter/anthropic/claude-3.5-sonnet@anthropic", "Anthropic"
+        )
+        assert result is None
+
+    def test_at_suffix_explicit_overrides(self):
+        """A model with an existing @suffix gets its base extracted and a new slug applied."""
+        from gptme.llm.llm_openai import _make_resolved_model
+
+        result = _make_resolved_model(
+            "openrouter/meta-llama/llama-3.1@groq", "Together AI"
+        )
+        assert result == "openrouter/meta-llama/llama-3.1@together-ai"
+
+    def test_user_pinned_stem_returns_none(self):
+        """@together is a stem of slug 'together-ai' → user pinned intent matches → None."""
+        from gptme.llm.llm_openai import _make_resolved_model
+
+        result = _make_resolved_model(
+            "openrouter/meta-llama/llama-3.1@together", "Together AI"
+        )
+        assert result is None

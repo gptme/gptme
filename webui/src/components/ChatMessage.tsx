@@ -90,11 +90,15 @@ function MessageMetaLabel({
     : null;
 
   const model = metadata?.model;
+  const resolvedModel = metadata?.resolved_model;
   const cost = metadata?.cost;
   const usage = metadata?.usage;
 
+  // Display the resolved model (actual subprovider) when it differs from the requested model
+  const displayModel = resolvedModel ?? model;
+
   const parts: string[] = [];
-  if (model) parts.push(model);
+  if (displayModel) parts.push(displayModel);
   if (relTime) parts.push(relTime);
   const shortLabel = parts.join(' · ');
   if (!shortLabel) return null;
@@ -102,6 +106,7 @@ function MessageMetaLabel({
   const tooltipLines: string[] = [];
   if (fullTime) tooltipLines.push(fullTime);
   if (model) tooltipLines.push(`Model: ${model}`);
+  if (resolvedModel) tooltipLines.push(`Resolved via: ${resolvedModel}`);
   if (cost != null) tooltipLines.push(`Cost: $${cost.toFixed(4)}`);
   if (usage) {
     if (usage.input_tokens)

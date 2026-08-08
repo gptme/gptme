@@ -905,11 +905,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
           {() => {
             const log = conversation$.data.log.get();
             let activeModel: string | undefined;
+            let activeResolvedModel: string | undefined;
             if (log) {
               for (let i = log.length - 1; i >= 0; i--) {
                 const msg = log[i];
                 if (msg.role === 'assistant' && msg.metadata?.model) {
                   activeModel = msg.metadata.model;
+                  activeResolvedModel = msg.metadata.resolved_model;
                   break;
                 }
               }
@@ -919,6 +921,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                 logdir={conversation$.data.logdir.get()}
                 baseUrl={connectionConfig.baseUrl}
                 activeModel={activeModel}
+                activeResolvedModel={activeResolvedModel}
               />
             );
           }}

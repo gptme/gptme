@@ -161,6 +161,11 @@ class MessageMetadata(TypedDict, total=False):
     """
 
     model: str
+    # The subprovider that actually served the request, in @provider suffix form
+    # (e.g. "openrouter/deepseek/deepseek-v4-flash-0731@together"). Only set when
+    # it differs from `model`, i.e. when OpenRouter auto-routed to a provider
+    # different from what the model string alone implies.
+    resolved_model: str
     cost: float  # Cost in USD
     usage: UsageData
     timings: MessageTimings  # Per-step timing breakdown (ttft_ms, gen_ms, tool_ms, …)

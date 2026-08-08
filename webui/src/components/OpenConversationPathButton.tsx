@@ -16,15 +16,20 @@ interface OpenConversationPathButtonProps {
   logdir?: string;
   baseUrl: string;
   activeModel?: string;
+  /** The subprovider that actually served the last request, when different from activeModel */
+  activeResolvedModel?: string;
 }
 
 export function OpenConversationPathButton({
   logdir,
   baseUrl,
   activeModel,
+  activeResolvedModel,
 }: OpenConversationPathButtonProps) {
   const showFolderButton = !!(logdir && isLocalApiBaseUrl(baseUrl));
-  const shortModelName = activeModel ? (activeModel.split('/').pop() ?? activeModel) : undefined;
+  // Show the resolved model (actual subprovider used) when available, else the requested model
+  const displayModel = activeResolvedModel ?? activeModel;
+  const shortModelName = displayModel ? (displayModel.split('/').pop() ?? displayModel) : undefined;
 
   if (!showFolderButton && !shortModelName) {
     return null;
@@ -74,7 +79,12 @@ export function OpenConversationPathButton({
                 {shortModelName}
               </span>
             </TooltipTrigger>
-            <TooltipContent>{activeModel}</TooltipContent>
+            <TooltipContent>
+              <div>{activeModel}</div>
+              {activeResolvedModel && (
+                <div className="text-muted-foreground">via {activeResolvedModel}</div>
+              )}
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
       )}

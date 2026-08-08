@@ -9,6 +9,10 @@ export interface MessageUsage {
 
 export interface MessageMetadata {
   model?: string;
+  /** The subprovider that actually served the request (set when OpenRouter auto-routed
+   *  to a different provider than what the model string alone implies). Format:
+   *  "openrouter/vendor/model@provider-slug", e.g. "openrouter/deepseek/deepseek-v4-flash-0731@together" */
+  resolved_model?: string;
   cost?: number;
   usage?: MessageUsage;
   tool?: string;

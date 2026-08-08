@@ -610,10 +610,15 @@ def test_gptme_openai_chat_sends_max_completion_tokens():
     choice = MagicMock()
     choice.message.content = "hi"
     choice.message.tool_calls = None
+    choice.message.reasoning_content = None
+    choice.message.reasoning = None
     choice.finish_reason = "stop"
     resp = MagicMock()
     resp.choices = [choice]
-    client.chat.completions.create.return_value = resp
+    raw_resp = MagicMock()
+    raw_resp.parse.return_value = resp
+    raw_resp.headers.get.return_value = None
+    client.chat.completions.with_raw_response.create.return_value = raw_resp
 
     with (
         _patch_model_list(),
@@ -624,7 +629,7 @@ def test_gptme_openai_chat_sends_max_completion_tokens():
     ):
         _chat_complete([Message("user", "hi")], "gptme/openai/gpt-5", None)
 
-    kwargs = client.chat.completions.create.call_args.kwargs
+    kwargs = client.chat.completions.with_raw_response.create.call_args.kwargs
     assert kwargs["model"] == "openai/gpt-5"
     assert "max_completion_tokens" in kwargs
     assert "max_tokens" not in kwargs
