@@ -124,9 +124,6 @@ def _extract_codeblocks(
     # appears in the prefix at all).  We must NOT strip when <think> appears only
     # concatenated with a fence closer (e.g. "```<think>") — that is handled later
     # by the inner-loop fence-recovery logic.
-    # Normalize line endings so CRLF input does not leak carriage returns into content.
-    markdown = markdown.replace("\r\n", "\n").replace("\r", "\n")
-
     _concatenated_end_found = False
     _concatenated_end_pos = -1
     for _think_end_tag in ["</thinking>", "</think>"]:
@@ -180,6 +177,9 @@ def _extract_codeblocks(
     fence_pattern = re.compile(r"`{3,}")
     if len(fence_pattern.findall(markdown)) < 2:
         return
+
+    # Normalize line endings so CRLF input does not leak carriage returns into content.
+    markdown = markdown.replace("\r\n", "\n").replace("\r", "\n")
 
     lines = markdown.split("\n")
     i = 0

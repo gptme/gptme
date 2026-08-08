@@ -1492,3 +1492,17 @@ def test_iter_from_markdown_normalizes_crlf():
     """CRLF input to iter_from_markdown must not leave \\r in content."""
     blocks = Codeblock.iter_from_markdown("```python\r\nprint(1)\r\n```")
     assert blocks == [Codeblock("python", "print(1)")]
+
+
+def test_from_markdown_normalizes_standalone_cr():
+    """Standalone \\r (old-Mac) line endings must also be normalized."""
+    cr = Codeblock.from_markdown("```python\rprint(1)\r```")
+    lf = Codeblock.from_markdown("```python\nprint(1)\n```")
+    assert cr.content == lf.content
+    assert "\r" not in cr.content
+
+
+def test_iter_from_markdown_normalizes_standalone_cr():
+    """Standalone \\r (old-Mac) line endings must also be normalized."""
+    blocks = Codeblock.iter_from_markdown("```python\rprint(1)\r```")
+    assert blocks == [Codeblock("python", "print(1)")]
