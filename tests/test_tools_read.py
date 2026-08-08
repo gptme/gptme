@@ -271,6 +271,59 @@ def test_read_invalid_end_line(tmp_path: Path):
     assert "Invalid end_line" in messages[0].content
 
 
+def test_read_invalid_line_range(tmp_path: Path):
+    """Test that an inverted range (start_line > end_line) returns an error."""
+    path = tmp_path / "test.txt"
+    path.write_text("\n".join(f"line {i}" for i in range(1, 11)) + "\n")
+
+    messages = list(
+        execute_read(
+            None,
+            None,
+            {"path": str(path), "start_line": "8", "end_line": "3"},
+        )
+    )
+    assert len(messages) == 1
+    # Value-anchored substrings pin the diagnostic: the bare digits "8"/"3"
+    # also appear in the broken-master label "(lines 8-3 of 10)".
+    assert "Invalid line range" in messages[0].content
+    assert "start_line (8)" in messages[0].content
+    assert "end_line (3)" in messages[0].content
+
+
+def test_read_line_range_start_equals_end(tmp_path: Path):
+    """A single-line range (start_line == end_line) is valid, not inverted."""
+    path = tmp_path / "test.txt"
+    path.write_text("\n".join(f"line {i}" for i in range(1, 11)) + "\n")
+
+    messages = list(
+        execute_read(
+            None,
+            None,
+            {"path": str(path), "start_line": "3", "end_line": "3"},
+        )
+    )
+    assert len(messages) == 1
+    assert "line 3" in messages[0].content
+    assert "lines 3-3 of 10" in messages[0].content
+
+
+def test_read_invalid_line_range_before_file_check(tmp_path: Path):
+    """The inverted-range check runs before the file is read/existence-checked."""
+    missing = tmp_path / "does-not-exist.txt"
+    messages = list(
+        execute_read(
+            None,
+            None,
+            {"path": str(missing), "start_line": "8", "end_line": "3"},
+        )
+    )
+    assert len(messages) == 1
+    # The malformed request is rejected before any filesystem access, so the
+    # range error wins over the usual "File not found" message.
+    assert "Invalid line range" in messages[0].content
+
+
 def test_read_path_traversal(tmp_path: Path, monkeypatch):
     """Test that relative paths traversing outside cwd are blocked."""
     external = tmp_path / "external.txt"

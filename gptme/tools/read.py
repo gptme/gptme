@@ -290,6 +290,18 @@ def execute_read(
         )
         start_line, end_line = 1, None
 
+    # Reject an inverted line range instead of silently yielding an empty
+    # codeblock mislabeled with the requested range (e.g. lines[7:3] == []).
+    # Checked after the multi-path reset so an inverted range on a batch read
+    # is still treated as "ignored" (ranges don't apply to multi-path reads).
+    if end_line is not None and start_line > end_line:
+        yield Message(
+            "system",
+            f"Invalid line range: start_line ({start_line}) is greater than "
+            f"end_line ({end_line}).",
+        )
+        return
+
     for path in paths:
         yield from _read_one(path, start_line=start_line, end_line=end_line)
 
