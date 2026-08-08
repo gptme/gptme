@@ -1204,12 +1204,22 @@ def get_github_run_logs(
 
                 output += f"\n```\n{extracted}\n```\n"
             else:
-                # Fallback: try per-job log via API
+                # Fallback: try per-job log via API.
+                # Derive owner/repo from the run URL (e.g.
+                # https://github.com/owner/repo/actions/runs/12345) so the
+                # jobs-logs endpoint is reachable; the URL needs the real
+                # values, not {owner}/{repo} placeholders.
+                owner, repo = "", ""
+                if url:
+                    parts = urllib.parse.urlparse(url).path.strip("/").split("/")
+                    if len(parts) >= 2:
+                        owner, repo = parts[0], parts[1]
+
                 api_result = subprocess.run(
                     [
                         "gh",
                         "api",
-                        f"/repos/{{owner}}/{{repo}}/actions/jobs/{job_id}/logs",
+                        f"/repos/{owner}/{repo}/actions/jobs/{job_id}/logs",
                     ],
                     capture_output=True,
                     text=True,

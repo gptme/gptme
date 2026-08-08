@@ -746,6 +746,66 @@ class TestGetGithubRunLogs:
 
     @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
     @patch("gptme.util.gh.subprocess.run")
+    def test_per_job_api_fallback_substitutes_owner_repo(self, mock_run, _mock_which):
+        """Per-job API fallback substitutes real owner/repo into the path.
+
+        Regression: the fallback built the gh api path with an f-string that
+        had literal ``{owner}``/``{repo}`` braces (``{{owner}}``), so the call
+        always 404'd and the user saw "Could not fetch logs" instead of the
+        real per-job logs. owner/repo must be derived from the run URL.
+        """
+        jobs = [self._make_job("test", "failure", 200)]
+        run_json = self._make_run_json("failure", jobs)
+
+        def fake_run(cmd, **kwargs):
+            if cmd[:2] == ["gh", "run"] and "--json" in cmd:
+                return MagicMock(stdout=run_json, returncode=0)
+            if cmd[:2] == ["gh", "run"] and "--log-failed" in cmd:
+                # Empty -> triggers the per-job API fallback.
+                return MagicMock(stdout="", returncode=1)
+            if cmd[:2] == ["gh", "api"]:
+                path = cmd[2]
+                # The fix must substitute real owner/repo — no literal braces.
+                assert "{owner}" not in path, f"literal {{owner}} in path: {path}"
+                assert "{repo}" not in path, f"literal {{repo}} in path: {path}"
+                if path == "/repos/owner/repo/actions/jobs/200/logs":
+                    return MagicMock(stdout="ERROR: real per-job log\n", returncode=0)
+                return MagicMock(stdout="", returncode=1)
+            return MagicMock(stdout="", returncode=1)
+
+        mock_run.side_effect = fake_run
+
+        result = get_github_run_logs("12345")
+        assert result is not None
+        assert "real per-job log" in result
+        assert "Could not fetch logs" not in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_per_job_api_fallback_missing_url_degrades(self, mock_run, _mock_which):
+        """Fallback degrades to 'Could not fetch logs' when the run URL is empty.
+
+        Guards the owner/repo extraction: a missing ``url`` leaves owner/repo
+        blank, the gh api call 404s, and the existing failure message is shown
+        (no crash — same outcome as the pre-fix always-404 behaviour).
+        """
+        jobs = [self._make_job("test", "failure", 200)]
+        run_data = json.loads(self._make_run_json("failure", jobs))
+        run_data["url"] = ""
+        run_json = json.dumps(run_data)
+
+        mock_run.side_effect = [
+            MagicMock(stdout=run_json, returncode=0),  # gh run view --json
+            MagicMock(stdout="", returncode=1),  # gh run view --log-failed (empty)
+            MagicMock(stdout="", returncode=1),  # gh api fallback 404s
+        ]
+
+        result = get_github_run_logs("12345")
+        assert result is not None
+        assert "Could not fetch logs" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
     def test_no_jobs_available(self, mock_run, _mock_which):
         """Run with empty jobs list."""
         mock_run.return_value = MagicMock(
