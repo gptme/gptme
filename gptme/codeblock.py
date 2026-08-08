@@ -34,6 +34,7 @@ class Codeblock:
     @classmethod
     @trace_function(name="codeblock.from_markdown", attributes={"component": "parser"})
     def from_markdown(cls, content: str) -> "Codeblock":
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
         stripped = content.strip()
         fence_len = 0
 
@@ -123,6 +124,9 @@ def _extract_codeblocks(
     # appears in the prefix at all).  We must NOT strip when <think> appears only
     # concatenated with a fence closer (e.g. "```<think>") — that is handled later
     # by the inner-loop fence-recovery logic.
+    # Normalize line endings so CRLF input does not leak carriage returns into content.
+    markdown = markdown.replace("\r\n", "\n").replace("\r", "\n")
+
     _concatenated_end_found = False
     _concatenated_end_pos = -1
     for _think_end_tag in ["</thinking>", "</think>"]:
