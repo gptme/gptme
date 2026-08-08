@@ -11,6 +11,7 @@ const mockApi = {
 };
 const mockGetClient = jest.fn();
 const mockGetClientForServer = jest.fn();
+const mockIsDemoMode = jest.fn(() => false);
 
 // Mock ApiContext with a stable `api` reference to avoid infinite re-render loop.
 // useEffect in CommandPalette has [search, api] as deps — if useApi() returns a
@@ -27,6 +28,10 @@ jest.mock('@/utils/exportConversation', () => {
 
 jest.mock('@/stores/serverClients', () => ({
   getClientForServer: (serverId: string) => mockGetClientForServer(serverId),
+}));
+
+jest.mock('@/utils/connectionConfig', () => ({
+  isDemoMode: () => mockIsDemoMode(),
 }));
 
 jest.mock('sonner', () => ({
@@ -108,6 +113,7 @@ describe('CommandPalette', () => {
     mockApi.getConversation.mockReset();
     mockGetClient.mockReset();
     mockGetClientForServer.mockReset();
+    mockIsDemoMode.mockReset().mockReturnValue(false);
     (copyConversationToClipboard as jest.Mock).mockClear();
   });
 
@@ -461,6 +467,7 @@ describe('CommandPalette', () => {
     });
 
     it('copies a built-in demo trajectory from the local store', async () => {
+      mockIsDemoMode.mockReturnValue(true);
       const log = [{ role: 'user' as const, content: 'Demo message' }];
       updateConversation('introduction', {
         data: {
@@ -483,6 +490,45 @@ describe('CommandPalette', () => {
           includeThinking: false,
           includeTools: false,
         });
+      });
+    });
+
+    it('fetches a server trajectory whose ID matches a built-in demo', async () => {
+      const fullData = {
+        id: 'introduction',
+        name: 'Server introduction',
+        log: [{ role: 'user' as const, content: 'From server' }],
+      };
+      updateConversation('introduction', {
+        data: {
+          id: 'introduction',
+          name: 'Introduction to gptme',
+          log: [{ role: 'user' as const, content: 'From demo' }],
+          logfile: 'introduction',
+          branches: {},
+          workspace: '/demo/workspace',
+        },
+      });
+      selectedConversation$.set('introduction');
+      mockApi.getConversation.mockResolvedValue(fullData);
+
+      render(
+        <MemoryRouter initialEntries={['/chat/introduction']}>
+          <CommandPalette />
+        </MemoryRouter>
+      );
+      await selectCopyCommand('Copy trajectory as Markdown');
+
+      await waitFor(() => {
+        expect(mockApi.getConversation).toHaveBeenCalledWith('introduction');
+        expect(copyConversationToClipboard).toHaveBeenCalledWith(
+          'Server introduction',
+          fullData.log,
+          {
+            includeThinking: false,
+            includeTools: false,
+          }
+        );
       });
     });
 

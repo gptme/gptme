@@ -34,6 +34,7 @@ import {
   getExportableMessages,
 } from '@/utils/exportConversation';
 import { appRoute, chatRoute } from '@/utils/routes';
+import { isDemoMode } from '@/utils/connectionConfig';
 import { toast } from 'sonner';
 
 interface CommandAction {
@@ -175,7 +176,7 @@ export function CommandPalette() {
       try {
         const demoConversation = demoConversations.find(({ id }) => id === convId);
         let fullData;
-        if (demoConversation) {
+        if (isDemoMode() && demoConversation) {
           fullData = conversations$.get(convId)?.data.peek();
         } else {
           const serverId = new URLSearchParams(location.search).get('server');
