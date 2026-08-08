@@ -90,6 +90,7 @@ function stripAtFormatToolCalls(content: string): string {
     }
     const rest = lines[i].slice(match[0].length);
     if (!rest.startsWith('{')) {
+      out.push(lines[i]);
       i++;
       continue;
     }

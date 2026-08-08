@@ -403,6 +403,19 @@ describe('formatConversationAsMarkdown - tool invocation stripping', () => {
     expect(result).toContain('Running it.');
     expect(result).toContain('Done.');
   });
+
+  it('preserves @user: prose lines that are not tool calls when includeTools is false', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Here is my answer.\n@alice: what do you think?\n@bob: any concerns?',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).toContain('@alice: what do you think?');
+    expect(result).toContain('@bob: any concerns?');
+    expect(result).toContain('Here is my answer.');
+  });
 });
 
 describe('getExportableMessages - includeTools option', () => {
