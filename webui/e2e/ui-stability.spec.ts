@@ -35,8 +35,11 @@ test.describe('UI stability: model selector (gptme#3440)', () => {
     // The model badge must be present and show something readable
     const badge = page.getByTestId('model-selector');
     await expect(badge).toBeVisible({ timeout: 5000 });
-    const text = (await badge.textContent()) ?? '';
-    expect(text.trim().length).toBeGreaterThan(0);
+    // Retrying assertion, not a one-shot textContent() sample: the badge renders
+    // an empty loading skeleton while apiDefaultModel is fetched on each fresh
+    // ChatInput mount, so reading the text once races that fetch.  Same guard the
+    // two tests below already use.
+    await expect(badge).toHaveText(/\S+/, { timeout: 10_000 });
   });
 
   test('model selector does not change after the conversation finishes loading', async ({

@@ -52,7 +52,14 @@ async function checkMockServer(page: Page): Promise<boolean> {
   await page.waitForLoadState('networkidle');
   const input = page.getByTestId('chat-input');
   await expect(input).toBeVisible({ timeout: 10_000 });
-  const enabled = await input.isEnabled({ timeout: CONNECT_TIMEOUT }).catch(() => false);
+  // Retrying assertion, NOT locator.isEnabled(): isEnabled() samples the current
+  // state once and would report "disabled" whenever it runs before the server
+  // connection settles — silently skipping all five tests and turning this suite
+  // into a no-op that still reports green.
+  const enabled = await expect(input)
+    .toBeEnabled({ timeout: CONNECT_TIMEOUT })
+    .then(() => true)
+    .catch(() => false);
   if (!enabled) return false;
 
   const resp = await page.request.get('http://localhost:5700/api/v2/models').catch(() => null);
@@ -91,7 +98,9 @@ async function sendMessageAndNavigate(page: Page, message: string): Promise<void
 // there was no visible spinner, generation was already done.
 // ─────────────────────────────────────────────────────────────────────────────
 async function waitForGenerationDone(page: Page): Promise<void> {
-  const spinner = page.locator('.animate-spin').first();
+  // Scoped to the conversation pane so sidebar list spinners cannot be mistaken
+  // for the generation indicator.
+  const spinner = page.locator('[data-conversation-pane] .animate-spin').first();
   await expect(spinner)
     .toBeVisible({ timeout: 5_000 })
     .catch(() => null);
@@ -146,14 +155,15 @@ test.describe('Live generation: UI stability with mock/echo provider (gptme#3440
     await sendMessageAndNavigate(page, 'spin-count-check');
 
     // Start spinner polling from just before generation begins.
+    // Scope to the conversation pane: a page-wide '.animate-spin' also matches
+    // the sidebar's conversation-list loading indicators, which spin briefly
+    // right after navigation and have nothing to do with generation.
+    const paneSpinners = page.locator('[data-conversation-pane] .animate-spin');
     let maxSpinners = 0;
     let polling = true;
     const pollLoop = (async () => {
       while (polling) {
-        const n = await page
-          .locator('.animate-spin')
-          .count()
-          .catch(() => 0);
+        const n = await paneSpinners.count().catch(() => 0);
         if (n > maxSpinners) maxSpinners = n;
         await page.waitForTimeout(100).catch(() => null);
       }
@@ -208,7 +218,7 @@ test.describe('Live generation: UI stability with mock/echo provider (gptme#3440
     // provider is so fast that the spinner is gone before we reach this line,
     // the .catch() swallows the timeout and both samples land post-generation —
     // the delta will then be ~0, which still satisfies the assertion.
-    await expect(page.locator('.animate-spin').first())
+    await expect(page.locator('[data-conversation-pane] .animate-spin').first())
       .toBeVisible({ timeout: 5_000 })
       .catch(() => null);
 
@@ -247,8 +257,14 @@ test.describe('Live generation: UI stability with mock/echo provider (gptme#3440
     // appear the provider is not mock/echo and the generation tests may give
     // misleading results.  Other tests guard individually via skip conditions,
     // but this one is explicit.
-    await expect(page.getByText(new RegExp(`Echo: ${testMessage}`))).toBeVisible({
-      timeout: GENERATION_TIMEOUT,
-    });
+    // Scoped to the conversation pane: the sidebar renders the same text as the
+    // conversation's last-message preview, which would otherwise make this a
+    // strict-mode violation (two matches) rather than a clean assertion.
+    await expect(
+      page
+        .locator('[data-conversation-pane]')
+        .getByText(new RegExp(`Echo: ${testMessage}`))
+        .first()
+    ).toBeVisible({ timeout: GENERATION_TIMEOUT });
   });
 });
