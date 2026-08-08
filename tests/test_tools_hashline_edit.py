@@ -379,6 +379,28 @@ class TestRegisterOperations:
         with pytest.raises(ValueError, match="Register @x is captured more than once"):
             _apply_operations(content, ops)
 
+    @pytest.mark.parametrize(
+        "other",
+        [
+            HashlineOp(kind="replace", start=4, end=4, text="replacement"),
+            HashlineOp(kind="delete", start=4, end=4, text=None),
+            HashlineOp(kind="insert_before", start=4, end=4, text="before"),
+            HashlineOp(kind="insert_after", start=4, end=4, text="after"),
+        ],
+    )
+    def test_register_put_with_equal_start_operation_raises(self, other: HashlineOp):
+        """A register PUT cannot share a mutable coordinate with another edit."""
+        content = "a\nb\nc\nd\ne\n"
+        ops = [
+            HashlineOp(kind="delete", start=1, end=1, register_name="x", text=None),
+            HashlineOp(
+                kind="insert_after", start=4, end=4, register_name="x", text=None
+            ),
+            other,
+        ]
+        with pytest.raises(ValueError, match="Multiple operations start at line 4"):
+            _apply_operations(content, ops)
+
     def test_undefined_register_raises(self):
         """Pasting from an undefined register raises ValueError."""
         content = "a\nb\nc\n"

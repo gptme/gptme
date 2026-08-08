@@ -480,6 +480,18 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
             step2.append(op)
     ops = step2
 
+    # Operations sharing a start coordinate have order-dependent semantics when
+    # applied to the same mutable line list. Reject them rather than silently
+    # shifting or overwriting a register paste.
+    starts: set[int] = set()
+    for op in ops:
+        if op.start in starts:
+            raise ValueError(
+                f"Multiple operations start at line {op.start}; "
+                "use distinct destination coordinates"
+            )
+        starts.add(op.start)
+
     for op in ops:
         # Allow PUT <1 on empty files
         if total == 0 and op.kind == "insert_before" and op.start == 1:
