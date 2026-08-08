@@ -18,6 +18,7 @@ import {
   Home,
   MessageSquare,
   Download,
+  Clipboard,
 } from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
 import type { ConversationSummary } from '@/types/conversation';
@@ -26,6 +27,7 @@ import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import {
   exportConversationAsMarkdown,
   exportConversationAsJSON,
+  copyConversationToClipboard,
   getExportableMessages,
 } from '@/utils/exportConversation';
 import { appRoute, chatRoute } from '@/utils/routes';
@@ -47,7 +49,7 @@ export function CommandPalette() {
   const [conversationResults, setConversationResults] = useState<ConversationSummary[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const navigate = useNavigate();
-  const { api } = useApi();
+  const { api, getClient } = useApi();
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync open state bidirectionally with the observable (for external control, e.g. MenuBar search button)
@@ -231,6 +233,70 @@ export function CommandPalette() {
       ...(selectedConversation$.get()
         ? [
             {
+              id: 'copy-trajectory-markdown',
+              label: 'Copy trajectory as Markdown',
+              description: 'Copy whole conversation without thinking or tool output',
+              icon: <Clipboard className="mr-2 h-4 w-4" />,
+              keywords: ['copy', 'clipboard', 'trajectory', 'markdown', 'transcript', 'share'],
+              action: async () => {
+                const convId = selectedConversation$.get();
+                const conv = convId ? conversations$.get(convId)?.get() : null;
+                if (!convId || !conv?.data?.log?.length) {
+                  toast.error('No messages to copy');
+                  return;
+                }
+                try {
+                  const client = conv.serverId ? getClient(conv.serverId) : api;
+                  const fullData = await client.getConversation(convId);
+                  await copyConversationToClipboard(conv.data.name || convId, fullData.log, {
+                    includeThinking: false,
+                    includeTools: false,
+                  });
+                  toast.success('Trajectory copied to clipboard');
+                  setOpen(false);
+                } catch {
+                  toast.error('Failed to copy to clipboard');
+                }
+              },
+              group: 'Conversation',
+            },
+            {
+              id: 'copy-trajectory-markdown-full',
+              label: 'Copy trajectory as Markdown (full)',
+              description: 'Copy whole conversation including thinking and tool output',
+              icon: <Clipboard className="mr-2 h-4 w-4" />,
+              keywords: [
+                'copy',
+                'clipboard',
+                'trajectory',
+                'markdown',
+                'full',
+                'tools',
+                'thinking',
+              ],
+              action: async () => {
+                const convId = selectedConversation$.get();
+                const conv = convId ? conversations$.get(convId)?.get() : null;
+                if (!convId || !conv?.data?.log?.length) {
+                  toast.error('No messages to copy');
+                  return;
+                }
+                try {
+                  const client = conv.serverId ? getClient(conv.serverId) : api;
+                  const fullData = await client.getConversation(convId);
+                  await copyConversationToClipboard(conv.data.name || convId, fullData.log, {
+                    includeThinking: true,
+                    includeTools: true,
+                  });
+                  toast.success('Full trajectory copied to clipboard');
+                  setOpen(false);
+                } catch {
+                  toast.error('Failed to copy to clipboard');
+                }
+              },
+              group: 'Conversation',
+            },
+            {
               id: 'export-markdown',
               label: 'Export as Markdown',
               description: 'Download current conversation as .md',
@@ -280,7 +346,7 @@ export function CommandPalette() {
           ]
         : []),
     ],
-    [navigate, setOpen]
+    [navigate, setOpen, api, getClient]
   );
 
   // Filter actions based on search query

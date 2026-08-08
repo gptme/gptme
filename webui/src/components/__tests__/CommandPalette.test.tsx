@@ -1,14 +1,26 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { CommandPalette } from '../CommandPalette';
+import { conversations$, selectedConversation$ } from '@/stores/conversations';
+import { copyConversationToClipboard } from '@/utils/exportConversation';
+
+const mockApi = {
+  searchConversations: jest.fn().mockResolvedValue([]),
+  getConversation: jest.fn(),
+};
+const mockGetClient = jest.fn();
 
 // Mock ApiContext with a stable `api` reference to avoid infinite re-render loop.
 // useEffect in CommandPalette has [search, api] as deps — if useApi() returns a
 // new object on every render, api identity changes every render → effect fires
 // every render → setIsSearching(true) triggers re-render → infinite loop / OOM.
-jest.mock('@/contexts/ApiContext', () => {
-  const api = { searchConversations: jest.fn().mockResolvedValue([]) };
-  return { useApi: () => ({ api }) };
+jest.mock('@/contexts/ApiContext', () => ({
+  useApi: () => ({ api: mockApi, getClient: mockGetClient }),
+}));
+
+jest.mock('@/utils/exportConversation', () => {
+  const actual = jest.requireActual('@/utils/exportConversation');
+  return { ...actual, copyConversationToClipboard: jest.fn().mockResolvedValue(undefined) };
 });
 
 // Mock commandPalette$ store
@@ -81,6 +93,11 @@ jest.mock('react-router-dom', () => {
 describe('CommandPalette', () => {
   beforeEach(() => {
     mockNavigate.mockClear();
+    conversations$.set(new Map());
+    selectedConversation$.set('');
+    mockApi.getConversation.mockReset();
+    mockGetClient.mockReset();
+    (copyConversationToClipboard as jest.Mock).mockClear();
   });
 
   afterEach(() => {
@@ -333,6 +350,47 @@ describe('CommandPalette', () => {
 
       await waitFor(() => {
         expect(screen.queryByPlaceholderText(/type a command/i)).not.toBeInTheDocument();
+      });
+    });
+
+    it('copies the full trajectory from its owning server in compact mode', async () => {
+      const fullLog = [
+        { role: 'user' as const, content: 'Hello' },
+        { role: 'assistant' as const, content: 'Hi' },
+      ];
+      conversations$.set(
+        new Map([
+          [
+            'secondary-chat',
+            {
+              data: {
+                id: 'secondary-chat',
+                name: 'Secondary chat',
+                log: [fullLog[0]],
+                logfile: 'secondary-chat',
+                branches: {},
+                workspace: '.',
+              },
+              serverId: 'secondary',
+            } as any,
+          ],
+        ])
+      );
+      selectedConversation$.set('secondary-chat');
+      const secondaryClient = { getConversation: jest.fn().mockResolvedValue({ log: fullLog }) };
+      mockGetClient.mockReturnValue(secondaryClient);
+
+      renderCommandPalette();
+      fireEvent.keyDown(document, { key: 'k', metaKey: true });
+      fireEvent.click(await screen.findByText('Copy trajectory as Markdown'));
+
+      await waitFor(() => {
+        expect(mockGetClient).toHaveBeenCalledWith('secondary');
+        expect(secondaryClient.getConversation).toHaveBeenCalledWith('secondary-chat');
+        expect(copyConversationToClipboard).toHaveBeenCalledWith('Secondary chat', fullLog, {
+          includeThinking: false,
+          includeTools: false,
+        });
       });
     });
   });
