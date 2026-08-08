@@ -794,7 +794,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f8a301d3880&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f84404d3880&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1599,9 +1599,24 @@ Re-read the file with ``read`` to get a new tag and restate your operations.
 | Syntax       | Effect                                    |
 |-------------|------------------------------------------|
 | ``PUT N.=M:``| Replace lines N through M with new lines |
+| ``PUT N*:``  | Replace the syntactic block at line N    |
 | ``PUT &lt;N:``  | Insert new lines BEFORE line N           |
 | ``PUT &gt;N:``  | Insert new lines AFTER line N            |
 | ``CUT N.=M`` | Delete lines N through M                 |
+
+``PUT N*:`` replaces a whole indented construct — point it at the ``def``,
+``class``, ``if``, ``for``, ``while``, or ``try`` line and the system finds the
+closing line for you, including any ``elif``/``else``/``except``/``finally``
+clauses attached to that same statement.  Use it instead of ``PUT N.=M:`` when
+you want to replace an entire function/block and don&#39;t want to count lines by
+hand.
+
+Point N at the actual header line (e.g. the ``def`` line, not a decorator or a
+comment above it) — the block is resolved from that line&#39;s indentation.
+Constructs the heuristic can&#39;t reliably reproduce: blocks that mix tabs and
+spaces, or a header followed by a same-indentation line that is <span class="ge">*not*</span> a
+continuation clause (e.g. a one-line ``if x: y`` body) — for those, fall back to
+``PUT N.=M:`` with an explicit line range.
 
 New content lines are prefixed with ``+``.  An empty line ends a content block.
 CUT has no content block.  Line numbers reference the version shown by ``read``.
@@ -2867,7 +2882,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 18962</p>
+<p>Tokens: 19207</p>
 </dd></dl>
 
 <dl class="py function">
