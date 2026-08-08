@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -189,6 +189,33 @@ def test_stream_completions_forwards_caller_sampling_values(monkeypatch):
     assert metadata is None
     assert completions_create.call_args.kwargs["temperature"] == 0.23
     assert completions_create.call_args.kwargs["top_p"] == 0.74
+
+
+def test_stream_captures_openrouter_provider_in_metadata(monkeypatch):
+    usage = SimpleNamespace(prompt_tokens=3, completion_tokens=2, total_tokens=5)
+    chunk = SimpleNamespace(usage=usage, choices=[])
+    stream_obj = MagicMock()
+    stream_obj.response.headers.get.return_value = "Together AI"
+    stream_obj.__iter__.return_value = iter([chunk])
+    completions_create = Mock(return_value=stream_obj)
+    mock_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=completions_create))
+    )
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    _, metadata = _collect_stream_result(
+        llm_openai.stream(
+            [Message(role="user", content="Say ok.")],
+            "openrouter/meta-llama/llama-3.1",
+            None,
+        )
+    )
+
+    assert metadata is not None
+    assert metadata["resolved_model"] == ("openrouter/meta-llama/llama-3.1@together-ai")
+    stream_obj.response.headers.get.assert_called_once_with("x-openrouter-provider")
 
 
 def test_stream_responses_forwards_caller_sampling_values(monkeypatch):

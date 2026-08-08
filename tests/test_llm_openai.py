@@ -3326,3 +3326,13 @@ class TestMakeResolvedModel:
             "openrouter/meta-llama/llama-3.1@together", "Together AI"
         )
         assert result is None
+
+    @pytest.mark.parametrize("suffix", ["moonshotai", "MoonshotAI"])
+    def test_user_pinned_compact_provider_id_returns_none(self, suffix):
+        """Display-name separators and suffix casing do not imply rerouting."""
+        from gptme.llm.llm_openai import _make_resolved_model
+
+        result = _make_resolved_model(
+            f"openrouter/moonshotai/kimi-k2.5@{suffix}", "Moonshot AI"
+        )
+        assert result is None

@@ -601,6 +601,45 @@ def test_gptme_anthropic_uses_anthropic_sdk_no_stream_options():
     real_client.messages.create.assert_not_called()
 
 
+def test_gptme_openrouter_chat_captures_resolved_provider():
+    """OpenRouter-backed gptme models preserve forwarded provider metadata."""
+    from gptme.message import Message
+
+    client = MagicMock()
+    choice = MagicMock()
+    choice.message.content = "hi"
+    choice.message.tool_calls = None
+    choice.message.reasoning_content = None
+    choice.message.reasoning = None
+    choice.finish_reason = "stop"
+    response = MagicMock()
+    response.choices = [choice]
+    response.usage = None
+    raw_response = MagicMock()
+    raw_response.parse.return_value = response
+    raw_response.headers.get.return_value = "Together AI"
+    client.chat.completions.with_raw_response.create.return_value = raw_response
+
+    with (
+        _patch_model_list(),
+        patch("gptme.llm.llm_openai.get_client", return_value=client),
+        patch(
+            "gptme.llm.llm_openai._record_usage",
+            side_effect=lambda usage, model, resolved_model=None: {
+                "resolved_model": resolved_model
+            },
+        ),
+    ):
+        _, metadata = _chat_complete(
+            [Message("user", "hi")],
+            "gptme/openrouter/openai/gpt-5.4",
+            None,
+        )
+
+    assert metadata == {"resolved_model": "gptme/openrouter/openai/gpt-5.4@together-ai"}
+    raw_response.headers.get.assert_called_once_with("x-openrouter-provider")
+
+
 def test_gptme_openai_chat_sends_max_completion_tokens():
     """openai-backed gptme models stay on the OpenAI SDK path, send the
     backend-prefixed wire model, and use max_completion_tokens for gpt-5."""

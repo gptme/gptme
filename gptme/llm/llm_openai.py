@@ -168,17 +168,22 @@ def _make_resolved_model(model: str, openrouter_provider: str) -> str | None:
 
     Returns None when the resolved provider matches the one already in the
     model string (i.e. no new information to add), including when the user
-    explicitly pinned a provider suffix that is the stem of the resolved slug
-    (e.g. user wrote @together and OpenRouter reports 'Together AI' → slug
-    'together-ai' starts with 'together-').
+    explicitly pinned a provider suffix that names the same provider.
     """
     provider_slug = openrouter_provider.lower().replace(" ", "-")
     base = model.split("@")[0] if "@" in model else model
-    # If the user explicitly pinned a provider suffix, suppress the resolved
-    # model when that suffix is an exact match or the stem of the resolved slug.
     if "@" in model:
-        user_suffix = model.split("@", 1)[1]
-        if provider_slug == user_suffix or provider_slug.startswith(user_suffix + "-"):
+        user_suffix = model.split("@", 1)[1].lower()
+        # OpenRouter's response header uses display names ("Moonshot AI")
+        # while model suffixes use IDs ("moonshotai"). Compare both their
+        # slug and compact forms, while retaining the documented stem match.
+        compact_slug = provider_slug.replace("-", "")
+        compact_suffix = user_suffix.replace("-", "")
+        if (
+            provider_slug == user_suffix
+            or provider_slug.startswith(user_suffix + "-")
+            or compact_slug == compact_suffix
+        ):
             return None
     resolved = f"{base}@{provider_slug}"
     if resolved == model:
@@ -1076,7 +1081,7 @@ def chat(
     response = raw_response.parse()
     _or_provider = (
         raw_response.headers.get("x-openrouter-provider")
-        if provider == "openrouter"
+        if _uses_openrouter_backend(provider, model_meta)
         else None
     )
     _resolved = _make_resolved_model(model, _or_provider) if _or_provider else None
@@ -1106,6 +1111,13 @@ def chat(
             f"LLM returned empty response (finish_reason={choice.finish_reason})"
         )
     return "\n".join(result), metadata
+
+
+def _uses_openrouter_backend(provider: Provider, model_meta: ModelMeta) -> bool:
+    """Return whether this OpenAI-compatible request routes through OpenRouter."""
+    return provider == "openrouter" or (
+        provider == "gptme" and model_meta.model.startswith("openrouter/")
+    )
 
 
 def extra_headers(provider: Provider) -> dict[str, str]:
@@ -1364,7 +1376,7 @@ def stream(
     # stream. The x-openrouter-provider header is available on the initial
     # HTTP response (before the stream body starts).
     _or_stream_provider: str | None = None
-    if provider == "openrouter":
+    if _uses_openrouter_backend(provider, model_meta):
         try:
             _or_stream_provider = _stream_obj.response.headers.get(
                 "x-openrouter-provider"
