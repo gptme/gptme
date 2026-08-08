@@ -145,8 +145,14 @@ test.describe('Conversation Creation', () => {
     // explicit workspace ('.') with each create request.
     await page.waitForURL(/\/chat\/chat-/, { timeout: 15000 });
 
-    // The submitted message should be rendered in the conversation
-    await expect(page.getByText('Hello from the e2e test')).toBeVisible({ timeout: 10000 });
+    // The submitted message should be rendered in the conversation.
+    // exact: true is required — when the server under test can actually generate
+    // (e.g. the mock/echo provider used by the dev CI pass), the reply
+    // "Echo: Hello from the e2e test" also contains this string, and a substring
+    // match then resolves to two elements and fails on strict mode.
+    await expect(page.getByText('Hello from the e2e test', { exact: true })).toBeVisible({
+      timeout: 10000,
+    });
 
     // No creation-failure toast (generation itself may fail without API keys;
     // this test only covers conversation creation)

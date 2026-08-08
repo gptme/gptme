@@ -616,7 +616,11 @@ export const ChatInput: FC<Props> = ({
   const sidebarSelectedAgent = use$(selectedAgent$);
 
   // Use dynamic models instead of static list
-  const { models: modelInfos, defaultModel: apiDefaultModel } = useModels();
+  const {
+    models: modelInfos,
+    defaultModel: apiDefaultModel,
+    isLoading: isModelsLoading,
+  } = useModels();
 
   // Get conversation config to read the actual model.
   // chatConfig uses a three-value sentinel:
@@ -626,11 +630,19 @@ export const ChatInput: FC<Props> = ({
   const conversation$ = conversationId ? conversations$.get(conversationId) : null;
   const chatConfig = conversation$?.chatConfig?.get();
   const conversationModel = chatConfig?.chat?.model;
-  // True only while a chatConfig fetch is actively in flight for an existing
-  // conversation — prevents showing the wrong fallback model during the fetch.
-  // Once the fetch completes (success OR failure), chatConfig transitions from
-  // undefined to a non-undefined value and the skeleton clears.
-  const isChatConfigLoading = !!conversationId && !isReadOnly && chatConfig === undefined;
+  // Show the loading skeleton when:
+  //   (a) chatConfig is actively being fetched for an editable conversation — the
+  //       three-value sentinel tracks this: undefined = in-flight, null = failed.
+  //   (b) No model source has resolved yet and the /api/v2/models fetch is still
+  //       in-flight — prevents briefly rendering the wrong hardcoded fallback string
+  //       ('anthropic/claude-sonnet-4-6') on every fresh ChatInput mount while the
+  //       models endpoint responds.  Once isModelsLoading clears (success or failure),
+  //       we show whatever model resolved (real or fallback).
+  //       Note: !conversationModel and !defaultModel are sufficient guards here;
+  //       hasExplicitModelSelection is declared later and cannot be referenced yet.
+  const isChatConfigLoading =
+    (!!conversationId && !isReadOnly && chatConfig === undefined) ||
+    (isModelsLoading && !conversationModel && !defaultModel);
 
   // Initialize message from localStorage for persistence across page reloads
   // Skip localStorage in edit mode — content comes from the message being edited

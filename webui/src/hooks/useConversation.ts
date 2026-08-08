@@ -170,6 +170,28 @@ export function useConversation(conversationId: string, serverId?: string) {
             });
             return;
           }
+        } else if (conversation$?.chatConfig?.peek() === undefined) {
+          // Conversations created through createConversationWithPlaceholder()
+          // arrive already hydrated, so the branch above — the only other place
+          // that loads chatConfig on first open — is skipped for them.  The
+          // "ensure chat config is loaded" effect above cannot cover this case
+          // either: it bails on !conversation$.isConnected.peek(), and peek()
+          // does not subscribe, so it never re-runs once the conversation
+          // connects.  Without this fetch chatConfig stays `undefined` forever
+          // and the model selector is stuck on its loading skeleton for the
+          // whole life of every newly created conversation.
+          try {
+            const chatConfig = await api.getChatConfig(conversationId);
+            updateConversation(conversationId, { chatConfig });
+          } catch (error) {
+            console.warn(
+              `[useConversation] Failed to load chat config for ${conversationId}:`,
+              error
+            );
+            // null (not undefined) = "fetch attempted, no config", which clears
+            // the skeleton and falls back to the default model.
+            updateConversation(conversationId, { chatConfig: null });
+          }
         }
 
         // Check number of connected conversations

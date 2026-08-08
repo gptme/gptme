@@ -35,8 +35,11 @@ test.describe('UI stability: model selector (gptme#3440)', () => {
     // The model badge must be present and show something readable
     const badge = page.getByTestId('model-selector');
     await expect(badge).toBeVisible({ timeout: 5000 });
-    const text = (await badge.textContent()) ?? '';
-    expect(text.trim().length).toBeGreaterThan(0);
+    // Retrying assertion, not a one-shot textContent() sample: the badge renders
+    // an empty loading skeleton while apiDefaultModel is fetched on each fresh
+    // ChatInput mount, so reading the text once races that fetch.  Same guard the
+    // two tests below already use.
+    await expect(badge).toHaveText(/\S+/, { timeout: 10_000 });
   });
 
   test('model selector does not change after the conversation finishes loading', async ({
@@ -52,8 +55,13 @@ test.describe('UI stability: model selector (gptme#3440)', () => {
 
     const badge = page.getByTestId('model-selector');
     await expect(badge).toBeVisible({ timeout: 5000 });
+    // Wait for the badge to show a real model name.  The badge renders a loading
+    // skeleton (no text content) while apiDefaultModel is being fetched on each
+    // fresh ChatInput mount — recording '' here would make the stable-after-settle
+    // check trivially fail when apiDefaultModel arrives 1-2 s later.
+    await expect(badge).toHaveText(/\S+/, { timeout: 10_000 });
 
-    // Record the model name immediately after the conversation is displayed
+    // Record the model name once the badge has settled
     const modelAtOpen = await badge.textContent();
 
     // Wait for any async chatConfig fetch / re-render to settle
@@ -75,6 +83,9 @@ test.describe('UI stability: model selector (gptme#3440)', () => {
 
     const badge = page.getByTestId('model-selector');
     await expect(badge).toBeVisible({ timeout: 5000 });
+    // Wait for badge to show a real model (skeleton has no text; recording '' here
+    // would mask any subsequent change to a real model name after navigation).
+    await expect(badge).toHaveText(/\S+/, { timeout: 10_000 });
     const modelBeforeNavigation = await badge.textContent();
 
     // Navigate away, then back — model must be stable across the round-trip
@@ -83,6 +94,8 @@ test.describe('UI stability: model selector (gptme#3440)', () => {
     await page.getByText('Introduction to gptme').click();
     await expect(page.locator('[data-message-index]').first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId('model-selector')).toBeVisible({ timeout: 5000 });
+    // Wait for model to settle on second visit (fresh ChatInput mount = fresh models fetch)
+    await expect(page.getByTestId('model-selector')).toHaveText(/\S+/, { timeout: 10_000 });
 
     const modelAfterNavigation = await page.getByTestId('model-selector').textContent();
     expect(modelAfterNavigation).toBe(modelBeforeNavigation);

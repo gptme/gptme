@@ -183,8 +183,10 @@ jobs:
 
     - name: Start server (dev)
       env:
-        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy-ci-key' }}
-        MODEL: anthropic/claude-3-5-haiku-latest
+        # mock/echo needs no API key — generation completes deterministically
+        # and exercises the full SSE streaming path without any real LLM call.
+        # This lets the generation.spec.ts E2E tests run in CI without secrets.
+        MODEL: mock/echo
         GPTME_DISABLE_AUTH: "1"
       run: |
         gptme-server --cors-origin="http://127.0.0.1:5701,http://localhost:5701" &

@@ -134,7 +134,12 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   const leftVisible = use$(leftSidebarVisible$);
   const rightVisible = use$(rightSidebarVisible$);
   const rightActiveTab = use$(rightSidebarActiveTab$);
-  const currentConversation = conversation$.get();
+  // Reactive read: the chat section is rendered by renderMainContent(), a plain
+  // function rather than a <Memo> block, so a bare conversation$.get() there
+  // never subscribes.  Without this, a freshly created conversation renders as
+  // `null` until some *unrelated* state change re-renders MainLayout (in
+  // practice the next conversation-list refetch, seconds later).
+  const currentConversation = use$(conversation$);
 
   // Handle step parameter for auto-generation
   useEffect(() => {
@@ -548,8 +553,10 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
       );
     }
 
-    // Chat section — single conversation
-    const conversation = conversation$.get();
+    // Chat section — single conversation.
+    // Use the reactively-tracked value from the component body — see the note
+    // at its declaration for why a bare conversation$.get() is not enough here.
+    const conversation = currentConversation;
     if (conversation) {
       return (
         <div className="flex h-full flex-col overflow-hidden">
