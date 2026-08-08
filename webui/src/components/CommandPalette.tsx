@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
 import type { ConversationSummary } from '@/types/conversation';
+import { use$ } from '@legendapp/state/react';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import {
@@ -190,6 +191,11 @@ export function CommandPalette() {
     [api, getClient, location.search, setOpen]
   );
 
+  // Track selected conversation reactively so the actions memo recomputes when it changes.
+  // Without this, the copy-trajectory commands won't appear after navigating to a
+  // conversation post-mount (memo stays stale because selectedConversation$ is not a dep).
+  const selectedConvId = use$(selectedConversation$);
+
   // Define available actions
   const actions = useMemo<CommandAction[]>(
     () => [
@@ -266,7 +272,7 @@ export function CommandPalette() {
         group: 'Navigation',
       },
       // Conversation-specific actions (only when a conversation is selected)
-      ...(selectedConversation$.get()
+      ...(selectedConvId
         ? [
             {
               id: 'copy-trajectory-markdown',
@@ -354,7 +360,7 @@ export function CommandPalette() {
           ]
         : []),
     ],
-    [navigate, setOpen, copyTrajectory]
+    [navigate, setOpen, copyTrajectory, selectedConvId]
   );
 
   // Filter actions based on search query

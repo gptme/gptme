@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import { CommandPalette } from '../CommandPalette';
 import { conversations$, selectedConversation$, updateConversation } from '@/stores/conversations';
@@ -486,6 +486,31 @@ describe('CommandPalette', () => {
   });
 
   describe('State Management', () => {
+    it('shows copy commands when conversation is selected after mount', async () => {
+      // Regression test for the useMemo stale-deps bug:
+      // selectedConversation$ was not in the actions deps array, so copy commands
+      // never appeared when a conversation was selected after the component mounted.
+      // Fix: use use$() to track the observable and include it in deps.
+      selectedConversation$.set('');
+      renderCommandPalette();
+      fireEvent.keyDown(document, { key: 'k', metaKey: true });
+
+      // No conversation selected — copy commands must be absent
+      await waitFor(() => {
+        expect(screen.queryByText('Copy trajectory as Markdown')).not.toBeInTheDocument();
+      });
+
+      // Select a conversation post-mount — this is the case the bug missed
+      act(() => {
+        selectedConversation$.set('test-chat');
+      });
+
+      // Copy commands must now appear without remounting
+      await waitFor(() => {
+        expect(screen.getByText('Copy trajectory as Markdown')).toBeInTheDocument();
+      });
+    });
+
     it('resets search when closing', async () => {
       renderCommandPalette();
 
