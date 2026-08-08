@@ -68,10 +68,10 @@ export function useConversation(conversationId: string, serverId?: string) {
 
   // Track which server this conversation belongs to so copy/export actions
   // can use the correct server-scoped API client instead of the primary one.
+  // Always update (even when serverId is undefined) so switching back to the
+  // primary server clears stale secondary-server ownership.
   useEffect(() => {
-    if (serverId !== undefined) {
-      updateConversation(conversationId, { serverId });
-    }
+    updateConversation(conversationId, { serverId });
   }, [conversationId, serverId]);
 
   // Ensure the conversation's chat config is loaded whenever it's missing.

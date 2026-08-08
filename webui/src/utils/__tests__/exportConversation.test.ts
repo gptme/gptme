@@ -285,8 +285,29 @@ describe('formatConversationAsMarkdown', () => {
     expect(result).toContain('Done.');
   });
 
-  it('strips tool-call blocks where opener and closer backtick counts differ (recovered adjacent-fence form)', () => {
-    // gptme's parser can recover adjacent fences where opener/closer counts differ
+  it('does not close a tool-call block early at an embedded shorter fence', () => {
+    // A 4-backtick tool block whose body contains an embedded standalone 3-backtick
+    // fence must only close at a 4-backtick (or longer) fence — not at the embedded
+    // shorter one — to prevent the remainder of the tool content from leaking.
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Running.\n\n````bash\necho start\n```\nmore tool content\n````\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeToolCalls: false });
+    expect(result).not.toContain('echo start');
+    expect(result).not.toContain('more tool content');
+    expect(result).toContain('Running.');
+    expect(result).toContain('Done.');
+  });
+
+  it('does not strip recovered adjacent-fence forms where closer has fewer backticks than opener', () => {
+    // The closing fence regex requires at least as many backticks as the opener
+    // (CommonMark-correct behaviour) to prevent embedded shorter fences from
+    // causing early termination. As a known tradeoff, gptme "recovered" forms
+    // where the model emitted a 4-backtick opener but a 3-backtick closer are
+    // not matched; the content will appear verbatim in the export.
     const messages: Message[] = [
       {
         role: 'assistant',
@@ -294,7 +315,7 @@ describe('formatConversationAsMarkdown', () => {
       },
     ];
     const result = formatConversationAsMarkdown('Chat', messages, { includeToolCalls: false });
-    expect(result).not.toContain('path/to/file.py');
+    // The mismatched closer is NOT stripped (accepted tradeoff — see comment above)
     expect(result).toContain('Saving.');
     expect(result).toContain('Done.');
   });
