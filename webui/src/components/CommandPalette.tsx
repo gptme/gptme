@@ -24,6 +24,7 @@ import { useApi } from '@/contexts/ApiContext';
 import type { ConversationSummary } from '@/types/conversation';
 import { use$ } from '@legendapp/state/react';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
+import { demoConversations } from '@/democonversations';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import { getClientForServer } from '@/stores/serverClients';
 import {
@@ -172,13 +173,22 @@ export function CommandPalette() {
       }
 
       try {
-        const serverId = new URLSearchParams(location.search).get('server');
-        if (serverId && !getClientForServer(serverId)) {
-          toast.error('Server not found');
+        const demoConversation = demoConversations.find(({ id }) => id === convId);
+        let fullData;
+        if (demoConversation) {
+          fullData = conversations$.get(convId)?.data.peek();
+        } else {
+          const serverId = new URLSearchParams(location.search).get('server');
+          if (serverId && !getClientForServer(serverId)) {
+            toast.error('Server not found');
+            return;
+          }
+          fullData = await (serverId ? getClient(serverId) : api).getConversation(convId);
+        }
+        if (!fullData) {
+          toast.error('No messages to copy');
           return;
         }
-        const client = serverId ? getClient(serverId) : api;
-        const fullData = await client.getConversation(convId);
         if (!fullData.log.length) {
           toast.error('No messages to copy');
           return;

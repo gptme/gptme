@@ -460,6 +460,32 @@ describe('CommandPalette', () => {
       });
     });
 
+    it('copies a built-in demo trajectory from the local store', async () => {
+      const log = [{ role: 'user' as const, content: 'Demo message' }];
+      updateConversation('introduction', {
+        data: {
+          id: 'introduction',
+          name: 'Introduction to gptme',
+          log,
+          logfile: 'introduction',
+          branches: {},
+          workspace: '/demo/workspace',
+        },
+      });
+      selectedConversation$.set('introduction');
+
+      renderCommandPalette();
+      await selectCopyCommand('Copy trajectory as Markdown');
+
+      await waitFor(() => {
+        expect(mockApi.getConversation).not.toHaveBeenCalled();
+        expect(copyConversationToClipboard).toHaveBeenCalledWith('Introduction to gptme', log, {
+          includeThinking: false,
+          includeTools: false,
+        });
+      });
+    });
+
     it('copies the full trajectory through the primary server', async () => {
       const fullData = {
         id: 'primary-chat',
