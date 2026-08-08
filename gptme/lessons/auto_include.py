@@ -7,7 +7,7 @@ import random
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .index import LessonIndex
 from .matcher import LessonMatcher, MatchContext
@@ -107,6 +107,231 @@ def _get_dropout_log_dir() -> Path:
     return Path(os.environ.get("LESSON_DROPOUT_LOG_DIR", "state/lesson-dropout"))
 
 
+# --- Lesson policy manifest (Stage 1 shadow logging) ---
+
+_policy_manifest_cache: "dict[str, Any] | None" = None
+
+
+def _get_policy_manifest_path() -> Path:
+    """Return path to lesson-policy manifest.
+
+    Overridable via ``LESSON_POLICY_MANIFEST_PATH`` for testing.
+    Defaults to ``state/lesson-policy/manifest.yaml`` relative to cwd.
+    """
+    return Path(
+        os.environ.get(
+            "LESSON_POLICY_MANIFEST_PATH", "state/lesson-policy/manifest.yaml"
+        )
+    )
+
+
+def _load_policy_manifest() -> "dict[str, Any]":
+    """Load and cache the lesson-policy manifest (YAML).
+
+    Returns dict with keys: version, updated_at, validated_core, exempt, holdout_population.
+    On load failure or missing file, returns a safe default (all lessons in holdout).
+    Failures are swallowed — manifest loading must never break lesson injection.
+    """
+    global _policy_manifest_cache
+    if _policy_manifest_cache is not None:
+        return _policy_manifest_cache
+
+    manifest_path = _get_policy_manifest_path()
+    _default: dict[str, Any] = {
+        "version": 1,
+        "updated_at": "",
+        "validated_core": [],
+        "exempt": [],
+        "holdout_population": [],
+    }
+    # Sentinel used by _classify_lesson to distinguish "no manifest" (→ holdout)
+    # from "manifest exists but lesson not listed" (→ unknown).
+    _missing_default = {**_default, "_manifest_missing": True}
+
+    if not manifest_path.exists():
+        _policy_manifest_cache = _missing_default
+        return _policy_manifest_cache
+
+    try:
+        import yaml
+
+        with open(manifest_path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+        if raw is None:
+            # Empty file (e.g. `yaml.safe_load` of a blank/whitespace-only
+            # document) — treat like a missing manifest.
+            manifest: dict[str, Any] = _missing_default
+        elif not isinstance(raw, dict):
+            logger.warning(
+                "Lesson-policy manifest at %s has unexpected type (%s); using defaults",
+                manifest_path,
+                type(raw).__name__,
+            )
+            manifest = _missing_default
+        else:
+            # A valid-but-empty mapping (`{}`) means the manifest *exists* but
+            # classifies nothing — distinct from a missing manifest, so lessons
+            # should resolve to "unknown" rather than the missing-manifest
+            # "holdout" default. Don't conflate the two via truthiness.
+            manifest = raw
+    except ImportError:
+        logger.warning(
+            "yaml not available; lesson-policy manifest at %s ignored", manifest_path
+        )
+        manifest = _missing_default
+    except Exception as e:
+        logger.warning("Failed to load lesson-policy manifest: %s", e)
+        manifest = _missing_default
+
+    # Resolve the manifest path once at load time and store it as a meta key.
+    # _classify_lesson uses this to anchor relative `root:` values without
+    # re-resolving against the process CWD — which may have changed since the
+    # manifest was first cached (the Greptile "cached manifest loses its anchor"
+    # finding).
+    if not manifest.get("_manifest_missing"):
+        manifest["_manifest_abs_path"] = manifest_path.resolve()
+
+    _policy_manifest_cache = manifest
+    return _policy_manifest_cache
+
+
+def _classify_lesson(lesson_path: str) -> tuple[str, int]:
+    """Classify a lesson by its path against the policy manifest.
+
+    Args:
+        lesson_path: Filesystem path to the lesson file, e.g.
+            ``/home/bob/lessons/patterns/foo.md`` or ``lessons/patterns/foo.md``.
+
+    Returns:
+        ``(policy_class, policy_version)`` where policy_class is one of:
+
+        - ``"validated_core"``: high-ROI, recommended for all sessions
+        - ``"exempt"``: safety/retention policy, exempt from dropout
+        - ``"holdout"``: under evaluation (default)
+        - ``"unknown"``: not in manifest (created after manifest timestamp)
+    """
+    manifest = _load_policy_manifest()
+    try:
+        policy_version = int(manifest.get("version", 1))
+    except (TypeError, ValueError):
+        policy_version = 1
+
+    # Normalize: extract the category/name part for manifest key lookup.
+    # Priority order:
+    #   1. Manifest declares `root` → exact relative-path match. This guard takes
+    #      precedence over the `lessons` heuristic so a path from an outside workspace
+    #      that happens to contain a `lessons` component cannot inherit entries that
+    #      were intended for this root.
+    #   2. No root declared, path contains `lessons` dir component → key after that.
+    #   3. No root, no `lessons` component → return unknown/holdout conservatively;
+    #      suffix enumeration would accept unrelated custom-root lessons.
+    path = Path(lesson_path)
+    parts = path.parts
+    # Validate `root` is a string before using it — a malformed YAML value
+    # (int, list, dict) would raise TypeError in Path(), which the outer
+    # _log_dropout handler would catch, suppressing the entire dropout record.
+    manifest_root_raw = manifest.get("root") if isinstance(manifest, dict) else None
+    manifest_root_str = (
+        manifest_root_raw if isinstance(manifest_root_raw, str) else None
+    )
+
+    if manifest_root_str:
+        # Declared root: use exact relative-path matching for ALL paths (including
+        # those that happen to contain a "lessons" dir component).
+        try:
+            # Resolve to absolute so a relative `root:` value (e.g. `root: lessons`)
+            # works correctly when the lesson path is absolute. Python's
+            # Path.relative_to() raises ValueError if the base is relative but the
+            # target is absolute, misclassifying every valid in-root lesson.
+            #
+            # Anchor against the manifest file's directory — NOT the process CWD.
+            # When the hook runs from a workspace subdirectory, CWD-based resolve()
+            # maps `root: lessons` to `<subdirectory>/lessons` while lesson paths are
+            # rooted at the workspace root, misclassifying every in-root lesson as
+            # `unknown`. Anchoring to the manifest file's parent is CWD-independent:
+            # the manifest is always found at an absolute path, so its parent is stable.
+            manifest_root = Path(manifest_root_str)
+            if not manifest_root.is_absolute():
+                # Use the path resolved at manifest-load time, not now — the
+                # process CWD may have changed since the manifest was cached,
+                # and re-resolving a relative manifest path against the new CWD
+                # would anchor the relative `root:` to the wrong directory.
+                manifest_file_abs = (
+                    manifest.get("_manifest_abs_path")
+                    or _get_policy_manifest_path().resolve()
+                )
+                manifest_root = (manifest_file_abs.parent / manifest_root_str).resolve()
+            else:
+                # Always resolve absolute roots too so that paths containing `..`
+                # or symlink components compare correctly against lesson paths.
+                manifest_root = manifest_root.resolve()
+            abs_path = path if path.is_absolute() else path.resolve()
+            try:
+                rel = abs_path.relative_to(manifest_root)
+            except ValueError:
+                # `manifest_root` is always fully resolved above, but an absolute
+                # lesson path is used as-is — so the two sides are normalized
+                # asymmetrically. When any component of the lesson path is a
+                # symlink or `..` (a symlinked workspace root, `/tmp` on macOS,
+                # `$HOME` behind a symlink), the same file has two spellings and
+                # relative_to() fails, mislabelling every in-root lesson
+                # "unknown". Retry fully resolved.
+                #
+                # Ordering matters: the unresolved comparison is tried first so a
+                # lesson file that is itself a symlink *out of* the root (the
+                # index deliberately keeps such entries, deduping by realpath)
+                # still classifies against the root it was discovered under.
+                rel = abs_path.resolve().relative_to(manifest_root)
+            candidate_keys = [str(rel).replace("\\", "/").removesuffix(".md")]
+        except (ValueError, OSError):
+            # Path is outside the declared root — it belongs to a different lesson
+            # tree and must not inherit entries from this manifest.
+            if manifest.get("_manifest_missing"):
+                return "holdout", policy_version
+            return "unknown", policy_version
+    else:
+        # No root declared. Use the "lessons" dir component as a heuristic anchor.
+        try:
+            lessons_idx = list(parts).index("lessons")
+            candidate_keys = ["/".join(parts[lessons_idx + 1 :]).removesuffix(".md")]
+        except ValueError:
+            # No root and no "lessons" component. Suffix enumeration would accept
+            # lessons from unrelated custom roots — return unknown/holdout
+            # conservatively. Set `root:` in the manifest to classify custom-root
+            # lessons accurately.
+            if manifest.get("_manifest_missing"):
+                return "holdout", policy_version
+            return "unknown", policy_version
+
+    # Build a lookup from manifest key → policy class so we can pick the
+    # most specific (longest) matching suffix first, regardless of class order.
+    # Without this, a shorter suffix in validated_core would shadow the intended
+    # longer key in holdout_population (the Greptile-identified suffix-priority bug).
+    key_to_class: dict[str, str] = {}
+    for category, class_name in [
+        ("validated_core", "validated_core"),
+        ("exempt", "exempt"),
+        ("holdout_population", "holdout"),
+    ]:
+        category_list = manifest.get(category)
+        if not isinstance(category_list, list):
+            continue
+        for k in category_list:
+            if isinstance(k, str):  # skip non-string (YAML mappings, nested lists)
+                key_to_class.setdefault(k, class_name)
+
+    # Iterate candidate keys longest-first: the most specific match wins.
+    for key in sorted(candidate_keys, key=len, reverse=True):
+        if key in key_to_class:
+            return key_to_class[key], policy_version
+
+    # No manifest on disk → default evaluation population is "holdout".
+    # Manifest exists but lesson not listed → "unknown" (added after manifest stamp).
+    if manifest.get("_manifest_missing"):
+        return "holdout", policy_version
+    return "unknown", policy_version
+
+
 def _apply_lesson_dropout(matches: list) -> list:
     """Randomly withhold matched lessons for causal LOO measurement.
 
@@ -137,13 +362,17 @@ def _apply_lesson_dropout(matches: list) -> list:
         else:
             kept.append(match)
 
-    _log_dropout(epsilon, withheld)
+    _log_dropout(epsilon, kept, withheld)
 
     return kept
 
 
-def _log_dropout(epsilon: float, withheld: list[dict]) -> None:
+def _log_dropout(epsilon: float, kept: list, withheld: list[dict]) -> None:
     """Append a randomized-dropout record for causal LOO analysis.
+
+    Stage 1 shadow logging: includes ``policy_class`` and ``policy_version``
+    for every lesson (both kept and withheld) so manifest classification can
+    be verified without changing dropout behavior.
 
     Failures are logged and swallowed — dropout logging must never break lesson
     injection.
@@ -152,11 +381,39 @@ def _log_dropout(epsilon: float, withheld: list[dict]) -> None:
         session_id = _get_dropout_session_id()
         log_dir = _get_dropout_log_dir()
         log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Enrich withheld entries with policy classification (Stage 1 shadow).
+        enriched_withheld = []
+        for entry in withheld:
+            policy_class, policy_version = _classify_lesson(entry.get("path", ""))
+            enriched_withheld.append(
+                {
+                    **entry,
+                    "policy_class": policy_class,
+                    "policy_version": policy_version,
+                }
+            )
+
+        # Log kept (matched) lessons for treatment-assignment verification.
+        enriched_matched = []
+        for match in kept:
+            lesson = match.lesson
+            policy_class, policy_version = _classify_lesson(str(lesson.path))
+            enriched_matched.append(
+                {
+                    "path": str(lesson.path),
+                    "title": lesson.title,
+                    "policy_class": policy_class,
+                    "policy_version": policy_version,
+                }
+            )
+
         record = {
             "ts": time.time(),
             "session_id": session_id,
             "epsilon": epsilon,
-            "withheld": withheld,
+            "withheld": enriched_withheld,
+            "matched": enriched_matched,
         }
         with open(log_dir / f"{session_id}.jsonl", "a") as f:
             f.write(json.dumps(record) + "\n")

@@ -412,3 +412,740 @@ def test_dropout_empty_matches_still_logs_when_epsilon_positive(monkeypatch, tmp
     assert records[0]["session_id"] == "sess-empty"
     assert records[0]["epsilon"] == 0.25
     assert records[0]["withheld"] == []  # empty withheld list
+
+
+# --- Lesson policy manifest (Stage 1 shadow logging) ---
+
+import gptme.lessons.auto_include as _auto_include_mod
+from gptme.lessons.auto_include import (
+    _classify_lesson,
+    _get_policy_manifest_path,
+    _load_policy_manifest,
+)
+
+
+def _write_manifest(path: Path, content: str) -> None:
+    path.write_text(content)
+
+
+def _reset_manifest_cache(monkeypatch) -> None:
+    monkeypatch.setattr(_auto_include_mod, "_policy_manifest_cache", None)
+
+
+def test_policy_manifest_path_default(monkeypatch):
+    monkeypatch.delenv("LESSON_POLICY_MANIFEST_PATH", raising=False)
+    assert _get_policy_manifest_path() == Path("state/lesson-policy/manifest.yaml")
+
+
+def test_policy_manifest_path_override(monkeypatch, tmp_path):
+    override = str(tmp_path / "custom.yaml")
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", override)
+    assert _get_policy_manifest_path() == Path(override)
+
+
+def test_load_policy_manifest_missing_returns_default(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    monkeypatch.setenv(
+        "LESSON_POLICY_MANIFEST_PATH", str(tmp_path / "nonexistent.yaml")
+    )
+    manifest = _load_policy_manifest()
+    assert manifest["version"] == 1
+    assert manifest["validated_core"] == []
+    assert manifest["holdout_population"] == []
+
+
+def test_load_policy_manifest_valid(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    _write_manifest(
+        manifest_file,
+        """\
+version: 2
+updated_at: '2026-08-01T00:00:00Z'
+validated_core:
+- patterns/persistent-learning
+exempt:
+- safety/critical-rule
+holdout_population:
+- code/some-lesson
+""",
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    manifest = _load_policy_manifest()
+    assert manifest["version"] == 2
+    assert "patterns/persistent-learning" in manifest["validated_core"]
+    assert "safety/critical-rule" in manifest["exempt"]
+    assert "code/some-lesson" in manifest["holdout_population"]
+
+
+def _make_manifest_file(tmp_path: Path, **categories) -> Path:
+    """Write a minimal manifest YAML and return its path."""
+    lines = ["version: 1", "updated_at: ''"]
+    for cat in ("validated_core", "exempt", "holdout_population"):
+        lines.append(f"{cat}:")
+        lines.extend(f"- {item}" for item in categories.get(cat, []))
+    p = tmp_path / "manifest.yaml"
+    p.write_text("\n".join(lines) + "\n")
+    return p
+
+
+def test_classify_lesson_holdout(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    p = _make_manifest_file(
+        tmp_path, holdout_population=["patterns/persistent-learning"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    policy_class, version = _classify_lesson(
+        "/home/bob/lessons/patterns/persistent-learning.md"
+    )
+    assert policy_class == "holdout"
+    assert version == 1
+
+
+def test_classify_lesson_validated_core(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    p = _make_manifest_file(tmp_path, validated_core=["code/important"])
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    policy_class, version = _classify_lesson("lessons/code/important.md")
+    assert policy_class == "validated_core"
+
+
+def test_classify_lesson_exempt(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    p = _make_manifest_file(tmp_path, exempt=["safety/critical"])
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    policy_class, _ = _classify_lesson("/tmp/lessons/safety/critical.md")
+    assert policy_class == "exempt"
+
+
+def test_classify_lesson_unknown(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    p = _make_manifest_file(tmp_path)  # empty manifest (manifest EXISTS, lesson absent)
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    policy_class, _ = _classify_lesson("lessons/new/brand-new.md")
+    assert policy_class == "unknown"
+
+
+def test_classify_lesson_no_manifest_defaults_to_holdout(monkeypatch, tmp_path):
+    """No manifest file → default evaluation population is holdout, not unknown."""
+    _reset_manifest_cache(monkeypatch)
+    monkeypatch.setenv(
+        "LESSON_POLICY_MANIFEST_PATH", str(tmp_path / "nonexistent.yaml")
+    )
+    policy_class, _ = _classify_lesson("lessons/any/lesson.md")
+    assert policy_class == "holdout"
+
+
+def test_load_policy_manifest_invalid_yaml_structure(monkeypatch, tmp_path):
+    """Non-dict manifest YAML falls back to missing-default (holdout, not unknown)."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("- just\n- a\n- list\n")
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    manifest = _load_policy_manifest()
+    assert manifest["version"] == 1
+    assert manifest["validated_core"] == []
+    assert manifest["holdout_population"] == []
+    # Load failures should also default to holdout (not unknown)
+    assert manifest.get("_manifest_missing") is True
+
+
+def test_classify_lesson_load_failure_defaults_to_holdout(monkeypatch, tmp_path):
+    """When manifest exists but can't be parsed, lessons default to holdout."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("- just\n- a\n- list\n")  # non-dict YAML
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    policy_class, _ = _classify_lesson("lessons/any/lesson.md")
+    assert policy_class == "holdout"
+
+
+def test_classify_lesson_malformed_category_value(monkeypatch, tmp_path):
+    """Non-list category values are skipped safely; lesson falls through to holdout/unknown."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    # validated_core is a string (malformed), holdout_population is correct
+    manifest_file.write_text(
+        "version: 1\nupdated_at: ''\nvalidated_core: 'not-a-list'\nexempt: []\nholdout_population:\n- patterns/foo\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # The malformed validated_core is skipped; holdout_population matches correctly
+    policy_class, _ = _classify_lesson("lessons/patterns/foo.md")
+    assert policy_class == "holdout"
+    # A non-matching lesson gets unknown (manifest loaded successfully)
+    _reset_manifest_cache(monkeypatch)
+    policy_class2, _ = _classify_lesson("lessons/other/bar.md")
+    assert policy_class2 == "unknown"
+
+
+def test_classify_lesson_custom_root_no_root_returns_unknown(monkeypatch, tmp_path):
+    """Without a declared root, a path with no 'lessons' component conservatively
+    returns unknown/holdout rather than attempting suffix enumeration (which would
+    accept unrelated custom-root lessons)."""
+    _reset_manifest_cache(monkeypatch)
+    p = _make_manifest_file(
+        tmp_path, holdout_population=["patterns/persistent-learning"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    # Path has no 'lessons' component and no root is declared — suffix enumeration
+    # is unsafe; must return unknown (manifest exists, lesson simply unclassifiable
+    # without a root anchor).
+    policy_class, _ = _classify_lesson("/opt/guidance/patterns/persistent-learning.md")
+    assert policy_class == "unknown"
+
+
+def test_classify_lesson_custom_root_with_root_declared(monkeypatch, tmp_path):
+    """When the manifest declares a root, custom paths are classified via exact
+    relative-path lookup, including nested categories."""
+    _reset_manifest_cache(monkeypatch)
+    root_dir = tmp_path / "guidance"
+    root_dir.mkdir()
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"version: 1\nupdated_at: ''\nroot: {root_dir}\n"
+        "validated_core: []\nexempt: []\nholdout_population:\n"
+        "- patterns/persistent-learning\n"
+        "- patterns/sub/persistent-learning\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # Flat category
+    policy_class, _ = _classify_lesson(
+        str(root_dir / "patterns" / "persistent-learning.md")
+    )
+    assert policy_class == "holdout"
+    # Nested category: exact relative path 'patterns/sub/persistent-learning' matches
+    _reset_manifest_cache(monkeypatch)
+    policy_class2, _ = _classify_lesson(
+        str(root_dir / "patterns" / "sub" / "persistent-learning.md")
+    )
+    assert policy_class2 == "holdout"
+
+
+def test_classify_lesson_non_string_category_entries_ignored(monkeypatch, tmp_path):
+    """Non-string category list elements (YAML mappings, nested lists) are skipped
+    without raising TypeError, so dropout records are not suppressed."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    # A YAML list that mixes strings with a mapping entry (malformed but valid YAML)
+    manifest_file.write_text(
+        "version: 1\n"
+        "updated_at: ''\n"
+        "validated_core:\n"
+        "- code/important\n"
+        "- {nested: mapping}\n"  # non-string element — must not raise
+        "exempt: []\n"
+        "holdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # The valid string entry must still match; the mapping entry must be silently skipped
+    policy_class, _ = _classify_lesson("lessons/code/important.md")
+    assert policy_class == "validated_core"
+    # A lesson not in any category resolves to unknown (no TypeError raised)
+    policy_class2, _ = _classify_lesson("lessons/other/foo.md")
+    assert policy_class2 == "unknown"
+
+
+def test_classify_lesson_custom_root_overlapping_suffix_with_root(
+    monkeypatch, tmp_path
+):
+    """With a declared root, exact relative-path lookup is used — 'validated_core'
+    entry 'sub/foo' cannot shadow the intended 'patterns/sub/foo' entry in
+    holdout_population because only one candidate key is produced.
+
+    Regression for the earlier suffix-priority bug: without root anchoring the
+    suffix-enumeration path would check both keys and the shorter one in a
+    higher-priority class could win. With root declared, only the exact relative
+    path is tried, so the correct class is returned.
+    """
+    _reset_manifest_cache(monkeypatch)
+    root_dir = tmp_path / "guidance"
+    root_dir.mkdir()
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"version: 1\nupdated_at: ''\nroot: {root_dir}\n"
+        "validated_core:\n- sub/persistent-learning\n"
+        "exempt: []\n"
+        "holdout_population:\n- patterns/sub/persistent-learning\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # Exact relative path from root is 'patterns/sub/persistent-learning' → holdout
+    policy_class, _ = _classify_lesson(
+        str(root_dir / "patterns" / "sub" / "persistent-learning.md")
+    )
+    assert policy_class == "holdout"
+
+
+def test_load_policy_manifest_empty_mapping_is_not_missing(monkeypatch, tmp_path):
+    """A valid-but-empty manifest ({}) exists, so lessons should classify as
+    'unknown', not fall back to the missing-manifest 'holdout' default."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("{}\n")
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    manifest = _load_policy_manifest()
+    assert manifest.get("_manifest_missing") is not True
+    policy_class, _ = _classify_lesson("lessons/any/lesson.md")
+    assert policy_class == "unknown"
+
+
+def test_dropout_log_withheld_has_policy_fields(monkeypatch, tmp_path):
+    """Withheld entries in dropout log carry policy_class and policy_version."""
+    import random as _random
+
+    _reset_manifest_cache(monkeypatch)
+    log_dir = tmp_path / "drop"
+    p = _make_manifest_file(
+        tmp_path, holdout_population=["category/lesson-a", "category/lesson-b"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "1.0")  # withhold all
+    monkeypatch.setenv("LESSON_DROPOUT_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("GPTME_SESSION_ID", "sess-withheld-policy")
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+
+    matches = [
+        _MockMatch(_make_lesson("A", "body", "lessons/category/lesson-a.md")),
+        _MockMatch(_make_lesson("B", "body", "lessons/category/lesson-b.md")),
+    ]
+    _random.seed(0)
+    kept = _apply_lesson_dropout(matches)
+    assert kept == []  # all withheld at epsilon=1.0
+
+    records = [
+        json.loads(line)
+        for line in (log_dir / "sess-withheld-policy.jsonl").read_text().splitlines()
+        if line
+    ]
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["matched"] == []
+    assert len(rec["withheld"]) == 2
+    for entry in rec["withheld"]:
+        assert entry["policy_class"] == "holdout"
+        assert entry["policy_version"] == 1
+        assert "path" in entry
+        assert "title" in entry
+
+
+def test_dropout_log_matched_has_policy_fields(monkeypatch, tmp_path):
+    """Kept (matched) entries in dropout log carry policy_class and policy_version."""
+    import random as _random
+
+    _reset_manifest_cache(monkeypatch)
+    log_dir = tmp_path / "drop"
+    p = _make_manifest_file(tmp_path, validated_core=["category/kept"])
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "0.25")
+    monkeypatch.setenv("LESSON_DROPOUT_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("GPTME_SESSION_ID", "sess-matched-policy")
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+
+    # Patch random to always keep (return > epsilon)
+    monkeypatch.setattr(_random, "random", lambda: 0.9)
+
+    matches = [
+        _MockMatch(_make_lesson("Kept", "body", "lessons/category/kept.md")),
+    ]
+    kept = _apply_lesson_dropout(matches)
+    assert len(kept) == 1  # not withheld
+
+    records = [
+        json.loads(line)
+        for line in (log_dir / "sess-matched-policy.jsonl").read_text().splitlines()
+        if line
+    ]
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["withheld"] == []
+    assert len(rec["matched"]) == 1
+    entry = rec["matched"][0]
+    assert entry["policy_class"] == "validated_core"
+    assert entry["policy_version"] == 1
+    assert "path" in entry
+    assert "title" in entry
+
+
+# --- Manifest root-anchored classification (Greptile finding) ---
+
+
+def _make_manifest_file_with_root(tmp_path: Path, root: str, **categories) -> Path:
+    """Write a manifest YAML with a root field and return its path."""
+    lines = ["version: 1", "updated_at: ''", f"root: {root}"]
+    for cat in ("validated_core", "exempt", "holdout_population"):
+        lines.append(f"{cat}:")
+        lines.extend(f"- {item}" for item in categories.get(cat, []))
+    p = tmp_path / "manifest.yaml"
+    p.write_text("\n".join(lines) + "\n")
+    return p
+
+
+def test_classify_lesson_malformed_root_is_ignored(monkeypatch, tmp_path):
+    """A non-string `root` value in the manifest (e.g. integer, list) must not raise
+    TypeError — it should be treated as if no root was declared, falling through to
+    the lessons-component heuristic or conservative unknown return."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    # root is an integer — invalid but legal YAML
+    manifest_file.write_text(
+        "version: 1\nupdated_at: ''\nroot: 42\n"
+        "validated_core:\n- category/lesson\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # Should not raise; malformed root is skipped → falls through to lessons heuristic
+    policy_class, _ = _classify_lesson("lessons/category/lesson.md")
+    assert policy_class == "validated_core"
+    # Path with no lessons component → conservative unknown (no suffix enumeration)
+    _reset_manifest_cache(monkeypatch)
+    policy_class2, _ = _classify_lesson("/opt/custom/category/lesson.md")
+    assert policy_class2 == "unknown"
+
+
+def test_classify_lesson_root_check_precedes_lessons_component(monkeypatch, tmp_path):
+    """When manifest declares a root, it takes precedence over the 'lessons' heuristic.
+
+    A path that contains a 'lessons' component but is outside the declared root
+    must NOT match manifest entries. This prevents a lesson from an outside workspace
+    that happens to have a 'lessons/' directory from inheriting entries intended for
+    this root.
+    """
+    _reset_manifest_cache(monkeypatch)
+    root_dir = tmp_path / "root-a"
+    root_dir.mkdir()
+    p = _make_manifest_file_with_root(
+        tmp_path,
+        root=str(root_dir),
+        validated_core=["patterns/foo"],
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    # This path has a 'lessons' component AND shares the suffix 'patterns/foo',
+    # but it is NOT under the declared root — must return unknown, not validated_core.
+    outside_path = tmp_path / "other-workspace" / "lessons" / "patterns" / "foo.md"
+    outside_path.parent.mkdir(parents=True)
+    policy_class, _ = _classify_lesson(str(outside_path))
+    assert policy_class == "unknown"
+
+
+def test_classify_lesson_manifest_root_exact_match(monkeypatch, tmp_path):
+    """When manifest declares a root, classify via exact relative-path lookup."""
+    _reset_manifest_cache(monkeypatch)
+    root_dir = tmp_path / "custom-lessons"
+    root_dir.mkdir()
+    p = _make_manifest_file_with_root(
+        tmp_path,
+        root=str(root_dir),
+        validated_core=["patterns/foo"],
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    policy_class, _ = _classify_lesson(str(root_dir / "patterns" / "foo.md"))
+    assert policy_class == "validated_core"
+
+
+def test_classify_lesson_manifest_root_outside_root_returns_unknown(
+    monkeypatch, tmp_path
+):
+    """Path outside the manifest root must not match manifest entries (no suffix false-positive)."""
+    _reset_manifest_cache(monkeypatch)
+    root_a = tmp_path / "root-a"
+    root_a.mkdir()
+    root_b = tmp_path / "root-b"
+    root_b.mkdir()
+    # Manifest is anchored to root_a with key "patterns/foo"
+    p = _make_manifest_file_with_root(
+        tmp_path,
+        root=str(root_a),
+        validated_core=["patterns/foo"],
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    # Lesson at root_b shares the same relative suffix — must NOT inherit the class
+    policy_class, _ = _classify_lesson(str(root_b / "patterns" / "foo.md"))
+    assert policy_class == "unknown"  # manifest exists but path is outside root
+
+
+def test_classify_lesson_manifest_root_prevents_short_key_false_positive(
+    monkeypatch, tmp_path
+):
+    """Short stem-only manifest key must not match a lesson at a different custom root."""
+    _reset_manifest_cache(monkeypatch)
+    root_a = tmp_path / "root-a"
+    root_a.mkdir()
+    root_b = tmp_path / "root-b"
+    root_b.mkdir()
+    # Manifest anchored to root_a with a stem-only key "foo"
+    p = _make_manifest_file_with_root(
+        tmp_path,
+        root=str(root_a),
+        validated_core=["foo"],
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    # A lesson at root_b with the same stem must not inherit validated_core
+    policy_class, _ = _classify_lesson(str(root_b / "sub" / "foo.md"))
+    assert policy_class == "unknown"
+
+
+def test_classify_lesson_relative_manifest_root(monkeypatch, tmp_path):
+    """A relative `root:` in the manifest is resolved against the manifest
+    file's directory (not CWD) so absolute lesson paths under that root are
+    classified correctly regardless of where the hook runs.
+
+    Regression for: `Path(abs_lesson).relative_to(Path("lessons"))` raises
+    ValueError because an absolute target can't be made relative to a relative
+    base — causing every valid in-root lesson to fall through to 'unknown'.
+
+    Second regression (this test): resolving relative roots against CWD causes
+    `unknown` classification when the hook runs from a workspace subdirectory
+    rather than the project root, because CWD/lessons ≠ manifest_parent/lessons.
+    The fix anchors to the manifest file's parent, which is CWD-independent.
+    """
+    _reset_manifest_cache(monkeypatch)
+    # lessons_dir is a sibling of the manifest file (both under tmp_path).
+    # A relative `root: lessons` in the manifest resolves to tmp_path/lessons
+    # when anchored to the manifest's parent — correct regardless of CWD.
+    lessons_dir = tmp_path / "lessons"
+    (lessons_dir / "patterns").mkdir(parents=True)
+    lesson = lessons_dir / "patterns" / "foo.md"
+    lesson.write_text("# Foo\n")
+
+    manifest_file = tmp_path / "manifest.yaml"
+    # `root: lessons` — a relative path; anchored to manifest_file.parent = tmp_path
+    manifest_file.write_text(
+        "version: 1\nupdated_at: ''\nroot: lessons\n"
+        "validated_core:\n- patterns/foo\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    # Deliberately do NOT chdir to tmp_path — the fix must work from any CWD.
+
+    policy_class, _ = _classify_lesson(str(lesson))
+    assert policy_class == "validated_core"
+
+
+def test_classify_lesson_relative_root_cwd_independent(monkeypatch, tmp_path):
+    """Relative `root:` resolves against the manifest file's location, not CWD.
+
+    Regression: when the hook runs from a workspace subdirectory, the old
+    `resolve()` (CWD-anchored) mapped `root: lessons` to
+    `<subdirectory>/lessons`, while lesson paths were rooted at the workspace
+    root. Every in-root lesson was misclassified as `unknown`. This test
+    verifies correct classification even when CWD is a subdirectory.
+    """
+    _reset_manifest_cache(monkeypatch)
+    lessons_dir = tmp_path / "lessons"
+    (lessons_dir / "patterns").mkdir(parents=True)
+    lesson = lessons_dir / "patterns" / "foo.md"
+    lesson.write_text("# Foo\n")
+
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        "version: 1\nupdated_at: ''\nroot: lessons\n"
+        "validated_core:\n- patterns/foo\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+
+    # Simulate running from a workspace subdirectory — CWD ≠ tmp_path.
+    # Under the old CWD-anchored resolve(), `root: lessons` would map to
+    # `<subdir>/lessons`, causing `relative_to` to raise ValueError and
+    # the lesson to be classified as `unknown`.
+    subdir = tmp_path / "gptme" / "lessons"
+    subdir.mkdir(parents=True)
+    monkeypatch.chdir(subdir)
+
+    policy_class, _ = _classify_lesson(str(lesson))
+    assert policy_class == "validated_core"
+
+
+def test_classify_lesson_cached_manifest_cwd_change_stable(monkeypatch, tmp_path):
+    """CWD change after manifest is cached must not break relative-root anchoring.
+
+    Regression for: when LESSON_POLICY_MANIFEST_PATH is relative and the process
+    CWD changes between manifest-load time and classify time, the old
+    `_get_policy_manifest_path().resolve()` call at classify time resolved against
+    the *new* CWD, producing the wrong anchor directory and misclassifying every
+    in-root lesson as `unknown`.
+
+    The fix: resolve the manifest path once at load time and store it as
+    `_manifest_abs_path` in the cached dict. Classify time reads that stored path.
+
+    Layout: manifest at workspace root (so `root: lessons` anchors to workspace/lessons).
+    The manifest PATH env var is relative — that is the precondition that triggers the bug.
+    """
+    _reset_manifest_cache(monkeypatch)
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    lessons_dir = workspace / "lessons"
+    (lessons_dir / "patterns").mkdir(parents=True)
+    lesson = lessons_dir / "patterns" / "foo.md"
+    lesson.write_text("# Foo\n")
+
+    # Manifest at workspace root; `root: lessons` resolves to workspace/lessons
+    # when anchored to manifest_file.parent = workspace.
+    manifest_file = workspace / "manifest.yaml"
+    manifest_file.write_text(
+        "version: 1\nupdated_at: ''\nroot: lessons\n"
+        "validated_core:\n- patterns/foo\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+
+    # Use a RELATIVE manifest path — the bug only triggers when the path is relative.
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", "manifest.yaml")
+    monkeypatch.chdir(
+        workspace
+    )  # CWD = workspace: "manifest.yaml" resolves correctly here
+
+    # Load and cache the manifest while CWD = workspace.
+    _load_policy_manifest()
+
+    # Simulate CWD change (e.g. hook is called later from a different directory).
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    monkeypatch.chdir(other_dir)
+
+    # Without the fix: `_get_policy_manifest_path().resolve()` now resolves to
+    # `<other_dir>/manifest.yaml` (wrong base), so
+    # `manifest_root = <other_dir>/lessons` and `relative_to` raises ValueError →
+    # lesson is classified as "unknown" instead of "validated_core".
+    policy_class, _ = _classify_lesson(str(lesson))
+    assert policy_class == "validated_core"
+
+
+def test_classify_lesson_absolute_root_with_dotdot_resolves(monkeypatch, tmp_path):
+    """Absolute root containing `..` must be resolved before relative_to comparison.
+
+    Without .resolve(), Path('/opt/../lessons').relative_to('/opt/lessons') raises
+    ValueError (lexical comparison, no normalization), misclassifying valid lessons.
+    """
+    _reset_manifest_cache(monkeypatch)
+
+    lessons_dir = tmp_path / "lessons"
+    (lessons_dir / "patterns").mkdir(parents=True)
+    lesson = lessons_dir / "patterns" / "foo.md"
+    lesson.write_text("# Foo\n")
+
+    # Construct an absolute root with a `..` component that resolves to lessons_dir.
+    other = tmp_path / "other"
+    other.mkdir()
+    dotdot_root = str(other / ".." / "lessons")  # absolute but not normalized
+
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"version: 1\nupdated_at: ''\nroot: {dotdot_root}\n"
+        "validated_core:\n- patterns/foo\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+
+    policy_class, _ = _classify_lesson(str(lesson))
+    assert policy_class == "validated_core"
+
+
+def test_classify_lesson_symlinked_path_component_matches_root(monkeypatch, tmp_path):
+    """A symlinked component in an *absolute* lesson path must still match the root.
+
+    `manifest_root` is always `.resolve()`d, but an absolute lesson path is used
+    as-is. When the lesson is reached through a symlink (a symlinked workspace
+    root, `/tmp` on macOS, `$HOME` behind a symlink) the two sides spell the same
+    file differently, `relative_to()` raises ValueError, and every in-root lesson
+    is silently mislabelled "unknown" in the shadow log.
+    """
+    _reset_manifest_cache(monkeypatch)
+
+    real = tmp_path / "real"
+    (real / "lessons" / "patterns").mkdir(parents=True)
+    (real / "lessons" / "patterns" / "foo.md").write_text("# Foo\n")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    manifest_file = _make_manifest_file_with_root(
+        real, "lessons", validated_core=["patterns/foo"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+
+    # Sanity: the real path classifies correctly.
+    assert _classify_lesson(str(real / "lessons" / "patterns" / "foo.md"))[0] == (
+        "validated_core"
+    )
+
+    # The same file reached via the symlink must classify identically.
+    _reset_manifest_cache(monkeypatch)
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    assert _classify_lesson(str(link / "lessons" / "patterns" / "foo.md"))[0] == (
+        "validated_core"
+    )
+
+
+def test_classify_lesson_symlinked_manifest_and_lesson_matches_root(
+    monkeypatch, tmp_path
+):
+    """Reaching *both* manifest and lesson through the same symlink must classify.
+
+    This is the realistic deployment shape (whole workspace behind a symlink):
+    the manifest path is resolved at load time while the lesson path is not, so
+    the asymmetry bites even when caller paths are internally consistent.
+    """
+    _reset_manifest_cache(monkeypatch)
+
+    real = tmp_path / "real"
+    (real / "lessons" / "patterns").mkdir(parents=True)
+    (real / "lessons" / "patterns" / "foo.md").write_text("# Foo\n")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    _make_manifest_file_with_root(real, "lessons", validated_core=["patterns/foo"])
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(link / "manifest.yaml"))
+
+    assert _classify_lesson(str(link / "lessons" / "patterns" / "foo.md"))[0] == (
+        "validated_core"
+    )
+
+
+def test_classify_lesson_absolute_lesson_path_with_dotdot_matches_root(
+    monkeypatch, tmp_path
+):
+    """An absolute lesson path containing `..` must normalize before comparison.
+
+    The root side is resolved, the lesson side was not — so `..` in the lesson
+    path produced a spurious "unknown".
+    """
+    _reset_manifest_cache(monkeypatch)
+
+    lessons_dir = tmp_path / "lessons"
+    (lessons_dir / "patterns").mkdir(parents=True)
+    (lessons_dir / "patterns" / "foo.md").write_text("# Foo\n")
+    (tmp_path / "other").mkdir()
+
+    manifest_file = _make_manifest_file_with_root(
+        tmp_path, "lessons", validated_core=["patterns/foo"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+
+    dotdot_lesson = str(tmp_path / "other" / ".." / "lessons" / "patterns" / "foo.md")
+    assert _classify_lesson(dotdot_lesson)[0] == "validated_core"
+
+
+def test_classify_lesson_symlinked_lesson_file_outside_root_still_matches(
+    monkeypatch, tmp_path
+):
+    """A lesson file that is a symlink *out of* the root keeps its discovered class.
+
+    LessonIndex indexes symlinked lesson files under the directory they were
+    discovered in (deduping by realpath), so classification must use the
+    discovery path, not the symlink target. Guards against "just resolve()
+    everything", which would send such lessons to "unknown".
+    """
+    _reset_manifest_cache(monkeypatch)
+
+    lessons_dir = tmp_path / "lessons" / "patterns"
+    lessons_dir.mkdir(parents=True)
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "foo.md").write_text("# Foo\n")
+    (lessons_dir / "foo.md").symlink_to(external / "foo.md")
+
+    manifest_file = _make_manifest_file_with_root(
+        tmp_path, "lessons", validated_core=["patterns/foo"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+
+    assert _classify_lesson(str(lessons_dir / "foo.md"))[0] == "validated_core"
