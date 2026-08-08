@@ -27,28 +27,40 @@ jobs:
     permissions:
       pull-requests: write
       contents: write  # CML needs write access to create draft release assets for image hosting
+      actions: read    # needed to download artifacts from the triggering workflow run
 
     steps:
     # Download the "after" screenshots from the triggering PR run.
-    # We scope by run_id so we always get exactly this PR's artifacts.
+    # We use actions/download-artifact (official) rather than dawidd6/action-download-artifact
+    # because the official action guarantees files land directly in `path` (no artifact-name
+    # subdirectory), which is what diff-screenshots.sh expects with its non-recursive glob.
     - name: Download "after" screenshots
-      uses: dawidd6/action-download-artifact@v6
+      id: download
+      uses: actions/download-artifact@v7
       with:
-        run_id: ${{ github.event.workflow_run.id }}
+        run-id: ${{ github.event.workflow_run.id }}
         name: webui-visual-snapshots
         path: screenshots/after
-        if_no_artifact_found: warn
+        github-token: ${{ github.token }}
+      continue-on-error: true  # warn rather than fail when screenshots weren't uploaded
 
     - name: Check for after screenshots and read PR number
       id: setup
       run: |
-        # Check that screenshots were uploaded
-        PNG_COUNT=$(find screenshots/after -name '*.png' 2>/dev/null | wc -l | tr -d ' ')
+        # Log the downloaded structure to aid future debugging.
+        echo "=== screenshots/after contents ==="
+        find screenshots/after -maxdepth 2 2>/dev/null | sort || echo "(empty or not found)"
+        echo "==================================="
+
+        # Use -maxdepth 1 (same non-recursive scope as diff-screenshots.sh's glob)
+        # to avoid a false-positive proceed when files landed in a subdirectory.
+        PNG_COUNT=$(find screenshots/after -maxdepth 1 -name '*.png' 2>/dev/null | wc -l | tr -d ' ')
         if [ "$PNG_COUNT" -eq 0 ]; then
-          echo "No screenshots found in artifact — skipping diff"
+          echo "No screenshots found directly in screenshots/after — skipping diff"
           echo "skip=true" >> $GITHUB_OUTPUT
           exit 0
         fi
+        echo "Found $PNG_COUNT after-screenshot(s)"
         echo "screenshots_found=true" >> $GITHUB_OUTPUT
 
         # Derive PR number from trusted event data.

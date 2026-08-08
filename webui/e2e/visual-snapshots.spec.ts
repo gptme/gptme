@@ -34,3 +34,19 @@ test('02-demo-conversation', async ({ page }) => {
   await page.waitForTimeout(1000);
   await page.screenshot({ path: path.join(SCREENSHOTS_DIR, '02-demo-conversation.png') });
 });
+
+test('03-home-mobile', async ({ page }) => {
+  // Capture the mobile (narrow) layout to catch responsive CSS regressions.
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/?demo=1');
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: path.join(SCREENSHOTS_DIR, '03-home-mobile.png') });
+});
+
+test('04-settings', async ({ page }) => {
+  await page.goto('/settings?demo=1');
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: path.join(SCREENSHOTS_DIR, '04-settings.png') });
+});
