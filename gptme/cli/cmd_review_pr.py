@@ -366,6 +366,8 @@ def _spawn_review_session(
             "duration_s": round(time.monotonic() - start, 3),
             "error": f"timed out after {timeout:g}s (recovered {len(partial_output)} chars of partial output)",
         }
+    except OSError as exc:
+        raise click.ClickException(f"Failed to spawn review session: {exc}") from exc
 
     duration_s = time.monotonic() - start
     exit_reason = "done" if completed.returncode == 0 else "error"
@@ -384,7 +386,7 @@ def _spawn_review_session(
 # ---------------------------------------------------------------------------
 
 _JSON_BLOCK_RE = re.compile(
-    r"```json\s*\n(.*?)```",
+    r"```json\s*(.*?)```",
     re.DOTALL | re.IGNORECASE,
 )
 
@@ -589,7 +591,10 @@ def review_pr(
         if diff_path == "-":
             diff = sys.stdin.read()
         else:
-            diff = Path(diff_path).read_text()
+            try:
+                diff = Path(diff_path).read_text(encoding="utf-8")
+            except OSError as exc:
+                raise click.ClickException(f"Could not read diff file: {exc}") from exc
         pr_title = f"PR #{pr_number}"
         pr_body = ""
     else:
@@ -737,5 +742,5 @@ def _emit_artifact(artifact: ReviewArtifact, save_path: str | None) -> None:
     json_text = artifact.to_json()
     click.echo(json_text)
     if save_path is not None:
-        Path(save_path).write_text(json_text)
+        Path(save_path).write_text(json_text, encoding="utf-8")
         click.echo(f"  💾  Saved to {save_path}", err=True)

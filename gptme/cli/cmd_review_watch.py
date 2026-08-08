@@ -291,7 +291,7 @@ def _load_artifact(artifact_path: str) -> ReviewArtifact:
     if artifact_path == "-":
         text = sys.stdin.read()
     else:
-        text = Path(artifact_path).read_text()
+        text = Path(artifact_path).read_text(encoding="utf-8")
     return ReviewArtifact.from_json(text)
 
 

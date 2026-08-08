@@ -252,7 +252,7 @@ class ReviewArtifact:
 
     def save(self, path: Path) -> None:
         """Persist the artifact to a JSON file."""
-        path.write_text(self.to_json())
+        path.write_text(self.to_json(), encoding="utf-8")
 
     @classmethod
     def from_dict(cls, d: dict) -> ReviewArtifact:
@@ -348,7 +348,7 @@ class ReviewArtifact:
     @classmethod
     def load(cls, path: Path) -> ReviewArtifact:
         """Load an artifact from a JSON file."""
-        return cls.from_json(path.read_text())
+        return cls.from_json(path.read_text(encoding="utf-8"))
 
     @classmethod
     def from_github_comments(
