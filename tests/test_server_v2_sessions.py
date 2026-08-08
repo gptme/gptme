@@ -1144,6 +1144,76 @@ class TestConcurrentToolConfirmation:
         assert len(session._executing_tools) == 0
         assert len(session.pending_tools) == 0
 
+    def test_completion_bookkeeping_finishes_before_continuation(
+        self, conv, client: FlaskClient
+    ):
+        """The final execution claim covers completion events and timing writes."""
+        from gptme.config import ChatConfig
+        from gptme.server.session_step import start_tool_execution
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+
+        tool_id = str(uuid.uuid4())
+        tool_exec = ToolExecution(
+            tool_id=tool_id,
+            tooluse=ToolUse("bash", [], "echo done"),
+            auto_confirm=False,
+        )
+        tool_exec.tooluse = MagicMock(
+            tool="bash", args=[], content="echo done", call_id=tool_id
+        )
+        tool_exec.tooluse.execute = lambda *args, **kwargs: []
+        session.pending_tools[tool_id] = tool_exec
+
+        completion_entered = threading.Event()
+        allow_completion = threading.Event()
+        step_calls: list[bool] = []
+        real_add_event = SessionManager.add_event
+
+        def blocking_add_event(conversation_id, event):
+            if event.get("type") == "tool_complete":
+                completion_entered.set()
+                assert tool_id in session._executing_tools
+                allow_completion.wait(timeout=5)
+            return real_add_event(conversation_id, event)
+
+        chat_config = ChatConfig(model="mock/model")
+        with (
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch(
+                "gptme.server.session_step.LogManager.load",
+                return_value=MagicMock(
+                    log=MagicMock(messages=[]), workspace=MagicMock()
+                ),
+            ),
+            patch("gptme.server.session_step._append_and_notify"),
+            patch("gptme.server.session_step._attach_tool_timings"),
+            patch(
+                "gptme.server.session_step._start_step_thread",
+                side_effect=lambda *args, **kwargs: step_calls.append(True),
+            ),
+            patch.object(SessionManager, "add_event", staticmethod(blocking_add_event)),
+        ):
+            thread = start_tool_execution(
+                conv["conversation_id"],
+                session,
+                tool_id,
+                None,
+                "mock/model",
+                chat_config,
+                branch="main",
+            )
+            assert completion_entered.wait(timeout=5)
+            assert step_calls == []
+            assert tool_id in session._executing_tools
+            allow_completion.set()
+            thread.join(timeout=5)
+
+        assert not thread.is_alive()
+        assert step_calls == [True]
+        assert session._executing_tools == set()
+
     def test_claim_released_when_setup_raises_before_execution(
         self, conv, client: FlaskClient
     ):
