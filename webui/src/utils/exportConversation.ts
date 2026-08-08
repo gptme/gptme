@@ -22,16 +22,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Strip thinking/reasoning blocks from assistant message content.
  * Handles <thinking>/<think> tags as well as the `<think redacted>` variant
  * gptme emits for Anthropic's RedactedThinkingBlock (see llm_anthropic.py).
+ * Also strips a trailing *unclosed* thinking tag: if generation is
+ * interrupted mid-thinking, gptme never streams the closing `</think>`, so
+ * the reasoning would otherwise leak into the exported "response" content.
  */
 export function stripThinkingBlocks(content: string): string {
   return content
     .replace(/<think(?:ing)?(?: redacted)?>[\s\S]*?<\/think(?:ing)?(?: redacted)?>\n?/g, '')
+    .replace(/<think(?:ing)?(?: redacted)?>[\s\S]*$/, '')
     .trim();
 }
 
 // Built-in gptme tool block types (markdown codeblock langtags that represent
 // a tool invocation rather than example code). Mirrors block_types across
-// gptme/tools/*.py. MCP server tools register dynamically and aren't covered.
+// gptme/tools/*.py.
 const TOOL_BLOCK_TYPES = new Set([
   'clarify',
   'complete',
@@ -59,14 +63,23 @@ const TOOL_BLOCK_TYPES = new Set([
   'restart',
 ]);
 
+// MCP server tools register block types dynamically as `{server}.{tool}`
+// (see gptme/tools/mcp_adapter.py: `block_types=[f"{server_config.name}.{mcp_tool.name}"]`),
+// so they can't be enumerated in TOOL_BLOCK_TYPES ahead of time.
+const MCP_BLOCK_TYPE_RE = /^[\w-]+\.[\w-]+$/;
+
+function isToolBlockTag(tag: string): boolean {
+  return TOOL_BLOCK_TYPES.has(tag) || MCP_BLOCK_TYPE_RE.test(tag);
+}
+
 /**
- * Strip fenced tool-invocation codeblocks (```shell, ```save path, etc.) from
- * assistant message content.
+ * Strip fenced tool-invocation codeblocks (```shell, ```save path, ```server.tool, etc.)
+ * from assistant message content.
  */
 function stripFencedToolBlocks(content: string): string {
   return content.replace(/```([^\n`]*)\n[\s\S]*?```/g, (block, langLine: string) => {
     const tag = langLine.trim().split(/\s+/)[0]?.toLowerCase();
-    return tag && TOOL_BLOCK_TYPES.has(tag) ? '' : block;
+    return tag && isToolBlockTag(tag) ? '' : block;
   });
 }
 
@@ -90,27 +103,49 @@ function stripAtFormatToolCalls(content: string): string {
     }
     const rest = lines[i].slice(match[0].length);
     if (!rest.startsWith('{')) {
+      // Not a JSON tool call — preserve the line as-is.
       out.push(lines[i]);
       i++;
       continue;
     }
     let depth = 0;
     let sawOpen = false;
+    let inString = false;
+    let escapeNext = false;
     let j = i;
-    for (; j < lines.length; j++) {
+    let trailingText = '';
+    outer: for (; j < lines.length; j++) {
       const scanLine = j === i ? rest : lines[j];
-      for (const ch of scanLine) {
+      for (let k = 0; k < scanLine.length; k++) {
+        const ch = scanLine[k];
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+        if (ch === '\\' && inString) {
+          escapeNext = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+        if (inString) continue;
         if (ch === '{') {
           depth++;
           sawOpen = true;
         } else if (ch === '}') {
           depth--;
         }
+        if (sawOpen && depth <= 0) {
+          trailingText = scanLine.slice(k + 1).trim();
+          j++;
+          break outer;
+        }
       }
-      if (sawOpen && depth <= 0) {
-        j++;
-        break;
-      }
+    }
+    if (trailingText) {
+      out.push(trailingText);
     }
     i = j;
   }

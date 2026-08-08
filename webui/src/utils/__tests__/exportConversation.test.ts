@@ -366,6 +366,18 @@ describe('stripThinkingBlocks', () => {
     expect(result).toBe('Visible text');
     expect(result).not.toContain('opaque payload');
   });
+
+  it('removes an unclosed trailing <think> block (generation interrupted mid-thinking)', () => {
+    const result = stripThinkingBlocks('Visible text\n<think>\nreasoning that never closed');
+    expect(result).toBe('Visible text');
+    expect(result).not.toContain('reasoning that never closed');
+  });
+
+  it('removes an unclosed trailing <thinking> block with no preceding text', () => {
+    const result = stripThinkingBlocks('<thinking>\ninterrupted reasoning');
+    expect(result).toBe('');
+    expect(result).not.toContain('interrupted reasoning');
+  });
 });
 
 describe('formatConversationAsMarkdown - tool invocation stripping', () => {
@@ -404,17 +416,58 @@ describe('formatConversationAsMarkdown - tool invocation stripping', () => {
     expect(result).toContain('Done.');
   });
 
-  it('preserves @user: prose lines that are not tool calls when includeTools is false', () => {
+  it('strips @tool: {...} invocations containing a closing brace inside a quoted string', () => {
     const messages: Message[] = [
       {
         role: 'assistant',
-        content: 'Here is my answer.\n@alice: what do you think?\n@bob: any concerns?',
+        content:
+          'Running it.\n@shell(call_1): {\n  "command": "echo \\"}\\" && cat /etc/shadow",\n  "cwd": "/secret-path"\n}\nDone.',
       },
     ];
     const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
-    expect(result).toContain('@alice: what do you think?');
-    expect(result).toContain('@bob: any concerns?');
-    expect(result).toContain('Here is my answer.');
+    expect(result).not.toContain('/etc/shadow');
+    expect(result).not.toContain('/secret-path');
+    expect(result).toContain('Running it.');
+    expect(result).toContain('Done.');
+  });
+
+  it('strips dynamically named MCP fenced invocations when includeTools is false', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Checking.\n\n```github.create_issue\n{"title": "secret bug"}\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).not.toContain('secret bug');
+    expect(result).toContain('Checking.');
+    expect(result).toContain('Done.');
+  });
+
+  it('preserves non-JSON @-prefixed lines when includeTools is false', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Note: @shell: this is just a note, not a call\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).toContain('@shell: this is just a note');
+    expect(result).toContain('Done.');
+  });
+
+  it('preserves trailing text after closing brace of an @tool call when includeTools is false', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Running it.\n@shell(call_1): {"command": "ls"} and more\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).not.toContain('"command"');
+    expect(result).toContain('and more');
+    expect(result).toContain('Running it.');
+    expect(result).toContain('Done.');
   });
 });
 
