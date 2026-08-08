@@ -14,6 +14,37 @@ from gptme.cli.util import main as util_main
 # ---------------------------------------------------------------------------
 
 
+def _fake_monotonic(*values: float):
+    """A monotonic() stand-in that never raises StopIteration.
+
+    `cmd_review_watch` does a plain `import time`, so `cmd_review_watch.time`
+    IS the global `time` module — patching `.monotonic` on it replaces
+    `time.monotonic` **process-wide** for the duration of the test, not just
+    for the code under test.
+
+    With a bare `lambda: next(iter([...]))` that is a live grenade: anything
+    else running in the same pytest worker (logging, pytest-timeout, threads
+    left behind by earlier tests) that calls `time.monotonic()` inside the
+    window drains the iterator, and the resulting StopIteration surfaces as
+    `RuntimeError: generator raised StopIteration` — in whichever test happens
+    to be running. That is why this file flaked between different tests on
+    different runs and cost several CI reruns.
+
+    Returning the final value forever once the sequence is exhausted keeps the
+    assertions exact while making stray callers harmless.
+    """
+    seq = list(values)
+    state = {"i": 0}
+
+    def _monotonic() -> float:
+        i = state["i"]
+        if i < len(seq) - 1:
+            state["i"] = i + 1
+        return seq[i]
+
+    return _monotonic
+
+
 def test_gh_json_returns_none_on_nonzero_exit(monkeypatch):
     """_gh_json should return None when gh exits non-zero."""
 
@@ -197,13 +228,13 @@ def test_build_review_prompt_does_not_embed_diff():
 
 def test_spawn_review_session_happy_path(monkeypatch):
     """spawn_review_session should return done on zero exit code."""
-    times = iter([0.0, 5.0])
+    fake_monotonic = _fake_monotonic(0.0, 5.0)
 
     def fake_run(cmd, **kwargs):
         return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(cmd_review_watch.subprocess, "run", fake_run)
-    monkeypatch.setattr(cmd_review_watch.time, "monotonic", lambda: next(times))
+    monkeypatch.setattr(cmd_review_watch.time, "monotonic", fake_monotonic)
     monkeypatch.setattr(cmd_review_watch.sys, "executable", "/usr/bin/python-test")
 
     result = cmd_review_watch.spawn_review_session(
@@ -219,13 +250,13 @@ def test_spawn_review_session_happy_path(monkeypatch):
 
 def test_spawn_review_session_timeout(monkeypatch):
     """spawn_review_session should return timeout when subprocess times out."""
-    times = iter([0.0, 3.5])
+    fake_monotonic = _fake_monotonic(0.0, 3.5)
 
     def fake_run(cmd, **kwargs):
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs["timeout"])
 
     monkeypatch.setattr(cmd_review_watch.subprocess, "run", fake_run)
-    monkeypatch.setattr(cmd_review_watch.time, "monotonic", lambda: next(times))
+    monkeypatch.setattr(cmd_review_watch.time, "monotonic", fake_monotonic)
 
     result = cmd_review_watch.spawn_review_session(
         prompt="whatever",
@@ -240,7 +271,7 @@ def test_spawn_review_session_timeout(monkeypatch):
 
 def test_spawn_review_session_error_exit(monkeypatch):
     """spawn_review_session should return error on non-zero exit code."""
-    times = iter([0.0, 2.0])
+    fake_monotonic = _fake_monotonic(0.0, 2.0)
 
     def fake_run(cmd, **kwargs):
         return subprocess.CompletedProcess(
@@ -248,7 +279,7 @@ def test_spawn_review_session_error_exit(monkeypatch):
         )
 
     monkeypatch.setattr(cmd_review_watch.subprocess, "run", fake_run)
-    monkeypatch.setattr(cmd_review_watch.time, "monotonic", lambda: next(times))
+    monkeypatch.setattr(cmd_review_watch.time, "monotonic", fake_monotonic)
 
     result = cmd_review_watch.spawn_review_session(
         prompt="bad",
