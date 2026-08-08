@@ -573,6 +573,138 @@ class TestInterruptEndpoint:
         assert session.generating is False
         assert len(session.pending_tools) == 0
 
+    def test_interrupt_sets_interrupted_flag(self, conv, client: FlaskClient):
+        """Interrupt sets session.interrupted so execute_tool_thread won't auto-step."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+
+        # Simulate a tool mid-execution: the tool has been pop'd from pending_tools
+        # (so generating=False and pending_tools is empty), but the tool thread
+        # is still running.  Interrupt fires in this window.
+        session.generating = False
+        session.interrupted = False
+
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/interrupt",
+            json={"session_id": conv["session_id"]},
+        )
+
+        assert response.status_code == 200
+        assert session.interrupted is True
+
+    def test_step_clears_interrupted_flag(self, conv, client: FlaskClient):
+        """A new explicit /step request clears the interrupted flag."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.interrupted = True
+
+        # /step will fail (no model), but the flag should be cleared inside the lock
+        # before the error path is reached.
+        with patch("gptme.server.api_v2_sessions.get_default_model", return_value=None):
+            client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/step",
+                json={
+                    "session_id": conv["session_id"],
+                    "model": "openai/gpt-4o",
+                },
+            )
+
+        assert session.interrupted is False
+
+    def test_step_increments_step_seq(self, conv, client: FlaskClient):
+        """Each /step increments step_seq so tool threads can detect stale reservations.
+
+        This guards Race 1: if /interrupt fires and then /step runs while an
+        old tool thread is still executing, the old thread must not start a
+        duplicate continuation step after /step has already reserved the slot.
+        The tool thread compares its captured step_seq against the current value;
+        a mismatch means the reservation is stale.
+        """
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        initial_seq = session.step_seq
+
+        with patch("gptme.server.api_v2_sessions.get_default_model", return_value=None):
+            client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/step",
+                json={
+                    "session_id": conv["session_id"],
+                    "model": "openai/gpt-4o",
+                },
+            )
+
+        assert session.step_seq == initial_seq + 1
+
+    def test_continuation_reservation_not_cleared_by_originating_step(
+        self, conv, tmp_path
+    ):
+        """Race 5: step() finally must not clear generating when a continuation reserved it.
+
+        The tool worker increments step_seq (inside step_lock) before setting
+        generating=True for the continuation. The originating step()'s finally
+        captures step_seq at entry; a mismatch means the continuation took over
+        and we must not clear its reservation.
+        """
+
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+
+        # step_seq=1 is the value set by the /step API handler before step() runs.
+        # step() will snapshot my_step_seq=1 at entry.
+        session.step_seq = 1
+        session.generating = True
+
+        def advance_seq_then_return(*args, **kwargs):
+            """Simulate: tool continuation advanced step_seq to 2 inside step_lock."""
+            with session.step_lock:
+                session.step_seq += 1  # 1 → 2
+            return iter([])  # no tokens; step() finds no tools, exits normally
+
+        with (
+            patch(
+                "gptme.server.session_step._stream", side_effect=advance_seq_then_return
+            ),
+            patch("gptme.server.session_step.require_workspace_exists"),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", return_value=[]),
+            patch(
+                "gptme.server.session_step.prepare_messages",
+                return_value=[Message("user", "test")],
+            ),
+            patch("gptme.server.session_step._try_auto_name_and_notify"),
+            patch("gptme.server.session_step.set_workspace_cwd"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=tmp_path,
+                    max_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                ),
+            ),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+        ):
+            step(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                model="mock/model",
+                workspace=tmp_path,
+            )
+
+        # step() captured my_step_seq=1 at entry; advance_seq_then_return bumped to 2.
+        # The finally block must have seen 2 != 1 and skipped clearing generating.
+        assert session.generating is True, (
+            "Race 5: originating step() finally must not clear the "
+            "continuation's generating reservation when step_seq advanced"
+        )
+        assert session.step_seq == 2
+
 
 # --- Tool confirm endpoint tests ---
 

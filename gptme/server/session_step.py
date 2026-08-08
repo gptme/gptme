@@ -783,6 +783,16 @@ def step(
     if tool_format == "tool":
         tools = [t for t in get_tools() if t.is_runnable]
 
+    # Snapshot the step sequence at entry. The finally block uses this to detect
+    # whether the tool-continuation path has taken ownership of `generating`:
+    # if a fast tool completes and the tool worker increments step_seq (inside
+    # step_lock) before our finally runs, we skip the clear and leave the
+    # continuation's reservation intact. Without this guard the originating
+    # step's unconditional `generating = False` would race and clear the
+    # reservation the continuation just set (Race 5 — "originating step clears
+    # continuation reservation").
+    my_step_seq = session.step_seq
+
     try:
         # Stream tokens from the model
         output = ""
@@ -970,8 +980,24 @@ def step(
             conversation_id, {"type": "error", "error": error_message}
         )
     finally:
-        session.generating = False
-        session.generating_since = None
+        # Only release generating if this step still owns the reservation.
+        # A fast tool may finish, increment step_seq, set generating=True for
+        # the continuation, and return BEFORE we reach here. If we clear
+        # unconditionally we erase the continuation's reservation (Race 5).
+        # The tool worker increments step_seq inside step_lock before handing
+        # off, so the compare-and-clear below is atomic with respect to that
+        # handoff.
+        with session.step_lock:
+            if session.step_seq == my_step_seq:
+                session.generating = False
+                session.generating_since = None
+            else:
+                logger.debug(
+                    "step() finally: skipping generating=False — "
+                    "reservation transferred to continuation (seq %d→%d)",
+                    my_step_seq,
+                    session.step_seq,
+                )
 
 
 def start_tool_execution(
@@ -999,10 +1025,23 @@ def start_tool_execution(
     branch.  Defaults to ``"main"`` to match the default in ``step()``.
     """
 
+    # Snapshot step_seq NOW (at tool-queue time), before the thread is created.
+    # If /interrupt + /step fires between here and when the thread actually
+    # starts executing, the thread's my_seq still reflects the original step
+    # that queued this tool — not the new /step's sequence number.  This closes
+    # Race 3: a late-starting thread can no longer steal the new /step's
+    # reservation by snapshotting step_seq after the sequence already advanced.
+    my_seq = session.step_seq
+
     # This function would ideally run asynchronously to not block the request
     # For simplicity, we'll run it in a thread
     @trace_function("api_v2.execute_tool", attributes={"component": "api_v2"})
     def execute_tool_thread() -> None:
+        # reserved is a closure variable from execute_tool_thread_maker; we
+        # may reassign it to False when we detect a stale reservation (Race 1).
+        # my_seq is a closure variable captured in the outer scope at queue time.
+        nonlocal reserved
+
         # Set context vars for hook-based confirmation
         from ..hooks import current_conversation_id, current_session_id
 
@@ -1048,10 +1087,22 @@ def start_tool_execution(
                         "(may have been handled by another thread)"
                     )
                     # Release any pre-reserved generation slot so the conversation
-                    # is not permanently blocked.
+                    # is not permanently blocked — but only if we still own the
+                    # reservation. After /interrupt clears pending_tools and a new
+                    # /step re-reserves generating with a fresh step_seq, touching
+                    # session.generating here would release the slot we no longer own.
                     if reserved:
-                        session.generating = False
-                        session.generating_since = None
+                        with session.step_lock:
+                            if session.step_seq == my_seq:
+                                session.generating = False
+                                session.generating_since = None
+                            else:
+                                logger.debug(
+                                    "Skipping generating=False in missing-tool path: "
+                                    "reservation superseded (seq %d→%d)",
+                                    my_seq,
+                                    session.step_seq,
+                                )
                     return  # another thread claimed this tool; don't trigger auto-step
                 if assistant_msg_timestamp is None:
                     assistant_msg_timestamp = tool_exec.assistant_msg_timestamp
@@ -1188,30 +1239,95 @@ def start_tool_execution(
             # With multiple tools per message, we must wait until every tool
             # has run before asking the model for a continuation.
             if not session.pending_tools:
-                _start_step_thread(
-                    conversation_id,
-                    session,
-                    model,
-                    chat_config.workspace,
-                    branch=branch,
-                    reserved=reserved,
-                )
+                with session.step_lock:
+                    if session.step_seq != my_seq:
+                        # Race 1: a new /step cleared our interrupted flag and
+                        # re-reserved the slot. Our stale reserved=True must not
+                        # start a duplicate continuation alongside that new step.
+                        logger.debug(
+                            "Skipping auto-step after tool %s: reservation"
+                            " superseded (seq %d→%d)",
+                            current_tool_id,
+                            my_seq,
+                            session.step_seq,
+                        )
+                        if reserved:
+                            # Don't touch session.generating — the new /step owns it.
+                            reserved = False
+                    elif session.interrupted:
+                        # The user interrupted while this tool was executing.
+                        # The tool can't be stopped mid-execution, but we must not
+                        # start a continuation step.  Checking under step_lock
+                        # closes Race 2: the interrupt handler also holds step_lock
+                        # when setting interrupted=True, so there is no window
+                        # between this check and the decision not to start a step.
+                        logger.debug(
+                            "Skipping auto-step after tool %s: session was interrupted",
+                            current_tool_id,
+                        )
+                        if reserved:
+                            session.generating = False
+                            session.generating_since = None
+                    else:
+                        # Call _start_step_thread INSIDE step_lock so the
+                        # interrupt handler cannot fire between the interrupted
+                        # check and the continuation startup.  Race 3 (late-
+                        # starting thread stealing the new /step's reservation)
+                        # is already closed by my_seq; this closes the final
+                        # window: /interrupt sets interrupted=True under
+                        # step_lock, so if we reach this branch the handler
+                        # cannot run until after _start_step_thread returns
+                        # (which only spawns a thread — it does not re-acquire
+                        # step_lock when reserved=True).
+                        # Since we're calling under step_lock, set generating=True
+                        # and pass reserved=True to avoid re-acquiring the lock.
+                        #
+                        # Advance step_seq BEFORE setting generating=True (Race 5).
+                        # The originating step()'s finally block checks
+                        # step_seq == my_step_seq; incrementing here signals
+                        # that ownership transferred to the continuation, so
+                        # the originating step's finally will skip the clear
+                        # rather than erasing our new reservation.
+                        session.step_seq += 1
+                        session.generating = True
+                        session.generating_since = datetime.now(tz=timezone.utc)
+                        _start_step_thread(
+                            conversation_id,
+                            session,
+                            model,
+                            chat_config.workspace,
+                            branch=branch,
+                            reserved=True,
+                        )
             elif reserved:
                 # Pending non-auto-confirm tools remain; those need explicit client
                 # confirmation.  Release the pre-reserved generation slot so the
-                # conversation is not permanently blocked.
-                session.generating = False
-                session.generating_since = None
+                # conversation is not permanently blocked — but only if we still
+                # own it.  A newer /step may have incremented step_seq and
+                # re-reserved generating; touching it here would cancel that step.
+                # Acquire step_lock so the check-and-clear is atomic with respect
+                # to a concurrent /step that increments step_seq and re-sets
+                # generating=True — without the lock the stale worker can observe
+                # step_seq==my_seq, get preempted, watch /step reserve generating,
+                # then clear that newer reservation.
+                with session.step_lock:
+                    if session.step_seq == my_seq:
+                        session.generating = False
+                        session.generating_since = None
         except Exception:
             logger.exception(
                 f"Unhandled error in tool execution thread for {conversation_id}"
             )
             if reserved:
-                # A crash anywhere before the reservation is transferred to
+                # A crash before the reservation is transferred to
                 # _start_step_thread (or explicitly released above) must not
-                # permanently strand the conversation in a generating state.
-                session.generating = False
-                session.generating_since = None
+                # permanently strand the conversation in generating state.
+                # Only release if we still own the reservation.  Same atomicity
+                # requirement as the elif-reserved path above.
+                with session.step_lock:
+                    if session.step_seq == my_seq:
+                        session.generating = False
+                        session.generating_since = None
             raise
 
     # Propagate ContextVars from the request context into the execution thread.

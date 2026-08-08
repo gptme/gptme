@@ -79,6 +79,11 @@ class ConversationSession(BaseSession):
     generating_since: datetime | None = (
         None  # When generation started (for stuck detection)
     )
+    # Set by /interrupt; cleared by the next explicit /step request.
+    # Tells execute_tool_thread not to start a continuation step after the
+    # currently-running tool completes (the tool can't be stopped mid-execution,
+    # but the agent loop should not continue).
+    interrupted: bool = False
     last_error: str | None = None
     events: list[EventType] = field(default_factory=list)
     _events_offset: int = 0  # number of events trimmed from front of list
@@ -89,6 +94,10 @@ class ConversationSession(BaseSession):
     # Lock for atomic check-and-set of the generating flag in /step.
     # Prevents concurrent requests from both reading False before either writes True.
     step_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # Monotonically increasing counter incremented by each /step reservation.
+    # Tool threads capture this at start and compare on completion to detect
+    # a stale reserved=True after interrupt+re-step (Race 1).
+    step_seq: int = 0
 
     # ACP-backed subprocess session (opt-in via use_acp=True in step request)
     use_acp: bool = False
