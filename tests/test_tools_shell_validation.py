@@ -672,6 +672,18 @@ class TestSensitiveArgs:
         """`ls /tmp/ && cat /etc/passwd` should NOT be auto-approved (P1)."""
         assert not is_allowlisted("ls /tmp/ && cat /etc/passwd")
 
+    def test_globbed_sensitive_path_not_allowlisted(self):
+        """Shell glob expansion must not turn an approved token into /etc/shadow."""
+        assert not is_allowlisted("cat /e??/shadow")
+
+    def test_relative_path_glob_not_allowlisted(self):
+        """Path globs are cwd-dependent and therefore require confirmation."""
+        assert not is_allowlisted("cat config/*.toml")
+
+    def test_search_pattern_without_path_separator_still_allowlisted(self):
+        """Non-path glob patterns used by find remain safe to auto-approve."""
+        assert is_allowlisted("find . -name '*.py'")
+
     def test_safe_file_read_still_allowlisted(self):
         """`cat README.md` should still be auto-approved (no false positive)."""
         assert is_allowlisted("cat README.md")

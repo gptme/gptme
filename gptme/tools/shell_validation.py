@@ -282,7 +282,8 @@ def _has_sensitive_args(cmd: str) -> bool:
     P1 fix: `is_allowlisted()` previously checked command NAMES only, so
     ``cat /etc/shadow`` was auto-approved because ``cat`` is allowlisted.
     This helper rejects the command when any argument matches a sensitive
-    path prefix or is the bare root directory ``/``.
+    path prefix, is the bare root directory ``/``, or contains shell glob
+    metacharacters that could expand to a sensitive path after validation.
 
     Also covers P4: ``find /`` traverses the entire filesystem; the ``/``
     argument is caught here.
@@ -308,6 +309,13 @@ def _has_sensitive_args(cmd: str) -> bool:
         # predict at validation time, so any `..` in a path is treated as
         # potentially sensitive and requires explicit confirmation.
         if ".." in token:
+            return True
+        # Shell pathname expansion happens after validation. A literal token
+        # such as /e??/shadow can therefore become /etc/shadow at execution
+        # time. Require confirmation whenever a path-like argument contains a
+        # glob metacharacter; ordinary search patterns such as ``*.py`` remain
+        # eligible for auto-approval because they contain no path separator.
+        if "/" in token and any(char in token for char in "*?["):
             return True
         # Sensitive directory prefixes
         if any(token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
