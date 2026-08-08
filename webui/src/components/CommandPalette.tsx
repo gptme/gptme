@@ -25,6 +25,7 @@ import type { ConversationSummary } from '@/types/conversation';
 import { use$ } from '@legendapp/state/react';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
+import { getClientForServer } from '@/stores/serverClients';
 import {
   exportConversationAsMarkdown,
   exportConversationAsJSON,
@@ -172,6 +173,10 @@ export function CommandPalette() {
 
       try {
         const serverId = new URLSearchParams(location.search).get('server');
+        if (serverId && !getClientForServer(serverId)) {
+          toast.error('Server not found');
+          return;
+        }
         const client = serverId ? getClient(serverId) : api;
         const fullData = await client.getConversation(convId);
         if (!fullData.log.length) {

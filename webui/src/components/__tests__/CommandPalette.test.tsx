@@ -10,6 +10,7 @@ const mockApi = {
   getConversation: jest.fn(),
 };
 const mockGetClient = jest.fn();
+const mockGetClientForServer = jest.fn();
 
 // Mock ApiContext with a stable `api` reference to avoid infinite re-render loop.
 // useEffect in CommandPalette has [search, api] as deps — if useApi() returns a
@@ -23,6 +24,10 @@ jest.mock('@/utils/exportConversation', () => {
   const actual = jest.requireActual('@/utils/exportConversation');
   return { ...actual, copyConversationToClipboard: jest.fn().mockResolvedValue(undefined) };
 });
+
+jest.mock('@/stores/serverClients', () => ({
+  getClientForServer: (serverId: string) => mockGetClientForServer(serverId),
+}));
 
 jest.mock('sonner', () => ({
   toast: { success: jest.fn(), error: jest.fn() },
@@ -102,6 +107,7 @@ describe('CommandPalette', () => {
     selectedConversation$.set('');
     mockApi.getConversation.mockReset();
     mockGetClient.mockReset();
+    mockGetClientForServer.mockReset();
     (copyConversationToClipboard as jest.Mock).mockClear();
   });
 
@@ -375,6 +381,7 @@ describe('CommandPalette', () => {
       conversations$.set(new Map());
       selectedConversation$.set('shared-chat');
       const secondaryClient = { getConversation: jest.fn().mockResolvedValue(fullData) };
+      mockGetClientForServer.mockReturnValue(secondaryClient);
       mockGetClient.mockReturnValue(secondaryClient);
 
       render(
@@ -412,6 +419,7 @@ describe('CommandPalette', () => {
       });
       selectedConversation$.set('shared-chat');
       const secondaryClient = { getConversation: jest.fn().mockResolvedValue(fullData) };
+      mockGetClientForServer.mockReturnValue(secondaryClient);
       mockGetClient.mockReturnValue(secondaryClient);
 
       render(
@@ -429,6 +437,26 @@ describe('CommandPalette', () => {
           includeThinking: false,
           includeTools: false,
         });
+      });
+    });
+
+    it('does not fall back to the primary server for an unknown route server', async () => {
+      selectedConversation$.set('shared-chat');
+      mockGetClientForServer.mockReturnValue(null);
+
+      render(
+        <MemoryRouter initialEntries={['/chat/shared-chat?server=removed-server']}>
+          <CommandPalette />
+        </MemoryRouter>
+      );
+      await selectCopyCommand('Copy trajectory as Markdown');
+
+      await waitFor(() => {
+        expect(mockGetClientForServer).toHaveBeenCalledWith('removed-server');
+        expect(mockGetClient).not.toHaveBeenCalled();
+        expect(mockApi.getConversation).not.toHaveBeenCalled();
+        expect(copyConversationToClipboard).not.toHaveBeenCalled();
+        expect(toast.error).toHaveBeenCalledWith('Server not found');
       });
     });
 
