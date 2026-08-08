@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   CommandDialog,
   CommandEmpty,
@@ -49,6 +49,7 @@ export function CommandPalette() {
   const [conversationResults, setConversationResults] = useState<ConversationSummary[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { api, getClient } = useApi();
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -240,15 +241,19 @@ export function CommandPalette() {
               keywords: ['copy', 'clipboard', 'trajectory', 'markdown', 'transcript', 'share'],
               action: async () => {
                 const convId = selectedConversation$.get();
-                const conv = convId ? conversations$.get(convId)?.get() : null;
-                if (!convId || !conv?.data?.log?.length) {
+                if (!convId) {
                   toast.error('No messages to copy');
                   return;
                 }
                 try {
-                  const client = conv.serverId ? getClient(conv.serverId) : api;
+                  const serverId = new URLSearchParams(location.search).get('server');
+                  const client = serverId ? getClient(serverId) : api;
                   const fullData = await client.getConversation(convId);
-                  await copyConversationToClipboard(conv.data.name || convId, fullData.log, {
+                  if (!fullData.log.length) {
+                    toast.error('No messages to copy');
+                    return;
+                  }
+                  await copyConversationToClipboard(fullData.name || convId, fullData.log, {
                     includeThinking: false,
                     includeTools: false,
                   });
@@ -276,15 +281,19 @@ export function CommandPalette() {
               ],
               action: async () => {
                 const convId = selectedConversation$.get();
-                const conv = convId ? conversations$.get(convId)?.get() : null;
-                if (!convId || !conv?.data?.log?.length) {
+                if (!convId) {
                   toast.error('No messages to copy');
                   return;
                 }
                 try {
-                  const client = conv.serverId ? getClient(conv.serverId) : api;
+                  const serverId = new URLSearchParams(location.search).get('server');
+                  const client = serverId ? getClient(serverId) : api;
                   const fullData = await client.getConversation(convId);
-                  await copyConversationToClipboard(conv.data.name || convId, fullData.log, {
+                  if (!fullData.log.length) {
+                    toast.error('No messages to copy');
+                    return;
+                  }
+                  await copyConversationToClipboard(fullData.name || convId, fullData.log, {
                     includeThinking: true,
                     includeTools: true,
                   });
@@ -346,7 +355,7 @@ export function CommandPalette() {
           ]
         : []),
     ],
-    [navigate, setOpen, api, getClient]
+    [navigate, setOpen, api, getClient, location.search]
   );
 
   // Filter actions based on search query

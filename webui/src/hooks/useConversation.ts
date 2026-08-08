@@ -66,14 +66,6 @@ export function useConversation(conversationId: string, serverId?: string) {
     }
   }, [conversationId, conversation$]);
 
-  // Track the owning server so actions outside ConversationContent (such as the
-  // command palette) can fetch this conversation through the correct client.
-  // Writing undefined is intentional: it clears stale secondary ownership when
-  // the same conversation ID is opened on the primary server.
-  useEffect(() => {
-    updateConversation(conversationId, { serverId });
-  }, [conversationId, serverId]);
-
   // Ensure the conversation's chat config is loaded whenever it's missing.
   // The main load+connect effect below early-returns for already-connected
   // conversations, so without this, switching to a previously-opened

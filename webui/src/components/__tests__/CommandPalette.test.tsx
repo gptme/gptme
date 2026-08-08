@@ -1,8 +1,9 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import { CommandPalette } from '../CommandPalette';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
 import { copyConversationToClipboard } from '@/utils/exportConversation';
+import type { ConversationState } from '@/stores/conversations';
 
 const mockApi = {
   searchConversations: jest.fn().mockResolvedValue([]),
@@ -353,41 +354,75 @@ describe('CommandPalette', () => {
       });
     });
 
-    it('copies the full trajectory from its owning server in compact mode', async () => {
-      const fullLog = [
-        { role: 'user' as const, content: 'Hello' },
-        { role: 'assistant' as const, content: 'Hi' },
-      ];
-      conversations$.set(
-        new Map([
-          [
-            'secondary-chat',
-            {
-              data: {
-                id: 'secondary-chat',
-                name: 'Secondary chat',
-                log: [fullLog[0]],
-                logfile: 'secondary-chat',
-                branches: {},
-                workspace: '.',
-              },
-              serverId: 'secondary',
-            } as any,
-          ],
-        ])
-      );
-      selectedConversation$.set('secondary-chat');
-      const secondaryClient = { getConversation: jest.fn().mockResolvedValue({ log: fullLog }) };
+    it('copies an unhydrated trajectory from the server selected in the route', async () => {
+      const fullData = {
+        id: 'shared-chat',
+        name: 'Secondary chat',
+        log: [
+          { role: 'user' as const, content: 'Hello' },
+          { role: 'assistant' as const, content: 'Hi' },
+        ],
+      };
+      conversations$.set(new Map());
+      selectedConversation$.set('shared-chat');
+      const secondaryClient = { getConversation: jest.fn().mockResolvedValue(fullData) };
       mockGetClient.mockReturnValue(secondaryClient);
 
-      renderCommandPalette();
+      render(
+        <MemoryRouter initialEntries={['/chat/shared-chat?server=secondary']}>
+          <CommandPalette />
+        </MemoryRouter>
+      );
       fireEvent.keyDown(document, { key: 'k', metaKey: true });
       fireEvent.click(await screen.findByText('Copy trajectory as Markdown'));
 
       await waitFor(() => {
         expect(mockGetClient).toHaveBeenCalledWith('secondary');
-        expect(secondaryClient.getConversation).toHaveBeenCalledWith('secondary-chat');
-        expect(copyConversationToClipboard).toHaveBeenCalledWith('Secondary chat', fullLog, {
+        expect(secondaryClient.getConversation).toHaveBeenCalledWith('shared-chat');
+        expect(copyConversationToClipboard).toHaveBeenCalledWith('Secondary chat', fullData.log, {
+          includeThinking: false,
+          includeTools: false,
+        });
+      });
+    });
+
+    it('uses the route server when duplicate conversation IDs exist in the local store', async () => {
+      const fullData = {
+        id: 'shared-chat',
+        name: 'Secondary copy',
+        log: [{ role: 'user' as const, content: 'From secondary' }],
+      };
+      conversations$.set(
+        new Map([
+          [
+            'shared-chat',
+            {
+              data: {
+                id: 'shared-chat',
+                name: 'Primary copy',
+                log: [{ role: 'user' as const, content: 'From primary' }],
+              },
+            } as ConversationState,
+          ],
+        ])
+      );
+      selectedConversation$.set('shared-chat');
+      const secondaryClient = { getConversation: jest.fn().mockResolvedValue(fullData) };
+      mockGetClient.mockReturnValue(secondaryClient);
+
+      render(
+        <MemoryRouter initialEntries={['/chat/shared-chat?server=secondary']}>
+          <CommandPalette />
+        </MemoryRouter>
+      );
+      fireEvent.keyDown(document, { key: 'k', metaKey: true });
+      fireEvent.click(await screen.findByText('Copy trajectory as Markdown'));
+
+      await waitFor(() => {
+        expect(mockGetClient).toHaveBeenCalledWith('secondary');
+        expect(secondaryClient.getConversation).toHaveBeenCalledWith('shared-chat');
+        expect(mockApi.getConversation).not.toHaveBeenCalled();
+        expect(copyConversationToClipboard).toHaveBeenCalledWith('Secondary copy', fullData.log, {
           includeThinking: false,
           includeTools: false,
         });

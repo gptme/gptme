@@ -78,23 +78,6 @@ describe('useConversation', () => {
     jest.clearAllMocks();
   });
 
-  it('tracks and clears the conversation owning server', async () => {
-    const { rerender } = renderHook(
-      ({ serverId }: { serverId?: string }) => useConversation('chat-placeholder', serverId),
-      { initialProps: { serverId: 'secondary' as string | undefined } }
-    );
-
-    await waitFor(() => {
-      expect(conversations$.get('chat-placeholder')?.serverId.get()).toBe('secondary');
-    });
-
-    rerender({ serverId: undefined });
-
-    await waitFor(() => {
-      expect(conversations$.get('chat-placeholder')?.serverId.get()).toBeUndefined();
-    });
-  });
-
   it('clears placeholder initial-step state after subscription connects', async () => {
     renderHook(() => useConversation('chat-placeholder'));
 
