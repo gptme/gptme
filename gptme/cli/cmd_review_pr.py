@@ -144,6 +144,7 @@ _FINDINGS_JSON_SCHEMA = """\
     }
   ]
 }"""
+_REVIEW_OUTPUT_MARKER = "GPTME_REVIEW_FINDINGS_V1"
 
 
 def _build_review_prompt(
@@ -246,7 +247,8 @@ def _build_review_prompt(
         "`file` as an empty string and `line` as null.",
         "",
         'If you find NO issues, output an empty findings array: `{"findings": []}`.',
-        "Output ONLY the JSON block — no preamble, no prose after the block.",
+        f"Output `{_REVIEW_OUTPUT_MARKER}` on its own line, followed by exactly one",
+        "JSON block. Do not output the marker anywhere else.",
         "",
     ]
 
@@ -334,6 +336,8 @@ def _spawn_review_session(
         "gptme",
         "--non-interactive",
         "--no-stream",
+        "--output-format",
+        "json",
     ]
     if model is not None:
         cmd.extend(["--model", model])
@@ -391,32 +395,60 @@ _JSON_BLOCK_RE = re.compile(
 )
 
 
+def _assistant_output_from_jsonl(output: str) -> str | None:
+    """Return assistant text from gptme's JSONL output.
+
+    JSON output gives the subprocess a trust boundary: user messages contain
+    untrusted PR metadata and diffs, while only assistant messages can contain
+    review findings. If any non-empty line is not valid JSONL, fail closed
+    rather than falling back to scanning mixed terminal output.
+    """
+    assistant_parts: list[str] = []
+    saw_event = False
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(event, dict):
+            return None
+        saw_event = True
+        if event.get("type") == "message" and event.get("role") == "assistant":
+            content = event.get("content")
+            if isinstance(content, str):
+                assistant_parts.append(content)
+
+    if not saw_event:
+        return None
+    return "\n".join(assistant_parts)
+
+
 def _extract_findings_from_output(
     output: str,
 ) -> tuple[list[ReviewFinding] | None, int]:
-    """Parse reviewer session output and extract :class:`ReviewFinding` objects.
+    """Parse reviewer JSONL output and extract :class:`ReviewFinding` objects.
 
     Returns ``(findings, validation_error_count)`` where:
     - findings: list of extracted findings, or None if no valid JSON block found
     - validation_error_count: number of finding entries skipped due to validation errors
     """
-    # Scan every JSON block and keep the LAST one that parses as findings.
-    #
-    # Taking the *first* block is unsafe: the reviewer session echoes its own
-    # user prompt to stdout (LogManager.append -> print_msg), and that prompt
-    # embeds the PR diff verbatim.  A PR whose diff contains a single-line
-    # ```json {"findings": []} ``` fence therefore plants a syntactically valid,
-    # empty findings block in stdout *before* the model ever speaks — silently
-    # suppressing the real review and emitting a COMPLETE, zero-finding
-    # artifact that `review watch` reports as "nothing to fix".
-    #
-    # The model's answer is always the last block in the stream (the prompt
-    # echo precedes it, and the prompt instructs "no prose after the block"),
-    # so preferring the last parseable block removes the injection vector and
-    # is also more correct on the benign path where a model emits a draft
-    # block before its final one.
-    result: tuple[list[ReviewFinding], int] | None = None
-    for match in _JSON_BLOCK_RE.finditer(output):
+    assistant_output = _assistant_output_from_jsonl(output)
+    if assistant_output is None:
+        return None, 0
+
+    marker_matches = list(
+        re.finditer(rf"(?m)^{re.escape(_REVIEW_OUTPUT_MARKER)}\s*$", assistant_output)
+    )
+    if len(marker_matches) != 1:
+        return None, 0
+    review_output = assistant_output[marker_matches[0].end() :]
+
+    # A review must have exactly one parseable findings block after the trusted
+    # marker. Multiple blocks are ambiguous, so fail closed instead of choosing.
+    parsed_blocks: list[tuple[list[ReviewFinding], int]] = []
+    for match in _JSON_BLOCK_RE.finditer(review_output):
         raw = match.group(1).strip()
         try:
             data = json.loads(raw)
@@ -449,7 +481,7 @@ def _extract_findings_from_output(
                 validation_errors += 1
 
             line_raw = item.get("line")
-            if line_raw is not None and not isinstance(line_raw, int):
+            if line_raw is not None and type(line_raw) is not int:
                 line_raw = None
                 validation_errors += 1
 
@@ -473,10 +505,10 @@ def _extract_findings_from_output(
                     reviewer="gptme-review",
                 )
             )
-        result = (findings, validation_errors)
+        parsed_blocks.append((findings, validation_errors))
 
-    if result is not None:
-        return result
+    if len(parsed_blocks) == 1:
+        return parsed_blocks[0]
     return None, 0
 
 
@@ -759,5 +791,10 @@ def _emit_artifact(artifact: ReviewArtifact, save_path: str | None) -> None:
     json_text = artifact.to_json()
     click.echo(json_text)
     if save_path is not None:
-        Path(save_path).write_text(json_text, encoding="utf-8")
+        try:
+            Path(save_path).write_text(json_text, encoding="utf-8")
+        except OSError as exc:
+            raise click.ClickException(
+                f"Could not save artifact to {save_path}: {exc}"
+            ) from exc
         click.echo(f"  💾  Saved to {save_path}", err=True)

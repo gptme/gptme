@@ -103,7 +103,7 @@ class ReviewFinding:
                 f"ReviewFinding.file must be a string, got {type(file_raw).__name__!r}: {file_raw!r}"
             )
         line_raw = d.get("line")
-        if line_raw is not None and not isinstance(line_raw, int):
+        if line_raw is not None and type(line_raw) is not int:
             raise ValueError(
                 f"ReviewFinding.line must be an int or None, got {type(line_raw).__name__!r}: {line_raw!r}"
             )
@@ -300,11 +300,16 @@ class ReviewArtifact:
         # Coerce numeric and string metadata fields — guard against container values
         # (list, dict …) that would otherwise be stored as-is and cause type errors
         # downstream when the artifact is used (e.g., string formatting, logging).
-        try:
-            pr_number_val = int(pr.get("number", 0))
-        except (TypeError, ValueError):
+        pr_number_raw = pr.get("number", 0)
+        if isinstance(pr_number_raw, bool):
             pr_number_val = 0
             deserialization_errors += 1
+        else:
+            try:
+                pr_number_val = int(pr_number_raw)
+            except (TypeError, ValueError):
+                pr_number_val = 0
+                deserialization_errors += 1
 
         try:
             review_duration_s = float(d.get("review_duration_s", 0.0))

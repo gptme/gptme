@@ -678,7 +678,10 @@ def step(
                 msg_response = msg_response.replace(
                     metadata=cast(MessageMetadata, existing_meta)
                 )
-            yield msg_response.replace(quiet=True)
+            # Text streaming already rendered the assistant response token by
+            # token, so suppress the later LogManager print in that mode. JSON
+            # output is non-streaming and needs this structured assistant event.
+            yield msg_response.replace(quiet=not is_output_json())
             yield from tool_outputs
 
     finally:

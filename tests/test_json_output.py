@@ -588,6 +588,28 @@ class TestJSONRendering:
             "format must be restored to caller's value after setup exception"
         )
 
+    def test_json_step_keeps_assistant_message_visible(self, monkeypatch):
+        """JSON mode must not inherit text streaming's quiet response flag."""
+        chat_module = importlib.import_module("gptme.chat")
+
+        response = Message("assistant", "structured response")
+        monkeypatch.setattr(chat_module, "reply", lambda *args, **kwargs: response)
+        monkeypatch.setattr(chat_module, "execute_msg", lambda *args, **kwargs: [])
+        monkeypatch.setattr(chat_module, "get_default_model", lambda: None)
+        monkeypatch.setattr(
+            chat_module,
+            "get_model",
+            lambda model: SimpleNamespace(full=model),
+        )
+        monkeypatch.setattr(chat_module, "prepare_messages", lambda *args, **kwargs: [])
+        monkeypatch.setattr(chat_module, "trigger_hook", lambda *args, **kwargs: [])
+
+        set_output_format("json")
+        messages = list(chat_module.step([], False, model="local/test"))
+
+        assert messages == [response]
+        assert messages[0].quiet is False
+
     def test_json_multiple_messages(self, capsys):
         """Multiple messages should each emit a separate JSON line."""
         set_output_format("json")
