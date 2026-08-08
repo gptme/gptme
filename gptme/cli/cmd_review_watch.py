@@ -38,7 +38,7 @@ from pathlib import Path
 import click
 
 from ..util.gh import is_trusted_reviewer, run_gh_json
-from ..util.review import FindingStatus, ReviewArtifact, ReviewFinding
+from ..util.review import FindingStatus, ReviewArtifact, ReviewFinding, ReviewStatus
 
 logger = logging.getLogger(__name__)
 
@@ -291,7 +291,7 @@ def _load_artifact(artifact_path: str) -> ReviewArtifact:
     if artifact_path == "-":
         text = sys.stdin.read()
     else:
-        text = Path(artifact_path).read_text()
+        text = Path(artifact_path).read_text(encoding="utf-8")
     return ReviewArtifact.from_json(text)
 
 
@@ -644,6 +644,17 @@ def spawn_review_session(
     default=False,
     help="Process comments found right now and exit (no polling loop).",
 )
+@click.option(
+    "--force-incomplete",
+    "force_incomplete",
+    is_flag=True,
+    default=False,
+    help=(
+        "Process an INCOMPLETE artifact despite the risk of missing findings. "
+        "By default, INCOMPLETE artifacts are rejected — re-run ``review pr`` "
+        "to obtain a complete review instead of using this flag."
+    ),
+)
 def review_watch(
     pr_number: int | None,
     repo: str | None,
@@ -656,6 +667,7 @@ def review_watch(
     session_timeout: float,
     workspace: str | None,
     once: bool,
+    force_incomplete: bool,
 ) -> None:
     """Watch a PR for new review comments and iterate automatically.
 
@@ -682,7 +694,9 @@ def review_watch(
     if artifact_path is not None:
         try:
             artifact = _load_artifact(artifact_path)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, TypeError) as exc:
+            # TypeError covers non-dict JSON roots (null, list, scalar) that
+            # pass json.loads() but fail ReviewArtifact.from_dict's type guard.
             raise click.ClickException(f"Could not load artifact: {exc}") from exc
 
         # Resolve PR coordinates: CLI flags take precedence over artifact metadata.
@@ -696,6 +710,40 @@ def review_watch(
                     f"Invalid --repo value {repo!r}. Expected 'owner/repo' format."
                 )
             effective_owner, effective_repo_name = repo.split("/", 1)
+
+        # Check if the review was incomplete — reject by default; require --force-incomplete.
+        # Processing partial findings silently leaves issues undiscovered: the fix session
+        # runs on what it has and treats it as a complete review. Failing loudly forces the
+        # caller to either re-run review pr or make an explicit opt-in decision.
+        #
+        # This MUST run before the "no open findings" early return below: an artifact with
+        # zero findings and INCOMPLETE status (e.g. a timed-out session whose partial output
+        # yielded an empty findings array) is exactly the silent "clean review" this guard
+        # exists to prevent. Returning 0 there would let a CI wrapper chaining
+        # `review pr && review watch` report success on a review that never completed.
+        if artifact.review_status == ReviewStatus.INCOMPLETE:
+            details: list[str] = []
+            if artifact.session_exit_reason and artifact.session_exit_reason != "done":
+                details.append(f"session {artifact.session_exit_reason}")
+            if artifact.validation_errors > 0:
+                details.append(
+                    f"{artifact.validation_errors} finding(s) skipped due to validation errors"
+                )
+            detail_str = "; ".join(details) if details else "partial review"
+
+            if not force_incomplete:
+                raise click.ClickException(
+                    f"Artifact is marked INCOMPLETE ({detail_str}). "
+                    "Processing partial findings may leave issues undiscovered. "
+                    "Re-run `gptme-util review pr` to get a complete review, or pass "
+                    "--force-incomplete to process the partial artifact anyway."
+                )
+
+            click.echo(
+                f"  ⚠️  Warning: Processing INCOMPLETE artifact ({detail_str}). "
+                "Not all issues may have been reviewed.",
+                err=True,
+            )
 
         open_findings = artifact.open_findings
         if not open_findings:
