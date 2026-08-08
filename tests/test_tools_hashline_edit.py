@@ -613,6 +613,48 @@ class TestResolveBlockEnd:
         lines = content.splitlines()
         assert _resolve_block_end(lines, 1) == 2
 
+    def test_unclosed_bracket_header_raises_instead_of_eating_file(self):
+        # A header whose bracket never closes must NOT absorb to EOF — that
+        # would make PUT N*: silently truncate the rest of the file.
+        content = "def foo(\n    x,\nunrelated = 1\nmore = 2\n"
+        with pytest.raises(ValueError, match="unterminated bracket"):
+            _resolve_block_end(content.splitlines(), 1)
+
+    def test_unmatched_paren_in_prose_raises(self):
+        # hashline_edit edits any file, not just Python: an unmatched paren in
+        # plain text must not swallow the remainder of the document.
+        content = "- item (see note\n- item two\n- item three\n"
+        with pytest.raises(ValueError, match="unterminated bracket"):
+            _resolve_block_end(content.splitlines(), 1)
+
+    def test_unterminated_triple_quote_raises(self):
+        content = 'x = """\nline a\nline b\n'
+        with pytest.raises(ValueError, match="unterminated string"):
+            _resolve_block_end(content.splitlines(), 1)
+
+    def test_multiline_string_header_absorbs_string_body(self):
+        # The header opens a triple-quoted string: the block runs to its close,
+        # not just the opening line.
+        content = 'x = """\nline a\nline b\n"""\ny = 2\n'
+        assert _resolve_block_end(content.splitlines(), 1) == 4
+
+    def test_dedented_string_body_does_not_end_block(self):
+        # A left-aligned line inside a triple-quoted string in the body has
+        # indent <= header indent, but is still part of the block.
+        content = (
+            'def foo():\n    x = """\ntext at column 0\n"""\n    return 1\nafter()\n'
+        )
+        assert _resolve_block_end(content.splitlines(), 1) == 5
+
+    def test_indented_docstring_still_resolves(self):
+        content = 'def foo():\n    """Doc\n    more\n    """\n    return 1\nafter()\n'
+        assert _resolve_block_end(content.splitlines(), 1) == 5
+
+    def test_brace_delimited_block_resolves(self):
+        # C-style braces close the header scan at the matching brace.
+        content = "if (x) {\n    foo();\n}\nafter();\n"
+        assert _resolve_block_end(content.splitlines(), 1) == 3
+
 
 # ---------------------------------------------------------------------------
 # PUT N*: block-aware replace
@@ -638,6 +680,26 @@ class TestBlockReplace:
         result = _apply_operations(content, ops)
         assert "def foo():\n    return 42\n\ndef bar():" in result
         assert "x = 1" not in result
+
+    def test_apply_block_replace_unclosed_bracket_is_rejected(self):
+        # Regression: PUT N*: on a header with an unclosed bracket used to
+        # resolve to EOF and delete the remainder of the file.
+        content = "def foo(\n    x,\nkeep_me = 1\nkeep_me_too = 2\n"
+        ops = [HashlineOp(kind="block_replace", start=1, end=-1, text="def foo(x):")]
+        with pytest.raises(ValueError, match="unterminated bracket"):
+            _apply_operations(content, ops)
+
+    def test_execute_put_block_unclosed_bracket_leaves_file_intact(
+        self, tmp_path: Path
+    ):
+        f = tmp_path / "broken.py"
+        original = "def foo(\n    x,\nkeep_me = 1\nkeep_me_too = 2\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        block = f"[{f.resolve()}#{tag}]\nPUT 1*:\n+def foo(x):\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "unterminated bracket" in msgs[0]
+        assert f.read_text() == original  # nothing truncated
 
     def test_apply_block_replace_single_line(self):
         content = "x = 1\ny = 2\n"

@@ -202,44 +202,60 @@ _RE_PYTHON_COMPOUND_HEADER = re.compile(
 )
 
 
-def _bracket_depth(line: str) -> int:
-    """Return the net bracket depth for a line, ignoring comments/strings."""
+def _scan_line(line: str, open_quote: str | None = None) -> tuple[int, str | None]:
+    """Scan *line*, returning ``(net bracket depth, triple-quote left open)``.
+
+    *open_quote* is the triple-quote delimiter (``'''`` or ``\"\"\"``) left open by
+    a previous line, or ``None`` when the line starts outside a string.  The
+    returned delimiter is the one still open at end of line, so callers can carry
+    multi-line string state across lines instead of re-deciding per line.
+    Brackets and ``#`` comments inside strings are ignored.
+    """
     depth = 0
-    quote: str | None = None
-    triple_quote = False
+    triple: str | None = open_quote  # multi-line string; persists across lines
+    single: str | None = None  # single-quoted string; cannot span lines
     escaped = False
     i = 0
-    while i < len(line):
+    n = len(line)
+    while i < n:
+        ch = line[i]
         if escaped:
             escaped = False
             i += 1
             continue
-        if quote is not None:
-            if line[i] == "\\":
+        if triple is not None:
+            if ch == "\\":
                 escaped = True
-            elif triple_quote and line.startswith(quote * 3, i):
-                quote = None
-                triple_quote = False
+                i += 1
+            elif line.startswith(triple, i):
+                triple = None
                 i += 3
-                continue
-            elif not triple_quote and line[i] == quote:
-                quote = None
+            else:
+                i += 1
+            continue
+        if single is not None:
+            if ch == "\\":
+                escaped = True
+            elif ch == single:
+                single = None
             i += 1
             continue
-        if line[i] == "#":
+        if ch == "#":
             break
-        if line[i] in {"'", '"'}:
-            quote = line[i]
-            triple_quote = line.startswith(line[i] * 3, i)
-            if triple_quote:
+        if ch in {"'", '"'}:
+            if line.startswith(ch * 3, i):
+                triple = ch * 3
                 i += 3
-                continue
-        elif line[i] in "([{":
+            else:
+                single = ch
+                i += 1
+            continue
+        if ch in "([{":
             depth += 1
-        elif line[i] in ")]}":
+        elif ch in ")]}":
             depth -= 1
         i += 1
-    return depth
+    return depth, triple
 
 
 def _resolve_block_end(file_lines: list[str], start: int) -> int:
@@ -250,8 +266,10 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
     indentation.  The block ends at the last such line (blank lines inside the body
     are absorbed).  If no body follows, the block is just the header line itself.
 
-    A multi-line header delimited by brackets is consumed before indentation
-    scanning begins. A same-indentation continuation clause
+    A multi-line header delimited by brackets or by a triple-quoted string is
+    consumed before indentation scanning begins, and triple-quoted string state
+    is carried across body lines so a left-aligned string body doesn't terminate
+    the block early. A same-indentation continuation clause
     (``elif``/``else``/``except``/``finally``) is treated as part of the same compound statement: its header
     and body are absorbed too, so the resolved range covers the whole
     ``if``/``try`` statement rather than stopping at the first clause. A
@@ -260,7 +278,9 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
     e.g. an ``if`` body and its ``else`` doesn't strand the ``else`` outside
     the resolved range.
 
-    Raises :class:`ValueError` when *start* is out of range.
+    Raises :class:`ValueError` when *start* is out of range, or when the block
+    cannot be delimited because a bracket or triple-quoted string opened by the
+    block is never closed before end of file.
     """
     total = len(file_lines)
     if start < 1 or start > total:
@@ -271,14 +291,17 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
     header = file_lines[start - 1]
     header_indent = len(header) - len(header.lstrip())
     python_compound = bool(_RE_PYTHON_COMPOUND_HEADER.match(header.lstrip()))
-    bracket_depth = _bracket_depth(header)
+    bracket_depth, open_quote = _scan_line(header)
 
     end = start
     i = start  # file_lines[start] is the line AFTER the header (0-indexed)
     while i < total:
         line = file_lines[i]
-        if bracket_depth > 0:
-            bracket_depth += _bracket_depth(line)
+        if bracket_depth > 0 or open_quote is not None:
+            # Inside a multi-line header or a multi-line string: consume the line
+            # verbatim, indentation carries no meaning here.
+            delta, open_quote = _scan_line(line, open_quote)
+            bracket_depth += delta
             end = i + 1
             i += 1
             continue
@@ -288,6 +311,9 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
         indent = len(line) - len(line.lstrip())
         if indent > header_indent:
             end = i + 1  # 1-indexed
+            # A body line may open a triple-quoted string whose content is
+            # left-aligned; track it so those lines stay inside the block.
+            _, open_quote = _scan_line(line)
             i += 1
         elif line.lstrip().startswith("#"):
             i += 1  # comments may separate continuation clauses
@@ -300,6 +326,15 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
             i += 1
         else:
             break  # same or lower indent, not a continuation clause: block is complete
+
+    if bracket_depth > 0 or open_quote is not None:
+        # Never closed before EOF — without this guard the scan absorbs the rest
+        # of the file and the replace would silently truncate it.
+        unterminated = "bracket" if bracket_depth > 0 else "string"
+        raise ValueError(
+            f"Block at line {start} has an unterminated {unterminated} — cannot "
+            "determine where it ends; use an explicit range (PUT N.=M:) instead"
+        )
 
     return end
 
