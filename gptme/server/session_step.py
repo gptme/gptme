@@ -1190,6 +1190,16 @@ def start_tool_execution(
                         current_tool_id = next_auto_id
                         current_edited_tooluse = None
                     else:
+                        # Persist aggregated timing before releasing the final claim,
+                        # so continuation cannot load the originating message while
+                        # its completion metadata is still being patched.
+                        if tool_ms_by_name:
+                            _attach_tool_timings(
+                                conversation_id,
+                                tool_ms_by_name,
+                                assistant_msg_timestamp,
+                                branch=branch,
+                            )
                         break
                 finally:
                     # Keep the claim through completion events and timing writes.
@@ -1198,16 +1208,6 @@ def start_tool_execution(
                     # bookkeeping state as quiescent.
                     with SessionManager.conversation_lock(conversation_id):
                         session._executing_tools.discard(claimed_tool_id)
-
-            # Persist aggregated tool timing in the assistant message that
-            # triggered these tool calls so it is available in session records.
-            if tool_ms_by_name:
-                _attach_tool_timings(
-                    conversation_id,
-                    tool_ms_by_name,
-                    assistant_msg_timestamp,
-                    branch=branch,
-                )
 
             # Elect exactly one continuation while holding the same lock used to
             # add and remove execution claims. This makes quiescence observation

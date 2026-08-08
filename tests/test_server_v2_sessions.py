@@ -1166,17 +1166,14 @@ class TestConcurrentToolConfirmation:
         tool_exec.tooluse.execute = lambda *args, **kwargs: []
         session.pending_tools[tool_id] = tool_exec
 
-        completion_entered = threading.Event()
-        allow_completion = threading.Event()
+        timing_entered = threading.Event()
+        allow_timing = threading.Event()
         step_calls: list[bool] = []
-        real_add_event = SessionManager.add_event
 
-        def blocking_add_event(conversation_id, event):
-            if event.get("type") == "tool_complete":
-                completion_entered.set()
-                assert tool_id in session._executing_tools
-                allow_completion.wait(timeout=5)
-            return real_add_event(conversation_id, event)
+        def blocking_attach_timings(*args, **kwargs):
+            timing_entered.set()
+            assert tool_id in session._executing_tools
+            allow_timing.wait(timeout=5)
 
         chat_config = ChatConfig(model="mock/model")
         with (
@@ -1188,12 +1185,14 @@ class TestConcurrentToolConfirmation:
                 ),
             ),
             patch("gptme.server.session_step._append_and_notify"),
-            patch("gptme.server.session_step._attach_tool_timings"),
+            patch(
+                "gptme.server.session_step._attach_tool_timings",
+                side_effect=blocking_attach_timings,
+            ),
             patch(
                 "gptme.server.session_step._start_step_thread",
                 side_effect=lambda *args, **kwargs: step_calls.append(True),
             ),
-            patch.object(SessionManager, "add_event", staticmethod(blocking_add_event)),
         ):
             thread = start_tool_execution(
                 conv["conversation_id"],
@@ -1204,10 +1203,10 @@ class TestConcurrentToolConfirmation:
                 chat_config,
                 branch="main",
             )
-            assert completion_entered.wait(timeout=5)
+            assert timing_entered.wait(timeout=5)
             assert step_calls == []
             assert tool_id in session._executing_tools
-            allow_completion.set()
+            allow_timing.set()
             thread.join(timeout=5)
 
         assert not thread.is_alive()
