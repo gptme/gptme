@@ -34,13 +34,18 @@ jobs:
     # We use actions/download-artifact (official) rather than dawidd6/action-download-artifact
     # because the official action guarantees files land directly in `path` (no artifact-name
     # subdirectory), which is what diff-screenshots.sh expects with its non-recursive glob.
+    #
+    # IMPORTANT: download to /tmp/screenshots-after, NOT a path inside $GITHUB_WORKSPACE.
+    # actions/checkout@v7 runs "Deleting the contents of '$GITHUB_WORKSPACE'" before cloning,
+    # which wipes any files already downloaded there — including these screenshots.
+    # Storing them in /tmp survives the checkout step.
     - name: Download "after" screenshots
       id: download
       uses: actions/download-artifact@v7
       with:
         run-id: ${{ github.event.workflow_run.id }}
         name: webui-visual-snapshots
-        path: screenshots/after
+        path: /tmp/screenshots-after
         github-token: ${{ github.token }}
       continue-on-error: true  # warn rather than fail when screenshots weren't uploaded
 
@@ -48,15 +53,15 @@ jobs:
       id: setup
       run: |
         # Log the downloaded structure to aid future debugging.
-        echo "=== screenshots/after contents ==="
-        find screenshots/after -maxdepth 2 2>/dev/null | sort || echo "(empty or not found)"
-        echo "==================================="
+        echo "=== /tmp/screenshots-after contents ==="
+        find /tmp/screenshots-after -maxdepth 2 2>/dev/null | sort || echo "(empty or not found)"
+        echo "======================================="
 
         # Use -maxdepth 1 (same non-recursive scope as diff-screenshots.sh's glob)
         # to avoid a false-positive proceed when files landed in a subdirectory.
-        PNG_COUNT=$(find screenshots/after -maxdepth 1 -name '*.png' 2>/dev/null | wc -l | tr -d ' ')
+        PNG_COUNT=$(find /tmp/screenshots-after -maxdepth 1 -name '*.png' 2>/dev/null | wc -l | tr -d ' ')
         if [ "$PNG_COUNT" -eq 0 ]; then
-          echo "No screenshots found directly in screenshots/after — skipping diff"
+          echo "No screenshots found directly in /tmp/screenshots-after — skipping diff"
           echo "skip=true" >> $GITHUB_OUTPUT
           exit 0
         fi
@@ -136,7 +141,7 @@ jobs:
       run: |
         bash .github/scripts/diff-screenshots.sh \
           screenshots/before \
-          screenshots/after \
+          /tmp/screenshots-after \
           screenshots/diff
         CHANGED=$(python3 -c "import json; d=json.load(open('screenshots/diff/summary.json')); print(d['changed'])")
         TOTAL=$(python3  -c "import json; d=json.load(open('screenshots/diff/summary.json')); print(d['total'])")
