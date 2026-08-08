@@ -88,7 +88,7 @@ def _read_master_messages(logfile: Path) -> list[dict]:
     """Read all messages from conversation.jsonl master log."""
     messages: list[dict] = []
     try:
-        with open(logfile) as f:
+        with open(logfile, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
