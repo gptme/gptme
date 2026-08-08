@@ -197,6 +197,49 @@ def _collect_content(lines: list[str], start_idx: int) -> tuple[int, str]:
 
 
 _RE_CONTINUATION_CLAUSE = re.compile(r"^(elif|else|except|finally)\b")
+_RE_PYTHON_COMPOUND_HEADER = re.compile(
+    r"^(?:async\s+)?(?:def|class|if|for|while|with|try)\b"
+)
+
+
+def _bracket_depth(line: str) -> int:
+    """Return the net bracket depth for a line, ignoring comments/strings."""
+    depth = 0
+    quote: str | None = None
+    triple_quote = False
+    escaped = False
+    i = 0
+    while i < len(line):
+        if escaped:
+            escaped = False
+            i += 1
+            continue
+        if quote is not None:
+            if line[i] == "\\":
+                escaped = True
+            elif triple_quote and line.startswith(quote * 3, i):
+                quote = None
+                triple_quote = False
+                i += 3
+                continue
+            elif not triple_quote and line[i] == quote:
+                quote = None
+            i += 1
+            continue
+        if line[i] == "#":
+            break
+        if line[i] in {"'", '"'}:
+            quote = line[i]
+            triple_quote = line.startswith(line[i] * 3, i)
+            if triple_quote:
+                i += 3
+                continue
+        elif line[i] in "([{":
+            depth += 1
+        elif line[i] in ")]}":
+            depth -= 1
+        i += 1
+    return depth
 
 
 def _resolve_block_end(file_lines: list[str], start: int) -> int:
@@ -207,8 +250,9 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
     indentation.  The block ends at the last such line (blank lines inside the body
     are absorbed).  If no body follows, the block is just the header line itself.
 
-    A same-indentation continuation clause (``elif``/``else``/``except``/
-    ``finally``) is treated as part of the same compound statement: its header
+    A multi-line header delimited by brackets is consumed before indentation
+    scanning begins. A same-indentation continuation clause
+    (``elif``/``else``/``except``/``finally``) is treated as part of the same compound statement: its header
     and body are absorbed too, so the resolved range covers the whole
     ``if``/``try`` statement rather than stopping at the first clause. A
     comment line does not end the block by itself — it is skipped while
@@ -226,11 +270,18 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
 
     header = file_lines[start - 1]
     header_indent = len(header) - len(header.lstrip())
+    python_compound = bool(_RE_PYTHON_COMPOUND_HEADER.match(header.lstrip()))
+    bracket_depth = _bracket_depth(header)
 
     end = start
     i = start  # file_lines[start] is the line AFTER the header (0-indexed)
     while i < total:
         line = file_lines[i]
+        if bracket_depth > 0:
+            bracket_depth += _bracket_depth(line)
+            end = i + 1
+            i += 1
+            continue
         if not line.strip():
             i += 1
             continue  # blank lines are absorbed; decide at the next non-blank line
@@ -240,7 +291,11 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
             i += 1
         elif line.lstrip().startswith("#"):
             i += 1  # comments may separate continuation clauses
-        elif indent == header_indent and _RE_CONTINUATION_CLAUSE.match(line.lstrip()):
+        elif (
+            python_compound
+            and indent == header_indent
+            and _RE_CONTINUATION_CLAUSE.match(line.lstrip())
+        ):
             end = i + 1  # absorb the continuation clause header itself
             i += 1
         else:

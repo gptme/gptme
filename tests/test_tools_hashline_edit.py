@@ -563,6 +563,29 @@ class TestResolveBlockEnd:
         lines = content.splitlines()
         assert _resolve_block_end(lines, 1) == 2
 
+    def test_multiline_function_header(self):
+        content = (
+            "def foo(\n"
+            "    first: tuple[int, str],\n"
+            "    second: str = 'ignore ) in strings',\n"
+            "):\n"
+            "    return first\n"
+            "after()\n"
+        )
+        assert _resolve_block_end(content.splitlines(), 1) == 5
+
+    def test_multiline_if_header(self):
+        content = "if (\n    first\n    and second\n):\n    act()\nafter()\n"
+        assert _resolve_block_end(content.splitlines(), 1) == 5
+
+    def test_comment_bracket_does_not_hold_header_open(self):
+        content = "def foo(  # unmatched ]\n    value,\n):\n    return value\nafter()\n"
+        assert _resolve_block_end(content.splitlines(), 1) == 4
+
+    def test_non_python_else_section_not_absorbed(self):
+        content = "commands:\n  - run\nelse:\n  - cleanup\n"
+        assert _resolve_block_end(content.splitlines(), 1) == 2
+
     def test_comment_between_clauses_does_not_strand_else(self):
         # A same-indentation comment before else/except/etc. must not end the
         # block early — the else clause is still part of the same statement.
@@ -648,6 +671,27 @@ class TestBlockReplace:
         assert result == "if z:\n    do_z()\ndo_d()\n"
         assert "elif" not in result
         assert "else" not in result
+
+    def test_apply_block_replace_multiline_header_with_adjacent_cut(self):
+        content = (
+            "before = True\n"
+            "def foo(\n"
+            "    first,\n"
+            "    second,\n"
+            "):\n"
+            "    return first + second\n"
+            "obsolete = True\n"
+            "after = True\n"
+        )
+        ops = [
+            HashlineOp(
+                kind="block_replace", start=2, end=-1, text="def foo():\n    return 42"
+            ),
+            HashlineOp(kind="delete", start=7, end=7, text=None),
+        ]
+        assert _apply_operations(content, ops) == (
+            "before = True\ndef foo():\n    return 42\nafter = True\n"
+        )
 
     def test_apply_block_replace_comment_between_clauses(self):
         content = "if x:\n    do_a()\n# comment\nelse:\n    do_b()\ndo_c()\n"
