@@ -442,10 +442,12 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
 
     # Pre-scan: capture register content from CUT @name ops (original line numbers)
     registers: dict[str, str] = {}
+    register_sources: dict[str, HashlineOp] = {}
     for op in ops:
         if op.kind == "delete" and op.register_name:
             s, e = op.start - 1, op.end  # 0-indexed slice
             registers[op.register_name] = "\n".join(file_lines[s:e])
+            register_sources[op.register_name] = op
 
     # Resolve register-read ops: replace text=None/register_name with captured text
     step2: list[HashlineOp] = []
@@ -456,6 +458,13 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
                 raise ValueError(
                     f"Register @{reg} is not defined — "
                     "add a 'CUT N.=M @{reg}' operation earlier in the same edit block"
+                )
+            source = register_sources[reg]
+            if op.start <= source.end and source.start <= op.end:
+                raise ValueError(
+                    f"Register @{reg} PUT lines {op.start}-{op.end} overlap "
+                    f"its CUT lines {source.start}-{source.end}; use a destination "
+                    "outside the captured range"
                 )
             step2.append(
                 HashlineOp(
@@ -552,10 +561,12 @@ spaces, or a header followed by a same-indentation line that is *not* a
 continuation clause (e.g. a one-line ``if x: y`` body) — for those, fall back to
 ``PUT N.=M:`` with an explicit line range.
 
-**Registers** allow move/copy within a single edit call: ``CUT N.=M @r`` captures
-deleted lines into register *r* (a short word); ``PUT >N @r`` or ``PUT <N @r``
-pastes them.  Registers are resolved from the original file state, so a cut at
-line 5 and a paste at line 20 work correctly regardless of apply order.
+**Registers** avoid reproducing unchanged content when moving or copying exact
+lines within one edit call, reducing tokens and transcription mistakes.
+``CUT N.=M @r`` captures deleted lines into register *r* (a short word), then
+``PUT >N @r`` or ``PUT <N @r`` pastes them. Registers are resolved from the
+original file state, so a cut at line 5 and a paste at line 20 work correctly
+regardless of apply order. The PUT destination must be outside the CUT range.
 
 New content lines are prefixed with ``+``.  An empty line ends a content block.
 CUT (with or without a register) has no content block.  Register-paste operations

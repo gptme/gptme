@@ -342,6 +342,30 @@ class TestRegisterOperations:
         result = _apply_operations(content, ops)
         assert result == "keep\nold1\nold2\n"
 
+    @pytest.mark.parametrize(
+        "put",
+        [
+            HashlineOp(
+                kind="insert_before", start=3, end=3, register_name="chunk", text=None
+            ),
+            HashlineOp(
+                kind="insert_after", start=2, end=2, register_name="chunk", text=None
+            ),
+            HashlineOp(
+                kind="replace", start=3, end=4, register_name="chunk", text=None
+            ),
+        ],
+    )
+    def test_overlapping_register_put_raises(self, put: HashlineOp):
+        """A PUT cannot address coordinates mutated by its register's CUT."""
+        content = "a\nb\nc\nd\ne\n"
+        ops = [
+            HashlineOp(kind="delete", start=2, end=3, register_name="chunk", text=None),
+            put,
+        ]
+        with pytest.raises(ValueError, match="overlap its CUT lines 2-3"):
+            _apply_operations(content, ops)
+
     def test_undefined_register_raises(self):
         """Pasting from an undefined register raises ValueError."""
         content = "a\nb\nc\n"
