@@ -430,6 +430,7 @@ def _write_manifest(path: Path, content: str) -> None:
 
 def _reset_manifest_cache(monkeypatch) -> None:
     monkeypatch.setattr(_auto_include_mod, "_policy_manifest_cache", None)
+    monkeypatch.setattr(_auto_include_mod, "_policy_manifest_cache_key", None)
 
 
 def test_policy_manifest_path_default(monkeypatch):
@@ -496,7 +497,7 @@ def test_classify_lesson_holdout(monkeypatch, tmp_path):
     )
     monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
     policy_class, version = _classify_lesson(
-        "/home/bob/lessons/patterns/persistent-learning.md"
+        str(tmp_path / "lessons" / "patterns" / "persistent-learning.md")
     )
     assert policy_class == "holdout"
     assert version == 1
@@ -514,7 +515,9 @@ def test_classify_lesson_exempt(monkeypatch, tmp_path):
     _reset_manifest_cache(monkeypatch)
     p = _make_manifest_file(tmp_path, exempt=["safety/critical"])
     monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
-    policy_class, _ = _classify_lesson("/tmp/lessons/safety/critical.md")
+    policy_class, _ = _classify_lesson(
+        str(tmp_path / "lessons" / "safety" / "critical.md")
+    )
     assert policy_class == "exempt"
 
 
@@ -560,8 +563,8 @@ def test_classify_lesson_load_failure_defaults_to_holdout(monkeypatch, tmp_path)
     assert policy_class == "holdout"
 
 
-def test_classify_lesson_malformed_category_value(monkeypatch, tmp_path):
-    """Non-list category values are skipped safely; lesson falls through to holdout/unknown."""
+def test_classify_lesson_malformed_category_value(monkeypatch, tmp_path, caplog):
+    """Non-list category values are skipped safely and emit an operator warning."""
     _reset_manifest_cache(monkeypatch)
     manifest_file = tmp_path / "manifest.yaml"
     # validated_core is a string (malformed), holdout_population is correct
@@ -572,6 +575,7 @@ def test_classify_lesson_malformed_category_value(monkeypatch, tmp_path):
     # The malformed validated_core is skipped; holdout_population matches correctly
     policy_class, _ = _classify_lesson("lessons/patterns/foo.md")
     assert policy_class == "holdout"
+    assert "validated_core has unexpected type (str)" in caplog.text
     # A non-matching lesson gets unknown (manifest loaded successfully)
     _reset_manifest_cache(monkeypatch)
     policy_class2, _ = _classify_lesson("lessons/other/bar.md")
@@ -1008,6 +1012,57 @@ def test_classify_lesson_cached_manifest_cwd_change_stable(monkeypatch, tmp_path
     # lesson is classified as "unknown" instead of "validated_core".
     policy_class, _ = _classify_lesson(str(lesson))
     assert policy_class == "validated_core"
+
+
+def test_policy_manifest_cache_reloads_after_file_change(monkeypatch, tmp_path):
+    """A long-lived process sees policy updates without requiring a restart."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        "version: 1\nvalidated_core: []\nexempt: []\nholdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    assert _classify_lesson("lessons/patterns/foo.md")[0] == "unknown"
+
+    manifest_file.write_text(
+        "version: 2\nvalidated_core:\n- patterns/foo\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+    assert _classify_lesson("lessons/patterns/foo.md") == ("validated_core", 2)
+
+
+def test_classify_lesson_relative_path_uses_declared_root(monkeypatch, tmp_path):
+    """Relative lesson paths share the manifest-root anchor, not process CWD."""
+    _reset_manifest_cache(monkeypatch)
+    lessons_dir = tmp_path / "lessons"
+    lessons_dir.mkdir()
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        "version: 1\nroot: lessons\nvalidated_core:\n- patterns/foo\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    assert _classify_lesson("patterns/foo.md")[0] == "validated_core"
+
+
+def test_classify_lesson_absolute_path_without_root_is_workspace_anchored(
+    monkeypatch, tmp_path
+):
+    """No-root absolute paths match only the manifest workspace's lessons tree."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = _make_manifest_file(tmp_path, validated_core=["patterns/important"])
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+
+    local = tmp_path / "lessons" / "patterns" / "important.md"
+    assert _classify_lesson(str(local))[0] == "validated_core"
+    assert (
+        _classify_lesson("/other/workspace/lessons/patterns/important.md")[0]
+        == "unknown"
+    )
 
 
 def test_classify_lesson_absolute_root_with_dotdot_resolves(monkeypatch, tmp_path):

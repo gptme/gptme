@@ -110,6 +110,7 @@ def _get_dropout_log_dir() -> Path:
 # --- Lesson policy manifest (Stage 1 shadow logging) ---
 
 _policy_manifest_cache: "dict[str, Any] | None" = None
+_policy_manifest_cache_key: "tuple[str, Path, int | None, int | None] | None" = None
 
 
 def _get_policy_manifest_path() -> Path:
@@ -132,11 +133,30 @@ def _load_policy_manifest() -> "dict[str, Any]":
     On load failure or missing file, returns a safe default (all lessons in holdout).
     Failures are swallowed — manifest loading must never break lesson injection.
     """
-    global _policy_manifest_cache
-    if _policy_manifest_cache is not None:
-        return _policy_manifest_cache
+    global _policy_manifest_cache, _policy_manifest_cache_key
 
     manifest_path = _get_policy_manifest_path()
+    configured_path = str(manifest_path)
+    # A relative configured path is CWD-dependent only until it has loaded. Keep
+    # using that load-time anchor across later CWD changes, while still allowing
+    # a different configured path or an in-place file update to invalidate it.
+    cached_abs_path = (
+        _policy_manifest_cache_key[1]
+        if _policy_manifest_cache_key is not None
+        and _policy_manifest_cache_key[0] == configured_path
+        else None
+    )
+    manifest_abs_path = cached_abs_path or manifest_path.resolve()
+    try:
+        stat = manifest_abs_path.stat()
+        manifest_mtime_ns = stat.st_mtime_ns
+        manifest_size = stat.st_size
+    except OSError:
+        manifest_mtime_ns = None
+        manifest_size = None
+    cache_key = (configured_path, manifest_abs_path, manifest_mtime_ns, manifest_size)
+    if _policy_manifest_cache is not None and _policy_manifest_cache_key == cache_key:
+        return _policy_manifest_cache
     _default: dict[str, Any] = {
         "version": 1,
         "updated_at": "",
@@ -148,8 +168,9 @@ def _load_policy_manifest() -> "dict[str, Any]":
     # from "manifest exists but lesson not listed" (→ unknown).
     _missing_default = {**_default, "_manifest_missing": True}
 
-    if not manifest_path.exists():
+    if manifest_mtime_ns is None:
         _policy_manifest_cache = _missing_default
+        _policy_manifest_cache_key = cache_key
         return _policy_manifest_cache
 
     try:
@@ -189,9 +210,10 @@ def _load_policy_manifest() -> "dict[str, Any]":
     # manifest was first cached (the Greptile "cached manifest loses its anchor"
     # finding).
     if not manifest.get("_manifest_missing"):
-        manifest["_manifest_abs_path"] = manifest_path.resolve()
+        manifest["_manifest_abs_path"] = manifest_abs_path
 
     _policy_manifest_cache = manifest
+    _policy_manifest_cache_key = cache_key
     return _policy_manifest_cache
 
 
@@ -265,7 +287,9 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
                 # Always resolve absolute roots too so that paths containing `..`
                 # or symlink components compare correctly against lesson paths.
                 manifest_root = manifest_root.resolve()
-            abs_path = path if path.is_absolute() else path.resolve()
+            # LessonIndex normally yields absolute paths. Accept relative paths too,
+            # anchoring them to the declared lesson root instead of the process CWD.
+            abs_path = path if path.is_absolute() else manifest_root / path
             try:
                 rel = abs_path.relative_to(manifest_root)
             except ValueError:
@@ -290,18 +314,36 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
                 return "holdout", policy_version
             return "unknown", policy_version
     else:
-        # No root declared. Use the "lessons" dir component as a heuristic anchor.
-        try:
-            lessons_idx = list(parts).index("lessons")
-            candidate_keys = ["/".join(parts[lessons_idx + 1 :]).removesuffix(".md")]
-        except ValueError:
-            # No root and no "lessons" component. Suffix enumeration would accept
-            # lessons from unrelated custom roots — return unknown/holdout
-            # conservatively. Set `root:` in the manifest to classify custom-root
-            # lessons accurately.
-            if manifest.get("_manifest_missing"):
-                return "holdout", policy_version
-            return "unknown", policy_version
+        # A relative path is scoped by its LessonIndex caller, so preserve the
+        # legacy ``lessons/`` heuristic. An absolute path is only safe when its
+        # ``lessons`` directory is anchored to the manifest's workspace.
+        if path.is_absolute():
+            manifest_file_abs = manifest.get("_manifest_abs_path")
+            if manifest_file_abs is None:
+                if manifest.get("_manifest_missing"):
+                    return "holdout", policy_version
+                return "unknown", policy_version
+            inferred_root = Path(manifest_file_abs).parent / "lessons"
+            try:
+                rel = path.relative_to(inferred_root)
+            except ValueError:
+                try:
+                    rel = path.resolve().relative_to(inferred_root.resolve())
+                except (ValueError, OSError):
+                    return "unknown", policy_version
+            candidate_keys = [str(rel).replace("\\", "/").removesuffix(".md")]
+        else:
+            try:
+                lessons_idx = list(parts).index("lessons")
+                candidate_keys = [
+                    "/".join(parts[lessons_idx + 1 :]).removesuffix(".md")
+                ]
+            except ValueError:
+                # No root and no "lessons" component. Suffix enumeration would
+                # accept unrelated custom-root lessons, so classify conservatively.
+                if manifest.get("_manifest_missing"):
+                    return "holdout", policy_version
+                return "unknown", policy_version
 
     # Build a lookup from manifest key → policy class so we can pick the
     # most specific (longest) matching suffix first, regardless of class order.
@@ -315,6 +357,12 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
     ]:
         category_list = manifest.get(category)
         if not isinstance(category_list, list):
+            if category_list is not None:
+                logger.warning(
+                    "Lesson-policy manifest category %s has unexpected type (%s); ignoring it",
+                    category,
+                    type(category_list).__name__,
+                )
             continue
         for k in category_list:
             if isinstance(k, str):  # skip non-string (YAML mappings, nested lists)
