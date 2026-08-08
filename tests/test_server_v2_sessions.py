@@ -1752,3 +1752,118 @@ class TestTranscriptEndpointInputValidation:
         data = response.get_json()
         assert data is not None
         assert "call_sid" in data["error"]
+
+
+# --- Interrupt reservation ownership tests ---
+
+
+class TestInterruptReservationOwnership:
+    """Interrupted workers cannot continue under a successor's reservation."""
+
+    def test_stale_worker_does_not_adopt_successor_reservation(
+        self, conv, client: FlaskClient
+    ):
+        """A delayed step keeps the token captured by its spawning thread."""
+        from pathlib import Path
+
+        from gptme.server.session_step import _start_step_thread
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.generating = True
+        session.step_seq += 1
+        stale_seq = session.step_seq
+
+        worker_started = threading.Event()
+        release_worker = threading.Event()
+        worker_finished = threading.Event()
+
+        def delayed_context_run(callback):
+            worker_started.set()
+            release_worker.wait(timeout=5)
+            try:
+                callback()
+            finally:
+                worker_finished.set()
+
+        with (
+            patch("gptme.server.session_step.contextvars.copy_context") as copy_context,
+            patch("gptme.server.session_step.ChatConfig.load_or_create") as config,
+            patch("gptme.server.session_step.trigger_hook") as trigger_hook,
+            patch("gptme.server.session_step.SessionManager.add_event") as add_event,
+            patch("gptme.server.session_step._stream") as stream,
+        ):
+            copy_context.return_value.run.side_effect = delayed_context_run
+            assert _start_step_thread(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                model="mock/model",
+                workspace=Path("/tmp"),
+                reserved=True,
+            )
+            assert worker_started.wait(timeout=5)
+
+            # Match interrupt followed by a fresh /step reservation.
+            with session.step_lock:
+                session.step_seq += 1
+                session.generating = False
+                session.step_seq += 1
+                successor_seq = session.step_seq
+                session.generating = True
+            release_worker.set()
+            assert worker_finished.wait(timeout=5)
+
+        assert stale_seq != successor_seq
+        assert session.step_seq == successor_seq
+        assert session.generating is True
+        config.assert_not_called()
+        trigger_hook.assert_not_called()
+        add_event.assert_not_called()
+        stream.assert_not_called()
+
+    def test_unreserved_interrupt_does_not_dispatch_continuation(
+        self, conv, client: FlaskClient
+    ):
+        """Interrupt revocation blocks the auto-confirm tool continuation path."""
+        from pathlib import Path
+
+        from gptme.config import ChatConfig
+        from gptme.server.session_step import start_tool_execution
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.generating = True
+        tool_id = "test-interrupted-unreserved-tool"
+        session.pending_tools[tool_id] = ToolExecution(
+            tool_id=tool_id, tooluse=ToolUse("shell", [], "echo ok")
+        )
+        chat_config = ChatConfig()
+        chat_config.workspace = Path("/tmp")
+
+        def fake_execute(**kwargs):
+            with session.step_lock:
+                session.step_seq += 1
+                session.generating = False
+                session.generating_since = None
+                session.pending_tools.clear()
+            return []
+
+        with (
+            patch("gptme.server.session_step._start_step_thread") as start_step,
+            patch.object(ToolUse, "execute", side_effect=fake_execute),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.SessionManager.add_event"),
+        ):
+            thread = start_tool_execution(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                tool_id=tool_id,
+                edited_tooluse=None,
+                model="mock/model",
+                chat_config=chat_config,
+            )
+            thread.join(timeout=5)
+
+        assert not thread.is_alive()
+        start_step.assert_not_called()
+        assert session.generating is False

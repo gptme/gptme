@@ -87,6 +87,9 @@ class ConversationSession(BaseSession):
     # results. Used to prevent the continuation step from starting before all
     # concurrent tool threads have finished writing.
     _executing_tools: set[str] = field(default_factory=set)
+    # Monotonic generation-reservation token. Interrupts and successors advance
+    # it so delayed workers cannot act on a reservation they no longer own.
+    step_seq: int = 0
     auto_confirm_count: int = 0
     clients: set[str] = field(default_factory=set)
     event_flag: threading.Event = field(default_factory=threading.Event)

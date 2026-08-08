@@ -405,6 +405,7 @@ def api_conversation_step(conversation_id: str):
             start_acp_health_monitor()
         session.generating = True
         session.generating_since = datetime.now(tz=timezone.utc)
+        session.step_seq += 1
 
     # Wrap setup in try/finally so any unexpected exception (get_default_model,
     # config I/O, etc.) resets the flag rather than leaving the session
@@ -716,6 +717,7 @@ def api_conversation_tool_confirm(conversation_id: str):
 
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
+            session.step_seq += 1
             try:
                 current_tool.status = ToolStatus.SKIPPED
                 session.pending_tools.pop(tool_id)
@@ -910,6 +912,7 @@ def api_conversation_rerun(conversation_id: str):
         if first_auto_id is not None:
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
+            session.step_seq += 1
             start_tool_execution(
                 conversation_id,
                 session,
@@ -1143,7 +1146,8 @@ def api_conversation_interrupt(conversation_id: str):
             with sess.step_lock:
                 if sess.generating or sess.pending_tools:
                     interrupted = True
-                # Mark session as not generating and clear pending tools
+                # Revoke in-flight tool and step workers before clearing state.
+                sess.step_seq += 1
                 sess.generating = False
                 sess.generating_since = None
                 sess.pending_tools.clear()

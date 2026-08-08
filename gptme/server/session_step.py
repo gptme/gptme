@@ -638,6 +638,8 @@ def step(
     branch: str = "main",
     auto_confirm: bool = False,
     stream: bool = True,
+    *,
+    reservation_seq: int | None = None,
 ) -> None:
     """
     Generate a response and detect tools.
@@ -657,7 +659,29 @@ def step(
         branch: Branch to use (default: "main")
         auto_confirm: Whether to auto-confirm tools (default: False)
         stream: Whether to stream the response (default: True)
+        reservation_seq: Sequence token captured by the spawning thread. Direct
+            synchronous callers may omit it to snapshot the current reservation.
     """
+
+    my_step_seq = session.step_seq if reservation_seq is None else reservation_seq
+
+    def release_generation() -> None:
+        """Release this worker's reservation without clobbering a successor."""
+        with session.step_lock:
+            if session.step_seq == my_step_seq:
+                session.generating = False
+                session.generating_since = None
+
+    # Check the spawning reservation before hooks, writes, events, or LLM calls.
+    with session.step_lock:
+        if session.step_seq != my_step_seq or not session.generating:
+            logger.debug(
+                "step(): aborting setup — session %s reservation was revoked",
+                session.id,
+            )
+            if session.step_seq == my_step_seq:
+                session.generating_since = None
+            return
 
     # Load chat config and prepare execution environment
     logdir = get_logs_dir() / conversation_id
@@ -687,8 +711,7 @@ def step(
         _persist_generation_error(manager, session, str(e))
         SessionManager.add_event(conversation_id, ws_error_event)
         session.last_error = str(e)
-        session.generating = False
-        session.generating_since = None
+        release_generation()
         return
 
     # Set the model as default before triggering hooks
@@ -771,8 +794,7 @@ def step(
             "error": "No messages to process",
         }
         SessionManager.add_event(conversation_id, error_event)
-        session.generating = False
-        session.generating_since = None
+        release_generation()
         return
 
     # Notify clients about generation status
@@ -970,8 +992,7 @@ def step(
             conversation_id, {"type": "error", "error": error_message}
         )
     finally:
-        session.generating = False
-        session.generating_since = None
+        release_generation()
 
 
 def start_tool_execution(
@@ -999,10 +1020,16 @@ def start_tool_execution(
     branch.  Defaults to ``"main"`` to match the default in ``step()``.
     """
 
+    # Capture ownership before the worker starts. Interrupt + a successor step
+    # must not let this worker inherit the successor's reservation.
+    my_step_seq = session.step_seq
+
     # This function would ideally run asynchronously to not block the request
     # For simplicity, we'll run it in a thread
     @trace_function("api_v2.execute_tool", attributes={"component": "api_v2"})
     def execute_tool_thread() -> None:
+        continuation_seq: int | None = None
+
         # Set context vars for hook-based confirmation
         from ..hooks import current_conversation_id, current_session_id
 
@@ -1214,18 +1241,26 @@ def start_tool_execution(
             # and generation reservation one atomic state transition.
             start_continuation = False
             with SessionManager.conversation_lock(conversation_id), session.step_lock:
-                if not session.pending_tools and not session._executing_tools:
-                    if reserved:
-                        start_continuation = True
-                    elif not SessionManager.conversation_generating(
-                        conversation_id
-                    ) and not SessionManager.command_is_active(conversation_id):
+                if session.step_seq != my_step_seq:
+                    logger.debug(
+                        "Not starting continuation step for %s: reservation revoked",
+                        conversation_id,
+                    )
+                elif not session.pending_tools and not session._executing_tools:
+                    if reserved and not session.generating:
+                        logger.debug(
+                            "Not starting continuation step for %s: interrupted",
+                            conversation_id,
+                        )
+                    else:
+                        session.step_seq += 1
+                        continuation_seq = session.step_seq
                         session.generating = True
                         session.generating_since = datetime.now(tz=timezone.utc)
                         start_continuation = True
                 elif reserved:
                     # Pending non-auto-confirm tools remain; those need explicit
-                    # confirmation. Release the pre-reserved generation slot.
+                    # confirmation. Release only this worker's reservation.
                     session.generating = False
                     session.generating_since = None
 
@@ -1242,12 +1277,11 @@ def start_tool_execution(
             logger.exception(
                 f"Unhandled error in tool execution thread for {conversation_id}"
             )
-            if reserved:
-                # A crash anywhere before the reservation is transferred to
-                # _start_step_thread (or explicitly released above) must not
-                # permanently strand the conversation in a generating state.
-                session.generating = False
-                session.generating_since = None
+            if continuation_seq is None:
+                with session.step_lock:
+                    if session.step_seq == my_step_seq:
+                        session.generating = False
+                        session.generating_since = None
             raise
 
     # Propagate ContextVars from the request context into the execution thread.
@@ -1282,6 +1316,9 @@ def _start_step_thread(
                 return False
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
+            session.step_seq += 1
+
+    reservation_seq = session.step_seq
     session.last_error = None
 
     def step_thread() -> None:
@@ -1300,6 +1337,7 @@ def _start_step_thread(
             branch=branch,
             auto_confirm=auto_confirm,
             stream=stream,
+            reservation_seq=reservation_seq,
         )
 
     # Propagate ContextVars (model, config) from the caller into the step thread.
