@@ -3317,3 +3317,12 @@ class TestMakeResolvedModel:
             "openrouter/meta-llama/llama-3.1@groq", "Together AI"
         )
         assert result == "openrouter/meta-llama/llama-3.1@together-ai"
+
+    def test_user_pinned_stem_returns_none(self):
+        """@together is a stem of slug 'together-ai' → user pinned intent matches → None."""
+        from gptme.llm.llm_openai import _make_resolved_model
+
+        result = _make_resolved_model(
+            "openrouter/meta-llama/llama-3.1@together", "Together AI"
+        )
+        assert result is None

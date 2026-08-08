@@ -167,10 +167,19 @@ def _make_resolved_model(model: str, openrouter_provider: str) -> str | None:
     """Build resolved model ID with the actual OpenRouter subprovider.
 
     Returns None when the resolved provider matches the one already in the
-    model string (i.e. no new information to add).
+    model string (i.e. no new information to add), including when the user
+    explicitly pinned a provider suffix that is the stem of the resolved slug
+    (e.g. user wrote @together and OpenRouter reports 'Together AI' → slug
+    'together-ai' starts with 'together-').
     """
     provider_slug = openrouter_provider.lower().replace(" ", "-")
     base = model.split("@")[0] if "@" in model else model
+    # If the user explicitly pinned a provider suffix, suppress the resolved
+    # model when that suffix is an exact match or the stem of the resolved slug.
+    if "@" in model:
+        user_suffix = model.split("@", 1)[1]
+        if provider_slug == user_suffix or provider_slug.startswith(user_suffix + "-"):
+            return None
     resolved = f"{base}@{provider_slug}"
     if resolved == model:
         return None
