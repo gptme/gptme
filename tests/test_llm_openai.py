@@ -1497,6 +1497,85 @@ def test_transform_msgs_for_deepseek_tool_results():
     assert result[0] == messages[0]
 
 
+def test_transform_msgs_for_openrouter_deepseek_array_tool_content():
+    """Test that array-form tool result content is flattened for DeepSeek via OpenRouter.
+
+    When _merge_tool_results_with_same_call_id merges multiple tool messages
+    (e.g. stdout + stderr from pip install) it produces list-form content:
+        {"role": "tool", "content": [{"type": "text", "text": "..."}, ...]}
+
+    Direct deepseek provider handles this in the groq/deepseek branch.
+    But deepseek-v4-flash arrives as provider="openrouter", so that branch is
+    skipped and the array reaches DeepSeek, which rejects it with invalid_request.
+
+    Regression test: gptme/gptme#3459 (6 invalid_request failures in 14 days).
+    """
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    # deepseek/deepseek-v4-flash is registered under provider="openrouter" in data.py
+    openrouter_deepseek = ModelMeta(
+        provider="openrouter",
+        model="deepseek/deepseek-v4-flash",
+        context=1_000_000,
+        supports_reasoning=True,
+    )
+
+    # Array-form tool content as produced by _merge_tool_results_with_same_call_id
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "tool",
+            "tool_call_id": "call_abc",
+            "content": [
+                {"type": "text", "text": "stdout: installing numpy"},
+                {"type": "text", "text": "stderr: WARNING: running as root"},
+            ],
+        },
+    ]
+
+    result = list(_transform_msgs_for_special_provider(messages, openrouter_deepseek))
+
+    # Array content must be flattened to a string — DeepSeek rejects list form
+    assert result[0]["role"] == "tool"
+    assert result[0]["tool_call_id"] == "call_abc"
+    assert isinstance(result[0]["content"], str)
+    assert "stdout: installing numpy" in result[0]["content"]
+    assert "stderr: WARNING: running as root" in result[0]["content"]
+
+
+def test_transform_msgs_for_openrouter_non_deepseek_array_tool_content_unchanged():
+    """Non-DeepSeek OpenRouter models (e.g. Kimi) pass array tool content through unchanged."""
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    # A non-DeepSeek OpenRouter model that also has supports_reasoning=True
+    openrouter_kimi = ModelMeta(
+        provider="openrouter",
+        model="moonshot/moonshot-v1-8k",
+        context=8192,
+        supports_reasoning=True,
+    )
+
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "tool",
+            "tool_call_id": "call_xyz",
+            "content": [
+                {"type": "text", "text": "result text"},
+            ],
+        },
+    ]
+
+    result = list(_transform_msgs_for_special_provider(messages, openrouter_kimi))
+
+    # Non-DeepSeek OpenRouter models: array content passes through unchanged
+    assert result[0]["content"] == messages[0]["content"]
+
+
 def test_transform_msgs_for_deepseek_reasoner_think_content_string():
     """Test that deepseek-reasoner assistant messages with <think> content and tool_calls
     get <think> extracted into reasoning_content, not embedded in content.

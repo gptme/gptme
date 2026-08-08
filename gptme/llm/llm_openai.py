@@ -1770,6 +1770,11 @@ def _transform_msgs_for_special_provider(
     if (model.provider == "openrouter" and model.supports_reasoning) or (
         preserve_all_reasoning
     ):
+        # DeepSeek models routed through OpenRouter also require string (not
+        # array) content on tool-result messages — same strictness as direct
+        # deepseek provider.  Detected by the OpenRouter model namespace prefix.
+        needs_string_tool_content = model.model.startswith("deepseek/")
+
         openrouter_result: list[MessageDict] = []
         for msg in messages_dicts:
             if (
@@ -1803,6 +1808,31 @@ def _transform_msgs_for_special_provider(
                     # rejects messages with empty text content)
                     openrouter_msg.pop("content", None)
                 openrouter_result.append(cast(MessageDict, openrouter_msg))
+            elif (
+                needs_string_tool_content
+                and msg.get("role") == "tool"
+                and isinstance(msg.get("content"), list)
+            ):
+                # Flatten array tool-result content to string.
+                # _merge_tool_results_with_same_call_id emits list-form content
+                # when a tool call yields multiple messages (e.g. stdout + stderr).
+                # DeepSeek rejects this with invalid_request; flatten to a plain
+                # string here, consistent with how the direct deepseek provider
+                # branch handles it above.
+                content_list: list[Any] = msg["content"]
+                text_parts_tool = [
+                    part["text"]
+                    for part in content_list
+                    if isinstance(part, dict) and part.get("type") == "text"
+                ]
+                flattened = (
+                    "\n\n".join(text_parts_tool)
+                    if text_parts_tool
+                    else "[non-text content]"
+                )
+                openrouter_result.append(
+                    cast(MessageDict, {**msg, "content": flattened})
+                )
             else:
                 openrouter_result.append(cast(MessageDict, msg))
         return openrouter_result
