@@ -1038,3 +1038,114 @@ def test_classify_lesson_absolute_root_with_dotdot_resolves(monkeypatch, tmp_pat
 
     policy_class, _ = _classify_lesson(str(lesson))
     assert policy_class == "validated_core"
+
+
+def test_classify_lesson_symlinked_path_component_matches_root(monkeypatch, tmp_path):
+    """A symlinked component in an *absolute* lesson path must still match the root.
+
+    `manifest_root` is always `.resolve()`d, but an absolute lesson path is used
+    as-is. When the lesson is reached through a symlink (a symlinked workspace
+    root, `/tmp` on macOS, `$HOME` behind a symlink) the two sides spell the same
+    file differently, `relative_to()` raises ValueError, and every in-root lesson
+    is silently mislabelled "unknown" in the shadow log.
+    """
+    _reset_manifest_cache(monkeypatch)
+
+    real = tmp_path / "real"
+    (real / "lessons" / "patterns").mkdir(parents=True)
+    (real / "lessons" / "patterns" / "foo.md").write_text("# Foo\n")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    manifest_file = _make_manifest_file_with_root(
+        real, "lessons", validated_core=["patterns/foo"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+
+    # Sanity: the real path classifies correctly.
+    assert _classify_lesson(str(real / "lessons" / "patterns" / "foo.md"))[0] == (
+        "validated_core"
+    )
+
+    # The same file reached via the symlink must classify identically.
+    _reset_manifest_cache(monkeypatch)
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    assert _classify_lesson(str(link / "lessons" / "patterns" / "foo.md"))[0] == (
+        "validated_core"
+    )
+
+
+def test_classify_lesson_symlinked_manifest_and_lesson_matches_root(
+    monkeypatch, tmp_path
+):
+    """Reaching *both* manifest and lesson through the same symlink must classify.
+
+    This is the realistic deployment shape (whole workspace behind a symlink):
+    the manifest path is resolved at load time while the lesson path is not, so
+    the asymmetry bites even when caller paths are internally consistent.
+    """
+    _reset_manifest_cache(monkeypatch)
+
+    real = tmp_path / "real"
+    (real / "lessons" / "patterns").mkdir(parents=True)
+    (real / "lessons" / "patterns" / "foo.md").write_text("# Foo\n")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    _make_manifest_file_with_root(real, "lessons", validated_core=["patterns/foo"])
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(link / "manifest.yaml"))
+
+    assert _classify_lesson(str(link / "lessons" / "patterns" / "foo.md"))[0] == (
+        "validated_core"
+    )
+
+
+def test_classify_lesson_absolute_lesson_path_with_dotdot_matches_root(
+    monkeypatch, tmp_path
+):
+    """An absolute lesson path containing `..` must normalize before comparison.
+
+    The root side is resolved, the lesson side was not — so `..` in the lesson
+    path produced a spurious "unknown".
+    """
+    _reset_manifest_cache(monkeypatch)
+
+    lessons_dir = tmp_path / "lessons"
+    (lessons_dir / "patterns").mkdir(parents=True)
+    (lessons_dir / "patterns" / "foo.md").write_text("# Foo\n")
+    (tmp_path / "other").mkdir()
+
+    manifest_file = _make_manifest_file_with_root(
+        tmp_path, "lessons", validated_core=["patterns/foo"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+
+    dotdot_lesson = str(tmp_path / "other" / ".." / "lessons" / "patterns" / "foo.md")
+    assert _classify_lesson(dotdot_lesson)[0] == "validated_core"
+
+
+def test_classify_lesson_symlinked_lesson_file_outside_root_still_matches(
+    monkeypatch, tmp_path
+):
+    """A lesson file that is a symlink *out of* the root keeps its discovered class.
+
+    LessonIndex indexes symlinked lesson files under the directory they were
+    discovered in (deduping by realpath), so classification must use the
+    discovery path, not the symlink target. Guards against "just resolve()
+    everything", which would send such lessons to "unknown".
+    """
+    _reset_manifest_cache(monkeypatch)
+
+    lessons_dir = tmp_path / "lessons" / "patterns"
+    lessons_dir.mkdir(parents=True)
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "foo.md").write_text("# Foo\n")
+    (lessons_dir / "foo.md").symlink_to(external / "foo.md")
+
+    manifest_file = _make_manifest_file_with_root(
+        tmp_path, "lessons", validated_core=["patterns/foo"]
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+
+    assert _classify_lesson(str(lessons_dir / "foo.md"))[0] == "validated_core"

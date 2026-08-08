@@ -266,7 +266,22 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
                 # or symlink components compare correctly against lesson paths.
                 manifest_root = manifest_root.resolve()
             abs_path = path if path.is_absolute() else path.resolve()
-            rel = abs_path.relative_to(manifest_root)
+            try:
+                rel = abs_path.relative_to(manifest_root)
+            except ValueError:
+                # `manifest_root` is always fully resolved above, but an absolute
+                # lesson path is used as-is — so the two sides are normalized
+                # asymmetrically. When any component of the lesson path is a
+                # symlink or `..` (a symlinked workspace root, `/tmp` on macOS,
+                # `$HOME` behind a symlink), the same file has two spellings and
+                # relative_to() fails, mislabelling every in-root lesson
+                # "unknown". Retry fully resolved.
+                #
+                # Ordering matters: the unresolved comparison is tried first so a
+                # lesson file that is itself a symlink *out of* the root (the
+                # index deliberately keeps such entries, deduping by realpath)
+                # still classifies against the root it was discovered under.
+                rel = abs_path.resolve().relative_to(manifest_root)
             candidate_keys = [str(rel).replace("\\", "/").removesuffix(".md")]
         except (ValueError, OSError):
             # Path is outside the declared root — it belongs to a different lesson
