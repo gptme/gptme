@@ -134,6 +134,11 @@ def test_transform_github_url_only_rewrites_the_view_segment():
         transform_github_url("https://github.com.evil.test/o/r/blob/main/x.py")
         == "https://github.com.evil.test/o/r/blob/main/x.py"
     )
+    # An explicit default port is still GitHub and must be rewritten.
+    assert (
+        transform_github_url("https://github.com:443/o/r/blob/main/x.py")
+        == "https://github.com:443/o/r/raw/main/x.py"
+    )
 
 
 def test_transform_github_url_preserves_query_and_fragment():

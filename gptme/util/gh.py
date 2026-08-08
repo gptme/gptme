@@ -385,7 +385,7 @@ def transform_github_url(url: str) -> str:
     and fetch the wrong file.
     """
     parsed = urllib.parse.urlparse(url)
-    if parsed.netloc not in ("github.com", "www.github.com"):
+    if parsed.hostname not in ("github.com", "www.github.com"):
         return url
 
     # Leading "" from the root slash, so the view segment sits at index 3:
