@@ -491,18 +491,16 @@ def review_watch(
                 )
             effective_owner, effective_repo_name = repo.split("/", 1)
 
-        open_findings = artifact.open_findings
-        if not open_findings:
-            click.echo(
-                "  ℹ️  Artifact has no open findings — nothing to fix.",
-                err=True,
-            )
-            return
-
         # Check if the review was incomplete — reject by default; require --force-incomplete.
         # Processing partial findings silently leaves issues undiscovered: the fix session
         # runs on what it has and treats it as a complete review. Failing loudly forces the
         # caller to either re-run review pr or make an explicit opt-in decision.
+        #
+        # This MUST run before the "no open findings" early return below: an artifact with
+        # zero findings and INCOMPLETE status (e.g. a timed-out session whose partial output
+        # yielded an empty findings array) is exactly the silent "clean review" this guard
+        # exists to prevent. Returning 0 there would let a CI wrapper chaining
+        # `review pr && review watch` report success on a review that never completed.
         if artifact.review_status == ReviewStatus.INCOMPLETE:
             details: list[str] = []
             if artifact.session_exit_reason and artifact.session_exit_reason != "done":
@@ -526,6 +524,14 @@ def review_watch(
                 "Not all issues may have been reviewed.",
                 err=True,
             )
+
+        open_findings = artifact.open_findings
+        if not open_findings:
+            click.echo(
+                "  ℹ️  Artifact has no open findings — nothing to fix.",
+                err=True,
+            )
+            return
 
         click.echo(
             f"  📋  Loaded artifact for {effective_owner}/{effective_repo_name}"

@@ -400,7 +400,22 @@ def _extract_findings_from_output(
     - findings: list of extracted findings, or None if no valid JSON block found
     - validation_error_count: number of finding entries skipped due to validation errors
     """
-    # Try each JSON block in order; return first that parses as findings.
+    # Scan every JSON block and keep the LAST one that parses as findings.
+    #
+    # Taking the *first* block is unsafe: the reviewer session echoes its own
+    # user prompt to stdout (LogManager.append -> print_msg), and that prompt
+    # embeds the PR diff verbatim.  A PR whose diff contains a single-line
+    # ```json {"findings": []} ``` fence therefore plants a syntactically valid,
+    # empty findings block in stdout *before* the model ever speaks — silently
+    # suppressing the real review and emitting a COMPLETE, zero-finding
+    # artifact that `review watch` reports as "nothing to fix".
+    #
+    # The model's answer is always the last block in the stream (the prompt
+    # echo precedes it, and the prompt instructs "no prose after the block"),
+    # so preferring the last parseable block removes the injection vector and
+    # is also more correct on the benign path where a model emits a draft
+    # block before its final one.
+    result: tuple[list[ReviewFinding], int] | None = None
     for match in _JSON_BLOCK_RE.finditer(output):
         raw = match.group(1).strip()
         try:
@@ -458,8 +473,10 @@ def _extract_findings_from_output(
                     reviewer="gptme-review",
                 )
             )
-        return findings, validation_errors
+        result = (findings, validation_errors)
 
+    if result is not None:
+        return result
     return None, 0
 
 
