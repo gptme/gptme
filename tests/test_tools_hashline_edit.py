@@ -366,6 +366,19 @@ class TestRegisterOperations:
         with pytest.raises(ValueError, match="overlap its CUT lines 2-3"):
             _apply_operations(content, ops)
 
+    def test_duplicate_register_capture_raises(self):
+        """Each register has one unambiguous source range."""
+        content = "a\nb\nc\nd\ne\n"
+        ops = [
+            HashlineOp(kind="delete", start=1, end=1, register_name="x", text=None),
+            HashlineOp(kind="delete", start=4, end=4, register_name="x", text=None),
+            HashlineOp(
+                kind="insert_after", start=2, end=2, register_name="x", text=None
+            ),
+        ]
+        with pytest.raises(ValueError, match="Register @x is captured more than once"):
+            _apply_operations(content, ops)
+
     def test_undefined_register_raises(self):
         """Pasting from an undefined register raises ValueError."""
         content = "a\nb\nc\n"

@@ -445,6 +445,11 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
     register_sources: dict[str, HashlineOp] = {}
     for op in ops:
         if op.kind == "delete" and op.register_name:
+            if op.register_name in registers:
+                raise ValueError(
+                    f"Register @{op.register_name} is captured more than once; "
+                    "use a unique register name for each CUT"
+                )
             s, e = op.start - 1, op.end  # 0-indexed slice
             registers[op.register_name] = "\n".join(file_lines[s:e])
             register_sources[op.register_name] = op
