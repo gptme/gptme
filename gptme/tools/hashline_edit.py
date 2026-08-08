@@ -492,6 +492,27 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
             )
         starts.add(op.start)
 
+    # A register paste destination must survive every other mutation, not just
+    # the CUT that supplied its content. Otherwise bottom-up application can
+    # insert content inside a range that a later operation deletes or replaces.
+    for original_op, resolved_op in zip(step1, ops, strict=True):
+        if not (
+            original_op.register_name
+            and original_op.text is None
+            and original_op.kind != "delete"
+        ):
+            continue
+        for other in ops:
+            if other is resolved_op or other.kind not in {"delete", "replace"}:
+                continue
+            if resolved_op.start <= other.end and other.start <= resolved_op.end:
+                raise ValueError(
+                    f"Register @{original_op.register_name} PUT lines "
+                    f"{resolved_op.start}-{resolved_op.end} overlap "
+                    f"{other.kind} lines {other.start}-{other.end}; use a "
+                    "destination outside other mutation ranges"
+                )
+
     for op in ops:
         # Allow PUT <1 on empty files
         if total == 0 and op.kind == "insert_before" and op.start == 1:
