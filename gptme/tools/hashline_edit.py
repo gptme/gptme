@@ -51,7 +51,9 @@ if TYPE_CHECKING:
 # Operation dataclasses
 # ---------------------------------------------------------------------------
 
-OperationKind = Literal["replace", "insert_before", "insert_after", "delete"]
+OperationKind = Literal[
+    "replace", "insert_before", "insert_after", "delete", "block_replace"
+]
 
 
 @dataclass
@@ -70,6 +72,8 @@ class HashlineOp:
 
 # PUT N.=M:   replace lines N–M
 _RE_PUT_RANGE = re.compile(r"^PUT\s+(\d+)\.=(\d+):\s*$")
+# PUT N*:     replace the syntactic block starting at line N
+_RE_PUT_BLOCK = re.compile(r"^PUT\s+(\d+)\*:\s*$")
 # PUT <N:     insert before line N
 _RE_PUT_BEFORE = re.compile(r"^PUT\s+<(\d+):\s*$")
 # PUT >N:     insert after line N
@@ -137,6 +141,13 @@ def _parse_operations(code: str) -> tuple[str, str, list[HashlineOp]]:
             ops.append(HashlineOp(kind="insert_after", start=n, end=n, text=text))
             continue
 
+        if m := _RE_PUT_BLOCK.match(line):
+            n = int(m.group(1))
+            i, text = _collect_content(lines, i + 1)
+            # end=-1 is a sentinel; resolved against live file in _apply_operations
+            ops.append(HashlineOp(kind="block_replace", start=n, end=-1, text=text))
+            continue
+
         if line.strip() == "" or line.strip().startswith("#"):
             i += 1
             continue
@@ -149,6 +160,7 @@ def _parse_operations(code: str) -> tuple[str, str, list[HashlineOp]]:
 def _is_op_header(line: str) -> bool:
     return bool(
         _RE_PUT_RANGE.match(line)
+        or _RE_PUT_BLOCK.match(line)
         or _RE_PUT_BEFORE.match(line)
         or _RE_PUT_AFTER.match(line)
         or _RE_CUT_RANGE.match(line)
@@ -180,6 +192,154 @@ def _collect_content(lines: list[str], start_idx: int) -> tuple[int, str]:
 
 
 # ---------------------------------------------------------------------------
+# Block resolution
+# ---------------------------------------------------------------------------
+
+
+_RE_CONTINUATION_CLAUSE = re.compile(r"^(elif|else|except|finally)\b")
+_RE_PYTHON_COMPOUND_HEADER = re.compile(
+    r"^(?:async\s+)?(?:def|class|if|for|while|with|try)\b"
+)
+
+
+def _scan_line(line: str, open_quote: str | None = None) -> tuple[int, str | None]:
+    """Scan *line*, returning ``(net bracket depth, triple-quote left open)``.
+
+    *open_quote* is the triple-quote delimiter (``'''`` or ``\"\"\"``) left open by
+    a previous line, or ``None`` when the line starts outside a string.  The
+    returned delimiter is the one still open at end of line, so callers can carry
+    multi-line string state across lines instead of re-deciding per line.
+    Brackets and ``#`` comments inside strings are ignored.
+    """
+    depth = 0
+    triple: str | None = open_quote  # multi-line string; persists across lines
+    single: str | None = None  # single-quoted string; cannot span lines
+    escaped = False
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        if escaped:
+            escaped = False
+            i += 1
+            continue
+        if triple is not None:
+            if ch == "\\":
+                escaped = True
+                i += 1
+            elif line.startswith(triple, i):
+                triple = None
+                i += 3
+            else:
+                i += 1
+            continue
+        if single is not None:
+            if ch == "\\":
+                escaped = True
+            elif ch == single:
+                single = None
+            i += 1
+            continue
+        if ch == "#":
+            break
+        if ch in {"'", '"'}:
+            if line.startswith(ch * 3, i):
+                triple = ch * 3
+                i += 3
+            else:
+                single = ch
+                i += 1
+            continue
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        i += 1
+    return depth, triple
+
+
+def _resolve_block_end(file_lines: list[str], start: int) -> int:
+    """Return the 1-indexed last line of the syntactic block starting at *start*.
+
+    Uses an indent-tracking heuristic: the block header is at *start*; the block
+    body is the contiguous sequence of non-blank lines with strictly greater
+    indentation.  The block ends at the last such line (blank lines inside the body
+    are absorbed).  If no body follows, the block is just the header line itself.
+
+    A multi-line header delimited by brackets or by a triple-quoted string is
+    consumed before indentation scanning begins, and triple-quoted string state
+    is carried across body lines so a left-aligned string body doesn't terminate
+    the block early. A same-indentation continuation clause
+    (``elif``/``else``/``except``/``finally``) is treated as part of the same compound statement: its header
+    and body are absorbed too, so the resolved range covers the whole
+    ``if``/``try`` statement rather than stopping at the first clause. A
+    comment line does not end the block by itself — it is skipped while
+    scanning for a following continuation clause, so a comment placed between
+    e.g. an ``if`` body and its ``else`` doesn't strand the ``else`` outside
+    the resolved range.
+
+    Raises :class:`ValueError` when *start* is out of range, or when the block
+    cannot be delimited because a bracket or triple-quoted string opened by the
+    block is never closed before end of file.
+    """
+    total = len(file_lines)
+    if start < 1 or start > total:
+        raise ValueError(
+            f"Block start line {start} out of range (file has {total} lines)"
+        )
+
+    header = file_lines[start - 1]
+    header_indent = len(header) - len(header.lstrip())
+    python_compound = bool(_RE_PYTHON_COMPOUND_HEADER.match(header.lstrip()))
+    bracket_depth, open_quote = _scan_line(header)
+
+    end = start
+    i = start  # file_lines[start] is the line AFTER the header (0-indexed)
+    while i < total:
+        line = file_lines[i]
+        if bracket_depth > 0 or open_quote is not None:
+            # Inside a multi-line header or a multi-line string: consume the line
+            # verbatim, indentation carries no meaning here.
+            delta, open_quote = _scan_line(line, open_quote)
+            bracket_depth += delta
+            end = i + 1
+            i += 1
+            continue
+        if not line.strip():
+            i += 1
+            continue  # blank lines are absorbed; decide at the next non-blank line
+        indent = len(line) - len(line.lstrip())
+        if indent > header_indent:
+            end = i + 1  # 1-indexed
+            # A body line may open a triple-quoted string whose content is
+            # left-aligned; track it so those lines stay inside the block.
+            _, open_quote = _scan_line(line)
+            i += 1
+        elif line.lstrip().startswith("#"):
+            i += 1  # comments may separate continuation clauses
+        elif (
+            python_compound
+            and indent == header_indent
+            and _RE_CONTINUATION_CLAUSE.match(line.lstrip())
+        ):
+            end = i + 1  # absorb the continuation clause header itself
+            i += 1
+        else:
+            break  # same or lower indent, not a continuation clause: block is complete
+
+    if bracket_depth > 0 or open_quote is not None:
+        # Never closed before EOF — without this guard the scan absorbs the rest
+        # of the file and the replace would silently truncate it.
+        unterminated = "bracket" if bracket_depth > 0 else "string"
+        raise ValueError(
+            f"Block at line {start} has an unterminated {unterminated} — cannot "
+            "determine where it ends; use an explicit range (PUT N.=M:) instead"
+        )
+
+    return end
+
+
+# ---------------------------------------------------------------------------
 # Apply
 # ---------------------------------------------------------------------------
 
@@ -195,6 +355,18 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
     had_trailing_newline = content.endswith("\n")
     file_lines = content.splitlines()
     total = len(file_lines)
+
+    # Resolve block_replace ops to concrete replace ranges before validation/sorting
+    resolved: list[HashlineOp] = []
+    for op in ops:
+        if op.kind == "block_replace":
+            end = _resolve_block_end(file_lines, op.start)
+            resolved.append(
+                HashlineOp(kind="replace", start=op.start, end=end, text=op.text)
+            )
+        else:
+            resolved.append(op)
+    ops = resolved
 
     for op in ops:
         # Allow PUT <1 on empty files
@@ -259,9 +431,24 @@ Re-read the file with ``read`` to get a new tag and restate your operations.
 | Syntax       | Effect                                    |
 |-------------|------------------------------------------|
 | ``PUT N.=M:``| Replace lines N through M with new lines |
+| ``PUT N*:``  | Replace the syntactic block at line N    |
 | ``PUT <N:``  | Insert new lines BEFORE line N           |
 | ``PUT >N:``  | Insert new lines AFTER line N            |
 | ``CUT N.=M`` | Delete lines N through M                 |
+
+``PUT N*:`` replaces a whole indented construct — point it at the ``def``,
+``class``, ``if``, ``for``, ``while``, or ``try`` line and the system finds the
+closing line for you, including any ``elif``/``else``/``except``/``finally``
+clauses attached to that same statement.  Use it instead of ``PUT N.=M:`` when
+you want to replace an entire function/block and don't want to count lines by
+hand.
+
+Point N at the actual header line (e.g. the ``def`` line, not a decorator or a
+comment above it) — the block is resolved from that line's indentation.
+Constructs the heuristic can't reliably reproduce: blocks that mix tabs and
+spaces, or a header followed by a same-indentation line that is *not* a
+continuation clause (e.g. a one-line ``if x: y`` body) — for those, fall back to
+``PUT N.=M:`` with an explicit line range.
 
 New content lines are prefixed with ``+``.  An empty line ends a content block.
 CUT has no content block.  Line numbers reference the version shown by ``read``.
