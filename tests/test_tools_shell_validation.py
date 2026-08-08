@@ -721,8 +721,8 @@ class TestSensitiveArgs:
 # ── P2: Unquoted backtick detection ─────────────────────────────────────────
 
 
-class TestUnquotedBacktick:
-    """P2 fix: backtick command substitution should require confirmation."""
+class TestCommandSubstitution:
+    """P2 fix: shell command substitution should require confirmation."""
 
     def test_backtick_substitution_not_allowlisted(self):
         """``ls `cat /etc/shadow``` should NOT be auto-approved (P2)."""
@@ -752,6 +752,22 @@ class TestUnquotedBacktick:
     def test_single_quote_in_double_quote_without_backtick_still_allowlisted(self):
         """Apostrophe inside double quotes with no backtick must not be a false positive."""
         assert is_allowlisted('echo "it\'s fine"')
+
+    def test_dollar_paren_substitution_not_allowlisted(self):
+        """$(...) can synthesize a sensitive path after literal validation."""
+        assert not is_allowlisted('cat "$(echo /etc/passwd)"')
+
+    def test_dollar_paren_in_single_quotes_allowlisted(self):
+        """$(...) inside single quotes is literal, not command substitution."""
+        assert is_allowlisted("echo '$(date)'")
+
+    def test_dollar_paren_in_double_quotes_not_allowlisted(self):
+        """$(...) inside double quotes still performs command substitution."""
+        assert not is_allowlisted('echo "$(date)"')
+
+    def test_escaped_dollar_paren_allowlisted(self):
+        """An escaped dollar sign makes the command-substitution syntax literal."""
+        assert is_allowlisted(r"echo \$(date)")
 
 
 # ── P3: Pipe-to-shell regex close-paren gap ─────────────────────────────────

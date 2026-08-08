@@ -325,11 +325,12 @@ def _has_sensitive_args(cmd: str) -> bool:
     return False
 
 
-def _has_unquoted_backtick(cmd: str) -> bool:
-    """Check whether the command contains a command-substituting backtick.
+def _has_command_substitution(cmd: str) -> bool:
+    """Check whether the command contains shell command substitution.
 
-    P2 fix: backtick command substitution (`` `cmd` ``) is not parsed as a
-    command separator by ``cmd_regex``, so ``ls `cat /etc/shadow``` was
+    P2 fix: backtick and ``$(...)`` command substitution are not reliably
+    parsed as command separators by ``cmd_regex``. Commands such as
+    ``ls `cat /etc/shadow``` and ``cat "$(echo /etc/passwd)"`` were therefore
     previously auto-approved.
 
     Bash semantics for backticks:
@@ -344,7 +345,7 @@ def _has_unquoted_backtick(cmd: str) -> bool:
     single quotes.  The fix adds ``in_double`` tracking and gates single-quote
     transitions on ``not in_double``.
 
-    Returns True if a command-substituting backtick is found.
+    Returns True if executable backtick or ``$(...)`` syntax is found.
     """
     # Walk the string tracking both single- and double-quote context.
     in_single = False
@@ -363,9 +364,9 @@ def _has_unquoted_backtick(cmd: str) -> bool:
         # Double quote: open/close ONLY when not already inside single quotes
         elif c == '"' and not in_single:
             in_double = not in_double
-        # Backtick is command substitution when not inside single quotes.
-        # It still substitutes inside double-quoted strings.
-        elif c == "`" and not in_single:
+        # Backticks and $(...) substitute when not inside single quotes. Both
+        # still substitute inside double-quoted strings.
+        elif not in_single and (c == "`" or cmd.startswith("$(", i)):
             return True
         i += 1
     return False
@@ -378,7 +379,7 @@ def is_allowlisted(cmd: str) -> bool:
     1. All commands in the pipeline must be in the allowlist
     2. No file redirections (>, >>) - these can write malicious content
     3. No sensitive path arguments (e.g. /etc/shadow, /root/, /proc/)
-    4. No unquoted backtick command substitution
+    4. No executable shell command substitution
     5. No dangerous flags within allowlisted commands (e.g., find -exec)
 
     This means commands like xargs, sh, bash, python, perl, etc. are automatically
@@ -402,10 +403,9 @@ def is_allowlisted(cmd: str) -> bool:
     if _has_sensitive_args(cmd):
         return False
 
-    # P2: Check for unquoted backtick command substitution
-    # `ls \`cat /etc/shadow\`` is not caught by cmd_regex; any unquoted backtick
-    # implies a nested execution context that should require confirmation.
-    if _has_unquoted_backtick(cmd):
+    # P2: Check for executable shell command substitution. Both backticks and
+    # $(...) imply a nested execution context that should require confirmation.
+    if _has_command_substitution(cmd):
         return False
 
     # Check for dangerous flags within allowlisted commands
