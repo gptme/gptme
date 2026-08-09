@@ -585,3 +585,44 @@ class TestEdgeCases:
         with patch("gptme.dirs.Path.cwd", return_value=deepest):
             result = dirs.get_project_gptme_dir()
         assert result == inner  # nearest parent with gptme.toml
+
+
+# ── Regression: walk terminates at the filesystem root (Windows infinite loop) ──
+
+
+class TestProjectDirWalkTermination:
+    """The upward walks used ``while path != Path("/")``, which never matched a
+    Windows drive root: it does not equal ``/`` and is its own parent, so with no
+    ``.git`` / ``gptme.toml`` anywhere above the cwd the loop spun forever. The walks
+    now stop when ``path == path.parent`` (the root, on every platform)."""
+
+    @staticmethod
+    def _hide_markers(tmp_path: Path):
+        """Make .git / gptme.toml appear absent everywhere so the walk must reach root."""
+        orig_exists = Path.exists
+
+        def _exists(p: Path) -> bool:
+            if p.name in (".git", "gptme.toml"):
+                return False
+            return orig_exists(p)
+
+        return _exists
+
+    def test_git_dir_walk_terminates_and_returns_none(self, tmp_path: Path):
+        subdir = tmp_path / "deep" / "nested"
+        subdir.mkdir(parents=True)
+        with (
+            patch("gptme.dirs.Path.cwd", return_value=subdir),
+            patch.object(Path, "exists", self._hide_markers(tmp_path)),
+        ):
+            assert dirs._get_project_git_dir_walk() is None
+
+    def test_gptme_dir_walk_terminates_and_falls_back(self, tmp_path: Path):
+        subdir = tmp_path / "deep" / "nested"
+        subdir.mkdir(parents=True)
+        with (
+            patch("gptme.dirs.Path.cwd", return_value=subdir),
+            patch.object(Path, "exists", self._hide_markers(tmp_path)),
+        ):
+            # No gptme.toml and no .git anywhere -> None, without hanging.
+            assert dirs.get_project_gptme_dir() is None

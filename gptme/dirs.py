@@ -66,9 +66,11 @@ def get_project_gptme_dir() -> Path | None:
     Meant to be used in scripts/tools to detect a suitable location to store agent data/logs.
     """
     path = Path.cwd()
-    while path != Path("/"):
+    while True:
         if (path / "gptme.toml").exists():
             return path
+        if path == path.parent:  # reached the filesystem root (cross-platform)
+            break
         path = path.parent
 
     # if no gptme.toml file was found, look for a git repo
@@ -82,11 +84,12 @@ def get_project_git_dir() -> Path | None:
 def _get_project_git_dir_walk() -> Path | None:
     # if no gptme.toml file was found, look for a git repo
     path = Path.cwd()
-    while path != Path("/"):
+    while True:
         if (path / ".git").exists():
             return path
+        if path == path.parent:  # reached the filesystem root (cross-platform)
+            return None
         path = path.parent
-    return None
 
 
 def _get_project_git_dir_call() -> Path | None:
