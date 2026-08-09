@@ -340,11 +340,14 @@ def test_gh_tool_read_pr():
 
 
 @pytest.mark.slow
-def test_get_github_pr_content_with_unresolved():
-    """Test that unresolved review comments are included.
+def test_get_github_pr_content_with_review_comments():
+    """Test that review comment metadata is included for a merged PR.
 
-    Uses PR #271 from gptme/gptme which has 4 unresolved review threads
-    from ErikBjare (open since Nov 2024, stable test target).
+    Uses PR #271 from gptme/gptme (merged).  The unresolved-thread assertion
+    was removed — PR threads can be resolved at any time, making that check
+    fragile for a live test.  Mocked coverage for the ``Review Comments
+    (Unresolved)`` section lives in ``test_util_gh_mocked.py`` where it is
+    stable regardless of GitHub state.
     """
     content = get_github_pr_content("https://github.com/gptme/gptme/pull/271")
 
@@ -352,12 +355,10 @@ def test_get_github_pr_content_with_unresolved():
         pytest.skip("gh CLI not available or request failed")
     assert content is not None  # help mypy narrow type after skip
 
-    # Should have basic PR info
+    # Should have basic PR info — title contains "prompts"
     assert "gptme-util" in content or "prompts" in content
 
-    # PR #271 has unresolved review threads — verify they show up
-    assert "Review Comments (Unresolved)" in content
-    # Should contain ErikBjare's review comments with file references
+    # PR was authored by ErikBjare
     assert "ErikBjare" in content
 
 
