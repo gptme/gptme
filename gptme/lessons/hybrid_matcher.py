@@ -29,8 +29,8 @@ _BM25_B = 0.75
 _BM25_WEIGHT = 0.4  # additive weight for the z-score contribution
 _BM25_MIN_Z = 4.0  # minimum z-score to admit a lesson via BM25
 _BM25_MIN_RAW = 40.0  # absolute floor — guards degenerate tiny-corpus cases
-# A z-score over n samples cannot exceed (n-1)/sqrt(n), so a fixed z=4 is
-# unreachable below ~17 scoring lessons.  Scale down proportionally.
+# A z-score over n samples (population SD) cannot exceed sqrt(n-1), so a fixed
+# z=4 is unreachable below ~17 scoring lessons.  Scale down proportionally.
 _BM25_STANDOUT_FRACTION = 0.8
 
 
@@ -93,7 +93,9 @@ def _bm25_min_z(n_nonzero: int) -> float:
     """
     if n_nonzero < 3:
         return -math.inf
-    max_attainable = (n_nonzero - 1) / math.sqrt(n_nonzero)
+    # _bm25_zscores uses population SD (divides by n), whose max attainable z is
+    # sqrt(n-1), NOT (n-1)/sqrt(n) — that latter is the sample-SD bound.
+    max_attainable = math.sqrt(n_nonzero - 1)
     return min(_BM25_MIN_Z, _BM25_STANDOUT_FRACTION * max_attainable)
 
 

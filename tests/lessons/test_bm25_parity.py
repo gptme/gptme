@@ -118,11 +118,38 @@ class TestBm25MinZ:
         assert _bm25_min_z(2) == -math.inf
 
     def test_three_nonzero_below_fixed(self):
-        # With n=3, max attainable z ≈ 2/sqrt(3) ≈ 1.15, well below _BM25_MIN_Z=4.
+        # With n=3, max attainable z = sqrt(3-1) ≈ 1.41, well below _BM25_MIN_Z=4.
+        # _bm25_zscores uses population SD, whose ceiling is sqrt(n-1).
         result = _bm25_min_z(3)
-        max_attainable = (3 - 1) / math.sqrt(3)
+        max_attainable = math.sqrt(3 - 1)
         assert result == pytest.approx(_BM25_STANDOUT_FRACTION * max_attainable)
         assert result < _BM25_MIN_Z
+
+    def test_max_attainable_uses_population_sd_bound(self):
+        """max_attainable must be sqrt(n-1), not (n-1)/sqrt(n).
+
+        _bm25_zscores standardizes against a *population* SD (variance divided
+        by n, see _bm25_zscores). Under population SD the largest reachable
+        z-score from n values is sqrt(n-1); the (n-1)/sqrt(n) bound only holds
+        for *sample* SD (variance / (n-1)), which this code does not use.
+
+        Regression guard for the admission-threshold bug: pushing one outlier
+        against n-1 equal lows yields an empirical max z of sqrt(n-1), and
+        _bm25_min_z must scale that exact value (not the sample-SD bound).
+        """
+        for n in range(3, 12):
+            scores = [100.0] + [1.0] * (n - 1)  # one clear standout
+            empirical_max = max(_bm25_zscores(scores))
+            # Empirical max z hits the population-SD ceiling sqrt(n-1).
+            assert empirical_max == pytest.approx(math.sqrt(n - 1), abs=1e-9)
+            # And it is NOT the sample-SD bound (n-1)/sqrt(n) the bug used.
+            assert empirical_max != pytest.approx((n - 1) / math.sqrt(n), abs=1e-3)
+
+            # n<26 keeps the standout term below the _BM25_MIN_Z cap, so
+            # _bm25_min_z must reflect the raw sqrt(n-1) bound, scaled.
+            assert _bm25_min_z(n) == pytest.approx(
+                _BM25_STANDOUT_FRACTION * math.sqrt(n - 1)
+            )
 
     def test_large_corpus_caps_at_min_z(self):
         # With n=1000, max attainable ≫ _BM25_MIN_Z; result should be _BM25_MIN_Z.
