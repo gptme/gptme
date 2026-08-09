@@ -80,7 +80,7 @@ def test_format_msgs_escapes_rich_markup():
     # Test with content containing Rich-like markup that should be escaped
     msg = Message("user", "Testing [project] with [bold]content[/bold]")
 
-    # Without highlight - should not escape
+    # Without highlight (non-TTY path) - must still escape to avoid MarkupError
     outputs_no_highlight = format_msgs([msg], highlight=False)
     assert len(outputs_no_highlight) == 1
 
@@ -92,16 +92,53 @@ def test_format_msgs_escapes_rich_markup():
     # but we verify no exception is raised from Rich interpreting brackets as tags
 
 
+def test_format_msgs_no_highlight_path_like_bracket_no_crash():
+    """Regression: highlight=False (non-TTY) must not crash on path-like [/...] markup.
+
+    Non-TTY gptme sessions (CI, headless agents, pipes) force highlight=False.
+    Content containing strings like '[/home/runner/run.sh]' looks like a Rich
+    closing tag and raises MarkupError if not escaped. Escaping must be
+    unconditional, not guarded by `if highlight`.
+    """
+    from gptme.message import Message, format_msgs
+
+    # Content that matches a Rich closing-tag pattern (slash prefix)
+    msg = Message(
+        "user", "Run the script at [/home/runner/run.sh] to reproduce the issue."
+    )
+
+    # highlight=False is the non-TTY path; must not raise MarkupError
+    outputs = format_msgs([msg], highlight=False)
+    assert len(outputs) == 1
+    assert "/home/runner/run.sh" in outputs[0]
+
+
 def test_format_msgs_oneline_escapes_rich_markup():
     """Test that Rich markup is escaped in oneline mode."""
     from gptme.message import Message, format_msgs
 
     msg = Message("user", "Testing [project]\nwith newlines")
 
+    # Without highlight (non-TTY path) - must still escape to avoid MarkupError
+    outputs_no_highlight = format_msgs([msg], oneline=True, highlight=False)
+    assert len(outputs_no_highlight) == 1
+
     # With highlight and oneline
-    outputs = format_msgs([msg], oneline=True, highlight=True)
-    assert len(outputs) == 1
+    outputs_highlight = format_msgs([msg], oneline=True, highlight=True)
+    assert len(outputs_highlight) == 1
     # Verify no Rich markup interpretation error
+
+
+def test_format_msgs_oneline_no_highlight_path_like_bracket_no_crash():
+    """Regression: oneline + highlight=False must not crash on path-like [/...] markup."""
+    from gptme.message import Message, format_msgs
+
+    msg = Message(
+        "user", "Run the script at [/home/runner/run.sh] to reproduce the issue."
+    )
+
+    outputs = format_msgs([msg], oneline=True, highlight=False)
+    assert len(outputs) == 1
 
 
 def test_format_msgs_preserves_codeblocks():

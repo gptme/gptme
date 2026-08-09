@@ -568,8 +568,7 @@ def format_msgs(
         output = ""
         if oneline:
             content = stripped_content.replace("\n", "\\n")
-            if highlight:
-                content = escape_markup(content)
+            content = escape_markup(content)
             output += textwrap.shorten(content, width=max_len, placeholder="...")
             if len(output) < 20:
                 output = content[:max_len] + "..."
@@ -578,9 +577,11 @@ def format_msgs(
             output += "\n" + indent * " " if multiline else ""
             for i, block in enumerate(stripped_content.split("```")):
                 if i % 2 == 0:
-                    # Escape Rich markup in non-code-block content
-                    if highlight:
-                        block = escape_markup(block)
+                    # Always escape Rich markup in non-code-block content,
+                    # even when highlight=False (e.g. non-TTY). Path-like strings
+                    # such as "[/home/runner/run.sh]" are valid Rich markup tags and
+                    # will raise MarkupError if left unescaped.
+                    block = escape_markup(block)
                     output += textwrap.indent(block, prefix=indent * " ")
                     continue
                 if highlight:
