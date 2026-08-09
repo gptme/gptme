@@ -503,7 +503,7 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
         ):
             continue
         for other in ops:
-            if other is resolved_op or other.kind not in {"delete", "replace"}:
+            if other is resolved_op:
                 continue
             if resolved_op.start <= other.end and other.start <= resolved_op.end:
                 raise ValueError(

@@ -421,15 +421,25 @@ class TestRegisterOperations:
         with pytest.raises(ValueError, match=f"PUT lines 3-3 overlap {kind} lines 2-4"):
             _apply_operations(content, ops)
 
-    def test_register_put_range_containing_other_mutation_raises(self):
+    @pytest.mark.parametrize(
+        "kind", ["delete", "replace", "insert_before", "insert_after"]
+    )
+    def test_register_put_range_containing_other_mutation_raises(
+        self, kind: OperationKind
+    ):
         """A register PUT range cannot contain another mutation either."""
         content = "a\nb\nc\nd\ne\nf\n"
         ops = [
             HashlineOp(kind="delete", start=6, end=6, register_name="x", text=None),
             HashlineOp(kind="replace", start=2, end=4, register_name="x", text=None),
-            HashlineOp(kind="delete", start=3, end=3, text=None),
+            HashlineOp(
+                kind=kind,
+                start=3,
+                end=3,
+                text=None if kind == "delete" else "other",
+            ),
         ]
-        with pytest.raises(ValueError, match="PUT lines 2-4 overlap delete lines 3-3"):
+        with pytest.raises(ValueError, match=f"PUT lines 2-4 overlap {kind} lines 3-3"):
             _apply_operations(content, ops)
 
     def test_undefined_register_raises(self):
