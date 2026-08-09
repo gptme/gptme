@@ -72,6 +72,7 @@ class HashlineOp:
     end: int  # 1-indexed, inclusive (== start for insert ops)
     text: str | None  # None for delete or for register-read ops (resolved before apply)
     register_name: str | None = None  # for CUT @name (capture) or PUT @name (paste)
+    resolved_register_lines: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -419,8 +420,8 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
     bottom-up so earlier line numbers remain valid after later insertions/deletions.
 
     Register operations are resolved in two passes:
-    1. Pre-scan: capture content for all ``CUT @name`` ops (using ORIGINAL lines).
-    2. Resolve: replace ``text=None, register_name=X`` on PUT ops with captured text.
+    1. Pre-scan: capture lines for all ``CUT @name`` ops (using ORIGINAL lines).
+    2. Resolve: attach the captured lines to matching register PUT operations.
 
     Raises :class:`ValueError` on out-of-range line references or a missing register.
     """
@@ -441,7 +442,7 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
     ops = step1
 
     # Pre-scan: capture register content from CUT @name ops (original line numbers)
-    registers: dict[str, str] = {}
+    registers: dict[str, list[str]] = {}
     register_sources: dict[str, HashlineOp] = {}
     for op in ops:
         if op.kind == "delete" and op.register_name:
@@ -451,10 +452,10 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
                     "use a unique register name for each CUT"
                 )
             s, e = op.start - 1, op.end  # 0-indexed slice
-            registers[op.register_name] = "\n".join(file_lines[s:e])
+            registers[op.register_name] = file_lines[s:e]
             register_sources[op.register_name] = op
 
-    # Resolve register-read ops: replace text=None/register_name with captured text
+    # Resolve register-read ops by attaching the original captured line list.
     step2: list[HashlineOp] = []
     for op in ops:
         if op.register_name and op.text is None and op.kind != "delete":
@@ -473,24 +474,29 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
                 )
             step2.append(
                 HashlineOp(
-                    kind=op.kind, start=op.start, end=op.end, text=registers[reg]
+                    kind=op.kind,
+                    start=op.start,
+                    end=op.end,
+                    text=None,
+                    resolved_register_lines=registers[reg],
                 )
             )
         else:
             step2.append(op)
     ops = step2
 
-    # Operations sharing a start coordinate have order-dependent semantics when
-    # applied to the same mutable line list. Reject them rather than silently
-    # shifting or overwriting a register paste.
-    starts: set[int] = set()
-    for op in ops:
-        if op.start in starts:
+    # A register paste that shares its start coordinate with another operation
+    # has order-dependent semantics on the mutable line list. Preserve the
+    # existing behavior for same-coordinate ordinary edits.
+    for register_put in (op for op in ops if op.resolved_register_lines is not None):
+        if any(
+            other is not register_put and other.start == register_put.start
+            for other in ops
+        ):
             raise ValueError(
-                f"Multiple operations start at line {op.start}; "
+                f"Multiple operations start at line {register_put.start}; "
                 "use distinct destination coordinates"
             )
-        starts.add(op.start)
 
     # A register paste destination must survive every other mutation, not just
     # the CUT that supplied its content. Otherwise bottom-up application can
@@ -529,14 +535,20 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
 
         if op.kind == "delete":
             del file_lines[s:e]
-        elif op.kind == "replace":
-            new_lines = op.text.splitlines() if op.text else []
+            continue
+
+        new_lines = (
+            op.resolved_register_lines
+            if op.resolved_register_lines is not None
+            else op.text.splitlines()
+            if op.text
+            else []
+        )
+        if op.kind == "replace":
             file_lines[s:e] = new_lines
         elif op.kind == "insert_before":
-            new_lines = op.text.splitlines() if op.text else []
             file_lines[s:s] = new_lines
         elif op.kind == "insert_after":
-            new_lines = op.text.splitlines() if op.text else []
             file_lines[e:e] = new_lines
 
     result = "\n".join(file_lines)

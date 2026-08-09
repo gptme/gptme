@@ -245,6 +245,14 @@ class TestApplyOperations:
         ]
         assert _apply_operations(content, ops) == "A\nb\nd\n"
 
+    def test_same_coordinate_ordinary_inserts_remain_supported(self):
+        """Register conflict checks do not reject existing ordinary edits."""
+        ops = [
+            HashlineOp(kind="insert_before", start=1, end=1, text="first"),
+            HashlineOp(kind="insert_before", start=1, end=1, text="second"),
+        ]
+        assert _apply_operations("", ops) == "second\nfirst"
+
     def test_out_of_range_raises(self):
         content = "a\nb\n"
         with pytest.raises(ValueError, match="out of range"):
@@ -342,6 +350,38 @@ class TestRegisterOperations:
         ]
         result = _apply_operations(content, ops)
         assert result == "keep\nold1\nold2\n"
+
+    @pytest.mark.parametrize(
+        ("content", "start", "end", "destination", "expected"),
+        [
+            # A register containing only one blank line must not become empty.
+            ("a\n\nb", 2, 2, 3, "a\nb\n"),
+            # A trailing blank in a multi-line capture must remain trailing.
+            ("a\nb\n\nc", 1, 3, 4, "c\na\nb\n"),
+        ],
+    )
+    def test_register_preserves_trailing_blank_lines(
+        self,
+        content: str,
+        start: int,
+        end: int,
+        destination: int,
+        expected: str,
+    ):
+        """A register preserves blank lines at the end of its captured range."""
+        ops = [
+            HashlineOp(
+                kind="delete", start=start, end=end, register_name="x", text=None
+            ),
+            HashlineOp(
+                kind="insert_after",
+                start=destination,
+                end=destination,
+                register_name="x",
+                text=None,
+            ),
+        ]
+        assert _apply_operations(content, ops) == expected
 
     @pytest.mark.parametrize(
         "put",
