@@ -80,9 +80,11 @@ def test_format_msgs_escapes_rich_markup():
     # Test with content containing Rich-like markup that should be escaped
     msg = Message("user", "Testing [project] with [bold]content[/bold]")
 
-    # Without highlight (non-TTY path) - must still escape to avoid MarkupError
+    # Without highlight, preserve the literal content for plaintext consumers
     outputs_no_highlight = format_msgs([msg], highlight=False)
-    assert len(outputs_no_highlight) == 1
+    assert outputs_no_highlight[0].endswith(
+        "Testing [project] with [bold]content[/bold]"
+    )
 
     # With highlight - should escape markup
     outputs_highlight = format_msgs([msg], highlight=True)
@@ -92,14 +94,8 @@ def test_format_msgs_escapes_rich_markup():
     # but we verify no exception is raised from Rich interpreting brackets as tags
 
 
-def test_format_msgs_no_highlight_path_like_bracket_no_crash():
-    """Regression: highlight=False (non-TTY) must not crash on path-like [/...] markup.
-
-    Non-TTY gptme sessions (CI, headless agents, pipes) force highlight=False.
-    Content containing strings like '[/home/runner/run.sh]' looks like a Rich
-    closing tag and raises MarkupError if not escaped. Escaping must be
-    unconditional, not guarded by `if highlight`.
-    """
+def test_format_msgs_no_highlight_preserves_path_like_bracket():
+    """Plaintext formatting must preserve path-like bracket content verbatim."""
     from gptme.message import Message, format_msgs
 
     # Content that matches a Rich closing-tag pattern (slash prefix)
@@ -107,10 +103,10 @@ def test_format_msgs_no_highlight_path_like_bracket_no_crash():
         "user", "Run the script at [/home/runner/run.sh] to reproduce the issue."
     )
 
-    # highlight=False is the non-TTY path; must not raise MarkupError
     outputs = format_msgs([msg], highlight=False)
-    assert len(outputs) == 1
-    assert "/home/runner/run.sh" in outputs[0]
+    assert outputs[0].endswith(
+        "Run the script at [/home/runner/run.sh] to reproduce the issue."
+    )
 
 
 def test_format_msgs_oneline_escapes_rich_markup():
@@ -119,9 +115,9 @@ def test_format_msgs_oneline_escapes_rich_markup():
 
     msg = Message("user", "Testing [project]\nwith newlines")
 
-    # Without highlight (non-TTY path) - must still escape to avoid MarkupError
+    # Without highlight, preserve literal brackets for plaintext consumers
     outputs_no_highlight = format_msgs([msg], oneline=True, highlight=False)
-    assert len(outputs_no_highlight) == 1
+    assert outputs_no_highlight[0].endswith("Testing [project]\\nwith newlines")
 
     # With highlight and oneline
     outputs_highlight = format_msgs([msg], oneline=True, highlight=True)
@@ -129,8 +125,8 @@ def test_format_msgs_oneline_escapes_rich_markup():
     # Verify no Rich markup interpretation error
 
 
-def test_format_msgs_oneline_no_highlight_path_like_bracket_no_crash():
-    """Regression: oneline + highlight=False must not crash on path-like [/...] markup."""
+def test_format_msgs_oneline_no_highlight_preserves_path_like_bracket():
+    """Oneline plaintext formatting must preserve path-like brackets verbatim."""
     from gptme.message import Message, format_msgs
 
     msg = Message(
@@ -138,7 +134,26 @@ def test_format_msgs_oneline_no_highlight_path_like_bracket_no_crash():
     )
 
     outputs = format_msgs([msg], oneline=True, highlight=False)
-    assert len(outputs) == 1
+    assert outputs[0].endswith(
+        "Run the script at [/home/runner/run.sh] to reproduce the issue."
+    )
+
+
+def test_print_msg_no_highlight_path_like_bracket_no_crash(monkeypatch):
+    """Non-TTY output must disable Rich markup parsing at the console boundary."""
+    from unittest.mock import patch
+
+    from gptme.message import Message, print_msg
+
+    msg = Message("user", "Run [/home/runner/run.sh]")
+    monkeypatch.setattr("sys.stdout.isatty", lambda: False)
+
+    with patch("gptme.message.console") as mock_console:
+        assert print_msg(msg) == 1
+
+    (rendered,) = mock_console.print.call_args.args
+    assert rendered.endswith("Run [/home/runner/run.sh]")
+    assert mock_console.print.call_args.kwargs == {"markup": False}
 
 
 def test_format_msgs_preserves_codeblocks():

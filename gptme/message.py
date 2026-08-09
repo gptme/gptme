@@ -568,7 +568,8 @@ def format_msgs(
         output = ""
         if oneline:
             content = stripped_content.replace("\n", "\\n")
-            content = escape_markup(content)
+            if highlight:
+                content = escape_markup(content)
             output += textwrap.shorten(content, width=max_len, placeholder="...")
             if len(output) < 20:
                 output = content[:max_len] + "..."
@@ -577,11 +578,9 @@ def format_msgs(
             output += "\n" + indent * " " if multiline else ""
             for i, block in enumerate(stripped_content.split("```")):
                 if i % 2 == 0:
-                    # Always escape Rich markup in non-code-block content,
-                    # even when highlight=False (e.g. non-TTY). Path-like strings
-                    # such as "[/home/runner/run.sh]" are valid Rich markup tags and
-                    # will raise MarkupError if left unescaped.
-                    block = escape_markup(block)
+                    # Escape Rich markup in non-code-block content
+                    if highlight:
+                        block = escape_markup(block)
                     output += textwrap.indent(block, prefix=indent * " ")
                     continue
                 if highlight:
@@ -670,7 +669,10 @@ def print_msg(
             skipped_hidden += 1
             continue
         try:
-            console.print(s)
+            # Plain-text formatting intentionally preserves literal brackets. Disable
+            # Rich markup parsing at the rendering boundary so strings such as
+            # "[/home/runner/run.sh]" cannot be interpreted as closing tags.
+            console.print(s, markup=highlight)
         except Exception:
             # rich can throw errors, if so then print the raw message
             logger.exception("Error printing message")
