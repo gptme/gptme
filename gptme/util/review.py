@@ -14,6 +14,27 @@ richer context (exact file/line, severity, confirmed/dropped status).
 
 All fields are optional so the artifact degrades gracefully to the
 plain-text comment path when not available.
+
+Related implementations — three exist, pick by what you need
+------------------------------------------------------------
+
+- **This module + ``gptme-util review pr``** (gptme core, public): the
+  model-facing primitive. Diff in → hardened prompt → parsed
+  ``ReviewArtifact`` out. It can *read* GitHub to fetch a PR diff but
+  **writes nothing** — no comments, no approvals, no review state. It is the
+  source of truth for the artifact schema, because it is the only one of the
+  three that ships to users.
+- **``gptme_runloops.pr_review``** (gptme-contrib): forge-neutral local-diff
+  entry point (``review --working-tree``) plus a package shell. Not a GitHub
+  publisher.
+- **``scripts/github/ai-review.py``** (ErikBjare/bob, private): the only one
+  that posts reviews to GitHub in production — marker upsert, inline findings,
+  consensus filtering, suppression ledger. That publishing/policy layer is
+  fleet operating policy and is deliberately out of scope for core.
+
+Full comparison, retirement plan, and a "which tool for which task" routing
+table live in ``knowledge/technical/pr-review-systems-map.md`` in the
+ErikBjare/bob workspace.
 """
 
 from __future__ import annotations
