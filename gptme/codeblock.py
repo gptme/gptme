@@ -52,11 +52,16 @@ class Codeblock:
             if fence_len == end_fence_len:
                 stripped = stripped.strip()[:-end_fence_len]
 
-        lang = stripped.splitlines()[0].strip() if stripped.strip() else ""
+        # Slice the body on the raw first line length (including any leading
+        # whitespace), not on the stripped lang: a fence like "``` python" leaves
+        # a space before the lang, and slicing on len(lang) would leave the tail
+        # of the lang word (e.g. the "n" of "python") leaking into the content.
+        first_line = stripped.splitlines()[0] if stripped.strip() else ""
+        lang = first_line.strip()
         fence = "`" * fence_len if fence_len else "```"
         return cls(
             lang,
-            stripped[len(lang) :].lstrip("\n") if lang else stripped,
+            stripped[len(first_line) :].lstrip("\n") if lang else stripped,
             fence=fence,
         )
 
