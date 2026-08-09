@@ -375,35 +375,28 @@ def test_no_context_or_suggestion(mock_pr_basic_response):
     assert "Suggested change:" not in content
 
 
-def test_unresolved_section_header_present_when_thread_open():
-    """Unresolved review threads produce a 'Review Comments (Unresolved)' section.
+def test_review_thread_resolution_controls_unresolved_section(mock_pr_basic_response):
+    """Only comments from unresolved review threads are rendered."""
+    mock_pr_basic_response["review_comments"] = [
+        {
+            "id": 2001,
+            "user": {"login": "reviewer"},
+            "body": "This needs documentation.",
+            "path": "gptme/util/review.py",
+            "line": 42,
+            "diff_hunk": "",
+        }
+    ]
 
-    This is a mocked regression guard for gptme#3442 — tests the section
-    header without depending on live GitHub PR state (live PRs can have their
-    threads resolved at any time, causing false failures).
-    """
-    mock_response = {
-        "pr_view": "Test PR #200\nOpen\n@author\n\nPR body",
-        "pr_comments": "",
-        "pr_details": {"number": 200, "title": "Test PR", "state": "open"},
-        "review_comments": [
-            {
-                "id": 2001,
-                "user": {"login": "ErikBjare"},
-                "body": "This needs documentation.",
-                "path": "gptme/util/review.py",
-                "line": 42,
-                "diff_hunk": "",
-            }
-        ],
-        "graphql_threads": {
+    for is_resolved, section_present in ((False, True), (True, False)):
+        mock_pr_basic_response["graphql_threads"] = {
             "data": {
                 "repository": {
                     "pullRequest": {
                         "reviewThreads": {
                             "nodes": [
                                 {
-                                    "isResolved": False,
+                                    "isResolved": is_resolved,
                                     "comments": {"nodes": [{"databaseId": 2001}]},
                                 }
                             ]
@@ -411,59 +404,17 @@ def test_unresolved_section_header_present_when_thread_open():
                     }
                 }
             }
-        },
-    }
+        }
 
-    with patch("subprocess.run", side_effect=mock_subprocess_run(mock_response)):
-        content = get_github_pr_content("https://github.com/owner/repo/pull/200")
+        with patch(
+            "subprocess.run",
+            side_effect=mock_subprocess_run(mock_pr_basic_response),
+        ):
+            content = get_github_pr_content("https://github.com/owner/repo/pull/200")
 
-    assert content is not None
-    # Section header must appear when there is at least one unresolved thread.
-    assert "Review Comments (Unresolved)" in content
-    assert "ErikBjare" in content
-    assert "This needs documentation." in content
-
-
-def test_unresolved_section_header_absent_when_all_resolved():
-    """Resolved review threads do NOT produce a 'Review Comments (Unresolved)' section."""
-    mock_response = {
-        "pr_view": "Test PR #201\nMerged\n@author\n\nPR body",
-        "pr_comments": "",
-        "pr_details": {"number": 201, "title": "Test PR", "state": "merged"},
-        "review_comments": [
-            {
-                "id": 2002,
-                "user": {"login": "ErikBjare"},
-                "body": "Fixed, looks good.",
-                "path": "gptme/util/gh.py",
-                "line": 10,
-                "diff_hunk": "",
-            }
-        ],
-        "graphql_threads": {
-            "data": {
-                "repository": {
-                    "pullRequest": {
-                        "reviewThreads": {
-                            "nodes": [
-                                {
-                                    "isResolved": True,
-                                    "comments": {"nodes": [{"databaseId": 2002}]},
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
-    }
-
-    with patch("subprocess.run", side_effect=mock_subprocess_run(mock_response)):
-        content = get_github_pr_content("https://github.com/owner/repo/pull/201")
-
-    assert content is not None
-    # Resolved threads must NOT appear in the unresolved section.
-    assert "Review Comments (Unresolved)" not in content
+        assert content is not None
+        assert ("Review Comments (Unresolved)" in content) is section_present
+        assert ("This needs documentation." in content) is section_present
 
 
 def test_empty_diff_hunk():
