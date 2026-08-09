@@ -322,7 +322,7 @@ Messages-API requests on ``/v1/messages``:
 .. code-block:: bash
 
     export ANTHROPIC_API_KEY=sk-ant-...
-    LLM_PROXY_URL=http://127.0.0.1:8080/ \n        gptme --tool-format tool -m anthropic/claude-sonnet-4-5 'summarize the largest file'
+    LLM_PROXY_URL=http://127.0.0.1:8080/ gptme --tool-format tool -m anthropic/claude-sonnet-4-5 'summarize the largest file'
 
 .. note::
 
