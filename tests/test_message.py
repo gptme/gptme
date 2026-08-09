@@ -86,12 +86,11 @@ def test_format_msgs_escapes_rich_markup():
         "Testing [project] with [bold]content[/bold]"
     )
 
-    # With highlight - should escape markup
+    # With highlight, escape message content while preserving generated role markup.
     outputs_highlight = format_msgs([msg], highlight=True)
-    assert len(outputs_highlight) == 1
-    # The escaped version should be different (escaped brackets)
-    # Note: We can't directly check the escape as it's in the Rich formatted string
-    # but we verify no exception is raised from Rich interpreting brackets as tags
+    assert outputs_highlight[0].endswith(
+        r"Testing \[project] with \[bold]content\[/bold]"
+    )
 
 
 def test_format_msgs_no_highlight_preserves_path_like_bracket():
@@ -154,6 +153,23 @@ def test_print_msg_no_highlight_path_like_bracket_no_crash(monkeypatch):
     (rendered,) = mock_console.print.call_args.args
     assert rendered.endswith("Run [/home/runner/run.sh]")
     assert mock_console.print.call_args.kwargs == {"markup": False}
+
+
+def test_print_msg_highlight_path_like_bracket_is_escaped(monkeypatch):
+    """TTY output must escape message content before enabling Rich markup."""
+    from unittest.mock import patch
+
+    from gptme.message import Message, print_msg
+
+    msg = Message("user", "Run [/home/runner/run.sh]")
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+
+    with patch("gptme.message.console") as mock_console:
+        assert print_msg(msg, highlight=True) == 1
+
+    (rendered,) = mock_console.print.call_args.args
+    assert rendered.endswith(r"Run \[/home/runner/run.sh]")
+    assert mock_console.print.call_args.kwargs == {"markup": True}
 
 
 def test_format_msgs_preserves_codeblocks():
