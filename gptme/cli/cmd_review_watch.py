@@ -37,7 +37,7 @@ from pathlib import Path
 
 import click
 
-from ..util.gh import is_trusted_reviewer, run_gh_json
+from ..util.gh import infer_owner_repo, is_trusted_reviewer, run_gh_json
 from ..util.review import FindingStatus, ReviewArtifact, ReviewFinding, ReviewStatus
 
 logger = logging.getLogger(__name__)
@@ -832,32 +832,12 @@ def review_watch(
 
     # Resolve repo from git remote when not provided
     if repo is None:
-        try:
-            result = subprocess.run(
-                [
-                    "gh",
-                    "repo",
-                    "view",
-                    "--json",
-                    "nameWithOwner",
-                    "-q",
-                    ".nameWithOwner",
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=10,
-            )
-            repo = result.stdout.strip()
-        except (
-            subprocess.CalledProcessError,
-            subprocess.TimeoutExpired,
-            OSError,
-        ) as exc:
+        repo = infer_owner_repo()
+        if repo is None:
             raise click.ClickException(
                 "Could not infer repository from git remote. "
                 "Pass --repo owner/repo explicitly."
-            ) from exc
+            )
 
     if "/" not in repo:
         raise click.ClickException(

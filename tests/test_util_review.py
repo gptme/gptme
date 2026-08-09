@@ -84,6 +84,80 @@ class TestRunGhJson:
         assert gh_util.run_gh_json(["gh", "pr", "view", "1"]) is None
 
 
+class TestInferOwnerRepo:
+    """Tests for gptme.util.gh.infer_owner_repo (shared across review pipeline)."""
+
+    def test_returns_owner_repo_string(self, monkeypatch):
+        """Happy path: gh returns a nameWithOwner dict."""
+
+        def fake_run(args, **kwargs):
+            return subprocess.CompletedProcess(
+                args,
+                returncode=0,
+                stdout=json.dumps({"nameWithOwner": "ErikBjare/gptme"}),
+                stderr="",
+            )
+
+        monkeypatch.setattr(gh_util.subprocess, "run", fake_run)
+        assert gh_util.infer_owner_repo() == "ErikBjare/gptme"
+
+    def test_returns_none_on_gh_failure(self, monkeypatch):
+        """Returns None when gh exits with a non-zero status (no git repo, auth error, etc.)."""
+
+        def fake_run(args, **kwargs):
+            return subprocess.CompletedProcess(
+                args, returncode=1, stdout="", stderr="not a git repo"
+            )
+
+        monkeypatch.setattr(gh_util.subprocess, "run", fake_run)
+        assert gh_util.infer_owner_repo() is None
+
+    def test_returns_none_on_missing_key(self, monkeypatch):
+        """Returns None when gh succeeds but nameWithOwner is absent."""
+
+        def fake_run(args, **kwargs):
+            return subprocess.CompletedProcess(
+                args, returncode=0, stdout=json.dumps({}), stderr=""
+            )
+
+        monkeypatch.setattr(gh_util.subprocess, "run", fake_run)
+        assert gh_util.infer_owner_repo() is None
+
+    def test_returns_none_on_invalid_json(self, monkeypatch):
+        """Returns None when gh returns non-JSON output."""
+
+        def fake_run(args, **kwargs):
+            return subprocess.CompletedProcess(
+                args, returncode=0, stdout="not json", stderr=""
+            )
+
+        monkeypatch.setattr(gh_util.subprocess, "run", fake_run)
+        assert gh_util.infer_owner_repo() is None
+
+    def test_returns_none_on_timeout(self, monkeypatch):
+        """Returns None when gh times out."""
+
+        def fake_run(args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=args, timeout=10)
+
+        monkeypatch.setattr(gh_util.subprocess, "run", fake_run)
+        assert gh_util.infer_owner_repo() is None
+
+    def test_value_must_contain_slash(self, monkeypatch):
+        """Returns None when nameWithOwner has no slash (malformed response)."""
+
+        def fake_run(args, **kwargs):
+            return subprocess.CompletedProcess(
+                args,
+                returncode=0,
+                stdout=json.dumps({"nameWithOwner": "noslash"}),
+                stderr="",
+            )
+
+        monkeypatch.setattr(gh_util.subprocess, "run", fake_run)
+        assert gh_util.infer_owner_repo() is None
+
+
 class TestIsBotUser:
     def test_bot_type(self):
         assert gh_util.is_bot_user({"type": "Bot", "login": "some-bot"})
@@ -1454,9 +1528,10 @@ Reviewed the diff carefully.
         diff_file.write_text(self._SAMPLE_DIFF)
 
         # Prevent infer_owner_repo from succeeding.
+        # The shared helper is imported into cmd_review_pr, so patch it there.
         from gptme.cli import cmd_review_pr
 
-        monkeypatch.setattr(cmd_review_pr, "_infer_owner_repo", lambda: None)
+        monkeypatch.setattr(cmd_review_pr, "infer_owner_repo", lambda: None)
 
         runner = self._runner()
         result = runner.invoke(

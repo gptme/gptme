@@ -59,6 +59,33 @@ def run_gh_json(
         return None
 
 
+def infer_owner_repo() -> str | None:
+    """Infer ``owner/repo`` for the current directory using the ``gh`` CLI.
+
+    Runs ``gh repo view --json nameWithOwner`` which honours the user's active
+    ``gh auth`` context and handles SSH remotes, HTTPS remotes, and repo
+    forks correctly.  Falls back to ``None`` when the ``gh`` CLI is unavailable,
+    the current directory is not inside a GitHub repository, or the command
+    fails for any reason.
+
+    Returns:
+        A ``"owner/repo"`` string or ``None``.
+
+    Example::
+
+        repo = infer_owner_repo()
+        if repo is None:
+            raise click.UsageError("--repo is required (could not infer from git remote).")
+        owner, repo_name = repo.split("/", 1)
+    """
+    data = run_gh_json(["gh", "repo", "view", "--json", "nameWithOwner"], timeout=10)
+    if isinstance(data, dict):
+        value = data.get("nameWithOwner")
+        if isinstance(value, str) and "/" in value:
+            return value
+    return None
+
+
 def is_bot_user(user: dict) -> bool:
     """Return ``True`` when a GitHub user dict describes a bot account.
 

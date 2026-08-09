@@ -41,7 +41,7 @@ from pathlib import Path
 
 import click
 
-from ..util.gh import run_gh_json
+from ..util.gh import infer_owner_repo, run_gh_json
 from ..util.review import (
     FindingSeverity,
     FindingStatus,
@@ -59,23 +59,8 @@ logger = logging.getLogger(__name__)
 
 _OWNER_REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
 
-
-def _infer_owner_repo() -> str | None:
-    """Infer owner/repo from the current git remote."""
-    try:
-        result = subprocess.run(
-            ["gh", "repo", "view", "--json", "nameWithOwner"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            return data.get("nameWithOwner")
-    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError):
-        pass
-    return None
+# _infer_owner_repo is now the shared gptme.util.gh.infer_owner_repo.
+# The import at the top of this module exposes it as ``infer_owner_repo``.
 
 
 def _get_pr_metadata(owner: str, repo: str, pr_number: int) -> dict | None:
@@ -615,7 +600,7 @@ def review_pr(
     # Resolve owner/repo
     # ------------------------------------------------------------------
     if repo is None:
-        inferred = _infer_owner_repo()
+        inferred = infer_owner_repo()
         if inferred is None:
             raise click.UsageError(
                 "--repo is required (could not infer from git remote)."
