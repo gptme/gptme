@@ -248,6 +248,103 @@ Setting a default model
     [env]
     MODEL = "local/llama3.2:3b"
 
+.. _paritok-compression:
+
+Paritok — context compression
+-----------------------------
+
+`Paritok <https://github.com/Paritok-official/paritok-4b-v1>`_ is a drop-in
+compression proxy. It sits between gptme and your real provider and, on every
+request, compresses file reads and tool outputs and summarizes stale history —
+then forwards upstream, billed on the *compressed* tokens. Nothing is
+permanently discarded: the model can pull back any exact original on demand, so
+compression is lossless from the agent's point of view.
+
+Paritok speaks both the OpenAI Chat Completions API and the Anthropic Messages
+API, so you wire it into gptme with **no code changes**.
+
+.. important::
+
+   Paritok compresses reads that arrive as **native tool calls**. Run gptme with
+   ``--tool-format tool`` (native function-calling) so the ``read`` tool's output
+   is a real tool message. With the default ``markdown`` tool-format the file
+   content is plain message text and Paritok passes it through unchanged — you
+   get the proxy but no savings.
+
+Start the proxy
+~~~~~~~~~~~~~~~
+
+Install with the ``proxy`` extra (pulls in the gateway server + the embedding
+tool-selector) and start it. First run pulls the ~2.5 GB Paritok-4B model via
+Ollama and serves on port ``8080``:
+
+.. code-block:: bash
+
+    pip install "paritok[proxy]"
+    paritok up
+
+**No local GPU / no Ollama?** Use the hosted Paritok GPU server instead — create a
+starter config, set ``use_gpu_server: true`` and your API key, then start as usual:
+
+.. code-block:: bash
+
+    paritok init        # writes paritok.yaml
+    # in paritok.yaml:  use_gpu_server: true  +  gpu_server.api_key: "<your key>"
+    paritok up          # now compresses via the hosted GPU, no model download
+
+An API key is created at https://paritok.com (dashboard → API keys).
+
+OpenAI-compatible models
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Add a custom provider pointing at the proxy, in ``~/.config/gptme/config.toml``:
+
+.. code-block:: toml
+
+    [[providers]]
+    name = "paritok"
+    base_url = "http://127.0.0.1:8080/v1"
+    api_key_env = "OPENAI_API_KEY"   # your real upstream key; Paritok forwards it
+    default_model = "gpt-4o"          # any model your upstream serves
+
+.. code-block:: bash
+
+    gptme --tool-format tool -m paritok/gpt-4o 'summarize the largest file in this repo'
+
+Claude models
+~~~~~~~~~~~~~
+
+Custom providers are OpenAI-shaped, so Claude routes through the built-in
+``anthropic`` provider plus gptme's global proxy override ``LLM_PROXY_URL`` (which
+gptme passes to the Anthropic client). Paritok then receives native Anthropic
+Messages-API requests on ``/v1/messages``:
+
+.. code-block:: bash
+
+    export ANTHROPIC_API_KEY=sk-ant-...
+    LLM_PROXY_URL=http://127.0.0.1:8080/ \n        gptme --tool-format tool -m anthropic/claude-sonnet-4-5 'summarize the largest file'
+
+.. note::
+
+   ``LLM_PROXY_URL`` is global — it also redirects gptme's OpenAI/OpenRouter
+   clients. Use it in a Claude-focused setup, or make sure the proxy can handle
+   any other providers you call in the same session.
+
+Verify
+~~~~~~
+
+.. code-block:: bash
+
+    curl http://127.0.0.1:8080/stats     # live compressed-vs-original token totals
+
+On a native-tool-call read of a ~600-line file, Paritok compresses the file body
+by roughly 90% (e.g. ~6,700 tokens down to ~300), fully recallable on demand.
+
+.. note::
+
+   Paritok needs a Paritok-4B backend (local Ollama as above, or a hosted GPU
+   endpoint via an API key). See the Paritok README for hosted-backend setup.
+
 Backward compatibility
 ----------------------
 
