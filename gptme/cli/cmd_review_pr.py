@@ -340,6 +340,8 @@ def _spawn_review_session(
         "--no-stream",
         "--output-format",
         "json",
+        "--tools",
+        "none",
     ]
     if model is not None:
         cmd.extend(["--model", model])
@@ -650,7 +652,7 @@ def review_pr(
         else:
             try:
                 diff = Path(diff_path).read_text(encoding="utf-8")
-            except OSError as exc:
+            except (OSError, UnicodeDecodeError) as exc:
                 raise click.ClickException(f"Could not read diff file: {exc}") from exc
         pr_title = f"PR #{pr_number}"
         pr_body = ""

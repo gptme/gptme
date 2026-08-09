@@ -1108,6 +1108,7 @@ Reviewed the diff carefully.
         )
         assert "--output-format" in captured["cmd"]
         assert captured["cmd"][captured["cmd"].index("--output-format") + 1] == "json"
+        assert captured["cmd"][captured["cmd"].index("--tools") + 1] == "none"
         assert captured["cmd"][-2:] == ["--", "-"]
         assert captured["kwargs"]["input"].startswith("review")
 
@@ -1367,6 +1368,26 @@ Reviewed the diff carefully.
         assert artifact.pr_owner == "owner"
         assert artifact.pr_repo == "repo"
         assert len(artifact.findings) == 1
+
+    def test_diff_mode_non_utf8_file_errors_cleanly(self, tmp_path):
+        diff_file = tmp_path / "pr.diff"
+        diff_file.write_bytes(b"\xff\xfe")
+
+        result = self._runner().invoke(
+            util_main,
+            [
+                "review",
+                "pr",
+                "42",
+                "--repo",
+                "owner/repo",
+                "--diff",
+                str(diff_file),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "Could not read diff file" in result.output
 
     def test_diff_mode_no_findings(self, tmp_path, monkeypatch):
         """Empty findings array is handled gracefully."""
