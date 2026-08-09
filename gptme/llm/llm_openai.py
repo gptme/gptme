@@ -196,6 +196,8 @@ def _record_usage(
 ) -> MessageMetadata | None:
     """Record usage metrics as telemetry and return MessageMetadata."""
     if not usage:
+        if resolved_model:
+            return {"model": model, "resolved_model": resolved_model}
         return None
 
     counts = _extract_usage_token_counts(usage)
@@ -1375,14 +1377,17 @@ def stream(
     # Capture which subprovider OpenRouter actually used before consuming the
     # stream. The x-openrouter-provider header is available on the initial
     # HTTP response (before the stream body starts).
-    _or_stream_provider: str | None = None
+    _or_resolved: str | None = None
     if _uses_openrouter_backend(provider, model_meta):
         try:
             _or_stream_provider = _stream_obj.response.headers.get(
                 "x-openrouter-provider"
             )
         except AttributeError:
-            pass
+            _or_stream_provider = None
+        if _or_stream_provider:
+            _or_resolved = _make_resolved_model(model, _or_stream_provider)
+            captured_metadata = _record_usage(None, model, resolved_model=_or_resolved)
 
     for chunk_raw in _stream_obj:
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
@@ -1397,11 +1402,6 @@ def stream(
         # Record usage if available (typically in final chunk)
         # and capture metadata for message attachment
         if hasattr(chunk, "usage") and chunk.usage:
-            _or_resolved = (
-                _make_resolved_model(model, _or_stream_provider)
-                if _or_stream_provider
-                else None
-            )
             captured_metadata = _record_usage(
                 chunk.usage, model, resolved_model=_or_resolved
             )

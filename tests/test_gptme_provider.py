@@ -623,12 +623,6 @@ def test_gptme_openrouter_chat_captures_resolved_provider():
     with (
         _patch_model_list(),
         patch("gptme.llm.llm_openai.get_client", return_value=client),
-        patch(
-            "gptme.llm.llm_openai._record_usage",
-            side_effect=lambda usage, model, resolved_model=None: {
-                "resolved_model": resolved_model
-            },
-        ),
     ):
         _, metadata = _chat_complete(
             [Message("user", "hi")],
@@ -636,7 +630,10 @@ def test_gptme_openrouter_chat_captures_resolved_provider():
             None,
         )
 
-    assert metadata == {"resolved_model": "gptme/openrouter/openai/gpt-5.4@together-ai"}
+    assert metadata == {
+        "model": "gptme/openrouter/openai/gpt-5.4",
+        "resolved_model": "gptme/openrouter/openai/gpt-5.4@together-ai",
+    }
     raw_response.headers.get.assert_called_once_with("x-openrouter-provider")
 
 
