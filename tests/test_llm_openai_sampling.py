@@ -191,12 +191,15 @@ def test_stream_completions_forwards_caller_sampling_values(monkeypatch):
     assert completions_create.call_args.kwargs["top_p"] == 0.74
 
 
-def test_stream_captures_openrouter_provider_in_metadata(monkeypatch):
-    usage = SimpleNamespace(prompt_tokens=3, completion_tokens=2, total_tokens=5)
-    chunk = SimpleNamespace(usage=usage, choices=[])
+@pytest.mark.parametrize("include_usage", [True, False])
+def test_stream_captures_openrouter_provider_in_metadata(monkeypatch, include_usage):
+    chunks = []
+    if include_usage:
+        usage = SimpleNamespace(prompt_tokens=3, completion_tokens=2, total_tokens=5)
+        chunks.append(SimpleNamespace(usage=usage, choices=[]))
     stream_obj = MagicMock()
     stream_obj.response.headers.get.return_value = "Together AI"
-    stream_obj.__iter__.return_value = iter([chunk])
+    stream_obj.__iter__.return_value = iter(chunks)
     completions_create = Mock(return_value=stream_obj)
     mock_client = SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=completions_create))
@@ -215,6 +218,10 @@ def test_stream_captures_openrouter_provider_in_metadata(monkeypatch):
 
     assert metadata is not None
     assert metadata["resolved_model"] == ("openrouter/meta-llama/llama-3.1@together-ai")
+    if include_usage:
+        assert metadata["usage"] == {"input_tokens": 3, "output_tokens": 2}
+    else:
+        assert "usage" not in metadata
     stream_obj.response.headers.get.assert_called_once_with("x-openrouter-provider")
 
 

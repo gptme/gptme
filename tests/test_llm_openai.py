@@ -3276,6 +3276,20 @@ class TestSpec2ToolStrictSchema:
         assert result["function"]["strict"] is True
 
 
+def test_record_usage_preserves_resolved_model_without_usage():
+    """Provider metadata survives responses that omit token accounting."""
+    from gptme.llm.llm_openai import _record_usage
+
+    assert _record_usage(
+        None,
+        "openrouter/meta-llama/llama-3.1",
+        resolved_model="openrouter/meta-llama/llama-3.1@groq",
+    ) == {
+        "model": "openrouter/meta-llama/llama-3.1",
+        "resolved_model": "openrouter/meta-llama/llama-3.1@groq",
+    }
+
+
 class TestMakeResolvedModel:
     """Tests for _make_resolved_model — the OpenRouter subprovider slug builder."""
 
