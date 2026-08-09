@@ -646,7 +646,7 @@ class _WindowsRootPath:
         return self._parts[-1] if self._parts else ""
 
     @property
-    def parent(self) -> "_WindowsRootPath":
+    def parent(self) -> _WindowsRootPath:
         self._counter[0] += 1
         if self._counter[0] > 10_000:
             raise AssertionError("directory walk did not terminate (regression)")
@@ -654,7 +654,7 @@ class _WindowsRootPath:
             return self  # drive root is its own parent, like WindowsPath("C:/")
         return _WindowsRootPath(self._parts[:-1], self._counter)
 
-    def __truediv__(self, other) -> "_WindowsRootPath":
+    def __truediv__(self, other) -> _WindowsRootPath:
         return _WindowsRootPath(self._parts + [str(other)], self._counter)
 
     def exists(self) -> bool:
