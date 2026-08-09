@@ -386,6 +386,20 @@ def _find_missing_explicit_local_path(prompts: list[str]) -> str | None:
     return None
 
 
+def _group_prompt_args(prompts: list[str] | tuple[str, ...]) -> list[str]:
+    """Group CLI prompt arguments on exact standalone separator arguments."""
+    grouped: list[str] = []
+    current: list[str] = []
+    for prompt in prompts:
+        if prompt == MULTIPROMPT_SEPARATOR:
+            grouped.append("\n\n".join(current))
+            current = []
+        else:
+            current.append(prompt)
+    grouped.append("\n\n".join(current))
+    return [stripped for group in grouped if (stripped := group.strip())]
+
+
 def _known_tool_names() -> list[str]:
     """Names of all known built-in tools (available or not).
 
@@ -1026,9 +1040,6 @@ def main(
             continue
         add_history(prompt)
 
-    # join prompts, grouped by `-` if present, since that's the separator for "chained"/multiple-round prompts
-    sep = "\n\n" + MULTIPROMPT_SEPARATOR
-
     if missing_path := _find_missing_explicit_local_path(prompts):
         raise click.UsageError(
             "Prompt looks like an explicit local path, but it does not exist: "
@@ -1056,9 +1067,9 @@ def main(
                 "Verify the module is installed and the class name is correct."
             ) from e
 
-    prompts = [
-        stripped for p in "\n\n".join(prompts).split(sep) if (stripped := p.strip())
-    ]
+    # Split only when `-` is its own CLI argument. Splitting joined text on
+    # "\n\n-" also matches Markdown list items and silently truncates turns.
+    prompts = _group_prompt_args(prompts)
     # File paths in multiprompts are expanded at runtime by include_paths() in
     # _run_chat_loop (gptme/chat.py:194), not at parse time. Each prompt from the
     # queue goes through include_paths when popped, ensuring fresh content.

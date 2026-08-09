@@ -1321,6 +1321,20 @@ def test_stdin(args: list[str], runner: CliRunner):
     assert result.exit_code == 0
 
 
+def test_group_prompt_args_preserves_markdown_list() -> None:
+    prompt = "Investigate this item:\n\n- **Repo**: gptme/gptme\n- **PR**: #123"
+
+    assert cli._group_prompt_args((prompt,)) == [prompt]
+
+
+def test_group_prompt_args_splits_standalone_separator() -> None:
+    assert cli._group_prompt_args(("first", "-", "second")) == ["first", "second"]
+
+
+def test_group_prompt_args_joins_non_separator_arguments() -> None:
+    assert cli._group_prompt_args(("first", "second")) == ["first\n\nsecond"]
+
+
 # Flaky, seems to not always get "User:" outputted?
 @pytest.mark.xfail(strict=False)
 @pytest.mark.slow
