@@ -115,8 +115,13 @@ class ReviewFinding:
             status = FindingStatus(d.get("status", FindingStatus.OPEN.value))
         except (TypeError, ValueError):
             status = FindingStatus.OPEN
+        body_raw = d.get("body", "")
+        if not isinstance(body_raw, str):
+            raise ValueError(
+                f"ReviewFinding.body must be a string, got {type(body_raw).__name__!r}: {body_raw!r}"
+            )
         return cls(
-            body=d.get("body", ""),
+            body=body_raw,
             file=file_raw,
             line=line_raw,
             severity=severity,

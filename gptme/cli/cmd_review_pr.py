@@ -145,6 +145,7 @@ _FINDINGS_JSON_SCHEMA = """\
   ]
 }"""
 _REVIEW_OUTPUT_MARKER = "GPTME_REVIEW_FINDINGS_V1"
+_REVIEW_OUTPUT_NONCE_PLACEHOLDER = "__GPTME_REVIEW_OUTPUT_NONCE__"
 
 
 def _build_review_prompt(
@@ -247,8 +248,9 @@ def _build_review_prompt(
         "`file` as an empty string and `line` as null.",
         "",
         'If you find NO issues, output an empty findings array: `{"findings": []}`.',
-        f"Output `{_REVIEW_OUTPUT_MARKER}` on its own line, followed by exactly one",
-        "JSON block. Do not output the marker anywhere else.",
+        "Output the nonce below on its own line, followed by exactly one JSON block.",
+        "Do not output the nonce anywhere else.",
+        _REVIEW_OUTPUT_NONCE_PLACEHOLDER,
         "",
     ]
 
@@ -341,17 +343,19 @@ def _spawn_review_session(
     ]
     if model is not None:
         cmd.extend(["--model", model])
-    cmd.extend(["--", prompt])
+    output_marker = f"{_REVIEW_OUTPUT_MARKER}_{os.urandom(16).hex()}"
+    prompt = prompt.replace(_REVIEW_OUTPUT_NONCE_PLACEHOLDER, output_marker)
+    cmd.extend(["--", "-"])
 
     start = time.monotonic()
     try:
         completed = subprocess.run(
             cmd,
+            input=prompt,
             capture_output=True,
             text=True,
             timeout=timeout,
             env=env,
-            stdin=subprocess.DEVNULL,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -369,6 +373,7 @@ def _spawn_review_session(
             "exit_reason": "timeout",
             "duration_s": round(time.monotonic() - start, 3),
             "error": f"timed out after {timeout:g}s (recovered {len(partial_output)} chars of partial output)",
+            "output_marker": output_marker,
         }
     except OSError as exc:
         raise click.ClickException(f"Failed to spawn review session: {exc}") from exc
@@ -378,6 +383,7 @@ def _spawn_review_session(
     summary: dict = {
         "exit_reason": exit_reason,
         "duration_s": round(duration_s, 3),
+        "output_marker": output_marker,
     }
     if completed.returncode != 0 and completed.stderr.strip():
         summary["error"] = completed.stderr.strip().splitlines()[-1]
@@ -427,6 +433,8 @@ def _assistant_output_from_jsonl(output: str) -> str | None:
 
 def _extract_findings_from_output(
     output: str,
+    *,
+    output_marker: str = _REVIEW_OUTPUT_MARKER,
 ) -> tuple[list[ReviewFinding] | None, int]:
     """Parse reviewer JSONL output and extract :class:`ReviewFinding` objects.
 
@@ -439,7 +447,7 @@ def _extract_findings_from_output(
         return None, 0
 
     marker_matches = list(
-        re.finditer(rf"(?m)^{re.escape(_REVIEW_OUTPUT_MARKER)}\s*$", assistant_output)
+        re.finditer(rf"(?m)^{re.escape(output_marker)}\s*$", assistant_output)
     )
     if len(marker_matches) != 1:
         return None, 0
@@ -733,7 +741,9 @@ def review_pr(
     # ------------------------------------------------------------------
     # Parse findings
     # ------------------------------------------------------------------
-    findings, validation_errors = _extract_findings_from_output(stdout)
+    findings, validation_errors = _extract_findings_from_output(
+        stdout, output_marker=summary.get("output_marker", _REVIEW_OUTPUT_MARKER)
+    )
     if findings is None:
         click.echo(
             "  ⚠️  Could not find a JSON findings block in session output.",
