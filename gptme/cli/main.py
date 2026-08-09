@@ -388,6 +388,9 @@ def _find_missing_explicit_local_path(prompts: list[str]) -> str | None:
 
 def _group_prompt_args(prompts: list[str] | tuple[str, ...]) -> list[str]:
     """Group CLI prompt arguments on exact standalone separator arguments."""
+    if len(prompts) == 1:
+        return [prompts[0].strip()] if prompts[0].strip() else []
+
     grouped: list[str] = []
     current: list[str] = []
     for prompt in prompts:

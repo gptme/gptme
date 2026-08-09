@@ -1331,6 +1331,10 @@ def test_group_prompt_args_splits_standalone_separator() -> None:
     assert cli._group_prompt_args(("first", "-", "second")) == ["first", "second"]
 
 
+def test_group_prompt_args_preserves_lone_separator() -> None:
+    assert cli._group_prompt_args(("-",)) == ["-"]
+
+
 def test_group_prompt_args_joins_non_separator_arguments() -> None:
     assert cli._group_prompt_args(("first", "second")) == ["first\n\nsecond"]
 
