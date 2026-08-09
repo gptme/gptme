@@ -1,6 +1,7 @@
 """Tests for auto-include lesson system with token budget."""
 
 import json
+import os
 from pathlib import Path
 
 from gptme.lessons.auto_include import (
@@ -1029,6 +1030,54 @@ def test_policy_manifest_cache_reloads_after_file_change(monkeypatch, tmp_path):
         "exempt: []\nholdout_population: []\n"
     )
     assert _classify_lesson("lessons/patterns/foo.md") == ("validated_core", 2)
+
+
+def test_policy_manifest_cache_reload_survives_cwd_change(monkeypatch, tmp_path):
+    """A relative manifest path keeps its load-time anchor during reload."""
+    _reset_manifest_cache(monkeypatch)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    manifest_file = workspace / "manifest.yaml"
+    manifest_file.write_text(
+        "version: 1\nvalidated_core: []\nexempt: []\nholdout_population: []\n"
+    )
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", "manifest.yaml")
+    monkeypatch.chdir(workspace)
+    assert _classify_lesson("lessons/patterns/foo.md")[0] == "unknown"
+
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    monkeypatch.chdir(other_dir)
+    manifest_file.write_text(
+        "version: 2\nvalidated_core:\n- patterns/foo\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+
+    assert _classify_lesson("lessons/patterns/foo.md") == ("validated_core", 2)
+
+
+def test_policy_manifest_cache_reloads_same_size_preserved_mtime(monkeypatch, tmp_path):
+    """Metadata-preserving rewrites still invalidate the process cache."""
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = tmp_path / "manifest.yaml"
+    original = (
+        "version: 1\nvalidated_core:\n- patterns/foo\n"
+        "exempt: []\nholdout_population: []\n"
+    )
+    replacement = original.replace("patterns/foo", "patterns/bar")
+    assert len(original) == len(replacement)
+    manifest_file.write_text(original)
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    assert _classify_lesson("lessons/patterns/foo.md")[0] == "validated_core"
+
+    original_stat = manifest_file.stat()
+    manifest_file.write_text(replacement)
+    os.utime(
+        manifest_file,
+        ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+    )
+
+    assert _classify_lesson("lessons/patterns/bar.md")[0] == "validated_core"
 
 
 def test_classify_lesson_relative_path_uses_declared_root(monkeypatch, tmp_path):

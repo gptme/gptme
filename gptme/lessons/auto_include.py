@@ -110,7 +110,7 @@ def _get_dropout_log_dir() -> Path:
 # --- Lesson policy manifest (Stage 1 shadow logging) ---
 
 _policy_manifest_cache: "dict[str, Any] | None" = None
-_policy_manifest_cache_key: "tuple[str, Path, int | None, int | None] | None" = None
+_policy_manifest_cache_key: "tuple[str, Path, int | None, int | None, int | None] | None" = None
 
 
 def _get_policy_manifest_path() -> Path:
@@ -150,11 +150,19 @@ def _load_policy_manifest() -> "dict[str, Any]":
     try:
         stat = manifest_abs_path.stat()
         manifest_mtime_ns = stat.st_mtime_ns
+        manifest_ctime_ns = stat.st_ctime_ns
         manifest_size = stat.st_size
     except OSError:
         manifest_mtime_ns = None
+        manifest_ctime_ns = None
         manifest_size = None
-    cache_key = (configured_path, manifest_abs_path, manifest_mtime_ns, manifest_size)
+    cache_key = (
+        configured_path,
+        manifest_abs_path,
+        manifest_mtime_ns,
+        manifest_ctime_ns,
+        manifest_size,
+    )
     if _policy_manifest_cache is not None and _policy_manifest_cache_key == cache_key:
         return _policy_manifest_cache
     _default: dict[str, Any] = {
@@ -176,7 +184,7 @@ def _load_policy_manifest() -> "dict[str, Any]":
     try:
         import yaml
 
-        with open(manifest_path, encoding="utf-8") as f:
+        with open(manifest_abs_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
         if raw is None:
             # Empty file (e.g. `yaml.safe_load` of a blank/whitespace-only
