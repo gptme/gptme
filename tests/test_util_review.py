@@ -990,6 +990,26 @@ Reviewed the diff carefully.
 
     _REVIEW_NO_BLOCK = "I reviewed the code and it looks fine."
 
+    # A finding whose body quotes a code fence.  Reviewing any markdown or
+    # codeblock change produces these routinely, and the old ```json ...```
+    # regex ended the block at the ``` *inside* the JSON string, so the whole
+    # review was discarded as unparseable.  Seen live on gptme/gptme#3507.
+    _REVIEW_FENCE_IN_BODY = (
+        "```json\n"
+        "{\n"
+        '  "findings": [\n'
+        "    {\n"
+        '      "body": "Add an unterminated input, e.g. ``` python\\nprint(1)\\n, '
+        'so the test fails without the fix.",\n'
+        '      "file": "tests/test_codeblock.py",\n'
+        '      "line": 1521,\n'
+        '      "severity": "warning"\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
+        "```\n"
+    )
+
     @staticmethod
     def _review_jsonl(content: str) -> str:
         from gptme.cli.cmd_review_pr import _REVIEW_OUTPUT_MARKER
@@ -1002,6 +1022,7 @@ Reviewed the diff carefully.
     _SESSION_OUTPUT_WITH_FINDINGS = _review_jsonl(_REVIEW_WITH_FINDINGS)
     _SESSION_OUTPUT_NO_FINDINGS = _review_jsonl(_REVIEW_NO_FINDINGS)
     _SESSION_OUTPUT_NO_BLOCK = _review_jsonl(_REVIEW_NO_BLOCK)
+    _SESSION_OUTPUT_FENCE_IN_BODY = _review_jsonl(_REVIEW_FENCE_IN_BODY)
 
     def _make_spawn_patch(self, monkeypatch, stdout: str) -> list[dict]:
         """Monkeypatch _spawn_review_session to return a fixed stdout."""
@@ -1055,6 +1076,20 @@ Reviewed the diff carefully.
         assert f.file == "gptme/util/review.py"
         assert f.line == 3
         assert f.severity == FindingSeverity.WARNING
+
+    def test_extract_findings_survives_code_fence_inside_body(self):
+        """A ``` inside a finding body must not truncate the block."""
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        findings, validation_errors = _extract_findings_from_output(
+            self._SESSION_OUTPUT_FENCE_IN_BODY
+        )
+        assert findings is not None, "review discarded because its body quoted a fence"
+        assert len(findings) == 1
+        assert validation_errors == 0
+        assert "```" in findings[0].body
+        assert findings[0].file == "tests/test_codeblock.py"
+        assert findings[0].line == 1521
 
     def test_extract_findings_empty_array(self):
         from gptme.cli.cmd_review_pr import _extract_findings_from_output

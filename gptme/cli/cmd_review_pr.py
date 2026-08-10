@@ -38,6 +38,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
@@ -49,6 +50,9 @@ from ..util.review import (
     ReviewFinding,
     ReviewStatus,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -382,10 +386,34 @@ def _spawn_review_session(
 # Finding extraction
 # ---------------------------------------------------------------------------
 
-_JSON_BLOCK_RE = re.compile(
-    r"```json\s*(.*?)```",
-    re.DOTALL | re.IGNORECASE,
-)
+_JSON_BLOCK_OPEN_RE = re.compile(r"```json", re.IGNORECASE)
+
+
+def _json_blocks(text: str) -> Iterator[object]:
+    """Yield the JSON value opening each ```json fence in ``text``.
+
+    A regex cannot delimit these blocks: review findings routinely quote code
+    fences (reviewing a markdown or codeblock change all but guarantees it), and
+    a ``` inside a JSON string ends a non-greedy ``` ...``` match early, so the
+    captured text is a truncated, unparseable fragment.  Observed live on
+    gptme/gptme#3507, where a well-formed single-finding review was discarded
+    because its body quoted ```` ``` python ````.
+
+    Decoding with :meth:`json.JSONDecoder.raw_decode` instead lets the JSON
+    grammar decide where the value ends, so fences inside strings are just
+    string content.  The closing fence is not required to be found: the decoder
+    already knows where the value stops.
+    """
+    decoder = json.JSONDecoder()
+    for match in _JSON_BLOCK_OPEN_RE.finditer(text):
+        idx = match.end()
+        while idx < len(text) and text[idx].isspace():
+            idx += 1
+        try:
+            value, _ = decoder.raw_decode(text, idx)
+        except ValueError:
+            continue
+        yield value
 
 
 def _assistant_output_from_jsonl(output: str) -> str | None:
@@ -443,13 +471,7 @@ def _extract_findings_from_output(
     # A review must have exactly one parseable findings block after the trusted
     # marker. Multiple blocks are ambiguous, so fail closed instead of choosing.
     parsed_blocks: list[tuple[list[ReviewFinding], int]] = []
-    for match in _JSON_BLOCK_RE.finditer(review_output):
-        raw = match.group(1).strip()
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-
+    for data in _json_blocks(review_output):
         if not isinstance(data, dict) or "findings" not in data:
             continue
 
