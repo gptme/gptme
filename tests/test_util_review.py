@@ -1091,6 +1091,20 @@ Reviewed the diff carefully.
         assert findings[0].file == "tests/test_codeblock.py"
         assert findings[0].line == 1521
 
+    def test_extract_findings_ignores_json_fence_inside_body(self):
+        """A parseable quoted JSON fence is part of its outer finding."""
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        body = 'The docs quote ```json\n{"findings": []}\n``` as an example.'
+        review = f"```json\n{json.dumps({'findings': [{'body': body}]})}\n```"
+        findings, validation_errors = _extract_findings_from_output(
+            self._review_jsonl(review)
+        )
+
+        assert findings is not None
+        assert [finding.body for finding in findings] == [body]
+        assert validation_errors == 0
+
     def test_extract_findings_empty_array(self):
         from gptme.cli.cmd_review_pr import _extract_findings_from_output
 

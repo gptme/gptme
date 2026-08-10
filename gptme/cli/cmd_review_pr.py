@@ -405,12 +405,17 @@ def _json_blocks(text: str) -> Iterator[object]:
     already knows where the value stops.
     """
     decoder = json.JSONDecoder()
+    decoded_until = 0
     for match in _JSON_BLOCK_OPEN_RE.finditer(text):
+        # A decoded JSON string may itself quote a ```json fence.  That opener
+        # belongs to the outer value, not to a second findings block.
+        if match.start() < decoded_until:
+            continue
         idx = match.end()
         while idx < len(text) and text[idx].isspace():
             idx += 1
         try:
-            value, _ = decoder.raw_decode(text, idx)
+            value, decoded_until = decoder.raw_decode(text, idx)
         except ValueError:
             continue
         yield value
