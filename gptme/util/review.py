@@ -5,7 +5,7 @@ The review pipeline is a two-stage autonomous loop:
     pr_review (gptme-contrib)     →   review-watch (gptme)
     ─────────────────────────         ─────────────────────
     AI reviews PR diff                AI acts as author
-    Posts structured findings         Reads comments → fixes
+    Emits structured findings         Reads comments → fixes
     ReviewArtifact produced           ReviewArtifact consumed (optional)
 
 ``ReviewArtifact`` is the structured JSON handoff between the two stages.
@@ -14,6 +14,38 @@ richer context (exact file/line, severity, confirmed/dropped status).
 
 All fields are optional so the artifact degrades gracefully to the
 plain-text comment path when not available.
+
+What this module is for
+-----------------------
+This is the **canonical schema** for review findings and artifacts, and it
+backs the model-facing primitive ``gptme-util review pr`` (diff in,
+``ReviewArtifact`` out). Downstream reviewers are expected to emit *this*
+schema rather than define their own.
+
+What this module is NOT for
+---------------------------
+It deliberately contains **no forge plumbing** — no GitHub/Forgejo API calls,
+no comment posting, no idempotency markers. ``review pr`` writes nothing; it
+produces an artifact and exits. Publishing findings to a forge is out of scope
+for gptme core and belongs in a downstream adapter.
+
+Related implementations
+-----------------------
+Three PR-review implementations exist across three repos, and it is easy to
+land in the wrong one:
+
+- **this module + ``gptme/cli/cmd_review_pr.py``** (gptme core, public) — the
+  schema and the diff→findings primitive. No forge writes, by design.
+- **``gptme_runloops.pr_review``** (gptme-contrib) — forge-neutral local-diff
+  entry point (``review --working-tree``): review uncommitted work with no
+  forge calls at all.
+- **Bob's ``scripts/github/ai-review.py``** (private brain repo) — the only
+  one that posts findings to GitHub in production (marker + inline comments,
+  consensus filtering, suppression ledger).
+
+A full comparison, the retirement plan and a "which tool for which task"
+routing table live in Bob's brain repo (private) at
+``knowledge/technical/pr-review-systems-map.md``.
 """
 
 from __future__ import annotations
