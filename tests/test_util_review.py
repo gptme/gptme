@@ -1105,6 +1105,48 @@ Reviewed the diff carefully.
         assert [finding.body for finding in findings] == [body]
         assert validation_errors == 0
 
+    def test_extract_findings_malformed_outer_block_fails_closed(self):
+        """A quoted findings fence must not rescue a malformed outer block.
+
+        When the outer value does not decode, the decoder never advances past
+        it, so a ```json fence quoted *inside* the broken value is no longer
+        shadowed.  If that fragment happens to be a valid findings object the
+        review would be emitted as COMPLETE with zero findings — a broken
+        review masquerading as a clean one.  Fail closed instead.
+        """
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        # Outer object is truncated (missing the closing `}`) and its body
+        # contains raw newlines, so it cannot decode.  The quoted fence below
+        # is a complete, valid findings object.
+        review = (
+            '```json\n{"findings": [{"body": "the reviewer emitted:\n'
+            '```json\n{"findings": []}\n```\nwhich is wrong"}]\n```'
+        )
+        findings, validation_errors = _extract_findings_from_output(
+            self._review_jsonl(review)
+        )
+
+        assert findings is None, (
+            "malformed review rescued by a findings object quoted inside it"
+        )
+        assert validation_errors == 0
+
+    def test_extract_findings_trailing_malformed_block_fails_closed(self):
+        """A valid block followed by an undecodable fence is ambiguous."""
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        review = (
+            f"```json\n{json.dumps({'findings': [{'body': 'a real finding'}]})}\n```\n"
+            "\n```json\nnot json at all\n```\n"
+        )
+        findings, validation_errors = _extract_findings_from_output(
+            self._review_jsonl(review)
+        )
+
+        assert findings is None
+        assert validation_errors == 0
+
     def test_extract_findings_empty_array(self):
         from gptme.cli.cmd_review_pr import _extract_findings_from_output
 
