@@ -430,13 +430,13 @@ class TestGetInstallInfo:
         assert info.path == "/home/user/dev/gptme"
 
     @patch("gptme.info.importlib.metadata.distribution")
-    def test_path_distribution_editable(self, mock_dist_fn):
-        """PathDistribution type name indicates editable install."""
+    def test_path_distribution_not_editable(self, mock_dist_fn):
+        """PathDistribution type alone does NOT mean editable — all pip/uv installs use it."""
         mock_dist_fn.return_value = self._mock_dist(
             installer="pip", dist_type_name="PathDistribution"
         )
         info = get_install_info()
-        assert info.editable is True
+        assert info.editable is False
 
     @patch("gptme.info.importlib.metadata.distribution")
     def test_package_not_found(self, mock_dist_fn):
@@ -1116,3 +1116,77 @@ class TestEdgeCases:
         mock_dist_fn.return_value = dist
         info = get_install_info()
         assert info.method == "unknown"
+
+
+# ─── Stable first-line contract ──────────────────────────────────────────────
+
+
+class TestVersionOutputContract:
+    """Guarantee the stable first-line format for --version output (issue #3518)."""
+
+    def _mock_all_info(self):
+        return {
+            "gptme.info.get_system_info": {
+                "python_version": "3.12.0",
+                "platform": "Linux",
+                "platform_version": "6.1.0",
+                "machine": "x86_64",
+            },
+            "gptme.info.get_config_info": {
+                "logs_dir": "/tmp/logs",
+                "config_path": "/tmp/config.toml",
+                "config_exists": True,
+            },
+            "gptme.info.get_install_info": InstallInfo(method="uv", editable=False),
+            "gptme.info.get_installed_extras": [],
+            "gptme.info.get_available_providers": [],
+            "gptme.info.get_default_model": None,
+            "gptme.info.get_tool_count": 0,
+            "gptme.info.get_quick_health": (4, 0, 0),
+        }
+
+    def _apply(self, patches):
+        managers = [patch(t, return_value=v) for t, v in patches.items()]
+        for m in managers:
+            m.start()
+        return managers
+
+    def _stop(self, managers):
+        for m in managers:
+            m.stop()
+
+    def test_first_line_format(self):
+        """First line of --version output is always 'gptme v<version>'."""
+        managers = self._apply(self._mock_all_info())
+        try:
+            result = format_version_info()
+            first_line = result.splitlines()[0]
+            assert first_line.startswith("gptme v"), (
+                f"First line must start with 'gptme v', got: {first_line!r}"
+            )
+        finally:
+            self._stop(managers)
+
+    def test_non_editable_pypi_no_editable_flag(self):
+        """A regular (non-editable) PyPI/uv install must not show '(editable)'."""
+        patches = self._mock_all_info()
+        patches["gptme.info.get_install_info"] = InstallInfo(
+            method="uv", editable=False
+        )
+        managers = self._apply(patches)
+        try:
+            result = format_version_info()
+            assert "(editable)" not in result
+        finally:
+            self._stop(managers)
+
+    def test_json_version_key_present(self):
+        """JSON output always has a 'version' key for scripting."""
+        managers = self._apply(self._mock_all_info())
+        try:
+            data = json.loads(format_version_info(output_json=True))
+            assert "version" in data
+            assert isinstance(data["version"], str)
+            assert len(data["version"]) > 0
+        finally:
+            self._stop(managers)

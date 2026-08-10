@@ -271,10 +271,6 @@ def get_install_info() -> InstallInfo:
         except (FileNotFoundError, OSError, json.JSONDecodeError, KeyError):
             pass
 
-        # Also check if PathDistribution (another indicator of editable)
-        if not editable and type(dist).__name__ == "PathDistribution":
-            editable = True
-
         # Determine method
         if installer == "uv":
             method = "uv"

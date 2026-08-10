@@ -65,12 +65,22 @@ def _compute_version() -> str:
         except (KeyError, AttributeError, TypeError, ValueError, FileNotFoundError):
             pass
 
-        # Method 2: Try git command (for editable installs)
+        # Method 2: Try git command (for editable installs).
+        # Only do this when direct_url.json says dir_info.editable=true —
+        # PathDistribution is the concrete type for ALL pip/uv installs (editable
+        # or not), so isinstance(dist, PathDistribution) cannot distinguish them.
         if not git_hash:
-            is_editable = isinstance(
-                importlib.metadata.distribution("gptme"),
-                importlib.metadata.PathDistribution,
-            )
+            is_editable = False
+            try:
+                import json as _json
+
+                dist = importlib.metadata.distribution("gptme")
+                direct_url_text = dist.read_text("direct_url.json")
+                if direct_url_text:
+                    url_data = _json.loads(direct_url_text)
+                    is_editable = url_data.get("dir_info", {}).get("editable", False)
+            except Exception:
+                pass
             if is_editable:
                 package_dir = os.path.dirname(os.path.abspath(__file__))
                 git_version = get_git_version(package_dir)

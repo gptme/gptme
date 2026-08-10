@@ -621,14 +621,13 @@ Run 'gptme-util --help' for all utility commands."""
 @click.option(
     "--version",
     is_flag=True,
-    help="Show version and configuration information",
+    help="Show version and configuration information. First line is always 'gptme v<version>'.",
 )
 @click.option(
     "--version-json",
     "version_json",
     is_flag=True,
-    hidden=True,
-    help="Show version info as JSON (for scripting)",
+    help="Show version info as JSON (machine-readable, for scripting).",
 )
 @click.option(
     "--profile",
