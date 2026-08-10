@@ -17,6 +17,7 @@ from click.testing import CliRunner
 import gptme.cli.main as cli
 import gptme.constants
 import gptme.tools.browser
+from gptme.message import Message
 from gptme.tools import ToolUse
 
 project_root = Path(__file__).parent.parent
@@ -1333,6 +1334,28 @@ def test_group_prompt_args_splits_standalone_separator() -> None:
 
 def test_group_prompt_args_preserves_lone_separator() -> None:
     assert cli._group_prompt_args(("-",)) == ["-"]
+
+
+def test_cli_preserves_lone_separator_prompt(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+    received_prompts: list[Message] = []
+
+    def fake_chat(prompt_msgs, *args, **kwargs):
+        received_prompts.extend(prompt_msgs)
+
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **kwargs: [])
+    monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", fake_chat)
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
+
+    result = runner.invoke(cli.main, ["--non-interactive", "-"])
+
+    assert result.exit_code == 0, result.output
+    assert received_prompts == [Message("user", "-")]
 
 
 def test_group_prompt_args_joins_non_separator_arguments() -> None:
