@@ -70,6 +70,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -606,6 +607,46 @@ def _verify_review_checkout(
 # ---------------------------------------------------------------------------
 
 
+def _materialize_review_tree(cwd: str) -> tempfile.TemporaryDirectory[str]:
+    """Export tracked files at HEAD into a temporary read-only review tree.
+
+    The reviewer consumes attacker-authored PR text, so its filesystem view must
+    not include untracked files (for example ``.env``) or Git metadata.  Exporting
+    HEAD also makes the bytes it reads match the commit already verified by
+    :func:`_verify_review_checkout`, regardless of local worktree changes.
+    """
+    export = tempfile.TemporaryDirectory(prefix="gptme-review-")
+    try:
+        archive = subprocess.Popen(
+            ["git", "archive", "--format=tar", "HEAD"],
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert archive.stdout is not None
+        extracted = subprocess.run(
+            ["tar", "-xf", "-", "-C", export.name],
+            stdin=archive.stdout,
+            capture_output=True,
+            check=False,
+        )
+        archive.stdout.close()
+        archive_stderr = archive.communicate()[1]
+        if archive.returncode != 0 or extracted.returncode != 0:
+            detail = (
+                (archive_stderr or extracted.stderr)
+                .decode("utf-8", errors="replace")
+                .strip()
+            )
+            raise click.ClickException(
+                f"Failed to materialize the verified review tree: {detail}"
+            )
+        return export
+    except Exception:
+        export.cleanup()
+        raise
+
+
 def _spawn_review_session(
     *,
     prompt: str,
@@ -622,12 +663,12 @@ def _spawn_review_session(
     untrusted PR content, so widening this is an explicit opt-in — see the trust
     boundary note above :data:`REVIEW_TOOL_PRESETS`.
 
-    ``cwd`` is the directory the session runs in.  ``None`` (the default)
-    inherits the caller's, unchanged from before.  When a file-reading preset is
-    used, the caller passes the directory whose HEAD it verified against the PR
-    head.  The child also receives that directory as ``GPTME_READ_ROOT``, which
-    confines relative paths, absolute paths, and resolved symlink targets to the
-    verified checkout (see :func:`_verify_review_checkout`).
+    ``cwd`` is the verified checkout. ``None`` (the default) inherits the
+    caller's, unchanged from before. For a file-reading preset, tracked files at
+    its verified HEAD are exported into a temporary tree; the child runs there
+    with that tree as ``GPTME_READ_ROOT``. This excludes untracked secrets and
+    Git metadata while ensuring reads see the verified commit rather than local
+    modifications (see :func:`_verify_review_checkout`).
 
     Returns ``("", {"exit_reason": "error", ...})`` on failure.
     """
@@ -637,12 +678,15 @@ def _spawn_review_session(
     # Prevent nested session attachment (see CLAUDE.md §8).
     for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CC_SESSION_ID", "CC_MODEL"):
         env.pop(k, None)
+    review_tree: tempfile.TemporaryDirectory[str] | None = None
     if _preset_grants_file_reads(tool_preset):
         if cwd is None:  # Runtime tripwire: every file-reading spawn is confined.
             raise click.ClickException(
                 "A file-reading reviewer requires a verified checkout directory."
             )
-        env[_READ_ROOT_ENV] = str(Path(cwd).resolve())
+        review_tree = _materialize_review_tree(cwd)
+        cwd = review_tree.name
+        env[_READ_ROOT_ENV] = cwd
 
     cmd = [
         sys.executable,
@@ -692,6 +736,9 @@ def _spawn_review_session(
         }
     except OSError as exc:
         raise click.ClickException(f"Failed to spawn review session: {exc}") from exc
+    finally:
+        if review_tree is not None:
+            review_tree.cleanup()
 
     duration_s = time.monotonic() - start
     exit_reason = "done" if completed.returncode == 0 else "error"

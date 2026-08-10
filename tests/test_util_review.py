@@ -1984,12 +1984,26 @@ class TestReviewToolPresets:
         from gptme.cli import cmd_review_pr
 
         captured: dict = {}
+        review_tree = tmp_path / "review-tree"
+        review_tree.mkdir()
+
+        class FakeTemporaryDirectory:
+            name = str(review_tree)
+
+            def cleanup(self):
+                captured["cleaned"] = True
 
         def fake_run(cmd, **kwargs):
             captured["cmd"] = cmd
             captured["env"] = kwargs["env"]
+            captured["cwd"] = kwargs["cwd"]
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
+        monkeypatch.setattr(
+            cmd_review_pr,
+            "_materialize_review_tree",
+            lambda cwd: FakeTemporaryDirectory(),
+        )
         monkeypatch.setattr(cmd_review_pr.subprocess, "run", fake_run)
         cmd_review_pr._spawn_review_session(
             prompt="review",
@@ -2000,7 +2014,9 @@ class TestReviewToolPresets:
             cwd=str(tmp_path),
         )
         assert captured["cmd"][captured["cmd"].index("--tools") + 1] == "read"
-        assert captured["env"]["GPTME_READ_ROOT"] == str(tmp_path.resolve())
+        assert captured["env"]["GPTME_READ_ROOT"] == str(review_tree)
+        assert captured["cwd"] == str(review_tree)
+        assert captured["cleaned"] is True
 
     def test_spawn_read_only_without_verified_cwd_fails_closed(self):
         import click as _click
@@ -2190,6 +2206,21 @@ def _head_sha(repo) -> str:
         text=True,
         check=True,
     ).stdout.strip()
+
+
+def test_materialize_review_tree_excludes_untracked_files_and_git_metadata(
+    review_git_repo,
+):
+    from gptme.cli.cmd_review_pr import _materialize_review_tree
+
+    (review_git_repo / ".env").write_text("SECRET=do-not-disclose\n")
+    (review_git_repo / "file.py").write_text("locally modified\n")
+
+    with _materialize_review_tree(str(review_git_repo)) as review_tree:
+        exported = Path(review_tree)
+        assert (exported / "file.py").read_text() == "def foo():\n    return 1\n"
+        assert not (exported / ".env").exists()
+        assert not (exported / ".git").exists()
 
 
 class TestReviewCheckoutProvenance:
