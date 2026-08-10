@@ -387,22 +387,7 @@ def _spawn_review_session(
 # ---------------------------------------------------------------------------
 
 _JSON_BLOCK_OPEN_RE = re.compile(r"(?im)^```json[ \t]*$")
-
-
-class _MalformedBlock:
-    """Sentinel yielded by :func:`_json_blocks` for an undecodable fence.
-
-    Distinct from "no block at all": callers must fail closed on it rather
-    than fall through to a later block (see :func:`_json_blocks`).
-    """
-
-    __slots__ = ()
-
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return "<malformed json block>"
-
-
-MALFORMED_BLOCK = _MalformedBlock()
+_JSON_BLOCK_CLOSE_RE = re.compile(r"(?m)^```[ \t]*$")
 
 
 def _json_blocks(text: str) -> Iterator[object]:
@@ -420,12 +405,11 @@ def _json_blocks(text: str) -> Iterator[object]:
     string content.  The closing fence is not required to be found: the decoder
     already knows where the value stops.
 
-    An opener that fails to decode yields :data:`MALFORMED_BLOCK` and ends the
-    scan.  Skipping it instead would be fail-open: a failed decode leaves
-    ``decoded_until`` behind, so a ```json fence *quoted inside* the broken
-    value stops being shadowed and is promoted to a top-level block.  A
-    truncated or otherwise malformed review that happens to quote
-    ``{"findings": []}`` would then parse as a clean, complete review.
+    A malformed fenced snippet is skipped as a unit, including any nested
+    openers inside it.  Skipping only its opener would be fail-open: a nested
+    ```json fence could be promoted to a top-level findings block.  Failing the
+    entire scan would instead let an unrelated malformed preamble snippet hide
+    a later valid review.
     """
     decoder = json.JSONDecoder()
     decoded_until = 0
@@ -440,8 +424,11 @@ def _json_blocks(text: str) -> Iterator[object]:
         try:
             value, decoded_until = decoder.raw_decode(text, idx)
         except ValueError:
-            yield MALFORMED_BLOCK
-            return
+            closing_fence = _JSON_BLOCK_CLOSE_RE.search(text, idx)
+            if closing_fence is None:
+                return
+            decoded_until = closing_fence.end()
+            continue
         yield value
 
 
@@ -501,12 +488,6 @@ def _extract_findings_from_output(
     # marker. Multiple blocks are ambiguous, so fail closed instead of choosing.
     parsed_blocks: list[tuple[list[ReviewFinding], int]] = []
     for data in _json_blocks(review_output):
-        if data is MALFORMED_BLOCK:
-            # A fence we could not decode means the review output is broken.
-            # Returning what we parsed so far (or falling through to a block
-            # quoted inside the broken value) would let a truncated review
-            # masquerade as a clean one.
-            return None, 0
         if not isinstance(data, dict) or "findings" not in data:
             continue
 

@@ -1132,19 +1132,21 @@ Reviewed the diff carefully.
         )
         assert validation_errors == 0
 
-    def test_extract_findings_trailing_malformed_block_fails_closed(self):
-        """A valid block followed by an undecodable fence is ambiguous."""
+    def test_extract_findings_skips_malformed_preamble_block(self):
+        """An unrelated malformed fenced snippet must not hide the review."""
         from gptme.cli.cmd_review_pr import _extract_findings_from_output
 
         review = (
+            "The reviewer output included this broken example:\n"
+            "```json\nnot json at all\n```\n\n"
             f"```json\n{json.dumps({'findings': [{'body': 'a real finding'}]})}\n```\n"
-            "\n```json\nnot json at all\n```\n"
         )
         findings, validation_errors = _extract_findings_from_output(
             self._review_jsonl(review)
         )
 
-        assert findings is None
+        assert findings is not None
+        assert [finding.body for finding in findings] == ["a real finding"]
         assert validation_errors == 0
 
     def test_extract_findings_empty_array(self):
