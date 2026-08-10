@@ -1105,6 +1105,19 @@ Reviewed the diff carefully.
         assert [finding.body for finding in findings] == [body]
         assert validation_errors == 0
 
+    def test_extract_findings_accepts_json_on_opener_line(self):
+        """Compact fenced JSON accepted by the old extractor stays valid."""
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        review = f"```json {json.dumps({'findings': [{'body': 'compact'}]})}```"
+        findings, validation_errors = _extract_findings_from_output(
+            self._review_jsonl(review)
+        )
+
+        assert findings is not None
+        assert [finding.body for finding in findings] == ["compact"]
+        assert validation_errors == 0
+
     def test_extract_findings_malformed_outer_block_fails_closed(self):
         """A quoted findings fence must not rescue a malformed outer block.
 

@@ -386,7 +386,7 @@ def _spawn_review_session(
 # Finding extraction
 # ---------------------------------------------------------------------------
 
-_JSON_BLOCK_OPEN_RE = re.compile(r"(?im)^```json[ \t]*$")
+_JSON_BLOCK_OPEN_RE = re.compile(r"(?im)^```json(?:[ \t]*$|(?=[ \t]))")
 _JSON_BLOCK_CLOSE_RE = re.compile(r"(?m)^```[ \t]*$")
 
 
