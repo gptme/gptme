@@ -2228,6 +2228,28 @@ def test_materialize_review_tree_excludes_untracked_files_and_git_metadata(
         assert not (exported / ".git").exists()
 
 
+def test_materialize_review_tree_captures_archive_before_extracting(monkeypatch):
+    from gptme.cli import cmd_review_pr
+
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        if args[:2] == ["git", "archive"]:
+            assert kwargs["capture_output"] is True
+            return subprocess.CompletedProcess(args, 0, stdout=b"archive", stderr=b"")
+        assert args[:2] == ["tar", "-xf"]
+        assert kwargs["input"] == b"archive"
+        return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(cmd_review_pr.subprocess, "run", fake_run)
+
+    with cmd_review_pr._materialize_review_tree("/checkout"):
+        pass
+
+    assert len(calls) == 2
+
+
 class TestReviewCheckoutProvenance:
     """A file-reading reviewer must run against the PR head, and it is checked.
 

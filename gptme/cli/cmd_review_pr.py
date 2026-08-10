@@ -617,28 +617,25 @@ def _materialize_review_tree(cwd: str) -> tempfile.TemporaryDirectory[str]:
     """
     export = tempfile.TemporaryDirectory(prefix="gptme-review-")
     try:
-        archive = subprocess.Popen(
+        archive = subprocess.run(
             ["git", "archive", "--format=tar", "HEAD"],
             cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        assert archive.stdout is not None
-        extracted = subprocess.run(
-            ["tar", "-xf", "-", "-C", export.name],
-            stdin=archive.stdout,
             capture_output=True,
             check=False,
         )
-        assert archive.stderr is not None
-        archive_stderr = archive.stderr.read()
-        archive_returncode = archive.wait()
-        if archive_returncode != 0 or extracted.returncode != 0:
-            detail = (
-                (archive_stderr or extracted.stderr)
-                .decode("utf-8", errors="replace")
-                .strip()
+        if archive.returncode != 0:
+            detail = archive.stderr.decode("utf-8", errors="replace").strip()
+            raise click.ClickException(
+                f"Failed to materialize the verified review tree: {detail}"
             )
+        extracted = subprocess.run(
+            ["tar", "-xf", "-", "-C", export.name],
+            input=archive.stdout,
+            capture_output=True,
+            check=False,
+        )
+        if extracted.returncode != 0:
+            detail = extracted.stderr.decode("utf-8", errors="replace").strip()
             raise click.ClickException(
                 f"Failed to materialize the verified review tree: {detail}"
             )
