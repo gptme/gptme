@@ -26,6 +26,7 @@ describe('useConversation', () => {
   const subscribeToEvents = jest.fn().mockResolvedValue(undefined);
   const step = jest.fn().mockResolvedValue(undefined);
   const closeEventStream = jest.fn();
+  const getChatConfig = jest.fn().mockResolvedValue(null);
   let eventHandlers:
     | {
         onConnected?: () => void;
@@ -40,6 +41,7 @@ describe('useConversation', () => {
     });
     step.mockClear();
     closeEventStream.mockClear();
+    getChatConfig.mockReset().mockResolvedValue(null);
 
     initConversation(
       'chat-placeholder',
@@ -67,7 +69,7 @@ describe('useConversation', () => {
           step,
           closeEventStream,
           getConversation: jest.fn(),
-          getChatConfig: jest.fn().mockResolvedValue(null),
+          getChatConfig,
         }) as any,
       isConnected$: observable(true),
     } as any);
@@ -76,6 +78,44 @@ describe('useConversation', () => {
   afterEach(() => {
     eventHandlers = undefined;
     jest.clearAllMocks();
+  });
+
+  it('does not apply chat config after switching conversations', async () => {
+    let resolveChatConfig: (value: null) => void = () => {};
+    getChatConfig.mockReturnValueOnce(
+      new Promise<null>((resolve) => {
+        resolveChatConfig = resolve;
+      })
+    );
+
+    const { rerender } = renderHook(({ conversationId }) => useConversation(conversationId), {
+      initialProps: { conversationId: 'chat-placeholder' },
+    });
+
+    await waitFor(() => {
+      expect(getChatConfig).toHaveBeenCalledWith('chat-placeholder');
+    });
+
+    initConversation(
+      'chat-other',
+      {
+        id: 'chat-other',
+        name: 'Other conversation',
+        log: [],
+        logfile: 'chat-other',
+        branches: {},
+        workspace: '.',
+      },
+      {}
+    );
+    rerender({ conversationId: 'chat-other' });
+
+    await act(async () => {
+      resolveChatConfig(null);
+      await Promise.resolve();
+    });
+
+    expect(conversations$.get('chat-placeholder')?.chatConfig.peek()).toBeUndefined();
   });
 
   it('clears placeholder initial-step state after subscription connects', async () => {

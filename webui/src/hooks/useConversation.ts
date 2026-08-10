@@ -105,6 +105,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       return;
     }
 
+    let cancelled = false;
     const loadAndConnect = async () => {
       try {
         // Check if this is a demo conversation
@@ -182,7 +183,7 @@ export function useConversation(conversationId: string, serverId?: string) {
           // whole life of every newly created conversation.
           try {
             const chatConfig = await api.getChatConfig(conversationId);
-            updateConversation(conversationId, { chatConfig });
+            if (!cancelled) updateConversation(conversationId, { chatConfig });
           } catch (error) {
             console.warn(
               `[useConversation] Failed to load chat config for ${conversationId}:`,
@@ -190,7 +191,7 @@ export function useConversation(conversationId: string, serverId?: string) {
             );
             // null (not undefined) = "fetch attempted, no config", which clears
             // the skeleton and falls back to the default model.
-            updateConversation(conversationId, { chatConfig: null });
+            if (!cancelled) updateConversation(conversationId, { chatConfig: null });
           }
         }
 
@@ -507,6 +508,7 @@ export function useConversation(conversationId: string, serverId?: string) {
 
     // Cleanup function - only disconnect if page is being unloaded
     return () => {
+      cancelled = true;
       if (document.hidden) {
         api.closeEventStream(conversationId);
         setConnected(conversationId, false);

@@ -638,11 +638,9 @@ export const ChatInput: FC<Props> = ({
   //       ('anthropic/claude-sonnet-4-6') on every fresh ChatInput mount while the
   //       models endpoint responds.  Once isModelsLoading clears (success or failure),
   //       we show whatever model resolved (real or fallback).
-  //       Note: !conversationModel and !defaultModel are sufficient guards here;
-  //       hasExplicitModelSelection is declared later and cannot be referenced yet.
   const isChatConfigLoading =
     (!!conversationId && !isReadOnly && chatConfig === undefined) ||
-    (isModelsLoading && !conversationModel && !defaultModel);
+    (isModelsLoading && !conversationModel && !defaultModel && !apiDefaultModel);
 
   // Initialize message from localStorage for persistence across page reloads
   // Skip localStorage in edit mode — content comes from the message being edited

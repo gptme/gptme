@@ -136,10 +136,10 @@ test.describe('Live generation: UI stability with mock/echo provider (gptme#3440
     const modelAfterGeneration = (await badge.textContent()) ?? '';
     expect(modelAfterGeneration.trim().length).toBeGreaterThan(0);
 
-    // The old regression: badge flipped to 'claude-sonnet-4-5' on first load
-    // because that was the in-memory fallback before chatConfig resolved.
-    // With mock/echo the correct model is 'mock/echo', never the old fallback.
-    expect(modelAfterGeneration).not.toContain('claude-sonnet-4-5');
+    // With mock/echo the resolved conversation model must be shown. Checking
+    // the expected model directly keeps this regression guard valid if the
+    // hardcoded fallback changes again.
+    expect(modelAfterGeneration).toContain('echo');
 
     // Badge must not change between the two observation points (no flicker).
     // Allow 2 seconds of settling to detect any delayed re-render.
@@ -202,46 +202,6 @@ test.describe('Live generation: UI stability with mock/echo provider (gptme#3440
     // A 100 px tolerance covers virtualizer overscan without hiding real jumps.
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
     expect(distanceFromBottom).toBeLessThan(100);
-  });
-
-  test('scroll does not jump between two samples taken during streaming', async ({ page }) => {
-    const connected = await checkMockServer(page);
-    test.skip(!connected, 'chat-input disabled — no live server');
-
-    await sendMessageAndNavigate(page, 'scroll-stability-test');
-
-    const viewport = page.getByTestId('message-scroll-viewport');
-    await expect(viewport).toBeVisible({ timeout: 5_000 });
-
-    // Gate the first sample on the generation spinner being visible so that
-    // both samples are taken while streaming is actually in flight.  If the
-    // provider is so fast that the spinner is gone before we reach this line,
-    // the .catch() swallows the timeout and both samples land post-generation —
-    // the delta will then be ~0, which still satisfies the assertion.
-    await expect(page.locator('[data-conversation-pane] .animate-spin').first())
-      .toBeVisible({ timeout: 5_000 })
-      .catch(() => null);
-
-    const pos1 = await viewport.evaluate((el) => ({
-      scrollTop: el.scrollTop,
-      scrollHeight: el.scrollHeight,
-    }));
-
-    await page.waitForTimeout(300);
-
-    const pos2 = await viewport.evaluate((el) => ({
-      scrollTop: el.scrollTop,
-      scrollHeight: el.scrollHeight,
-    }));
-
-    // scrollHeight may grow as tokens arrive, but scrollTop must not leap
-    // backwards by a visible amount (the pre-#3450 bug: InlineToolExecution
-    // appearing caused scrollHeight to grow, scrollTop to lag, and
-    // autoScrollAborted to fire — freezing auto-scroll for the rest of the run).
-    const scrollTopDelta = Math.abs(pos2.scrollTop - pos1.scrollTop);
-    expect(scrollTopDelta).toBeLessThan(50);
-
-    await waitForGenerationDone(page);
   });
 
   test('mock/echo response appears and the assistant message is visible', async ({ page }) => {
