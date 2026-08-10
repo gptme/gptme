@@ -62,7 +62,9 @@ export const taskApi = {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || `Failed to create task: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Failed to create task: ${response.status} ${error.error || response.statusText}`
+      );
     }
 
     return response.json();
@@ -75,7 +77,7 @@ export const taskApi = {
     const response = await fetch(`${getApiBaseUrl()}/api/v2/tasks/${taskId}`, getFetchOptions());
     if (!response.ok) {
       if (response.status === 404) {
-        throw new Error(`Task not found: ${taskId}`);
+        throw new Error(`Task not found: ${taskId} (${response.status} ${response.statusText})`);
       }
       throw new Error(`Failed to get task: ${response.status} ${response.statusText}`);
     }
@@ -99,7 +101,9 @@ export const taskApi = {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || `Failed to update task: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Failed to update task: ${response.status} ${error.error || response.statusText}`
+      );
     }
 
     return response.json();
@@ -118,7 +122,9 @@ export const taskApi = {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || `Failed to archive task: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Failed to archive task: ${response.status} ${error.error || response.statusText}`
+      );
     }
   },
 
@@ -135,7 +141,9 @@ export const taskApi = {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || `Failed to unarchive task: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Failed to unarchive task: ${response.status} ${error.error || response.statusText}`
+      );
     }
   },
 
@@ -152,7 +160,9 @@ export const taskApi = {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || `Failed to continue task: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Failed to continue task: ${response.status} ${error.error || response.statusText}`
+      );
     }
 
     return response.json();
