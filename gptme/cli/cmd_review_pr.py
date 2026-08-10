@@ -42,6 +42,23 @@ presets (:data:`REVIEW_TOOL_PRESETS`), never from a free-form tool list:
 Execution — running the PR's code, even sandboxed — is deliberately NOT
 offered here and must not become reachable by adding a preset without a
 separate security review.
+
+Checkout provenance
+-------------------
+A file-reading preset is only sound if the working directory is a checkout of
+the PR head.  Reading real file contents *from the wrong revision* is worse
+than the misquoting the ``read`` tool exists to prevent: a misquote can be
+caught downstream (the quoted text is absent from the file at the review SHA),
+whereas a wrong-revision read produces a quote that genuinely matches the file
+it came from and passes every such check.  Reviewing PR head ``abc123`` from a
+checkout sitting on ``master`` yields findings about ``master``, attributed to
+the PR.
+
+So the precondition is checked, not merely documented: when the preset grants
+file reads, ``git rev-parse HEAD`` in the working directory must equal the PR
+head commit or the command refuses (see :func:`_verify_review_checkout`).
+``--allow-checkout-mismatch`` overrides, downgrading the refusal to a loud
+warning.  The default preset (``none``) never touches git.
 """
 
 from __future__ import annotations
@@ -91,7 +108,9 @@ def _get_pr_metadata(owner: str, repo: str, pr_number: int) -> dict | None:
             "--repo",
             f"{owner}/{repo}",
             "--json",
-            "title,body,headRefName,baseRefName,additions,deletions,changedFiles",
+            # headRefOid: the PR head commit, used to verify that a
+            # file-reading reviewer is running against the right revision.
+            "title,body,headRefName,headRefOid,baseRefName,additions,deletions,changedFiles",
         ]
     )
     if not isinstance(data, dict):
@@ -359,6 +378,14 @@ def _build_review_prompt(
 # party widen the reviewer's authority.  The names below are static.
 #
 # ``none`` is the default and reproduces the historical behaviour exactly.
+
+#: Name of the core tool that lets the reviewer open files.  Single source of
+#: truth: the presets below grant it, and :func:`_preset_grants_file_reads`
+#: detects it.  Renaming the tool moves the grant and everything conditioned on
+#: the grant (prompt section, checkout verification) together, instead of
+#: silently keeping the grant while dropping the guards.
+_READ_TOOL = "read"
+
 REVIEW_TOOL_PRESETS: dict[str, tuple[str, ...]] = {
     # No tools at all: the model sees only the diff. Pure static review — this
     # is what every existing caller gets and what the default must stay.
@@ -370,7 +397,7 @@ REVIEW_TOOL_PRESETS: dict[str, tuple[str, ...]] = {
     # shell, or make network requests. There is no ``grep``/``glob`` tool in
     # core — searching would require ``shell``, which is code-exec and is
     # excluded on purpose.
-    "read-only": ("read",),
+    "read-only": (_READ_TOOL,),
 }
 
 DEFAULT_REVIEW_TOOL_PRESET = "none"
@@ -424,6 +451,155 @@ def _resolve_review_tools(tool_preset: str) -> str:
     return ",".join(tools) if tools else "none"
 
 
+def _preset_grants_file_reads(tool_preset: str) -> bool:
+    """Whether ``tool_preset`` actually grants a tool that can read files.
+
+    Asks the resolver rather than indexing :data:`REVIEW_TOOL_PRESETS` at the
+    call site, so the answer is derived from the same value that is handed to
+    ``--tools``.  Everything conditioned on the grant — the "File access"
+    prompt section, the checkout verification — goes through here, so a grant
+    can never drift apart from the guards that are supposed to accompany it.
+
+    Raises :class:`click.UsageError` for an unknown preset (fails closed).
+    """
+    return _READ_TOOL in _resolve_review_tools(tool_preset).split(",")
+
+
+# ---------------------------------------------------------------------------
+# Checkout provenance
+# ---------------------------------------------------------------------------
+
+
+def _git_output(args: list[str]) -> str | None:
+    """Run a read-only git command in the working directory; None on failure."""
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.debug("git %s failed: %s", " ".join(args), exc)
+        return None
+    if result.returncode != 0:
+        logger.debug(
+            "git %s exited %d: %s",
+            " ".join(args),
+            result.returncode,
+            result.stderr.strip(),
+        )
+        return None
+    return result.stdout.strip()
+
+
+def _checkout_head_sha() -> str | None:
+    """Resolved HEAD commit of the checkout in the working directory, or None.
+
+    None means "not usable as a checkout": not a git repository, no commits
+    yet, or no ``git`` binary.  All of those are equally disqualifying for a
+    file-reading review, so they collapse to one answer.
+    """
+    return _git_output(["rev-parse", "HEAD"]) or None
+
+
+def _worktree_is_dirty() -> bool:
+    """Whether tracked files in the working directory have local modifications."""
+    status = _git_output(["status", "--porcelain", "--untracked-files=no"])
+    return bool(status)
+
+
+def _sha_matches(actual: str, expected: str) -> bool:
+    """Compare two commit ids, tolerating abbreviation on either side."""
+    a, b = actual.strip().lower(), expected.strip().lower()
+    if len(a) < 7 or len(b) < 7:
+        return False
+    return a.startswith(b) or b.startswith(a)
+
+
+def _verify_review_checkout(
+    *,
+    tool_preset: str,
+    expected_head_sha: str | None,
+    allow_mismatch: bool,
+) -> str | None:
+    """Refuse a file-reading review unless the checkout is at the PR head.
+
+    Returns the verified working directory (to run the reviewer session in), or
+    ``None`` when the preset grants no file reads — in which case this is a
+    no-op that never shells out to git.  The default path is untouched.
+
+    Refusal, not a warning, is the default for every case where the working
+    directory cannot be *positively confirmed* to sit on the PR head commit —
+    wrong commit, not a git checkout, or an unknown PR head (``--diff`` local
+    mode, where there is no PR metadata to compare against).  A warning on
+    stderr is the wrong control here: this command is built to run unattended
+    and pipe its artifact into ``review watch``, so a warning is read by nobody
+    while the artifact it accompanies looks exactly like a good review.  The
+    resulting findings are confidently wrong *and* undetectable downstream,
+    because their quotes really do match the file they were read from.
+    ``--allow-checkout-mismatch`` is the escape hatch, and it is loud.
+    """
+    if not _preset_grants_file_reads(tool_preset):
+        return None
+
+    cwd = os.getcwd()
+    actual = _checkout_head_sha()
+
+    problem: str
+    if actual is None:
+        problem = (
+            f"the working directory is not a usable git checkout ({cwd}) — "
+            "`git rev-parse HEAD` failed"
+        )
+    elif not expected_head_sha:
+        problem = (
+            f"the PR head commit is unknown, so the checkout at {actual[:12]} "
+            "cannot be verified (local --diff mode does not fetch PR metadata)"
+        )
+    elif not _sha_matches(actual, expected_head_sha):
+        problem = (
+            f"the working directory is at {actual[:12]}, "
+            f"but the PR head is {expected_head_sha[:12]}"
+        )
+    else:
+        # Verified: HEAD is the PR head commit.
+        click.echo(f"  ✅  Checkout verified at PR head {actual[:12]}", err=True)
+        if _worktree_is_dirty():
+            click.echo(
+                "  ⚠️  Working tree has uncommitted changes to tracked files — "
+                "files the reviewer reads may differ from the PR head.",
+                err=True,
+            )
+        return cwd
+
+    if allow_mismatch:
+        click.echo(
+            f"  🚨  UNVERIFIED CHECKOUT (--allow-checkout-mismatch): {problem}.\n"
+            f"      The reviewer holds the {_READ_TOOL!r} tool and will read files "
+            "from this directory.\n"
+            "      Findings may quote code that is not in the PR — a wrong-revision "
+            "quote matches\n"
+            "      the file it was read from, so nothing downstream will catch it.",
+            err=True,
+        )
+        return cwd
+
+    raise click.ClickException(
+        f"Refusing to run a file-reading review: {problem}.\n"
+        f"  --tool-preset {tool_preset} lets the reviewer open files in the working "
+        "directory, so\n"
+        "  findings would describe whatever revision happens to be checked out here, "
+        "attributed\n"
+        "  to the PR.  Run from a checkout of the PR head:\n"
+        "      gh pr checkout <PR>   # or: git fetch origin refs/pull/<PR>/head "
+        "&& git checkout FETCH_HEAD\n"
+        "  Or pass --allow-checkout-mismatch to proceed anyway, "
+        "or --tool-preset none to review the diff alone."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Session helpers
 # ---------------------------------------------------------------------------
@@ -436,6 +612,7 @@ def _spawn_review_session(
     max_turns: int,
     timeout: float,
     tool_preset: str = DEFAULT_REVIEW_TOOL_PRESET,
+    cwd: str | None = None,
 ) -> tuple[str, dict]:
     """Spawn a non-interactive gptme session and return (stdout, summary).
 
@@ -443,6 +620,12 @@ def _spawn_review_session(
     ``"none"`` (no tools), which is the historical behaviour. The reviewer reads
     untrusted PR content, so widening this is an explicit opt-in — see the trust
     boundary note above :data:`REVIEW_TOOL_PRESETS`.
+
+    ``cwd`` is the directory the session runs in.  ``None`` (the default)
+    inherits the caller's, unchanged from before.  When a file-reading preset is
+    used, the caller passes the directory whose HEAD it verified against the PR
+    head, so the session reads files from the directory that was actually
+    checked (see :func:`_verify_review_checkout`).
 
     Returns ``("", {"exit_reason": "error", ...})`` on failure.
     """
@@ -479,6 +662,7 @@ def _spawn_review_session(
             text=True,
             timeout=timeout,
             env=env,
+            cwd=cwd,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -710,11 +894,25 @@ def _extract_findings_from_output(
         "Tools granted to the reviewer session. 'none' (default) reviews the "
         "diff only. 'read-only' additionally grants the 'read' tool so the "
         "reviewer can open files in the current checkout to verify quotes and "
-        "follow callers — it must be run from a checkout of the PR head. "
+        "follow callers — this REQUIRES running from a checkout of the PR head, "
+        "which is checked (HEAD must equal the PR head commit) and refused when "
+        "it does not hold. "
         "The reviewer consumes untrusted PR content: read-only is the widest "
         "authority offered, and no preset can execute code or write files. "
         "Note that a reviewer which explores files spends turns doing so — "
         "raise --max-turns alongside this flag."
+    ),
+)
+@click.option(
+    "--allow-checkout-mismatch",
+    is_flag=True,
+    default=False,
+    help=(
+        "Run a file-reading preset even when the working directory cannot be "
+        "confirmed to sit on the PR head commit. The refusal becomes a loud "
+        "warning. Findings may then describe a different revision than the PR "
+        "— and will quote it accurately, so nothing downstream can tell. "
+        "No effect with --tool-preset none."
     ),
 )
 @click.pass_context
@@ -729,6 +927,7 @@ def review_pr(
     timeout: float,
     instructions: str | None,
     tool_preset: str,
+    allow_checkout_mismatch: bool,
 ) -> None:
     """Run an AI review pass on a pull request.
 
@@ -785,6 +984,14 @@ def review_pr(
             raise click.UsageError(
                 "PR number is required when --diff is used (for artifact metadata)."
             )
+        # No PR metadata is fetched in this mode, so there is no head commit to
+        # check the working directory against — unverifiable, hence refused for
+        # a file-reading preset unless explicitly overridden.
+        review_cwd = _verify_review_checkout(
+            tool_preset=tool_preset,
+            expected_head_sha=None,
+            allow_mismatch=allow_checkout_mismatch,
+        )
         if diff_path == "-":
             diff = sys.stdin.read()
         else:
@@ -810,6 +1017,15 @@ def review_pr(
                 f"Could not fetch PR metadata for {owner}/{repo_name}#{pr_number}. "
                 "Check that the PR exists and you have access."
             )
+
+        # Verify checkout provenance before fetching the diff — a file-reading
+        # review from the wrong revision should fail fast, not after a fetch.
+        head_sha = meta.get("headRefOid")
+        review_cwd = _verify_review_checkout(
+            tool_preset=tool_preset,
+            expected_head_sha=head_sha if isinstance(head_sha, str) else None,
+            allow_mismatch=allow_checkout_mismatch,
+        )
 
         pr_title = meta.get("title", f"PR #{pr_number}")
         pr_body = meta.get("body", "") or ""
@@ -852,7 +1068,7 @@ def review_pr(
         pr_body=pr_body,
         diff=diff,
         extra_instructions=instructions,
-        can_read_files="read" in REVIEW_TOOL_PRESETS[tool_preset],
+        can_read_files=_preset_grants_file_reads(tool_preset),
     )
 
     click.echo(
@@ -865,6 +1081,7 @@ def review_pr(
         max_turns=max_turns,
         timeout=timeout,
         tool_preset=tool_preset,
+        cwd=review_cwd,
     )
 
     exit_reason = summary.get("exit_reason", "?")
