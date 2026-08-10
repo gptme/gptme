@@ -725,7 +725,8 @@ def _try_3way_merge(
         theirs_path = f_theirs.name
 
     try:
-        # -p sends output to stdout; return code 0 = no conflicts, >0 = conflicts.
+        # -p sends output to stdout; return code 0 = no conflicts, >0 = conflict count.
+        # Negative or unusually large return codes (e.g. 128) indicate git errors.
         result = subprocess.run(
             ["git", "merge-file", "-p", ours_path, base_path, theirs_path],
             capture_output=True,
@@ -733,7 +734,13 @@ def _try_3way_merge(
             encoding="utf-8",
             check=False,
         )
-        had_conflicts = result.returncode != 0
+        had_conflicts = result.returncode > 0
+        if result.returncode != 0 and not result.stdout.strip():
+            # Empty stdout with non-zero exit = git operational error, not a conflict.
+            raise ValueError(
+                f"git merge-file failed (exit {result.returncode}): "
+                + (result.stderr.strip() or "no diagnostic available")
+            )
         return result.stdout, had_conflicts
     except FileNotFoundError as e:
         raise ValueError(
@@ -861,6 +868,24 @@ def execute_hashline_edit(
         and confirm_result.edited_content is not None
     ):
         updated = confirm_result.edited_content
+
+    # For merge-recovered edits, re-read the file right before writing to guard
+    # against concurrent changes that arrived during the confirmation dialog.
+    if merge_recovered and confirm_result.action != ConfirmAction.EDIT:
+        try:
+            post_confirm_content = resolved.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, PermissionError, OSError) as e:
+            yield Message(
+                "system", f"hashline_edit: cannot re-read file before write: {e}"
+            )
+            return
+        if post_confirm_content != live_content:
+            yield Message(
+                "system",
+                f"hashline_edit: file changed again during confirmation for {resolved}. "
+                "Call `read` to get a fresh snapshot and retry.",
+            )
+            return
 
     # Write result
     try:
