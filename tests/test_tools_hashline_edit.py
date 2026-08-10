@@ -688,27 +688,29 @@ class TestExecuteHashlineEdit:
         assert f.read_text() == edited
 
     def test_live_file_changed_after_snapshot(self, tmp_path: Path):
-        """Edit must be rejected when the live file has changed since read (P1 fix)."""
+        """Phase 2: clean 3-way merge when file changed externally since read."""
         f = tmp_path / "f.txt"
         original = "alpha\nbeta\n"
         f.write_text(original)
         tag = store_snapshot(str(f.resolve()), original)
-        # Externally mutate the file after the snapshot was captured
+        # Externally mutate the file (add a new line that doesn't conflict with the edit)
         f.write_text("alpha\nbeta\nextra-line\n")
-        # The stored tag still matches the provided tag — but the live file differs
+        # Edit targets a different line — merge should be clean
         block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
         msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
-        assert "changed since snapshot" in msgs[0].lower(), msgs
-        # File must be untouched
-        assert f.read_text() == "alpha\nbeta\nextra-line\n"
+        # Phase 2: clean merge succeeds and notes the recovery
+        assert "applied" in msgs[0].lower(), msgs
+        assert "3-way merge" in msgs[0].lower(), msgs
+        # Merged result preserves both the edit and the external change
+        assert f.read_text() == "ALPHA\nbeta\nextra-line\n"
 
-    def test_content_mismatch_rejected_even_with_matching_tag(self, tmp_path: Path):
-        """Full content comparison catches stale content even when truncated tags match.
+    def test_content_mismatch_via_merge_recovery(self, tmp_path: Path):
+        """Phase 2: content mismatch triggers merge; non-conflicting result is written.
 
         Injects the snapshot store directly to simulate a 4-byte SHA-256 prefix
-        collision: the stored tag matches the edit-block tag, but the live file
-        content differs from the captured snapshot content. The old tag-only check
-        would silently accept this; the content comparison correctly rejects it.
+        collision scenario: the stored tag matches the edit-block tag, but the
+        live file content differs from the captured snapshot. Phase 2 attempts a
+        3-way merge rather than rejecting unconditionally.
         """
         from gptme.tools._hashline_snapshot import _store, compute_tag
 
@@ -717,15 +719,15 @@ class TestExecuteHashlineEdit:
         tag = compute_tag(original)
         # Inject the store so tag maps to original content
         _store[str(f.resolve())] = (tag, original)
-        # Write DIFFERENT content to disk (simulates the file changing after read,
-        # or — in the collision scenario — different content sharing the same tag prefix)
+        # Live file has a non-conflicting extra line (different from the edited line)
         changed = "alpha\nbeta\ngamma\n"
         f.write_text(changed)
         block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
         msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
-        # Content comparison catches this; tag-only comparison could miss a collision
-        assert "changed since snapshot" in msgs[0].lower(), msgs
-        assert f.read_text() == changed  # file must be untouched
+        # Phase 2 succeeds via merge (edit targets line 1; external change added line 3)
+        assert "applied" in msgs[0].lower(), msgs
+        assert "3-way merge" in msgs[0].lower(), msgs
+        assert f.read_text() == "ALPHA\nbeta\ngamma\n"
 
 
 # ---------------------------------------------------------------------------
@@ -1055,6 +1057,77 @@ class TestBlockReplace:
         assert result == "if z:\n    do_z()\ndo_c()\n"
         assert "# comment" not in result
         assert "else" not in result
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — 3-way merge recovery
+# ---------------------------------------------------------------------------
+
+
+class TestMergeRecovery:
+    """Phase 2: 3-way merge when the live file changed since the snapshot."""
+
+    def test_clean_merge_preserves_concurrent_change(self, tmp_path: Path):
+        """Non-conflicting external change is preserved alongside the model's edit."""
+        f = tmp_path / "code.py"
+        original = "def foo():\n    pass\n\ndef bar():\n    pass\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        # External change: add a line to bar() — doesn't conflict with our edit
+        f.write_text("def foo():\n    pass\n\ndef bar():\n    return 1\n")
+        # Model edit: replace foo body
+        block = f"[{f.resolve()}#{tag}]\nPUT 2.=2:\n+    return 'foo'\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower(), msgs
+        assert "3-way merge" in msgs[0].lower(), msgs
+        result = f.read_text()
+        assert "return 'foo'" in result  # our edit applied
+        assert "return 1" in result  # external change preserved
+
+    def test_conflicting_merge_reports_markers(self, tmp_path: Path):
+        """When both sides edit the same lines, conflict markers are reported."""
+        f = tmp_path / "conflict.txt"
+        original = "line1\nline2\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        # External change: also modifies line 1
+        f.write_text("EXTERNAL_CHANGE\nline2\n")
+        # Model edit: replace line 1 with something different
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+MODEL_CHANGE\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        # Conflict is reported
+        assert "conflict" in msgs[0].lower(), msgs
+        # File is left unchanged so the user can resolve manually
+        assert f.read_text() == "EXTERNAL_CHANGE\nline2\n"
+
+    def test_merge_recovery_note_absent_on_clean_apply(self, tmp_path: Path):
+        """When file is unchanged, success message has no merge-recovery note."""
+        f = tmp_path / "f.txt"
+        f.write_text("a\nb\n")
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+A\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower(), msgs
+        assert "3-way merge" not in msgs[0].lower()
+
+    def test_merge_snapshot_updated_after_recovery(self, tmp_path: Path):
+        """After a successful merge recovery, the snapshot reflects the new content."""
+        f = tmp_path / "f.txt"
+        original = "a\nb\nc\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        # External change at end — non-conflicting
+        f.write_text("a\nb\nc\nextra\n")
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+A\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower(), msgs
+        new_content = f.read_text()
+        assert new_content == "A\nb\nc\nextra\n"
+        # Snapshot should reflect the merged content
+        new_tag = get_stored_tag(str(f.resolve()))
+        from gptme.tools._hashline_snapshot import compute_tag
+
+        assert new_tag == compute_tag(new_content)
 
 
 # ---------------------------------------------------------------------------

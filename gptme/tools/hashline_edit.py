@@ -43,6 +43,8 @@ edit is rejected with a clear error — no silent corruption.
 from __future__ import annotations
 
 import re
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -680,6 +682,69 @@ def _path_from_args(
     return None
 
 
+def _try_3way_merge(
+    snapshot_content: str,
+    ops: list[HashlineOp],
+    live_content: str,
+) -> tuple[str, bool]:
+    """3-way merge recovery when the live file changed since the snapshot.
+
+    Applies *ops* to *snapshot_content* (our side), then merges the result with
+    *live_content* using *snapshot_content* as the common ancestor (base).  This
+    preserves both the model's intended edits and any concurrent external changes
+    to the file.
+
+    Returns ``(merged_text, had_conflicts)``.  On a clean merge
+    ``had_conflicts`` is False and ``merged_text`` is ready to write.  When
+    conflicts remain the text contains standard conflict markers and
+    ``had_conflicts`` is True.
+
+    Raises :class:`ValueError` if the edit cannot be applied to the snapshot
+    (forwarded from :func:`_apply_operations`) or if ``git`` is unavailable.
+    """
+    # Apply the edit to the snapshot — this is "our" side of the merge.
+    ours = _apply_operations(snapshot_content, ops)
+
+    # Write three temp files expected by git merge-file.
+    with (
+        tempfile.NamedTemporaryFile(
+            mode="w", suffix=".ours", delete=False, encoding="utf-8"
+        ) as f_ours,
+        tempfile.NamedTemporaryFile(
+            mode="w", suffix=".base", delete=False, encoding="utf-8"
+        ) as f_base,
+        tempfile.NamedTemporaryFile(
+            mode="w", suffix=".theirs", delete=False, encoding="utf-8"
+        ) as f_theirs,
+    ):
+        f_ours.write(ours)
+        f_base.write(snapshot_content)
+        f_theirs.write(live_content)
+        ours_path = f_ours.name
+        base_path = f_base.name
+        theirs_path = f_theirs.name
+
+    try:
+        # -p sends output to stdout; return code 0 = no conflicts, >0 = conflicts.
+        result = subprocess.run(
+            ["git", "merge-file", "-p", ours_path, base_path, theirs_path],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        had_conflicts = result.returncode != 0
+        return result.stdout, had_conflicts
+    except FileNotFoundError as e:
+        raise ValueError(
+            "git not found — cannot attempt 3-way merge recovery; "
+            "call `read` again to get a fresh snapshot"
+        ) from e
+    finally:
+        for p in [ours_path, base_path, theirs_path]:
+            Path(p).unlink(missing_ok=True)
+
+
 def execute_hashline_edit(
     code: str | None,
     args: list[str] | None,
@@ -747,20 +812,34 @@ def execute_hashline_edit(
     # 4-byte SHA-256 prefix could collide on different content, letting a stale
     # edit silently overwrite the wrong lines.
     assert snapshot_content is not None
+    merge_recovered = False
     if live_content != snapshot_content:
-        yield Message(
-            "system",
-            f"hashline_edit: file has changed since snapshot was captured for {resolved}. "
-            "Call `read` again to get a fresh snapshot.",
-        )
-        return
-
-    # Apply operations
-    try:
-        updated = _apply_operations(live_content, ops)
-    except ValueError as e:
-        yield Message("system", f"hashline_edit: {e}")
-        return
+        # Phase 2: attempt 3-way merge recovery so concurrent external changes
+        # are preserved rather than forcing an unconditional re-read.
+        try:
+            updated, had_conflicts = _try_3way_merge(
+                snapshot_content, ops, live_content
+            )
+        except ValueError as e:
+            yield Message("system", f"hashline_edit: {e}")
+            return
+        if had_conflicts:
+            yield Message(
+                "system",
+                f"hashline_edit: file has changed since snapshot was captured for {resolved}. "
+                "Automatic 3-way merge produced conflicts:\n\n"
+                f"```\n{updated}\n```\n\n"
+                "Resolve the conflicts manually, then call `read` to capture a fresh snapshot.",
+            )
+            return
+        merge_recovered = True
+    else:
+        # Apply operations normally — file is unchanged since snapshot.
+        try:
+            updated = _apply_operations(live_content, ops)
+        except ValueError as e:
+            yield Message("system", f"hashline_edit: {e}")
+            return
 
     # Ask for confirmation before writing (matches sibling tools' safety model)
     from ..hooks import ConfirmAction, get_confirmation
@@ -794,9 +873,10 @@ def execute_hashline_edit(
     store_snapshot(str(resolved), updated)
 
     n = len(ops)
+    suffix = " (recovered via 3-way merge)" if merge_recovered else ""
     yield Message(
         "system",
-        f"hashline_edit applied to `{resolved}` ({n} operation{'s' if n != 1 else ''})",
+        f"hashline_edit applied to `{resolved}` ({n} operation{'s' if n != 1 else ''}){suffix}",
     )
 
 
