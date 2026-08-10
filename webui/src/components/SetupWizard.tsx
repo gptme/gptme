@@ -63,6 +63,13 @@ function getCloudAuthUrl(): string {
   return `${cloudBaseUrl || 'https://gptme.ai'}/authorize`;
 }
 
+function isHostedPageOrigin(): boolean {
+  if (typeof window === 'undefined' || !window.location) {
+    return false;
+  }
+  return !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])([:/]|$)/.test(window.location.origin);
+}
+
 const CLOUD_AUTH_URL = getCloudAuthUrl();
 const CLOUD_AUTH_ORIGIN = new URL(CLOUD_AUTH_URL).origin;
 const CLOUD_AUTH_MESSAGE_TYPE = 'gptme-cloud-auth-code';
@@ -97,7 +104,9 @@ export function SetupWizard() {
   // Also avoids React batching issues: completeSetup() + setStep('complete') update two separate
   // state atoms in the same event handler; a derived signal would close the dialog before the
   // 'complete' step could render.
-  const [isOpen, setIsOpen] = useState(!demoMode && !settings.hasCompletedSetup);
+  const [isOpen, setIsOpen] = useState(
+    !demoMode && !settings.hasCompletedSetup && !isHostedPageOrigin()
+  );
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [cloudLoginStarted, setCloudLoginStarted] = useState(false);

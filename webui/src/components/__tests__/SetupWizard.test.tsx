@@ -18,6 +18,20 @@ const CLOUD_AUTH_BASE_URL = process.env['VITE_GPTME_CLOUD_BASE_URL'] || 'https:/
 const CLOUD_AUTH_URL = `${CLOUD_AUTH_BASE_URL}/authorize`;
 const CLOUD_AUTH_ORIGIN = new URL(CLOUD_AUTH_URL).origin;
 
+const setLocation = (href: string) => {
+  const url = new URL(href);
+  Object.defineProperty(window, 'location', {
+    value: {
+      ...window.location,
+      href: url.href,
+      origin: url.origin,
+      hostname: url.hostname,
+    },
+    writable: true,
+    configurable: true,
+  });
+};
+
 type MockTauriServerStatus = {
   running: boolean;
   port: number;
@@ -151,6 +165,7 @@ jest.mock('sonner', () => ({
 describe('SetupWizard', () => {
   beforeEach(() => {
     localStorage.clear();
+    setLocation('http://localhost/');
     isConnected$.set(false);
     setupWizard$.step.set('welcome');
     setupWizard$.open.set(false);
@@ -206,6 +221,32 @@ describe('SetupWizard', () => {
 
     expect(screen.queryByRole('heading', { name: /welcome to gptme/i })).not.toBeInTheDocument();
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-open on hosted origins for first-time visitors', () => {
+    setLocation('https://chat.gptme.org/');
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    expect(screen.queryByRole('heading', { name: /welcome to gptme/i })).not.toBeInTheDocument();
+  });
+
+  it('still opens on hosted origins when requested explicitly', async () => {
+    setLocation('https://chat.gptme.org/');
+    setupWizard$.open.set(true);
+    setupWizard$.step.set('welcome');
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    expect(await screen.findByRole('heading', { name: /welcome to gptme/i })).toBeInTheDocument();
   });
 
   it('closes the wizard via Skip on the welcome step and persists hasCompletedSetup', async () => {
