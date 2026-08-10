@@ -385,6 +385,7 @@ def _build_review_prompt(
 #: the grant (prompt section, checkout verification) together, instead of
 #: silently keeping the grant while dropping the guards.
 _READ_TOOL = "read"
+_READ_ROOT_ENV = "GPTME_READ_ROOT"
 
 REVIEW_TOOL_PRESETS: dict[str, tuple[str, ...]] = {
     # No tools at all: the model sees only the diff. Pure static review — this
@@ -624,8 +625,9 @@ def _spawn_review_session(
     ``cwd`` is the directory the session runs in.  ``None`` (the default)
     inherits the caller's, unchanged from before.  When a file-reading preset is
     used, the caller passes the directory whose HEAD it verified against the PR
-    head, so the session reads files from the directory that was actually
-    checked (see :func:`_verify_review_checkout`).
+    head.  The child also receives that directory as ``GPTME_READ_ROOT``, which
+    confines relative paths, absolute paths, and resolved symlink targets to the
+    verified checkout (see :func:`_verify_review_checkout`).
 
     Returns ``("", {"exit_reason": "error", ...})`` on failure.
     """
@@ -635,6 +637,12 @@ def _spawn_review_session(
     # Prevent nested session attachment (see CLAUDE.md §8).
     for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CC_SESSION_ID", "CC_MODEL"):
         env.pop(k, None)
+    if _preset_grants_file_reads(tool_preset):
+        if cwd is None:  # Runtime tripwire: every file-reading spawn is confined.
+            raise click.ClickException(
+                "A file-reading reviewer requires a verified checkout directory."
+            )
+        env[_READ_ROOT_ENV] = str(Path(cwd).resolve())
 
     cmd = [
         sys.executable,

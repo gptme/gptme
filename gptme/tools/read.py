@@ -8,6 +8,7 @@ Multiple paths can be passed in the code block (one per line) to read several
 files in a single tool call, reducing roundtrips when exploring a codebase.
 """
 
+import os
 from collections.abc import Generator
 from pathlib import Path
 
@@ -95,6 +96,30 @@ def _get_read_paths(
 
 
 _MAX_DIR_ENTRIES = 100
+_READ_ROOT_ENV = "GPTME_READ_ROOT"
+
+
+def _configured_read_root() -> tuple[Path | None, str | None]:
+    """Return the optional root that confines every read-tool path.
+
+    The normal read tool remains unrestricted for backwards compatibility.
+    Security-sensitive child sessions can opt into confinement by setting
+    ``GPTME_READ_ROOT`` to an absolute directory.  Invalid configuration fails
+    closed rather than silently widening access.
+    """
+    value = os.environ.get(_READ_ROOT_ENV)
+    if not value:
+        return None, None
+    configured = Path(value).expanduser()
+    if not configured.is_absolute():
+        return None, f"{_READ_ROOT_ENV} must be an absolute path: {value!r}"
+    try:
+        root = configured.resolve(strict=True)
+    except OSError as exc:
+        return None, f"Invalid {_READ_ROOT_ENV} {value!r}: {exc}"
+    if not root.is_dir():
+        return None, f"{_READ_ROOT_ENV} is not a directory: {root}"
+    return root, None
 
 
 def _list_directory(path: Path) -> Generator[Message, None, None]:
@@ -138,18 +163,29 @@ def _read_one(
     end_line: int | None = None,
 ) -> Generator[Message, None, None]:
     """Read a single file or directory and yield messages with the result."""
-    # Path traversal protection: validate relative paths stay within cwd
+    # Path traversal protection: relative paths stay within cwd.  A caller may
+    # additionally confine *all* reads (including absolute paths and symlink
+    # targets) by setting GPTME_READ_ROOT for the session.
     path_display = path
     path = path.expanduser().resolve()
-    if not path_display.is_absolute():
-        cwd = Path.cwd().resolve()
+    read_root, read_root_error = _configured_read_root()
+    if read_root_error is not None:
+        yield Message("system", f"Read denied: {read_root_error}")
+        return
+    containment_root = read_root or (
+        Path.cwd().resolve() if not path_display.is_absolute() else None
+    )
+    if containment_root is not None:
         try:
-            path.relative_to(cwd)
+            path.relative_to(containment_root)
         except ValueError:
+            label = (
+                "configured read root" if read_root is not None else "current directory"
+            )
             yield Message(
                 "system",
                 f"Path traversal detected: {path_display} resolves to {path} "
-                f"which is outside current directory {cwd}",
+                f"which is outside {label} {containment_root}",
             )
             return
 

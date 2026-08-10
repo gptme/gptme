@@ -339,6 +339,52 @@ def test_read_path_traversal(tmp_path: Path, monkeypatch):
     assert "Path traversal detected" in messages[0].content
 
 
+def test_read_root_confines_absolute_paths(tmp_path: Path, monkeypatch):
+    """Configured confinement applies to absolute paths, not only ``..``."""
+    root = tmp_path / "checkout"
+    root.mkdir()
+    allowed = root / "source.py"
+    allowed.write_text("allowed\n")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("do not disclose\n")
+    monkeypatch.setenv("GPTME_READ_ROOT", str(root))
+
+    inside = list(execute_read(None, [str(allowed)], None))
+    outside = list(execute_read(None, [str(secret)], None))
+
+    assert "allowed" in inside[0].content
+    assert "Path traversal detected" in outside[0].content
+    assert "do not disclose" not in outside[0].content
+    assert "configured read root" in outside[0].content
+
+
+def test_read_root_blocks_symlink_escape(tmp_path: Path, monkeypatch):
+    """Resolving before containment prevents an in-root symlink escaping."""
+    root = tmp_path / "checkout"
+    root.mkdir()
+    secret = tmp_path / "secret.txt"
+    secret.write_text("do not disclose\n")
+    (root / "link.txt").symlink_to(secret)
+    monkeypatch.setenv("GPTME_READ_ROOT", str(root))
+
+    messages = list(execute_read(None, [str(root / "link.txt")], None))
+
+    assert "Path traversal detected" in messages[0].content
+    assert "do not disclose" not in messages[0].content
+
+
+def test_invalid_read_root_fails_closed(tmp_path: Path, monkeypatch):
+    target = tmp_path / "target.txt"
+    target.write_text("do not disclose\n")
+    monkeypatch.setenv("GPTME_READ_ROOT", "relative-root")
+
+    messages = list(execute_read(None, [str(target)], None))
+
+    assert "Read denied" in messages[0].content
+    assert "must be an absolute path" in messages[0].content
+    assert "do not disclose" not in messages[0].content
+
+
 @pytest.mark.skipif(os.getuid() == 0, reason="root bypasses permissions")
 def test_read_permission_denied_file(tmp_path: Path):
     """Test that a file with no read permission returns Permission denied."""

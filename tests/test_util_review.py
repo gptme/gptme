@@ -1978,13 +1978,16 @@ class TestReviewToolPresets:
         )
         assert captured["cmd"][captured["cmd"].index("--tools") + 1] == "none"
 
-    def test_spawn_read_only_preset_passes_read(self, monkeypatch):
+    def test_spawn_read_only_preset_passes_read_and_confines_it(
+        self, monkeypatch, tmp_path
+    ):
         from gptme.cli import cmd_review_pr
 
         captured: dict = {}
 
         def fake_run(cmd, **kwargs):
             captured["cmd"] = cmd
+            captured["env"] = kwargs["env"]
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
         monkeypatch.setattr(cmd_review_pr.subprocess, "run", fake_run)
@@ -1994,8 +1997,24 @@ class TestReviewToolPresets:
             max_turns=1,
             timeout=1,
             tool_preset="read-only",
+            cwd=str(tmp_path),
         )
         assert captured["cmd"][captured["cmd"].index("--tools") + 1] == "read"
+        assert captured["env"]["GPTME_READ_ROOT"] == str(tmp_path.resolve())
+
+    def test_spawn_read_only_without_verified_cwd_fails_closed(self):
+        import click as _click
+
+        from gptme.cli import cmd_review_pr
+
+        with pytest.raises(_click.ClickException, match="verified checkout"):
+            cmd_review_pr._spawn_review_session(
+                prompt="review",
+                model=None,
+                max_turns=1,
+                timeout=1,
+                tool_preset="read-only",
+            )
 
     def test_read_only_preset_is_exactly_read(self):
         from gptme.cli.cmd_review_pr import REVIEW_TOOL_PRESETS
