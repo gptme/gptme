@@ -42,9 +42,11 @@ PROMPT_USER = prompt_user()
 
 
 def prompt_assistant(name: str | None) -> str:
+    from rich.markup import escape
+
     if not name:
         name = os.environ.get("GPTME_AGENT_NAME", "Assistant")
-    return f"[bold {ROLE_COLOR['assistant']}]{name}[/bold {ROLE_COLOR['assistant']}]"
+    return f"[bold {ROLE_COLOR['assistant']}]{escape(name)}[/bold {ROLE_COLOR['assistant']}]"
 
 
 INTERRUPT_CONTENT = "Interrupted by user"
