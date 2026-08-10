@@ -1321,6 +1321,18 @@ Reviewed the diff carefully.
         assert findings is None
         assert validation_errors == 0
 
+    def test_extract_findings_rejects_nested_block_in_malformed_outer_json(self):
+        """An indented quoted block cannot salvage a malformed outer review."""
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        output = self._review_jsonl(
+            '```json\n{"findings": [{"body": "quotes\n'
+            '    ```json\n{"findings": []}\n```\n'
+        )
+        findings, validation_errors = _extract_findings_from_output(output)
+        assert findings is None
+        assert validation_errors == 0
+
     def test_extract_findings_rejects_non_jsonl_output(self):
         """Mixed terminal output has no trusted role boundary."""
         from gptme.cli.cmd_review_pr import _extract_findings_from_output

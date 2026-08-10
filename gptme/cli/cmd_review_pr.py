@@ -386,7 +386,7 @@ def _spawn_review_session(
 # Finding extraction
 # ---------------------------------------------------------------------------
 
-_JSON_BLOCK_OPEN_RE = re.compile(r"```json", re.IGNORECASE)
+_JSON_BLOCK_OPEN_RE = re.compile(r"(?im)^```json[ \t]*$")
 
 
 def _json_blocks(text: str) -> Iterator[object]:
