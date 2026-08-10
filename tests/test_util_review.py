@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import subprocess
 
+import pytest
 from click.testing import CliRunner
 
 from gptme.cli.util import main as util_main
@@ -1941,3 +1942,148 @@ class TestBuildReviewPromptTitleInjection:
         assert injected_title in post_boundary, (
             "PR title was missing from the prompt entirely"
         )
+
+
+class TestReviewToolPresets:
+    """The reviewer toolset is a security control: closed set, safe default.
+
+    The review session consumes untrusted PR content, so these tests assert
+    both that the default is unchanged for existing users and that the
+    read-only preset is genuinely read-only.
+    """
+
+    def test_default_preset_is_none(self):
+        from gptme.cli.cmd_review_pr import (
+            DEFAULT_REVIEW_TOOL_PRESET,
+            REVIEW_TOOL_PRESETS,
+        )
+
+        assert DEFAULT_REVIEW_TOOL_PRESET == "none"
+        assert REVIEW_TOOL_PRESETS["none"] == ()
+
+    def test_spawn_default_still_passes_tools_none(self, monkeypatch):
+        """No caller change: the default spawn is byte-identical to before."""
+        from gptme.cli import cmd_review_pr
+
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(cmd_review_pr.subprocess, "run", fake_run)
+        cmd_review_pr._spawn_review_session(
+            prompt="review", model=None, max_turns=1, timeout=1
+        )
+        assert captured["cmd"][captured["cmd"].index("--tools") + 1] == "none"
+
+    def test_spawn_read_only_preset_passes_read(self, monkeypatch):
+        from gptme.cli import cmd_review_pr
+
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(cmd_review_pr.subprocess, "run", fake_run)
+        cmd_review_pr._spawn_review_session(
+            prompt="review",
+            model=None,
+            max_turns=1,
+            timeout=1,
+            tool_preset="read-only",
+        )
+        assert captured["cmd"][captured["cmd"].index("--tools") + 1] == "read"
+
+    def test_read_only_preset_is_exactly_read(self):
+        from gptme.cli.cmd_review_pr import REVIEW_TOOL_PRESETS
+
+        assert REVIEW_TOOL_PRESETS["read-only"] == ("read",)
+
+    def test_no_preset_grants_a_mutating_or_executing_tool(self):
+        """Every preset must exclude every shell/write/network-write tool."""
+        from gptme.cli.cmd_review_pr import (
+            _FORBIDDEN_REVIEW_TOOLS,
+            REVIEW_TOOL_PRESETS,
+        )
+
+        # Guard the guard: the forbidden list must name the obvious offenders.
+        for name in ("shell", "ipython", "save", "patch", "browser", "subagent"):
+            assert name in _FORBIDDEN_REVIEW_TOOLS
+
+        for preset, tools in REVIEW_TOOL_PRESETS.items():
+            overlap = set(tools) & _FORBIDDEN_REVIEW_TOOLS
+            assert not overlap, f"preset {preset!r} grants {sorted(overlap)}"
+
+    def test_preset_tools_are_read_only_in_the_real_registry(self):
+        """Preset names must resolve to real tools that gptme tags read-only.
+
+        Checked against the live tool registry rather than a hardcoded list, so
+        a tool that later gains write/exec capability (losing its ``read-only``
+        hint or gaining ``destructive``/``code-exec``) fails this test.
+        """
+        from gptme.cli.cmd_review_pr import REVIEW_TOOL_PRESETS
+        from gptme.tools import get_tools, init_tools
+
+        names = {name for tools in REVIEW_TOOL_PRESETS.values() for name in tools}
+        assert names, "expected at least one preset to grant a tool"
+
+        init_tools(allowlist=sorted(names))
+        specs = {tool.name: tool for tool in get_tools()}
+        for name in names:
+            assert name in specs, f"preset tool {name!r} is not a registered tool"
+            hints = specs[name].hints
+            assert "read-only" in hints, f"{name!r} is not tagged read-only"
+            assert "destructive" not in hints, f"{name!r} is destructive"
+            assert "code-exec" not in hints, f"{name!r} can execute code"
+
+    def test_unknown_preset_fails_closed(self):
+        import click as _click
+
+        from gptme.cli.cmd_review_pr import _resolve_review_tools
+
+        with pytest.raises(_click.UsageError):
+            _resolve_review_tools("everything")
+
+    def test_cli_rejects_unknown_preset(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            ["review", "pr", "1", "--repo", "o/r", "--tool-preset", "shell"],
+        )
+        assert result.exit_code != 0
+        # Click rejects the value at parse time — no session is ever spawned.
+        assert "Spawning reviewer session" not in result.output
+
+    def test_cli_help_documents_the_trust_boundary(self):
+        runner = CliRunner()
+        result = runner.invoke(util_main, ["review", "pr", "--help"])
+        assert result.exit_code == 0
+        assert "--tool-preset" in result.output
+        assert "read-only" in result.output
+
+    def test_prompt_mentions_read_only_when_granted(self):
+        from gptme.cli.cmd_review_pr import _build_review_prompt
+
+        kwargs = {
+            "owner": "o",
+            "repo": "r",
+            "pr_number": 1,
+            "pr_title": "t",
+            "pr_body": "",
+            "diff": "--- a\n+++ b\n",
+            "extra_instructions": None,
+        }
+        without = _build_review_prompt(**kwargs)  # type: ignore[arg-type]
+        with_read = _build_review_prompt(**kwargs, can_read_files=True)  # type: ignore[arg-type]
+
+        assert "`read` tool" not in without
+        assert "`read` tool" in with_read
+        # The read-access framing must sit in the trusted region, before the
+        # untrusted diff/PR-body security boundary.
+        assert with_read.index("## File access") < with_read.index(
+            "## Security boundary"
+        )
+        # And it must restate that read content is untrusted.
+        assert "UNTRUSTED DATA" in with_read
