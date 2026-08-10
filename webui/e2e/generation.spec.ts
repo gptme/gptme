@@ -179,7 +179,7 @@ test.describe('Live generation: UI stability with mock/echo provider (gptme#3440
     expect(maxSpinners).toBeLessThanOrEqual(1);
   });
 
-  test('scroll stays at the bottom while tokens stream in', async ({ page }) => {
+  test('scroll is at the bottom after generation completes', async ({ page }) => {
     const connected = await checkMockServer(page);
     test.skip(!connected, 'chat-input disabled — no live server');
 
