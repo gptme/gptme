@@ -706,27 +706,30 @@ def _try_3way_merge(
     ours = _apply_operations(snapshot_content, ops)
 
     # Write three temp files expected by git merge-file.
-    with (
-        tempfile.NamedTemporaryFile(
-            mode="w", suffix=".ours", delete=False, encoding="utf-8"
-        ) as f_ours,
-        tempfile.NamedTemporaryFile(
-            mode="w", suffix=".base", delete=False, encoding="utf-8"
-        ) as f_base,
-        tempfile.NamedTemporaryFile(
-            mode="w", suffix=".theirs", delete=False, encoding="utf-8"
-        ) as f_theirs,
-    ):
-        f_ours.write(ours)
-        f_base.write(snapshot_content)
-        f_theirs.write(live_content)
-        ours_path = f_ours.name
-        base_path = f_base.name
-        theirs_path = f_theirs.name
-
+    # Paths are initialised to None so the finally always has valid names to
+    # attempt unlinking — even if a write raises before the name is captured.
+    ours_path = base_path = theirs_path = None
     try:
-        # -p sends output to stdout; return code 0 = no conflicts, >0 = conflict count.
-        # Negative or unusually large return codes (e.g. 128) indicate git errors.
+        with (
+            tempfile.NamedTemporaryFile(
+                mode="w", suffix=".ours", delete=False, encoding="utf-8"
+            ) as f_ours,
+            tempfile.NamedTemporaryFile(
+                mode="w", suffix=".base", delete=False, encoding="utf-8"
+            ) as f_base,
+            tempfile.NamedTemporaryFile(
+                mode="w", suffix=".theirs", delete=False, encoding="utf-8"
+            ) as f_theirs,
+        ):
+            f_ours.write(ours)
+            f_base.write(snapshot_content)
+            f_theirs.write(live_content)
+            ours_path = f_ours.name
+            base_path = f_base.name
+            theirs_path = f_theirs.name
+
+        # -p sends output to stdout; return code 0 = no conflicts, 1-127 = conflict
+        # count.  Codes > 127 (e.g. 128/255) indicate git operational errors.
         result = subprocess.run(
             ["git", "merge-file", "-p", ours_path, base_path, theirs_path],
             capture_output=True,
@@ -734,13 +737,15 @@ def _try_3way_merge(
             encoding="utf-8",
             check=False,
         )
-        had_conflicts = result.returncode > 0
+        had_conflicts = 0 < result.returncode <= 127
         if result.returncode != 0 and (
-            not result.stdout.strip() or result.stderr.strip()
+            result.returncode > 127
+            or not result.stdout.strip()
+            or result.stderr.strip()
         ):
-            # Empty stdout OR stderr present with non-zero exit = operational error,
-            # not a conflict count.  A real conflict writes markers to stdout only;
-            # stderr content means git itself failed (bad args, I/O error, etc.).
+            # returncode > 127, empty stdout, or stderr present with non-zero exit
+            # all indicate an operational error, not a conflict count.  A real
+            # conflict writes markers to stdout only with no stderr.
             raise ValueError(
                 f"git merge-file failed (exit {result.returncode}): "
                 + (result.stderr.strip() or "no diagnostic available")
@@ -751,9 +756,12 @@ def _try_3way_merge(
             "git not found — cannot attempt 3-way merge recovery; "
             "call `read` again to get a fresh snapshot"
         ) from e
+    except OSError as e:
+        raise ValueError(f"3-way merge failed: {e}") from e
     finally:
         for p in [ours_path, base_path, theirs_path]:
-            Path(p).unlink(missing_ok=True)
+            if p is not None:
+                Path(p).unlink(missing_ok=True)
 
 
 def execute_hashline_edit(
