@@ -138,21 +138,21 @@ def test_format_msgs_oneline_no_highlight_preserves_path_like_bracket():
     )
 
 
-def test_print_msg_no_highlight_path_like_bracket_no_crash(monkeypatch):
-    """Non-TTY output must disable Rich markup parsing at the console boundary."""
+def test_print_msg_no_highlight_preserves_rich_syntax(monkeypatch):
+    """Non-TTY output must disable Rich parsing at the console boundary."""
     from unittest.mock import patch
 
     from gptme.message import Message, print_msg
 
-    msg = Message("user", "Run [/home/runner/run.sh]")
+    msg = Message("user", "Run [/home/runner/run.sh] :warning:")
     monkeypatch.setattr("sys.stdout.isatty", lambda: False)
 
     with patch("gptme.message.console") as mock_console:
         assert print_msg(msg) == 1
 
     (rendered,) = mock_console.print.call_args.args
-    assert rendered.endswith("Run [/home/runner/run.sh]")
-    assert mock_console.print.call_args.kwargs == {"markup": False}
+    assert rendered.endswith("Run [/home/runner/run.sh] :warning:")
+    assert mock_console.print.call_args.kwargs == {"markup": False, "emoji": False}
 
 
 def test_print_msg_highlight_path_like_bracket_is_escaped(monkeypatch):
@@ -169,7 +169,7 @@ def test_print_msg_highlight_path_like_bracket_is_escaped(monkeypatch):
 
     (rendered,) = mock_console.print.call_args.args
     assert rendered.endswith(r"Run \[/home/runner/run.sh]")
-    assert mock_console.print.call_args.kwargs == {"markup": True}
+    assert mock_console.print.call_args.kwargs == {"markup": True, "emoji": False}
 
 
 def test_format_msgs_preserves_codeblocks():
