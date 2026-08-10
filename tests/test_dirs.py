@@ -587,96 +587,51 @@ class TestEdgeCases:
         assert result == inner  # nearest parent with gptme.toml
 
 
-# ── Regression: walk terminates at the filesystem root (Windows infinite loop) ──
+# ── Regression: walks terminate at the filesystem root (Windows infinite loop) ──
 
 
-class TestProjectDirWalkTermination:
-    """The upward walks used ``while path != Path("/")``, which never matched a
-    Windows drive root: it does not equal ``/`` and is its own parent, so with no
-    ``.git`` / ``gptme.toml`` anywhere above the cwd the loop spun forever. The walks
-    now stop when ``path == path.parent`` (the root, on every platform)."""
+class _WindowsDriveRootPath:
+    """A minimal Windows-style path usable on any OS, for the termination guard.
 
-    @staticmethod
-    def _hide_markers(tmp_path: Path):
-        """Make .git / gptme.toml appear absent everywhere so the walk must reach root."""
-        orig_exists = Path.exists
-
-        def _exists(p: Path) -> bool:
-            if p.name in (".git", "gptme.toml"):
-                return False
-            return orig_exists(p)
-
-        return _exists
-
-    def test_git_dir_walk_terminates_and_returns_none(self, tmp_path: Path):
-        subdir = tmp_path / "deep" / "nested"
-        subdir.mkdir(parents=True)
-        with (
-            patch("gptme.dirs.Path.cwd", return_value=subdir),
-            patch.object(Path, "exists", self._hide_markers(tmp_path)),
-        ):
-            assert dirs._get_project_git_dir_walk() is None
-
-    def test_gptme_dir_walk_terminates_and_falls_back(self, tmp_path: Path):
-        subdir = tmp_path / "deep" / "nested"
-        subdir.mkdir(parents=True)
-        with (
-            patch("gptme.dirs.Path.cwd", return_value=subdir),
-            patch.object(Path, "exists", self._hide_markers(tmp_path)),
-        ):
-            # No gptme.toml and no .git anywhere -> None, without hanging.
-            assert dirs.get_project_gptme_dir() is None
-
-
-class _WindowsRootPath:
-    """Simulates a Windows-style path *on any OS* for the walk-termination tests.
-
-    Parents shrink toward a drive root (``["C:"]``) that is **its own parent** and
-    **never equals** ``Path("/")`` — exactly the semantics that made the old
-    ``while path != Path("/")`` loop spin forever on Windows. A shared iteration
-    counter turns a non-terminating walk into a fast failure instead of a CI hang.
+    Its parents shrink toward a drive root (``["C:"]``) that is its own parent and
+    never equals ``Path("/")`` — the semantics that made the old
+    ``while path != Path("/")`` walk loop forever on Windows. A call cap converts a
+    non-terminating walk into a fast assertion failure (rather than a CI hang), so
+    these tests fail on any platform if the fix is reverted.
     """
 
-    def __init__(self, parts, counter):
+    def __init__(self, parts, calls=None):
         self._parts = list(parts)
-        self._counter = counter
+        self._calls = calls if calls is not None else [0]
 
     @property
-    def name(self) -> str:
-        return self._parts[-1] if self._parts else ""
+    def parent(self) -> _WindowsDriveRootPath:
+        self._calls[0] += 1
+        assert self._calls[0] < 10_000, "directory walk did not terminate (regression)"
+        parts = self._parts[:-1] or self._parts  # drive root is its own parent
+        return _WindowsDriveRootPath(parts, self._calls)
 
-    @property
-    def parent(self) -> _WindowsRootPath:
-        self._counter[0] += 1
-        if self._counter[0] > 10_000:
-            raise AssertionError("directory walk did not terminate (regression)")
-        if len(self._parts) <= 1:
-            return self  # drive root is its own parent, like WindowsPath("C:/")
-        return _WindowsRootPath(self._parts[:-1], self._counter)
-
-    def __truediv__(self, other) -> _WindowsRootPath:
-        return _WindowsRootPath(self._parts + [str(other)], self._counter)
+    def __truediv__(self, other) -> _WindowsDriveRootPath:
+        return _WindowsDriveRootPath(self._parts + [str(other)], self._calls)
 
     def exists(self) -> bool:
-        return False  # no .git / gptme.toml anywhere -> walk must reach the root
+        return False  # no .git / gptme.toml anywhere -> the walk must reach the root
 
     def __eq__(self, other) -> bool:
-        return isinstance(other, _WindowsRootPath) and self._parts == other._parts
+        return isinstance(other, _WindowsDriveRootPath) and self._parts == other._parts
 
 
-class TestProjectDirWalkWindowsRoot:
-    """Cross-platform regression guard for the Windows drive-root infinite loop.
+class TestProjectDirWalkTerminatesAtRoot:
+    """Both upward walks must stop at the filesystem root and return None instead of
+    spinning forever at a Windows drive root. Uses a simulated Windows path so the
+    guard also holds under Linux-only CI (POSIX tmp_path can't reproduce the hang)."""
 
-    Runs against a simulated Windows path so it fails on Linux CI too if the
-    termination condition regresses to ``path != Path("/")`` (which never matches a
-    self-parenting, non-``/`` drive root)."""
-
-    def test_git_walk_terminates_at_windows_drive_root(self):
-        cwd = _WindowsRootPath(["C:", "Users", "me", "tmp"], [0])
+    def test_git_walk_terminates(self):
+        cwd = _WindowsDriveRootPath(["C:", "Users", "me", "proj"])
         with patch("gptme.dirs.Path.cwd", return_value=cwd):
             assert dirs._get_project_git_dir_walk() is None
 
-    def test_gptme_walk_terminates_at_windows_drive_root(self):
-        cwd = _WindowsRootPath(["C:", "Users", "me", "tmp"], [0])
+    def test_gptme_walk_terminates(self):
+        cwd = _WindowsDriveRootPath(["C:", "Users", "me", "proj"])
         with patch("gptme.dirs.Path.cwd", return_value=cwd):
             assert dirs.get_project_gptme_dir() is None
