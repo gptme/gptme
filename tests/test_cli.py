@@ -1358,6 +1358,39 @@ def test_cli_preserves_lone_separator_prompt(
     assert received_prompts == [Message("user", "-")]
 
 
+def test_cli_lone_separator_prepends_to_piped_stdin(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+) -> None:
+    """A lone `-` stays the first prompt when stdin is also piped.
+
+    This is the pre-#3502 behaviour, restored deliberately: `-` is documented
+    only as the chained-prompt separator, never as a read-stdin marker, so a
+    sole `-` has always been passed through as a literal prompt and stdin
+    appended to it. Pinned here because the piped path is where the difference
+    is observable at all.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+    received_prompts: list[Message] = []
+
+    def fake_chat(prompt_msgs, *args, **kwargs):
+        received_prompts.extend(prompt_msgs)
+
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **kwargs: [])
+    monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", fake_chat)
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
+
+    result = runner.invoke(cli.main, ["--non-interactive", "-"], input="hello\n")
+
+    assert result.exit_code == 0, result.output
+    assert len(received_prompts) == 1
+    content = received_prompts[0].content
+    assert content.startswith("-\n\n")
+    assert "hello" in content
+
+
 def test_group_prompt_args_joins_non_separator_arguments() -> None:
     assert cli._group_prompt_args(("first", "second")) == ["first\n\nsecond"]
 
