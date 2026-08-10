@@ -387,7 +387,15 @@ def _spawn_review_session(
 # ---------------------------------------------------------------------------
 
 _JSON_BLOCK_OPEN_RE = re.compile(r"(?im)^```json(?:[ \t]*$|(?=[ \t]))")
-_JSON_BLOCK_CLOSE_RE = re.compile(r"(?m)^```[ \t]*$")
+
+
+class _MalformedBlock:
+    """Sentinel yielded by :func:`_json_blocks` for an undecodable fence."""
+
+    __slots__ = ()
+
+
+MALFORMED_BLOCK = _MalformedBlock()
 
 
 def _json_blocks(text: str) -> Iterator[object]:
@@ -405,11 +413,10 @@ def _json_blocks(text: str) -> Iterator[object]:
     string content.  The closing fence is not required to be found: the decoder
     already knows where the value stops.
 
-    A malformed fenced snippet is skipped as a unit, including any nested
-    openers inside it.  Skipping only its opener would be fail-open: a nested
-    ```json fence could be promoted to a top-level findings block.  Failing the
-    entire scan would instead let an unrelated malformed preamble snippet hide
-    a later valid review.
+    An opener that fails to decode yields :data:`MALFORMED_BLOCK` and ends the
+    scan. Skipping to a closing fence is fail-open: that fence may itself be
+    quoted inside the malformed value, allowing a later quoted findings object
+    to be promoted to a top-level block and emitted as a clean review.
     """
     decoder = json.JSONDecoder()
     decoded_until = 0
@@ -424,11 +431,8 @@ def _json_blocks(text: str) -> Iterator[object]:
         try:
             value, decoded_until = decoder.raw_decode(text, idx)
         except ValueError:
-            closing_fence = _JSON_BLOCK_CLOSE_RE.search(text, idx)
-            if closing_fence is None:
-                return
-            decoded_until = closing_fence.end()
-            continue
+            yield MALFORMED_BLOCK
+            return
         yield value
 
 
@@ -488,6 +492,8 @@ def _extract_findings_from_output(
     # marker. Multiple blocks are ambiguous, so fail closed instead of choosing.
     parsed_blocks: list[tuple[list[ReviewFinding], int]] = []
     for data in _json_blocks(review_output):
+        if data is MALFORMED_BLOCK:
+            return None, 0
         if not isinstance(data, dict) or "findings" not in data:
             continue
 

@@ -1145,8 +1145,8 @@ Reviewed the diff carefully.
         )
         assert validation_errors == 0
 
-    def test_extract_findings_skips_malformed_preamble_block(self):
-        """An unrelated malformed fenced snippet must not hide the review."""
+    def test_extract_findings_malformed_post_marker_preamble_fails_closed(self):
+        """A malformed block after the marker must fail the review closed."""
         from gptme.cli.cmd_review_pr import _extract_findings_from_output
 
         review = (
@@ -1158,8 +1158,26 @@ Reviewed the diff carefully.
             self._review_jsonl(review)
         )
 
-        assert findings is not None
-        assert [finding.body for finding in findings] == ["a real finding"]
+        assert findings is None
+        assert validation_errors == 0
+
+    def test_extract_findings_malformed_outer_with_quoted_fence_fails_closed(self):
+        """A quoted closing fence must not let a clean-looking block escape."""
+        from gptme.cli.cmd_review_pr import _extract_findings_from_output
+
+        review = (
+            '```json\n{"findings": [{"body": "see below\n'
+            "```\n"
+            "quoted code\n"
+            "```json\n"
+            '{"findings": []}\n'
+            "```\n"
+        )
+        findings, validation_errors = _extract_findings_from_output(
+            self._review_jsonl(review)
+        )
+
+        assert findings is None
         assert validation_errors == 0
 
     def test_extract_findings_empty_array(self):
