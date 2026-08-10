@@ -67,7 +67,7 @@ function isHostedPageOrigin(): boolean {
   if (typeof window === 'undefined' || !window.location) {
     return false;
   }
-  return !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])([:/]|$)/.test(window.location.origin);
+  return window.location.hostname === 'chat.gptme.org';
 }
 
 const CLOUD_AUTH_URL = getCloudAuthUrl();

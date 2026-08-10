@@ -223,7 +223,7 @@ describe('SetupWizard', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('does not auto-open on hosted origins for first-time visitors', () => {
+  it('does not auto-open on chat.gptme.org for first-time visitors', () => {
     setLocation('https://chat.gptme.org/');
 
     render(
@@ -233,6 +233,34 @@ describe('SetupWizard', () => {
     );
 
     expect(screen.queryByRole('heading', { name: /welcome to gptme/i })).not.toBeInTheDocument();
+  });
+
+  it.each(['http://192.168.1.20/', 'https://gptme.internal.example/'])(
+    'still auto-opens on self-hosted origin %s',
+    (origin) => {
+      setLocation(origin);
+
+      render(
+        <SettingsProvider>
+          <SetupWizard />
+        </SettingsProvider>
+      );
+
+      expect(screen.getByRole('heading', { name: /welcome to gptme/i })).toBeInTheDocument();
+    }
+  );
+
+  it('still auto-opens in Tauri', () => {
+    setLocation('http://tauri.localhost/');
+    mockIsTauriEnvironment.mockReturnValue(true);
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByRole('heading', { name: /welcome to gptme/i })).toBeInTheDocument();
   });
 
   it('still opens on hosted origins when requested explicitly', async () => {
