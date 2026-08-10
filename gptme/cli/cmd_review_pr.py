@@ -630,9 +630,10 @@ def _materialize_review_tree(cwd: str) -> tempfile.TemporaryDirectory[str]:
             capture_output=True,
             check=False,
         )
-        archive.stdout.close()
-        archive_stderr = archive.communicate()[1]
-        if archive.returncode != 0 or extracted.returncode != 0:
+        assert archive.stderr is not None
+        archive_stderr = archive.stderr.read()
+        archive_returncode = archive.wait()
+        if archive_returncode != 0 or extracted.returncode != 0:
             detail = (
                 (archive_stderr or extracted.stderr)
                 .decode("utf-8", errors="replace")
@@ -665,9 +666,11 @@ def _spawn_review_session(
 
     ``cwd`` is the verified checkout. ``None`` (the default) inherits the
     caller's, unchanged from before. For a file-reading preset, tracked files at
-    its verified HEAD are exported into a temporary tree; the child runs there
-    with that tree as ``GPTME_READ_ROOT``. This excludes untracked secrets and
-    Git metadata while ensuring reads see the verified commit rather than local
+    its verified HEAD are exported into a temporary tree and exposed only via
+    ``GPTME_READ_ROOT``. The child itself runs from a separate empty directory,
+    so attacker-controlled project configuration cannot execute context commands,
+    script hooks, or plugins. This also excludes untracked secrets and Git
+    metadata while ensuring reads see the verified commit rather than local
     modifications (see :func:`_verify_review_checkout`).
 
     Returns ``("", {"exit_reason": "error", ...})`` on failure.
@@ -679,14 +682,16 @@ def _spawn_review_session(
     for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CC_SESSION_ID", "CC_MODEL"):
         env.pop(k, None)
     review_tree: tempfile.TemporaryDirectory[str] | None = None
+    runtime_dir: tempfile.TemporaryDirectory[str] | None = None
     if _preset_grants_file_reads(tool_preset):
         if cwd is None:  # Runtime tripwire: every file-reading spawn is confined.
             raise click.ClickException(
                 "A file-reading reviewer requires a verified checkout directory."
             )
         review_tree = _materialize_review_tree(cwd)
-        cwd = review_tree.name
-        env[_READ_ROOT_ENV] = cwd
+        runtime_dir = tempfile.TemporaryDirectory(prefix="gptme-review-runtime-")
+        cwd = runtime_dir.name
+        env[_READ_ROOT_ENV] = review_tree.name
 
     cmd = [
         sys.executable,
@@ -699,6 +704,10 @@ def _spawn_review_session(
         "--tools",
         tools_arg,
     ]
+    if review_tree is not None:
+        # Defense in depth: suppress workspace prompt context explicitly, even
+        # though the child starts in a separate config-free directory.
+        cmd.append("--no-workspace")
     if model is not None:
         cmd.extend(["--model", model])
     output_marker = f"{_REVIEW_OUTPUT_MARKER}_{os.urandom(16).hex()}"
@@ -737,6 +746,8 @@ def _spawn_review_session(
     except OSError as exc:
         raise click.ClickException(f"Failed to spawn review session: {exc}") from exc
     finally:
+        if runtime_dir is not None:
+            runtime_dir.cleanup()
         if review_tree is not None:
             review_tree.cleanup()
 

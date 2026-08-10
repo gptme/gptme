@@ -339,6 +339,23 @@ def test_read_path_traversal(tmp_path: Path, monkeypatch):
     assert "Path traversal detected" in messages[0].content
 
 
+def test_read_root_resolves_relative_paths_from_root(tmp_path: Path, monkeypatch):
+    """Confinement need not make the untrusted tree the process cwd."""
+    root = tmp_path / "checkout"
+    runtime = tmp_path / "runtime"
+    root.mkdir()
+    runtime.mkdir()
+    (root / "source.py").write_text("safe = True\n")
+    monkeypatch.setenv("GPTME_READ_ROOT", str(root))
+    monkeypatch.chdir(runtime)
+
+    messages = list(execute_read(None, ["source.py"], None))
+
+    assert len(messages) == 1
+    assert "safe = True" in messages[0].content
+    assert str(root / "source.py") in messages[0].content
+
+
 def test_read_root_confines_absolute_paths(tmp_path: Path, monkeypatch):
     """Configured confinement applies to absolute paths, not only ``..``."""
     root = tmp_path / "checkout"

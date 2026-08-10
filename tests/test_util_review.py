@@ -1991,12 +1991,13 @@ class TestReviewToolPresets:
             name = str(review_tree)
 
             def cleanup(self):
-                captured["cleaned"] = True
+                captured["review_tree_cleaned"] = True
 
         def fake_run(cmd, **kwargs):
             captured["cmd"] = cmd
             captured["env"] = kwargs["env"]
             captured["cwd"] = kwargs["cwd"]
+            captured["cwd_contents"] = list(Path(kwargs["cwd"]).iterdir())
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
         monkeypatch.setattr(
@@ -2014,9 +2015,13 @@ class TestReviewToolPresets:
             cwd=str(tmp_path),
         )
         assert captured["cmd"][captured["cmd"].index("--tools") + 1] == "read"
+        assert "--no-workspace" in captured["cmd"]
         assert captured["env"]["GPTME_READ_ROOT"] == str(review_tree)
-        assert captured["cwd"] == str(review_tree)
-        assert captured["cleaned"] is True
+        # The child must not load project configuration from attacker content.
+        assert captured["cwd"] != str(review_tree)
+        assert captured["cwd_contents"] == []
+        assert captured["review_tree_cleaned"] is True
+        assert not Path(captured["cwd"]).exists()
 
     def test_spawn_read_only_without_verified_cwd_fails_closed(self):
         import click as _click

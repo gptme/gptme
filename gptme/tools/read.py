@@ -163,15 +163,22 @@ def _read_one(
     end_line: int | None = None,
 ) -> Generator[Message, None, None]:
     """Read a single file or directory and yield messages with the result."""
-    # Path traversal protection: relative paths stay within cwd.  A caller may
+    # Path traversal protection: relative paths stay within cwd. A caller may
     # additionally confine *all* reads (including absolute paths and symlink
-    # targets) by setting GPTME_READ_ROOT for the session.
+    # targets) by setting GPTME_READ_ROOT for the session. In that mode, resolve
+    # relative paths from the configured root so the process can run from a
+    # separate, trusted directory without loading project configuration from the
+    # untrusted readable tree.
     path_display = path
-    path = path.expanduser().resolve()
     read_root, read_root_error = _configured_read_root()
     if read_root_error is not None:
         yield Message("system", f"Read denied: {read_root_error}")
         return
+    expanded_path = path.expanduser()
+    if read_root is not None and not expanded_path.is_absolute():
+        path = (read_root / expanded_path).resolve()
+    else:
+        path = expanded_path.resolve()
     containment_root = read_root or (
         Path.cwd().resolve() if not path_display.is_absolute() else None
     )
