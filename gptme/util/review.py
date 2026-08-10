@@ -43,9 +43,15 @@ land in the wrong one:
   one that posts findings to GitHub in production (marker + inline comments,
   consensus filtering, suppression ledger).
 
-A full comparison, the retirement plan and a "which tool for which task"
-routing table live in Bob's brain repo (private) at
-``knowledge/technical/pr-review-systems-map.md``.
+Which one do you want?
+
+- Reviewing a PR diff, or building something that consumes findings: use
+  ``gptme-util review pr`` and this module's schema.
+- Reviewing uncommitted work in your own checkout, no forge involved: use
+  ``review --working-tree`` from gptme-contrib.
+- Publishing findings back to a forge as review comments: not in gptme core.
+  Consume a ``ReviewArtifact`` from either of the above and post it from your
+  own adapter.
 """
 
 from __future__ import annotations
