@@ -340,6 +340,25 @@ def execute_read(
         )
         start_line, end_line = 1, None
 
+    # Reject non-positive range bounds instead of silently producing a wrong
+    # slice: start_line <= 0 clamps to the first line (hiding the bad input),
+    # and end_line <= 0 yields an empty or last-line-truncated codeblock
+    # (e.g. end_line=0 -> lines[N:0] == [], end_line=-1 -> lines[N:-1] drops
+    # the last line).  Same class of silent mislabel #3494 fixed for inverted
+    # ranges; checked after the multi-path reset for the same reason.
+    if start_line < 1:
+        yield Message(
+            "system",
+            f"Invalid line range: start_line ({start_line}) must be >= 1.",
+        )
+        return
+    if end_line is not None and end_line < 1:
+        yield Message(
+            "system",
+            f"Invalid line range: end_line ({end_line}) must be >= 1.",
+        )
+        return
+
     # Reject an inverted line range instead of silently yielding an empty
     # codeblock mislabeled with the requested range (e.g. lines[7:3] == []).
     # Checked after the multi-path reset so an inverted range on a batch read

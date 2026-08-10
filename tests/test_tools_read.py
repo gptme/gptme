@@ -291,6 +291,43 @@ def test_read_invalid_line_range(tmp_path: Path):
     assert "end_line (3)" in messages[0].content
 
 
+def test_read_nonpositive_start_line(tmp_path: Path):
+    """A non-positive start_line is rejected instead of silently clamping.
+
+    Regression: start_line <= 0 was silently clamped to line 1 by
+    ``max(0, start_line - 1)``, hiding the bad input from the caller.
+    """
+    path = tmp_path / "test.txt"
+    path.write_text("\n".join(f"line {i}" for i in range(1, 11)) + "\n")
+
+    for bad in ("0", "-2"):
+        messages = list(
+            execute_read(None, None, {"path": str(path), "start_line": bad})
+        )
+        assert len(messages) == 1
+        assert "Invalid line range" in messages[0].content
+        assert f"start_line ({bad})" in messages[0].content
+
+
+def test_read_nonpositive_end_line(tmp_path: Path):
+    """A non-positive end_line is rejected instead of silently truncating.
+
+    Regression: end_line=0 yielded an empty codeblock mislabeled with the
+    requested range (``lines[N:0] == []``), and end_line=-1 silently dropped
+    the last line (``lines[N:-1]``).  Same mislabel class as the inverted
+    range fixed in #3494.
+    """
+    path = tmp_path / "test.txt"
+    path.write_text("\n".join(f"line {i}" for i in range(1, 11)) + "\n")
+
+    for bad in ("0", "-1"):
+        messages = list(execute_read(None, None, {"path": str(path), "end_line": bad}))
+        assert len(messages) == 1
+        assert "Invalid line range" in messages[0].content
+        assert f"end_line ({bad})" in messages[0].content
+        assert "line 1" not in messages[0].content
+
+
 def test_read_line_range_start_equals_end(tmp_path: Path):
     """A single-line range (start_line == end_line) is valid, not inverted."""
     path = tmp_path / "test.txt"
