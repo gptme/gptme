@@ -10,6 +10,14 @@ const errorResponse = (status: number, statusText: string, error?: string): Resp
     json: async () => (error ? { error } : {}),
   }) as Response;
 
+const nonJsonErrorResponse = (status: number, statusText: string): Response =>
+  ({
+    ok: false,
+    status,
+    statusText,
+    json: () => Promise.reject(new SyntaxError('Unexpected token')),
+  }) as Response;
+
 describe('taskApi error messages', () => {
   const originalFetch = global.fetch;
 
@@ -43,6 +51,30 @@ describe('taskApi error messages', () => {
 
     await expect(taskApi.getTask('missing-task')).rejects.toThrow(
       'Task not found: missing-task (404 Not Found)'
+    );
+  });
+
+  it('includes status in getTask non-404 error', async () => {
+    mockFetch.mockResolvedValueOnce(errorResponse(500, 'Internal Server Error'));
+
+    await expect(taskApi.getTask('task-1')).rejects.toThrow(
+      'Failed to get task: 500 Internal Server Error'
+    );
+  });
+
+  it('includes status in getSuggestedActions error', async () => {
+    mockFetch.mockResolvedValueOnce(errorResponse(403, 'Forbidden'));
+
+    await expect(taskApi.getSuggestedActions('task-1')).rejects.toThrow(
+      'Failed to get task actions: 403 Forbidden'
+    );
+  });
+
+  it('falls back to statusText when server returns non-JSON error body', async () => {
+    mockFetch.mockResolvedValueOnce(nonJsonErrorResponse(502, 'Bad Gateway'));
+
+    await expect(taskApi.createTask({ content: 'test' })).rejects.toThrow(
+      'Failed to create task: 502 Bad Gateway'
     );
   });
 });
