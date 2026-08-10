@@ -1,0 +1,18 @@
+
+--- Start of generation ---
+[03:48:08] Using model: openai/gpt-4o                                           
+[03:48:09] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-08-10-gptme-evals-openai--gpt-4o-tool-
+           07674e30                                                             
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-08-10-gptme-evals-openai--gpt-4o-tool-
+           07674e30/workspace                                                   
+Skipped 2 hidden system messages (/log --hidden to show)
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+
+@save(call_CFb0DXWe17YSIEyQNotW2BBk): {"path":"hello.py","content":"print(\"Hello, world!\")"}                                                                                System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: 
+The script `hello.py` has been created and it prints "Hello, world!".                                                                                [03:48:18] Session: $0.01 | 2 turns | 988 context | 0% cached                   
+--- Finished generation ---
+
