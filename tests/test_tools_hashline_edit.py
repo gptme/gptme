@@ -1129,6 +1129,68 @@ class TestMergeRecovery:
 
         assert new_tag == compute_tag(new_content)
 
+    def test_operational_merge_failure_with_nonempty_stdout(self, tmp_path: Path):
+        """git merge-file returning nonzero + nonempty stderr is reported as an error, not a conflict."""
+        from subprocess import CompletedProcess
+        from unittest.mock import patch
+
+        f = tmp_path / "f.txt"
+        original = "alpha\nbeta\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        # Trigger merge-recovery path by changing the live file.
+        f.write_text("alpha\nbeta\nextra\n")
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
+
+        # Simulate git merge-file writing partial junk to stdout AND an error to stderr.
+        # This is the case Greptile flagged: nonempty stdout was previously classified
+        # as a conflict, discarding the real error from stderr.
+        fake_result = CompletedProcess(
+            args=["git", "merge-file", "-p"],
+            returncode=1,
+            stdout="partial-garbage-not-a-valid-conflict",
+            stderr="error: corrupt merge output",
+        )
+        with patch("subprocess.run", return_value=fake_result):
+            msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+
+        # The error should be surfaced, not silently treated as a merge conflict.
+        assert any(
+            "git merge-file failed" in m or "corrupt merge" in m for m in msgs
+        ), msgs
+
+    def test_edit_confirmation_race_aborts_on_concurrent_change(self, tmp_path: Path):
+        """EDIT confirmation path must abort when the live file changes during the dialog."""
+        from unittest.mock import patch
+
+        from gptme.hooks.confirm import ConfirmationResult
+
+        f = tmp_path / "f.txt"
+        original = "alpha\nbeta\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        # Trigger merge recovery: external change at the bottom (non-conflicting)
+        f.write_text("alpha\nbeta\nextra\n")
+        # Model edit: replace alpha (top) — no conflict with the external change
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
+
+        # The confirmation returns EDIT with some edited content.  While the
+        # dialog is "open", a second concurrent process changes the file again.
+        concurrent_content = "CONCURRENT CHANGE\nbeta\nextra\n"
+
+        def fake_confirm(**kwargs):
+            # Simulate another process modifying the file mid-dialog.
+            f.write_text(concurrent_content)
+            return ConfirmationResult.edit("ALPHA\nbeta\nextra\nUSER_EDIT\n")
+
+        with patch("gptme.hooks.get_confirmation", side_effect=fake_confirm):
+            msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+
+        # The race must be detected; the operation is aborted.
+        assert any("changed" in m.lower() or "read" in m.lower() for m in msgs), msgs
+        # The concurrent write must be preserved (file not overwritten by the edit).
+        assert f.read_text() == concurrent_content
+
 
 # ---------------------------------------------------------------------------
 # Tool metadata

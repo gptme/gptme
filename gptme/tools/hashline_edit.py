@@ -735,8 +735,12 @@ def _try_3way_merge(
             check=False,
         )
         had_conflicts = result.returncode > 0
-        if result.returncode != 0 and not result.stdout.strip():
-            # Empty stdout with non-zero exit = git operational error, not a conflict.
+        if result.returncode != 0 and (
+            not result.stdout.strip() or result.stderr.strip()
+        ):
+            # Empty stdout OR stderr present with non-zero exit = operational error,
+            # not a conflict count.  A real conflict writes markers to stdout only;
+            # stderr content means git itself failed (bad args, I/O error, etc.).
             raise ValueError(
                 f"git merge-file failed (exit {result.returncode}): "
                 + (result.stderr.strip() or "no diagnostic available")
@@ -871,7 +875,9 @@ def execute_hashline_edit(
 
     # For merge-recovered edits, re-read the file right before writing to guard
     # against concurrent changes that arrived during the confirmation dialog.
-    if merge_recovered and confirm_result.action != ConfirmAction.EDIT:
+    # This applies regardless of whether the user edited the proposed content —
+    # the live file could have changed while the confirmation dialog was open.
+    if merge_recovered:
         try:
             post_confirm_content = resolved.read_text(encoding="utf-8")
         except (UnicodeDecodeError, PermissionError, OSError) as e:
