@@ -202,6 +202,22 @@ def test_find_mutating_flags_are_not_tier1(cmd: str) -> None:
 @pytest.mark.parametrize(
     "cmd",
     [
+        "TMPDIR=/tmp find . -delete",  # env prefix hides the mutating find
+        "DEBUG=1 find . -exec rm {} +",  # env prefix + exec
+        "FOO=bar find /tmp -name '*.tmp' -execdir chmod 777 {} \\;",  # env prefix + execdir
+    ],
+)
+def test_env_prefixed_mutating_find_is_not_tier1(cmd: str) -> None:
+    """find with env-var prefix and mutating flags must not be auto-approved."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for env-prefixed mutating find: {cmd!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
         "find . -name '*.py'",
         "find . -type f -name '*.log'",
         "find /tmp -maxdepth 2 -newer ref.txt",

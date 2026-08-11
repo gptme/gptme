@@ -76,6 +76,9 @@ _SHELL_CMD_SEP = re.compile(r"\s*(?:&&|\|\|?|;)\s*")
 # e.g. `echo $(touch /tmp/created)` has a safe prefix but the nested command runs unconditionally.
 _SHELL_CMD_SUBST = re.compile(r"\$\(|`")
 
+# Leading environment-variable assignments (e.g. TMPDIR=/tmp VAR=val) that precede the actual command.
+_ENV_VAR_PREFIX = re.compile(r"(?:[A-Z_]+=\S+\s+)*")
+
 # Shell/bash commands whose first token indicates a safe read-only operation
 # We match the start of the command (ignoring leading whitespace and env var assignments)
 _SAFE_SHELL_CMDS = re.compile(
@@ -169,7 +172,12 @@ def _is_safe_shell_line(line: str) -> bool:
         # `find` is in the safe-prefix list for plain queries, but certain flags
         # make it state-changing: -delete removes files, -exec/-execdir/-ok/-okdir
         # run arbitrary commands, -fls/-fprint* write to a file.
-        if re.match(r"find\b", p, re.IGNORECASE) and _FIND_MUTATING_FLAGS.search(p):
+        # Strip leading env-var assignments (e.g. TMPDIR=/tmp find ...) before
+        # checking the command name, so env-prefixed find calls are caught too.
+        p_core = _ENV_VAR_PREFIX.sub("", p, count=1).lstrip()
+        if re.match(r"find\b", p_core, re.IGNORECASE) and _FIND_MUTATING_FLAGS.search(
+            p
+        ):
             return False
     return True
 
