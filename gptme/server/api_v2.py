@@ -319,6 +319,22 @@ def _append_conversation_system_prompt(
         messages.append(Message("system", system_prompt))
 
 
+_WEBUI_HTML_HINT = (
+    "Output format: you are in a web interface. "
+    "For interactive content (dashboards, tables, diagrams), "
+    "use ```html blocks — they render live in a sandboxed preview panel."
+)
+
+
+def _append_webui_html_hint(messages: list[Message], *, prompt: str = "full") -> None:
+    """Append the web UI HTML hint when this conversation uses it."""
+    if os.environ.get("GPTME_SERVE_HTML_HINT", "true").lower() == "false":
+        return
+    if prompt == "none":
+        return
+    messages.append(Message("system", _WEBUI_HTML_HINT))
+
+
 def _resolve_conversation_system_prompt(chat_config: ChatConfig) -> str | None:
     """Return the conversation prompt, falling back to the server default profile."""
     if chat_config.system_prompt:
@@ -1709,18 +1725,7 @@ def api_conversation_put(conversation_id: str):
     # Code/Preview tabs — inform the model so it can use HTML when it provides
     # a richer experience for the reader.
     # Set GPTME_SERVE_HTML_HINT=false to disable for non-webui API clients.
-    if (
-        os.environ.get("GPTME_SERVE_HTML_HINT", "true").lower() != "false"
-        and prompt != "none"
-    ):
-        msgs.append(
-            Message(
-                "system",
-                "Output format: you are in a web interface. "
-                "For interactive content (dashboards, tables, diagrams), "
-                "use ```html blocks — they render live in a sandboxed preview panel.",
-            )
-        )
+    _append_webui_html_hint(msgs, prompt=prompt)
 
     resolved_prompt = _resolve_conversation_system_prompt(chat_config)
     # Persist the resolved prompt back to chat_config so it survives server
@@ -2847,7 +2852,11 @@ def api_conversation_config_patch(conversation_id: str):
                 if m.role != "system":
                     break
                 first_non_system += 1
+            existing_system_msgs = manager.log.messages[:first_non_system]
             remaining_msgs = list(manager.log.messages[first_non_system:])
+            had_webui_html_hint = any(
+                m.content == _WEBUI_HTML_HINT for m in existing_system_msgs
+            )
 
             new_system_msgs = list(
                 get_prompt(
@@ -2859,6 +2868,8 @@ def api_conversation_config_patch(conversation_id: str):
                     agent_path=chat_config.agent,
                 )
             )
+            if had_webui_html_hint:
+                _append_webui_html_hint(new_system_msgs)
             _append_conversation_system_prompt(
                 new_system_msgs, _resolve_conversation_system_prompt(chat_config)
             )

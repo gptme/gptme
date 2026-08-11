@@ -2528,6 +2528,53 @@ def test_v2_chat_config_system_prompt_roundtrip_and_clear(client: FlaskClient):
     assert system_prompt not in cleared_system_messages
 
 
+def test_v2_chat_config_patch_preserves_webui_html_hint(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Renaming via config PATCH must not strip the webui HTML hint."""
+    monkeypatch.setenv("GPTME_SERVE_HTML_HINT", "true")
+
+    convname = f"test-server-v2-rename-{random.randint(0, 1000000)}"
+    create_response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Rename/config patch sweep",
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                }
+            ],
+            "config": {"chat": {"name": "before rename"}},
+        },
+    )
+    assert create_response.status_code == 200
+    conversation_id = create_response.get_json()["conversation_id"]
+
+    before = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    before_system_msgs = [m["content"] for m in before["log"] if m["role"] == "system"]
+    assert len(before_system_msgs) == 2
+    assert "Output format: you are in a web interface." in before_system_msgs[1]
+
+    config_payload = client.get(
+        f"/api/v2/conversations/{conversation_id}/config"
+    ).get_json()
+    config_payload["chat"]["name"] = "after rename"
+    patch_response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config",
+        json=config_payload,
+    )
+    assert patch_response.status_code == 200
+
+    after = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    after_system_msgs = [m["content"] for m in after["log"] if m["role"] == "system"]
+    assert after["name"] == "after rename"
+    assert len(after_system_msgs) == len(before_system_msgs)
+    assert "Output format: you are in a web interface." in after_system_msgs[1]
+    assert [m["role"] for m in after["log"]] == [m["role"] for m in before["log"]]
+    assert after["log"][-1]["content"] == "Rename/config patch sweep"
+
+
 def test_v2_chat_config_update_missing_conversation_returns_404(client: FlaskClient):
     """Test that updating config for a missing conversation returns a 404.
 
