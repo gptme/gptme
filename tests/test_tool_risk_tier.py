@@ -284,6 +284,59 @@ def test_sed_with_inplace_is_write() -> None:
     assert result >= RiskTier.WRITE
 
 
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "sed -ni 's/secret//' file.txt",  # -n suppresses, -i writes in-place
+        "sed -in 's/secret//' file.txt",  # same flags, different order
+        "sed -ni '/pattern/d' file.txt",  # deletes matching lines in-place
+    ],
+)
+def test_sed_combined_inplace_flags_are_write(cmd: str) -> None:
+    """sed with combined flags including -i must not be auto-approved as READ."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for sed with in-place flag in combination: {cmd!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "awk '{system(\"rm -f /tmp/evil\")}' input.txt",  # system() executes shell
+        "awk '{print > \"/etc/hosts\"}' data.txt",  # output redirect writes files
+        "awk '{print | \"tee /etc/cron.d/evil\"}' f.txt",  # pipe to shell command
+    ],
+)
+def test_awk_with_side_effects_is_write(cmd: str) -> None:
+    """awk can write files and execute shell — must not be auto-approved as READ."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for awk with side effects: {cmd!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "env rm -rf /tmp/work",  # env runs rm — state-changing
+        "env ls /etc",  # env ls runs ls — but env itself is risky
+        "env VAR=val python3 script.py",  # env runs python3 with modified env
+    ],
+)
+def test_env_running_command_is_write(cmd: str) -> None:
+    """env <cmd> executes cmd with modified environment — not a READ-only operation."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for env running a command: {cmd!r}"
+    )
+
+
+def test_printenv_is_tier1() -> None:
+    """printenv only prints variables — safe READ."""
+    assert classify_tool_risk(_tu("shell", "printenv PATH")) == RiskTier.READ
+
+
 def test_unknown_tool_defaults_to_write() -> None:
     assert classify_tool_risk(_tu("mystery_tool", "content")) == RiskTier.WRITE
 
