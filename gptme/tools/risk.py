@@ -69,8 +69,10 @@ _FIND_MUTATING_FLAGS = re.compile(
     re.IGNORECASE,
 )
 
-# Command separators: splits a shell line into atomic sub-commands
-_SHELL_CMD_SEP = re.compile(r"\s*(?:&&|\|\|?|;)\s*")
+# Command separators: splits a shell line into atomic sub-commands.
+# Includes standalone & (background operator) via negative look-around so it
+# doesn't match >& (output-redirect) or && (and-operator).
+_SHELL_CMD_SEP = re.compile(r"\s*(?:&&|\|\|?|;|(?<![&>])&(?![&\d]))\s*")
 
 # Command/process substitution: $(...), backticks, or <(...) can hide state-changing ops inside a
 # safe outer command.  e.g. `echo $(touch /tmp/created)` or `cat <(rm -rf /tmp/x)` has a safe

