@@ -1129,8 +1129,8 @@ class TestMergeRecovery:
 
         assert new_tag == compute_tag(new_content)
 
-    def test_operational_merge_failure_with_nonempty_stdout(self, tmp_path: Path):
-        """git merge-file returning nonzero + nonempty stderr is reported as an error, not a conflict."""
+    def test_operational_merge_failure_high_exit_code(self, tmp_path: Path):
+        """git merge-file returning exit > 127 is reported as an operational error."""
         from subprocess import CompletedProcess
         from unittest.mock import patch
 
@@ -1142,22 +1142,55 @@ class TestMergeRecovery:
         f.write_text("alpha\nbeta\nextra\n")
         block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
 
-        # Simulate git merge-file writing partial junk to stdout AND an error to stderr.
-        # This is the case Greptile flagged: nonempty stdout was previously classified
-        # as a conflict, discarding the real error from stderr.
+        # Simulate git merge-file exiting with 128 (git internal error — e.g. git not
+        # found at runtime, or repository state corruption).  returncode > 127 is the
+        # reliable signal for an operational failure; conflict counts are 1-127.
         fake_result = CompletedProcess(
             args=["git", "merge-file", "-p"],
-            returncode=1,
-            stdout="partial-garbage-not-a-valid-conflict",
-            stderr="error: corrupt merge output",
+            returncode=128,
+            stdout="",
+            stderr="error: could not read repository",
         )
         with patch("subprocess.run", return_value=fake_result):
             msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
 
         # The error should be surfaced, not silently treated as a merge conflict.
-        assert any(
-            "git merge-file failed" in m or "corrupt merge" in m for m in msgs
-        ), msgs
+        assert any("git merge-file failed" in m or "repository" in m for m in msgs), (
+            msgs
+        )
+
+    def test_conflict_with_stderr_warning_shows_markers(self, tmp_path: Path):
+        """A real conflict that also emits a warning to stderr shows conflict markers, not an error."""
+        from subprocess import CompletedProcess
+        from unittest.mock import patch
+
+        f = tmp_path / "f.txt"
+        original = "alpha\nbeta\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        # Trigger merge-recovery path.
+        f.write_text("alpha\nbeta\nextra\n")
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
+
+        # Simulate git merge-file finding a conflict (returncode=1 = 1 conflict section)
+        # while also writing a warning to stderr.  git CAN do this in edge cases
+        # (e.g. truncation warnings on very large files).  The old code treated any
+        # stderr as an operational failure, which would suppress the conflict markers.
+        conflict_output = "<<<<<<< your edit (via hashline_edit)\nALPHA\n=======\nalpha\n>>>>>>> current file\nbeta\nextra\n"
+        fake_result = CompletedProcess(
+            args=["git", "merge-file", "-p"],
+            returncode=1,
+            stdout=conflict_output,
+            stderr="warning: too many conflicts",
+        )
+        with patch("subprocess.run", return_value=fake_result):
+            msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+
+        # Conflict markers must be shown — not an error about git failing.
+        assert any("conflict" in m.lower() for m in msgs), msgs
+        assert not any("git merge-file failed" in m for m in msgs), msgs
+        # File should be left untouched so the user can resolve.
+        assert f.read_text() == "alpha\nbeta\nextra\n"
 
     def test_edit_confirmation_race_aborts_on_concurrent_change(self, tmp_path: Path):
         """EDIT confirmation path must abort when the live file changes during the dialog."""

@@ -751,14 +751,14 @@ def _try_3way_merge(
             check=False,
         )
         had_conflicts = 0 < result.returncode <= 127
-        if result.returncode != 0 and (
-            result.returncode > 127
-            or not result.stdout.strip()
-            or result.stderr.strip()
+        if result.returncode > 127 or (
+            result.returncode != 0 and not result.stdout.strip()
         ):
-            # returncode > 127, empty stdout, or stderr present with non-zero exit
-            # all indicate an operational error, not a conflict count.  A real
-            # conflict writes markers to stdout only with no stderr.
+            # returncode > 127 → git operational error.
+            # returncode 1-127 with empty stdout → nothing to show, treat as error.
+            # returncode 1-127 with non-empty stdout → real conflict (markers present);
+            # git may write warnings to stderr even for genuine conflicts, so
+            # stderr presence alone is NOT a reliable indicator of operational failure.
             raise ValueError(
                 f"git merge-file failed (exit {result.returncode}): "
                 + (result.stderr.strip() or "no diagnostic available")
