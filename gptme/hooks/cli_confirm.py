@@ -34,6 +34,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 console = Console(log_path=False)
 
+# Risk tier threshold for auto-approval in interactive mode.
+# Calls classified at this tier or below are approved without prompting.
+# Set to RiskTier.READ (1) to auto-approve only read-only operations.
+_AUTO_APPROVE_TIER_MAX = 1  # corresponds to RiskTier.READ
+
 
 # Re-export centralized auto-confirm functions for backward compatibility
 def reset_auto_confirm():
@@ -63,7 +68,19 @@ def cli_confirm_hook(
     - Supports auto-confirm mode
     - Supports editing content before execution
     - Supports copying content to clipboard
+
+    Low-risk (read-only) tool calls are auto-approved without prompting.
     """
+    from ..tools.risk import classify_tool_risk  # fmt: skip
+
+    # Auto-approve read-only tool calls without prompting.
+    # This reduces friction for safe reads (file reads, git status, web search)
+    # that should never block an interactive session.
+    risk = classify_tool_risk(tool_use)
+    if risk <= _AUTO_APPROVE_TIER_MAX:
+        logger.debug(f"Auto-approving read-tier tool: {tool_use.tool}")
+        return ConfirmationResult.confirm()
+
     # Get preview content - use provided preview or generate from tool_use
     content = preview or tool_use.content
     lang = _get_lang_for_tool(tool_use.tool, content)
