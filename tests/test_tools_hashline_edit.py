@@ -1192,6 +1192,57 @@ class TestMergeRecovery:
         # File should be left untouched so the user can resolve.
         assert f.read_text() == "alpha\nbeta\nextra\n"
 
+    def test_git_not_found_raises_informative_error(self, tmp_path: Path):
+        """FileNotFoundError from git being absent surfaces a clear diagnostic, not a traceback."""
+        from unittest.mock import patch
+
+        f = tmp_path / "f.txt"
+        original = "alpha\nbeta\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        # Trigger merge-recovery path by changing the live file.
+        f.write_text("alpha\nbeta\nextra\n")
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
+
+        with patch("subprocess.run", side_effect=FileNotFoundError("git not found")):
+            msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+
+        # Should surface a human-readable message, not a raw traceback.
+        assert any("git" in m.lower() or "read" in m.lower() for m in msgs), msgs
+        # File must be left untouched.
+        assert f.read_text() == "alpha\nbeta\nextra\n"
+
+    def test_signal_killed_git_is_treated_as_error(self, tmp_path: Path):
+        """git merge-file killed by a signal (negative returncode) must not write partial output."""
+        from subprocess import CompletedProcess
+        from unittest.mock import patch
+
+        f = tmp_path / "f.txt"
+        original = "alpha\nbeta\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        # Trigger merge-recovery path by changing the live file.
+        f.write_text("alpha\nbeta\nextra\n")
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
+
+        # Simulate OOM-kill: returncode -9 (SIGKILL), with some partial stdout.
+        # Before the fix, this partial content was written as a "clean" merge.
+        fake_result = CompletedProcess(
+            args=["git", "merge-file", "-p"],
+            returncode=-9,
+            stdout="partial\noutput\n",
+            stderr="",
+        )
+        with patch("subprocess.run", return_value=fake_result):
+            msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+
+        # Must surface an error, not silently write the partial content.
+        assert any(
+            "git merge-file failed" in m or "failed" in m.lower() for m in msgs
+        ), msgs
+        # File must be left untouched.
+        assert f.read_text() == "alpha\nbeta\nextra\n"
+
     def test_edit_confirmation_race_aborts_on_concurrent_change(self, tmp_path: Path):
         """EDIT confirmation path must abort when the live file changes during the dialog."""
         from unittest.mock import patch

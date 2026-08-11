@@ -721,12 +721,14 @@ def _try_3way_merge(
                 mode="w", suffix=".theirs", delete=False, encoding="utf-8"
             ) as f_theirs,
         ):
-            f_ours.write(ours)
-            f_base.write(snapshot_content)
-            f_theirs.write(live_content)
+            # Capture paths before writes so the finally block can clean up even
+            # if a write raises (e.g. OSError: disk full, UnicodeEncodeError).
             ours_path = f_ours.name
             base_path = f_base.name
             theirs_path = f_theirs.name
+            f_ours.write(ours)
+            f_base.write(snapshot_content)
+            f_theirs.write(live_content)
 
         # -p sends output to stdout; return code 0 = no conflicts, 1-127 = conflict
         # count.  Codes > 127 (e.g. 128/255) indicate git operational errors.
@@ -751,9 +753,12 @@ def _try_3way_merge(
             check=False,
         )
         had_conflicts = 0 < result.returncode <= 127
-        if result.returncode > 127 or (
-            result.returncode != 0 and not result.stdout.strip()
+        if (
+            result.returncode < 0
+            or result.returncode > 127
+            or (result.returncode != 0 and not result.stdout.strip())
         ):
+            # returncode < 0   → process killed by signal (OOM, SIGKILL, etc.)
             # returncode > 127 → git operational error.
             # returncode 1-127 with empty stdout → nothing to show, treat as error.
             # returncode 1-127 with non-empty stdout → real conflict (markers present);
