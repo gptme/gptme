@@ -72,12 +72,17 @@ _FIND_MUTATING_FLAGS = re.compile(
 # Command separators: splits a shell line into atomic sub-commands
 _SHELL_CMD_SEP = re.compile(r"\s*(?:&&|\|\|?|;)\s*")
 
-# Command substitution: $(...) or backticks can hide state-changing ops inside a safe outer command.
-# e.g. `echo $(touch /tmp/created)` has a safe prefix but the nested command runs unconditionally.
-_SHELL_CMD_SUBST = re.compile(r"\$\(|`")
+# Command/process substitution: $(...), backticks, or <(...) can hide state-changing ops inside a
+# safe outer command.  e.g. `echo $(touch /tmp/created)` or `cat <(rm -rf /tmp/x)` has a safe
+# prefix but the nested command executes unconditionally.
+_SHELL_CMD_SUBST = re.compile(r"\$\(|`|<\(")
 
 # Leading environment-variable assignments (e.g. TMPDIR=/tmp VAR=val) that precede the actual command.
 _ENV_VAR_PREFIX = re.compile(r"(?:[A-Z_]+=\S+\s+)*")
+
+# Env-var-prefixed git is unsafe: GIT_EXTERNAL_DIFF, GIT_SSH_COMMAND, GIT_EXEC_PATH,
+# GIT_PAGER, GIT_ASKPASS etc. can redirect even "safe" git subcommands to external helpers.
+_ENV_PREFIXED_GIT = re.compile(r"^(?:[A-Z_][A-Z0-9_]*=\S+\s+)+git\b")
 
 # Shell/bash commands whose first token indicates a safe read-only operation
 # We match the start of the command (ignoring leading whitespace and env var assignments)
@@ -164,6 +169,10 @@ def _is_safe_shell_line(line: str) -> bool:
         return False
     for p in parts:
         if not _SAFE_SHELL_CMDS.match(p):
+            return False
+        # env-var-prefixed git: GIT_EXTERNAL_DIFF and similar vars redirect even
+        # safe-looking git subcommands to execute arbitrary external helpers.
+        if _ENV_PREFIXED_GIT.match(p.lstrip()):
             return False
         # `find` is in the safe-prefix list for plain queries, but certain flags
         # make it state-changing: -delete removes files, -exec/-execdir/-ok/-okdir

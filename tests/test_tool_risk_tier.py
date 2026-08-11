@@ -456,6 +456,38 @@ def test_openssl_output_and_sign_options_are_not_tier1(cmd: str) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "cat <(touch /tmp/created)",  # safe outer prefix, destructive nested cmd
+        "grep pattern <(rm -rf /tmp/work)",  # grep outer, destructive inside <()
+        "diff <(cat file1) <(rm file2)",  # second substitution is destructive
+        "echo <(bash /tmp/payload.sh)",  # arbitrary script via process sub
+    ],
+)
+def test_shell_process_substitution_is_not_tier1(cmd: str) -> None:
+    """Commands with <(...) Bash process substitution must not be auto-approved as READ."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for process substitution: {cmd!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "GIT_EXTERNAL_DIFF=/path/to/helper git diff",  # launches external helper
+        "GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git fetch",  # SSH override
+        "GIT_EXEC_PATH=/tmp/evil git status",  # overrides git executable search path
+        "GIT_PAGER=evil_pager git log",  # pager executes arbitrary command
+    ],
+)
+def test_env_prefixed_git_is_not_tier1(cmd: str) -> None:
+    """Env-var-prefixed git is unsafe: GIT_EXTERNAL_DIFF etc. redirect git to arbitrary helpers."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, f"Expected ≥WRITE for env-prefixed git: {cmd!r}"
+
+
 # ── RiskTier ordering ──────────────────────────────────────────────────────────
 
 
