@@ -57,6 +57,13 @@ _DESTRUCTIVE_TOOLS = frozenset(
     }
 )
 
+# Output redirection that writes to a file (> or >>, but not >&2/>&1/>>>)
+# Conservative: > /dev/null is also flagged; that's rare in genuine read-only work.
+_SHELL_WRITE_REDIRECT = re.compile(r"(?<![<>|&])>{1,2}(?![>&])")
+
+# Command separators: splits a shell line into atomic sub-commands
+_SHELL_CMD_SEP = re.compile(r"\s*(?:&&|\|\|?|;)\s*")
+
 # Shell/bash commands whose first token indicates a safe read-only operation
 # We match the start of the command (ignoring leading whitespace and env var assignments)
 _SAFE_SHELL_CMDS = re.compile(
@@ -123,6 +130,23 @@ _DESTRUCTIVE_SHELL_PATTERNS = re.compile(
 )
 
 
+def _is_safe_shell_line(line: str) -> bool:
+    """Return True only if every sub-command in *line* is a safe READ-tier op.
+
+    A line is unsafe if it contains output redirection (> or >>) or if any
+    sub-command obtained by splitting on |, ;, &&, || doesn't match the
+    safe-command prefix list.  Splitting on | catches pipe-to-write cases like
+    ``cat file | tee /tmp/out`` without blocking safe pipe chains like
+    ``grep foo | head -10``.
+    """
+    # Output redirection always produces write side-effects
+    if _SHELL_WRITE_REDIRECT.search(line):
+        return False
+    # Split into sub-commands and validate each one
+    parts = [p.strip() for p in _SHELL_CMD_SEP.split(line) if p.strip()]
+    return bool(parts) and all(_SAFE_SHELL_CMDS.match(p) for p in parts)
+
+
 def classify_tool_risk(tool_use: ToolUse) -> RiskTier:
     """Classify the risk tier of a tool use.
 
@@ -173,7 +197,7 @@ def classify_tool_risk(tool_use: ToolUse) -> RiskTier:
             for ln in content.splitlines()
             if ln.strip() and not ln.strip().startswith("#")
         ]
-        if lines and all(_SAFE_SHELL_CMDS.match(ln) for ln in lines):
+        if lines and all(_is_safe_shell_line(ln) for ln in lines):
             return RiskTier.READ
         return RiskTier.WRITE
 

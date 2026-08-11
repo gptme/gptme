@@ -139,6 +139,42 @@ def test_shell_destructive_ops_are_tier3(cmd: str) -> None:
     )
 
 
+# ── Redirection / chaining bypass prevention (Greptile finding) ───────────────
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "cat /etc/passwd > /tmp/stolen",  # safe prefix, write redirect
+        "echo hello > /tmp/out",  # echo with redirect
+        "cat file >> /tmp/log",  # append redirect
+        "grep pattern src/ > /tmp/results",  # grep with redirect
+        "ls | tee /tmp/listing",  # pipe to tee (writes file)
+        "cat file | tee -a /tmp/log",  # tee append
+    ],
+)
+def test_shell_redirect_or_pipe_write_is_not_tier1(cmd: str) -> None:
+    """Commands with write redirections or pipe-to-write must not be auto-approved."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, f"Expected ≥WRITE for redirect/pipe-write: {cmd!r}"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "grep foo | head -10",  # safe pipe chain
+        "cat file | wc -l",  # safe pipe chain
+        "git log | grep pattern",  # safe pipe chain
+        "ls | grep pattern",  # safe pipe chain
+    ],
+)
+def test_shell_safe_pipe_chains_are_tier1(cmd: str) -> None:
+    """Piped chains where every part is safe should still be READ."""
+    assert classify_tool_risk(_tu("shell", cmd)) == RiskTier.READ, (
+        f"Expected READ for safe pipe chain: {cmd!r}"
+    )
+
+
 # ── Edge cases ─────────────────────────────────────────────────────────────────
 
 
