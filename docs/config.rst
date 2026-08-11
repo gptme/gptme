@@ -360,6 +360,7 @@ Besides the configuration files, gptme supports several environment variables to
 
 .. rubric:: Browser Configuration
 
+- ``TAVILY_API_KEY`` - Optional Tavily Search API key. When configured, Tavily is available as a search backend and automatic fallback after Perplexity, before browser scraping.
 - ``GPTME_BROWSER_CDP_URL`` - Connect the Playwright browser backend to an existing Chromium-compatible browser over Chrome DevTools Protocol instead of launching Playwright's bundled Chromium. Example: ``http://127.0.0.1:9222``. Start Chrome/Chromium with ``--remote-debugging-port=9222`` to enable this.
 
 .. rubric:: Paths

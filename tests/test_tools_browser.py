@@ -159,18 +159,21 @@ class TestAvailableSearchEngines:
         assert "google" in engines
 
     @patch("gptme.tools.browser.has_perplexity", False)
+    @patch("gptme.tools.browser.has_tavily", False)
     @patch("gptme.tools.browser.browser", None)
     def test_none_available(self):
         engines = _available_search_engines()
         assert len(engines) == 0
 
     @patch("gptme.tools.browser.has_perplexity", False)
+    @patch("gptme.tools.browser.has_tavily", False)
     @patch("gptme.tools.browser.browser", "playwright")
     def test_playwright_only(self):
         engines = _available_search_engines()
         assert engines == ["google"]
 
     @patch("gptme.tools.browser.has_perplexity", False)
+    @patch("gptme.tools.browser.has_tavily", False)
     @patch("gptme.tools.browser.browser", "lynx")
     def test_lynx_only(self):
         engines = _available_search_engines()
@@ -178,28 +181,38 @@ class TestAvailableSearchEngines:
         assert "duckduckgo" in engines
 
     @patch("gptme.tools.browser.has_perplexity", True)
+    @patch("gptme.tools.browser.has_tavily", False)
     @patch("gptme.tools.browser.browser", None)
     def test_perplexity_only(self):
         engines = _available_search_engines()
         assert engines == ["perplexity"]
 
     @patch("gptme.tools.browser.has_perplexity", True)
+    @patch("gptme.tools.browser.has_tavily", True)
     @patch("gptme.tools.browser.browser", "playwright")
-    def test_perplexity_first(self):
-        """Perplexity should always be first (preferred)."""
+    def test_perplexity_before_tavily(self):
+        """Perplexity should remain the preferred search backend."""
         engines = _available_search_engines()
-        assert engines[0] == "perplexity"
+        assert engines == ["perplexity", "tavily", "google"]
+
+    @patch("gptme.tools.browser.has_perplexity", False)
+    @patch("gptme.tools.browser.has_tavily", True)
+    @patch("gptme.tools.browser.browser", None)
+    def test_tavily_only(self):
+        assert _available_search_engines() == ["tavily"]
 
 
 class TestAvailableSearchEnginesText:
     """Tests for _available_search_engines_text — display text for available engines."""
 
     @patch("gptme.tools.browser.has_perplexity", False)
+    @patch("gptme.tools.browser.has_tavily", False)
     @patch("gptme.tools.browser.browser", None)
     def test_none_available(self):
         assert _available_search_engines_text() == "none"
 
     @patch("gptme.tools.browser.has_perplexity", True)
+    @patch("gptme.tools.browser.has_tavily", False)
     @patch("gptme.tools.browser.browser", "playwright")
     def test_multiple_available(self):
         result = _available_search_engines_text()
@@ -226,6 +239,20 @@ class TestSearchWithEngine:
         mock_search.return_value = "perplexity results"
         result = _search_with_engine("query", "perplexity")
         assert result == "perplexity results"
+        mock_search.assert_called_once_with("query")
+
+    @patch("gptme.tools.browser.has_tavily", False)
+    def test_tavily_unavailable(self):
+        result = _search_with_engine("query", "tavily")
+        assert result.startswith("Error:")
+        assert "TAVILY_API_KEY" in result
+
+    @patch("gptme.tools.browser.has_tavily", True)
+    @patch("gptme.tools.browser.search_tavily")
+    def test_tavily_available(self, mock_search):
+        mock_search.return_value = "tavily results"
+        result = _search_with_engine("query", "tavily")
+        assert result == "tavily results"
         mock_search.assert_called_once_with("query")
 
     @patch("gptme.tools.browser.browser", None)

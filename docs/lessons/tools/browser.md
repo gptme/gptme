@@ -15,7 +15,7 @@ Use browser capabilities to read web pages, PDFs, search, and take screenshots.
 read_url(url: str) -> str
 
 # Search for information
-search(query: str, engine: Literal["google", "duckduckgo", "perplexity"]) -> str
+search(query: str, engine: Literal["google", "duckduckgo", "perplexity", "tavily"]) -> str
 
 # Take a screenshot of a webpage
 screenshot_url(url: str, path: Optional[Path]) -> Path
@@ -53,6 +53,15 @@ search("latest developments in LLM agents", "perplexity")
 - `OPENROUTER_API_KEY` - Uses Perplexity via OpenRouter (model: `perplexity/sonar-pro`)
 
 If both keys are available, PERPLEXITY_API_KEY takes precedence.
+
+### Using Tavily for Search
+```python
+# Get structured web results with source URLs and content snippets
+search("latest developments in LLM agents", "tavily")
+```
+
+**Note**: Tavily search requires ``TAVILY_API_KEY``. When configured, it is
+available as an automatic fallback after Perplexity and before browser scraping.
 
 ### Taking Screenshots
 ```python

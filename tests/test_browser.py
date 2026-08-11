@@ -92,6 +92,7 @@ def test_pdf_url_detection():
 
 def test_search_auto_selects_perplexity(monkeypatch):
     monkeypatch.setattr("gptme.tools.browser.has_perplexity", True)
+    monkeypatch.setattr("gptme.tools.browser.has_tavily", False)
     monkeypatch.setattr("gptme.tools.browser.browser", None)
     mock = Mock(return_value="perplexity ok")
     monkeypatch.setattr("gptme.tools.browser.search_perplexity", mock)
@@ -104,6 +105,7 @@ def test_search_auto_selects_perplexity(monkeypatch):
 
 def test_search_falls_back_after_failure(monkeypatch):
     monkeypatch.setattr("gptme.tools.browser.has_perplexity", True)
+    monkeypatch.setattr("gptme.tools.browser.has_tavily", False)
     monkeypatch.setattr("gptme.tools.browser.browser", "lynx")
     monkeypatch.setattr(
         "gptme.tools.browser.search_perplexity",
@@ -120,6 +122,7 @@ def test_search_falls_back_after_failure(monkeypatch):
 
 def test_search_rejects_unavailable_engine(monkeypatch):
     monkeypatch.setattr("gptme.tools.browser.has_perplexity", False)
+    monkeypatch.setattr("gptme.tools.browser.has_tavily", False)
     monkeypatch.setattr("gptme.tools.browser.browser", "lynx")
 
     result = search("query", "perplexity")
@@ -132,6 +135,7 @@ def test_search_rejects_unavailable_engine(monkeypatch):
 
 def test_search_reports_all_failures(monkeypatch):
     monkeypatch.setattr("gptme.tools.browser.has_perplexity", True)
+    monkeypatch.setattr("gptme.tools.browser.has_tavily", False)
     monkeypatch.setattr("gptme.tools.browser.browser", "lynx")
     monkeypatch.setattr(
         "gptme.tools.browser.search_perplexity",
@@ -155,6 +159,7 @@ def test_search_reports_all_failures(monkeypatch):
 
 def test_search_reports_requested_engine_failure(monkeypatch):
     monkeypatch.setattr("gptme.tools.browser.has_perplexity", False)
+    monkeypatch.setattr("gptme.tools.browser.has_tavily", False)
     monkeypatch.setattr("gptme.tools.browser.browser", "lynx")
     monkeypatch.setattr(
         "gptme.tools.browser.search_lynx",
@@ -172,6 +177,7 @@ def test_search_reports_requested_engine_failure(monkeypatch):
 
 def test_search_continues_after_backend_exception(monkeypatch):
     monkeypatch.setattr("gptme.tools.browser.has_perplexity", True)
+    monkeypatch.setattr("gptme.tools.browser.has_tavily", False)
     monkeypatch.setattr("gptme.tools.browser.browser", "lynx")
     monkeypatch.setattr(
         "gptme.tools.browser.search_perplexity",
@@ -192,6 +198,7 @@ def test_search_continues_after_backend_exception(monkeypatch):
 
 def test_available_search_engines_prioritize_perplexity(monkeypatch):
     monkeypatch.setattr("gptme.tools.browser.has_perplexity", True)
+    monkeypatch.setattr("gptme.tools.browser.has_tavily", False)
     monkeypatch.setattr("gptme.tools.browser.browser", "lynx")
 
     assert _available_search_engines() == ["perplexity", "google", "duckduckgo"]
