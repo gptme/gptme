@@ -84,8 +84,8 @@ def cli_confirm_hook(
     risk = classify_tool_risk(tool_use)
     if risk <= _AUTO_APPROVE_TIER_MAX:
         logger.debug(f"Auto-approving read-tier tool: {tool_use.tool}")
-        if content:
-            print_preview(content, lang, copy=bool(content))
+        preview_content = content or tool_use.tool
+        print_preview(preview_content, lang, copy=bool(content))
         return ConfirmationResult.confirm()
 
     # Determine if content is editable/copiable

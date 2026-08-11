@@ -193,6 +193,17 @@ def test_read_tier_auto_approval_still_shows_preview(confirm_spy: dict) -> None:
     assert confirm_spy["previews"] == ["cat ~/.ssh/config"]
 
 
+def test_contentless_read_tier_auto_approval_still_shows_preview(
+    confirm_spy: dict,
+) -> None:
+    """Contentless READ-tier calls still show the tool name before approval."""
+    from gptme.hooks.cli_confirm import cli_confirm_hook
+
+    cli_confirm_hook(_tu("screenshot"))
+
+    assert confirm_spy["previews"] == ["screenshot"]
+
+
 @pytest.mark.parametrize(
     ("tool", "content"),
     [
