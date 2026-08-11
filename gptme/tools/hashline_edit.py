@@ -731,7 +731,20 @@ def _try_3way_merge(
         # -p sends output to stdout; return code 0 = no conflicts, 1-127 = conflict
         # count.  Codes > 127 (e.g. 128/255) indicate git operational errors.
         result = subprocess.run(
-            ["git", "merge-file", "-p", ours_path, base_path, theirs_path],
+            [
+                "git",
+                "merge-file",
+                "-p",
+                "-L",
+                "your edit (via hashline_edit)",
+                "-L",
+                "original snapshot",
+                "-L",
+                "current file",
+                ours_path,
+                base_path,
+                theirs_path,
+            ],
             capture_output=True,
             text=True,
             encoding="utf-8",
