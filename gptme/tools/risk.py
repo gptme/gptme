@@ -14,7 +14,6 @@ data accumulates.
 
 from __future__ import annotations
 
-import re
 from enum import IntEnum
 from typing import TYPE_CHECKING
 
@@ -73,8 +72,11 @@ def classify_tool_risk(tool_use: ToolUse) -> RiskTier:
         RiskTier.WRITE for state-modifying but reversible operations.
         RiskTier.DESTRUCTIVE for hard-to-reverse or external write operations.
     """
+    # Classification is deliberately name-based only. Content-based heuristics
+    # were tried for shell and browser and removed: an allowlist that reads
+    # arbitrary command/URL text is trivially bypassable, and a bypass here
+    # means silently skipping the confirmation prompt.
     tool = tool_use.tool
-    content = tool_use.content or ""
 
     # Always-read tools
     if tool in _READ_ONLY_TOOLS:
@@ -93,13 +95,13 @@ def classify_tool_risk(tool_use: ToolUse) -> RiskTier:
     if tool in ("python", "ipython"):
         return RiskTier.WRITE
 
-    # Browser — reads by default; posting/submitting is write
+    # Browser — always WRITE. A URL is arbitrary, so no keyword heuristic can
+    # tell a read from a write: GET requests trigger side effects
+    # (`/delete?confirm=yes`), and any navigation is an egress channel that can
+    # exfiltrate context via query parameters. Same reasoning that keeps
+    # shell/bash out of READ below.
     if tool == "browser":
-        if re.search(
-            r"\b(?:submit|click|fill|type|press|post)\b", content, re.IGNORECASE
-        ):
-            return RiskTier.WRITE
-        return RiskTier.READ
+        return RiskTier.WRITE
 
     # Shell/bash — always WRITE; shell_allowlist_hook handles the safe-read
     # short-circuit for specific allowlisted commands before this tier check runs.
