@@ -779,7 +779,10 @@ def _try_3way_merge(
     finally:
         for p in [ours_path, base_path, theirs_path]:
             if p is not None:
-                Path(p).unlink(missing_ok=True)
+                try:
+                    Path(p).unlink(missing_ok=True)
+                except OSError:
+                    pass  # best-effort cleanup; never let cleanup suppress the real result
 
 
 def execute_hashline_edit(
