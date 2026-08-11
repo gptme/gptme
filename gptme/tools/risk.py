@@ -72,6 +72,10 @@ _FIND_MUTATING_FLAGS = re.compile(
 # Command separators: splits a shell line into atomic sub-commands
 _SHELL_CMD_SEP = re.compile(r"\s*(?:&&|\|\|?|;)\s*")
 
+# Command substitution: $(...) or backticks can hide state-changing ops inside a safe outer command.
+# e.g. `echo $(touch /tmp/created)` has a safe prefix but the nested command runs unconditionally.
+_SHELL_CMD_SUBST = re.compile(r"\$\(|`")
+
 # Shell/bash commands whose first token indicates a safe read-only operation
 # We match the start of the command (ignoring leading whitespace and env var assignments)
 _SAFE_SHELL_CMDS = re.compile(
@@ -149,6 +153,11 @@ def _is_safe_shell_line(line: str) -> bool:
     """
     # Output redirection always produces write side-effects
     if _SHELL_WRITE_REDIRECT.search(line):
+        return False
+    # Command substitution ($(...) or backticks) can hide state-changing ops inside a
+    # safe-looking outer command: e.g. `echo $(touch /tmp/created)` passes the `echo`
+    # prefix check but the nested command executes unconditionally.
+    if _SHELL_CMD_SUBST.search(line):
         return False
     # Split into sub-commands and validate each one
     parts = [p.strip() for p in _SHELL_CMD_SEP.split(line) if p.strip()]

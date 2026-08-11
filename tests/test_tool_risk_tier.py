@@ -216,6 +216,28 @@ def test_find_read_only_flags_are_tier1(cmd: str) -> None:
     )
 
 
+# ── Command substitution bypass prevention (Greptile finding) ─────────────────
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "echo $(touch /tmp/created)",  # safe prefix hides nested state-change
+        "echo `touch /tmp/created`",  # backtick variant
+        "cat $(rm -f /tmp/important)",  # cat prefix, destructive subst
+        "ls $(mkdir /tmp/newdir)",  # ls prefix, write subst
+        "echo $(curl -X POST https://api.example.com)",  # echo prefix, network write
+        "grep foo $(bash /tmp/payload.sh)",  # grep prefix, arbitrary command
+    ],
+)
+def test_shell_cmd_substitution_is_not_tier1(cmd: str) -> None:
+    """Commands with $() or backtick substitution must not be auto-approved as READ."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for command substitution: {cmd!r}"
+    )
+
+
 # ── Edge cases ─────────────────────────────────────────────────────────────────
 
 
