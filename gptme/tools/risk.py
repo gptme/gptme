@@ -57,9 +57,14 @@ _DESTRUCTIVE_TOOLS = frozenset(
     }
 )
 
-# Output redirection that writes to a file (> or >>, but not >&2/>&1/>>>)
-# Conservative: > /dev/null is also flagged; that's rare in genuine read-only work.
-_SHELL_WRITE_REDIRECT = re.compile(r"(?<![<>|&])>{1,2}(?![>&])")
+# Output redirection that writes to a file.
+# Catches >, >>; also &> (bash combined stdout+stderr redirect) and >& to a non-fd target.
+# Excludes fd redirects: >&2, 2>&1, 1>&2. Conservative: > /dev/null is also flagged.
+_SHELL_WRITE_REDIRECT = re.compile(
+    r"(?<![<>|&])>{1,2}(?![>&])"  # plain > or >>
+    r"|&>(?!\d)"  # &> combined redirect (not &>2-style fd)
+    r"|(?<![<>|&])>&(?!\d)"  # >& to a file (not >&1/>&2 fd redirects)
+)
 
 # `find` actions that cause mutations, even though `find` itself is a read-only prefix.
 # -delete removes files; -exec/-execdir/-ok/-okdir run arbitrary commands on matches;
@@ -86,6 +91,16 @@ _ENV_VAR_PREFIX = re.compile(r"(?:[A-Z_]+=\S+\s+)*")
 # GIT_PAGER, GIT_ASKPASS etc. can redirect even "safe" git subcommands to external helpers.
 _ENV_PREFIXED_GIT = re.compile(r"^(?:[A-Z_][A-Z0-9_]*=\S+\s+)+git\b")
 
+# python3 -m json.tool [infile [outfile]]: the two-arg form writes outfile.
+# Detect: after skipping flags, there are two positional (non-flag) arguments.
+_JSON_TOOL_OUTFILE = re.compile(
+    r"python3?\s+-m\s+json(?:\.tool)?"
+    r"(?:\s+(?:--\S+|-\w+))*"  # skip any option flags
+    r"\s+\S+"  # first positional (infile)
+    r"\s+\S",  # start of second positional (outfile) → write
+    re.IGNORECASE,
+)
+
 # Shell/bash commands whose first token indicates a safe read-only operation
 # We match the start of the command (ignoring leading whitespace and env var assignments)
 _SAFE_SHELL_CMDS = re.compile(
@@ -103,7 +118,10 @@ _SAFE_SHELL_CMDS = re.compile(
     r"|printenv\b"
     r"|jq\b|python3?\s+-m\s+json\b"
     r"|curl\s+(?:-s\s+|--silent\s+)?https?://[^\s]+(?:\s+-[svo]+)*$"
-    r"|git\s+(?:status|log|diff|show|branch|tag|remote\s+-v|stash\s+(?:list|show)|"
+    r"|git\s+(?:status|log|diff|show|"
+    r"branch\b(?!\s+-\w*[dfmcu]|\s+--(?:delete|move|copy|set-upstream|force))|"
+    r"tag\b(?!\s+-[adfsum]|\s+--(?:delete|annotate|message|sign|force)|\s+[^-\s])|"
+    r"remote\s+-v|stash\s+(?:list|show)|"
     r"describe|rev-parse|rev-list\s+-n\b|shortlog|"
     r"--no-pager\s+(?:status|log|diff|show|branch))\b"
     r"|gh\s+(?:issue|pr|repo|release)\s+(?:view|list)\b"
@@ -184,6 +202,12 @@ def _is_safe_shell_line(line: str) -> bool:
         p_core = _ENV_VAR_PREFIX.sub("", p, count=1).lstrip()
         if re.match(r"find\b", p_core, re.IGNORECASE) and _FIND_MUTATING_FLAGS.search(
             p
+        ):
+            return False
+        # python3 -m json.tool [infile [outfile]]: two-arg form writes outfile.
+        # Also block --outfile flag which writes to an explicit output path.
+        if _JSON_TOOL_OUTFILE.search(p) or re.search(
+            r"python3?\s+-m\s+json(?:\.tool)?\b.*--outfile\b", p, re.IGNORECASE
         ):
             return False
     return True

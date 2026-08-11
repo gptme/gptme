@@ -516,3 +516,151 @@ def test_risk_tier_comparison_with_int() -> None:
     assert RiskTier.READ <= 1
     assert RiskTier.WRITE > 1
     assert RiskTier.DESTRUCTIVE > 1
+
+
+# ── &> and >& combined-redirect bypass prevention (bob-ai-review finding) ────
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "echo hi &> /tmp/out",  # bash combined stdout+stderr redirect to file
+        "echo hi &>/tmp/out",  # no space — still a write
+        "cat file &> /tmp/captured",  # &> with safe prefix
+        "echo hi >& /tmp/out",  # >& to a non-fd path writes the file
+        "echo hi >&/tmp/out",  # >& without space — still a write
+    ],
+)
+def test_shell_combined_redirect_is_not_tier1(cmd: str) -> None:
+    """&> and >& bash redirections that write to files must not be auto-approved."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, f"Expected ≥WRITE for combined redirect: {cmd!r}"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "echo hi >&2",  # redirect stdout to stderr fd — safe, no file write
+        "echo hi 1>&2",  # explicit fd form — safe
+        "cat file 2>&1",  # redirect stderr to stdout — safe
+    ],
+)
+def test_shell_fd_redirect_is_tier1(cmd: str) -> None:
+    """fd redirections like >&2 and 2>&1 must remain READ-tier (no file write)."""
+    assert classify_tool_risk(_tu("shell", cmd)) == RiskTier.READ, (
+        f"Expected READ for fd redirect: {cmd!r}"
+    )
+
+
+# ── git branch/tag mutating-flag bypass (bob-ai-review finding) ──────────────
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git branch -D feature",  # force-delete branch
+        "git branch -d merged-branch",  # delete merged branch
+        "git branch -m old new",  # rename branch
+        "git branch -M old new",  # force-rename branch
+        "git branch -c old new",  # copy branch
+        "git branch -C old new",  # force-copy branch
+        "git branch -u origin/main",  # set upstream
+        "git branch -f master HEAD",  # force-move branch
+        "git branch --delete feature",  # long form delete
+        "git branch --move old new",  # long form rename
+        "git branch --copy old new",  # long form copy
+        "git branch --set-upstream-to=origin/main main",  # set upstream long
+    ],
+)
+def test_git_branch_mutating_flags_are_not_tier1(cmd: str) -> None:
+    """git branch with delete/rename/copy/upstream flags must not be auto-approved."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, f"Expected ≥WRITE for mutating git branch: {cmd!r}"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git branch -a",  # list all branches
+        "git branch -r",  # list remote branches
+        "git branch -v",  # verbose list
+        "git branch -vv",  # extra verbose list
+        "git branch --list",  # explicit list
+        "git branch",  # bare — lists local branches
+    ],
+)
+def test_git_branch_list_forms_are_tier1(cmd: str) -> None:
+    """git branch in list-only mode must remain READ-tier."""
+    assert classify_tool_risk(_tu("shell", cmd)) == RiskTier.READ, (
+        f"Expected READ for list-mode git branch: {cmd!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git tag v1.0",  # creates lightweight tag
+        "git tag -a v1.0 -m 'release'",  # annotated tag
+        "git tag -d v1.0",  # delete tag
+        "git tag -f v1.0",  # force-create/overwrite tag
+        "git tag -m 'msg' v1.0",  # tag with inline message
+        "git tag --delete v1.0",  # long form delete
+        "git tag --annotate v1.0",  # long form annotate
+    ],
+)
+def test_git_tag_mutating_forms_are_not_tier1(cmd: str) -> None:
+    """git tag operations that create/delete/modify tags must not be auto-approved."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, f"Expected ≥WRITE for mutating git tag: {cmd!r}"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git tag",  # bare — lists all tags
+        "git tag -l",  # explicit list
+        "git tag --list",  # long form list
+        "git tag -l 'v1.*'",  # list with glob filter
+    ],
+)
+def test_git_tag_list_forms_are_tier1(cmd: str) -> None:
+    """git tag in list-only mode must remain READ-tier."""
+    assert classify_tool_risk(_tu("shell", cmd)) == RiskTier.READ, (
+        f"Expected READ for list-mode git tag: {cmd!r}"
+    )
+
+
+# ── python3 -m json.tool outfile bypass (bob-ai-review finding) ──────────────
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "python3 -m json.tool data.json output.json",  # two positional args
+        "python3 -m json.tool infile outfile",  # generic two-arg form
+        "python3 -m json.tool --outfile output.json",  # explicit outfile flag
+        "python3 -m json.tool --outfile out.json data.json",  # --outfile + infile
+        "python3 -m json.tool --indent 4 data.json output.json",  # flag + two positionals
+    ],
+)
+def test_json_tool_with_outfile_is_not_tier1(cmd: str) -> None:
+    """python3 -m json.tool with an outfile argument writes a file — not READ-safe."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for json.tool with outfile: {cmd!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "python3 -m json.tool",  # reads stdin, writes to stdout only
+        "python3 -m json.tool data.json",  # reads file, writes to stdout only
+        "cat data.json | python3 -m json.tool",  # piped, json.tool alone is safe
+    ],
+)
+def test_json_tool_read_forms_are_tier1(cmd: str) -> None:
+    """python3 -m json.tool without an outfile must remain READ-tier."""
+    assert classify_tool_risk(_tu("shell", cmd)) == RiskTier.READ, (
+        f"Expected READ for read-only json.tool: {cmd!r}"
+    )
