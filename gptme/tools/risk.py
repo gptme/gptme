@@ -88,7 +88,6 @@ _SAFE_SHELL_CMDS = re.compile(
     r"|ls\b|ll\b|la\b|exa\b|eza\b"
     r"|pwd\b|echo\b|printf\b"
     r"|grep\b|rg\b|ripgrep\b|ag\b|ack\b"
-    r"|sed\b(?!(?:\s+-[a-zA-Z]*i[a-zA-Z]*|\s+--in-place))"  # sed without -i in any flag combo
     r"|wc\b|diff\b|colordiff\b"
     r"|find\b|locate\b|which\b|type\b|command\s+-v\b"
     r"|file\b|stat\b|du\b(?!\s+--delete|\s+-d\s+\S*d)"
@@ -96,7 +95,6 @@ _SAFE_SHELL_CMDS = re.compile(
     r"|ps\b|pgrep\b|jobs\b"
     r"|printenv\b"
     r"|jq\b|python3?\s+-m\s+json\b"
-    r"|openssl\s+(?:x509|verify|dgst)\b"
     r"|curl\s+(?:-s\s+|--silent\s+)?https?://[^\s]+(?:\s+-[svo]+)*$"
     r"|git\s+(?:status|log|diff|show|branch|tag|remote\s+-v|stash\s+(?:list|show)|"
     r"describe|rev-parse|rev-list\s+-n\b|shortlog|"

@@ -271,10 +271,18 @@ def test_rm_without_force_flag_is_write() -> None:
     assert result in (RiskTier.WRITE, RiskTier.DESTRUCTIVE)  # acceptable either way
 
 
-def test_sed_without_inplace_is_tier1() -> None:
-    """sed without -i should be read-only (prints to stdout)."""
+def test_sed_without_inplace_is_at_least_write() -> None:
+    """sed can write files via 'w' and execute commands via 'e' — not safe to auto-approve.
+
+    Even without -i, sed scripts can write files (w/W commands) or execute shell
+    commands (e command). Removed from safe-prefix list; use grep/cat for read-only
+    text processing.
+    """
     cmd = "sed 's/old/new/' file.txt"
-    assert classify_tool_risk(_tu("shell", cmd)) == RiskTier.READ
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for sed (removed from allowlist): {cmd!r}"
+    )
 
 
 def test_sed_with_inplace_is_write() -> None:
@@ -401,6 +409,51 @@ def test_wget_q_file_download_is_not_tier1(cmd: str) -> None:
     """wget -q still writes downloaded content to disk — not a READ-only operation."""
     result = classify_tool_risk(_tu("shell", cmd))
     assert result >= RiskTier.WRITE, f"Expected ≥WRITE for wget file download: {cmd!r}"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "sed 'w /tmp/output.txt' input.txt",  # w command writes matched lines to file
+        "sed -n '/pattern/w /tmp/matches.txt' input.txt",  # -n + w command writes
+        "sed -e 'e touch /tmp/created' input.txt",  # e command executes shell cmd
+        "sed -e 'e' input.txt",  # e with no arg executes current pattern space
+        "sed '1e cat /etc/passwd' input.txt",  # address + e command
+    ],
+)
+def test_sed_script_write_exec_commands_are_not_tier1(cmd: str) -> None:
+    """sed w/e script commands write files or execute shell — not safe to auto-approve.
+
+    These bypass the old -i flag check. sed is now removed from the safe-prefix
+    allowlist entirely to prevent this class of bypass.
+    """
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for sed with write/exec script command: {cmd!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "openssl x509 -out cert.pem -in cert.der",  # writes certificate to file
+        "openssl dgst -sign key.pem -out sig.bin data.txt",  # signs and writes
+        "openssl dgst -hmac secret -sha256 data.txt",  # HMAC uses secret key
+        "openssl x509 -signkey key.pem -in csr.pem",  # signing with private key
+        "openssl x509 -in cert.pem -text",  # was formerly READ — now conservatively WRITE
+        "openssl verify cert.pem",  # was formerly READ — now conservatively WRITE
+    ],
+)
+def test_openssl_output_and_sign_options_are_not_tier1(cmd: str) -> None:
+    """openssl -out/-sign/-signkey write files or perform signing — not safe to auto-approve.
+
+    The -out and -sign/-signkey options bypass the old subcommand allowlist. openssl
+    is now removed from the safe-prefix allowlist to prevent this class of bypass.
+    """
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for openssl with output/signing option: {cmd!r}"
+    )
 
 
 # ── RiskTier ordering ──────────────────────────────────────────────────────────
