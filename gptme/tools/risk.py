@@ -61,6 +61,14 @@ _DESTRUCTIVE_TOOLS = frozenset(
 # Conservative: > /dev/null is also flagged; that's rare in genuine read-only work.
 _SHELL_WRITE_REDIRECT = re.compile(r"(?<![<>|&])>{1,2}(?![>&])")
 
+# `find` actions that cause mutations, even though `find` itself is a read-only prefix.
+# -delete removes files; -exec/-execdir/-ok/-okdir run arbitrary commands on matches;
+# -fls/-fprint/-fprint0/-fprintf write to a file.
+_FIND_MUTATING_FLAGS = re.compile(
+    r"\s+-(?:delete|exec(?:dir)?|ok(?:dir)?|fls\b|fprint[02]?\b|fprintf\b)",
+    re.IGNORECASE,
+)
+
 # Command separators: splits a shell line into atomic sub-commands
 _SHELL_CMD_SEP = re.compile(r"\s*(?:&&|\|\|?|;)\s*")
 
@@ -144,7 +152,17 @@ def _is_safe_shell_line(line: str) -> bool:
         return False
     # Split into sub-commands and validate each one
     parts = [p.strip() for p in _SHELL_CMD_SEP.split(line) if p.strip()]
-    return bool(parts) and all(_SAFE_SHELL_CMDS.match(p) for p in parts)
+    if not parts:
+        return False
+    for p in parts:
+        if not _SAFE_SHELL_CMDS.match(p):
+            return False
+        # `find` is in the safe-prefix list for plain queries, but certain flags
+        # make it state-changing: -delete removes files, -exec/-execdir/-ok/-okdir
+        # run arbitrary commands, -fls/-fprint* write to a file.
+        if re.match(r"find\b", p, re.IGNORECASE) and _FIND_MUTATING_FLAGS.search(p):
+            return False
+    return True
 
 
 def classify_tool_risk(tool_use: ToolUse) -> RiskTier:

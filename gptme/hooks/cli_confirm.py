@@ -73,17 +73,20 @@ def cli_confirm_hook(
     """
     from ..tools.risk import classify_tool_risk  # fmt: skip
 
-    # Auto-approve read-only tool calls without prompting.
-    # This reduces friction for safe reads (file reads, git status, web search)
-    # that should never block an interactive session.
-    risk = classify_tool_risk(tool_use)
-    if risk <= _AUTO_APPROVE_TIER_MAX:
-        logger.debug(f"Auto-approving read-tier tool: {tool_use.tool}")
-        return ConfirmationResult.confirm()
-
     # Get preview content - use provided preview or generate from tool_use
     content = preview or tool_use.content
     lang = _get_lang_for_tool(tool_use.tool, content)
+
+    # Auto-approve read-only tool calls without prompting.
+    # This reduces friction for safe reads (file reads, git status, web search)
+    # that should never block an interactive session.
+    # Still show the preview so the user can see what was executed.
+    risk = classify_tool_risk(tool_use)
+    if risk <= _AUTO_APPROVE_TIER_MAX:
+        logger.debug(f"Auto-approving read-tier tool: {tool_use.tool}")
+        if content:
+            print_preview(content, lang, copy=bool(content))
+        return ConfirmationResult.confirm()
 
     # Determine if content is editable/copiable
     editable = bool(content)

@@ -175,6 +175,47 @@ def test_shell_safe_pipe_chains_are_tier1(cmd: str) -> None:
     )
 
 
+# ── find with mutating actions (Greptile finding) ─────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "find . -delete",
+        "find /tmp -name '*.tmp' -delete",
+        "find . -exec rm {} +",
+        "find . -exec touch /tmp/created {} +",
+        "find . -execdir chmod 777 {} \\;",
+        "find . -ok rm {} \\;",
+        "find . -okdir mv {} /backup \\;",
+        "find . -name '*.log' -fls /tmp/listing.txt",
+        "find . -fprint /tmp/files.txt",
+        "find . -fprint0 /tmp/files.txt",
+    ],
+)
+def test_find_mutating_flags_are_not_tier1(cmd: str) -> None:
+    """find commands with state-changing actions must not be auto-approved."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, f"Expected ≥WRITE for mutating find: {cmd!r}"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "find . -name '*.py'",
+        "find . -type f -name '*.log'",
+        "find /tmp -maxdepth 2 -newer ref.txt",
+        "find . -name '*.py' -print",
+        "find . -ls",
+    ],
+)
+def test_find_read_only_flags_are_tier1(cmd: str) -> None:
+    """Plain find queries without mutating actions remain READ-tier."""
+    assert classify_tool_risk(_tu("shell", cmd)) == RiskTier.READ, (
+        f"Expected READ for read-only find: {cmd!r}"
+    )
+
+
 # ── Edge cases ─────────────────────────────────────────────────────────────────
 
 
