@@ -163,6 +163,50 @@ def test_status_json_via_util():
     assert isinstance(json.loads(result.output), dict)
 
 
+def test_status_json_with_output_file(tmp_path, monkeypatch):
+    """Verify --json -o path writes valid JSON with expected schema to a file."""
+    monkeypatch.setattr(cmd_status, "_is_bob_workspace", lambda: False)
+    monkeypatch.setattr(cmd_status, "_active_tasks", lambda lines=3: [])
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda limit=3: [])
+    monkeypatch.setattr(cmd_status, "_pr_queue", lambda _tracked: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-x")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _root=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "_journal_entries", lambda limit=5: [])
+
+    out_file = tmp_path / "status.json"
+    result = CliRunner().invoke(status, ["--json", "-o", str(out_file)])
+
+    assert result.exit_code == 0
+    assert out_file.exists()
+    data = json.loads(out_file.read_text())
+    assert data["session_id"] == "session-x"
+    assert "active_tasks" in data
+    assert "pr_queue" in data
+    assert "disk_usage" in data
+
+
+def test_status_json_excludes_bob_fields_in_non_bob_workspace(monkeypatch):
+    """Verify Bob-only fields are absent when not in Bob's workspace."""
+    monkeypatch.setattr(cmd_status, "_is_bob_workspace", lambda: False)
+    monkeypatch.setattr(cmd_status, "_active_tasks", lambda lines=3: [])
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda limit=3: [])
+    monkeypatch.setattr(cmd_status, "_pr_queue", lambda _tracked: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-y")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _root=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "_journal_entries", lambda limit=5: [])
+
+    result = CliRunner().invoke(status, ["--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    for bob_key in ("services", "dead_timers", "blockers", "ready_tasks"):
+        assert bob_key not in data, (
+            f"Bob-only field '{bob_key}' present outside Bob workspace"
+        )
+
+
 def test_status_json_rejects_rendering_options():
     """Verify JSON cannot be combined with presentation-only options."""
     runner = CliRunner()
