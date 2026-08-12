@@ -323,8 +323,8 @@ def _record_selection_trace(
             catalog_observed_at = ref.observed_at
             if ref.verification_status == "verified":
                 attestation_level = "provider_claim"
-    except Exception:
-        pass  # graceful degradation when registry is unavailable or lookup fails
+    except Exception as e:
+        logger.warning("registry lookup failed for %s: %s", model_meta.model, e)
 
     trace = create_selection_trace(
         requested_model=source_value,

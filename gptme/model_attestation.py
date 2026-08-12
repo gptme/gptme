@@ -10,10 +10,13 @@ This module provides durable, auditable records of:
 from __future__ import annotations
 
 import json
+import logging
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -319,8 +322,8 @@ def record_runtime_selection(
             catalog_observed_at = ref.observed_at
             if ref.verification_status == "verified":
                 attestation_level = "provider_claim"
-    except Exception:
-        pass  # graceful degradation when registry is unavailable or lookup fails
+    except Exception as e:
+        logger.warning("registry lookup failed for %s: %s", model_meta.model, e)
 
     trace = create_selection_trace(
         requested_model=model,
