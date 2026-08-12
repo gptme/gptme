@@ -149,11 +149,9 @@ Always consider the full range of your available tools and abilities when approa
     elif has_patch:
         editing_inline = "When suggesting code changes, prefer applying patches over examples. Preserve comments, unless they are no longer relevant.\nUse the patch tool to edit existing files."
     elif has_save:
-        editing_inline = "When suggesting code changes, use the save tool to write or overwrite files."
+        editing_inline = "When suggesting code changes, use the save tool to write or overwrite files. Preserve comments, unless they are no longer relevant."
     else:
-        editing_inline = (
-            "When suggesting code changes, show the changes clearly in your response."
-        )
+        editing_inline = "When suggesting code changes, show the changes clearly in your response. Preserve comments, unless they are no longer relevant."
 
     # Full Code Editing Strategy section — only emitted when at least one editing tool is present
     if has_patch or has_save:
