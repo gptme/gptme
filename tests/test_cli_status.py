@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from click.testing import CliRunner
 
 import gptme.cli.cmd_status as cmd_status
@@ -100,6 +102,73 @@ def test_status_format_table_via_util():
     assert result.exit_code == 0
     assert "| Field | Value |" in result.output
     assert "| session_id |" in result.output
+
+
+def test_status_json(monkeypatch):
+    """Verify --json emits structured status without Markdown."""
+    monkeypatch.setattr(cmd_status, "_is_bob_workspace", lambda: True)
+    monkeypatch.setattr(
+        cmd_status,
+        "_active_tasks",
+        lambda lines=3: [{"_id": "task-1", "title": "First task"}],
+    )
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda limit=3: ["abc123 Fix"])
+    monkeypatch.setattr(
+        cmd_status,
+        "_pr_queue",
+        lambda _tracked: [{"repo": "gptme/gptme", "count": 2}],
+    )
+    monkeypatch.setattr(
+        cmd_status,
+        "_service_status",
+        lambda: [{"label": "worker", "icon": "✅", "status": "active"}],
+    )
+    monkeypatch.setattr(cmd_status, "_dead_timers", lambda: 0)
+    monkeypatch.setattr(
+        cmd_status,
+        "_blockers",
+        lambda limit=3: [{"id": "blocked", "waiting_for": "review"}],
+    )
+    monkeypatch.setattr(
+        cmd_status,
+        "_ready_tasks",
+        lambda limit=3: [{"id": "ready", "name": "Ready task"}],
+    )
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-1")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _root=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "_journal_entries", lambda limit=5: ["entry.md"])
+
+    result = CliRunner().invoke(status, ["--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {
+        "session_id": "session-1",
+        "active_tasks": [{"id": "task-1", "title": "First task"}],
+        "recent_commits": ["abc123 Fix"],
+        "pr_queue": [{"repo": "gptme/gptme", "count": 2}],
+        "disk_usage": "1G / 2G (50%)",
+        "journal_entries": ["entry.md"],
+        "services": [{"label": "worker", "icon": "✅", "status": "active"}],
+        "dead_timers": 0,
+        "blockers": [{"id": "blocked", "waiting_for": "review"}],
+        "ready_tasks": [{"id": "ready", "name": "Ready task"}],
+    }
+
+
+def test_status_json_via_util():
+    """Verify gptme-util status exposes the --json flag."""
+    result = CliRunner().invoke(util_main, ["status", "--json"])
+    assert result.exit_code == 0
+    assert isinstance(json.loads(result.output), dict)
+
+
+def test_status_json_rejects_rendering_options():
+    """Verify JSON cannot be combined with presentation-only options."""
+    runner = CliRunner()
+    for args in (["--json", "--no-markdown"], ["--json", "--format", "table"]):
+        result = runner.invoke(status, args)
+        assert result.exit_code == 2
 
 
 def test_status_format_narrative_is_default():

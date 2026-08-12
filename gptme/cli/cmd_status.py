@@ -274,13 +274,7 @@ def section_active_work(is_bob: bool = False) -> str:
 
 def section_pr_queue() -> str:
     lines = ["## PR Queue"]
-    tracked = [
-        ("gptme/gptme", 10),
-        ("gptme/gptme-cloud", 3),
-        ("ErikBjare/bob", None),
-        ("gptme/gptme-contrib", None),
-    ]
-    rows = _pr_queue(tracked)
+    rows = _pr_queue(_TRACKED_REPOS)
     if rows:
         lines.append("| Repo | Open |")
         lines.append("|------|------|")
@@ -329,6 +323,44 @@ def section_ready_next() -> str:
 # ── build ─────────────────────────────────────────────────────────────
 
 
+_TRACKED_REPOS: list[tuple[str, int | None]] = [
+    ("gptme/gptme", 10),
+    ("gptme/gptme-cloud", 3),
+    ("ErikBjare/bob", None),
+    ("gptme/gptme-contrib", None),
+]
+
+
+def _status_data() -> dict[str, object]:
+    """Collect status data shared by JSON and presentation renderers."""
+    is_bob = _is_bob_workspace()
+    root = _git_root()
+    status_data: dict[str, object] = {
+        "session_id": _session_id(),
+        "active_tasks": [
+            {"id": task.get("_id", task.get("id", "")), "title": task.get("title", "")}
+            for task in _active_tasks(3)
+        ],
+        "recent_commits": _recent_commits(3),
+        "pr_queue": _pr_queue(_TRACKED_REPOS),
+        "disk_usage": _disk_usage(root),
+        "journal_entries": _journal_entries(5),
+    }
+    if is_bob:
+        status_data.update(
+            services=_service_status(),
+            dead_timers=_dead_timers(),
+            blockers=_blockers(3),
+            ready_tasks=_ready_tasks(3),
+        )
+    return status_data
+
+
+def build_json_status() -> str:
+    """Build the structured JSON status document."""
+    return json.dumps(_status_data(), indent=2)
+
+
 def build_table_document() -> str:
     """Build a machine-readable markdown table of session state."""
     is_bob = _is_bob_workspace()
@@ -345,13 +377,7 @@ def build_table_document() -> str:
     last_commit = commits[0] if commits else "none"
 
     # pending_prs
-    tracked = [
-        ("gptme/gptme", 10),
-        ("gptme/gptme-cloud", 3),
-        ("ErikBjare/bob", None),
-        ("gptme/gptme-contrib", None),
-    ]
-    pr_rows = _pr_queue(tracked)
+    pr_rows = _pr_queue(_TRACKED_REPOS)
     pending_prs = (
         ", ".join(f"{r['repo']}:{r['count']}" for r in pr_rows) if pr_rows else "none"
     )
@@ -448,7 +474,14 @@ def build_document() -> str:
     default="narrative",
     help="Output format: narrative (default) or table.",
 )
-def status(write: bool, output: str | None, markdown: bool, output_format: str):
+@click.option("--json", "as_json", is_flag=True, help="Output status as JSON.")
+def status(
+    write: bool,
+    output: str | None,
+    markdown: bool,
+    output_format: str,
+    as_json: bool,
+) -> None:
     """Generate a portable operator handoff / session-status document.
 
     Produces a compact briefing: active work, PR queue, service health,
@@ -465,9 +498,18 @@ def status(write: bool, output: str | None, markdown: bool, output_format: str):
 
         gptme-util status --no-markdown         # plain-text output
 
-        gptme-util status --format table        # machine-readable table
+        gptme-util status --format table        # compact Markdown table
+
+        gptme-util status --json                # structured JSON
     """
-    if output_format == "table":
+    if as_json and (not markdown or output_format != "narrative"):
+        raise click.UsageError(
+            "--json cannot be combined with --no-markdown or --format"
+        )
+
+    if as_json:
+        doc = build_json_status()
+    elif output_format == "table":
         doc = build_table_document()
     else:
         doc = build_document()
@@ -482,7 +524,7 @@ def status(write: bool, output: str | None, markdown: bool, output_format: str):
         out_path = (root or Path.cwd()) / "status.md"
 
     if out_path:
-        out_path.write_text(doc)
+        out_path.write_text(doc, encoding="utf-8")
         click.echo(f"Written to {out_path}")
     else:
         click.echo(doc)
