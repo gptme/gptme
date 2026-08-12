@@ -1172,3 +1172,27 @@ class TestPromptGptmeEditingGuidance:
         content = self._prompt_content(tools, compact=True)
         assert "patch tool" in content
         assert "save tool" not in content
+
+    # ------------------------------------------------------------------
+    # default parameter (tools=None)
+    # ------------------------------------------------------------------
+
+    def test_tools_default_none_gives_generic_hint(self):
+        """Calling prompt_gptme without tools argument (default None) gives the generic hint."""
+        from gptme.prompts import prompt_gptme
+
+        with (
+            patch("gptme.prompts.templates.get_project_git_dir", return_value=None),
+            patch(
+                "gptme.prompts.templates.get_project_config",
+                return_value=MagicMock(base_prompt=None),
+            ),
+        ):
+            # tools defaults to None — must behave identically to tools=[]
+            msgs = list(prompt_gptme(interactive=True))
+        content = msgs[0].content
+        assert "show the changes clearly" in content
+        assert "Preserve comments" in content
+        assert "patch tool" not in content
+        assert "save tool" not in content
+        assert "Code Editing Strategy" not in content
