@@ -812,8 +812,9 @@ Run 'gptme-util --help' for all utility commands."""
     default=None,
     type=str,
     envvar="GPTME_TOOL_MANIFEST",
-    help="Task-optimized tool manifest: code_review, research, content, deployment, etc. "
-    "Restricts tool loading to a curated subset for the specified task type.",
+    help="Task-optimized MCP tool manifest: code_review, implementation, debugging, "
+    "data_analysis, research, content_writing, planning, project_ops. "
+    "Restricts tool loading to the manifest's curated subset.",
 )
 def main(
     ctx: click.Context,
@@ -1056,6 +1057,26 @@ def main(
 
     _validate_custom_tool_paths(tool_allowlist_str)
 
+    def apply_tool_manifest(workspace_path: Path) -> str | None:
+        if not tool_manifest_type:
+            return tool_allowlist_str
+        if ctx.get_parameter_source("tool_allowlist") != ParameterSource.DEFAULT:
+            raise click.UsageError("--tool-manifest cannot be combined with --tools")
+
+        from ..tool_manifests import load_task_manifest
+
+        try:
+            manifest = load_task_manifest(tool_manifest_type, workspace_path)
+        except (OSError, ValueError) as e:
+            raise click.UsageError(str(e)) from e
+        logger.info(
+            "Using tool manifest %s from %s (%d tools)",
+            manifest.task_type,
+            manifest.path,
+            len(manifest.tool_names),
+        )
+        return ",".join(manifest.tool_names)
+
     if profile and not show_version:
         import cProfile
         import pstats
@@ -1232,11 +1253,12 @@ def main(
                 stats_workspace_path = Path(workspace) if workspace else Path.cwd()
 
             try:
+                stats_tool_allowlist_str = apply_tool_manifest(stats_workspace_path)
                 config = setup_config_from_cli(
                     workspace=stats_workspace_path,
                     logdir=stats_logdir,
                     model=model,
-                    tool_allowlist=tool_allowlist_str,
+                    tool_allowlist=stats_tool_allowlist_str,
                     tool_format=tool_format,
                     prune_tool_output=prune_tool_output,
                     gear=selected_gear,
@@ -1374,6 +1396,7 @@ def main(
 
     # Setup complete configuration from CLI arguments and workspace
     try:
+        tool_allowlist_str = apply_tool_manifest(workspace_path)
         config = setup_config_from_cli(
             workspace=workspace_path,
             logdir=logdir,
