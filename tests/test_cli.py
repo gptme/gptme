@@ -1103,6 +1103,147 @@ def test_tool_manifest_wires_allowlist_into_config(
     assert seen["tool_allowlist"] == "+github.search_code,time.get_current_time"
 
 
+def test_tool_manifest_log_workspace_resolves_manifest_from_cwd(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """--workspace @log must resolve manifests from cwd, not logdir/workspace."""
+    from gptme.tool_manifests import TaskToolManifest
+
+    captured_workspace: list[Path] = []
+
+    def fake_load_task_manifest(task_type, workspace, manifest_path=None):
+        captured_workspace.append(workspace)
+        return TaskToolManifest(
+            task_type=task_type,
+            tool_names=("github.search_code",),
+            path=workspace / "state" / "mcp-task-manifests.jsonl",
+        )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest", fake_load_task_manifest
+    )
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            "@log",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 0
+    # The manifest must have been resolved using cwd, not logdir/workspace.
+    # cwd is Path.cwd() — just verify it is NOT a path ending in "workspace"
+    # (which is what logdir/workspace would look like).
+    assert len(captured_workspace) >= 1
+    assert not str(captured_workspace[-1]).endswith("workspace"), (
+        f"Manifest resolved from logdir/workspace instead of cwd: {captured_workspace[-1]}"
+    )
+
+
+def test_tool_manifest_unavailable_tool_falls_back_gracefully(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """When a manifest tool is unavailable, warn and start without manifest tools."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            # Includes the manifest tool; init_tools will claim it's unavailable
+            tools=["read", "shell", "github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+
+    init_calls: list[Any] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        if init_calls and any(
+            isinstance(t, str) and "github" in t for t in (tools or [])
+        ):
+            raise ValueError("Tool 'github.search_code' not found")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    # Session must start despite the unavailable tool (no hard abort)
+    assert result.exit_code == 0
+    assert "Traceback" not in result.output
+    # init_tools called twice: first with manifest tools, then with fallback
+    assert len(init_calls) == 2
+    # Second call must NOT contain the manifest tool
+    second_call = init_calls[1] or []
+    assert not any("github" in t for t in second_call)
+
+
 def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):
     # --model "  " should also be caught at parse time, same as empty string.
     result = runner.invoke(
