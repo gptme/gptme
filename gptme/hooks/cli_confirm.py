@@ -81,6 +81,13 @@ def cli_confirm_hook(
     # This reduces friction for safe reads (file reads, git status, web search)
     # that should never block an interactive session.
     # Still show the preview so the user can see what was executed.
+    #
+    # Note: READ-tier auto-approval is unconditional and intentionally does NOT
+    # interact with the check_auto_confirm() counter ("a N" in interactive mode).
+    # The counter is for temporarily auto-approving WRITE-tier operations; READ
+    # calls are always safe and are approved regardless of counter state.
+    # A user who sets "a 3" gets exactly 3 WRITE auto-confirms; READ calls do
+    # not consume that budget.
     risk = classify_tool_risk(tool_use)
     if risk <= _AUTO_APPROVE_TIER_MAX:
         logger.debug(f"Auto-approving read-tier tool: {tool_use.tool}")

@@ -234,3 +234,34 @@ def test_auto_approve_threshold_matches_read_tier() -> None:
     from gptme.hooks.cli_confirm import _AUTO_APPROVE_TIER_MAX
 
     assert _AUTO_APPROVE_TIER_MAX == RiskTier.READ
+
+
+def test_read_tier_does_not_consume_auto_confirm_counter(
+    confirm_spy: dict,
+) -> None:
+    """READ-tier auto-approval must not decrement the "a N" counter.
+
+    The counter is for temporarily auto-approving WRITE-tier operations.
+    READ calls are unconditionally safe and are approved regardless of counter
+    state, so they must not consume the user's WRITE-approval budget.
+
+    Regression guard: the auto-approval branch returns before check_auto_confirm()
+    is called; this test ensures a READ call followed by a WRITE call leaves the
+    WRITE counter at its original value.
+    """
+    from gptme.hooks.cli_confirm import cli_confirm_hook, set_auto_confirm
+    from gptme.hooks.confirm import ConfirmAction, check_auto_confirm
+
+    set_auto_confirm(count=2)  # User requests 2 WRITE auto-confirms
+
+    # A READ-tier call auto-approves without consuming the counter.
+    result = cli_confirm_hook(_tu("read", "/etc/hostname"))
+    assert result.action == ConfirmAction.CONFIRM
+    assert confirm_spy["prompted"] == 0, "READ-tier must not prompt"
+
+    # The counter must still be at 2 — the READ call must not have decremented it.
+    should_auto, _msg = check_auto_confirm()
+    assert should_auto, "Counter should still be active (READ did not consume it)"
+    # check_auto_confirm() decremented from 2 → 1; counter is now 1, not 0.
+    should_auto2, _msg2 = check_auto_confirm()
+    assert should_auto2, "Counter should have one remaining WRITE auto-confirm"
