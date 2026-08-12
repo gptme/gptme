@@ -52,7 +52,9 @@ def prompt_full(
     workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Full prompt to start the conversation."""
-    yield from prompt_gptme(interactive, model, agent_name, tool_format=tool_format)
+    yield from prompt_gptme(
+        interactive, model, agent_name, tool_format=tool_format, tools=tools
+    )
     yield from prompt_tools(tools=tools, tool_format=tool_format, model=model)
     if interactive:
         yield from prompt_user(tool_format=tool_format)
@@ -76,6 +78,7 @@ def prompt_short(
         agent_name=agent_name,
         tool_format=tool_format,
         compact=True,
+        tools=tools,
     )
     yield from prompt_tools(
         examples=False, tools=tools, tool_format=tool_format, model=model
@@ -91,6 +94,7 @@ def prompt_gptme(
     agent_name: str | None = None,
     tool_format: ToolFormat = "markdown",
     compact: bool = False,
+    tools: list[ToolSpec] | None = None,
 ) -> Generator[Message, None, None]:
     """
     Base system prompt for gptme.
@@ -134,6 +138,68 @@ Always consider the full range of your available tools and abilities when approa
         else "Maintain a professional and efficient communication style. Be concise but thorough in your explanations."
     )
 
+    # Determine which editing tools are active in this session
+    tool_names = {t.name for t in (tools or [])}
+    has_patch = "patch" in tool_names
+    has_save = "save" in tool_names
+
+    # Inline editing hint (only mentions tools that are actually available)
+    if has_patch and has_save:
+        editing_inline = "When suggesting code changes, prefer applying patches over examples. Preserve comments, unless they are no longer relevant.\nUse the patch tool to edit existing files, or the save tool to overwrite."
+    elif has_patch:
+        editing_inline = "When suggesting code changes, prefer applying patches over examples. Preserve comments, unless they are no longer relevant.\nUse the patch tool to edit existing files."
+    elif has_save:
+        editing_inline = "When suggesting code changes, use the save tool to write or overwrite files."
+    else:
+        editing_inline = (
+            "When suggesting code changes, show the changes clearly in your response."
+        )
+
+    # Full Code Editing Strategy section — only emitted when at least one editing tool is present
+    if has_patch or has_save:
+        patch_section = (
+            """1. **patch** — For targeted changes to existing files
+   - BEST FOR: Fixing a bug, changing a function, adding imports
+   - Uses conflict-marker format (not unified diff) to describe what changes
+   - FAIL MODE: Context-line mismatch if the file changed since you read it
+   - Always read the file first so your context lines match exactly
+"""
+            if has_patch
+            else ""
+        )
+        save_section = (
+            f"""{"2" if has_patch else "1"}. **save** — For complete rewrites or new files
+   - BEST FOR: Test files, newly generated code, structural refactors
+   - COST: Higher (rewrite entire file content)
+   - FAIL MODE: Loses the review diff structure; harder for humans to review
+   - USE WHEN: Multiple edits accumulate, or a patch would be very complex
+"""
+            if has_save
+            else ""
+        )
+        prefer_save_hint = (
+            "- **Prefer the save tool for complex changes** — one clean rewrite beats several risky patches\n"
+            if has_save
+            else ""
+        )
+        intro_line = (
+            "You have two edit tools with different cost/correctness tradeoffs:"
+            if has_patch and has_save
+            else "You have one file-editing tool:"
+        )
+        code_editing_strategy = f"""
+## Code Editing Strategy
+
+{intro_line}
+
+{patch_section}{save_section}
+When editing a file:
+- **Always read first** to get the current state before editing
+{prefer_save_hint}- **After each edit**: Verify with a read or test run — don't assume it worked
+"""
+    else:
+        code_editing_strategy = ""
+
     default_base_prompt = f"""
 You are {agent_blurb}. {
         ("Currently using model: " + model_meta.full) if model_meta else ""
@@ -160,34 +226,12 @@ You have the ability to self-correct. {
 You should learn about the context needed to provide the best help,
 such as exploring the current working directory and reading the code using terminal tools.
 
-When suggesting code changes, prefer applying patches over examples. Preserve comments, unless they are no longer relevant.
-Use the patch tool to edit existing files, or the save tool to overwrite.
+{editing_inline}
 When the output of a command is of interest, end the code block and message, so that it can be executed before continuing.
 
 Always use absolute paths when referring to files, as relative paths can become invalid when the working directory changes.
 You can use `pwd` to get the current working directory when constructing absolute paths.
-
-## Code Editing Strategy
-
-You have two edit tools with different cost/correctness tradeoffs:
-
-1. **patch** — For targeted changes to existing files
-   - BEST FOR: Fixing a bug, changing a function, adding imports
-   - Uses conflict-marker format (not unified diff) to describe what changes
-   - FAIL MODE: Context-line mismatch if the file changed since you read it
-   - Always read the file first so your context lines match exactly
-
-2. **save** — For complete rewrites or new files
-   - BEST FOR: Test files, newly generated code, structural refactors
-   - COST: Higher (rewrite entire file content)
-   - FAIL MODE: Loses the review diff structure; harder for humans to review
-   - USE WHEN: Multiple edits accumulate, or a patch would be very complex
-
-When editing a file:
-- **Always read first** to get the current state before patching
-- **Prefer the save tool for complex changes** — one clean rewrite beats several risky patches
-- **After each edit**: Verify with a read or test run — don't assume it worked
-
+{code_editing_strategy}
 ## Spreadsheet and Data Editing
 
 When working with CSV, Excel, or JSON data files:
