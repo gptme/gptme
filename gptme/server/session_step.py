@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from ..config import ChatConfig, require_workspace_exists
 from ..dirs import get_logs_dir
 from ..executor import prepare_execution_environment
+from ..harness import annotate_message_with_harness_updates
 from ..hooks import HookType, trigger_hook
 from ..hooks.confirm import ConfirmationResult
 from ..llm import _chat_complete, _stream
@@ -531,6 +532,9 @@ async def _acp_step(
                 final_text = "".join(stream_tokens) if stream_tokens else text
                 stream_tokens.clear()
                 msg = Message("assistant", final_text)
+                msg, _, _ = annotate_message_with_harness_updates(
+                    msg, session_harness=session.harness
+                )
                 _append_and_notify(manager, session, msg)
                 manager.write()
                 session.acp_last_user_msg_index = absolute_index
@@ -864,6 +868,9 @@ def step(
 
         # Persist the assistant message
         msg = Message("assistant", output, metadata=metadata)
+        msg, _, _ = annotate_message_with_harness_updates(
+            msg, session_harness=session.harness
+        )
 
         _append_and_notify(manager, session, msg)
 

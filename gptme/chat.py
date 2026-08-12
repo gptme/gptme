@@ -623,6 +623,9 @@ def step(
             )
             if get_config().get_env_bool("GPTME_COSTS"):
                 log_costs(msgs + [msg_response])
+        from .harness import annotate_message_with_harness_updates
+
+        msg_response, _, _ = annotate_message_with_harness_updates(msg_response)
 
         # Trigger generation post hooks (e.g., TTS)
         if generation_post_msgs := trigger_hook(
