@@ -317,7 +317,7 @@ def _record_selection_trace(
             lookup_model,
         )
 
-        ref = lookup_model(resolved_model)
+        ref = lookup_model(model_meta.model)
         if ref is not None:
             registry_record = ref.record_id
             catalog_observed_at = ref.observed_at

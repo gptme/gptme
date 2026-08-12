@@ -548,6 +548,12 @@ def test_record_selection_trace_init_path_with_registry(monkeypatch):
         verification_status="verified",
     )
 
+    lookup_keys: list[str] = []
+
+    def capturing_lookup(model: str):
+        lookup_keys.append(model)
+        return fake_ref
+
     if (
         "model_capability_registry" in sys.modules
         and sys.modules["model_capability_registry"] is not None
@@ -555,11 +561,11 @@ def test_record_selection_trace_init_path_with_registry(monkeypatch):
         monkeypatch.setattr(
             sys.modules["model_capability_registry"],
             "lookup_model",
-            lambda model: fake_ref,
+            capturing_lookup,
         )
     else:
         fake_mod = types.ModuleType("model_capability_registry")
-        fake_mod.lookup_model = lambda model: fake_ref  # type: ignore[attr-defined]
+        fake_mod.lookup_model = capturing_lookup  # type: ignore[attr-defined]
         monkeypatch.setitem(sys.modules, "model_capability_registry", fake_mod)
 
     _record_selection_trace(
@@ -578,3 +584,8 @@ def test_record_selection_trace_init_path_with_registry(monkeypatch):
     assert trace.identity.registry_record == "anthropic-claude-sonnet-4-6-001"
     assert trace.identity.attestation_level == "provider_claim"
     assert trace.identity.catalog_observed_at == now
+    # The lookup key must be the canonical backend name, not the gptme-prefixed resolved_model.
+    # "gptme/anthropic/claude-sonnet-4-6" would cause lookup_model to return None in practice.
+    assert lookup_keys == ["anthropic/claude-sonnet-4-6"], (
+        f"lookup_model was called with {lookup_keys!r}; expected canonical backend model"
+    )

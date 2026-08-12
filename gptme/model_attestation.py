@@ -313,7 +313,7 @@ def record_runtime_selection(
     try:
         from model_capability_registry import lookup_model
 
-        ref = lookup_model(resolved_model)
+        ref = lookup_model(model_meta.model)
         if ref is not None:
             registry_record = ref.record_id
             catalog_observed_at = ref.observed_at
