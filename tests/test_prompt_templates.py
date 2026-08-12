@@ -1108,7 +1108,13 @@ class TestPromptGptmeEditingGuidance:
             (
                 [],
                 ["show the changes clearly"],
-                ["patch tool", "save tool", "Code Editing Strategy"],
+                [
+                    "patch tool",
+                    "save tool",
+                    "Code Editing Strategy",
+                    "Spreadsheet and Data Editing",
+                    "Editing Multiple Files",
+                ],
             ),
         ],
         ids=["both", "patch-only", "save-only", "no-tools"],
@@ -1135,9 +1141,18 @@ class TestPromptGptmeEditingGuidance:
         assert "Code Editing Strategy" in content
 
     def test_code_editing_strategy_section_absent_without_editing_tools(self):
-        """No 'Code Editing Strategy' section emitted when no editing tools are loaded."""
+        """No editing strategy sections emitted when no editing tools are loaded."""
         content = self._prompt_content(tools=[])
         assert "Code Editing Strategy" not in content
+        assert "Spreadsheet and Data Editing" not in content
+        assert "Editing Multiple Files" not in content
+
+    def test_data_and_multifile_sections_present_with_editing_tools(self):
+        """'Spreadsheet and Data Editing' and 'Editing Multiple Files' appear when editing tools are loaded."""
+        tools = [self._make_tool("patch"), self._make_tool("save")]
+        content = self._prompt_content(tools)
+        assert "Spreadsheet and Data Editing" in content
+        assert "Editing Multiple Files" in content
 
     def test_preserve_comments_in_all_branches(self):
         """'Preserve comments' instruction must appear for every tool combination."""
