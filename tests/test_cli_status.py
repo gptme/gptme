@@ -116,7 +116,7 @@ def test_status_json(monkeypatch):
     monkeypatch.setattr(
         cmd_status,
         "_pr_queue",
-        lambda _tracked: [{"repo": "gptme/gptme", "count": 2}],
+        lambda _tracked: [{"repo": "gptme/gptme", "count": 2, "cap": None}],
     )
     monkeypatch.setattr(
         cmd_status,
@@ -146,7 +146,7 @@ def test_status_json(monkeypatch):
         "session_id": "session-1",
         "active_tasks": [{"id": "task-1", "title": "First task"}],
         "recent_commits": ["abc123 Fix"],
-        "pr_queue": [{"repo": "gptme/gptme", "count": 2}],
+        "pr_queue": [{"repo": "gptme/gptme", "count": 2, "cap": None}],
         "disk_usage": "1G / 2G (50%)",
         "journal_entries": ["entry.md"],
         "services": [{"label": "worker", "icon": "✅", "status": "active"}],
@@ -166,7 +166,11 @@ def test_status_json_via_util():
 def test_status_json_rejects_rendering_options():
     """Verify JSON cannot be combined with presentation-only options."""
     runner = CliRunner()
-    for args in (["--json", "--no-markdown"], ["--json", "--format", "table"]):
+    for args in (
+        ["--json", "--no-markdown"],
+        ["--json", "--format", "table"],
+        ["--json", "--write"],
+    ):
         result = runner.invoke(status, args)
         assert result.exit_code == 2
 

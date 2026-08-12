@@ -17,6 +17,7 @@ import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TypedDict
 
 import click
 
@@ -80,12 +81,18 @@ def _recent_commits(n: int = 3) -> list[str]:
     return raw.splitlines() if raw else []
 
 
+class _PRQueueRow(TypedDict):
+    repo: str
+    count: int
+    cap: int | None
+
+
 def _pr_queue(
     repos: list[tuple[str, int | None]], author: str | None = None
-) -> list[dict[str, str]]:
+) -> list[_PRQueueRow]:
     if author is None:
         author = _gh_user() or "TimeToBuildBob"
-    rows: list[dict[str, str]] = []
+    rows: list[_PRQueueRow] = []
     for repo, cap in repos:
         prs_json = _run(
             [
@@ -110,14 +117,15 @@ def _pr_queue(
         except json.JSONDecodeError:
             continue
         count = len(prs)
-        cap_str = (
-            f"{count}/{cap}"
-            + (" ⚠ at limit" if cap is not None and count >= cap else "")
-            if cap is not None
-            else str(count)
-        )
-        rows.append({"repo": repo, "count": cap_str})
+        rows.append({"repo": repo, "count": count, "cap": cap})
     return rows
+
+
+def _pr_queue_display(count: int, cap: int | None) -> str:
+    """Format a PR count as a human-readable string with optional cap."""
+    if cap is not None:
+        return f"{count}/{cap}" + (" ⚠ at limit" if count >= cap else "")
+    return str(count)
 
 
 def _service_status() -> list[dict[str, str]]:
@@ -278,7 +286,9 @@ def section_pr_queue() -> str:
     if rows:
         lines.append("| Repo | Open |")
         lines.append("|------|------|")
-        lines.extend(f"| {row['repo']} | {row['count']} |" for row in rows)
+        for row in rows:
+            display = _pr_queue_display(row["count"], row["cap"])
+            lines.append(f"| {row['repo']} | {display} |")
     else:
         lines.append("- Unable to fetch PR data")
     return "\n".join(lines)
@@ -379,7 +389,11 @@ def build_table_document() -> str:
     # pending_prs
     pr_rows = _pr_queue(_TRACKED_REPOS)
     pending_prs = (
-        ", ".join(f"{r['repo']}:{r['count']}" for r in pr_rows) if pr_rows else "none"
+        ", ".join(
+            f"{r['repo']}:{_pr_queue_display(r['count'], r['cap'])}" for r in pr_rows
+        )
+        if pr_rows
+        else "none"
     )
 
     # waiting_for
@@ -502,9 +516,10 @@ def status(
 
         gptme-util status --json                # structured JSON
     """
-    if as_json and (not markdown or output_format != "narrative"):
+    if as_json and (not markdown or output_format != "narrative" or write):
         raise click.UsageError(
-            "--json cannot be combined with --no-markdown or --format"
+            "--json cannot be combined with --no-markdown, --format, or --write"
+            " (use -o/--output to write JSON to a file)"
         )
 
     if as_json:
