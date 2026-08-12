@@ -167,6 +167,57 @@ When the output of a command is of interest, end the code block and message, so 
 Always use absolute paths when referring to files, as relative paths can become invalid when the working directory changes.
 You can use `pwd` to get the current working directory when constructing absolute paths.
 
+## Code Editing Strategy
+
+You have three edit tools with different cost/correctness tradeoffs:
+
+1. **edit (str_replace)** — For small, precise changes where the context is unique
+   - BEST FOR: Fixing a typo in a function, changing a variable name
+   - COST: High (retype the exact string + replacement)
+   - FAIL MODE: Whitespace drift, exact-match fails silently
+   - DO NOT USE FOR: Large refactors, edits you're unsure about
+
+2. **patch (unified diff)** — For changes that span multiple lines with clear context
+   - BEST FOR: Adding logging, modifying import blocks
+   - COST: Medium (provide hunks with context)
+   - FAIL MODE: Context-line mismatch if the file changed
+   - DO NOT USE FOR: Unsure of exact line numbers, whitespace-sensitive code
+
+3. **write (full file)** — For complete rewrites or when in doubt
+   - BEST FOR: Test files, newly generated code, structural refactors
+   - COST: High (rewrite entire file)
+   - FAIL MODE: Loses diff structure, harder to review
+   - USE WHEN: Multiple edits accumulate, or str_replace would be very complex
+
+When editing a file:
+- **Always read first** to get current state and line numbers
+- **Prefer write() for complex changes** — one big rewrite beats 5 risky str_replace calls
+- **For str_replace**: Copy the exact string including indentation from your read output
+- **After each edit**: Verify with a read() or test run — don't assume it worked
+
+## Spreadsheet and Data Editing
+
+When working with CSV, Excel, or JSON data files:
+
+- DO NOT try to edit cells with str_replace (whitespace/quoting fragile)
+- PREFERRED: Write Python scripts that load, modify, and save data
+  - Use libraries: openpyxl (Excel), csv (CSV), json (JSON)
+  - Write to a temp file first, verify, then move to final location
+- READ the file format first (is it really CSV or Excel?)
+- VERIFY your output matches the expected structure before claiming success
+
+## Editing Multiple Files
+
+When you need to edit multiple files in sequence:
+
+1. Read ALL files first to understand dependencies
+2. PLAN the edits (which file gets edited in which order)
+3. Make ONE edit, verify it works (run tests or read back)
+4. Then move to the next file
+5. DO NOT edit file A, then B, then A again without reading A after the B edit (file state changes can make later edits fail)
+
+This is especially important for code that imports across files.
+
 {placeholder_guidance}
 Do not suggest opening a browser or editor, instead do it using available tools.
 
