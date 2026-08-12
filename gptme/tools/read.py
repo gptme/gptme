@@ -56,6 +56,7 @@ def examples(tool_format):
 > Assistant:
 {ToolUse("read", ["hello.py"], "").to_output(tool_format)}
 > System: ```hello.py
+> [hello.py#09FAFB7D]
 >    1\tprint("Hello world")
 >    2\tprint("Goodbye world")
 > ```
@@ -64,9 +65,11 @@ def examples(tool_format):
 > Assistant:
 {ToolUse("read", [], batch_paths).to_output(tool_format)}
 > System: ```hello.py
+> [hello.py#D4E0A53D]
 >    1\tprint("Hello world")
 > ```
 > ```goodbye.py
+> [goodbye.py#CF728AB6]
 >    1\tprint("Goodbye world")
 > ```
 """.strip()
