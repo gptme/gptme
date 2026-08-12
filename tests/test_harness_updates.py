@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest.mock
+from datetime import timezone
 
 import pytest
 import requests
@@ -95,7 +96,13 @@ def test_annotate_message_with_harness_updates_preserves_existing_metadata():
     assert annotated.metadata["model"] == "openai/mock-model"
     assert annotated.metadata["harness_updates"][0]["tool_name"] == "shell"
     assert state.requests == requests_
-    assert state.last_update_at == annotated.timestamp
+    # annotate_message_with_harness_updates normalises the (naive) message
+    # timestamp to UTC before storing it in session state, so compare the
+    # normalised form.
+    expected_ts = annotated.timestamp
+    if expected_ts.tzinfo is None:
+        expected_ts = expected_ts.replace(tzinfo=timezone.utc)
+    assert state.last_update_at == expected_ts
 
 
 def test_server_step_attaches_harness_update_metadata(
@@ -202,9 +209,7 @@ def test_extract_harness_updates_rejects_invalid_urgency():
 
 def test_extract_harness_updates_rejects_invalid_approval():
     """An unrecognised approval mode must be rejected."""
-    content = (
-        'HARNESS_UPDATE: enable_tool shell reason="Need it" urgency=medium approval=silent'
-    )
+    content = 'HARNESS_UPDATE: enable_tool shell reason="Need it" urgency=medium approval=silent'
 
     requests_, errors = extract_harness_updates(
         content, available_tool_names={"shell", "web_fetch"}

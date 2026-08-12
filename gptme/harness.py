@@ -97,10 +97,22 @@ def extract_harness_updates(
     specific subset (e.g. in unit tests or plugin sandboxes).
     """
 
-    if HARNESS_UPDATE_PREFIX not in content:
+    # Line-anchored check: only proceed if at least one line starts with the
+    # prefix (not merely contains it in prose or a code block).  This avoids
+    # the expensive _get_all_known_tool_names() call on every assistant message
+    # that mentions "HARNESS_UPDATE:" in passing.
+    if not any(
+        line.strip().startswith(HARNESS_UPDATE_PREFIX) for line in content.splitlines()
+    ):
         return [], []
 
     if available_tool_names is None:
+        # Use all discoverable tool names so that an enable_tool request for a
+        # currently-disabled-but-known tool passes validation.  The same set is
+        # intentionally used for disable_tool and configure_tool in Phase 1
+        # (audit-only): we want to record every plausible request without
+        # restricting to the active session's tool list.  Phase 2, which will
+        # actually execute requests, should tighten this per change_type.
         available_tool_names = _get_all_known_tool_names()
 
     requests: list[HarnessUpdateRequest] = []
@@ -152,7 +164,14 @@ def annotate_message_with_harness_updates(
         ]
 
     if session_harness is not None:
-        session_harness.record(requests, errors, when=message.timestamp)
+        # Normalize message.timestamp to a timezone-aware UTC datetime.
+        # Message.timestamp defaults to datetime.now() (naive); passing it
+        # directly would leave last_update_at as a naive datetime and cause
+        # TypeError or incorrect ordering when compared with tz-aware datetimes.
+        ts = message.timestamp
+        if ts is not None and ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        session_harness.record(requests, errors, when=ts)
 
     return (
         message.replace(metadata=cast("MessageMetadata", metadata)),
