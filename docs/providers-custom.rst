@@ -326,9 +326,17 @@ Messages-API requests on ``/v1/messages``:
 
 .. note::
 
-   ``LLM_PROXY_URL`` is global — it also redirects gptme's OpenAI/OpenRouter
-   clients. Use it in a Claude-focused setup, or make sure the proxy can handle
-   any other providers you call in the same session.
+   ``LLM_PROXY_URL`` affects gptme's **built-in** providers only. The Anthropic
+   client takes it as its ``base_url`` verbatim, so Paritok receives
+   ``/v1/messages`` — the path used above. The OpenAI-family built-ins
+   (``openai``, ``openrouter``, ``requesty``) instead get ``/messages``
+   appended, a path Paritok does not serve. Custom ``[[providers]]`` ignore
+   ``LLM_PROXY_URL`` entirely and always use their own ``base_url``.
+
+   So the two paths compose cleanly: use the ``[[providers]]`` block above for
+   OpenAI-compatible models and ``LLM_PROXY_URL`` for Claude. Just don't set
+   ``LLM_PROXY_URL`` and then call a built-in ``-m openai/...`` model in the
+   same session.
 
 Verify
 ~~~~~~
