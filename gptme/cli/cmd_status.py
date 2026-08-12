@@ -346,6 +346,7 @@ def _status_data() -> dict[str, object]:
     is_bob = _is_bob_workspace()
     root = _git_root()
     status_data: dict[str, object] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "session_id": _session_id(),
         "active_tasks": [
             {"id": task.get("_id", task.get("id", "")), "title": task.get("title", "")}
@@ -516,7 +517,9 @@ def status(
 
         gptme-util status --json                # structured JSON
     """
-    if as_json and (not markdown or output_format != "narrative" or write):
+    if as_json and (
+        not markdown or output_format != "narrative" or (write and not output)
+    ):
         raise click.UsageError(
             "--json cannot be combined with --no-markdown, --format, or --write"
             " (use -o/--output to write JSON to a file)"

@@ -8,6 +8,7 @@ from click.testing import CliRunner
 
 import gptme.cli.cmd_status as cmd_status
 from gptme.cli.cmd_status import (
+    _pr_queue_display,
     _session_id,
     _strip_markdown,
     build_table_document,
@@ -142,7 +143,11 @@ def test_status_json(monkeypatch):
     result = CliRunner().invoke(status, ["--json"])
 
     assert result.exit_code == 0
-    assert json.loads(result.output) == {
+    data = json.loads(result.output)
+    # Timestamp is dynamic; validate presence and format separately.
+    assert "timestamp" in data
+    assert "T" in data.pop("timestamp")
+    assert data == {
         "session_id": "session-1",
         "active_tasks": [{"id": "task-1", "title": "First task"}],
         "recent_commits": ["abc123 Fix"],
@@ -181,6 +186,7 @@ def test_status_json_with_output_file(tmp_path, monkeypatch):
     assert out_file.exists()
     data = json.loads(out_file.read_text())
     assert data["session_id"] == "session-x"
+    assert "timestamp" in data
     assert "active_tasks" in data
     assert "pr_queue" in data
     assert "disk_usage" in data
@@ -213,10 +219,18 @@ def test_status_json_rejects_rendering_options():
     for args in (
         ["--json", "--no-markdown"],
         ["--json", "--format", "table"],
-        ["--json", "--write"],
+        ["--json", "--write"],  # --write without -o is rejected
     ):
         result = runner.invoke(status, args)
         assert result.exit_code == 2
+
+
+def test_pr_queue_display():
+    """Verify _pr_queue_display formats count/cap and at-limit suffix correctly."""
+    assert _pr_queue_display(2, None) == "2"
+    assert _pr_queue_display(2, 10) == "2/10"
+    assert _pr_queue_display(10, 10) == "10/10 ⚠ at limit"
+    assert _pr_queue_display(11, 10) == "11/10 ⚠ at limit"
 
 
 def test_status_format_narrative_is_default():
