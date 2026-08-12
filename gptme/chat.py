@@ -16,6 +16,7 @@ from .constants import (
 from .constants import (
     prompt_user as prompt_user_styled,
 )
+from .harness import SessionHarnessState, annotate_message_with_harness_updates
 from .hooks import HookType, trigger_hook
 from .init import init
 from .llm import reply
@@ -132,6 +133,9 @@ def chat(
         if not is_output_json() and not is_output_quiet():
             console.log(f"Using logdir: {path_with_tilde(logdir)}")
         manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
+        # Per-session audit state: tracks all harness update requests/rejections
+        # across the lifetime of this chat() call, matching the server path.
+        session_harness = SessionHarnessState()
 
         # Note: todo replay is now handled via SESSION_START hook
 
@@ -173,6 +177,7 @@ def chat(
             no_confirm=no_confirm,
             logdir=logdir,
             output_schema=output_schema,
+            session_harness=session_harness,
         )
     except SessionCompleteException as e:
         if not is_output_json() and not is_output_quiet():
@@ -208,6 +213,7 @@ def _run_chat_loop(
     no_confirm=False,
     logdir=None,
     output_schema=None,
+    session_harness: SessionHarnessState | None = None,
 ):
     """Main chat loop - extracted to allow clean exception handling."""
 
@@ -237,7 +243,12 @@ def _run_chat_loop(
                 # Process the message and get response
                 try:
                     _process_message_conversation(
-                        manager, stream, tool_format, model, output_schema
+                        manager,
+                        stream,
+                        tool_format,
+                        model,
+                        output_schema,
+                        session_harness,
                     )
                 except SessionCompleteException:
                     # Write sentinel BEFORE draining so there is no window
@@ -299,6 +310,7 @@ def _run_chat_loop(
                         tool_format,
                         model,
                         output_schema,
+                        session_harness,
                     )
                 else:
                     # Normal case: user provided input
@@ -328,6 +340,7 @@ def _run_chat_loop(
                         tool_format,
                         model,
                         output_schema,
+                        session_harness,
                     )
 
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
@@ -390,6 +403,7 @@ def _process_message_conversation(
     tool_format: ToolFormat,
     model: str | None,
     output_schema: type | None = None,
+    session_harness: SessionHarnessState | None = None,
 ) -> None:
     """Process a message and generate responses until no more tools to run.
 
@@ -427,6 +441,7 @@ def _process_message_conversation(
                     model=model,
                     output_schema=output_schema,
                     logdir=manager.logdir,
+                    session_harness=session_harness,
                 )
             )
         except KeyboardInterrupt:
@@ -586,6 +601,7 @@ def step(
     on_token: Callable[[str], None] | None = None,
     on_thinking: Callable[[bool], None] | None = None,
     logdir: Path | None = None,
+    session_harness: SessionHarnessState | None = None,
 ) -> Generator[Message, None, None]:
     """Runs a single pass of the chat - generates response and executes tools."""
     default_model = get_default_model()
@@ -623,9 +639,9 @@ def step(
             )
             if get_config().get_env_bool("GPTME_COSTS"):
                 log_costs(msgs + [msg_response])
-        from .harness import annotate_message_with_harness_updates
-
-        msg_response, _, _ = annotate_message_with_harness_updates(msg_response)
+        msg_response, _, _ = annotate_message_with_harness_updates(
+            msg_response, session_harness=session_harness
+        )
 
         # Trigger generation post hooks (e.g., TTS)
         if generation_post_msgs := trigger_hook(

@@ -50,6 +50,7 @@ from ..chat import step
 from ..commands import execute_cmd, get_command_completer, get_user_commands
 from ..constants import DECLINED_CONTENT, INTERRUPT_CONTENT
 from ..dirs import get_pt_history_file
+from ..harness import SessionHarnessState
 from ..hooks import HookType, register_hook, unregister_hook
 from ..hooks.cli_confirm import _get_lang_for_tool
 from ..hooks.confirm import ConfirmationResult
@@ -1030,6 +1031,8 @@ class GptmeApp(App):
         self.manager = manager
         self.tool_format: ToolFormat = tool_format
         self.workspace = workspace or manager.workspace
+        # Per-session audit state for HARNESS_UPDATE requests, mirroring server path.
+        self._session_harness = SessionHarnessState()
         self.auto_confirm = auto_confirm
         self.inline = inline
         self.experimental_jelly_errors = experimental_jelly_errors
@@ -1457,6 +1460,7 @@ class GptmeApp(App):
                         logdir=manager.logdir,
                         on_token=self._on_token,
                         on_thinking=self._on_thinking,
+                        session_harness=self._session_harness,
                     ):
                         # each yield may follow a tool execution that reset
                         # the tty (e.g. ipython init) — reassert raw mode

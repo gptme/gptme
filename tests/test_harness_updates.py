@@ -171,56 +171,43 @@ def test_extract_harness_updates_accepts_known_tool_via_module_discovery():
     assert requests_[0].change_type == "enable_tool"
 
 
-# --- Validation error branch coverage ---
+def test_extract_harness_updates_rejects_empty_payload():
+    """A bare HARNESS_UPDATE: line with no following text is rejected."""
+    content = "HARNESS_UPDATE:"
+    requests_, errors = extract_harness_updates(content, available_tool_names={"shell"})
+    assert requests_ == []
+    assert len(errors) == 1
+    assert errors[0].error == "missing update payload"
 
 
 def test_extract_harness_updates_rejects_missing_reason():
-    """A line with no reason= key must be rejected."""
+    """A HARNESS_UPDATE line that omits reason= is rejected."""
     content = "HARNESS_UPDATE: enable_tool shell urgency=medium approval=auto"
-
-    requests_, errors = extract_harness_updates(
-        content, available_tool_names={"shell", "web_fetch"}
-    )
-
+    requests_, errors = extract_harness_updates(content, available_tool_names={"shell"})
     assert requests_ == []
     assert len(errors) == 1
-    assert "reason" in errors[0].error
+    assert errors[0].error == "missing reason=<text>"
 
 
 def test_extract_harness_updates_rejects_invalid_urgency():
-    """An out-of-range urgency value must be rejected."""
-    content = 'HARNESS_UPDATE: enable_tool shell reason="Need it" urgency=urgent approval=auto'
-
-    requests_, errors = extract_harness_updates(
-        content, available_tool_names={"shell", "web_fetch"}
+    """A HARNESS_UPDATE line with an unrecognised urgency value is rejected."""
+    content = (
+        'HARNESS_UPDATE: enable_tool shell reason="Needs it" '
+        "urgency=critical approval=auto"
     )
-
+    requests_, errors = extract_harness_updates(content, available_tool_names={"shell"})
     assert requests_ == []
     assert len(errors) == 1
-    assert "urgency" in errors[0].error
+    assert errors[0].error == "urgency must be one of: low, medium, high"
 
 
 def test_extract_harness_updates_rejects_invalid_approval():
-    """An unrecognised approval mode must be rejected."""
-    content = 'HARNESS_UPDATE: enable_tool shell reason="Need it" urgency=medium approval=silent'
-
-    requests_, errors = extract_harness_updates(
-        content, available_tool_names={"shell", "web_fetch"}
+    """A HARNESS_UPDATE line with an unrecognised approval value is rejected."""
+    content = (
+        'HARNESS_UPDATE: enable_tool shell reason="Needs it" '
+        "urgency=medium approval=manager_confirm"
     )
-
+    requests_, errors = extract_harness_updates(content, available_tool_names={"shell"})
     assert requests_ == []
     assert len(errors) == 1
-    assert "approval" in errors[0].error
-
-
-def test_extract_harness_updates_rejects_empty_payload():
-    """A HARNESS_UPDATE: line with nothing after the colon must be rejected."""
-    content = "HARNESS_UPDATE:"
-
-    requests_, errors = extract_harness_updates(
-        content, available_tool_names={"shell", "web_fetch"}
-    )
-
-    assert requests_ == []
-    assert len(errors) == 1
-    assert "payload" in errors[0].error
+    assert errors[0].error == "approval must be one of: auto, log_only, user_confirm"
