@@ -10,7 +10,7 @@ Phase 1 is audit-only:
 
 ## Syntax
 
-```txt
+```text
 HARNESS_UPDATE: enable_tool web_fetch reason="Need fresh docs" urgency=medium approval=auto
 HARNESS_UPDATE: disable_tool shell reason="Task is pure analysis" urgency=low approval=log_only
 ```
@@ -28,7 +28,7 @@ Rejected requests are stored as `harness_update_errors`.
 
 ## Example Metadata
 
-```txt
+```text
 metadata = {
   "harness_updates" = [
     {
