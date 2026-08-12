@@ -460,12 +460,13 @@ def _filter_mcp_tools_by_manifest(
     if not manifest or "tools" not in manifest:
         return tools
 
-    # Extract server names from manifest tools
-    manifest_servers = {tool.get("server_name") for tool in manifest["tools"]}
+    manifest_tool_names = {
+        f"{tool.get('server_name')}.{tool.get('tool_name')}"
+        for tool in manifest["tools"]
+        if tool.get("server_name") and tool.get("tool_name")
+    }
 
-    # Filter to MCP tools in the manifest
-    # MCP tools have a server attribute that matches server_name in manifest
-    return [t for t in tools if getattr(t, "server", None) in manifest_servers]
+    return [t for t in tools if t.name in manifest_tool_names]
 
 
 def get_available_tools(

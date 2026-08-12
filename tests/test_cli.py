@@ -945,6 +945,104 @@ def test_empty_model_is_usage_error(runner: CliRunner, runid: int):
     assert "empty" in result.output.lower()
 
 
+def test_tool_manifest_missing_file_is_usage_error(runner: CliRunner, tmp_path: Path):
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert "Tool manifest file not found" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_tool_manifest_cannot_combine_with_tools(runner: CliRunner, tmp_path: Path):
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "read",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert "--tool-manifest cannot be combined with --tools" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_tool_manifest_wires_allowlist_into_config(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"},'
+        '{"server_name":"time","tool_name":"get_current_time"}]}\n',
+        encoding="utf-8",
+    )
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["github.search_code", "time.get_current_time"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    seen: dict[str, Any] = {}
+
+    def fake_setup_config_from_cli(**kwargs):
+        seen.update(kwargs)
+        return fake_config
+
+    monkeypatch.setattr(
+        "gptme.config.setup_config_from_cli", fake_setup_config_from_cli
+    )
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    monkeypatch.setattr("gptme.chat.chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 0
+    assert seen["tool_allowlist"] == "github.search_code,time.get_current_time"
+
+
 def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):
     # --model "  " should also be caught at parse time, same as empty string.
     result = runner.invoke(
