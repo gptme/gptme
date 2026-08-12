@@ -185,7 +185,7 @@ You have two edit tools with different cost/correctness tradeoffs:
 
 When editing a file:
 - **Always read first** to get the current state before patching
-- **Prefer save() for complex changes** — one clean rewrite beats several risky patches
+- **Prefer the save tool for complex changes** — one clean rewrite beats several risky patches
 - **After each edit**: Verify with a read or test run — don't assume it worked
 
 ## Spreadsheet and Data Editing
