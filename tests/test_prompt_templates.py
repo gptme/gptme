@@ -1034,3 +1034,141 @@ class TestConstants:
         from gptme.prompts import AGENT_FILES, ALWAYS_LOAD_FILES
 
         assert ALWAYS_LOAD_FILES is AGENT_FILES
+
+
+# ---------------------------------------------------------------------------
+# prompt_gptme — editing guidance conditioned on tool availability
+# ---------------------------------------------------------------------------
+
+
+class TestPromptGptmeEditingGuidance:
+    """
+    Tests for the tool-conditional editing guidance in prompt_gptme.
+
+    The new logic selects `editing_inline` and `code_editing_strategy` based
+    on which of the `patch` / `save` tools are actually present in the session.
+    All four combinations must produce correct, non-misleading instructions.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolate(self):
+        """Mock project config lookups so tests don't depend on the live repo."""
+        with (
+            patch("gptme.prompts.templates.get_project_git_dir", return_value=None),
+            patch(
+                "gptme.prompts.templates.get_project_config",
+                return_value=MagicMock(base_prompt=None),
+            ),
+        ):
+            yield
+
+    # ------------------------------------------------------------------
+    # helpers
+    # ------------------------------------------------------------------
+
+    def _make_tool(self, name: str):
+        """Create a minimal ToolSpec with the given name."""
+        from gptme.tools import ToolSpec
+
+        return ToolSpec(name=name, desc=f"{name} tool", instructions="")
+
+    def _prompt_content(self, tools, compact: bool = False) -> str:
+        """Return the first message content from prompt_gptme."""
+        from gptme.prompts import prompt_gptme
+
+        msgs = list(prompt_gptme(interactive=True, tools=tools, compact=compact))
+        return msgs[0].content
+
+    # ------------------------------------------------------------------
+    # parametrize across the four tool combinations
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize(
+        ("tool_names", "expected_in", "expected_not_in"),
+        [
+            # Both tools available
+            (
+                ["patch", "save"],
+                ["patch tool", "save tool", "two edit tools"],
+                ["show the changes clearly"],
+            ),
+            # Patch only
+            (
+                ["patch"],
+                ["patch tool", "one file-editing tool"],
+                ["save tool", "show the changes clearly"],
+            ),
+            # Save only
+            (
+                ["save"],
+                ["save tool", "one file-editing tool"],
+                ["patch tool", "show the changes clearly"],
+            ),
+            # No editing tools
+            (
+                [],
+                ["show the changes clearly"],
+                ["patch tool", "save tool", "Code Editing Strategy"],
+            ),
+        ],
+        ids=["both", "patch-only", "save-only", "no-tools"],
+    )
+    def test_editing_guidance_combinations(
+        self, tool_names, expected_in, expected_not_in
+    ):
+        """Editing guidance is scoped to tools that are actually available."""
+        tools = [self._make_tool(n) for n in tool_names]
+        content = self._prompt_content(tools)
+        for phrase in expected_in:
+            assert phrase in content, (
+                f"Expected {phrase!r} in prompt for tools={tool_names}"
+            )
+        for phrase in expected_not_in:
+            assert phrase not in content, (
+                f"Unexpected {phrase!r} in prompt for tools={tool_names}"
+            )
+
+    def test_code_editing_strategy_section_present_with_editing_tools(self):
+        """The 'Code Editing Strategy' section only appears when editing tools exist."""
+        tools = [self._make_tool("patch"), self._make_tool("save")]
+        content = self._prompt_content(tools)
+        assert "Code Editing Strategy" in content
+
+    def test_code_editing_strategy_section_absent_without_editing_tools(self):
+        """No 'Code Editing Strategy' section emitted when no editing tools are loaded."""
+        content = self._prompt_content(tools=[])
+        assert "Code Editing Strategy" not in content
+
+    def test_preserve_comments_in_all_branches(self):
+        """'Preserve comments' instruction must appear for every tool combination."""
+        for tool_names in [["patch", "save"], ["patch"], ["save"], []]:
+            tools = [self._make_tool(n) for n in tool_names]
+            content = self._prompt_content(tools)
+            assert "Preserve comments" in content, (
+                f"'Preserve comments' missing for tools={tool_names}"
+            )
+
+    # ------------------------------------------------------------------
+    # compact mode
+    # ------------------------------------------------------------------
+
+    def test_compact_mode_with_both_tools(self):
+        """Compact prompt includes tool-aware editing hint when both tools present."""
+        tools = [self._make_tool("patch"), self._make_tool("save")]
+        content = self._prompt_content(tools, compact=True)
+        assert "patch tool" in content
+        assert "save tool" in content
+
+    def test_compact_mode_without_editing_tools(self):
+        """Compact prompt shows generic editing hint when no editing tools are loaded."""
+        content = self._prompt_content(tools=[], compact=True)
+        assert "show the changes clearly" in content
+        assert "patch tool" not in content
+        assert "save tool" not in content
+
+    def test_compact_mode_patch_only(self):
+        """Compact prompt with patch only mentions patch, not save."""
+        tools = [self._make_tool("patch")]
+        content = self._prompt_content(tools, compact=True)
+        assert "patch tool" in content
+        assert "save tool" not in content
