@@ -340,16 +340,24 @@ def test_list_models_json_available_keeps_plugin_models(
     mock_get_model_list.return_value = [
         ModelMeta(
             provider="unknown",
-            model="minimax/abab6.5s-chat",
-            context=245_760,
-        )
+            model="minimax/MiniMax-M3",
+            context=1_000_000,
+        ),
+        ModelMeta(
+            provider="unknown",
+            model="minimax/MiniMax-M2.7",
+            context=204_800,
+        ),
     ]
 
     list_models(json_output=True, available_only=True)
     output = capsys.readouterr().out
     data = json.loads(output)
 
-    assert [model["model"] for model in data] == ["minimax/abab6.5s-chat"]
+    assert [model["model"] for model in data] == [
+        "minimax/MiniMax-M3",
+        "minimax/MiniMax-M2.7",
+    ]
 
 
 # --- Tests for closest-match heuristic ---

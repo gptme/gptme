@@ -199,7 +199,23 @@ class ProviderPlugin:
             api_key_env="MINIMAX_API_KEY",
             base_url="https://api.minimax.chat/v1",
             models=[
-                ModelMeta(provider="unknown", model="minimax/abab6.5s-chat", context=245_760),
+                ModelMeta(
+                    provider="unknown",
+                    model="minimax/MiniMax-M3",
+                    context=1_000_000,
+                    price_input=0.6,
+                    price_output=2.4,
+                    supports_vision=True,
+                    supports_reasoning=True,
+                ),
+                ModelMeta(
+                    provider="unknown",
+                    model="minimax/MiniMax-M2.7",
+                    context=204_800,
+                    price_input=0.3,
+                    price_output=1.2,
+                    supports_reasoning=True,
+                ),
             ],
         )
     """

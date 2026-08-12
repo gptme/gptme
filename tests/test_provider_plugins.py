@@ -297,6 +297,39 @@ class TestGetModelWithPlugin:
         assert result.context == 128_000
         assert result.model == "myprovider/fast-model"
 
+    @pytest.mark.parametrize(
+        ("model_name", "context"),
+        [("MiniMax-M3", 1_000_000), ("MiniMax-M2.7", 204_800)],
+    )
+    def test_minimax_registry_models_resolve(
+        self, model_name: str, context: int
+    ) -> None:
+        """Current MiniMax plugin models should resolve with their own metadata."""
+        from gptme.llm.models.resolution import get_model
+
+        plugin = _make_plugin(
+            name="minimax",
+            models=[
+                ModelMeta(
+                    provider="unknown",
+                    model="minimax/MiniMax-M3",
+                    context=1_000_000,
+                ),
+                ModelMeta(
+                    provider="unknown",
+                    model="minimax/MiniMax-M2.7",
+                    context=204_800,
+                ),
+            ],
+        )
+        with patch(
+            "importlib.metadata.entry_points",
+            return_value=[_make_entry_point(plugin)],
+        ):
+            result = get_model(f"minimax/{model_name}")
+
+        assert result.context == context
+
 
 class TestPluginRouting:
     def test_init_llm_allows_custom_plugin_init_that_registers_client(self):

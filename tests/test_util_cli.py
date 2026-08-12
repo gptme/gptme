@@ -662,22 +662,41 @@ def test_models_list_json_available_keeps_plugin_models(mocker):
             SimpleNamespace(
                 provider="unknown",
                 provider_key="minimax",
-                model="minimax/abab6.5s-chat",
-                full="minimax/abab6.5s-chat",
-                context=245760,
+                model="minimax/MiniMax-M3",
+                full="minimax/MiniMax-M3",
+                context=1_000_000,
                 max_output=None,
                 supports_streaming=True,
-                supports_vision=False,
-                supports_reasoning=False,
+                supports_vision=True,
+                supports_reasoning=True,
                 supports_parallel_tool_calls=False,
                 supports_responses_api=False,
-                price_input=0,
-                price_output=0,
+                price_input=0.6,
+                price_output=2.4,
                 knowledge_cutoff=None,
                 deprecated=False,
                 preferred_edit_format=None,
                 pricing_type="per_token",
-            )
+            ),
+            SimpleNamespace(
+                provider="unknown",
+                provider_key="minimax",
+                model="minimax/MiniMax-M2.7",
+                full="minimax/MiniMax-M2.7",
+                context=204_800,
+                max_output=None,
+                supports_streaming=True,
+                supports_vision=False,
+                supports_reasoning=True,
+                supports_parallel_tool_calls=False,
+                supports_responses_api=False,
+                price_input=0.3,
+                price_output=1.2,
+                knowledge_cutoff=None,
+                deprecated=False,
+                preferred_edit_format=None,
+                pricing_type="per_token",
+            ),
         ],
     )
     mocker.patch(
@@ -689,7 +708,10 @@ def test_models_list_json_available_keeps_plugin_models(mocker):
 
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert [model["model"] for model in parsed] == ["minimax/abab6.5s-chat"]
+    assert [model["model"] for model in parsed] == [
+        "minimax/MiniMax-M3",
+        "minimax/MiniMax-M2.7",
+    ]
 
 
 def test_models_info():
