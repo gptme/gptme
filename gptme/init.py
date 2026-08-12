@@ -320,8 +320,8 @@ def _record_selection_trace(
             catalog_observed_at = ref.observed_at
             if ref.verification_status == "verified":
                 attestation_level = "provider_claim"
-    except ImportError:
-        pass  # graceful degradation when registry package is not installed
+    except Exception:
+        pass  # graceful degradation when registry is unavailable or lookup fails
 
     trace = create_selection_trace(
         requested_model=source_value,
