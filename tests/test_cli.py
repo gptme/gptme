@@ -1244,6 +1244,93 @@ def test_tool_manifest_unavailable_tool_falls_back_gracefully(
     assert not any("github" in t for t in second_call)
 
 
+def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """When setup_config_from_cli raises ValueError for an unavailable manifest tool,
+    the session retries config setup without manifest tools and still starts.
+
+    This covers the _normalize_tool_allowlist path inside setup_config_from_cli,
+    which calls get_toolchain([item]) with strict=True for each tool name and can
+    raise ValueError before init_tools is ever reached.
+    """
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=[
+                "read",
+                "shell",
+            ],  # no manifest tools — fallback already excluded them
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+
+    setup_calls: list[Any] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        # First call has the manifest additive allowlist — simulate normalisation failure
+        if (
+            tool_allowlist
+            and tool_allowlist.startswith("+")
+            and "github" in tool_allowlist
+        ):
+            raise ValueError("Tool 'github.search_code' not found")
+        return fake_config
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    # Session must start despite the config-normalisation failure
+    assert result.exit_code == 0, result.output
+    assert "Traceback" not in result.output
+    # setup_config_from_cli called twice: first with manifest allowlist, then as fallback
+    assert len(setup_calls) == 2, (
+        f"Expected 2 setup calls, got {len(setup_calls)}: {setup_calls}"
+    )
+    # First call had the manifest additive allowlist
+    assert setup_calls[0] and "+github.search_code" in setup_calls[0]
+    # Second (fallback) call does NOT include the manifest tool
+    assert not (setup_calls[1] and "github" in setup_calls[1])
+
+
 def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):
     # --model "  " should also be caught at parse time, same as empty string.
     result = runner.invoke(
