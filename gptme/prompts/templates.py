@@ -169,34 +169,34 @@ You can use `pwd` to get the current working directory when constructing absolut
 
 ## Code Editing Strategy
 
-You have two edit tools with different cost/correctness tradeoffs:
+When available, use edit tools suited to your task. Different tools have different cost/correctness tradeoffs:
 
-1. **patch** — For targeted changes to existing files
-   - BEST FOR: Fixing a bug, changing a function, adding imports
-   - Uses conflict-marker format (not unified diff) to describe what changes
-   - FAIL MODE: Context-line mismatch if the file changed since you read it
-   - Always read the file first so your context lines match exactly
+- **patch** — For targeted changes to existing files (if available)
+  - BEST FOR: Fixing a bug, changing a function, adding imports
+  - Uses conflict-marker format (not unified diff) to describe what changes
+  - FAIL MODE: Context-line mismatch if the file changed since you read it
+  - Always read the file first so your context lines match exactly
 
-2. **save** — For complete rewrites or new files
-   - BEST FOR: Test files, newly generated code, structural refactors
-   - COST: Higher (rewrite entire file content)
-   - FAIL MODE: Loses the review diff structure; harder for humans to review
-   - USE WHEN: Multiple edits accumulate, or a patch would be very complex
+- **save** — For complete rewrites or new files (if available)
+  - BEST FOR: Test files, newly generated code, structural refactors
+  - COST: Higher (rewrite entire file content)
+  - FAIL MODE: Loses the review diff structure; harder for humans to review
+  - USE WHEN: Multiple edits accumulate, or a patch would be very complex
 
 When editing a file:
-- **Always read first** to get the current state before patching
-- **Prefer the save tool for complex changes** — one clean rewrite beats several risky patches
+- **Always read first** to get the current state before making changes
+- **Use the most appropriate available tool** for your task and configuration
 - **After each edit**: Verify with a read or test run — don't assume it worked
 
 ## Spreadsheet and Data Editing
 
 When working with CSV, Excel, or JSON data files:
 
-- DO NOT try to edit cells with patch (whitespace/quoting fragile)
-- PREFERRED: Write Python scripts that load, modify, and save data
-  - Use libraries: openpyxl (Excel), csv (CSV), json (JSON)
-  - Write to a temp file first, verify, then move to final location
-- READ the file format first (is it really CSV or Excel?)
+- Avoid manual cell-by-cell edits for structured data (error-prone with whitespace/quoting)
+- If you can run Python or other scripts, write a script to programmatically load, modify, and save data
+  - Libraries like openpyxl (Excel), csv (CSV), json (JSON) work well
+  - Write to a temp file first, verify the output, then move to final location
+- READ the file format first (is it really CSV or Excel?) to avoid format mismatches
 - VERIFY your output matches the expected structure before claiming success
 
 ## Editing Multiple Files
