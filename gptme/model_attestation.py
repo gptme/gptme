@@ -309,7 +309,7 @@ def record_runtime_selection(
     # Phase 1: Look up registry record for the resolved model (mirrors init.py enrichment)
     registry_record: str | None = None
     attestation_level: str = "selection_only"
-    catalog_observed_at: object | None = None
+    catalog_observed_at: datetime | None = None
     try:
         from model_capability_registry import lookup_model
 
@@ -342,6 +342,6 @@ def record_runtime_selection(
     if trace.identity is not None:
         trace.identity.attestation_level = attestation_level  # type: ignore[assignment]
         if catalog_observed_at is not None:
-            trace.identity.catalog_observed_at = catalog_observed_at  # type: ignore[assignment]
+            trace.identity.catalog_observed_at = catalog_observed_at
     set_selection_trace(trace)
     return trace

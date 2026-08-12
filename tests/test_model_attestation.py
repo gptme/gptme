@@ -524,3 +524,57 @@ def test_record_runtime_selection_without_registry(monkeypatch):
     assert trace.identity is not None
     assert trace.identity.registry_record is None
     assert trace.identity.attestation_level == "selection_only"
+
+
+def test_record_selection_trace_init_path_with_registry(monkeypatch):
+    """Test that _record_selection_trace (init.py) enriches the trace when registry is available.
+
+    Exercises the init.py path specifically — alias resolution and resolution_notes
+    are distinct from the model_attestation.py path and could diverge independently.
+    """
+    import sys
+    import types
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from gptme.init import _record_selection_trace
+    from gptme.llm.models import ModelMeta
+    from gptme.model_attestation import get_selection_trace
+
+    now = datetime.now(timezone.utc)
+    fake_ref = SimpleNamespace(
+        record_id="anthropic-claude-sonnet-4-6-001",
+        observed_at=now,
+        verification_status="verified",
+    )
+
+    if (
+        "model_capability_registry" in sys.modules
+        and sys.modules["model_capability_registry"] is not None
+    ):
+        monkeypatch.setattr(
+            sys.modules["model_capability_registry"],
+            "lookup_model",
+            lambda model: fake_ref,
+        )
+    else:
+        fake_mod = types.ModuleType("model_capability_registry")
+        fake_mod.lookup_model = lambda model: fake_ref  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "model_capability_registry", fake_mod)
+
+    _record_selection_trace(
+        _config(),
+        "gptme/claude-sonnet-4-6",
+        "gptme/claude-sonnet-4-6",
+        "gptme/anthropic/claude-sonnet-4-6",
+        "gptme",
+        ModelMeta(
+            provider="gptme", model="anthropic/claude-sonnet-4-6", context=200_000
+        ),
+    )
+
+    trace = get_selection_trace()
+    assert trace is not None and trace.identity is not None
+    assert trace.identity.registry_record == "anthropic-claude-sonnet-4-6-001"
+    assert trace.identity.attestation_level == "provider_claim"
+    assert trace.identity.catalog_observed_at == now

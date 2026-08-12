@@ -3,7 +3,10 @@ import logging
 import os
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 from dotenv import load_dotenv
 from rich.console import Console
@@ -308,7 +311,7 @@ def _record_selection_trace(
     # Phase 1: Look up registry record for the resolved model
     registry_record: str | None = None
     attestation_level: str = "selection_only"
-    catalog_observed_at: object | None = None
+    catalog_observed_at: datetime | None = None
     try:
         from model_capability_registry import (
             lookup_model,
@@ -338,7 +341,7 @@ def _record_selection_trace(
     if trace.identity is not None:
         trace.identity.attestation_level = attestation_level  # type: ignore[assignment]
         if catalog_observed_at is not None:
-            trace.identity.catalog_observed_at = catalog_observed_at  # type: ignore[assignment]
+            trace.identity.catalog_observed_at = catalog_observed_at
 
     set_selection_trace(trace)
 
