@@ -459,3 +459,68 @@ def test_registry_record_roundtrip_to_dict():
     assert trace2.identity.registry_record == "anthropic-claude-sonnet-4-6-001"
     assert trace2.identity.attestation_level == "provider_claim"
     assert trace2.identity.catalog_observed_at is not None
+
+
+# Tests that exercise the actual registry lookup path (not just field assignment)
+def test_record_runtime_selection_with_registry_available(monkeypatch):
+    """Test that record_runtime_selection enriches the trace when registry is available.
+
+    Patches lookup_model on the real module (if installed) or injects a fake module;
+    both paths verify the function correctly reads registry records into the trace.
+    """
+    import sys
+    import types
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    import gptme.model_attestation as ma
+
+    now = datetime.now(timezone.utc)
+    fake_ref = SimpleNamespace(
+        record_id="test-registry-record-001",
+        observed_at=now,
+        verification_status="verified",
+    )
+
+    if (
+        "model_capability_registry" in sys.modules
+        and sys.modules["model_capability_registry"] is not None
+    ):
+        # Real module is installed — patch lookup_model in place so the from-import picks it up
+        monkeypatch.setattr(
+            sys.modules["model_capability_registry"],
+            "lookup_model",
+            lambda model: fake_ref,
+        )
+    else:
+        # Not installed — inject a fake module
+        fake_mod = types.ModuleType("model_capability_registry")
+        fake_mod.lookup_model = lambda model: fake_ref  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "model_capability_registry", fake_mod)
+
+    trace = ma.record_runtime_selection(
+        "anthropic/claude-sonnet-4-6", source_kind="api_request"
+    )
+
+    assert trace.identity is not None
+    assert trace.identity.registry_record == "test-registry-record-001"
+    assert trace.identity.attestation_level == "provider_claim"
+    assert trace.identity.catalog_observed_at == now
+
+
+def test_record_runtime_selection_without_registry(monkeypatch):
+    """Test that record_runtime_selection degrades gracefully when registry is absent."""
+    import sys
+
+    import gptme.model_attestation as ma
+
+    # Remove the real module (if present) and prevent any re-import
+    monkeypatch.setitem(sys.modules, "model_capability_registry", None)
+
+    trace = ma.record_runtime_selection(
+        "anthropic/claude-sonnet-4-6", source_kind="api_request"
+    )
+
+    assert trace.identity is not None
+    assert trace.identity.registry_record is None
+    assert trace.identity.attestation_level == "selection_only"
