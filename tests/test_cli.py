@@ -1010,6 +1010,33 @@ def test_tool_manifest_cannot_combine_with_profile_tools(
     assert "Traceback" not in result.output
 
 
+def test_tool_manifest_cannot_combine_with_gear_tools(
+    runner: CliRunner, tmp_path: Path
+):
+    # Gear 2 has tool_allowlist set; combining with --tool-manifest must fail
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--gear",
+            "2",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with a gear that sets tools"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
 def test_tool_manifest_wires_allowlist_into_config(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):

@@ -829,6 +829,7 @@ def main(
 
     # Apply gear defaults before explicit profile/tools/no-confirm flags.
     selected_gear = parse_gear(gear)
+    gear_has_tool_allowlist = False
     if selected_gear is not None:
         gear_resolution = resolve_gear(selected_gear)
         if agent_profile is None and gear_resolution.profile_name:
@@ -838,6 +839,7 @@ def main(
             and gear_resolution.tool_allowlist is not None
         ):
             tool_allowlist = gear_resolution.tool_allowlist
+            gear_has_tool_allowlist = True
         if (
             ctx.get_parameter_source("no_confirm") == ParameterSource.DEFAULT
             and gear_resolution.no_confirm
@@ -973,6 +975,10 @@ def main(
         if selected_profile and selected_profile.tools is not None:
             raise click.UsageError(
                 "--tool-manifest cannot be combined with agent profile tools"
+            )
+        if gear_has_tool_allowlist:
+            raise click.UsageError(
+                "--tool-manifest cannot be combined with a gear that sets tools"
             )
 
         from ..tool_manifests import load_task_manifest
@@ -1166,7 +1172,12 @@ def main(
                 stats_workspace_path = Path(workspace) if workspace else Path.cwd()
 
             try:
-                stats_tool_allowlist_str = apply_tool_manifest(stats_workspace_path)
+                # For @log, stats_workspace_path is a temp dir — use the real
+                # workspace (cwd) so manifest resolution finds state/mcp-task-manifests.jsonl
+                manifest_workspace = (
+                    Path.cwd() if workspace == "@log" else stats_workspace_path
+                )
+                stats_tool_allowlist_str = apply_tool_manifest(manifest_workspace)
                 config = setup_config_from_cli(
                     workspace=stats_workspace_path,
                     logdir=stats_logdir,
