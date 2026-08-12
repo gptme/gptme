@@ -84,13 +84,24 @@ class SessionHarnessState:
 def extract_harness_updates(
     content: str, *, available_tool_names: set[str] | None = None
 ) -> tuple[list[HarnessUpdateRequest], list[HarnessUpdateError]]:
-    """Extract and validate all harness update lines from assistant content."""
+    """Extract and validate all harness update lines from assistant content.
+
+    ``available_tool_names`` is the set of tool names considered valid for
+    validation.  When *not* provided it defaults to **all tools discoverable
+    from gptme's module system** (via :func:`~gptme.tools.get_available_tools`)
+    — which includes tools that are not currently loaded in the session.  This
+    means an ``enable_tool`` request for a disabled-but-known tool correctly
+    passes validation even though the tool is absent from the active tool list.
+
+    Pass an explicit set only when you want to restrict validation to a
+    specific subset (e.g. in unit tests or plugin sandboxes).
+    """
 
     if HARNESS_UPDATE_PREFIX not in content:
         return [], []
 
     if available_tool_names is None:
-        available_tool_names = _get_available_tool_names()
+        available_tool_names = _get_all_known_tool_names()
 
     requests: list[HarnessUpdateRequest] = []
     errors: list[HarnessUpdateError] = []
@@ -227,7 +238,15 @@ def _parse_harness_update_line(
     )
 
 
-def _get_available_tool_names() -> set[str]:
+def _get_all_known_tool_names() -> set[str]:
+    """Return names of all tools known to gptme, regardless of session state.
+
+    This performs a full module-level discovery (same as
+    :func:`~gptme.tools.get_available_tools`) and intentionally includes tools
+    that are not currently loaded in the active session.  An ``enable_tool``
+    request must be allowed to name a tool that is currently disabled — that is
+    the whole point of the request.
+    """
     from .tools import get_available_tools
 
     return {tool.name for tool in get_available_tools()}

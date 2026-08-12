@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest.mock
 
+import pytest
 import requests
 
 from gptme.harness import (
@@ -136,3 +137,35 @@ def test_server_step_attaches_harness_update_metadata(
     assert metadata["harness_updates"][0]["change_type"] == "disable_tool"
     assert metadata["harness_updates"][0]["tool_name"] == "shell"
     assert metadata["harness_updates"][0]["approval_mode"] == "log_only"
+
+
+def test_extract_harness_updates_accepts_known_tool_via_module_discovery():
+    """enable_tool requests must pass for tools that exist in gptme's module system
+    even when they are not currently loaded in the session.
+
+    The production path (no explicit available_tool_names) discovers all tools via
+    get_available_tools(), which includes tools not loaded for the current session.
+    This is the core invariant: enable_tool must name a *known* tool, not a
+    *currently-enabled* one — otherwise the audit could never capture enable requests.
+    """
+    from gptme.tools import get_available_tools
+
+    all_known = {t.name for t in get_available_tools()}
+    if not all_known:
+        pytest.skip("no tools discoverable in this environment")
+
+    # Pick any known tool name; the request should be accepted via the default
+    # fallback to _get_all_known_tool_names() even if it is not in the active session.
+    any_known_tool = next(iter(sorted(all_known)))
+
+    content = (
+        f"HARNESS_UPDATE: enable_tool {any_known_tool} "
+        f'reason="Needs tool for next step" urgency=medium approval=auto\n'
+    )
+    # No available_tool_names override → uses full module discovery.
+    requests_, errors = extract_harness_updates(content)
+
+    assert errors == [], f"Unexpected errors: {errors}"
+    assert len(requests_) == 1
+    assert requests_[0].tool_name == any_known_tool
+    assert requests_[0].change_type == "enable_tool"
