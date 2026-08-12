@@ -310,7 +310,9 @@ def _record_selection_trace(
     attestation_level: str = "selection_only"
     catalog_observed_at: object | None = None
     try:
-        from model_capability_registry import lookup_model
+        from model_capability_registry import (
+            lookup_model,
+        )
 
         ref = lookup_model(resolved_model)
         if ref is not None:
