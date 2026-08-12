@@ -305,6 +305,22 @@ def _record_selection_trace(
     if resolved_model != model_full and alias_target is None:
         resolution_notes.append("resolved backend model from provider catalog")
 
+    # Phase 1: Look up registry record for the resolved model
+    registry_record: str | None = None
+    attestation_level: str = "selection_only"
+    catalog_observed_at: object | None = None
+    try:
+        from model_capability_registry import lookup_model
+
+        ref = lookup_model(resolved_model)
+        if ref is not None:
+            registry_record = ref.record_id
+            catalog_observed_at = ref.observed_at
+            if ref.verification_status == "verified":
+                attestation_level = "provider_claim"
+    except ImportError:
+        pass  # graceful degradation when registry package is not installed
+
     trace = create_selection_trace(
         requested_model=source_value,
         resolved_model=resolved_model,
@@ -314,7 +330,14 @@ def _record_selection_trace(
         backend_provider=backend_provider,
         alias_target=alias_target,
         resolution_notes=resolution_notes,
+        registry_record=registry_record,
     )
+    # Patch attestation level and catalog_observed_at on the identity claim if available
+    if trace.identity is not None:
+        trace.identity.attestation_level = attestation_level  # type: ignore[assignment]
+        if catalog_observed_at is not None:
+            trace.identity.catalog_observed_at = catalog_observed_at  # type: ignore[assignment]
+
     set_selection_trace(trace)
 
 

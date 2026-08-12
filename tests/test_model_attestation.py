@@ -360,3 +360,102 @@ def test_record_selection_trace_preserves_reasoning_suffixed_alias(monkeypatch):
     assert trace.selection.resolution_notes == [
         "resolved model alias for metadata lookup"
     ]
+
+
+# Phase 1 registry bridge tests
+def test_registry_record_set_when_available():
+    """Test that registry_record is populated when a known model is in the registry."""
+    trace = create_selection_trace(
+        requested_model="anthropic/claude-sonnet-4-6",
+        resolved_model="anthropic/claude-sonnet-4-6",
+        source_kind="cli",
+        source_value="anthropic/claude-sonnet-4-6",
+        transport_provider="anthropic",
+        backend_provider="anthropic",
+        registry_record="anthropic-claude-sonnet-4-6-001",
+    )
+    assert trace.identity is not None
+    assert trace.identity.registry_record == "anthropic-claude-sonnet-4-6-001"
+
+
+def test_registry_record_none_when_unknown():
+    """Test that registry_record stays None for unknown models."""
+    trace = create_selection_trace(
+        requested_model="unknown/model",
+        resolved_model="unknown/model",
+        source_kind="cli",
+        source_value="unknown/model",
+        transport_provider="unknown",
+        backend_provider="unknown",
+        registry_record=None,
+    )
+    assert trace.identity is not None
+    assert trace.identity.registry_record is None
+
+
+def test_attestation_level_provider_claim():
+    """Test that attestation_level can be set to provider_claim."""
+    trace = create_selection_trace(
+        requested_model="anthropic/claude-sonnet-4-6",
+        resolved_model="anthropic/claude-sonnet-4-6",
+        source_kind="cli",
+        source_value="anthropic/claude-sonnet-4-6",
+        transport_provider="anthropic",
+        backend_provider="anthropic",
+        registry_record="anthropic-claude-sonnet-4-6-001",
+    )
+    assert trace.identity is not None
+    # Manually set attestation level (as would be done in _record_selection_trace)
+    trace.identity.attestation_level = "provider_claim"
+    assert trace.identity.attestation_level == "provider_claim"
+
+
+def test_catalog_observed_at_set():
+    """Test that catalog_observed_at can be set from registry."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    trace = create_selection_trace(
+        requested_model="anthropic/claude-sonnet-4-6",
+        resolved_model="anthropic/claude-sonnet-4-6",
+        source_kind="cli",
+        source_value="anthropic/claude-sonnet-4-6",
+        transport_provider="anthropic",
+        backend_provider="anthropic",
+        registry_record="anthropic-claude-sonnet-4-6-001",
+    )
+    assert trace.identity is not None
+    # Manually set catalog_observed_at (as would be done in _record_selection_trace)
+    trace.identity.catalog_observed_at = now
+    assert trace.identity.catalog_observed_at == now
+
+
+def test_registry_record_roundtrip_to_dict():
+    """Test that registry_record survives serialization."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    trace = create_selection_trace(
+        requested_model="anthropic/claude-sonnet-4-6",
+        resolved_model="anthropic/claude-sonnet-4-6",
+        source_kind="cli",
+        source_value="anthropic/claude-sonnet-4-6",
+        transport_provider="anthropic",
+        backend_provider="anthropic",
+        registry_record="anthropic-claude-sonnet-4-6-001",
+    )
+    assert trace.identity is not None
+    trace.identity.attestation_level = "provider_claim"
+    trace.identity.catalog_observed_at = now
+
+    # Serialize and deserialize
+    d = trace.to_dict()
+    assert d["identity"]["registry_record"] == "anthropic-claude-sonnet-4-6-001"
+    assert d["identity"]["attestation_level"] == "provider_claim"
+
+    # Round-trip
+    trace2 = ModelSelectionTrace.from_dict(d)
+    assert trace2.identity is not None
+    assert trace2.identity.registry_record == "anthropic-claude-sonnet-4-6-001"
+    assert trace2.identity.attestation_level == "provider_claim"
+    assert trace2.identity.catalog_observed_at is not None
