@@ -814,7 +814,7 @@ Run 'gptme-util --help' for all utility commands."""
     envvar="GPTME_TOOL_MANIFEST",
     help="Task-optimized MCP tool manifest: code_review, implementation, debugging, "
     "data_analysis, research, content_writing, planning, project_ops. "
-    "Restricts tool loading to the manifest's curated subset.",
+    "Adds the manifest's curated MCP tools to the session's default built-in tools.",
 )
 def main(
     ctx: click.Context,
