@@ -1304,7 +1304,34 @@ def main(
             try:
                 tools = init_tools(config.chat.tools)
             except ValueError as e:
-                raise click.UsageError(str(e)) from e
+                if tool_manifest_type:
+                    # Manifest tool unavailable (MCP server may not be running).
+                    # Warn and retry without the manifest tools.
+                    logger.warning(
+                        "Manifest %r tool unavailable: %s — running without manifest tools.",
+                        tool_manifest_type,
+                        e,
+                    )
+                    _manifest_tool_names: set[str] = set()
+                    if stats_tool_allowlist_str and stats_tool_allowlist_str.startswith(
+                        "+"
+                    ):
+                        _manifest_tool_names = {
+                            t.strip()
+                            for t in stats_tool_allowlist_str[1:].split(",")
+                            if t.strip()
+                        }
+                    fallback_stats_tools = [
+                        t
+                        for t in (config.chat.tools or [])
+                        if t not in _manifest_tool_names
+                    ] or None
+                    try:
+                        tools = init_tools(fallback_stats_tools)
+                    except ValueError as e2:
+                        raise click.UsageError(str(e2)) from e2
+                else:
+                    raise click.UsageError(str(e)) from e
 
             stats_context_mode: ContextMode | None = (
                 "selective" if (context_include or no_workspace) else None
@@ -1412,8 +1439,12 @@ def main(
         workspace_path = Path(workspace) if workspace else Path.cwd()
 
     # Setup complete configuration from CLI arguments and workspace
+    # For @log, workspace_path is logdir/workspace — use cwd so manifest
+    # resolution finds state/mcp-task-manifests.jsonl in the real workspace
+    # (same logic as the stats path above at lines 1149-1152).
+    manifest_workspace = Path.cwd() if workspace == "@log" else workspace_path
     try:
-        tool_allowlist_str = apply_tool_manifest(workspace_path)
+        tool_allowlist_str = apply_tool_manifest(manifest_workspace)
         config = setup_config_from_cli(
             workspace=workspace_path,
             logdir=logdir,
@@ -1445,7 +1476,29 @@ def main(
     try:
         tools = init_tools(config.chat.tools)
     except ValueError as e:
-        raise click.UsageError(str(e)) from e
+        if tool_manifest_type:
+            # Manifest tool unavailable (MCP server may not be running).
+            # Warn and retry without the manifest tools so the session still starts.
+            logger.warning(
+                "Manifest %r tool unavailable: %s — running without manifest tools. "
+                "Start the MCP server to use manifest tools.",
+                tool_manifest_type,
+                e,
+            )
+            manifest_tool_names: set[str] = set()
+            if tool_allowlist_str and tool_allowlist_str.startswith("+"):
+                manifest_tool_names = {
+                    t.strip() for t in tool_allowlist_str[1:].split(",") if t.strip()
+                }
+            fallback_tools = [
+                t for t in (config.chat.tools or []) if t not in manifest_tool_names
+            ] or None
+            try:
+                tools = init_tools(fallback_tools)
+            except ValueError as e2:
+                raise click.UsageError(str(e2)) from e2
+        else:
+            raise click.UsageError(str(e)) from e
 
     # init telemetry with agent name and interactive mode
     agent_config = config.chat.agent_config
