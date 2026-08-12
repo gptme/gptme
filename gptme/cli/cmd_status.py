@@ -9,6 +9,7 @@ health, blockers, and ready backlog items.
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -38,7 +39,9 @@ def _run(cmd: list[str], *, timeout: int = 10) -> str:
         return ""
 
 
+@functools.lru_cache(maxsize=1)
 def _git_root() -> Path | None:
+    """Return the git root for the current working directory (cached per process)."""
     raw = _run([GIT_CMD, "rev-parse", "--show-toplevel"])
     return Path(raw) if raw else None
 
