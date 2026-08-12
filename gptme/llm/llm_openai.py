@@ -691,6 +691,10 @@ def _is_proxy(client: OpenAI) -> bool:
     # If client has the proxy URL set, it is using the proxy
     if not proxy_url:
         return False
+    # Apply the same /messages normalization that init() applies before building the client,
+    # so the comparison never fails due to a missing suffix.
+    if not proxy_url.endswith("/messages"):
+        proxy_url = proxy_url + "/messages"
     # Normalize URLs for comparison (remove trailing slashes)
     return str(client.base_url).rstrip("/") == proxy_url.rstrip("/")
 
