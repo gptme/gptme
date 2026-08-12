@@ -97,7 +97,14 @@ def extract_harness_updates(
     specific subset (e.g. in unit tests or plugin sandboxes).
     """
 
-    if HARNESS_UPDATE_PREFIX not in content:
+    # Line-anchored early-exit: only trigger tool discovery when the prefix
+    # actually starts a line (after stripping leading whitespace).  A bare
+    # substring check would also fire for prose or code-block mentions of the
+    # prefix string, causing an unnecessary get_available_tools() call on every
+    # such assistant message.
+    if not any(
+        line.lstrip().startswith(HARNESS_UPDATE_PREFIX) for line in content.splitlines()
+    ):
         return [], []
 
     if available_tool_names is None:
@@ -152,7 +159,14 @@ def annotate_message_with_harness_updates(
         ]
 
     if session_harness is not None:
-        session_harness.record(requests, errors, when=message.timestamp)
+        # Normalize to UTC: Message.timestamp defaults to datetime.now() which
+        # is naive.  SessionHarnessState.record() only substitutes utcnow()
+        # when when=None, so a naive timestamp would be stored as-is, breaking
+        # any subsequent tz-aware comparison (e.g. session age checks).
+        ts = message.timestamp
+        if ts is not None and ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        session_harness.record(requests, errors, when=ts)
 
     return (
         message.replace(metadata=cast("MessageMetadata", metadata)),

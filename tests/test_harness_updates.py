@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest.mock
+from datetime import timezone
 
 import pytest
 import requests
@@ -95,7 +96,9 @@ def test_annotate_message_with_harness_updates_preserves_existing_metadata():
     assert annotated.metadata["model"] == "openai/mock-model"
     assert annotated.metadata["harness_updates"][0]["tool_name"] == "shell"
     assert state.requests == requests_
-    assert state.last_update_at == annotated.timestamp
+    # annotate_message_with_harness_updates normalizes naive timestamps to UTC,
+    # so last_update_at is the UTC-aware equivalent of the message timestamp.
+    assert state.last_update_at == annotated.timestamp.replace(tzinfo=timezone.utc)
 
 
 def test_server_step_attaches_harness_update_metadata(
