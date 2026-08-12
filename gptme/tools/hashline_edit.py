@@ -42,6 +42,7 @@ edit is rejected with a clear error — no silent corruption.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import tempfile
@@ -856,6 +857,10 @@ def execute_hashline_edit(
     if live_content != snapshot_content:
         # Phase 2: attempt 3-way merge recovery so concurrent external changes
         # are preserved rather than forcing an unconditional re-read.
+        # Limitation: merge is purely textual — semantic interactions between
+        # the model's edit and an external change on different lines are not
+        # detected.  The confirmation dialog below lets the user inspect the
+        # merged preview before it is written; this is the primary mitigation.
         try:
             updated, had_conflicts = _try_3way_merge(
                 snapshot_content, ops, live_content
@@ -922,9 +927,23 @@ def execute_hashline_edit(
             )
             return
 
-    # Write result
+    # Write result atomically: write to a temp file in the same directory,
+    # then rename into place.  os.replace() is a single POSIX syscall (rename(2))
+    # so readers always see either the old or the new content — never a partial
+    # write.  This closes the non-atomic write window noted by the AI reviewer
+    # (the check→write TOCTOU window above is inherent to file I/O without
+    # OS-level locking and is not specific to this path).
     try:
-        resolved.write_text(updated, encoding="utf-8")
+        tmp_fd, tmp_name = tempfile.mkstemp(
+            dir=resolved.parent, prefix=".gptme_hashline_", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
+                fh.write(updated)
+        except Exception:
+            os.unlink(tmp_name)
+            raise
+        os.replace(tmp_name, resolved)
     except (PermissionError, OSError) as e:
         yield Message("system", f"hashline_edit: write failed: {e}")
         return
