@@ -322,7 +322,9 @@ def _create_subagent_thread(
                 context_include,
             )
         include_examples = not bool(os.environ.get("GPTME_NO_EXAMPLES"))
-        initial_msgs = list(prompt_gptme(False, None, agent_name=None)) + list(
+        initial_msgs = list(
+            prompt_gptme(False, None, agent_name=None, tools=available_tools)
+        ) + list(
             prompt_tools(
                 tools=available_tools, tool_format="markdown", examples=include_examples
             )
@@ -341,7 +343,9 @@ def _create_subagent_thread(
 
         # Add components based on context_include
         if "agent" in context_include:
-            initial_msgs.extend(list(prompt_gptme(False, None, agent_name=None)))
+            initial_msgs.extend(
+                list(prompt_gptme(False, None, agent_name=None, tools=available_tools))
+            )
         if "tools" in context_include:
             initial_msgs.extend(
                 list(

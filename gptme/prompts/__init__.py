@@ -129,14 +129,22 @@ def _build_core_prompt_sections(
     if is_selective and not include_tools:
         add(
             "prompt_gptme",
-            list(prompt_gptme(interactive, model, agent_name, tool_format=tool_format)),
+            list(
+                prompt_gptme(
+                    interactive, model, agent_name, tool_format=tool_format, tools=tools
+                )
+            ),
         )
         return sections
 
     if prompt == "full":
         add(
             "prompt_gptme",
-            list(prompt_gptme(interactive, model, agent_name, tool_format=tool_format)),
+            list(
+                prompt_gptme(
+                    interactive, model, agent_name, tool_format=tool_format, tools=tools
+                )
+            ),
         )
         if include_tools:
             add(
@@ -175,6 +183,7 @@ def _build_core_prompt_sections(
                     agent_name=agent_name,
                     tool_format=tool_format,
                     compact=True,
+                    tools=tools,
                 )
             ),
         )
