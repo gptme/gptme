@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import logging
 import pkgutil
 import threading
@@ -417,7 +418,61 @@ def is_supported_langtag(lang: str) -> bool:
     return bool(get_tool_for_langtag(lang))
 
 
-def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
+def _load_task_manifest(
+    task_type: str, manifest_path: str | Path = "state/mcp-task-manifests.jsonl"
+) -> dict | None:
+    """Load Pareto-optimized tool list for a task type from manifest.
+
+    Args:
+        task_type: The task type (e.g., 'code_review', 'research')
+        manifest_path: Path to JSONL manifest file
+
+    Returns:
+        Manifest dict if found, None otherwise
+    """
+    try:
+        manifest_path = Path(manifest_path)
+        if not manifest_path.exists():
+            return None
+
+        with open(manifest_path) as f:
+            for line in f:
+                manifest = json.loads(line)
+                if manifest.get("task_type") == task_type:
+                    return manifest
+    except (OSError, FileNotFoundError, json.JSONDecodeError):
+        pass
+    return None
+
+
+def _filter_mcp_tools_by_manifest(
+    tools: list[ToolSpec], manifest: dict
+) -> list[ToolSpec]:
+    """Filter MCP tools to only those in the manifest.
+
+    Args:
+        tools: Full list of MCP tools
+        manifest: Task manifest dict with 'tools' list
+
+    Returns:
+        Filtered list of tools from the manifest
+    """
+    if not manifest or "tools" not in manifest:
+        return tools
+
+    # Extract server names from manifest tools
+    manifest_servers = {tool.get("server_name") for tool in manifest["tools"]}
+
+    # Filter to MCP tools in the manifest
+    # MCP tools have a server attribute that matches server_name in manifest
+    return [t for t in tools if getattr(t, "server", None) in manifest_servers]
+
+
+def get_available_tools(
+    include_mcp: bool = True,
+    task_type: str | None = None,
+    manifest_path: str | Path = "state/mcp-task-manifests.jsonl",
+) -> list[ToolSpec]:
     from ..config import get_config  # fmt: skip
     from .mcp_adapter import create_mcp_tools  # fmt: skip
 
@@ -461,7 +516,16 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
         available_tools.sort()
 
         if include_mcp:
-            available_tools.extend(create_mcp_tools(config))
+            mcp_tools = create_mcp_tools(config)
+
+            # Filter MCP tools by task manifest if task_type specified
+            if task_type:
+                manifest = _load_task_manifest(task_type, manifest_path)
+                if manifest:
+                    mcp_tools = _filter_mcp_tools_by_manifest(mcp_tools, manifest)
+                # If manifest not found, use all MCP tools (graceful fallback)
+
+            available_tools.extend(mcp_tools)
             # Only cache if we included MCP tools
             _set_available_tools_cache(available_tools)
         else:
