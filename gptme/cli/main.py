@@ -806,6 +806,15 @@ Run 'gptme-util --help' for all utility commands."""
     help="Write a JSON record before and after each tool call to this directory. "
     "Records can be committed alongside session artifacts for tool-call-level attribution.",
 )
+@click.option(
+    "--tool-manifest",
+    "tool_manifest_type",
+    default=None,
+    type=str,
+    envvar="GPTME_TOOL_MANIFEST",
+    help="Task-optimized tool manifest: code_review, research, content, deployment, etc. "
+    "Restricts tool loading to a curated subset for the specified task type.",
+)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -840,6 +849,7 @@ def main(
     output_schema: str | None,
     injection_hygiene: str | None,
     manifest_dir: Path | None,
+    tool_manifest_type: str | None,
 ):
     """Main entrypoint for the CLI."""
     show_version = version or version_json
