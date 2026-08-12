@@ -1075,7 +1075,9 @@ def main(
             manifest.path,
             len(manifest.tool_names),
         )
-        return ",".join(manifest.tool_names)
+        # Prefix with '+' so manifest tools are ADDED to built-in defaults
+        # rather than replacing them (a bare list would drop read/shell/save/etc.)
+        return "+" + ",".join(manifest.tool_names)
 
     if profile and not show_version:
         import cProfile
