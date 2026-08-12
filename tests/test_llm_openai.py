@@ -3429,3 +3429,43 @@ class TestMakeResolvedModel:
             f"openrouter/moonshotai/kimi-k2.5@{suffix}", "Moonshot AI"
         )
         assert result is None
+
+
+class TestIsProxy:
+    """Direct unit tests for _is_proxy() URL comparison — regression for #3526."""
+
+    @pytest.mark.parametrize(
+        ("proxy_url", "client_base_url"),
+        [
+            # no suffix: init() appends /messages, httpx normalizes with trailing slash
+            ("http://127.0.0.1:8080", "http://127.0.0.1:8080/messages/"),
+            # trailing slash: double slash preserved in client base_url
+            ("http://127.0.0.1:8080/", "http://127.0.0.1:8080//messages/"),
+            # already has /messages: init() leaves it unchanged, httpx adds trailing slash
+            ("http://127.0.0.1:8080/messages", "http://127.0.0.1:8080/messages/"),
+        ],
+    )
+    def test_proxy_url_spellings_return_true(
+        self, monkeypatch, proxy_url, client_base_url
+    ):
+        from gptme.llm.llm_openai import _is_proxy
+
+        _is_proxy.cache_clear()
+        monkeypatch.setenv("LLM_PROXY_URL", proxy_url)
+        client = MagicMock()
+        client.base_url = client_base_url
+        assert _is_proxy(client), (
+            f"LLM_PROXY_URL={proxy_url!r} should be detected as proxy"
+        )
+        _is_proxy.cache_clear()
+
+    def test_no_proxy_url_returns_false(self, monkeypatch):
+        from gptme.llm.llm_openai import _is_proxy
+
+        _is_proxy.cache_clear()
+        monkeypatch.delenv("LLM_PROXY_URL", raising=False)
+        monkeypatch.delenv("GPTME_LLM_PROXY_URL", raising=False)
+        client = MagicMock()
+        client.base_url = "http://127.0.0.1:8080/messages/"
+        assert not _is_proxy(client)
+        _is_proxy.cache_clear()
