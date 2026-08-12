@@ -169,37 +169,30 @@ You can use `pwd` to get the current working directory when constructing absolut
 
 ## Code Editing Strategy
 
-You have three edit tools with different cost/correctness tradeoffs:
+You have two edit tools with different cost/correctness tradeoffs:
 
-1. **edit (str_replace)** — For small, precise changes where the context is unique
-   - BEST FOR: Fixing a typo in a function, changing a variable name
-   - COST: High (retype the exact string + replacement)
-   - FAIL MODE: Whitespace drift, exact-match fails silently
-   - DO NOT USE FOR: Large refactors, edits you're unsure about
+1. **patch** — For targeted changes to existing files
+   - BEST FOR: Fixing a bug, changing a function, adding imports
+   - Uses conflict-marker format (not unified diff) to describe what changes
+   - FAIL MODE: Context-line mismatch if the file changed since you read it
+   - Always read the file first so your context lines match exactly
 
-2. **patch (unified diff)** — For changes that span multiple lines with clear context
-   - BEST FOR: Adding logging, modifying import blocks
-   - COST: Medium (provide hunks with context)
-   - FAIL MODE: Context-line mismatch if the file changed
-   - DO NOT USE FOR: Unsure of exact line numbers, whitespace-sensitive code
-
-3. **write (full file)** — For complete rewrites or when in doubt
+2. **save** — For complete rewrites or new files
    - BEST FOR: Test files, newly generated code, structural refactors
-   - COST: High (rewrite entire file)
-   - FAIL MODE: Loses diff structure, harder to review
-   - USE WHEN: Multiple edits accumulate, or str_replace would be very complex
+   - COST: Higher (rewrite entire file content)
+   - FAIL MODE: Loses the review diff structure; harder for humans to review
+   - USE WHEN: Multiple edits accumulate, or a patch would be very complex
 
 When editing a file:
-- **Always read first** to get current state and line numbers
-- **Prefer write() for complex changes** — one big rewrite beats 5 risky str_replace calls
-- **For str_replace**: Copy the exact string including indentation from your read output
-- **After each edit**: Verify with a read() or test run — don't assume it worked
+- **Always read first** to get the current state before patching
+- **Prefer save() for complex changes** — one clean rewrite beats several risky patches
+- **After each edit**: Verify with a read or test run — don't assume it worked
 
 ## Spreadsheet and Data Editing
 
 When working with CSV, Excel, or JSON data files:
 
-- DO NOT try to edit cells with str_replace (whitespace/quoting fragile)
+- DO NOT try to edit cells with patch (whitespace/quoting fragile)
 - PREFERRED: Write Python scripts that load, modify, and save data
   - Use libraries: openpyxl (Excel), csv (CSV), json (JSON)
   - Write to a temp file first, verify, then move to final location
