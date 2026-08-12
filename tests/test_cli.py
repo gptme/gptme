@@ -985,6 +985,31 @@ def test_tool_manifest_cannot_combine_with_tools(runner: CliRunner, tmp_path: Pa
     assert "Traceback" not in result.output
 
 
+def test_tool_manifest_cannot_combine_with_profile_tools(
+    runner: CliRunner, tmp_path: Path
+):
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--agent-profile",
+            "explorer",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with agent profile tools" in result.output
+    )
+    assert "Traceback" not in result.output
+
+
 def test_tool_manifest_wires_allowlist_into_config(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):

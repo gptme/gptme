@@ -970,6 +970,10 @@ def main(
             return tool_allowlist_str
         if ctx.get_parameter_source("tool_allowlist") != ParameterSource.DEFAULT:
             raise click.UsageError("--tool-manifest cannot be combined with --tools")
+        if selected_profile and selected_profile.tools is not None:
+            raise click.UsageError(
+                "--tool-manifest cannot be combined with agent profile tools"
+            )
 
         from ..tool_manifests import load_task_manifest
 
