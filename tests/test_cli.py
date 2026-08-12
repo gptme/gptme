@@ -1024,11 +1024,13 @@ def test_tool_manifest_wires_allowlist_into_config(
     monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
     monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
     monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
-    # gptme/__init__.py caches 'chat' as a function in its globals via __getattr__,
-    # so getattr(gptme, "chat") returns the function — not the gptme.chat module.
-    # Import the module directly to patch the right target.
-    import gptme.chat as _chat_module
+    # gptme/__init__.py caches 'chat' as a function in globals via __getattr__,
+    # so `getattr(gptme, "chat")` returns the function, not the gptme.chat module.
+    # `import gptme.chat as X` uses IMPORT_FROM which calls getattr — same trap.
+    # Use importlib.import_module() to hit sys.modules['gptme.chat'] directly.
+    import importlib
 
+    _chat_module = importlib.import_module("gptme.chat")
     monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
 
     result = runner.invoke(
