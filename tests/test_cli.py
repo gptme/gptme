@@ -1024,7 +1024,12 @@ def test_tool_manifest_wires_allowlist_into_config(
     monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
     monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
     monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
-    monkeypatch.setattr("gptme.chat.chat", lambda *_, **__: None)
+    # gptme/__init__.py caches 'chat' as a function in its globals via __getattr__,
+    # so getattr(gptme, "chat") returns the function — not the gptme.chat module.
+    # Import the module directly to patch the right target.
+    import gptme.chat as _chat_module
+
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
 
     result = runner.invoke(
         cli.main,
@@ -1040,7 +1045,8 @@ def test_tool_manifest_wires_allowlist_into_config(
     )
 
     assert result.exit_code == 0
-    assert seen["tool_allowlist"] == "github.search_code,time.get_current_time"
+    # Manifest tools are additive ('+' prefix) so built-in tools are preserved
+    assert seen["tool_allowlist"] == "+github.search_code,time.get_current_time"
 
 
 def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):
