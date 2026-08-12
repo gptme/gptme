@@ -202,7 +202,9 @@ def test_extract_harness_updates_rejects_invalid_urgency():
 
 def test_extract_harness_updates_rejects_invalid_approval():
     """An unrecognised approval mode must be rejected."""
-    content = 'HARNESS_UPDATE: enable_tool shell reason="Need it" urgency=medium approval=silent'
+    content = (
+        'HARNESS_UPDATE: enable_tool shell reason="Need it" urgency=medium approval=silent'
+    )
 
     requests_, errors = extract_harness_updates(
         content, available_tool_names={"shell", "web_fetch"}
