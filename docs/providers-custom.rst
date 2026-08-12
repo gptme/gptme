@@ -336,7 +336,10 @@ Messages-API requests on ``/v1/messages``:
    So the two paths compose cleanly: use the ``[[providers]]`` block above for
    OpenAI-compatible models and ``LLM_PROXY_URL`` for Claude. Just don't set
    ``LLM_PROXY_URL`` and then call a built-in ``-m openai/...`` model in the
-   same session.
+   same session — the request goes to ``<proxy>/messages/chat/completions``,
+   Paritok answers ``404 Not Found``, and you get an ``openai.NotFoundError``
+   that never mentions ``LLM_PROXY_URL``, which is easy to misread as a Paritok
+   fault.
 
 Verify
 ~~~~~~
