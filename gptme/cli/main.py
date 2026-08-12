@@ -1285,7 +1285,35 @@ def main(
                     agent_path=Path(agent_path) if agent_path else None,
                 )
             except ValueError as e:
-                raise click.UsageError(str(e)) from e
+                if tool_manifest_type:
+                    # Manifest tool unavailable during config normalisation —
+                    # retry without the manifest allowlist (same fallback as the
+                    # main path and the init_tools path below).
+                    logger.warning(
+                        "Manifest %r tool unavailable during stats config setup: %s — "
+                        "running without manifest tools.",
+                        tool_manifest_type,
+                        e,
+                    )
+                    stats_tool_allowlist_str = tool_allowlist_str  # pre-manifest
+                    try:
+                        config = setup_config_from_cli(
+                            workspace=stats_workspace_path,
+                            logdir=stats_logdir,
+                            model=model,
+                            tool_allowlist=tool_allowlist_str,
+                            tool_format=tool_format,
+                            prune_tool_output=prune_tool_output,
+                            gear=selected_gear,
+                            no_confirm=no_confirm or None,
+                            stream=stream,
+                            interactive=interactive,
+                            agent_path=Path(agent_path) if agent_path else None,
+                        )
+                    except ValueError as e2:
+                        raise click.UsageError(str(e2)) from e2
+                else:
+                    raise click.UsageError(str(e)) from e
             assert config.chat and config.chat.tool_format
             if selected_profile is None and config.chat.gear is not None:
                 gear_profile_name = resolve_gear(config.chat.gear).profile_name
@@ -1443,6 +1471,9 @@ def main(
     # resolution finds state/mcp-task-manifests.jsonl in the real workspace
     # (same logic as the stats path above at lines 1149-1152).
     manifest_workspace = Path.cwd() if workspace == "@log" else workspace_path
+    pre_manifest_allowlist = (
+        tool_allowlist_str  # save before apply_tool_manifest overwrites
+    )
     try:
         tool_allowlist_str = apply_tool_manifest(manifest_workspace)
         config = setup_config_from_cli(
@@ -1459,7 +1490,36 @@ def main(
             agent_path=Path(agent_path) if agent_path else None,
         )
     except ValueError as e:
-        raise click.UsageError(str(e)) from e
+        if tool_manifest_type:
+            # Manifest tool unavailable during config normalisation (MCP server
+            # may not be running).  Retry without the manifest allowlist so the
+            # session still starts with the default tools.
+            logger.warning(
+                "Manifest %r tool unavailable during config setup: %s — "
+                "running without manifest tools. "
+                "Start the MCP server to use manifest tools.",
+                tool_manifest_type,
+                e,
+            )
+            tool_allowlist_str = pre_manifest_allowlist
+            try:
+                config = setup_config_from_cli(
+                    workspace=workspace_path,
+                    logdir=logdir,
+                    model=model,
+                    tool_allowlist=pre_manifest_allowlist,
+                    tool_format=tool_format,
+                    prune_tool_output=prune_tool_output,
+                    gear=selected_gear,
+                    no_confirm=no_confirm or None,
+                    stream=stream,
+                    interactive=interactive,
+                    agent_path=Path(agent_path) if agent_path else None,
+                )
+            except ValueError as e2:
+                raise click.UsageError(str(e2)) from e2
+        else:
+            raise click.UsageError(str(e)) from e
     assert config.chat and config.chat.tool_format
     if selected_profile is None and config.chat.gear is not None:
         gear_profile_name = resolve_gear(config.chat.gear).profile_name
