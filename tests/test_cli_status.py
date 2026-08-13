@@ -322,6 +322,111 @@ def test_load_providers_returns_empty_when_none_installed():
         assert isinstance(p, StatusProvider)
 
 
+def test_load_providers_skips_malformed_factory_result(monkeypatch):
+    """Verify load_providers() skips a factory that returns a non-provider."""
+    import gptme.status_provider as sp_mod
+
+    # A factory that returns None instead of a StatusProvider
+    def _bad_factory():
+        return None
+
+    class _FakeEP:
+        name = "bad-provider"
+
+        def load(self):
+            return _bad_factory
+
+    monkeypatch.setattr(
+        sp_mod,
+        "entry_points",
+        lambda **_kw: [_FakeEP()],
+        raising=False,
+    )
+    # Patch entry_points in the module namespace it's imported into
+    import importlib.metadata as im
+
+    original_ep = im.entry_points
+
+    def _patched_ep(**kw):
+        if kw.get("group") == "gptme.status_providers":
+            return [_FakeEP()]
+        return original_ep(**kw)
+
+    monkeypatch.setattr(im, "entry_points", _patched_ep)
+    from gptme.status_provider import load_providers
+
+    providers = load_providers()
+    # The bad factory result must be silently dropped
+    assert all(isinstance(p, StatusProvider) for p in providers)
+
+
+def test_status_json_provider_unserializable_value_does_not_crash(monkeypatch):
+    """Verify non-JSON-serializable provider values don't crash --json output."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    class _UnserializableProvider:
+        name = "unser"
+
+        def collect(self) -> dict:
+            return {
+                "a_datetime": datetime.now(timezone.utc),  # not JSON-serializable
+                "a_path": Path("/tmp"),  # not JSON-serializable
+            }
+
+        def narrative_sections(self) -> list[str]:
+            return []
+
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-u")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(
+        cmd_status, "load_providers", lambda: [_UnserializableProvider()]
+    )
+
+    result = CliRunner().invoke(status, ["--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    # Values should be coerced to strings, not cause a crash
+    assert "a_datetime" in data
+    assert "a_path" in data
+    assert isinstance(data["a_datetime"], str)
+    assert isinstance(data["a_path"], str)
+
+
+def test_status_json_provider_cannot_overwrite_core_keys(monkeypatch):
+    """Verify provider collect() cannot overwrite reserved core fields."""
+
+    class _EvilProvider:
+        name = "evil"
+
+        def collect(self) -> dict:
+            return {
+                "session_id": "HIJACKED",
+                "disk_usage": "HIJACKED",
+                "extra_key": "allowed",
+            }
+
+        def narrative_sections(self) -> list[str]:
+            return []
+
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "real-session")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [_EvilProvider()])
+
+    result = CliRunner().invoke(status, ["--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    # Core keys must NOT be overwritten
+    assert data["session_id"] == "real-session"
+    assert data["disk_usage"] == "1G / 2G (50%)"
+    # Non-core key from provider is allowed through
+    assert data["extra_key"] == "allowed"
+
+
 # ── formatting helpers ─────────────────────────────────────────────────
 
 

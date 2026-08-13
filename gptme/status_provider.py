@@ -78,9 +78,10 @@ def load_providers() -> list[StatusProvider]:
     """Return all installed :class:`StatusProvider` implementations.
 
     Scans the ``gptme.status_providers`` entry-point group in installed
-    packages only.  Any provider that fails to import or instantiate is
-    silently skipped and logged at ``DEBUG`` level so that a broken provider
-    does not break the status command for unrelated providers.
+    packages only.  Any provider that fails to import, instantiate, or
+    satisfy the protocol is silently skipped and logged at ``DEBUG`` level so
+    that a broken provider does not break the status command for unrelated
+    providers.
 
     Returns
     -------
@@ -96,6 +97,14 @@ def load_providers() -> list[StatusProvider]:
             try:
                 factory = ep.load()
                 provider = factory()
+                if not isinstance(provider, StatusProvider):
+                    logger.debug(
+                        "Status provider factory %r returned %r which does not"
+                        " satisfy the StatusProvider protocol — skipping",
+                        ep.name,
+                        type(provider).__name__,
+                    )
+                    continue
                 providers.append(provider)
             except Exception as exc:
                 logger.debug("Failed to load status provider %r: %s", ep.name, exc)

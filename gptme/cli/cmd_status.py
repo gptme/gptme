@@ -190,12 +190,29 @@ def section_disk() -> str:
 # ── build ─────────────────────────────────────────────────────────────
 
 
+_CORE_KEYS = frozenset({"timestamp", "session_id", "recent_commits", "disk_usage"})
+"""Reserved top-level keys owned by gptme core.
+
+Providers must not use these names; any collision is logged and skipped so that
+core fields are never silently overwritten.
+"""
+
+
+def _json_default(obj: object) -> object:
+    """Fallback JSON serialiser for non-standard types returned by providers.
+
+    Converts unknown objects to their ``str()`` representation so that
+    ``json.dumps`` never raises ``TypeError`` on provider-contributed values.
+    """
+    return str(obj)
+
+
 def _status_data(providers: list[StatusProvider] | None = None) -> dict[str, object]:
     """Collect status data shared by JSON and presentation renderers.
 
     Core fields are generic and workspace-agnostic.  Extra fields from installed
     :class:`~gptme.status_provider.StatusProvider` implementations are merged in
-    at the top level.
+    at the top level, with collision detection against reserved core keys.
 
     Parameters
     ----------
@@ -217,7 +234,21 @@ def _status_data(providers: list[StatusProvider] | None = None) -> dict[str, obj
     for provider in providers:
         try:
             extra = provider.collect()
-            status_data.update(extra)
+            for key, val in extra.items():
+                if key in _CORE_KEYS:
+                    logger.debug(
+                        "Provider %r tried to overwrite reserved core key %r — skipping",
+                        provider.name,
+                        key,
+                    )
+                    continue
+                if key in status_data:
+                    logger.debug(
+                        "Provider %r key %r collides with an earlier provider's key — overwriting",
+                        provider.name,
+                        key,
+                    )
+                status_data[key] = val
         except Exception as exc:
             logger.debug("Provider %r collect() failed: %s", provider.name, exc)
 
@@ -226,7 +257,7 @@ def _status_data(providers: list[StatusProvider] | None = None) -> dict[str, obj
 
 def build_json_status(providers: list[StatusProvider] | None = None) -> str:
     """Build the structured JSON status document."""
-    return json.dumps(_status_data(providers), indent=2)
+    return json.dumps(_status_data(providers), indent=2, default=_json_default)
 
 
 def build_table_document(providers: list[StatusProvider] | None = None) -> str:
