@@ -515,7 +515,7 @@ document.write(`
 <p>Where <code class="docutils literal notranslate"><span class="pre">provider</span></code> is a <code class="docutils literal notranslate"><span class="pre">ProviderPlugin</span></code> instance.</p>
 <p><strong>Usage:</strong> Once installed, use the provider name as the model prefix:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">gptme</span><span class="o">-</span><span class="n">provider</span><span class="o">-</span><span class="n">minimax</span>
-<span class="n">gptme</span> <span class="s2">&quot;hello&quot;</span> <span class="o">-</span><span class="n">m</span> <span class="n">minimax</span><span class="o">/</span><span class="n">abab6</span><span class="mf">.5</span><span class="n">s</span><span class="o">-</span><span class="n">chat</span>
+<span class="n">gptme</span> <span class="s2">&quot;hello&quot;</span> <span class="o">-</span><span class="n">m</span> <span class="n">minimax</span><span class="o">/</span><span class="n">MiniMax</span><span class="o">-</span><span class="n">M3</span>
 </pre></div>
 </div>
 <p><strong>Creating a provider plugin:</strong></p>
@@ -526,7 +526,23 @@ document.write(`
     <span class="n">api_key_env</span><span class="o">=</span><span class="s2">&quot;MINIMAX_API_KEY&quot;</span><span class="p">,</span>           <span class="c1"># Env var for API key</span>
     <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.minimax.chat/v1&quot;</span><span class="p">,</span>  <span class="c1"># OpenAI-compatible endpoint</span>
     <span class="n">models</span><span class="o">=</span><span class="p">[</span>
-        <span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;minimax/abab6.5s-chat&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">245_760</span><span class="p">),</span>
+        <span class="n">ModelMeta</span><span class="p">(</span>
+            <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+            <span class="n">model</span><span class="o">=</span><span class="s2">&quot;minimax/MiniMax-M3&quot;</span><span class="p">,</span>
+            <span class="n">context</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">,</span>
+            <span class="n">price_input</span><span class="o">=</span><span class="mf">0.6</span><span class="p">,</span>
+            <span class="n">price_output</span><span class="o">=</span><span class="mf">2.4</span><span class="p">,</span>
+            <span class="n">supports_vision</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">supports_reasoning</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="n">ModelMeta</span><span class="p">(</span>
+            <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+            <span class="n">model</span><span class="o">=</span><span class="s2">&quot;minimax/MiniMax-M2.7&quot;</span><span class="p">,</span>
+            <span class="n">context</span><span class="o">=</span><span class="mi">204_800</span><span class="p">,</span>
+            <span class="n">price_input</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span>
+            <span class="n">price_output</span><span class="o">=</span><span class="mf">1.2</span><span class="p">,</span>
+            <span class="n">supports_reasoning</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">),</span>
     <span class="p">],</span>
 <span class="p">)</span>
 </pre></div>
