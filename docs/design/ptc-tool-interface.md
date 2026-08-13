@@ -67,15 +67,20 @@ The `"tool"` format (`@name(id): {...}`) supports providers that expose a native
 tool-use API (e.g., OpenAI Responses API, Anthropic tool use).
 
 **This is the one path where JSON schemas are sent to the model and structured
-tool-call responses are parsed.** The LLM adapters (`gptme/llm/llm_openai.py`,
-`gptme/llm/llm_anthropic.py`) convert each `ToolSpec` to a JSON-schema tool
-definition via `_spec2tool` and send these definitions to the provider alongside
-the conversation. The provider returns a structured tool call
-(e.g., `@shell(abc-123): {"cmd": "ls"}`); gptme parses the JSON arguments and
-dispatches via the same `ToolSpec.execute` path.
+tool-call responses are parsed.** The implementation spans two layers:
 
-Schema handling for this mode lives entirely in `gptme/llm/`, not in
-`gptme/tools/` — the `ToolSpec.execute` interface itself remains code-based.
+- **`gptme/llm/`** (schema → provider): `_spec2tool` in `llm_openai.py` /
+  `llm_anthropic.py` converts each `ToolSpec`'s `.parameters` to a JSON-schema
+  tool definition and sends it to the provider alongside the conversation.
+- **`gptme/tools/base.py`** (provider → dispatch): `ToolUse.iter_from_content`
+  with `active_format == "tool"` parses the `@name(id): {...}` response using
+  `json_repair.loads`, extracts `kwargs`, and yields a `ToolUse` that then calls
+  `ToolSpec.execute`.
+
+The `ToolSpec.execute` interface itself is code-based in all formats; the JSON
+layer is the serialisation envelope for provider-native calls, handled in
+`gptme/llm/` (outbound schemas) and `gptme/tools/base.py` (inbound argument
+parsing).
 
 ### MCP adapter
 
@@ -99,7 +104,7 @@ grep -r "json\|schema\|Json\|Schema" gptme/tools/ \
 
 | File | JSON usage | Dispatch path? |
 |------|-----------|----------------|
-| `base.py` | Argument serialisation (`_to_json`, `_to_params`) and "tool"-format parsing | ❌ Not dispatch — argument mapping only |
+| `base.py` | `_to_json`/`_to_params` serialisation + `ToolUse.iter_from_content` "tool"-format JSON parser (`json_repair.loads`) | ⚠️ Part of provider-native path — parses `@name(id): {...}` responses |
 | `mcp_adapter.py` | MCP protocol JSON schema for external server tools | ❌ Not gptme tool dispatch |
 | `patch_anchored.py` | JSON array of edit operations (tool's own content format) | ❌ Not dispatch |
 | `vent.py` | JSONL output to friction ledger | ❌ Not dispatch |
@@ -107,11 +112,12 @@ grep -r "json\|schema\|Json\|Schema" gptme/tools/ \
 | `shell.py` | context-savings JSONL log | ❌ Not dispatch |
 | `restart.py` | `--output-schema` CLI flag for structured subagent output | ❌ Not tool dispatch |
 
-**Verdict**: No JSON-schema dispatch paths in `gptme/tools/`. For markdown and XML
+**Verdict**: No JSON-schema *dispatch* paths in `gptme/tools/`. For markdown and XML
 formats, `ToolSpec.execute(code, args, kwargs)` receives the raw code block content.
-JSON-schema handling for provider-native tool mode lives in `gptme/llm/` (the
-`_spec2tool` functions in `llm_openai.py` and `llm_anthropic.py`), which is outside
-this `gptme/tools/` audit scope.
+For provider-native tool mode, `base.py` handles the inbound argument-parsing step
+(`ToolUse.iter_from_content` with `active_format == "tool"`), while outbound schema
+generation lives in `gptme/llm/`. Schema definition dispatch (choosing a tool by schema)
+never occurs — the `@name(id): {...}` format names the tool directly.
 
 ---
 
