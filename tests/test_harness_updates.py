@@ -95,6 +95,24 @@ def test_extract_harness_updates_accepts_unquoted_apostrophe_in_reason():
     assert requests_[0].reason == "user's"
 
 
+def test_extract_harness_updates_accepts_apostrophe_with_space_in_reason():
+    """The shlex fallback must also handle reasons with both an apostrophe and a
+    space (e.g. ``reason=user's request``).  Without the re-join step the bare
+    word ``request`` would be mis-classified as an unexpected token and the whole
+    line would be rejected instead of recorded."""
+    content = "HARNESS_UPDATE: enable_tool shell reason=user's request urgency=low approval=auto"
+
+    requests_, errors = extract_harness_updates(
+        content, available_tool_names={"shell", "web_fetch"}
+    )
+
+    assert errors == [], f"Unexpected errors: {errors}"
+    assert len(requests_) == 1
+    assert requests_[0].reason == "user's request"
+    assert requests_[0].urgency == "low"
+    assert requests_[0].approval_mode == "auto"
+
+
 def test_annotate_message_with_harness_updates_preserves_existing_metadata():
     msg = Message(
         "assistant",

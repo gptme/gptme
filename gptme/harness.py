@@ -175,6 +175,38 @@ def annotate_message_with_harness_updates(
     )
 
 
+def _rejoin_reason_tokens(tokens: list[str]) -> list[str]:
+    """Re-join bare continuation words into the reason= token.
+
+    When ``shlex.split`` fails (e.g. due to an unquoted apostrophe) and we
+    fall back to ``payload.split()``, a multi-word reason like
+    ``reason=user's request`` becomes ``["reason=user's", "request"]``.  The
+    bare token ``"request"`` has no ``=``, so the parser would treat it as an
+    unexpected token and reject the whole line.
+
+    This helper scans for the ``reason=`` token and merges any immediately
+    following tokens that contain no ``=`` (i.e. are bare words) back into the
+    reason value, restoring the intent of the original line.
+    """
+    result: list[str] = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok.startswith("reason="):
+            # Collect continuation words (no '=' means they are part of the value)
+            j = i + 1
+            while j < len(tokens) and "=" not in tokens[j]:
+                j += 1
+            if j > i + 1:
+                tok = " ".join([tok] + tokens[i + 1 : j])
+            result.append(tok)
+            i = j
+        else:
+            result.append(tok)
+            i += 1
+    return result
+
+
 def _parse_harness_update_line(
     line: str, *, available_tool_names: set[str]
 ) -> tuple[HarnessUpdateRequest | None, HarnessUpdateError | None]:
@@ -187,10 +219,13 @@ def _parse_harness_update_line(
         tokens = shlex.split(payload)
     except ValueError:
         # shlex.split treats apostrophes as quote characters; an unquoted
-        # apostrophe inside a value (e.g. reason=user's) raises ValueError.
-        # Fall back to plain whitespace splitting so natural-language reasons
-        # with apostrophes are accepted instead of silently rejected.
-        tokens = payload.split()
+        # apostrophe inside a value (e.g. reason=user's request) raises ValueError.
+        # Fall back to whitespace splitting, then re-join any bare continuation
+        # words after reason= into the reason value.  Without this, a reason
+        # like "reason=user's request" is split into ["reason=user's", "request"]
+        # and the bare token "request" triggers an unexpected-token error.
+        raw_tokens = payload.split()
+        tokens = _rejoin_reason_tokens(raw_tokens)
 
     if len(tokens) < 2:
         return None, HarnessUpdateError(
