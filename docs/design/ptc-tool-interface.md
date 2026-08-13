@@ -18,12 +18,12 @@ structured tool calls which gptme parses before dispatching to `ToolSpec.execute
 This path trades the context-rot resilience of PTC for compatibility with
 provider-side tool routing.
 
-This matters because a 2026 benchmark study (arXiv:2608.06370, "The Bitter Lesson
-of Tool Calling") found that PTC **matches or exceeds** JSON-schema tool calling on
-11/14 models, and critically, PTC maintains stable accuracy under **context rot**
-(long sessions with accumulated tool history) while JSON-schema accuracy degrades
-~2.3%. gptme's long-running autonomous sessions sit squarely in the regime where
-this stability advantage compounds.
+This matters because gptme's long-running autonomous sessions accumulate 50–200 tool
+calls in a single conversation. JSON-schema tool definitions are verbose and repetitive
+in context; accumulated provider-native tool history crowds out the actual task. PTC
+code blocks are shorter, more compositional, and less sensitive to context length.
+gptme's markdown-first design is architecturally positioned to remain stable in the
+long-context regime where JSON-schema approaches are most likely to degrade.
 
 ---
 
@@ -131,31 +131,29 @@ content with no JSON parsing at any layer. The ⚠️ on `base.py` above applies
 
 ---
 
-## Why PTC Wins at Long Context (Context Rot)
+## Why PTC Favours Long Context (Context Rot Argument)
 
-arXiv:2608.06370v1 benchmarked 14 models on BFCL v4 across three conditions:
+JSON-schema tool calling sends the full parameter schema for every available tool on
+every turn. In a long autonomous session this adds significant token overhead that
+repeats with every message. PTC code blocks carry no per-turn schema payload: the
+model writes code, gptme runs it — the only context each block occupies is the code
+itself.
 
-1. **Simple**: isolated tool call, no history
-2. **Distracted**: irrelevant tool history in context
-3. **Rotted**: many prior tool calls of the correct type in context
+The concern compounds under **context rot**: when prior tool-call history accumulates
+(50–200 entries in a typical autonomous run), JSON-schema responses grow proportionally
+because each prior turn's structured `tool_call` / `tool_result` pair is preserved in
+the conversation. PTC history is just markdown code blocks and their output — shorter,
+compositional, and no more repetitive than the code itself.
 
-JSON-schema tool calling degrades ~2.3% average accuracy under context rot across
-models. PTC holds steady. The paper's hypothesis: JSON schemas are longer and
-more repetitive in context; accumulated tool history crowds out the actual task.
-Code blocks are shorter, more compositional, and less sensitive to sequence length.
-
-**Implication for gptme**: autonomous sessions routinely accumulate 50–200 tool
-calls in a single conversation. This is exactly the regime where JSON-schema
-accuracy degrades. gptme's markdown-first PTC interface is architecturally
-positioned to remain stable where JSON-schema approaches falter.
+**Reasoning**: gptme's long-running autonomous sessions sit in the regime most
+sensitive to this effect. The markdown-first PTC interface avoids the per-turn schema
+overhead and the structured-call repetition that makes long JSON-schema contexts
+harder for models to attend through.
 
 ---
 
 ## References
 
-- arXiv:2608.06370v1 — "The Bitter Lesson of Tool Calling" (August 2026)
-  - BFCL v4 benchmark, 14 models, context-rot stability analysis
-  - Key finding: PTC matches/exceeds JSON in 11/14 models; ~2.3% JSON degradation under context rot
 - `gptme/tools/base.py` — `ToolSpec`, `ToolUse`, dispatch paths, `ToolFormat`
 - `gptme/tools/python.py` — IPython execution backend
 - `gptme/tools/shell.py` — subprocess bash execution backend
