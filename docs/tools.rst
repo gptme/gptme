@@ -72,10 +72,11 @@ writes executable code in fenced code blocks, and gptme runs it directly. For th
 default ``markdown`` and ``xml`` formats, no JSON schemas are sent to the model
 and no JSON-structured responses are parsed.
 
-The primary dispatch path is ``"markdown"`` format: a ````python`` or ````shell``
-fenced block whose content gptme routes to ``ToolSpec.execute(code, args, kwargs)``.
-For Python, this means IPython's ``run_cell()``; for Shell, ``subprocess.Popen``
-with a stateful bash shell.
+The primary dispatch path is ``"markdown"`` format: a fenced code block whose
+language tag identifies any registered tool name (``python``, ``shell``, ``save``,
+``patch``, and others), and whose content gptme routes to
+``ToolSpec.execute(code, args, kwargs)``. For Python, this means IPython's
+``run_cell()``; for Shell, ``subprocess.Popen`` with a stateful bash shell.
 
 gptme also supports a **provider-native tool mode** (``"tool"`` format) for
 OpenAI and Anthropic APIs, where ``ToolSpec`` parameters are converted to
