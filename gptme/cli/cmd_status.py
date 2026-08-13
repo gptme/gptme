@@ -215,10 +215,15 @@ core fields are never silently overwritten.
 def _json_default(obj: object) -> object:
     """Fallback JSON serialiser for non-standard types returned by providers.
 
-    Converts unknown objects to their ``str()`` representation so that
-    ``json.dumps`` never raises ``TypeError`` on provider-contributed values.
+    Converts unknown objects to their ``str()`` representation, using a fixed
+    placeholder when the object's string conversion itself fails.  This ensures
+    that a provider returning an object with a broken ``__str__()`` cannot abort
+    ``gptme-util status --json``.
     """
-    return str(obj)
+    try:
+        return str(obj)
+    except Exception:
+        return "<unserializable>"
 
 
 def _status_data(providers: list[StatusProvider] | None = None) -> dict[str, object]:

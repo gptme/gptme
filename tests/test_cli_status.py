@@ -562,6 +562,42 @@ def test_build_table_document_core_key_collision():
     assert "| safe_key |" in doc
 
 
+def test_status_json_provider_str_raises_does_not_crash(monkeypatch):
+    """Verify a provider value whose __str__() raises does not abort --json output."""
+
+    class _BadStrValue:
+        """A value object whose __str__ always raises."""
+
+        def __str__(self) -> str:
+            raise RuntimeError("__str__ is broken")
+
+        def __repr__(self) -> str:
+            return "<BadStrValue>"
+
+    class _BadStrProvider:
+        name = "bad_str"
+
+        def collect(self) -> dict:
+            return {"broken_value": _BadStrValue(), "normal_key": "ok"}
+
+        def narrative_sections(self) -> list:
+            return []
+
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-badstr")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [_BadStrProvider()])
+
+    result = CliRunner().invoke(status, ["--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    # The broken value should be replaced with the sentinel placeholder.
+    assert data["broken_value"] == "<unserializable>"
+    # Other provider keys still make it through.
+    assert data["normal_key"] == "ok"
+
+
 def test_status_json_cross_provider_collision_first_writer_wins(monkeypatch):
     """Verify JSON output uses first-writer-wins for provider key collisions (same as table)."""
 
