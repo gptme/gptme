@@ -544,20 +544,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-      80281 | gptme.cli.main
-      84209 |           gptme.tools
-      95913 |         gptme.config.cli_setup
-     115360 |       gptme.config
-     119194 |     gptme.llm
-     149939 |     playwright.sync_api._generated
-     156983 |   playwright.sync_api
-     160510 |   gptme.commands
-     166591 | gptme.tools._browser_playwright
-     208759 | gptme.chat
+     104177 | gptme.cli.main
+     108851 |           gptme.tools
+     123482 |         gptme.config.cli_setup
+     149426 |       gptme.config
+     154412 |     gptme.llm
+     182686 |     playwright.sync_api._generated
+     191628 |   playwright.sync_api
+     203408 | gptme.tools._browser_playwright
+     208543 |   gptme.commands
+     272396 | gptme.chat
 
-real	0m1.297s
-user	0m1.007s
-sys	0m0.146s
+real	0m1.489s
+user	0m1.343s
+sys	0m0.155s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -565,23 +565,21 @@ make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     104.5 ms ±   0.6 ms    [User: 89.2 ms, System: 15.3 ms]
-  Range (min … max):   103.3 ms … 105.2 ms    10 runs
+  Time (mean ± σ):     156.8 ms ±  26.9 ms    [User: 132.8 ms, System: 23.9 ms]
+  Range (min … max):   130.3 ms … 203.6 ms    10 runs
  
 Benchmark 2: gptme --help
-  Time (mean ± σ):     423.6 ms ±  14.1 ms    [User: 368.4 ms, System: 55.1 ms]
-  Range (min … max):   407.1 ms … 448.0 ms    10 runs
+  Time (mean ± σ):     575.1 ms ±  11.7 ms    [User: 511.6 ms, System: 63.3 ms]
+  Range (min … max):   555.0 ms … 591.1 ms    10 runs
  
 Benchmark 3: full start/exit cycle
-  Time (mean ± σ):     792.6 ms ±  46.0 ms    [User: 568.5 ms, System: 491.5 ms]
-  Range (min … max):   770.1 ms … 921.2 ms    10 runs
- 
-  Warning: Statistical outliers were detected. Consider re-running this benchmark on a quiet system without any interferences from other programs. It might help to use the &#39;--warmup&#39; or &#39;--prepare&#39; options.
+  Time (mean ± σ):      1.002 s ±  0.029 s    [User: 0.777 s, System: 0.557 s]
+  Range (min … max):    0.960 s …  1.064 s    10 runs
  
 Summary
   import gptme.cli.main ran
-    4.05 ± 0.14 times faster than gptme --help
-    7.59 ± 0.44 times faster than full start/exit cycle
+    3.67 ± 0.63 times faster than gptme --help
+    6.39 ± 1.11 times faster than full start/exit cycle
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -1031,6 +1029,7 @@ tests/test_context_selector.py                                      83          
 tests/test_eval_claude_code.py                                      66             27            253
 tests/test_lessons_integration.py                                   97             66            252
 tests/test_prompt_tools.py                                          57             30            249
+tests/test_cli_status.py                                            55             24            247
 tests/test_agents_md_inject.py                                      43             37            241
 tests/test_cli_from_turn.py                                         65             18            239
 tests/test_mcp.py                                                   68             59            239
@@ -1134,7 +1133,6 @@ tests/test_cost_cache_cold_warning.py                               33          
 tests/test_util_clipboard_paste.py                                  27             14            117
 tests/test_agent_service_timeouts.py                                19             18            116
 tests/test_llm_validate.py                                          26             20            116
-tests/test_cli_status.py                                            31             16            115
 tests/thread_leak.py                                                34             55            115
 tests/test_misc_subprocess_timeouts.py                              43             27            114
 tests/test_lessons_status.py                                        67             96            113
@@ -1233,7 +1231,7 @@ tests/test_tools_shell_multiline.py                                  7          
 tests/test_browser_format.py                                         8              6             18
 tests/test_screenshot.py                                             9              6             15
 ----------------------------------------------------------------------------------------------------
-SUM:                                                             33743          23028         116417
+SUM:                                                             33767          23036         116549
 ----------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1419,6 +1417,7 @@ tests/test_lessons_parser.py                                                    
 tests/test_codeblock.py                                                                       316            806            416
 tests/test_server_artifacts.py                                                                 66             32            415
 tests/test_subagent_worktree_isolation.py                                                     129             70            414
+gptme/cli/cmd_status.py                                                                        97             43            413
 gptme/util/prompt.py                                                                          102            151            412
 tests/test_tools.py                                                                           164             98            407
 gptme/util/cost_display.py                                                                     81             80            406
@@ -1446,7 +1445,6 @@ gptme/logmanager/conversations.py                                               
 gptme/server/external_sessions.py                                                              59             92            372
 tests/test_conversations.py                                                                    52             33            371
 tests/test_github_ci_self_heal.py                                                              71              6            371
-gptme/cli/cmd_status.py                                                                        85             38            369
 tests/test_workspace_api.py                                                                   103             19            369
 gptme/llm/openai_responses.py                                                                  80             22            367
 gptme/eval/dspy/cli.py                                                                         73             57            364
@@ -1564,6 +1562,7 @@ scripts/check_model_freshness.py                                                
 gptme/codeblock.py                                                                             38            148            250
 tests/test_prompt_tools.py                                                                     57             30            249
 gptme/hooks/tests/test_injection_screening.py                                                  78             13            247
+tests/test_cli_status.py                                                                       55             24            247
 gptme/server/tools_api.py                                                                      58             49            245
 gptme/tools/rag.py                                                                             89            131            245
 gptme/tools/patch_many.py                                                                      56             62            243
@@ -1795,7 +1794,6 @@ gptme/tools/autocompact/hook.py                                                 
 tests/test_agent_service_timeouts.py                                                           19             18            116
 tests/test_llm_validate.py                                                                     26             20            116
 scripts/auto_rename_logs.py                                                                    34             23            115
-tests/test_cli_status.py                                                                       31             16            115
 tests/thread_leak.py                                                                           34             55            115
 gptme/eval/suites/practical18.py                                                               52            117            114
 gptme/util/cost_tracker.py                                                                     46             69            114
@@ -2077,7 +2075,7 @@ gptme/tools/_browser_format.py                                                  
 gptme/oauth/__init__.py                                                                         1              4              0
 gptme/tui/__init__.py                                                                           4             12              0
 -------------------------------------------------------------------------------------------------------------------------------
-SUM:                                                                                        60655          57542         222527
+SUM:                                                                                        60691          57555         222703
 -------------------------------------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -2092,8 +2090,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 
 Project Overview:
   Files: 807
-  Total blocks: 16788
-  Average complexity: 3.69674767691208
+  Total blocks: 16799
+  Average complexity: 3.697065301506042
 
 Most Complex Functions (D+):
   gptme/codeblock.py
@@ -2470,6 +2468,7 @@ Largest Files (&gt;300 SLOC):
    418 tests/context/test_task_analyzer.py
    415 tests/test_server_artifacts.py
    414 tests/test_subagent_worktree_isolation.py
+   413 gptme/cli/cmd_status.py
    407 gptme/util/_telemetry.py
    406 gptme/util/cost_display.py
    405 gptme/cli/auth.py
@@ -2500,7 +2499,6 @@ Largest Files (&gt;300 SLOC):
    371 tests/test_github_ci_self_heal.py
    371 tests/test_conversations.py
    369 tests/test_workspace_api.py
-   369 gptme/cli/cmd_status.py
    368 gptme/llm/llm_openai_models.py
    367 gptme/llm/openai_responses.py
    364 tests/test_computer_record.py
@@ -2568,508 +2566,508 @@ Largest Files (&gt;300 SLOC):
 
 make[3]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Most Duplicated Files:
-npm warn exec The following package was not found and will be installed: jscpd@5.0.14
+npm warn exec The following package was not found and will be installed: jscpd@5.0.15
 Clone found (python)
- -  [29:47 - 40:30] (12 lines, 54 tokens)
-   __init__.py [36:55 - 47:30]
+ - __init__.py [29:47 - 40:30] (12 lines, 54 tokens)
+   context/__init__.py [36:55 - 47:30]
 Clone found (python)
- -  [29:47 - 42:29] (14 lines, 62 tokens)
-   selector/__init__.py [46:61 - 59:75]
+ - __init__.py [29:47 - 42:29] (14 lines, 62 tokens)
+   context/selector/__init__.py [46:61 - 59:75]
 Clone found (python)
- - client.py [239:9 - 246:9] (8 lines, 85 tokens)
-   client.py [428:5 - 435:5]
+ - acp/client.py [239:9 - 246:9] (8 lines, 85 tokens)
+   acp/client.py [428:5 - 435:5]
 Clone found (python)
- - cli.py [97:6 - 120:4] (24 lines, 84 tokens)
-   cmd_agents.py [76:8 - 99:4]
+ - agent/cli.py [97:6 - 120:4] (24 lines, 84 tokens)
+   cli/cmd_agents.py [76:8 - 99:4]
 Clone found (python)
- - auth.py [367:5 - 383:60] (17 lines, 90 tokens)
-   llm_grok_subscription.py [291:5 - 306:60]
+ - cli/auth.py [367:5 - 383:60] (17 lines, 90 tokens)
+   llm/llm_grok_subscription.py [291:5 - 306:60]
 Clone found (python)
- - auth.py [386:5 - 404:76] (19 lines, 108 tokens)
-   llm_grok_subscription.py [308:5 - 325:81]
+ - cli/auth.py [386:5 - 404:76] (19 lines, 108 tokens)
+   llm/llm_grok_subscription.py [308:5 - 325:81]
 Clone found (python)
- - auth.py [410:40 - 420:25] (11 lines, 64 tokens)
-   llm_grok_subscription.py [331:58 - 341:25]
+ - cli/auth.py [410:40 - 420:25] (11 lines, 64 tokens)
+   llm/llm_grok_subscription.py [331:58 - 341:25]
 Clone found (python)
- - auth.py [456:9 - 469:18] (14 lines, 58 tokens)
-   llm_grok_subscription.py [366:5 - 379:14]
+ - cli/auth.py [456:9 - 469:18] (14 lines, 58 tokens)
+   llm/llm_grok_subscription.py [366:5 - 379:14]
 Clone found (python)
- - cmd_batch.py [45:67 - 58:17] (14 lines, 74 tokens)
-   main.py [159:77 - 172:17]
+ - cli/cmd_batch.py [45:67 - 58:17] (14 lines, 74 tokens)
+   cli/main.py [159:77 - 172:17]
 Clone found (python)
- - cmd_batch.py [132:5 - 145:39] (14 lines, 54 tokens)
-   cmd_review_watch.py [517:5 - 530:39]
+ - cli/cmd_batch.py [132:5 - 145:39] (14 lines, 54 tokens)
+   cli/cmd_review_watch.py [517:5 - 530:39]
 Clone found (python)
- - cmd_batch.py [145:37 - 159:38] (15 lines, 61 tokens)
-   cmd_review_watch.py [532:45 - 546:38]
+ - cli/cmd_batch.py [145:37 - 159:38] (15 lines, 61 tokens)
+   cli/cmd_review_watch.py [532:45 - 546:38]
 Clone found (python)
- - cmd_chats.py [77:22 - 89:15] (13 lines, 67 tokens)
-   cmd_chats.py [117:24 - 129:15]
+ - cli/cmd_chats.py [77:22 - 89:15] (13 lines, 67 tokens)
+   cli/cmd_chats.py [117:24 - 129:15]
 Clone found (python)
- - cmd_mcp.py [162:21 - 182:4] (21 lines, 80 tokens)
-   cmd_mcp_serve.py [14:28 - 34:4]
+ - cli/cmd_mcp.py [162:21 - 182:4] (21 lines, 80 tokens)
+   cli/cmd_mcp_serve.py [14:28 - 34:4]
 Clone found (python)
- - cmd_mcp.py [207:5 - 217:24] (11 lines, 65 tokens)
-   cmd_mcp_serve.py [62:5 - 72:24]
+ - cli/cmd_mcp.py [207:5 - 217:24] (11 lines, 65 tokens)
+   cli/cmd_mcp_serve.py [62:5 - 72:24]
 Clone found (python)
- - cmd_review_watch.py [95:5 - 106:14] (12 lines, 87 tokens)
-   cmd_review_watch.py [128:5 - 139:14]
+ - cli/cmd_review_watch.py [95:5 - 106:14] (12 lines, 87 tokens)
+   cli/cmd_review_watch.py [128:5 - 139:14]
 Clone found (python)
- - cmd_review_watch.py [788:86 - 802:80] (15 lines, 55 tokens)
-   cmd_review_watch.py [955:64 - 973:33]
+ - cli/cmd_review_watch.py [788:86 - 802:80] (15 lines, 55 tokens)
+   cli/cmd_review_watch.py [955:64 - 973:33]
 Clone found (python)
- - doctor.py [232:37 - 247:40] (16 lines, 60 tokens)
-   doctor.py [254:47 - 269:40]
+ - cli/doctor.py [232:37 - 247:40] (16 lines, 60 tokens)
+   cli/doctor.py [254:47 - 269:40]
 Clone found (python)
- - main.py [1106:40 - 1122:35] (17 lines, 102 tokens)
-   main.py [1248:26 - 1264:27]
+ - cli/main.py [1106:40 - 1122:35] (17 lines, 102 tokens)
+   cli/main.py [1248:26 - 1264:27]
 Clone found (python)
- - util.py [1364:9 - 1371:72] (8 lines, 54 tokens)
-   util.py [1397:5 - 1404:68]
+ - cli/util.py [1364:9 - 1371:72] (8 lines, 54 tokens)
+   cli/util.py [1397:5 - 1404:68]
 Clone found (python)
- - meta.py [165:9 - 173:49] (9 lines, 58 tokens)
-   meta.py [214:9 - 222:49]
+ - commands/meta.py [165:9 - 173:49] (9 lines, 58 tokens)
+   commands/meta.py [214:9 - 222:49]
 Clone found (python)
- - user.py [604:5 - 616:4] (13 lines, 58 tokens)
-   user.py [662:5 - 674:4]
+ - config/user.py [604:5 - 616:4] (13 lines, 58 tokens)
+   config/user.py [662:5 - 674:4]
 Clone found (python)
- - adaptive_compressor.py [56:1 - 69:23] (14 lines, 92 tokens)
-   autocompact/scoring.py [145:1 - 158:23]
+ - context/adaptive_compressor.py [56:1 - 69:23] (14 lines, 92 tokens)
+   tools/autocompact/scoring.py [145:1 - 158:23]
 Clone found (python)
- - adaptive_compressor.py [69:46 - 81:15] (13 lines, 52 tokens)
-   autocompact/scoring.py [158:24 - 167:60]
+ - context/adaptive_compressor.py [69:46 - 81:15] (13 lines, 52 tokens)
+   tools/autocompact/scoring.py [158:24 - 167:60]
 Clone found (python)
- - adaptive_compressor.py [175:1 - 186:79] (12 lines, 53 tokens)
-   autocompact/scoring.py [236:61 - 247:79]
+ - context/adaptive_compressor.py [175:1 - 186:79] (12 lines, 53 tokens)
+   tools/autocompact/scoring.py [236:61 - 247:79]
 Clone found (python)
- - adaptive_compressor.py [203:48 - 212:48] (10 lines, 55 tokens)
-   autocompact/scoring.py [263:25 - 272:48]
+ - context/adaptive_compressor.py [203:48 - 212:48] (10 lines, 55 tokens)
+   tools/autocompact/scoring.py [263:25 - 272:48]
 Clone found (python)
- - agents/swebench.py [110:9 - 116:86] (7 lines, 60 tokens)
-   agents/swebench.py [134:13 - 142:14]
+ - eval/agents/swebench.py [110:9 - 116:86] (7 lines, 60 tokens)
+   eval/agents/swebench.py [134:13 - 142:14]
 Clone found (python)
- - dspy/cli.py [78:1 - 92:2] (15 lines, 79 tokens)
-   dspy/cli.py [316:66 - 330:2]
+ - eval/dspy/cli.py [78:1 - 92:2] (15 lines, 79 tokens)
+   eval/dspy/cli.py [316:66 - 330:2]
 Clone found (python)
- - dspy/cli.py [160:9 - 176:15] (17 lines, 57 tokens)
-   dspy/cli.py [423:45 - 439:15]
+ - eval/dspy/cli.py [160:9 - 176:15] (17 lines, 57 tokens)
+   eval/dspy/cli.py [423:45 - 439:15]
 Clone found (python)
- - dspy/cli.py [187:13 - 192:51] (6 lines, 58 tokens)
-   dspy/cli.py [450:13 - 455:51]
+ - eval/dspy/cli.py [187:13 - 192:51] (6 lines, 58 tokens)
+   eval/dspy/cli.py [450:13 - 455:51]
 Clone found (python)
- - execenv.py [180:9 - 201:62] (22 lines, 63 tokens)
-   execenv.py [482:9 - 503:62]
+ - eval/execenv.py [180:9 - 201:62] (22 lines, 63 tokens)
+   eval/execenv.py [482:9 - 503:62]
 Clone found (python)
- - execenv.py [207:13 - 220:11] (14 lines, 59 tokens)
-   execenv.py [508:13 - 521:11]
+ - eval/execenv.py [207:13 - 220:11] (14 lines, 59 tokens)
+   eval/execenv.py [508:13 - 521:11]
 Clone found (python)
- - execenv.py [207:13 - 227:28] (21 lines, 92 tokens)
-   execenv.py [718:13 - 737:16]
+ - eval/execenv.py [207:13 - 227:28] (21 lines, 92 tokens)
+   eval/execenv.py [718:13 - 737:16]
 Clone found (python)
- - execenv.py [237:57 - 248:33] (12 lines, 94 tokens)
-   filestore.py [59:60 - 70:33]
+ - eval/execenv.py [237:57 - 248:33] (12 lines, 94 tokens)
+   eval/filestore.py [59:60 - 70:33]
 Clone found (python)
- - execenv.py [360:5 - 379:22] (20 lines, 137 tokens)
-   execenv.py [585:5 - 604:22]
+ - eval/execenv.py [360:5 - 379:22] (20 lines, 137 tokens)
+   eval/execenv.py [585:5 - 604:22]
 Clone found (python)
- - execenv.py [395:17 - 414:29] (20 lines, 82 tokens)
-   execenv.py [615:17 - 634:29]
+ - eval/execenv.py [395:17 - 414:29] (20 lines, 82 tokens)
+   eval/execenv.py [615:17 - 634:29]
 Clone found (python)
- - leaderboard.py [208:5 - 214:46] (7 lines, 61 tokens)
-   leaderboard.py [689:5 - 695:85]
+ - eval/leaderboard.py [208:5 - 214:46] (7 lines, 61 tokens)
+   eval/leaderboard.py [689:5 - 695:85]
 Clone found (python)
- - leaderboard.py [304:28 - 319:28] (16 lines, 63 tokens)
-   leaderboard.py [364:68 - 379:28]
+ - eval/leaderboard.py [304:28 - 319:28] (16 lines, 63 tokens)
+   eval/leaderboard.py [364:68 - 379:28]
 Clone found (python)
- - leaderboard.py [461:3 - 467:27] (7 lines, 82 tokens)
-   leaderboard.py [835:3 - 841:27]
+ - eval/leaderboard.py [461:3 - 467:27] (7 lines, 82 tokens)
+   eval/leaderboard.py [835:3 - 841:27]
 Clone found (python)
- - leaderboard.py [461:3 - 467:27] (7 lines, 82 tokens)
-   leaderboard.py [1143:3 - 1149:27]
+ - eval/leaderboard.py [461:3 - 467:27] (7 lines, 82 tokens)
+   eval/leaderboard.py [1143:3 - 1149:27]
 Clone found (python)
- - suites/behavioral/add_feature_preserve_default.py [61:5 - 79:17] (19 lines, 102 tokens)
-   suites/behavioral/minimal_feature_preserve_default_with_decoys.py [112:5 - 130:17]
+ - eval/suites/behavioral/add_feature_preserve_default.py [61:5 - 79:17] (19 lines, 102 tokens)
+   eval/suites/behavioral/minimal_feature_preserve_default_with_decoys.py [112:5 - 130:17]
 Clone found (python)
- - suites/behavioral/add_feature_preserve_default.py [83:43 - 131:5] (49 lines, 230 tokens)
-   suites/behavioral/minimal_feature_preserve_default_with_decoys.py [162:59 - 210:5]
+ - eval/suites/behavioral/add_feature_preserve_default.py [83:43 - 131:5] (49 lines, 230 tokens)
+   eval/suites/behavioral/minimal_feature_preserve_default_with_decoys.py [162:59 - 210:5]
 Clone found (python)
- - suites/behavioral/add_type_hints.py [19:62 - 27:44] (9 lines, 59 tokens)
-   suites/behavioral/add_type_hints.py [41:70 - 49:44]
+ - eval/suites/behavioral/add_type_hints.py [19:62 - 27:44] (9 lines, 59 tokens)
+   eval/suites/behavioral/add_type_hints.py [41:70 - 49:44]
 Clone found (python)
- - suites/behavioral/add_type_hints.py [19:62 - 27:33] (9 lines, 58 tokens)
-   suites/behavioral/add_type_hints.py [82:71 - 90:33]
+ - eval/suites/behavioral/add_type_hints.py [19:62 - 27:33] (9 lines, 58 tokens)
+   eval/suites/behavioral/add_type_hints.py [82:71 - 90:33]
 Clone found (python)
- - suites/behavioral/add_type_hints.py [42:43 - 49:69] (8 lines, 55 tokens)
-   suites/behavioral/fix_mutable_default.py [28:41 - 35:69]
+ - eval/suites/behavioral/add_type_hints.py [42:43 - 49:69] (8 lines, 55 tokens)
+   eval/suites/behavioral/fix_mutable_default.py [28:41 - 35:69]
 Clone found (python)
- - suites/behavioral/circuit_breaker.py [1:42 - 19:4] (19 lines, 68 tokens)
-   suites/behavioral/rate_limiting.py [1:40 - 19:4]
+ - eval/suites/behavioral/circuit_breaker.py [1:42 - 19:4] (19 lines, 68 tokens)
+   eval/suites/behavioral/rate_limiting.py [1:40 - 19:4]
 Clone found (python)
- - suites/behavioral/circuit_breaker.py [91:51 - 111:44] (21 lines, 121 tokens)
-   suites/behavioral/rate_limiting.py [82:49 - 102:44]
+ - eval/suites/behavioral/circuit_breaker.py [91:51 - 111:44] (21 lines, 121 tokens)
+   eval/suites/behavioral/rate_limiting.py [82:49 - 102:44]
 Clone found (python)
- - suites/behavioral/circuit_breaker.py [125:1 - 138:4] (14 lines, 73 tokens)
-   suites/behavioral/rate_limiting.py [117:1 - 130:4]
+ - eval/suites/behavioral/circuit_breaker.py [125:1 - 138:4] (14 lines, 73 tokens)
+   eval/suites/behavioral/rate_limiting.py [117:1 - 130:4]
 Clone found (python)
- - suites/behavioral/circuit_breaker.py [170:46 - 178:68] (9 lines, 58 tokens)
-   suites/behavioral/circuit_breaker.py [208:27 - 216:68]
+ - eval/suites/behavioral/circuit_breaker.py [170:46 - 178:68] (9 lines, 58 tokens)
+   eval/suites/behavioral/circuit_breaker.py [208:27 - 216:68]
 Clone found (python)
- - suites/behavioral/implement_event_emitter.py [53:74 - 61:72] (9 lines, 69 tokens)
-   suites/behavioral/implement_event_emitter.py [67:82 - 75:72]
+ - eval/suites/behavioral/implement_event_emitter.py [53:74 - 61:72] (9 lines, 69 tokens)
+   eval/suites/behavioral/implement_event_emitter.py [67:82 - 75:72]
 Clone found (python)
- - suites/behavioral/implement_event_emitter.py [53:74 - 61:72] (9 lines, 69 tokens)
-   suites/behavioral/implement_event_emitter.py [84:77 - 92:72]
+ - eval/suites/behavioral/implement_event_emitter.py [53:74 - 61:72] (9 lines, 69 tokens)
+   eval/suites/behavioral/implement_event_emitter.py [84:77 - 92:72]
 Clone found (python)
- - suites/behavioral/implement_priority_queue.py [31:46 - 38:30] (8 lines, 50 tokens)
-   suites/behavioral/implement_priority_queue.py [44:45 - 51:30]
+ - eval/suites/behavioral/implement_priority_queue.py [31:46 - 38:30] (8 lines, 50 tokens)
+   eval/suites/behavioral/implement_priority_queue.py [44:45 - 51:30]
 Clone found (python)
- - suites/behavioral/root_cause_pipeline_debug.py [176:10 - 181:6] (6 lines, 59 tokens)
-   suites/behavioral/root_cause_pipeline_debug.py [214:12 - 219:6]
+ - eval/suites/behavioral/root_cause_pipeline_debug.py [176:10 - 181:6] (6 lines, 59 tokens)
+   eval/suites/behavioral/root_cause_pipeline_debug.py [214:12 - 219:6]
 Clone found (python)
- - suites/practical.py [26:63 - 33:40] (8 lines, 50 tokens)
-   suites/practical.py [44:57 - 51:40]
+ - eval/suites/practical.py [26:63 - 33:40] (8 lines, 50 tokens)
+   eval/suites/practical.py [44:57 - 51:40]
 Clone found (python)
- - suites/practical.py [26:63 - 33:40] (8 lines, 50 tokens)
-   suites/practical.py [59:71 - 66:40]
+ - eval/suites/practical.py [26:63 - 33:40] (8 lines, 50 tokens)
+   eval/suites/practical.py [59:71 - 66:40]
 Clone found (python)
- - registry.py [127:9 - 133:91] (7 lines, 64 tokens)
-   registry.py [637:5 - 643:87]
+ - hooks/registry.py [127:9 - 133:91] (7 lines, 64 tokens)
+   hooks/registry.py [637:5 - 643:87]
 Clone found (python)
- - tests/test_agents_md_inject.py [62:9 - 71:34] (10 lines, 56 tokens)
-   tests/test_agents_md_inject.py [131:9 - 140:34]
+ - hooks/tests/test_agents_md_inject.py [62:9 - 71:34] (10 lines, 56 tokens)
+   hooks/tests/test_agents_md_inject.py [131:9 - 140:34]
 Clone found (python)
- - tests/test_agents_md_inject.py [156:74 - 171:35] (16 lines, 68 tokens)
-   tests/test_agents_md_inject.py [191:46 - 206:35]
+ - hooks/tests/test_agents_md_inject.py [156:74 - 171:35] (16 lines, 68 tokens)
+   hooks/tests/test_agents_md_inject.py [191:46 - 206:35]
 Clone found (python)
- - tests/test_agents_md_inject.py [156:74 - 171:40] (16 lines, 71 tokens)
-   tests/test_agents_md_inject.py [239:55 - 254:40]
+ - hooks/tests/test_agents_md_inject.py [156:74 - 171:40] (16 lines, 71 tokens)
+   hooks/tests/test_agents_md_inject.py [239:55 - 254:40]
 Clone found (python)
- - tests/test_agents_md_inject.py [156:74 - 170:68] (15 lines, 62 tokens)
-   tests/test_agents_md_inject.py [263:54 - 278:58]
+ - hooks/tests/test_agents_md_inject.py [156:74 - 170:68] (15 lines, 62 tokens)
+   hooks/tests/test_agents_md_inject.py [263:54 - 278:58]
 Clone found (python)
- - tests/test_agents_md_inject.py [156:74 - 172:21] (17 lines, 72 tokens)
-   tests/test_agents_md_inject.py [289:48 - 305:19]
+ - hooks/tests/test_agents_md_inject.py [156:74 - 172:21] (17 lines, 72 tokens)
+   hooks/tests/test_agents_md_inject.py [289:48 - 305:19]
 Clone found (python)
- - tests/test_agents_md_inject.py [335:68 - 350:35] (16 lines, 71 tokens)
-   tests/test_agents_md_inject.py [372:44 - 387:35]
+ - hooks/tests/test_agents_md_inject.py [335:68 - 350:35] (16 lines, 71 tokens)
+   hooks/tests/test_agents_md_inject.py [372:44 - 387:35]
 Clone found (python)
- - tests/test_cost_awareness.py [352:78 - 366:29] (15 lines, 56 tokens)
-   tests/test_cost_awareness.py [384:76 - 398:29]
+ - hooks/tests/test_cost_awareness.py [352:78 - 366:29] (15 lines, 56 tokens)
+   hooks/tests/test_cost_awareness.py [384:76 - 398:29]
 Clone found (python)
- - tests/test_cost_awareness.py [473:72 - 490:46] (18 lines, 62 tokens)
-   tests/test_cost_awareness.py [496:82 - 513:46]
+ - hooks/tests/test_cost_awareness.py [473:72 - 490:46] (18 lines, 62 tokens)
+   hooks/tests/test_cost_awareness.py [496:82 - 513:46]
 Clone found (python)
- - tests/test_server_confirm.py [254:35 - 266:34] (13 lines, 83 tokens)
-   tests/test_server_elicit.py [265:35 - 277:34]
+ - hooks/tests/test_server_confirm.py [254:35 - 266:34] (13 lines, 83 tokens)
+   hooks/tests/test_server_elicit.py [265:35 - 277:34]
 Clone found (python)
- - tests/test_time_awareness.py [114:36 - 120:21] (7 lines, 52 tokens)
-   tests/test_time_awareness.py [132:32 - 138:21]
+ - hooks/tests/test_time_awareness.py [114:36 - 120:21] (7 lines, 52 tokens)
+   hooks/tests/test_time_awareness.py [132:32 - 138:21]
 Clone found (python)
- - tests/test_time_awareness.py [114:36 - 120:21] (7 lines, 52 tokens)
-   tests/test_time_awareness.py [146:31 - 152:21]
+ - hooks/tests/test_time_awareness.py [114:36 - 120:21] (7 lines, 52 tokens)
+   hooks/tests/test_time_awareness.py [146:31 - 152:21]
 Clone found (python)
- - tests/test_tool_target_instructions.py [132:43 - 140:62] (9 lines, 55 tokens)
-   tests/test_tool_target_instructions.py [260:36 - 270:38]
+ - hooks/tests/test_tool_target_instructions.py [132:43 - 140:62] (9 lines, 55 tokens)
+   hooks/tests/test_tool_target_instructions.py [260:36 - 270:38]
 Clone found (python)
- - tests/test_tool_target_instructions.py [134:31 - 141:25] (8 lines, 53 tokens)
-   tests/test_tool_target_instructions.py [157:32 - 164:25]
+ - hooks/tests/test_tool_target_instructions.py [134:31 - 141:25] (8 lines, 53 tokens)
+   hooks/tests/test_tool_target_instructions.py [157:32 - 164:25]
 Clone found (python)
- - tests/test_workspace_agents.py [276:9 - 296:58] (21 lines, 124 tokens)
-   tests/test_workspace_agents.py [321:9 - 341:58]
+ - hooks/tests/test_workspace_agents.py [276:9 - 296:58] (21 lines, 124 tokens)
+   hooks/tests/test_workspace_agents.py [321:9 - 341:58]
 Clone found (python)
- - tests/test_workspace_agents.py [713:13 - 725:44] (13 lines, 57 tokens)
-   tests/test_workspace_agents.py [979:13 - 991:44]
+ - hooks/tests/test_workspace_agents.py [713:13 - 725:44] (13 lines, 57 tokens)
+   hooks/tests/test_workspace_agents.py [979:13 - 991:44]
 Clone found (python)
- -  [298:5 - 303:6] (6 lines, 52 tokens)
-    [296:5 - 301:6]
+ - init.py [298:5 - 303:6] (6 lines, 52 tokens)
+   model_attestation.py [296:5 - 301:6]
 Clone found (python)
- -  [320:9 - 330:25] (11 lines, 58 tokens)
-    [319:9 - 329:25]
+ - init.py [320:9 - 330:25] (11 lines, 58 tokens)
+   model_attestation.py [319:9 - 329:25]
 Clone found (python)
- - __init__.py [284:21 - 291:14] (8 lines, 72 tokens)
-   __init__.py [695:21 - 702:14]
+ - llm/__init__.py [284:21 - 291:14] (8 lines, 72 tokens)
+   llm/__init__.py [695:21 - 702:14]
 Clone found (python)
- - __init__.py [418:19 - 426:5] (9 lines, 56 tokens)
-   __init__.py [572:12 - 580:5]
+ - llm/__init__.py [418:19 - 426:5] (9 lines, 56 tokens)
+   llm/__init__.py [572:12 - 580:5]
 Clone found (python)
- - __init__.py [455:5 - 468:17] (14 lines, 54 tokens)
-   __init__.py [609:5 - 622:17]
+ - llm/__init__.py [455:5 - 468:17] (14 lines, 54 tokens)
+   llm/__init__.py [609:5 - 622:17]
 Clone found (python)
- - llm_anthropic.py [171:29 - 192:7] (22 lines, 88 tokens)
-   llm_openai.py [240:26 - 261:7]
+ - llm/llm_anthropic.py [171:29 - 192:7] (22 lines, 88 tokens)
+   llm/llm_openai.py [240:26 - 261:7]
 Clone found (python)
- - llm_anthropic.py [409:5 - 426:21] (18 lines, 61 tokens)
-   llm_openai.py [722:5 - 740:21]
+ - llm/llm_anthropic.py [409:5 - 426:21] (18 lines, 61 tokens)
+   llm/llm_openai.py [722:5 - 740:21]
 Clone found (python)
- - llm_anthropic.py [464:5 - 477:39] (14 lines, 72 tokens)
-   llm_openai.py [840:5 - 853:39]
+ - llm/llm_anthropic.py [464:5 - 477:39] (14 lines, 72 tokens)
+   llm/llm_openai.py [840:5 - 853:39]
 Clone found (python)
- - llm_anthropic.py [493:5 - 521:30] (29 lines, 134 tokens)
-   llm_openai.py [869:5 - 897:30]
+ - llm/llm_anthropic.py [493:5 - 521:30] (29 lines, 134 tokens)
+   llm/llm_openai.py [869:5 - 897:30]
 Clone found (python)
- - llm_anthropic.py [685:9 - 692:32] (8 lines, 56 tokens)
-   llm_anthropic.py [784:11 - 791:32]
+ - llm/llm_anthropic.py [685:9 - 692:32] (8 lines, 56 tokens)
+   llm/llm_anthropic.py [784:11 - 791:32]
 Clone found (python)
- - llm_anthropic.py [702:5 - 737:6] (36 lines, 161 tokens)
-   llm_anthropic.py [809:5 - 844:6]
+ - llm/llm_anthropic.py [702:5 - 737:6] (36 lines, 161 tokens)
+   llm/llm_anthropic.py [809:5 - 844:6]
 Clone found (python)
- - llm_grok_subscription.py [235:63 - 249:14] (15 lines, 51 tokens)
-   llm_openai_subscription.py [372:50 - 385:27]
+ - llm/llm_grok_subscription.py [235:63 - 249:14] (15 lines, 51 tokens)
+   llm/llm_openai_subscription.py [372:50 - 385:27]
 Clone found (python)
- - llm_mock.py [49:9 - 57:5] (9 lines, 55 tokens)
-   llm_mock.py [62:11 - 70:5]
+ - llm/llm_mock.py [49:9 - 57:5] (9 lines, 55 tokens)
+   llm/llm_mock.py [62:11 - 70:5]
 Clone found (python)
- - llm_openai.py [979:9 - 987:5] (9 lines, 52 tokens)
-   llm_openai.py [1311:11 - 1319:5]
+ - llm/llm_openai.py [979:9 - 987:5] (9 lines, 52 tokens)
+   llm/llm_openai.py [1311:11 - 1319:5]
 Clone found (python)
- - llm_openai.py [994:5 - 1003:84] (10 lines, 50 tokens)
-   llm_openai.py [1326:5 - 1335:84]
+ - llm/llm_openai.py [994:5 - 1003:84] (10 lines, 50 tokens)
+   llm/llm_openai.py [1326:5 - 1335:84]
 Clone found (python)
- - llm_openai.py [1064:5 - 1078:82] (15 lines, 93 tokens)
-   llm_openai.py [1356:5 - 1370:82]
+ - llm/llm_openai.py [1064:5 - 1078:82] (15 lines, 93 tokens)
+   llm/llm_openai.py [1356:5 - 1370:82]
 Clone found (python)
- - llm_openai.py [1809:48 - 1816:52] (8 lines, 50 tokens)
-   llm_openai.py [1826:32 - 1833:52]
+ - llm/llm_openai.py [1809:48 - 1816:52] (8 lines, 50 tokens)
+   llm/llm_openai.py [1826:32 - 1833:52]
 Clone found (python)
- - llm_openai_models.py [298:20 - 307:7] (10 lines, 51 tokens)
-   llm_openai_models.py [317:14 - 326:7]
+ - llm/llm_openai_models.py [298:20 - 307:7] (10 lines, 51 tokens)
+   llm/llm_openai_models.py [317:14 - 326:7]
 Clone found (python)
- - llm_openai_models.py [298:20 - 307:7] (10 lines, 51 tokens)
-   llm_openai_models.py [328:20 - 337:7]
+ - llm/llm_openai_models.py [298:20 - 307:7] (10 lines, 51 tokens)
+   llm/llm_openai_models.py [328:20 - 337:7]
 Clone found (python)
- - llm_openai_models.py [339:24 - 348:7] (10 lines, 51 tokens)
-   llm_openai_models.py [350:20 - 359:7]
+ - llm/llm_openai_models.py [339:24 - 348:7] (10 lines, 51 tokens)
+   llm/llm_openai_models.py [350:20 - 359:7]
 Clone found (python)
- - llm_openai_models.py [339:24 - 348:7] (10 lines, 51 tokens)
-   llm_openai_models.py [372:14 - 381:7]
+ - llm/llm_openai_models.py [339:24 - 348:7] (10 lines, 51 tokens)
+   llm/llm_openai_models.py [372:14 - 381:7]
 Clone found (python)
- - models/data.py [46:26 - 58:15] (13 lines, 54 tokens)
-   models/data.py [60:26 - 72:15]
+ - llm/models/data.py [46:26 - 58:15] (13 lines, 54 tokens)
+   llm/models/data.py [60:26 - 72:15]
 Clone found (python)
- - models/data.py [128:35 - 138:11] (11 lines, 55 tokens)
-   models/data.py [139:33 - 149:11]
+ - llm/models/data.py [128:35 - 138:11] (11 lines, 55 tokens)
+   llm/models/data.py [139:33 - 149:11]
 Clone found (python)
- - models/listing.py [177:21 - 183:10] (7 lines, 50 tokens)
-   models/listing.py [350:32 - 356:14]
+ - llm/models/listing.py [177:21 - 183:10] (7 lines, 50 tokens)
+   llm/models/listing.py [350:32 - 356:14]
 Clone found (python)
- - validate.py [151:9 - 164:4] (14 lines, 50 tokens)
-   validate.py [190:54 - 203:4]
+ - llm/validate.py [151:9 - 164:4] (14 lines, 50 tokens)
+   llm/validate.py [190:54 - 203:4]
 Clone found (python)
- - validate.py [189:48 - 203:4] (15 lines, 58 tokens)
-   validate.py [206:45 - 220:4]
+ - llm/validate.py [189:48 - 203:4] (15 lines, 58 tokens)
+   llm/validate.py [206:45 - 220:4]
 Clone found (python)
- - validate.py [189:48 - 200:64] (12 lines, 57 tokens)
-   validate.py [223:37 - 234:64]
+ - llm/validate.py [189:48 - 200:64] (12 lines, 57 tokens)
+   llm/validate.py [223:37 - 234:64]
 Clone found (python)
- - __init__.py [478:5 - 503:4] (26 lines, 110 tokens)
-   install.py [14:5 - 39:4]
+ - plugins/__init__.py [478:5 - 503:4] (26 lines, 110 tokens)
+   util/install.py [14:5 - 39:4]
 Clone found (python)
- -  [40:5 - 53:4] (14 lines, 70 tokens)
-   subagent/control.py [34:5 - 47:4]
+ - prompt_queue.py [40:5 - 53:4] (14 lines, 70 tokens)
+   tools/subagent/control.py [34:5 - 47:4]
 Clone found (python)
- -  [78:5 - 87:68] (10 lines, 50 tokens)
-    [135:5 - 144:68]
+ - prompt_queue.py [78:5 - 87:68] (10 lines, 50 tokens)
+   prompt_queue.py [135:5 - 144:68]
 Clone found (python)
- - __init__.py [355:21 - 367:39] (13 lines, 91 tokens)
-   __init__.py [470:15 - 482:39]
+ - prompts/__init__.py [355:21 - 367:39] (13 lines, 91 tokens)
+   prompts/__init__.py [470:15 - 482:39]
 Clone found (python)
- - __init__.py [370:5 - 386:6] (17 lines, 69 tokens)
-   __init__.py [541:5 - 557:6]
+ - prompts/__init__.py [370:5 - 386:6] (17 lines, 69 tokens)
+   prompts/__init__.py [541:5 - 557:6]
 Clone found (python)
- - api_v2.py [1057:84 - 1075:4] (19 lines, 69 tokens)
-   api_v2.py [1109:5 - 1127:4]
+ - server/api_v2.py [1057:84 - 1075:4] (19 lines, 69 tokens)
+   server/api_v2.py [1109:5 - 1127:4]
 Clone found (python)
- - api_v2.py [1077:5 - 1093:15] (17 lines, 118 tokens)
-   api_v2.py [1139:5 - 1155:15]
+ - server/api_v2.py [1077:5 - 1093:15] (17 lines, 118 tokens)
+   server/api_v2.py [1139:5 - 1155:15]
 Clone found (python)
- - api_v2.py [1783:5 - 1790:76] (8 lines, 61 tokens)
-   api_v2.py [2720:5 - 2727:76]
+ - server/api_v2.py [1783:5 - 1790:76] (8 lines, 61 tokens)
+   server/api_v2.py [2720:5 - 2727:76]
 Clone found (python)
- - api_v2.py [1820:5 - 1840:30] (21 lines, 95 tokens)
-   api_v2.py [2378:5 - 2398:30]
+ - server/api_v2.py [1820:5 - 1840:30] (21 lines, 95 tokens)
+   server/api_v2.py [2378:5 - 2398:30]
 Clone found (python)
- - api_v2.py [1828:31 - 1840:30] (13 lines, 54 tokens)
-   api_v2.py [2767:33 - 2779:30]
+ - server/api_v2.py [1828:31 - 1840:30] (13 lines, 54 tokens)
+   server/api_v2.py [2767:33 - 2779:30]
 Clone found (python)
- - api_v2.py [1958:118 - 1973:11] (16 lines, 54 tokens)
-   api_v2.py [2114:97 - 2129:11]
+ - server/api_v2.py [1958:118 - 1973:11] (16 lines, 54 tokens)
+   server/api_v2.py [2114:97 - 2129:11]
 Clone found (python)
- - api_v2.py [2018:5 - 2036:40] (19 lines, 82 tokens)
-   api_v2.py [2143:5 - 2162:30]
+ - server/api_v2.py [2018:5 - 2036:40] (19 lines, 82 tokens)
+   server/api_v2.py [2143:5 - 2162:30]
 Clone found (python)
- - api_v2.py [2036:86 - 2055:14] (20 lines, 80 tokens)
-   api_v2.py [2162:78 - 2182:14]
+ - server/api_v2.py [2036:86 - 2055:14] (20 lines, 80 tokens)
+   server/api_v2.py [2162:78 - 2182:14]
 Clone found (python)
- - api_v2.py [2263:5 - 2274:10] (12 lines, 61 tokens)
-   api_v2.py [2289:9 - 2302:14]
+ - server/api_v2.py [2263:5 - 2274:10] (12 lines, 61 tokens)
+   server/api_v2.py [2289:9 - 2302:14]
 Clone found (python)
- - api_v2.py [2935:58 - 2948:38] (14 lines, 94 tokens)
-   api_v2.py [2971:51 - 2984:38]
+ - server/api_v2.py [2935:58 - 2948:38] (14 lines, 94 tokens)
+   server/api_v2.py [2971:51 - 2984:38]
 Clone found (python)
- - api_v2.py [2939:5 - 2951:40] (13 lines, 78 tokens)
-   api_v2.py [3258:5 - 3270:15]
+ - server/api_v2.py [2939:5 - 2951:40] (13 lines, 78 tokens)
+   server/api_v2.py [3258:5 - 3270:15]
 Clone found (python)
- - api_v2.py [3081:53 - 3086:76] (6 lines, 51 tokens)
-   api_v2.py [3152:52 - 3157:76]
+ - server/api_v2.py [3081:53 - 3086:76] (6 lines, 51 tokens)
+   server/api_v2.py [3152:52 - 3157:76]
 Clone found (python)
- - api_v2.py [3081:53 - 3086:76] (6 lines, 51 tokens)
-   api_v2.py [3193:50 - 3198:76]
+ - server/api_v2.py [3081:53 - 3086:76] (6 lines, 51 tokens)
+   server/api_v2.py [3193:50 - 3198:76]
 Clone found (python)
- - api_v2.py [3081:53 - 3086:76] (6 lines, 51 tokens)
-   api_v2.py [3297:54 - 3302:76]
+ - server/api_v2.py [3081:53 - 3086:76] (6 lines, 51 tokens)
+   server/api_v2.py [3297:54 - 3302:76]
 Clone found (python)
- - api_v2.py [3081:53 - 3086:76] (6 lines, 51 tokens)
-   api_v2.py [3345:54 - 3350:76]
+ - server/api_v2.py [3081:53 - 3086:76] (6 lines, 51 tokens)
+   server/api_v2.py [3345:54 - 3350:76]
 Clone found (python)
- - api_v2_agents.py [57:5 - 63:15] (7 lines, 52 tokens)
-   tasks_api.py [731:5 - 737:7]
+ - server/api_v2_agents.py [57:5 - 63:15] (7 lines, 52 tokens)
+   server/tasks_api.py [731:5 - 737:7]
 Clone found (python)
- - api_v2_sessions.py [302:96 - 314:81] (13 lines, 74 tokens)
-   api_v2_sessions.py [1121:60 - 1133:81]
+ - server/api_v2_sessions.py [302:96 - 314:81] (13 lines, 74 tokens)
+   server/api_v2_sessions.py [1121:60 - 1133:81]
 Clone found (python)
- - api_v2_sessions.py [318:5 - 329:15] (12 lines, 51 tokens)
-   api_v2_sessions.py [609:9 - 620:19]
+ - server/api_v2_sessions.py [318:5 - 329:15] (12 lines, 51 tokens)
+   server/api_v2_sessions.py [609:9 - 620:19]
 Clone found (python)
- - api_v2_sessions.py [605:9 - 620:19] (16 lines, 79 tokens)
-   api_v2_sessions.py [1131:5 - 1146:15]
+ - server/api_v2_sessions.py [605:9 - 620:19] (16 lines, 79 tokens)
+   server/api_v2_sessions.py [1131:5 - 1146:15]
 Clone found (python)
- - api_v2_sessions.py [606:27 - 620:19] (15 lines, 67 tokens)
-   api_v2_sessions.py [818:19 - 832:15]
+ - server/api_v2_sessions.py [606:27 - 620:19] (15 lines, 67 tokens)
+   server/api_v2_sessions.py [818:19 - 832:15]
 Clone found (python)
- - session_models.py [296:25 - 308:46] (13 lines, 76 tokens)
-   session_models.py [352:29 - 364:42]
+ - server/session_models.py [296:25 - 308:46] (13 lines, 76 tokens)
+   server/session_models.py [352:29 - 364:42]
 Clone found (python)
- - session_models.py [321:21 - 337:8] (17 lines, 58 tokens)
-   session_models.py [375:17 - 391:8]
+ - server/session_models.py [321:21 - 337:8] (17 lines, 58 tokens)
+   server/session_models.py [375:17 - 391:8]
 Clone found (python)
- - session_step.py [602:5 - 612:8] (11 lines, 58 tokens)
-   session_step.py [1308:5 - 1318:8]
+ - server/session_step.py [602:5 - 612:8] (11 lines, 58 tokens)
+   server/session_step.py [1308:5 - 1318:8]
 Clone found (python)
- - tasks_api.py [490:73 - 499:64] (10 lines, 53 tokens)
-   tasks_api.py [503:51 - 512:64]
+ - server/tasks_api.py [490:73 - 499:64] (10 lines, 53 tokens)
+   server/tasks_api.py [503:51 - 512:64]
 Clone found (python)
- - workspace_api.py [55:68 - 62:6] (8 lines, 63 tokens)
-   workspace_api.py [76:5 - 83:6]
+ - server/workspace_api.py [55:68 - 62:6] (8 lines, 63 tokens)
+   server/workspace_api.py [76:5 - 83:6]
 Clone found (python)
- - workspace_api.py [344:74 - 353:26] (10 lines, 73 tokens)
-   workspace_api.py [616:77 - 625:26]
+ - server/workspace_api.py [344:74 - 353:26] (10 lines, 73 tokens)
+   server/workspace_api.py [616:77 - 625:26]
 Clone found (python)
- - workspace_api.py [344:74 - 353:26] (10 lines, 73 tokens)
-   workspace_api.py [683:9 - 692:26]
+ - server/workspace_api.py [344:74 - 353:26] (10 lines, 73 tokens)
+   server/workspace_api.py [683:9 - 692:26]
 Clone found (python)
- - workspace_api.py [568:9 - 588:67] (21 lines, 149 tokens)
-   workspace_api.py [655:9 - 675:67]
+ - server/workspace_api.py [568:9 - 588:67] (21 lines, 149 tokens)
+   server/workspace_api.py [655:9 - 675:67]
 Clone found (python)
- -  [57:24 - 79:8] (23 lines, 135 tokens)
-   _telemetry.py [326:34 - 348:8]
+ - telemetry.py [57:24 - 79:8] (23 lines, 135 tokens)
+   util/_telemetry.py [326:34 - 348:8]
 Clone found (python)
- -  [110:9 - 119:45] (10 lines, 60 tokens)
-    [509:5 - 518:41]
+ - telemetry.py [110:9 - 119:45] (10 lines, 60 tokens)
+   telemetry.py [509:5 - 518:41]
 Clone found (python)
- - _browser_playwright.py [749:9 - 764:8] (16 lines, 89 tokens)
-   browser.py [1039:9 - 1054:8]
+ - tools/_browser_playwright.py [749:9 - 764:8] (16 lines, 89 tokens)
+   tools/browser.py [1039:9 - 1054:8]
 Clone found (python)
- - _browser_playwright.py [766:60 - 774:62] (9 lines, 59 tokens)
-   browser.py [957:68 - 965:62]
+ - tools/_browser_playwright.py [766:60 - 774:62] (9 lines, 59 tokens)
+   tools/browser.py [957:68 - 965:62]
 Clone found (python)
- - _browser_playwright.py [887:69 - 900:27] (14 lines, 77 tokens)
-   browser.py [1136:44 - 1149:27]
+ - tools/_browser_playwright.py [887:69 - 900:27] (14 lines, 77 tokens)
+   tools/browser.py [1136:44 - 1149:27]
 Clone found (python)
- - _browser_playwright.py [1070:1 - 1085:43] (16 lines, 61 tokens)
-   browser.py [1263:1 - 1278:43]
+ - tools/_browser_playwright.py [1070:1 - 1085:43] (16 lines, 61 tokens)
+   tools/browser.py [1263:1 - 1278:43]
 Clone found (python)
- - autocompact/engine.py [186:13 - 195:18] (10 lines, 57 tokens)
-   autocompact/engine.py [237:17 - 246:22]
+ - tools/autocompact/engine.py [186:13 - 195:18] (10 lines, 57 tokens)
+   tools/autocompact/engine.py [237:17 - 246:22]
 Clone found (python)
- - clarify.py [45:5 - 60:31] (16 lines, 83 tokens)
-   complete.py [229:5 - 244:31]
+ - tools/clarify.py [45:5 - 60:31] (16 lines, 83 tokens)
+   tools/complete.py [229:5 - 244:31]
 Clone found (python)
- - complete.py [430:5 - 438:15] (9 lines, 50 tokens)
-   complete.py [504:5 - 512:15]
+ - tools/complete.py [430:5 - 438:15] (9 lines, 50 tokens)
+   tools/complete.py [504:5 - 512:15]
 Clone found (python)
- - computer.py [1479:13 - 1496:14] (18 lines, 71 tokens)
-   computer.py [1868:13 - 1885:14]
+ - tools/computer.py [1479:13 - 1496:14] (18 lines, 71 tokens)
+   tools/computer.py [1868:13 - 1885:14]
 Clone found (python)
- - computer.py [1625:13 - 1644:37] (20 lines, 93 tokens)
-   computer_transport.py [260:13 - 279:37]
+ - tools/computer.py [1625:13 - 1644:37] (20 lines, 93 tokens)
+   tools/computer_transport.py [260:13 - 279:37]
 Clone found (python)
- - computer.py [1657:53 - 1668:30] (12 lines, 52 tokens)
-   computer.py [1684:49 - 1695:30]
+ - tools/computer.py [1657:53 - 1668:30] (12 lines, 52 tokens)
+   tools/computer.py [1684:49 - 1695:30]
 Clone found (python)
- - computer.py [1744:9 - 1753:19] (10 lines, 50 tokens)
-   computer.py [1838:9 - 1847:19]
+ - tools/computer.py [1744:9 - 1753:19] (10 lines, 50 tokens)
+   tools/computer.py [1838:9 - 1847:19]
 Clone found (python)
- - gh.py [78:9 - 87:59] (10 lines, 53 tokens)
-   gh.py [151:13 - 159:63]
+ - tools/gh.py [78:9 - 87:59] (10 lines, 53 tokens)
+   tools/gh.py [151:13 - 159:63]
 Clone found (python)
- - hashline_edit.py [789:26 - 796:32] (8 lines, 57 tokens)
-   patch_anchored.py [109:26 - 116:32]
+ - tools/hashline_edit.py [789:26 - 796:32] (8 lines, 57 tokens)
+   tools/patch_anchored.py [109:26 - 116:32]
 Clone found (python)
- - hashline_edit.py [789:26 - 796:32] (8 lines, 57 tokens)
-   patch_anchored.py [236:27 - 243:32]
+ - tools/hashline_edit.py [789:26 - 796:32] (8 lines, 57 tokens)
+   tools/patch_anchored.py [236:27 - 243:32]
 Clone found (python)
- - patch.py [331:5 - 343:23] (13 lines, 55 tokens)
-   save.py [132:5 - 144:23]
+ - tools/patch.py [331:5 - 343:23] (13 lines, 55 tokens)
+   tools/save.py [132:5 - 144:23]
 Clone found (python)
- - patch_anchored.py [101:1 - 106:3] (6 lines, 52 tokens)
-   patch_anchored.py [189:1 - 194:2]
+ - tools/patch_anchored.py [101:1 - 106:3] (6 lines, 52 tokens)
+   tools/patch_anchored.py [189:1 - 194:2]
 Clone found (python)
- - precommit.py [114:52 - 121:61] (8 lines, 51 tokens)
-   precommit.py [125:67 - 132:61]
+ - tools/precommit.py [114:52 - 121:61] (8 lines, 51 tokens)
+   tools/precommit.py [125:67 - 132:61]
 Clone found (python)
- - shell.py [590:29 - 602:11] (13 lines, 66 tokens)
-   shell.py [755:26 - 767:11]
+ - tools/shell.py [590:29 - 602:11] (13 lines, 66 tokens)
+   tools/shell.py [755:26 - 767:11]
 Clone found (python)
- - shell.py [666:37 - 682:75] (17 lines, 63 tokens)
-   shell.py [834:37 - 850:75]
+ - tools/shell.py [666:37 - 682:75] (17 lines, 63 tokens)
+   tools/shell.py [834:37 - 850:75]
 Clone found (python)
- - shell.py [1211:5 - 1221:31] (11 lines, 55 tokens)
-   shell.py [1262:5 - 1272:31]
+ - tools/shell.py [1211:5 - 1221:31] (11 lines, 55 tokens)
+   tools/shell.py [1262:5 - 1272:31]
 Clone found (python)
- - shell_background.py [71:24 - 79:27] (9 lines, 57 tokens)
-   shell_background.py [89:39 - 97:23]
+ - tools/shell_background.py [71:24 - 79:27] (9 lines, 57 tokens)
+   tools/shell_background.py [89:39 - 97:23]
 Clone found (python)
- - subagent/batch.py [492:33 - 505:5] (14 lines, 90 tokens)
-   subagent/batch.py [1099:25 - 1112:5]
+ - tools/subagent/batch.py [492:33 - 505:5] (14 lines, 90 tokens)
+   tools/subagent/batch.py [1099:25 - 1112:5]
 Clone found (python)
- - subagent/batch.py [529:53 - 539:43] (11 lines, 118 tokens)
-   subagent/batch.py [663:54 - 673:43]
+ - tools/subagent/batch.py [529:53 - 539:43] (11 lines, 118 tokens)
+   tools/subagent/batch.py [663:54 - 673:43]
 Clone found (python)
- - subagent/batch.py [534:27 - 539:81] (6 lines, 72 tokens)
-   subagent/batch.py [1142:81 - 1147:81]
+ - tools/subagent/batch.py [534:27 - 539:81] (6 lines, 72 tokens)
+   tools/subagent/batch.py [1142:81 - 1147:81]
 Clone found (python)
- - subagent/batch.py [807:13 - 822:14] (16 lines, 59 tokens)
-   subagent/batch.py [932:13 - 947:14]
+ - tools/subagent/batch.py [807:13 - 822:14] (16 lines, 59 tokens)
+   tools/subagent/batch.py [932:13 - 947:14]
 Clone found (python)
- - subagent/context.py [20:9 - 30:16] (11 lines, 60 tokens)
-   subagent/context.py [47:9 - 57:16]
+ - tools/subagent/context.py [20:9 - 30:16] (11 lines, 60 tokens)
+   tools/subagent/context.py [47:9 - 57:16]
 Clone found (python)
- - app.py [137:22 - 142:11] (6 lines, 50 tokens)
-   app.py [239:25 - 244:11]
+ - tui/app.py [137:22 - 142:11] (6 lines, 50 tokens)
+   tui/app.py [239:25 - 244:11]
 Clone found (python)
- - app.py [162:5 - 171:4] (10 lines, 79 tokens)
-   app.py [257:5 - 266:4]
+ - tui/app.py [162:5 - 171:4] (10 lines, 79 tokens)
+   tui/app.py [257:5 - 266:4]
 Clone found (python)
- - _sound_sounddevice.py [61:46 - 72:56] (12 lines, 73 tokens)
-   _sound_sounddevice.py [102:46 - 113:56]
+ - util/_sound_sounddevice.py [61:46 - 72:56] (12 lines, 73 tokens)
+   util/_sound_sounddevice.py [102:46 - 113:56]
 Clone found (python)
- - gh.py [542:28 - 551:23] (10 lines, 51 tokens)
-   gh.py [1341:13 - 1350:23]
+ - util/gh.py [542:28 - 551:23] (10 lines, 51 tokens)
+   util/gh.py [1341:13 - 1350:23]
 Clone found (python)
- - gh.py [1325:17 - 1339:7] (15 lines, 55 tokens)
-   gh.py [1429:14 - 1443:7]
+ - util/gh.py [1325:17 - 1339:7] (15 lines, 55 tokens)
+   util/gh.py [1429:14 - 1443:7]
 Clone found (python)
- -  [389:5 - 403:26] (15 lines, 88 tokens)
-    [467:5 - 481:26]
+ - workspace_snapshot.py [389:5 - 403:26] (15 lines, 88 tokens)
+   workspace_snapshot.py [467:5 - 481:26]
 Clone found (python)
- -  [55:82 - 67:32] (13 lines, 63 tokens)
-    [152:54 - 164:32]
+ - analyze_compression.py [55:82 - 67:32] (13 lines, 63 tokens)
+   analyze_compression.py [152:54 - 164:32]
 Clone found (python)
- -  [116:9 - 127:34] (12 lines, 61 tokens)
-    [220:9 - 231:34]
+ - analyze_compression.py [116:9 - 127:34] (12 lines, 61 tokens)
+   analyze_compression.py [220:9 - 231:34]
 Clone found (python)
- -  [91:16 - 97:69] (7 lines, 53 tokens)
-    [165:18 - 171:69]
+ - generate_sounds.py [91:16 - 97:69] (7 lines, 53 tokens)
+   generate_sounds.py [165:18 - 171:69]
 ┌────────────┬────────────────┬─────────────┬──────────────┬──────────────┬──────────────────┬───────────────────┐
 │ Format     │ Files analyzed │ Total lines │ Total tokens │ Clones found │ Duplicated lines │ Duplicated tokens │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -3083,7 +3081,7 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ markup     │ 2              │ 482         │ 3220         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ python     │ 448            │ 169199      │ 795364       │ 167          │ 2019 (1.19%)     │ 11614 (1.46%)     │
+│ python     │ 448            │ 169260      │ 795655       │ 167          │ 2019 (1.19%)     │ 11614 (1.46%)     │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ text       │ 2              │ 527         │ 267          │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -3091,10 +3089,10 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ yaml       │ 1              │ 82          │ 151          │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 477            │ 174158      │ 814810       │ 167          │ 2019 (1.16%)     │ 11614 (1.43%)     │
+│ Total:     │ 477            │ 174219      │ 815101       │ 167          │ 2019 (1.16%)     │ 11614 (1.42%)     │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 167 clones.
-time: 307.290ms
+time: 388.961ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
