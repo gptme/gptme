@@ -161,11 +161,23 @@ def test_status_json(monkeypatch):
     }
 
 
-def test_status_json_via_util():
-    """Verify gptme-util status exposes the --json flag."""
+def test_status_json_via_util(monkeypatch):
+    """Verify gptme-util status exposes the --json flag (deterministic)."""
+    monkeypatch.setattr(cmd_status, "_is_bob_workspace", lambda: False)
+    monkeypatch.setattr(cmd_status, "_active_tasks", lambda lines=3: [])
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda limit=3: [])
+    monkeypatch.setattr(cmd_status, "_pr_queue", lambda _tracked: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-util")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _root=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "_journal_entries", lambda limit=5: [])
+
     result = CliRunner().invoke(util_main, ["status", "--json"])
     assert result.exit_code == 0
-    assert isinstance(json.loads(result.output), dict)
+    data = json.loads(result.output)
+    assert isinstance(data, dict)
+    assert data["session_id"] == "session-util"
+    assert "timestamp" in data
 
 
 def test_status_json_with_output_file(tmp_path, monkeypatch):
@@ -211,6 +223,27 @@ def test_status_json_excludes_bob_fields_in_non_bob_workspace(monkeypatch):
         assert bob_key not in data, (
             f"Bob-only field '{bob_key}' present outside Bob workspace"
         )
+
+
+def test_status_json_write_with_output_path(tmp_path, monkeypatch):
+    """Verify --json --write -o path is accepted and writes JSON (unambiguous destination)."""
+    monkeypatch.setattr(cmd_status, "_is_bob_workspace", lambda: False)
+    monkeypatch.setattr(cmd_status, "_active_tasks", lambda lines=3: [])
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda limit=3: [])
+    monkeypatch.setattr(cmd_status, "_pr_queue", lambda _tracked: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-w")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _root=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "_journal_entries", lambda limit=5: [])
+
+    out_file = tmp_path / "out.json"
+    result = CliRunner().invoke(status, ["--json", "--write", "-o", str(out_file)])
+
+    assert result.exit_code == 0, result.output
+    assert out_file.exists()
+    data = json.loads(out_file.read_text())
+    assert data["session_id"] == "session-w"
+    assert "timestamp" in data
 
 
 def test_status_json_rejects_rendering_options():
