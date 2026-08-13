@@ -254,6 +254,15 @@ def _status_data(providers: list[StatusProvider] | None = None) -> dict[str, obj
         try:
             extra = provider.collect()
             for key, val in extra.items():
+                if not isinstance(key, str):
+                    logger.debug(
+                        "Provider %r returned non-string key %r (type %s) — skipping;"
+                        " JSON requires string keys",
+                        _provider_name(provider),
+                        key,
+                        type(key).__name__,
+                    )
+                    continue
                 if key in _CORE_KEYS:
                     logger.debug(
                         "Provider %r tried to overwrite reserved core key %r — skipping",
@@ -316,6 +325,14 @@ def build_table_document(providers: list[StatusProvider] | None = None) -> str:
         try:
             extra = provider.collect()
             for key, val in extra.items():
+                if not isinstance(key, str):
+                    logger.debug(
+                        "Provider %r returned non-string key %r (type %s) — skipping",
+                        _provider_name(provider),
+                        key,
+                        type(key).__name__,
+                    )
+                    continue
                 if key in seen_keys:
                     logger.debug(
                         "Provider %r key %r is already present in the status"

@@ -664,3 +664,55 @@ def test_build_table_document_cross_provider_collision():
     assert "from_first" in doc
     assert "from_second" not in doc
     assert "| unique_key |" in doc
+
+
+def test_status_json_provider_non_string_key_does_not_crash(monkeypatch):
+    """Verify a provider returning non-string mapping keys does not abort --json output.
+
+    json.dumps() requires string keys; the default= fallback only handles non-serializable
+    *values*, not non-string *keys*.  Non-string keys must be filtered before json.dumps().
+    """
+
+    class _NonStringKeyProvider:
+        name = "nonstring"
+
+        def collect(self) -> dict:
+            return {(1, 2): "tuple_key_value", "normal_key": "ok"}
+
+        def narrative_sections(self) -> list:
+            return []
+
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-ns")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [_NonStringKeyProvider()])
+
+    result = CliRunner().invoke(status, ["--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    # The non-string key must be silently dropped; all surviving keys are strings.
+    assert all(isinstance(k, str) for k in data)
+    # The normal string key still makes it through.
+    assert data["normal_key"] == "ok"
+
+
+def test_build_table_document_provider_non_string_key_skipped():
+    """Verify non-string provider keys are silently dropped from table output."""
+
+    class _NonStringKeyProvider:
+        name = "nonstring"
+
+        def collect(self) -> dict:
+            return {(1, 2): "should_be_dropped", "string_key": "kept"}
+
+        def narrative_sections(self) -> list:
+            return []
+
+    doc = build_table_document(providers=[_NonStringKeyProvider()])
+    # The tuple key must not appear in any form in the table.
+    assert "should_be_dropped" not in doc
+    assert "(1, 2)" not in doc
+    # The valid string key still appears.
+    assert "| string_key |" in doc
+    assert "kept" in doc
