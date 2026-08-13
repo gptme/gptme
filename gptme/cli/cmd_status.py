@@ -3,8 +3,13 @@
 Provides ``gptme-util status`` (via lazy registration in ``util.py``) and
 ``gptme-status`` (standalone entry point registered in ``pyproject.toml``).
 
-Produces a compact, human-readable briefing: active work, PR queue, service
-health, blockers, and ready backlog items.
+Produces a compact, human-readable briefing: recent commits, disk usage, and
+any extra sections contributed by installed :class:`~gptme.status_provider.StatusProvider`
+plugins registered under the ``gptme.status_providers`` entry-point group.
+
+Agent- or workspace-specific status fields (task queues, service health,
+blockers, journal entries) live in dedicated packages that register a provider.
+Core only collects generic information that is useful to any gptme user.
 """
 
 from __future__ import annotations
@@ -21,12 +26,13 @@ from typing import TypedDict
 
 import click
 
+from ..status_provider import StatusProvider, load_providers
 from ..util.git_cmd import GIT_CMD
 
 logger = logging.getLogger(__name__)
 
 
-# ── helpers ────────────────────────────────────────────────────────────
+# ── generic helpers ────────────────────────────────────────────────────
 
 
 def _run(cmd: list[str], *, timeout: int = 10) -> str:
@@ -44,39 +50,6 @@ def _git_root() -> Path | None:
     return Path(raw) if raw else None
 
 
-def _gh_user() -> str:
-    """Return the current gh CLI authenticated username."""
-    return _run(["gh", "api", "user", "--jq", ".login"], timeout=10)
-
-
-def _is_bob_workspace() -> bool:
-    """Detect if we are inside Bob's workspace by checking for Bob-specific files."""
-    root = _git_root()
-    if not root:
-        return False
-    return (root / "tasks").is_dir() and (root / "gptme.toml").is_file()
-
-
-def _active_tasks(lines: int = 3) -> list[dict]:
-    """Parse gptodo status --compact output for active tasks (Bob workspace)."""
-    raw = _run(["gptodo", "status", "--compact"], timeout=15)
-    if not raw:
-        return []
-    tasks: list[dict] = []
-    for line in raw.splitlines():
-        line = line.strip()
-        # Lines look like "  task-id  Title text here  (N ago)"
-        if not line or line.startswith("📋") or "0 tasks" in line or "Summary" in line:
-            continue
-        parts = line.split(None, 1)
-        if len(parts) >= 2:
-            task_id = parts[0]
-            # Strip trailing " (N unit ago)" timestamp to get the full title
-            title = re.sub(r"\s+\(\d+\s+\w+\s+ago\)\s*$", "", parts[1]).strip()
-            tasks.append({"_id": task_id, "title": title})
-    return tasks[:lines]
-
-
 def _recent_commits(n: int = 3) -> list[str]:
     raw = _run([GIT_CMD, "log", "--oneline", f"-{n}", "--no-merges"])
     return raw.splitlines() if raw else []
@@ -91,8 +64,16 @@ class _PRQueueRow(TypedDict):
 def _pr_queue(
     repos: list[tuple[str, int | None]], author: str | None = None
 ) -> list[_PRQueueRow]:
+    """Fetch open PR counts for the given repos.
+
+    This is a generic helper exposed for use by :class:`~gptme.status_provider.StatusProvider`
+    implementations.  Core ``build_document`` / ``_status_data`` do **not** call
+    it with any hardcoded repo list.
+    """
+    if not repos:
+        return []
     if author is None:
-        author = _gh_user() or "TimeToBuildBob"
+        author = _run(["gh", "api", "user", "--jq", ".login"], timeout=10) or ""
     rows: list[_PRQueueRow] = []
     for repo, cap in repos:
         prs_json = _run(
@@ -117,8 +98,7 @@ def _pr_queue(
             prs = json.loads(prs_json)
         except json.JSONDecodeError:
             continue
-        count = len(prs)
-        rows.append({"repo": repo, "count": count, "cap": cap})
+        rows.append({"repo": repo, "count": len(prs), "cap": cap})
     return rows
 
 
@@ -127,59 +107,6 @@ def _pr_queue_display(count: int, cap: int | None) -> str:
     if cap is not None:
         return f"{count}/{cap}" + (" ⚠ at limit" if count >= cap else "")
     return str(count)
-
-
-def _service_status() -> list[dict[str, str]]:
-    services = [
-        ("Operator loop", "bob-operator-loop.service"),
-        ("Autonomous", "bob-autonomous.service"),
-    ]
-    results: list[dict[str, str]] = []
-    for label, unit in services:
-        status = _run(["systemctl", "--user", "is-active", unit])
-        icon = "✓" if status == "active" else ("⚠" if status == "activating" else "✗")
-        results.append({"label": label, "icon": icon, "status": status})
-    return results
-
-
-def _dead_timers() -> int:
-    out = _run(["systemctl", "--user", "list-timers", "--all"])
-    return sum(
-        1
-        for line in out.splitlines()
-        if "dead" in line.lower() and "bob-" in line.lower()
-    )
-
-
-def _blockers(limit: int = 3) -> list[dict]:
-    raw = _run(["gptodo", "ready", "--state", "waiting", "--jsonl"], timeout=15)
-    if not raw:
-        return []
-    blockers: list[dict] = []
-    for line in raw.splitlines():
-        try:
-            t = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if t.get("waiting_for"):
-            blockers.append(t)
-    return blockers[:limit]
-
-
-def _ready_tasks(limit: int = 3) -> list[dict]:
-    raw = _run(["gptodo", "ready", "--state", "backlog", "--jsonl"], timeout=15)
-    if not raw:
-        return []
-    tasks: list[dict] = []
-    for line in raw.splitlines():
-        try:
-            t = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if t.get("waiting_for") or t.get("wait"):
-            continue
-        tasks.append(t)
-    return tasks[:limit]
 
 
 def _session_id() -> str:
@@ -217,29 +144,6 @@ def _markdown_table_cell(value: object) -> str:
     return text.replace("|", r"\|")
 
 
-def _journal_entries(limit: int = 5) -> list[str]:
-    """Return the last N journal entry filenames (Bob workspace)."""
-    root = _git_root()
-    if not root:
-        return []
-    journal_dir = root / "journal"
-    if not journal_dir.is_dir():
-        return []
-    entries: list[Path] = []
-    for day_dir in sorted(journal_dir.iterdir(), reverse=True):
-        if not day_dir.is_dir():
-            continue
-        day_entries = [
-            entry.relative_to(root)
-            for entry in sorted(day_dir.iterdir(), reverse=True)
-            if entry.is_file() and entry.suffix == ".md"
-        ]
-        entries.extend(day_entries)
-        if len(entries) >= limit:
-            break
-    return [str(e) for e in entries[:limit]]
-
-
 def _strip_markdown(doc: str) -> str:
     """Strip Markdown formatting for plain-text output."""
     lines = []
@@ -253,7 +157,7 @@ def _strip_markdown(doc: str) -> str:
     return "\n".join(lines)
 
 
-# ── sections ──────────────────────────────────────────────────────────
+# ── core sections ──────────────────────────────────────────────────────
 
 
 def section_header() -> str:
@@ -264,154 +168,79 @@ def section_header() -> str:
     return f"# gptme Status — {now}\n\n**Model**: {model}{agent_part}\n"
 
 
-def section_active_work(is_bob: bool = False) -> str:
+def section_active_work() -> str:
     lines = ["## Active Work"]
-    if is_bob:
-        tasks = _active_tasks(3)
-        if tasks:
-            lines.extend(
-                f"- **Task**: `{t['_id']}` — {t.get('title', '')[:60]}" for t in tasks
-            )
     commits = _recent_commits(3)
     if commits:
         lines.append("- **Recent commits** (last 3):")
         for commit in commits:
             sha, _, msg = commit.partition(" ")
             lines.append(f"  - `{sha}` {msg[:65]}")
-    return "\n".join(lines)
-
-
-def section_pr_queue() -> str:
-    lines = ["## PR Queue"]
-    rows = _pr_queue(_TRACKED_REPOS)
-    if rows:
-        lines.append("| Repo | Open |")
-        lines.append("|------|------|")
-        for row in rows:
-            display = _pr_queue_display(row["count"], row["cap"])
-            lines.append(f"| {row['repo']} | {display} |")
     else:
-        lines.append("- Unable to fetch PR data")
+        lines.append("- No recent commits")
     return "\n".join(lines)
 
 
-def section_services() -> str:
-    lines = ["## Services"]
-    services = _service_status()
-    lines.extend(f"- {svc['label']}: {svc['icon']} {svc['status']}" for svc in services)
-    dead = _dead_timers()
-    if dead:
-        lines.append(f"- ⚠ {dead} dead bob-* timer(s)")
-    return "\n".join(lines)
-
-
-def section_blockers() -> str:
-    lines = ["## Top Blockers"]
-    blockers = _blockers(3)
-    if blockers:
-        for t in blockers:
-            wf = str(t.get("waiting_for", "")).split("\n")[0][:70]
-            since = t.get("waiting_since", "")
-            since_str = f" (since {since})" if since else ""
-            lines.append(f"- `{t['id']}`: {wf}{since_str}")
-    else:
-        lines.append("- No active blockers with waiting_for set")
-    return "\n".join(lines)
-
-
-def section_ready_next() -> str:
-    lines = ["## Ready Next (top 3)"]
-    ready = _ready_tasks(3)
-    if ready:
-        for i, t in enumerate(ready, 1):
-            title = str(t.get("name", t.get("id", "")))[:65]
-            lines.append(f"{i}. `{t['id']}` — {title}")
-    else:
-        lines.append("- No ready backlog tasks found")
-    return "\n".join(lines)
+def section_disk() -> str:
+    root = _git_root()
+    disk = _disk_usage(root)
+    return f"## Disk\n\n- **Usage**: {disk}"
 
 
 # ── build ─────────────────────────────────────────────────────────────
 
 
-_TRACKED_REPOS: list[tuple[str, int | None]] = [
-    ("gptme/gptme", 10),
-    ("gptme/gptme-cloud", 3),
-    ("ErikBjare/bob", None),
-    ("gptme/gptme-contrib", None),
-]
+def _status_data(providers: list[StatusProvider] | None = None) -> dict[str, object]:
+    """Collect status data shared by JSON and presentation renderers.
 
+    Core fields are generic and workspace-agnostic.  Extra fields from installed
+    :class:`~gptme.status_provider.StatusProvider` implementations are merged in
+    at the top level.
 
-def _status_data() -> dict[str, object]:
-    """Collect status data shared by JSON and presentation renderers."""
-    is_bob = _is_bob_workspace()
+    Parameters
+    ----------
+    providers:
+        Pre-loaded providers (for testing).  When ``None``, :func:`~gptme.status_provider.load_providers`
+        is called automatically.
+    """
+    if providers is None:
+        providers = load_providers()
+
     root = _git_root()
     status_data: dict[str, object] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "session_id": _session_id(),
-        "active_tasks": [
-            {"id": task.get("_id", task.get("id", "")), "title": task.get("title", "")}
-            for task in _active_tasks(3)
-        ],
         "recent_commits": _recent_commits(3),
-        "pr_queue": _pr_queue(_TRACKED_REPOS),
         "disk_usage": _disk_usage(root),
-        "journal_entries": _journal_entries(5),
     }
-    if is_bob:
-        status_data.update(
-            services=_service_status(),
-            dead_timers=_dead_timers(),
-            blockers=_blockers(3),
-            ready_tasks=_ready_tasks(3),
-        )
+
+    for provider in providers:
+        try:
+            extra = provider.collect()
+            status_data.update(extra)
+        except Exception as exc:
+            logger.debug("Provider %r collect() failed: %s", provider.name, exc)
+
     return status_data
 
 
-def build_json_status() -> str:
+def build_json_status(providers: list[StatusProvider] | None = None) -> str:
     """Build the structured JSON status document."""
-    return json.dumps(_status_data(), indent=2)
+    return json.dumps(_status_data(providers), indent=2)
 
 
-def build_table_document() -> str:
+def build_table_document(providers: list[StatusProvider] | None = None) -> str:
     """Build a machine-readable markdown table of session state."""
-    is_bob = _is_bob_workspace()
+    if providers is None:
+        providers = load_providers()
+
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     session_id = _session_id()
     root = _git_root()
 
-    # active_task
-    active = _active_tasks(1)
-    active_task = active[0].get("_id", "none") if active else "none"
-
-    # last_commit
     commits = _recent_commits(1)
     last_commit = commits[0] if commits else "none"
-
-    # pending_prs
-    pr_rows = _pr_queue(_TRACKED_REPOS)
-    pending_prs = (
-        ", ".join(
-            f"{r['repo']}:{_pr_queue_display(r['count'], r['cap'])}" for r in pr_rows
-        )
-        if pr_rows
-        else "none"
-    )
-
-    # waiting_for
-    blockers = _blockers(1)
-    waiting_for = (
-        _markdown_table_cell(blockers[0].get("waiting_for", "none"))
-        if blockers
-        else "none"
-    )
-
-    # disk_usage
     disk = _markdown_table_cell(_disk_usage(root))
-
-    # journal_entries
-    journals = _journal_entries(5)
-    journal_str = _markdown_table_cell(", ".join(journals) if journals else "none")
 
     lines = [
         f"# gptme Status — {now}",
@@ -419,42 +248,44 @@ def build_table_document() -> str:
         "| Field | Value |",
         "|-------|-------|",
         f"| session_id | `{_markdown_table_cell(session_id)}` |",
-        f"| active_task | `{_markdown_table_cell(active_task)}` |",
         f"| last_commit | `{_markdown_table_cell(last_commit)}` |",
-        f"| pending_prs | {_markdown_table_cell(pending_prs)} |",
-        f"| waiting_for | {waiting_for} |",
         f"| disk_usage | {disk} |",
-        f"| journal_entries | {journal_str} |",
     ]
 
-    if is_bob:
-        services = _service_status()
-        svc_str = _markdown_table_cell(
-            ", ".join(f"{s['label']}={s['status']}" for s in services)
-        )
-        lines.append(f"| services | {svc_str} |")
-        dead = _dead_timers()
-        if dead:
-            lines.append(f"| dead_timers | {dead} |")
+    for provider in providers:
+        try:
+            extra = provider.collect()
+            for key, val in extra.items():
+                cell = _markdown_table_cell(val)
+                lines.append(f"| {key} | {cell} |")
+        except Exception as exc:
+            logger.debug(
+                "Provider %r collect() failed in table: %s", provider.name, exc
+            )
 
     return "\n".join(lines)
 
 
-def build_document() -> str:
-    is_bob = _is_bob_workspace()
+def build_document(providers: list[StatusProvider] | None = None) -> str:
+    """Build the narrative Markdown status document."""
+    if providers is None:
+        providers = load_providers()
+
     sections: list[str] = [
         section_header(),
-        section_active_work(is_bob=is_bob),
-        section_pr_queue(),
+        section_active_work(),
+        section_disk(),
     ]
-    if is_bob:
-        sections.extend(
-            [
-                section_services(),
-                section_blockers(),
-                section_ready_next(),
-            ]
-        )
+
+    for provider in providers:
+        try:
+            extra_sections = provider.narrative_sections()
+            sections.extend(extra_sections)
+        except Exception as exc:
+            logger.debug(
+                "Provider %r narrative_sections() failed: %s", provider.name, exc
+            )
+
     doc = "\n\n".join(sections)
     token_est = len(doc) // 4
     doc += f"\n\n---\n*~{token_est} tokens*"
@@ -500,8 +331,12 @@ def status(
 ) -> None:
     """Generate a portable operator handoff / session-status document.
 
-    Produces a compact briefing: active work, PR queue, service health,
-    blockers, and ready-next tasks.
+    Produces a compact briefing: recent commits, disk usage, and any extra
+    sections contributed by installed StatusProvider plugins.
+
+    Extra status fields (task queues, service health, journal entries) are
+    provided by installed packages that register a ``gptme.status_providers``
+    entry point — no workspace auto-detection, no cwd code loading.
 
     \b
     Examples:

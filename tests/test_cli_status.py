@@ -15,25 +15,46 @@ from gptme.cli.cmd_status import (
     status,
 )
 from gptme.cli.util import main as util_main
+from gptme.status_provider import StatusProvider
+
+# ── fixtures / helpers ─────────────────────────────────────────────────
+
+
+class _FakeProvider:
+    """A minimal StatusProvider test double."""
+
+    name = "test"
+
+    def collect(self) -> dict:
+        return {"test_key": "test_value", "test_count": 42}
+
+    def narrative_sections(self) -> list[str]:
+        return ["## Test Section\n\n- item from provider"]
+
+
+def _noop_providers() -> list:
+    """Return an empty provider list to suppress entry-point loading in tests."""
+    return []
+
+
+# ── core output tests ──────────────────────────────────────────────────
 
 
 def test_status_output_contains_expected_sections():
     """Verify the status output contains always-present sections."""
     runner = CliRunner()
     result = runner.invoke(status)
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "# gptme Status" in result.output
     assert "## Active Work" in result.output
-    assert "## PR Queue" in result.output
-    # Services/blockers/ready sections are only included in Bob's workspace
-    # (when gptme.toml + tasks/ are present); not asserted here.
+    assert "## Disk" in result.output
 
 
 def test_status_invoked_via_util_subcommand():
     """Verify gptme-util status dispatches correctly."""
     runner = CliRunner()
     result = runner.invoke(util_main, ["status"])
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "# gptme Status" in result.output
 
 
@@ -42,7 +63,7 @@ def test_status_write_to_file(tmp_path):
     runner = CliRunner()
     output_file = tmp_path / "handoff.md"
     result = runner.invoke(status, ["-o", str(output_file)])
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert output_file.exists()
     content = output_file.read_text()
     assert "# gptme Status" in content
@@ -53,7 +74,7 @@ def test_status_no_markdown():
     """Verify --no-markdown strips heading markers from output."""
     runner = CliRunner()
     result = runner.invoke(status, ["--no-markdown"])
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "# gptme Status" not in result.output
     assert "gptme Status" in result.output
 
@@ -63,7 +84,7 @@ def test_status_agent_name_from_env(monkeypatch):
     monkeypatch.setenv("GPTME_AGENT_NAME", "TestAgent")
     runner = CliRunner()
     result = runner.invoke(status)
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "TestAgent" in result.output
 
 
@@ -82,98 +103,85 @@ def test_strip_markdown_removes_headings():
 
 
 def test_status_format_table():
-    """Verify --format table outputs a markdown table with expected fields."""
+    """Verify --format table outputs a markdown table with core fields."""
     runner = CliRunner()
     result = runner.invoke(status, ["--format", "table"])
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "| Field | Value |" in result.output
     assert "| session_id |" in result.output
-    assert "| active_task |" in result.output
     assert "| last_commit |" in result.output
-    assert "| pending_prs |" in result.output
-    assert "| waiting_for |" in result.output
     assert "| disk_usage |" in result.output
-    assert "| journal_entries |" in result.output
 
 
 def test_status_format_table_via_util():
     """Verify gptme-util status --format table dispatches correctly."""
     runner = CliRunner()
     result = runner.invoke(util_main, ["status", "--format", "table"])
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "| Field | Value |" in result.output
     assert "| session_id |" in result.output
 
 
-def test_status_json(monkeypatch):
-    """Verify --json emits structured status without Markdown."""
-    monkeypatch.setattr(cmd_status, "_is_bob_workspace", lambda: True)
-    monkeypatch.setattr(
-        cmd_status,
-        "_active_tasks",
-        lambda lines=3: [{"_id": "task-1", "title": "First task"}],
-    )
-    monkeypatch.setattr(cmd_status, "_recent_commits", lambda limit=3: ["abc123 Fix"])
-    monkeypatch.setattr(
-        cmd_status,
-        "_pr_queue",
-        lambda _tracked: [{"repo": "gptme/gptme", "count": 2, "cap": None}],
-    )
-    monkeypatch.setattr(
-        cmd_status,
-        "_service_status",
-        lambda: [{"label": "worker", "icon": "✅", "status": "active"}],
-    )
-    monkeypatch.setattr(cmd_status, "_dead_timers", lambda: 0)
-    monkeypatch.setattr(
-        cmd_status,
-        "_blockers",
-        lambda limit=3: [{"id": "blocked", "waiting_for": "review"}],
-    )
-    monkeypatch.setattr(
-        cmd_status,
-        "_ready_tasks",
-        lambda limit=3: [{"id": "ready", "name": "Ready task"}],
-    )
+# ── JSON output tests ──────────────────────────────────────────────────
+
+
+def test_status_json_core_fields(monkeypatch):
+    """Verify --json emits core status fields without Bob-specific data."""
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: ["abc123 Fix"])
     monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-1")
     monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
-    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _root=None: "1G / 2G (50%)")
-    monkeypatch.setattr(cmd_status, "_journal_entries", lambda limit=5: ["entry.md"])
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [])
 
     result = CliRunner().invoke(status, ["--json"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     data = json.loads(result.output)
-    # Timestamp is dynamic; validate presence and format separately.
     assert "timestamp" in data
     assert "T" in data.pop("timestamp")
     assert data == {
         "session_id": "session-1",
-        "active_tasks": [{"id": "task-1", "title": "First task"}],
         "recent_commits": ["abc123 Fix"],
-        "pr_queue": [{"repo": "gptme/gptme", "count": 2, "cap": None}],
         "disk_usage": "1G / 2G (50%)",
-        "journal_entries": ["entry.md"],
-        "services": [{"label": "worker", "icon": "✅", "status": "active"}],
-        "dead_timers": 0,
-        "blockers": [{"id": "blocked", "waiting_for": "review"}],
-        "ready_tasks": [{"id": "ready", "name": "Ready task"}],
     }
+
+
+def test_status_json_no_bob_fields_by_default(monkeypatch):
+    """Verify Bob-specific fields are absent from core JSON output."""
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-y")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [])
+
+    result = CliRunner().invoke(status, ["--json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    for bob_key in (
+        "services",
+        "dead_timers",
+        "blockers",
+        "ready_tasks",
+        "active_tasks",
+        "journal_entries",
+        "pr_queue",
+    ):
+        assert bob_key not in data, (
+            f"Bob-specific field '{bob_key}' present in core JSON output"
+        )
 
 
 def test_status_json_via_util(monkeypatch):
     """Verify gptme-util status exposes the --json flag (deterministic)."""
-    monkeypatch.setattr(cmd_status, "_is_bob_workspace", lambda: False)
-    monkeypatch.setattr(cmd_status, "_active_tasks", lambda lines=3: [])
-    monkeypatch.setattr(cmd_status, "_recent_commits", lambda limit=3: [])
-    monkeypatch.setattr(cmd_status, "_pr_queue", lambda _tracked: [])
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
     monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-util")
     monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
-    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _root=None: "1G / 2G (50%)")
-    monkeypatch.setattr(cmd_status, "_journal_entries", lambda limit=5: [])
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [])
 
     result = CliRunner().invoke(util_main, ["status", "--json"])
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     assert isinstance(data, dict)
     assert data["session_id"] == "session-util"
@@ -182,59 +190,31 @@ def test_status_json_via_util(monkeypatch):
 
 def test_status_json_with_output_file(tmp_path, monkeypatch):
     """Verify --json -o path writes valid JSON with expected schema to a file."""
-    monkeypatch.setattr(cmd_status, "_is_bob_workspace", lambda: False)
-    monkeypatch.setattr(cmd_status, "_active_tasks", lambda lines=3: [])
-    monkeypatch.setattr(cmd_status, "_recent_commits", lambda limit=3: [])
-    monkeypatch.setattr(cmd_status, "_pr_queue", lambda _tracked: [])
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
     monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-x")
     monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
-    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _root=None: "1G / 2G (50%)")
-    monkeypatch.setattr(cmd_status, "_journal_entries", lambda limit=5: [])
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [])
 
     out_file = tmp_path / "status.json"
     result = CliRunner().invoke(status, ["--json", "-o", str(out_file)])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert out_file.exists()
     data = json.loads(out_file.read_text())
     assert data["session_id"] == "session-x"
     assert "timestamp" in data
-    assert "active_tasks" in data
-    assert "pr_queue" in data
+    assert "recent_commits" in data
     assert "disk_usage" in data
 
 
-def test_status_json_excludes_bob_fields_in_non_bob_workspace(monkeypatch):
-    """Verify Bob-only fields are absent when not in Bob's workspace."""
-    monkeypatch.setattr(cmd_status, "_is_bob_workspace", lambda: False)
-    monkeypatch.setattr(cmd_status, "_active_tasks", lambda lines=3: [])
-    monkeypatch.setattr(cmd_status, "_recent_commits", lambda limit=3: [])
-    monkeypatch.setattr(cmd_status, "_pr_queue", lambda _tracked: [])
-    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-y")
-    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
-    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _root=None: "1G / 2G (50%)")
-    monkeypatch.setattr(cmd_status, "_journal_entries", lambda limit=5: [])
-
-    result = CliRunner().invoke(status, ["--json"])
-
-    assert result.exit_code == 0
-    data = json.loads(result.output)
-    for bob_key in ("services", "dead_timers", "blockers", "ready_tasks"):
-        assert bob_key not in data, (
-            f"Bob-only field '{bob_key}' present outside Bob workspace"
-        )
-
-
 def test_status_json_write_with_output_path(tmp_path, monkeypatch):
-    """Verify --json --write -o path is accepted and writes JSON (unambiguous destination)."""
-    monkeypatch.setattr(cmd_status, "_is_bob_workspace", lambda: False)
-    monkeypatch.setattr(cmd_status, "_active_tasks", lambda lines=3: [])
-    monkeypatch.setattr(cmd_status, "_recent_commits", lambda limit=3: [])
-    monkeypatch.setattr(cmd_status, "_pr_queue", lambda _tracked: [])
+    """Verify --json --write -o path is accepted and writes JSON."""
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
     monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-w")
     monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
-    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _root=None: "1G / 2G (50%)")
-    monkeypatch.setattr(cmd_status, "_journal_entries", lambda limit=5: [])
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [])
 
     out_file = tmp_path / "out.json"
     result = CliRunner().invoke(status, ["--json", "--write", "-o", str(out_file)])
@@ -258,6 +238,93 @@ def test_status_json_rejects_rendering_options():
         assert result.exit_code == 2
 
 
+# ── StatusProvider tests ───────────────────────────────────────────────
+
+
+def test_status_provider_protocol():
+    """Verify _FakeProvider satisfies the StatusProvider protocol."""
+    provider = _FakeProvider()
+    assert isinstance(provider, StatusProvider)
+    assert provider.name == "test"
+    assert provider.collect() == {"test_key": "test_value", "test_count": 42}
+    sections = provider.narrative_sections()
+    assert len(sections) == 1
+    assert "## Test Section" in sections[0]
+
+
+def test_status_json_merges_provider_fields(monkeypatch):
+    """Verify provider collect() is merged into --json output."""
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-p")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [_FakeProvider()])
+
+    result = CliRunner().invoke(status, ["--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["test_key"] == "test_value"
+    assert data["test_count"] == 42
+
+
+def test_status_narrative_includes_provider_sections(monkeypatch):
+    """Verify provider narrative_sections() are included in narrative output."""
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [_FakeProvider()])
+
+    result = CliRunner().invoke(status)
+    assert result.exit_code == 0, result.output
+    assert "## Test Section" in result.output
+    assert "item from provider" in result.output
+
+
+def test_status_table_includes_provider_fields(monkeypatch):
+    """Verify provider collect() keys appear as rows in table format."""
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "s")
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=1: [])
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "0G / 0G (0%)")
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [_FakeProvider()])
+
+    result = CliRunner().invoke(status, ["--format", "table"])
+    assert result.exit_code == 0, result.output
+    assert "| test_key |" in result.output
+    assert "test_value" in result.output
+
+
+def test_status_broken_provider_does_not_crash(monkeypatch):
+    """Verify a provider whose collect() raises does not crash the command."""
+
+    class _BrokenProvider:
+        name = "broken"
+
+        def collect(self) -> dict:
+            raise RuntimeError("provider is broken")
+
+        def narrative_sections(self) -> list[str]:
+            raise RuntimeError("provider is broken")
+
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [_BrokenProvider()])
+
+    result = CliRunner().invoke(status)
+    assert result.exit_code == 0, result.output
+    assert "# gptme Status" in result.output
+
+
+def test_load_providers_returns_empty_when_none_installed():
+    """Verify load_providers() returns an empty list when no providers installed."""
+    from gptme.status_provider import load_providers
+
+    providers = load_providers()
+    # In the gptme package itself, no providers are registered.
+    # If some are installed in this environment, they should still satisfy the protocol.
+    assert isinstance(providers, list)
+    for p in providers:
+        assert isinstance(p, StatusProvider)
+
+
+# ── formatting helpers ─────────────────────────────────────────────────
+
+
 def test_pr_queue_display():
     """Verify _pr_queue_display formats count/cap and at-limit suffix correctly."""
     assert _pr_queue_display(2, None) == "2"
@@ -270,7 +337,7 @@ def test_status_format_narrative_is_default():
     """Verify default format is narrative (not table)."""
     runner = CliRunner()
     result = runner.invoke(status)
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "## Active Work" in result.output
     assert "| Field | Value |" not in result.output
 
@@ -297,30 +364,17 @@ def test_session_id_fallback(monkeypatch):
 
 
 def test_build_table_document_structure():
-    """Verify build_table_document produces a markdown table."""
-    doc = build_table_document()
+    """Verify build_table_document produces a markdown table with core fields."""
+    doc = build_table_document(providers=[])
     lines = doc.splitlines()
     assert any("| Field | Value |" in line for line in lines)
     assert any("| session_id |" in line for line in lines)
     assert any("| last_commit |" in line for line in lines)
+    assert any("| disk_usage |" in line for line in lines)
 
 
-def test_build_table_document_escapes_multiline_waiting_for(monkeypatch):
-    """Verify multiline blockers stay inside a single markdown table row."""
-    monkeypatch.setattr(cmd_status, "_is_bob_workspace", lambda: False)
-    monkeypatch.setattr(cmd_status, "_active_tasks", lambda _limit=1: [])
-    monkeypatch.setattr(cmd_status, "_recent_commits", lambda _limit=1: [])
-    monkeypatch.setattr(cmd_status, "_pr_queue", lambda _tracked: [])
-    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
-    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _root=None: "1G / 2G (50%)")
-    monkeypatch.setattr(cmd_status, "_journal_entries", lambda _limit=5: [])
-    monkeypatch.setattr(
-        cmd_status,
-        "_blockers",
-        lambda _limit=1: [{"waiting_for": "first line\nsecond | line"}],
-    )
-
-    doc = build_table_document()
-
-    assert "| waiting_for | first line second \\| line |" in doc
-    assert "second | line" not in doc
+def test_build_table_document_with_provider():
+    """Verify provider fields appear as table rows."""
+    doc = build_table_document(providers=[_FakeProvider()])
+    assert "| test_key |" in doc
+    assert "test_value" in doc
