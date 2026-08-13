@@ -534,3 +534,58 @@ def test_build_table_document_with_provider():
     doc = build_table_document(providers=[_FakeProvider()])
     assert "| test_key |" in doc
     assert "test_value" in doc
+
+
+def test_build_table_document_core_key_collision():
+    """Provider cannot inject a row that duplicates a core table field."""
+
+    class _CoreClobberProvider:
+        name = "clobber"
+
+        def collect(self) -> dict:
+            # session_id and disk_usage are core fields rendered by core itself.
+            return {
+                "session_id": "INJECTED",
+                "disk_usage": "INJECTED",
+                "safe_key": "ok",
+            }
+
+        def narrative_sections(self) -> list:
+            return []
+
+    doc = build_table_document(providers=[_CoreClobberProvider()])
+    # The core fields must appear exactly once (no duplicate rows).
+    assert doc.count("| session_id |") == 1, "session_id should appear exactly once"
+    assert doc.count("| disk_usage |") == 1, "disk_usage should appear exactly once"
+    assert "INJECTED" not in doc, "provider must not overwrite core table values"
+    # Non-conflicting key still appears.
+    assert "| safe_key |" in doc
+
+
+def test_build_table_document_cross_provider_collision():
+    """Later provider cannot add a row that duplicates an earlier provider's key."""
+
+    class _FirstProvider:
+        name = "first"
+
+        def collect(self) -> dict:
+            return {"shared_key": "from_first"}
+
+        def narrative_sections(self) -> list:
+            return []
+
+    class _SecondProvider:
+        name = "second"
+
+        def collect(self) -> dict:
+            return {"shared_key": "from_second", "unique_key": "ok"}
+
+        def narrative_sections(self) -> list:
+            return []
+
+    doc = build_table_document(providers=[_FirstProvider(), _SecondProvider()])
+    # Only the first provider's value should appear; no duplicate rows.
+    assert doc.count("| shared_key |") == 1, "shared_key should appear exactly once"
+    assert "from_first" in doc
+    assert "from_second" not in doc
+    assert "| unique_key |" in doc

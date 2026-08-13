@@ -299,10 +299,25 @@ def build_table_document(providers: list[StatusProvider] | None = None) -> str:
         f"| disk_usage | {disk} |",
     ]
 
+    # Track keys already in the table so providers cannot produce contradictory
+    # duplicate rows.  Initialised with the core table fields plus the names
+    # reserved for JSON output (_CORE_KEYS) — some differ (last_commit vs
+    # recent_commits) so both sets are merged.
+    seen_keys: set[str] = {"session_id", "last_commit", "disk_usage"} | _CORE_KEYS
+
     for provider in providers:
         try:
             extra = provider.collect()
             for key, val in extra.items():
+                if key in seen_keys:
+                    logger.debug(
+                        "Provider %r key %r is already present in the status"
+                        " table — skipping to prevent contradictory duplicate rows",
+                        _provider_name(provider),
+                        key,
+                    )
+                    continue
+                seen_keys.add(key)
                 cell = _markdown_table_cell(val)
                 lines.append(f"| {key} | {cell} |")
         except Exception as exc:
