@@ -1156,7 +1156,7 @@ class TestVersionOutputContract:
             m.stop()
 
     def test_first_line_format(self):
-        """First line of --version output is always 'gptme v<version>'."""
+        """First line of format_version_info() (verbose/json output) always starts with 'gptme v<version>'."""
         managers = self._apply(self._mock_all_info())
         try:
             result = format_version_info()

@@ -621,13 +621,7 @@ Run 'gptme-util --help' for all utility commands."""
 @click.option(
     "--version",
     is_flag=True,
-    help="Show version and configuration information. First line is always 'gptme v<version>'.",
-)
-@click.option(
-    "--version-short",
-    "version_short",
-    is_flag=True,
-    help="Show only the gptme version string for scripting.",
+    help="Show version. With -v/--verbose, show full configuration info.",
 )
 @click.option(
     "--version-json",
@@ -728,7 +722,6 @@ def main(
     show_hidden: bool,
     show_prompt_stats: bool,
     version: bool,
-    version_short: bool,
     version_json: bool,
     resume: bool,
     workspace: str | None,
@@ -746,7 +739,7 @@ def main(
     manifest_dir: Path | None,
 ):
     """Main entrypoint for the CLI."""
-    show_version = version or version_short or version_json
+    show_version = version or version_json
 
     # Dispatch: `gptme search QUERY` → chats search (discoverability alias)
     if prompts and prompts[0] == "search" and not show_version:
@@ -972,20 +965,20 @@ def main(
     interactive = not non_interactive
     auto_switched_noninteractive = False
     if show_version:
-        if version_short:
+        if version_json:
+            from ..info import format_version_info
+
+            print(format_version_info(verbose=verbose, output_json=True))
+        elif verbose:
+            from ..info import format_version_info
+
+            print(format_version_info(verbose=True, output_json=False))
+            print()
+            print("Utilities: gptme-util (run 'gptme-util --help' for more)")
+        else:
             from ..__version__ import __version__
 
             print(__version__)
-            exit(0)
-
-        from ..info import format_version_info
-
-        print(format_version_info(verbose=verbose, output_json=version_json))
-
-        # hint about utilities (non-JSON only)
-        if not version_json:
-            print()
-            print("Utilities: gptme-util (run 'gptme-util --help' for more)")
         exit(0)
 
     if "PYTEST_CURRENT_TEST" in os.environ:

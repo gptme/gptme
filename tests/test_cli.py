@@ -159,13 +159,16 @@ def test_help_no_external_subcommands_section_when_none_installed(
 def test_version(runner: CliRunner):
     result = runner.invoke(cli.main, ["--version"])
     assert result.exit_code == 0
-    assert "gptme" in result.output
-
-
-def test_version_short(runner: CliRunner):
-    result = runner.invoke(cli.main, ["--version-short"])
-    assert result.exit_code == 0
+    # --version outputs just the bare version string, usable in scripts
     assert result.output == f"{__version__}\n"
+
+
+def test_version_verbose(runner: CliRunner):
+    result = runner.invoke(cli.main, ["--version", "--verbose"])
+    assert result.exit_code == 0
+    # --version --verbose shows the full human-readable info block
+    assert "gptme" in result.output
+    assert __version__ in result.output
 
 
 def test_show_prompt_stats_exits_before_chat(monkeypatch, tmp_path: Path, runner):
@@ -479,7 +482,7 @@ def test_model_allows_provider_owned_nested_model_path(runner: CliRunner):
     )
 
     assert result.exit_code == 0, result.output
-    assert "gptme v" in result.output
+    assert __version__ in result.output
 
 
 def test_model_allows_nested_path_through_validation_block(
@@ -1644,7 +1647,7 @@ def test_tools_short_option_equals_syntax_works(runner: CliRunner):
     """The documented `-t=-browser` short form should parse successfully."""
     result = runner.invoke(cli.main, ["-t=-browser", "--version"])
     assert result.exit_code == 0, result.output
-    assert "gptme v" in result.output
+    assert __version__ in result.output
 
 
 @pytest.mark.parametrize(
