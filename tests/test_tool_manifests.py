@@ -45,3 +45,29 @@ def test_load_task_manifest_invalid_tool_entry_is_usage_error(tmp_path: Path):
 
     with pytest.raises(ValueError, match="tool_name must be a non-empty string"):
         load_task_manifest("research", tmp_path)
+
+
+def test_load_task_manifest_rejects_comma_in_server_name(tmp_path: Path):
+    """Commas in server_name would corrupt the comma-joined allowlist string."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":[{"server_name":"a,b","tool_name":"tool"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must not contain commas"):
+        load_task_manifest("research", tmp_path)
+
+
+def test_load_task_manifest_rejects_comma_in_tool_name(tmp_path: Path):
+    """Commas in tool_name would corrupt the comma-joined allowlist string."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":[{"server_name":"server","tool_name":"a,b"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must not contain commas"):
+        load_task_manifest("research", tmp_path)
