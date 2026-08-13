@@ -1089,20 +1089,33 @@ class TestPromptGptmeEditingGuidance:
             # Both tools available
             (
                 ["patch", "save"],
-                ["patch tool", "save tool", "two edit tools"],
+                [
+                    "patch tool",
+                    "save tool",
+                    "two edit tools",
+                    "DO NOT try to edit cells with patch",
+                ],
                 ["show the changes clearly"],
             ),
             # Patch only
             (
                 ["patch"],
-                ["patch tool", "one file-editing tool"],
+                [
+                    "patch tool",
+                    "one file-editing tool",
+                    "DO NOT try to edit cells with patch",
+                ],
                 ["save tool", "show the changes clearly"],
             ),
             # Save only
             (
                 ["save"],
                 ["save tool", "one file-editing tool"],
-                ["patch tool", "show the changes clearly"],
+                [
+                    "patch tool",
+                    "show the changes clearly",
+                    "DO NOT try to edit cells with patch",
+                ],
             ),
             # No editing tools
             (

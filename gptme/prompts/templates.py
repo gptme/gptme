@@ -185,6 +185,12 @@ Always consider the full range of your available tools and abilities when approa
             if has_patch and has_save
             else "You have one file-editing tool:"
         )
+        # Only warn about patch fragility when patch is actually available
+        patch_fragility_warning = (
+            "- DO NOT try to edit cells with patch (whitespace/quoting fragile)\n"
+            if has_patch
+            else ""
+        )
         code_editing_strategy = f"""
 ## Code Editing Strategy
 
@@ -199,8 +205,7 @@ When editing a file:
 
 When working with CSV, Excel, or JSON data files:
 
-- DO NOT try to edit cells with patch (whitespace/quoting fragile)
-- PREFERRED: Write Python scripts that load, modify, and save data
+{patch_fragility_warning}- PREFERRED: Write Python scripts that load, modify, and save data
   - Use libraries: openpyxl (Excel), csv (CSV), json (JSON)
   - Write to a temp file first, verify, then move to final location
 - READ the file format first (is it really CSV or Excel?)
