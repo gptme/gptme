@@ -112,12 +112,22 @@ grep -r "json\|schema\|Json\|Schema" gptme/tools/ \
 | `shell.py` | context-savings JSONL log | ❌ Not dispatch |
 | `restart.py` | `--output-schema` CLI flag for structured subagent output | ❌ Not tool dispatch |
 
-**Verdict**: No JSON-schema *dispatch* paths in `gptme/tools/`. For markdown and XML
-formats, `ToolSpec.execute(code, args, kwargs)` receives the raw code block content.
-For provider-native tool mode, `base.py` handles the inbound argument-parsing step
-(`ToolUse.iter_from_content` with `active_format == "tool"`), while outbound schema
-generation lives in `gptme/llm/`. Schema definition dispatch (choosing a tool by schema)
-never occurs — the `@name(id): {...}` format names the tool directly.
+**Verdict**: Two distinct things are worth separating here:
+
+1. **Schema-definition dispatch** (using a JSON schema to *select* which tool to invoke):
+   never occurs in any path. The `@name(id): {...}` format in the provider-native path
+   names the tool directly; the schema is only sent *outbound* to the provider to help
+   it structure its response, not used inbound to route calls.
+
+2. **JSON argument parsing after tool selection**: `base.py` **does** parse JSON from
+   provider responses via `ToolUse.iter_from_content` with `active_format == "tool"`.
+   This `json_repair.loads` call is the trust boundary for untrusted provider data —
+   **security reviewers should treat this as in-scope** even though it is not schema-guided
+   dispatch.
+
+For markdown and XML formats, `ToolSpec.execute(code, args, kwargs)` receives raw code block
+content with no JSON parsing at any layer. The ⚠️ on `base.py` above applies only to the
+`"tool"` format (provider-native mode); the outbound schema half lives in `gptme/llm/`.
 
 ---
 
