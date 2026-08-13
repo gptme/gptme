@@ -235,9 +235,11 @@ def _sanitize_nested_dict_keys(obj: object) -> object:
     because the ``default=`` hook only handles non-serializable **values**, not
     invalid dict **keys**.
 
-    This helper traverses :class:`dict` and :class:`list` values recursively,
-    converting any non-string key to its ``str()`` representation so the
-    entire value tree is safe to pass to ``json.dumps``.
+    This helper traverses :class:`dict`, :class:`list`, and :class:`tuple`
+    values recursively, converting any non-string key to its ``str()``
+    representation so the entire value tree is safe to pass to ``json.dumps``.
+    Tuples are reconstructed as tuples so the original container type is
+    preserved; ``json.dumps`` serialises them as JSON arrays, the same as lists.
     """
     if isinstance(obj, dict):
         return {
@@ -246,6 +248,8 @@ def _sanitize_nested_dict_keys(obj: object) -> object:
         }
     if isinstance(obj, list):
         return [_sanitize_nested_dict_keys(v) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_sanitize_nested_dict_keys(v) for v in obj)
     return obj
 
 

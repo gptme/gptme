@@ -739,6 +739,44 @@ def test_status_json_provider_nested_non_string_key_does_not_crash(monkeypatch):
     assert nested["str_key"] == "ok"
 
 
+def test_status_json_provider_tuple_nested_non_string_key_does_not_crash(monkeypatch):
+    """Verify a provider returning a tuple containing a dict with non-string keys
+    does not crash --json.
+
+    _sanitize_nested_dict_keys() must recurse into tuples, not only dicts and
+    lists. Without tuple traversal, json.dumps() reaches the inner dict and
+    raises TypeError on its non-string key, aborting the command without output.
+    """
+
+    class _TupleNestedNonStringKeyProvider:
+        name = "tuple_nested"
+
+        def collect(self) -> dict:
+            # Top-level key is a valid string; value is a tuple whose element is
+            # a dict with an int key — the shape that escaped earlier sanitizers.
+            return {"data": ({1: "int_key_in_tuple"},)}
+
+        def narrative_sections(self) -> list:
+            return []
+
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-tuple")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(
+        cmd_status, "load_providers", lambda: [_TupleNestedNonStringKeyProvider()]
+    )
+
+    result = CliRunner().invoke(status, ["--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "data" in data
+    # The tuple becomes a JSON array; the inner dict's int key is coerced to str.
+    inner = data["data"]
+    assert isinstance(inner, list)
+    assert inner[0]["1"] == "int_key_in_tuple"
+
+
 def test_build_table_document_provider_non_string_key_skipped():
     """Verify non-string provider keys are silently dropped from table output."""
 
