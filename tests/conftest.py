@@ -514,6 +514,19 @@ def temp_file():
 
 
 @pytest.fixture(autouse=True)
+def cleanup_logged_warnings():
+    """Clear the log_warn_once cache between tests to ensure test isolation."""
+    yield
+    # Reset the module-level warning cache after each test
+    try:
+        from gptme.llm.models.resolution import _logged_warnings
+
+        _logged_warnings.clear()
+    except (ImportError, AttributeError):
+        pass
+
+
+@pytest.fixture(autouse=True)
 def init_(monkeypatch):
     # Pass MODEL from env explicitly to avoid picking up stale config.chat.model
     # values left by server tests. When _init_done is reset per-test, init_model()
