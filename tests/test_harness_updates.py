@@ -78,6 +78,23 @@ def test_extract_harness_updates_rejects_malformed_tokens():
     ]
 
 
+def test_extract_harness_updates_accepts_unquoted_apostrophe_in_reason():
+    """shlex.split raises ValueError on unquoted apostrophes; we fall back to
+    plain whitespace splitting so natural-language reasons are not silently
+    dropped from the audit trail."""
+    content = (
+        "HARNESS_UPDATE: enable_tool shell reason=user's urgency=low approval=auto"
+    )
+
+    requests_, errors = extract_harness_updates(
+        content, available_tool_names={"shell", "web_fetch"}
+    )
+
+    assert errors == []
+    assert len(requests_) == 1
+    assert requests_[0].reason == "user's"
+
+
 def test_annotate_message_with_harness_updates_preserves_existing_metadata():
     msg = Message(
         "assistant",
