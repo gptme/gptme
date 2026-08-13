@@ -940,7 +940,7 @@ def main(
 
     _validate_custom_tool_paths(tool_allowlist_str)
 
-    if profile:
+    if profile and not show_version:
         import cProfile
         import pstats
 
