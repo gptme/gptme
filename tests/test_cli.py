@@ -1242,6 +1242,9 @@ def test_tool_manifest_unavailable_tool_falls_back_gracefully(
     # Second call must NOT contain the manifest tool
     second_call = init_calls[1] or []
     assert not any("github" in t for t in second_call)
+    # config.chat.tools must be kept in sync with the fallback list so that
+    # chat() → init_tools() cannot crash on the still-unavailable manifest tool
+    assert not any("github" in t for t in (fake_config.chat.tools or []))
 
 
 def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
