@@ -48,7 +48,20 @@ def _tool_name_from_record(tool: Any, *, line_no: int, task_type: str) -> str:
             "tool_name must be a non-empty string"
         )
 
-    return f"{server_name.strip()}.{tool_name.strip()}"
+    sn = server_name.strip()
+    tn = tool_name.strip()
+    if "," in sn:
+        raise ValueError(
+            f"Invalid tool manifest entry for {task_type!r} on line {line_no}: "
+            f"server_name {sn!r} must not contain commas"
+        )
+    if "," in tn:
+        raise ValueError(
+            f"Invalid tool manifest entry for {task_type!r} on line {line_no}: "
+            f"tool_name {tn!r} must not contain commas"
+        )
+
+    return f"{sn}.{tn}"
 
 
 def load_task_manifest(

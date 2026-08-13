@@ -970,7 +970,7 @@ def main(
     def apply_tool_manifest(workspace_path: Path) -> str | None:
         if not tool_manifest_type:
             return tool_allowlist_str
-        if ctx.get_parameter_source("tool_allowlist") != ParameterSource.DEFAULT:
+        if ctx.get_parameter_source("tool_allowlist") == ParameterSource.COMMANDLINE:
             raise click.UsageError("--tool-manifest cannot be combined with --tools")
         if selected_profile and selected_profile.tools is not None:
             raise click.UsageError(
@@ -1472,6 +1472,11 @@ def main(
             ] or None
             try:
                 tools = init_tools(fallback_tools)
+                # Keep config in sync so chat() → init() → init_tools() uses
+                # the same reduced list; without this the stale config.chat.tools
+                # (still containing manifest tool names) would cause a second
+                # ValueError crash inside chat() when the MCP server is still down.
+                config.chat.tools = fallback_tools
             except ValueError as e2:
                 raise click.UsageError(str(e2)) from e2
         else:
