@@ -226,6 +226,29 @@ def _json_default(obj: object) -> object:
         return "<unserializable>"
 
 
+def _sanitize_nested_dict_keys(obj: object) -> object:
+    """Recursively convert non-string keys in nested dicts to their ``str()`` form.
+
+    :func:`_status_data` already drops top-level provider keys that are not
+    strings, but a provider value can itself be a :class:`dict` whose *nested*
+    keys are non-strings.  ``json.dumps`` raises :exc:`TypeError` on such keys
+    because the ``default=`` hook only handles non-serializable **values**, not
+    invalid dict **keys**.
+
+    This helper traverses :class:`dict` and :class:`list` values recursively,
+    converting any non-string key to its ``str()`` representation so the
+    entire value tree is safe to pass to ``json.dumps``.
+    """
+    if isinstance(obj, dict):
+        return {
+            (k if isinstance(k, str) else str(k)): _sanitize_nested_dict_keys(v)
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_sanitize_nested_dict_keys(v) for v in obj]
+    return obj
+
+
 def _status_data(providers: list[StatusProvider] | None = None) -> dict[str, object]:
     """Collect status data shared by JSON and presentation renderers.
 
@@ -278,7 +301,10 @@ def _status_data(providers: list[StatusProvider] | None = None) -> dict[str, obj
                         key,
                     )
                     continue
-                status_data[key] = val
+                # Sanitize nested dict keys: json.dumps requires all dict keys
+                # at every nesting level to be strings, and default= only handles
+                # non-serializable *values*, not invalid *keys*.
+                status_data[key] = _sanitize_nested_dict_keys(val)
         except Exception as exc:
             logger.debug(
                 "Provider %r collect() failed: %s", _provider_name(provider), exc

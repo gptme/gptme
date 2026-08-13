@@ -697,6 +697,48 @@ def test_status_json_provider_non_string_key_does_not_crash(monkeypatch):
     assert data["normal_key"] == "ok"
 
 
+def test_status_json_provider_nested_non_string_key_does_not_crash(monkeypatch):
+    """Verify a provider returning nested dicts with non-string keys does not crash --json.
+
+    The top-level key filter in _status_data() skips non-string *top-level* provider
+    keys, but a provider can return a value that is itself a dict with non-string keys
+    at any nesting depth.  json.dumps() raises TypeError on such keys because default=
+    only handles non-serializable *values*, not invalid dict *keys*.
+
+    _sanitize_nested_dict_keys() must convert non-string nested keys to str() before
+    json.dumps() is called.
+    """
+
+    class _NestedNonStringKeyProvider:
+        name = "nested_nonstring"
+
+        def collect(self) -> dict:
+            # Top-level key is a valid string; nested dict has an int key.
+            return {"nested": {1: "int_key_val", "str_key": "ok"}}
+
+        def narrative_sections(self) -> list:
+            return []
+
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-nested")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(
+        cmd_status, "load_providers", lambda: [_NestedNonStringKeyProvider()]
+    )
+
+    result = CliRunner().invoke(status, ["--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    # The top-level key is present.
+    assert "nested" in data
+    nested = data["nested"]
+    # The int key must have been coerced to its str() form.
+    assert all(isinstance(k, str) for k in nested)
+    assert nested["1"] == "int_key_val"
+    assert nested["str_key"] == "ok"
+
+
 def test_build_table_document_provider_non_string_key_skipped():
     """Verify non-string provider keys are silently dropped from table output."""
 
