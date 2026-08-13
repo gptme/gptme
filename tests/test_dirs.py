@@ -213,6 +213,56 @@ class TestGetProjectGitDir:
         assert result is None
 
 
+class _FakeWindowsDrivePath:
+    """Small Windows-drive path double for testing root-walk termination on POSIX."""
+
+    parent_calls = 0
+
+    def __init__(self, value: str = "C:/workspace/nested"):
+        self.value = value
+
+    @classmethod
+    def cwd(cls):
+        return cls("C:/workspace/nested")
+
+    def __truediv__(self, name: str):
+        return type(self)(f"{self.value.rstrip('/')}/{name}")
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _FakeWindowsDrivePath) and self.value == other.value
+
+    def exists(self) -> bool:
+        return False
+
+    @property
+    def parent(self):
+        type(self).parent_calls += 1
+        if type(self).parent_calls > 10:
+            raise AssertionError("project directory walk did not stop at drive root")
+        if self.value == "C:/":
+            return self
+        parent = self.value.rsplit("/", 1)[0]
+        if parent == "C:":
+            return type(self)("C:/")
+        return type(self)(parent)
+
+
+class TestProjectDirWalkTermination:
+    def test_gptme_dir_walk_stops_at_drive_root(self, monkeypatch):
+        """Drive roots have parent == self, not Path('/'); do not loop forever."""
+        _FakeWindowsDrivePath.parent_calls = 0
+        monkeypatch.setattr(dirs, "Path", _FakeWindowsDrivePath)
+
+        assert dirs.get_project_gptme_dir() is None
+
+    def test_git_dir_walk_stops_at_drive_root(self, monkeypatch):
+        """Git root fallback uses the same platform-neutral root check."""
+        _FakeWindowsDrivePath.parent_calls = 0
+        monkeypatch.setattr(dirs, "Path", _FakeWindowsDrivePath)
+
+        assert dirs._get_project_git_dir_walk() is None
+
+
 # ── Workspace detection ───────────────────────────────────────────────────
 
 
