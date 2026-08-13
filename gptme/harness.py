@@ -190,8 +190,12 @@ def _parse_harness_update_line(
 
     try:
         tokens = shlex.split(payload)
-    except ValueError as exc:
-        return None, HarnessUpdateError(raw, f"invalid quoting: {exc}")
+    except ValueError:
+        # shlex.split treats apostrophes as quote characters; an unquoted
+        # apostrophe inside a value (e.g. reason=user's) raises ValueError.
+        # Fall back to plain whitespace splitting so natural-language reasons
+        # with apostrophes are accepted instead of silently rejected.
+        tokens = payload.split()
 
     if len(tokens) < 2:
         return None, HarnessUpdateError(
