@@ -67,16 +67,22 @@ Overview
 Tool Interface Architecture
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-gptme uses **Programmatic Tool Calling (PTC)**: the model writes executable code
-in fenced code blocks, and gptme runs it directly — no JSON schemas sent to the
-model, no JSON-structured responses parsed at dispatch time.
+gptme's default tool interface is **Programmatic Tool Calling (PTC)**: the model
+writes executable code in fenced code blocks, and gptme runs it directly. For the
+default ``markdown`` and ``xml`` formats, no JSON schemas are sent to the model
+and no JSON-structured responses are parsed.
 
 The primary dispatch path is ``"markdown"`` format: a ````python`` or ````shell``
 fenced block whose content gptme routes to ``ToolSpec.execute(code, args, kwargs)``.
 For Python, this means IPython's ``run_cell()``; for Shell, ``subprocess.Popen``
 with a stateful bash shell.
 
-**Why PTC?** A 2026 benchmark study (arXiv:2608.06370, *"The Bitter Lesson of
+gptme also supports a **provider-native tool mode** (``"tool"`` format) for
+OpenAI and Anthropic APIs, where ``ToolSpec`` parameters are converted to
+JSON-schema definitions and sent to the provider — trading context-rot resilience
+for provider-side tool routing compatibility.
+
+**Why default to PTC?** A 2026 benchmark study (arXiv:2608.06370, *"The Bitter Lesson of
 Tool Calling"*) found that PTC matches or exceeds JSON-schema tool calling on
 11/14 models and — critically — **maintains accuracy under context rot** (long
 sessions with accumulated tool history) while JSON-schema accuracy degrades ~2.3%.
@@ -84,7 +90,7 @@ Autonomous gptme sessions routinely accumulate 50–200 tool calls; this is exac
 the regime where JSON-schema approaches falter.
 
 See :doc:`design/ptc-tool-interface` for the full architecture documentation and
-2026-08-13 audit confirming no JSON-schema dispatch paths in ``gptme/tools/``.
+2026-08-13 audit of dispatch paths in ``gptme/tools/``.
 
 Combinations
 ^^^^^^^^^^^^

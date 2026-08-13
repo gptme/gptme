@@ -5,10 +5,18 @@
 
 ## Summary
 
-gptme's tool interface is an implementation of **Programmatic Tool Calling (PTC)**:
+gptme's primary tool interface is **Programmatic Tool Calling (PTC)**:
 the model outputs *executable code* in fenced code blocks, and gptme runs it
-directly via Python (IPython) or the shell. No JSON schemas are handed to the
-model; no JSON tool-call responses are parsed at the dispatch layer.
+directly via Python (IPython) or the shell. For the default `markdown` and `xml`
+formats, no JSON schemas are handed to the model and no JSON-structured tool-call
+responses are parsed.
+
+gptme also supports a **provider-native tool mode** (the `"tool"` format) for
+OpenAI and Anthropic APIs. In this mode, `ToolSpec` parameters are converted to
+JSON-schema tool definitions and sent to the provider; the provider returns
+structured tool calls which gptme parses before dispatching to `ToolSpec.execute`.
+This path trades the context-rot resilience of PTC for compatibility with
+provider-side tool routing.
 
 This matters because a 2026 benchmark study (arXiv:2608.06370, "The Bitter Lesson
 of Tool Calling") found that PTC **matches or exceeds** JSON-schema tool calling on
@@ -53,15 +61,21 @@ print("hello")
 Dispatch is identical — `tool.execute(content, args, kwargs)` — with the code block
 content passing straight through. Still PTC.
 
-### Tertiary: "tool" format (provider API adapter)
+### Tertiary: "tool" format (provider-native tool mode)
 
-The `"tool"` format (`@name(id): {...}`) is a serialisation shim for LLM providers
-that expose a native tool-use API (e.g., OpenAI Responses API, Anthropic tool use).
-When a provider returns a structured tool call, gptme wraps it in this format and
-dispatches via the same `ToolSpec.execute` path. The JSON object carries *arguments*
-for a named tool (e.g., `@shell(abc-123): {"cmd": "ls"}`), not a schema definition
-that the model filled in from a system-prompt schema. The dispatch path is still
-Python functions, not schema interpretation.
+The `"tool"` format (`@name(id): {...}`) supports providers that expose a native
+tool-use API (e.g., OpenAI Responses API, Anthropic tool use).
+
+**This is the one path where JSON schemas are sent to the model and structured
+tool-call responses are parsed.** The LLM adapters (`gptme/llm/llm_openai.py`,
+`gptme/llm/llm_anthropic.py`) convert each `ToolSpec` to a JSON-schema tool
+definition via `_spec2tool` and send these definitions to the provider alongside
+the conversation. The provider returns a structured tool call
+(e.g., `@shell(abc-123): {"cmd": "ls"}`); gptme parses the JSON arguments and
+dispatches via the same `ToolSpec.execute` path.
+
+Schema handling for this mode lives entirely in `gptme/llm/`, not in
+`gptme/tools/` — the `ToolSpec.execute` interface itself remains code-based.
 
 ### MCP adapter
 
@@ -93,9 +107,11 @@ grep -r "json\|schema\|Json\|Schema" gptme/tools/ \
 | `shell.py` | context-savings JSONL log | ❌ Not dispatch |
 | `restart.py` | `--output-schema` CLI flag for structured subagent output | ❌ Not tool dispatch |
 
-**Verdict**: No JSON-schema dispatch paths in `gptme/tools/`. All native gptme tool
-dispatch goes through `ToolSpec.execute(code, args, kwargs)` where `code` is the
-raw content of the matched code block.
+**Verdict**: No JSON-schema dispatch paths in `gptme/tools/`. For markdown and XML
+formats, `ToolSpec.execute(code, args, kwargs)` receives the raw code block content.
+JSON-schema handling for provider-native tool mode lives in `gptme/llm/` (the
+`_spec2tool` functions in `llm_openai.py` and `llm_anthropic.py`), which is outside
+this `gptme/tools/` audit scope.
 
 ---
 
