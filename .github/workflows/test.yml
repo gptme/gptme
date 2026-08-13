@@ -200,6 +200,62 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         report_type: test_results
 
+  # Windows smoke tests: a narrow, no-API slice covering the areas that actually
+  # bit users (filesystem paths, config loading, CLI entrypoints). Deliberately
+  # not a full matrix — a broad skip-marked suite would only buy fake confidence.
+  test-windows:
+    needs: changes
+    # Always run on push to master; on PRs, only when code changed
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    name: Test Windows path/config slice
+    runs-on: windows-latest
+    # The path-walk bug this job exists to catch manifests as an infinite loop,
+    # so cap the job rather than burning the 6h default on a hang.
+    timeout-minutes: 15
+    env:
+      RELEASE: false
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      DEEPSEEK_API_KEY: ''
+      OPENROUTER_API_KEY: ''
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: 'recursive'
+
+    - name: Store cache ID in file .cache-id
+      shell: pwsh
+      run: Set-Content -Path .cache-id -Value windows-path-config
+
+    # Must precede setup-python: `cache: 'poetry'` resolves the poetry binary.
+    - name: Install poetry
+      run: pipx install poetry
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.12'
+        cache: 'poetry'
+        cache-dependency-path: |
+          poetry.lock
+          .cache-id
+
+    - name: Install dependencies
+      run: poetry install
+
+    - name: Run Windows path/config smoke tests
+      env:
+        TERM: xterm
+        MODEL: local/test
+      run: |
+        poetry run pytest -v `
+          tests/test_dirs.py `
+          tests/test_config.py::test_custom_tool_file_allowlist_preserved `
+          tests/test_config.py::test_custom_tool_file_mixed_allowlist `
+          tests/test_llm_openai.py::TestIsProxy `
+          tests/test_cli.py::test_help `
+          tests/test_cli.py::test_version
+
   # API tests: only run requires_api tests, across multiple cheap models
   # Skipped on docs/config-only PRs to reduce API spend (~$30+/day in Haiku costs)
   # Note: Anthropic tests route through OpenRouter (OPENROUTER_API_KEY) for cost controls
