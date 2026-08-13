@@ -50,6 +50,11 @@ def _tool_name_from_record(tool: Any, *, line_no: int, task_type: str) -> str:
 
     sn = server_name.strip()
     tn = tool_name.strip()
+
+    # --- Allowlist-injection guards ---
+    # init_tools() joins manifest tool names into a comma-separated allowlist string
+    # ("+sn1.tn1,sn2.tn2,...").  It then splits on commas to recover individual
+    # entries, so a comma anywhere in sn or tn injects extra entries.
     if "," in sn:
         raise ValueError(
             f"Invalid tool manifest entry for {task_type!r} on line {line_no}: "
@@ -59,6 +64,40 @@ def _tool_name_from_record(tool: Any, *, line_no: int, task_type: str) -> str:
         raise ValueError(
             f"Invalid tool manifest entry for {task_type!r} on line {line_no}: "
             f"tool_name {tn!r} must not contain commas"
+        )
+
+    # --- Path-injection / arbitrary-code-execution guards ---
+    # init_tools() treats any allowlist item whose text contains "/" or "\" or
+    # ends with ".py" as a *file path* and calls load_from_file() on it, which
+    # imports the file as Python.  A malicious manifest (e.g. from a cloned
+    # repository) can exploit this to achieve arbitrary code execution:
+    #   server_name="github", tool_name="../../evil.py"
+    #   → combined name "github.../../evil.py"
+    #   → init_tools sees "/" → load_from_file("github.../../evil.py")
+    # We block forward-slash, backslash, path-traversal "..", and a ".py" suffix
+    # in tool_name (which would make the combined name end in ".py").
+    _PATH_FORBIDDEN: list[tuple[str, str]] = [
+        ("/", "forward slashes"),
+        ("\\", "backslashes"),
+        ("..", "path traversal sequences"),
+    ]
+    for seq, label in _PATH_FORBIDDEN:
+        if seq in sn:
+            raise ValueError(
+                f"Invalid tool manifest entry for {task_type!r} on line {line_no}: "
+                f"server_name {sn!r} must not contain {label}"
+            )
+        if seq in tn:
+            raise ValueError(
+                f"Invalid tool manifest entry for {task_type!r} on line {line_no}: "
+                f"tool_name {tn!r} must not contain {label}"
+            )
+    # tool_name must not end with ".py" — combined "sn.tn" would end in ".py"
+    # and init_tools() would route it to load_from_file().
+    if tn.endswith(".py"):
+        raise ValueError(
+            f"Invalid tool manifest entry for {task_type!r} on line {line_no}: "
+            f"tool_name {tn!r} must not end with '.py'"
         )
 
     return f"{sn}.{tn}"
