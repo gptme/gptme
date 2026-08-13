@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -70,4 +71,42 @@ def test_load_task_manifest_rejects_comma_in_tool_name(tmp_path: Path):
     )
 
     with pytest.raises(ValueError, match="must not contain commas"):
+        load_task_manifest("research", tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("server_name", "tool_name", "match"),
+    [
+        # Forward slash in server_name → "github/evil.search_code" has "/" → file path
+        ("github/evil", "search_code", "forward slashes"),
+        # Forward slash in tool_name → "github.path/to/evil.py" has "/" → file path
+        ("github", "path/to/evil", "forward slashes"),
+        # Backslash in tool_name → Windows path injection
+        ("github", "path\\evil", "backslashes"),
+        # Path traversal in server_name
+        ("github..", "search_code", "path traversal"),
+        # Path traversal in tool_name (pure ".." without slashes — slashes caught first otherwise)
+        ("github", "..evil", "path traversal"),
+        # .py suffix in tool_name → combined name "server.exploit.py" ends in ".py"
+        ("server", "exploit.py", r"must not end with '\.py'"),
+    ],
+)
+def test_load_task_manifest_rejects_path_injection(
+    tmp_path: Path, server_name: str, tool_name: str, match: str
+):
+    """Path-separator characters in tool names allow arbitrary code execution.
+
+    init_tools() treats any allowlist item containing "/" or "\\" or ending in ".py"
+    as a file path and calls load_from_file() on it. A manifest with a crafted
+    server_name or tool_name can inject a path that loads attacker-controlled Python.
+    """
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    record = {
+        "task_type": "research",
+        "tools": [{"server_name": server_name, "tool_name": tool_name}],
+    }
+    manifest_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=match):
         load_task_manifest("research", tmp_path)
