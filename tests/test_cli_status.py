@@ -562,6 +562,45 @@ def test_build_table_document_core_key_collision():
     assert "| safe_key |" in doc
 
 
+def test_status_json_cross_provider_collision_first_writer_wins(monkeypatch):
+    """Verify JSON output uses first-writer-wins for provider key collisions (same as table)."""
+
+    class _FirstProvider:
+        name = "first"
+
+        def collect(self) -> dict:
+            return {"shared_key": "from_first", "first_only": "ok"}
+
+        def narrative_sections(self) -> list:
+            return []
+
+    class _SecondProvider:
+        name = "second"
+
+        def collect(self) -> dict:
+            return {"shared_key": "from_second", "second_only": "ok"}
+
+        def narrative_sections(self) -> list:
+            return []
+
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-collision")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(
+        cmd_status, "load_providers", lambda: [_FirstProvider(), _SecondProvider()]
+    )
+
+    result = CliRunner().invoke(status, ["--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    # First provider wins; second provider's value for the colliding key is dropped.
+    assert data["shared_key"] == "from_first"
+    # Non-colliding keys from both providers are present.
+    assert data["first_only"] == "ok"
+    assert data["second_only"] == "ok"
+
+
 def test_build_table_document_cross_provider_collision():
     """Later provider cannot add a row that duplicates an earlier provider's key."""
 

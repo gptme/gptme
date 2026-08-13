@@ -258,10 +258,12 @@ def _status_data(providers: list[StatusProvider] | None = None) -> dict[str, obj
                     continue
                 if key in status_data:
                     logger.debug(
-                        "Provider %r key %r collides with an earlier provider's key — overwriting",
+                        "Provider %r key %r collides with an earlier provider's key — skipping"
+                        " (first-writer wins, consistent with table output)",
                         _provider_name(provider),
                         key,
                     )
+                    continue
                 status_data[key] = val
         except Exception as exc:
             logger.debug(
