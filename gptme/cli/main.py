@@ -1474,6 +1474,11 @@ def main(
     pre_manifest_allowlist = (
         tool_allowlist_str  # save before apply_tool_manifest overwrites
     )
+    # Track whether setup_config fell back to pre_manifest_allowlist.
+    # If it did, config.chat.tools already excludes manifest tools, so
+    # the init_tools fallback below must not attempt its own manifest strip
+    # (it would retry with identical tools that already failed).
+    setup_fallback_ran = False
     try:
         tool_allowlist_str = apply_tool_manifest(manifest_workspace)
         config = setup_config_from_cli(
@@ -1502,6 +1507,7 @@ def main(
                 e,
             )
             tool_allowlist_str = pre_manifest_allowlist
+            setup_fallback_ran = True
             try:
                 config = setup_config_from_cli(
                     workspace=workspace_path,
@@ -1536,9 +1542,13 @@ def main(
     try:
         tools = init_tools(config.chat.tools)
     except ValueError as e:
-        if tool_manifest_type:
+        if tool_manifest_type and not setup_fallback_ran:
             # Manifest tool unavailable (MCP server may not be running).
             # Warn and retry without the manifest tools so the session still starts.
+            # Skip this branch if setup_config already fell back: at that point
+            # config.chat.tools has no manifest tools, so manifest_tool_names would
+            # be empty and we'd retry init_tools with the identical tool list that
+            # just failed — a vacuous retry that still aborts.
             logger.warning(
                 "Manifest %r tool unavailable: %s — running without manifest tools. "
                 "Start the MCP server to use manifest tools.",
