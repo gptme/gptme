@@ -79,6 +79,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
 
    design/hook-based-confirmations
    design/elicitation
+   design/ptc-tool-interface
 
 .. toctree::
    :maxdepth: 2
