@@ -624,6 +624,12 @@ Run 'gptme-util --help' for all utility commands."""
     help="Show version and configuration information. First line is always 'gptme v<version>'.",
 )
 @click.option(
+    "--version-short",
+    "version_short",
+    is_flag=True,
+    help="Show only the gptme version string for scripting.",
+)
+@click.option(
     "--version-json",
     "version_json",
     is_flag=True,
@@ -722,6 +728,7 @@ def main(
     show_hidden: bool,
     show_prompt_stats: bool,
     version: bool,
+    version_short: bool,
     version_json: bool,
     resume: bool,
     workspace: str | None,
@@ -739,9 +746,10 @@ def main(
     manifest_dir: Path | None,
 ):
     """Main entrypoint for the CLI."""
+    show_version = version or version_short or version_json
 
     # Dispatch: `gptme search QUERY` → chats search (discoverability alias)
-    if prompts and prompts[0] == "search" and not version and not version_json:
+    if prompts and prompts[0] == "search" and not show_version:
         from ..tools.chats import search_chats  # fmt: skip
 
         query = " ".join(prompts[1:]).strip()
@@ -756,7 +764,7 @@ def main(
 
     # gptme-util subcommand mirroring: `gptme chats [...]` → `gptme-util chats [...]`
     # Any top-level gptme-util subcommand can be invoked without typing 'gptme-util'.
-    if prompts and not version and not version_json:
+    if prompts and not show_version:
         from .util import UTIL_SUBCOMMANDS  # cheap: just a sorted list constant
 
         if prompts[0] in UTIL_SUBCOMMANDS:
@@ -772,7 +780,7 @@ def main(
 
     # Plugin dispatch: `gptme CMD [args...]` → `gptme-CMD [args...]` if installed
     # Enables extensibility: `gptme sessions` works if gptme-sessions is in PATH.
-    if prompts and not version and not version_json:
+    if prompts and not show_version:
         plugin = f"gptme-{prompts[0]}"
         if plugin_path := shutil.which(plugin):
             sys.exit(subprocess.call([plugin_path, *prompts[1:]]))
@@ -963,7 +971,13 @@ def main(
 
     interactive = not non_interactive
     auto_switched_noninteractive = False
-    if version or version_json:
+    if show_version:
+        if version_short:
+            from ..__version__ import __version__
+
+            print(__version__)
+            exit(0)
+
         from ..info import format_version_info
 
         print(format_version_info(verbose=verbose, output_json=version_json))

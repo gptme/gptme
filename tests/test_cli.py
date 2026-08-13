@@ -17,6 +17,7 @@ from click.testing import CliRunner
 import gptme.cli.main as cli
 import gptme.constants
 import gptme.tools.browser
+from gptme.__version__ import __version__
 from gptme.message import Message
 from gptme.tools import ToolUse
 
@@ -159,6 +160,12 @@ def test_version(runner: CliRunner):
     result = runner.invoke(cli.main, ["--version"])
     assert result.exit_code == 0
     assert "gptme" in result.output
+
+
+def test_version_short(runner: CliRunner):
+    result = runner.invoke(cli.main, ["--version-short"])
+    assert result.exit_code == 0
+    assert result.output == f"{__version__}\n"
 
 
 def test_show_prompt_stats_exits_before_chat(monkeypatch, tmp_path: Path, runner):
