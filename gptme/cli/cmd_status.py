@@ -190,6 +190,20 @@ def section_disk() -> str:
 # ── build ─────────────────────────────────────────────────────────────
 
 
+def _provider_name(provider: StatusProvider) -> str:
+    """Return the provider's name without raising.
+
+    Defense-in-depth companion to the name probe in :func:`~gptme.status_provider.load_providers`.
+    If a provider's name property raises despite the load-time probe, this
+    helper returns a safe fallback so that error-handler log lines never
+    themselves raise and escape isolation.
+    """
+    try:
+        return provider.name
+    except Exception:
+        return "<unnamed-provider>"
+
+
 _CORE_KEYS = frozenset({"timestamp", "session_id", "recent_commits", "disk_usage"})
 """Reserved top-level keys owned by gptme core.
 
@@ -238,19 +252,21 @@ def _status_data(providers: list[StatusProvider] | None = None) -> dict[str, obj
                 if key in _CORE_KEYS:
                     logger.debug(
                         "Provider %r tried to overwrite reserved core key %r — skipping",
-                        provider.name,
+                        _provider_name(provider),
                         key,
                     )
                     continue
                 if key in status_data:
                     logger.debug(
                         "Provider %r key %r collides with an earlier provider's key — overwriting",
-                        provider.name,
+                        _provider_name(provider),
                         key,
                     )
                 status_data[key] = val
         except Exception as exc:
-            logger.debug("Provider %r collect() failed: %s", provider.name, exc)
+            logger.debug(
+                "Provider %r collect() failed: %s", _provider_name(provider), exc
+            )
 
     return status_data
 
@@ -291,7 +307,9 @@ def build_table_document(providers: list[StatusProvider] | None = None) -> str:
                 lines.append(f"| {key} | {cell} |")
         except Exception as exc:
             logger.debug(
-                "Provider %r collect() failed in table: %s", provider.name, exc
+                "Provider %r collect() failed in table: %s",
+                _provider_name(provider),
+                exc,
             )
 
     return "\n".join(lines)
@@ -314,7 +332,9 @@ def build_document(providers: list[StatusProvider] | None = None) -> str:
             sections.extend(extra_sections)
         except Exception as exc:
             logger.debug(
-                "Provider %r narrative_sections() failed: %s", provider.name, exc
+                "Provider %r narrative_sections() failed: %s",
+                _provider_name(provider),
+                exc,
             )
 
     doc = "\n\n".join(sections)

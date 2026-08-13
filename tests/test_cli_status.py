@@ -310,6 +310,57 @@ def test_status_broken_provider_does_not_crash(monkeypatch):
     assert "# gptme Status" in result.output
 
 
+def test_load_providers_skips_raising_name_provider(monkeypatch):
+    """Verify load_providers() skips a provider whose name property raises.
+
+    Runtime-checkable isinstance() only verifies attribute *presence*, not that
+    property getters actually work.  A provider with a raising name property must
+    be excluded so error-handler log lines in cmd_status.py never themselves raise.
+    """
+    import importlib.metadata as im
+
+    class _RaisingNameProvider:
+        """Structurally-conforming provider whose name property always raises."""
+
+        @property
+        def name(self) -> str:
+            raise RuntimeError("name property is broken")
+
+        def collect(self) -> dict:
+            return {}
+
+        def narrative_sections(self) -> list[str]:
+            return []
+
+    def _factory():
+        return _RaisingNameProvider()
+
+    class _FakeEP:
+        name = "raising-name-provider"
+
+        def load(self):
+            return _factory
+
+    original_ep = im.entry_points
+
+    def _patched_ep(**kw):
+        if kw.get("group") == "gptme.status_providers":
+            return [_FakeEP()]
+        return original_ep(**kw)
+
+    monkeypatch.setattr(im, "entry_points", _patched_ep)
+    from gptme.status_provider import load_providers
+
+    providers = load_providers()
+    # The raising-name provider must be silently dropped
+    assert all(
+        p.name == p.name for p in providers
+    )  # all returned providers have safe names
+    # And the raising provider itself must not be present
+    for p in providers:
+        assert not isinstance(p, _RaisingNameProvider)
+
+
 def test_load_providers_returns_empty_when_none_installed():
     """Verify load_providers() returns an empty list when no providers installed."""
     from gptme.status_provider import load_providers

@@ -105,6 +105,24 @@ def load_providers() -> list[StatusProvider]:
                         type(provider).__name__,
                     )
                     continue
+                # Probe that the name property is safely readable.  The
+                # runtime_checkable isinstance() check only verifies that the
+                # attribute *exists* on the type — it does not call the
+                # property getter.  A provider whose name property raises would
+                # pass the isinstance check above but crash the error handlers
+                # in cmd_status.py which dereference provider.name inside
+                # except blocks.
+                try:
+                    _ = provider.name
+                except Exception as name_exc:
+                    logger.debug(
+                        "Status provider loaded from entry point %r has a"
+                        " name property that raises (%s) — skipping to prevent"
+                        " error-handler crashes",
+                        ep.name,
+                        name_exc,
+                    )
+                    continue
                 providers.append(provider)
             except Exception as exc:
                 logger.debug("Failed to load status provider %r: %s", ep.name, exc)
