@@ -37,6 +37,75 @@ Common commands:
 - ``/tokens`` - Show token usage and costs
 - ``/exit`` - Exit the program
 
+.. _usage-conversations:
+
+Managing Conversations
+----------------------
+
+Every gptme interaction is part of a **conversation** — a named history of
+messages persisted on disk. Conversations can be resumed, searched, forked,
+and renamed.
+
+For term definitions (conversation, branch, fork, analytics session), see the :doc:`glossary`.
+
+**Start or resume a named conversation**
+
+Give a conversation an explicit name so you can return to it later:
+
+.. code-block:: bash
+
+    # Start a new named conversation
+    gptme --name my-refactor "let's refactor the auth module"
+
+    # Resume that same conversation in a future session
+    gptme --name my-refactor
+
+    # Resume the most recently modified conversation (any name)
+    gptme -r
+
+Without ``--name``, gptme assigns a random name (e.g. ``hopping-blue-robot``).
+
+**List and search conversations**
+
+.. code-block:: bash
+
+    # List the 20 most recent conversations
+    gptme chats list
+
+    # Show full metadata (model, cost, token counts)
+    gptme chats list --metadata
+
+    # Search conversation content
+    gptme chats search "auth module refactor"
+
+    # Machine-readable JSON output
+    gptme chats list --json
+
+**Fork a conversation to explore an alternate approach**
+
+Forking creates a new independent conversation from messages up to turn N.
+The original conversation is unchanged.
+
+.. code-block:: bash
+
+    # Fork after the third user+assistant exchange
+    gptme-util chats fork my-refactor --at-turn 3
+
+    # Fork with a custom name for the new conversation
+    gptme-util chats fork my-refactor --at-turn 3 --name my-refactor-v2
+
+    # Then resume the fork normally
+    gptme --name my-refactor-v2
+
+Within a running conversation, ``/fork my-experiment`` achieves the same result
+at the current turn (see :doc:`commands`).
+
+.. note::
+
+   ``/fork`` and ``gptme-util chats fork`` both create a **new top-level conversation**,
+   not a branch inside the current one. For workspace rollback before risky changes,
+   use ``/checkpoint`` (committed state) or ``/snapshot`` (any state) instead.
+
 Interfaces
 ----------
 
