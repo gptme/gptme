@@ -59,6 +59,12 @@ def test_topic_ids_and_aliases_are_unique(entries):
         ("context", "context"),
         ("token limit", "context"),  # multi-word alias
         ("what are tools", "tools"),  # keyword overlap, not exact
+        # Regression: generic question words ("where", "stored") must not
+        # override a direct topic-name match ("config") via question-text overlap.
+        ("where is config stored", "config"),
+        # Natural-language model query should beat "context" (whose question
+        # says "how do I" too) because "model" is in the models aliases.
+        ("how do I change the model", "models"),
     ],
 )
 def test_find_topic(query, expected, entries):

@@ -121,7 +121,8 @@ topics:
           /fork /rename /delete    manage conversations
           /model /models /tools    inspect the current setup
           /context /tokens         see what the context costs
-          /compact /summarize      shrink a long conversation
+          /compact                 compact conversation (replaces history with summary)
+          /summarize               print a summary (does not replace history)
           /exit                    leave
 
       Shell-side subcommands live under `gptme-util` (for example

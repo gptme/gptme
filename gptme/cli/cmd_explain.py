@@ -45,23 +45,40 @@ class FAQEntry:
 
 _STOP: frozenset[str] = frozenset(
     {
+        # articles / conjunctions / prepositions
         "the",
-        "how",
-        "what",
-        "are",
         "and",
         "for",
-        "can",
-        "does",
-        "its",
-        "has",
-        "was",
-        "but",
         "not",
-        "you",
+        "but",
         "all",
         "any",
+        # question words
+        "how",
+        "what",
+        "where",
+        "when",
+        "who",
+        "why",
+        "which",
+        # common auxiliaries
+        "are",
+        "can",
+        "does",
+        "has",
         "had",
+        "was",
+        "will",
+        "its",
+        "you",
+        # generic verbs that add no topic signal
+        "get",
+        "use",
+        "set",
+        "put",
+        "find",
+        "show",
+        "make",
     }
 )
 
@@ -111,9 +128,14 @@ def find_topic(query: str, entries: list[FAQEntry]) -> FAQEntry | None:
     if not query_tokens:
         return None
 
+    # Only match against topic names and aliases, NOT the question text.
+    # The question is phrasing the same concept in a complete sentence, so it
+    # shares generic words ("where", "stored", "what") with many entries and
+    # inflates false-positive scores. Aliases are already designed for the
+    # natural-language queries users type.
     best, best_score = None, 0
     for entry in entries:
-        haystack = _tokens(" ".join([*entry.names, entry.question]))
+        haystack = _tokens(" ".join(entry.names))
         score = len(query_tokens & haystack)
         if score > best_score:
             best, best_score = entry, score
