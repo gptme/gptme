@@ -1489,22 +1489,20 @@ def test_setup_config_from_cli_tool_allowlist_env_trailing_comma(tmp_path, monke
     assert "" not in (config.chat.tools or [])
 
 
-def test_setup_config_from_cli_preset_exclusion_warns(tmp_path, caplog):
-    """Using '-read-only' exclusion syntax must warn that presets can't be excluded.
+def test_setup_config_from_cli_preset_exclusion_raises(tmp_path):
+    """Using '-read-only' exclusion syntax must raise, not silently use the full toolset.
 
-    Regression for P2 finding: 'read-only' was in _known_tool_names (as a
-    preset) so -read-only passed CLI validation but then silently did nothing
-    with a generic 'not in default toolset' message.  The fix adds a specific
-    preset-exclusion warning to guide the user toward the correct syntax.
+    Security regression: 'read-only' is now in _known_tool_names (as a preset)
+    so '-read-only' passes CLI validation. The exclusion branch must raise
+    ValueError (promoted from a warning) so the call fails closed instead of
+    proceeding with the full default toolset — a fail-open security boundary.
     """
-    import logging
-
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     logdir = tmp_path / "logs"
     logdir.mkdir()
 
-    with caplog.at_level(logging.WARNING, logger="gptme.config.cli_setup"):
+    with pytest.raises(ValueError, match="Cannot exclude preset name 'read-only'"):
         setup_config_from_cli(
             workspace=workspace,
             logdir=logdir,
@@ -1516,13 +1514,38 @@ def test_setup_config_from_cli_preset_exclusion_warns(tmp_path, caplog):
             agent_path=None,
         )
 
-    assert any(
-        "preset" in record.message.lower() and "read-only" in record.message
-        for record in caplog.records
-    ), (
-        "Expected a warning mentioning 'preset' and 'read-only'; "
-        f"got: {[r.message for r in caplog.records]}"
+
+def test_setup_config_from_cli_tool_allowlist_direct_trailing_comma(tmp_path):
+    """Direct tool_allowlist parameter with trailing comma must not crash or add empty tool.
+
+    Regression for P2 finding: the env-var branch already filtered empty
+    elements ('if tool.strip()'), but the normal-mode branch (direct parameter
+    path) did not.  'read-only,' split to ['read-only', ''], which failed the
+    len==1 preset check, causing 'complete' to be appended and
+    expand_tool_allowlist_presets to raise ValueError (preset cannot combine
+    with other tools).
+    """
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="read-only,",
+        tool_format=None,
+        stream=True,
+        interactive=False,
+        agent_path=None,
     )
+
+    assert config.chat is not None
+    # Trailing comma is stripped; preset name is preserved verbatim.
+    assert config.chat.tools == ["read-only"]
+    assert "complete" not in (config.chat.tools or [])
+    assert "" not in (config.chat.tools or [])
 
 
 def test_custom_tool_file_allowlist_preserved(tmp_path):
