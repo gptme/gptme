@@ -1375,6 +1375,51 @@ def test_setup_config_from_cli_read_only_preset_does_not_add_complete(tmp_path):
     assert config.chat.tools == ["read"]
 
 
+def test_setup_config_from_cli_read_only_preset_survives_noninteractive_resume(
+    tmp_path,
+):
+    """Non-interactive resume of a read-only session must not append 'complete'.
+
+    When --tools read-only is expanded to ["read"] and persisted, a subsequent
+    resume without --tools should detect the preset expansion and keep the
+    strict boundary intact.
+    """
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+
+    # Initial session: create the conversation with read-only preset
+    setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="read-only",
+        tool_format=None,
+        stream=True,
+        interactive=False,
+        agent_path=None,
+    )
+
+    # Resume non-interactively without repeating --tools: preset must hold
+    resumed = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist=None,
+        tool_format=None,
+        stream=True,
+        interactive=False,
+        agent_path=None,
+    )
+
+    assert resumed.chat is not None
+    assert resumed.chat.tools == ["read"], (
+        "Non-interactive resume of a read-only session silently added tools: "
+        f"{resumed.chat.tools}"
+    )
+
+
 def test_custom_tool_file_allowlist_preserved(tmp_path):
     """Custom .py tool paths should survive CLI config setup unchanged."""
     workspace = tmp_path / "workspace"

@@ -11,7 +11,11 @@ from typing import TYPE_CHECKING, cast
 from ..gears import parse_gear, resolve_gear
 from ..profiles import get_profile
 from ..tools import get_toolchain
-from ..tools._allowlist import TOOL_PRESETS, expand_tool_allowlist_presets
+from ..tools._allowlist import (
+    TOOL_PRESETS,
+    expand_tool_allowlist_presets,
+    is_exclusive_preset_expansion,
+)
 from .chat import ChatConfig
 from .core import Config, get_config, set_config, set_config_from_workspace
 
@@ -206,10 +210,15 @@ def setup_config_from_cli(
         # Fall back to env/config for new conversations or when no saved tools
         resolved_tool_allowlist = [tool.strip() for tool in tools_env.split(",")]
 
-    tool_preset_selected = (
-        resolved_tool_allowlist is not None
-        and len(resolved_tool_allowlist) == 1
-        and resolved_tool_allowlist[0] in TOOL_PRESETS
+    # A preset is "selected" if the allowlist is a literal preset name, or if it
+    # exactly matches a preset's expansion (the persisted form on resume — the
+    # preset name is replaced by concrete tools when the config is saved).
+    tool_preset_selected = resolved_tool_allowlist is not None and (
+        (
+            len(resolved_tool_allowlist) == 1
+            and resolved_tool_allowlist[0] in TOOL_PRESETS
+        )
+        or is_exclusive_preset_expansion(resolved_tool_allowlist)
     )
 
     # Automatically add 'complete' tool in non-interactive mode, except for
