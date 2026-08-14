@@ -1351,7 +1351,8 @@ def test_setup_config_from_cli_read_only_preset(tmp_path):
     )
 
     assert config.chat is not None
-    assert config.chat.tools == ["read"]
+    # Preset name is persisted verbatim so that resume detection is unambiguous.
+    assert config.chat.tools == ["read-only"]
 
 
 def test_setup_config_from_cli_read_only_preset_does_not_add_complete(tmp_path):
@@ -1372,7 +1373,40 @@ def test_setup_config_from_cli_read_only_preset_does_not_add_complete(tmp_path):
     )
 
     assert config.chat is not None
-    assert config.chat.tools == ["read"]
+    # Preset name is persisted verbatim (not expanded) to preserve provenance.
+    assert config.chat.tools == ["read-only"]
+    assert "complete" not in (config.chat.tools or [])
+
+
+def test_setup_config_from_cli_explicit_read_tool_adds_complete_noninteractive(
+    tmp_path,
+):
+    """--tools read (explicit, not a preset) must still get 'complete' in non-interactive mode.
+
+    Greptile P1: expansion-based detection conflated an explicit ["read"] allowlist
+    with the read-only preset, incorrectly suppressing 'complete'.
+    """
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="read",
+        tool_format=None,
+        stream=True,
+        interactive=False,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    assert "complete" in (config.chat.tools or []), (
+        "Non-interactive session with explicit --tools read must include 'complete'; "
+        f"got tools={config.chat.tools}"
+    )
 
 
 def test_setup_config_from_cli_read_only_preset_survives_noninteractive_resume(
@@ -1380,9 +1414,8 @@ def test_setup_config_from_cli_read_only_preset_survives_noninteractive_resume(
 ):
     """Non-interactive resume of a read-only session must not append 'complete'.
 
-    When --tools read-only is expanded to ["read"] and persisted, a subsequent
-    resume without --tools should detect the preset expansion and keep the
-    strict boundary intact.
+    The preset name is persisted verbatim so that resumed sessions can detect
+    it unambiguously without relying on expansion-equality heuristics.
     """
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -1414,8 +1447,12 @@ def test_setup_config_from_cli_read_only_preset_survives_noninteractive_resume(
     )
 
     assert resumed.chat is not None
-    assert resumed.chat.tools == ["read"], (
-        "Non-interactive resume of a read-only session silently added tools: "
+    assert resumed.chat.tools == ["read-only"], (
+        "Non-interactive resume of a read-only session silently changed tools: "
+        f"{resumed.chat.tools}"
+    )
+    assert "complete" not in (resumed.chat.tools or []), (
+        "Non-interactive resume of a read-only session silently added 'complete': "
         f"{resumed.chat.tools}"
     )
 

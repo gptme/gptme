@@ -31,15 +31,6 @@ def expand_tool_allowlist_presets(allowlist: list[str] | None) -> list[str] | No
     return list(TOOL_PRESETS[presets[0]])
 
 
-def is_exclusive_preset_expansion(allowlist: list[str]) -> bool:
-    """Return True if the allowlist exactly matches the expansion of any named preset.
-
-    Used to detect persisted preset expansions on conversation resume, where the
-    preset name has already been replaced by the concrete tool list.
-    """
-    return any(list(expansion) == allowlist for expansion in TOOL_PRESETS.values())
-
-
 def is_hint_pattern(pattern: str) -> bool:
     """Return True if the pattern is a hint-based filter (e.g. 'hint:read-only')."""
     return pattern.startswith(_HINT_PREFIX)

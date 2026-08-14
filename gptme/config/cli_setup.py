@@ -14,7 +14,6 @@ from ..tools import get_toolchain
 from ..tools._allowlist import (
     TOOL_PRESETS,
     expand_tool_allowlist_presets,
-    is_exclusive_preset_expansion,
 )
 from .chat import ChatConfig
 from .core import Config, get_config, set_config, set_config_from_workspace
@@ -51,13 +50,24 @@ def _is_tool_file_path(value: str) -> bool:
 
 
 def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
-    """Normalize an allowlist while preserving custom tool file paths.
+    """Normalize an allowlist while preserving custom tool file paths and preset names.
+
+    Preset names (e.g. ``"read-only"``) are kept verbatim so that provenance is
+    preserved when the config is saved and later resumed.  Expansion into concrete
+    tool names happens at toolchain initialisation time (``tools/__init__.py``),
+    not here.
 
     ``get_toolchain()`` validates and expands named tools, but custom tool files
     are loaded later by ``init_tools()`` and must remain as file paths.
     """
     if allowlist is None:
         return None
+
+    # If the allowlist is a single named preset, preserve it as-is so that
+    # resumed sessions can still detect it as a preset (not just a tool list
+    # that happens to match the preset's expansion).
+    if len(allowlist) == 1 and allowlist[0] in TOOL_PRESETS:
+        return list(allowlist)
 
     allowlist = expand_tool_allowlist_presets(allowlist)
     assert allowlist is not None
@@ -210,15 +220,13 @@ def setup_config_from_cli(
         # Fall back to env/config for new conversations or when no saved tools
         resolved_tool_allowlist = [tool.strip() for tool in tools_env.split(",")]
 
-    # A preset is "selected" if the allowlist is a literal preset name, or if it
-    # exactly matches a preset's expansion (the persisted form on resume — the
-    # preset name is replaced by concrete tools when the config is saved).
-    tool_preset_selected = resolved_tool_allowlist is not None and (
-        (
-            len(resolved_tool_allowlist) == 1
-            and resolved_tool_allowlist[0] in TOOL_PRESETS
-        )
-        or is_exclusive_preset_expansion(resolved_tool_allowlist)
+    # A preset is "selected" if the allowlist is a literal preset name.
+    # Preset names are now persisted verbatim (not expanded) so that resumed
+    # sessions continue to be recognised here without ambiguity.
+    tool_preset_selected = (
+        resolved_tool_allowlist is not None
+        and len(resolved_tool_allowlist) == 1
+        and resolved_tool_allowlist[0] in TOOL_PRESETS
     )
 
     # Automatically add 'complete' tool in non-interactive mode, except for
