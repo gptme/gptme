@@ -45,8 +45,9 @@ topics:
 
       To make room:
 
-          /compact     compact the conversation (replaces history with a summary)
-          /summarize   print a summary of the conversation (does not replace history)
+          /compact         compress large tool outputs (rule-based; use /compact resume for LLM summary)
+          /compact resume  LLM-powered: creates a summary and starts a fresh conversation
+          /summarize       print a summary of the conversation (does not replace history)
 
       If you are hitting the limit constantly, the usual causes are large files
       pulled into context and a very long session. Starting a fresh conversation
@@ -121,7 +122,7 @@ topics:
           /fork /rename /delete    manage conversations
           /model /models /tools    inspect the current setup
           /context /tokens         see what the context costs
-          /compact                 compact conversation (replaces history with summary)
+          /compact [auto|resume]   compress tool outputs (auto), or LLM-powered resume (resume)
           /summarize               print a summary (does not replace history)
           /exit                    leave
 
