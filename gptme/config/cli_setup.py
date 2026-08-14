@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, cast
 from ..gears import parse_gear, resolve_gear
 from ..profiles import get_profile
 from ..tools import get_toolchain
+from ..tools._allowlist import TOOL_PRESETS, expand_tool_allowlist_presets
 from .chat import ChatConfig
 from .core import Config, get_config, set_config, set_config_from_workspace
 
@@ -54,6 +55,8 @@ def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
     if allowlist is None:
         return None
 
+    allowlist = expand_tool_allowlist_presets(allowlist)
+    assert allowlist is not None
     normalized: list[str] = []
     seen: set[str] = set()
 
@@ -203,8 +206,15 @@ def setup_config_from_cli(
         # Fall back to env/config for new conversations or when no saved tools
         resolved_tool_allowlist = [tool.strip() for tool in tools_env.split(",")]
 
-    # Automatically add 'complete' tool in non-interactive mode
-    if not interactive:
+    tool_preset_selected = (
+        resolved_tool_allowlist is not None
+        and len(resolved_tool_allowlist) == 1
+        and resolved_tool_allowlist[0] in TOOL_PRESETS
+    )
+
+    # Automatically add 'complete' tool in non-interactive mode, except for
+    # exclusive named presets such as read-only audit mode.
+    if not interactive and not tool_preset_selected:
         if resolved_tool_allowlist is None:
             # Get default tools and add complete to them
             default_tools = [tool.name for tool in get_toolchain(None)]

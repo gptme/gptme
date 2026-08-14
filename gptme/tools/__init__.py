@@ -17,6 +17,7 @@ from ..util.interrupt import clear_interruptible
 from ..util.terminal import terminal_state_title
 from ._allowlist import (
     allowlist_contains_glob,
+    expand_tool_allowlist_presets,
     is_hint_pattern,
     matching_allowlist_tools,
     tool_matches_allowlist,
@@ -183,6 +184,8 @@ def init_tools(
             elif config.chat and config.chat.tools:
                 allowlist = config.chat.tools
 
+        allowlist = expand_tool_allowlist_presets(allowlist)
+
         # Partition allowlist into file paths and tool names
         file_paths: list[str] = []
         tool_names: list[str] = []
@@ -254,6 +257,8 @@ def _unavailable_message(tool_name: str, matched_tools: list[ToolSpec]) -> str:
 def get_toolchain(
     allowlist: list[str] | None, *, strict: bool = True
 ) -> list[ToolSpec]:
+    allowlist = expand_tool_allowlist_presets(allowlist)
+
     # Validate allowlist if provided
     # When strict=False, warn about missing/unavailable tools instead of raising.
     # Server contexts use strict=False since conversations may reference tools

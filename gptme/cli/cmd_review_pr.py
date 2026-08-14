@@ -77,6 +77,7 @@ from typing import TYPE_CHECKING
 
 import click
 
+from ..tools._allowlist import READ_ONLY_TOOL_PRESET
 from ..util.gh import infer_owner_repo, run_gh_json
 from ..util.review import (
     FindingSeverity,
@@ -403,7 +404,7 @@ REVIEW_TOOL_PRESETS: dict[str, tuple[str, ...]] = {
     # shell, or make network requests. There is no ``grep``/``glob`` tool in
     # core — searching would require ``shell``, which is code-exec and is
     # excluded on purpose.
-    "read-only": (_READ_TOOL,),
+    "read-only": READ_ONLY_TOOL_PRESET,
 }
 
 DEFAULT_REVIEW_TOOL_PRESET = "none"

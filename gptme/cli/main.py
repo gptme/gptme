@@ -410,8 +410,11 @@ def _known_tool_names() -> list[str]:
     --help rendering) — never at module import time.
     """
     from ..tools import get_available_tools
+    from ..tools._allowlist import TOOL_PRESET_NAMES
 
-    return sorted(tool.name for tool in get_available_tools(include_mcp=False))
+    names = {tool.name for tool in get_available_tools(include_mcp=False)}
+    names.update(TOOL_PRESET_NAMES)
+    return sorted(names)
 
 
 docstring = f"""
@@ -426,6 +429,7 @@ Examples:
   gptme "fix TODOs" main.py                  Include file or URL in context
   gptme "review" github.com/org/repo/pull/1  Include a GitHub PR in context
   gptme --tools none "what is 2+2"           No tools, just chat
+  gptme -t read-only "summarize this repo"   Read files only; no writes or execution
   gptme -t patch,save "fix typo" main.py     Only specific tools (comma-separated)
   gptme -t +subagent "plan a refactor"       Default tools + subagent
   gptme -t=-browser "summarize code"         Default tools minus browser

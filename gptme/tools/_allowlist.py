@@ -3,6 +3,32 @@ from fnmatch import fnmatchcase
 from .base import ToolSpec
 
 _HINT_PREFIX = "hint:"
+READ_ONLY_TOOL_PRESET = ("read",)
+TOOL_PRESETS: dict[str, tuple[str, ...]] = {
+    "read-only": READ_ONLY_TOOL_PRESET,
+}
+TOOL_PRESET_NAMES = tuple(TOOL_PRESETS)
+
+
+def expand_tool_allowlist_presets(allowlist: list[str] | None) -> list[str] | None:
+    """Expand named tool presets into concrete tool names.
+
+    Presets are exclusive capability boundaries, not shortcuts that can be mixed
+    with arbitrary tools. Use hint-based allowlists for intentionally broad
+    category matching.
+    """
+    if allowlist is None:
+        return None
+
+    presets = [item for item in allowlist if item in TOOL_PRESETS]
+    if not presets:
+        return allowlist
+    if len(allowlist) != 1:
+        preset_list = ", ".join(presets)
+        raise ValueError(
+            f"Tool preset(s) {preset_list} cannot be combined with other tools"
+        )
+    return list(TOOL_PRESETS[presets[0]])
 
 
 def is_hint_pattern(pattern: str) -> bool:

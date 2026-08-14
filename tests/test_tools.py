@@ -6,9 +6,11 @@ from unittest.mock import patch
 
 import pytest
 
+from gptme.message import Message
 from gptme.tools import (
     _discover_tools,
     clear_tools,
+    execute_msg,
     get_available_tools,
     get_tool,
     get_tool_for_langtag,
@@ -19,7 +21,8 @@ from gptme.tools import (
     is_supported_langtag,
     load_tool,
 )
-from gptme.tools.base import load_from_file
+from gptme.tools._allowlist import READ_ONLY_TOOL_PRESET
+from gptme.tools.base import load_from_file, set_tool_format
 
 
 def test_init_tools():
@@ -37,6 +40,63 @@ def test_init_tools_allowlist():
     clear_tools()  # clear before testing second allowlist
     init_tools(allowlist=["save", "patch"])
     assert len(get_tools()) == 2
+
+
+def test_read_only_tool_preset_loads_only_observation_tools():
+    clear_tools()
+
+    tools = init_tools(allowlist=["read-only"])
+    available = {tool.name: tool for tool in get_available_tools(include_mcp=False)}
+
+    assert [tool.name for tool in tools] == list(READ_ONLY_TOOL_PRESET)
+    assert set(READ_ONLY_TOOL_PRESET) <= set(available)
+    assert all("read-only" in tool.hints for tool in tools)
+
+
+def test_read_only_tool_preset_blocks_mutating_and_execution_tools():
+    clear_tools()
+    set_tool_format("tool")
+    init_tools(allowlist=["read-only"])
+
+    content = """@save(call-save): {"path": "x.txt", "content": "x"}
+@append(call-append): {"path": "x.txt", "content": "x"}
+@patch(call-patch): {"path": "x.txt", "patch": "@@\\n-x\\n+y"}
+@ipython(call-ipython): {"code": "print(1)"}
+@shell(call-shell): {"command": "echo unsafe"}"""
+
+    results = list(execute_msg(Message("assistant", content)))
+
+    assert {result.call_id for result in results} == {
+        "call-save",
+        "call-append",
+        "call-patch",
+        "call-ipython",
+        "call-shell",
+    }
+    assert all("not available for execution" in result.content for result in results)
+
+
+def test_read_only_tool_preset_allows_read_tool(tmp_path):
+    clear_tools()
+    set_tool_format("tool")
+    init_tools(allowlist=["read-only"])
+    target = tmp_path / "example.txt"
+    target.write_text("hello audit mode\n")
+
+    results = list(
+        execute_msg(Message("assistant", f'@read(call-read): {{"path": "{target!s}"}}'))
+    )
+
+    assert len(results) == 1
+    assert results[0].call_id == "call-read"
+    assert "hello audit mode" in results[0].content
+
+
+def test_read_only_tool_preset_cannot_be_combined_with_other_tools():
+    clear_tools()
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        init_tools(allowlist=["read-only", "save"])
 
 
 def test_init_tools_allowlist_glob_matches_mcp_tools():

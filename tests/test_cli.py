@@ -1650,6 +1650,13 @@ def test_tools_short_option_equals_syntax_works(runner: CliRunner):
     assert __version__ in result.output
 
 
+def test_tools_read_only_preset_is_valid_cli_choice(runner: CliRunner):
+    result = runner.invoke(cli.main, ["-t", "read-only", "--version"])
+
+    assert result.exit_code == 0, result.output
+    assert __version__ in result.output
+
+
 @pytest.mark.parametrize(
     "tool_spec",
     [

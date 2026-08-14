@@ -597,8 +597,18 @@ Pass a comma-separated list of tool names to ``--tools`` (CLI) or set the
     # Disable all tools (pure conversation)
     gptme --tools "" "just talk to me"
 
+    # Strict audit mode: only the built-in read tool, no writes or execution
+    gptme --tools read-only "summarise this repo"
+
 Glob patterns (``*``, ``?``, ``[...]``) are also supported, matched against tool
 names with :func:`fnmatch.fnmatchcase`.
+
+``read-only`` is a named preset, not a hint pattern. It expands to the built-in
+``read`` tool only, and cannot be combined with other tool names. This makes it
+safe for auditing untrusted workspaces where ``shell``, ``ipython``, ``save``,
+``append`` and ``patch`` must stay unavailable. Use ``hint:read-only`` only when
+you explicitly want to trust third-party tool annotations, such as MCP server
+metadata.
 
 .. _hint-allowlist:
 
@@ -611,7 +621,7 @@ once using the ``hint:`` prefix:
 
 .. code-block:: bash
 
-    # Allow only tools annotated as read-only (safe for untrusted workspaces)
+    # Allow only tools annotated as read-only
     gptme --tools "hint:read-only" "summarise this repo"
 
     # Mix exact names with hint patterns
@@ -637,9 +647,9 @@ The following hints are defined:
 
 .. note::
 
-    Built-in gptme tools do not carry hints in the current release. Hints are
-    currently populated automatically from **MCP tool annotations** (see below).
-    You can also set hints explicitly when :doc:`writing custom tools <custom_tool>`.
+    The built-in ``read`` tool carries the ``read-only`` hint. MCP tools can also
+    carry the hint through server-supplied annotations (see below), so
+    ``hint:read-only`` is broader than the strict ``read-only`` preset.
 
 MCP tool annotations
 ^^^^^^^^^^^^^^^^^^^^^

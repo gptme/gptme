@@ -1333,6 +1333,48 @@ def test_tool_exclusion_multiple(tmp_path):
         )
 
 
+def test_setup_config_from_cli_read_only_preset(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="read-only",
+        tool_format=None,
+        stream=True,
+        interactive=True,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read"]
+
+
+def test_setup_config_from_cli_read_only_preset_does_not_add_complete(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="read-only",
+        tool_format=None,
+        stream=True,
+        interactive=False,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read"]
+
+
 def test_custom_tool_file_allowlist_preserved(tmp_path):
     """Custom .py tool paths should survive CLI config setup unchanged."""
     workspace = tmp_path / "workspace"
