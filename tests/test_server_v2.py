@@ -356,6 +356,18 @@ def test_webui_deploy_trigger_dispatches_workflow(client: FlaskClient, monkeypat
     }
 
 
+def stub_key_validation(monkeypatch, *, valid: bool = True, message: str = ""):
+    """Stand in for the live provider call /api/v2/user/api-key makes.
+
+    The endpoint checks the key with the provider before persisting it, so
+    every save test has to say what the provider would answer.
+    """
+    monkeypatch.setattr(
+        "gptme.llm.validate.validate_api_key",
+        lambda api_key, provider, timeout=10: (valid, message),
+    )
+
+
 def test_v2_user_api_key_persists_env_entry(client: FlaskClient, tmp_path, monkeypatch):
     """Saving an API key should write the provider env var into user config."""
     import gptme.config.user as user_mod
@@ -364,6 +376,7 @@ def test_v2_user_api_key_persists_env_entry(client: FlaskClient, tmp_path, monke
     monkeypatch.setattr(user_mod, "config_path", str(config_file))
     monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    stub_key_validation(monkeypatch)
 
     response = client.post(
         "/api/v2/user/api-key",
@@ -396,6 +409,7 @@ def test_v2_user_api_key_applies_to_env_immediately(
     monkeypatch.setattr(user_mod, "config_path", str(config_file))
     monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    stub_key_validation(monkeypatch)
 
     response = client.post(
         "/api/v2/user/api-key",
@@ -418,6 +432,7 @@ def test_v2_user_api_key_persists_default_model(
     monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("MODEL", raising=False)
+    stub_key_validation(monkeypatch)
 
     response = client.post(
         "/api/v2/user/api-key",
@@ -448,6 +463,73 @@ def test_v2_user_api_key_rejects_model_provider_mismatch(client: FlaskClient):
     assert response.status_code == 400
     data = response.get_json()
     assert data == {"error": "Model openai/gpt-4.1 does not match provider anthropic"}
+
+
+def test_v2_user_api_key_rejects_invalid_key(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """A key the provider rejects must not be persisted or applied."""
+    import os
+
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    stub_key_validation(
+        monkeypatch,
+        valid=False,
+        message="Invalid API key. Please check your key and try again.",
+    )
+
+    response = client.post(
+        "/api/v2/user/api-key",
+        json={"provider": "anthropic", "api_key": "sk-ant-bad-key"},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {
+        "error": "Invalid API key. Please check your key and try again."
+    }
+    assert not (tmp_path / "config.local.toml").exists()
+    assert os.environ.get("ANTHROPIC_API_KEY") is None
+
+
+def test_v2_user_api_key_saves_when_validation_is_non_fatal(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """A key the validator calls valid is saved even when it carries a message.
+
+    `validate_api_key` returns (True, message) for a working key whose account has
+    hit a quota. That is a valid key and must still save; the response shape is
+    unchanged.
+    """
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    stub_key_validation(
+        monkeypatch, message="API quota exhausted — credit balance too low"
+    )
+
+    response = client.post(
+        "/api/v2/user/api-key",
+        json={"provider": "anthropic", "api_key": "sk-ant-out-of-credit"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "status": "ok",
+        "provider": "anthropic",
+        "env_var": "ANTHROPIC_API_KEY",
+        "restart_required": False,
+    }
+
+    saved = tomlkit.loads((tmp_path / "config.local.toml").read_text()).unwrap()
+    assert saved["env"]["ANTHROPIC_API_KEY"] == "sk-ant-out-of-credit"
 
 
 def test_v2_user_api_key_rejects_unknown_provider(client: FlaskClient):

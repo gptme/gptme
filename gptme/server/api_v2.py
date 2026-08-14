@@ -3069,6 +3069,8 @@ def api_user():
     summary="Save provider API key",
     description=(
         "Persist a provider API key into the user's global gptme config. "
+        "The key is checked against the provider before it is written, so an "
+        "invalid key is rejected with 400 rather than saved. "
         "Intended for first-run onboarding flows; callers should restart the "
         "server after a successful write if they need the running process to "
         "pick the key up immediately."
@@ -3110,6 +3112,18 @@ def api_user_api_key():
         )
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
+
+    # Check the key with the provider before writing it. `/account setup` has always
+    # done this (gptme/commands/account.py); this endpoint did not, so onboarding
+    # accepted a bad key, reported "status": "ok", and the user only found out when
+    # the first generation came back with a raw provider auth error. Same validator,
+    # so both onboarding paths agree on what "valid" means: a rate-limited or
+    # quota-exhausted key is valid, and providers without a check are skipped.
+    from ..llm.validate import validate_api_key  # fmt: skip
+
+    is_valid, validation_error = validate_api_key(trimmed_api_key, provider)
+    if not is_valid:
+        return flask.jsonify({"error": validation_error}), 400
 
     env_var = PROVIDER_API_KEYS[provider]
     set_config_value(f"env.{env_var}", trimmed_api_key, reload=False, local=True)
