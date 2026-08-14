@@ -514,9 +514,16 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runnable-tool">Runnable Tool</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#session-concepts">Session Concepts</a><ul class="nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#conversation-and-session-concepts">Conversation and Session Concepts</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#conversation">Conversation</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#branch">Branch</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fork">Fork</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#log-logmanager">Log / LogManager</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace">Workspace</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#checkpoint">Checkpoint</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#snapshot">Snapshot</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#backtrack-marker">Backtrack Marker</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#analytics-session">Analytics Session</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a><ul class="nav section-nav flex-column">
@@ -605,15 +612,103 @@ document.write(`
 <p>A tool that can be executed in the current context. Some tools may be defined but not runnable (e.g., disabled or context-restricted).</p>
 </section>
 </section>
-<section id="session-concepts">
-<h2>Session Concepts<a class="headerlink" href="#session-concepts" title="Link to this heading">#</a></h2>
+<section id="conversation-and-session-concepts">
+<h2>Conversation and Session Concepts<a class="headerlink" href="#conversation-and-session-concepts" title="Link to this heading">#</a></h2>
+<section id="conversation">
+<span id="id3"></span><h3>Conversation<a class="headerlink" href="#conversation" title="Link to this heading">#</a></h3>
+<p>The primary unit of persistence in gptme. A named history of messages exchanged with an LLM,
+stored as a directory on disk. Each conversation has a unique ID (a random adjective-color-animal
+name by default, or a name you supply with <code class="docutils literal notranslate"><span class="pre">--name</span></code>).</p>
+<p><strong>Storage</strong>: <code class="docutils literal notranslate"><span class="pre">~/.local/share/gptme/logs/&lt;conversation-id&gt;/conversation.jsonl</span></code></p>
+<p><strong>Commands</strong>:</p>
+<ul class="simple">
+<li><p>Start: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--name</span> <span class="pre">my-project</span> <span class="pre">&quot;your</span> <span class="pre">prompt&quot;</span></code> or just <code class="docutils literal notranslate"><span class="pre">gptme</span></code> (auto-names)</p></li>
+<li><p>Resume: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--name</span> <span class="pre">my-project</span></code> (by name) or <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">-r</span></code> (most recent)</p></li>
+<li><p>List: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">chats</span> <span class="pre">list</span></code></p></li>
+<li><p>Search: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">chats</span> <span class="pre">search</span> <span class="pre">&lt;query&gt;</span></code></p></li>
+<li><p>Rename: <code class="docutils literal notranslate"><span class="pre">/rename</span></code> in the TUI, or <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">chats</span> <span class="pre">rename</span> <span class="pre">&lt;id&gt;</span></code></p></li>
+<li><p>Delete: <code class="docutils literal notranslate"><span class="pre">/delete</span></code> in the TUI</p></li>
+</ul>
+<p><strong>Disambiguation</strong>: “conversation” is the persistent log on disk. A “run” or “session” (everyday use)
+means launching gptme and working in a conversation — no special object, just a process attached to
+a log. For analytics-tracking sessions, see <a class="reference internal" href="#analytics-session">Analytics Session</a>.</p>
+</section>
+<section id="branch">
+<span id="id4"></span><h3>Branch<a class="headerlink" href="#branch" title="Link to this heading">#</a></h3>
+<p>An alternative message thread stored alongside the main thread within the same conversation
+directory. The default branch is named <code class="docutils literal notranslate"><span class="pre">&quot;main&quot;</span></code> and stored as <code class="docutils literal notranslate"><span class="pre">conversation.jsonl</span></code>.
+Named branches are stored as <code class="docutils literal notranslate"><span class="pre">branches/&lt;branch-name&gt;.jsonl</span></code> in the same log directory.</p>
+<p>Branches are mainly a <strong>server-side concept</strong>: the <code class="docutils literal notranslate"><span class="pre">gptme-server</span></code> API accepts a <code class="docutils literal notranslate"><span class="pre">branch</span></code> parameter
+on step/tool calls, allowing multiple AI exploration paths in the same conversation simultaneously.
+The TUI’s <code class="docutils literal notranslate"><span class="pre">/fork</span></code> command creates a new top-level conversation rather than a branch within
+the current one.</p>
+<p><strong>Storage</strong>: <code class="docutils literal notranslate"><span class="pre">…/&lt;conversation-id&gt;/branches/&lt;branch-name&gt;.jsonl</span></code></p>
+</section>
+<section id="fork">
+<span id="id5"></span><h3>Fork<a class="headerlink" href="#fork" title="Link to this heading">#</a></h3>
+<p>A new, independent conversation created from a copy of messages 0 through turn N of an
+existing conversation. The original conversation is never modified. Both the TUI command
+and the CLI produce a new conversation directory.</p>
+<p><strong>Usage</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Fork at turn 3 (includes turns 0–2, the first 3 user+assistant exchanges)</span>
+gptme-util<span class="w"> </span>chats<span class="w"> </span>fork<span class="w"> </span>my-project<span class="w"> </span>--at-turn<span class="w"> </span><span class="m">3</span>
+
+<span class="c1"># Fork with a custom name</span>
+gptme-util<span class="w"> </span>chats<span class="w"> </span>fork<span class="w"> </span>my-project<span class="w"> </span>--at-turn<span class="w"> </span><span class="m">3</span><span class="w"> </span>--name<span class="w"> </span>my-project-v2
+
+<span class="c1"># Within a running conversation, fork at the current turn:</span>
+<span class="c1"># /fork my-experiment</span>
+</pre></div>
+</div>
+<p><strong>Distinction from Branch</strong>: A fork creates a separate conversation ID with its own directory;
+a branch lives inside the original conversation’s directory (server-side only).</p>
+</section>
 <section id="log-logmanager">
 <h3>Log / LogManager<a class="headerlink" href="#log-logmanager" title="Link to this heading">#</a></h3>
-<p>The conversation history and its management system. Stores all messages exchanged in a session.</p>
+<p>The conversation history and its management system. Stores all messages exchanged in a session.
+<code class="docutils literal notranslate"><span class="pre">LogManager</span></code> handles file locking, branching, and workspace resolution. View reduction lives in
+<code class="docutils literal notranslate"><span class="pre">gptme/util/reduce.py</span></code>; workspace symlink creation happens in <code class="docutils literal notranslate"><span class="pre">ChatConfig.save()</span></code>.</p>
+<p><strong>Code reference</strong>: <code class="docutils literal notranslate"><span class="pre">gptme/logmanager/manager.py</span></code></p>
 </section>
 <section id="workspace">
 <h3>Workspace<a class="headerlink" href="#workspace" title="Link to this heading">#</a></h3>
-<p>The directory context in which gptme operates. Tools like file operations are scoped to the workspace.</p>
+<p>The filesystem directory gptme operates in during a conversation. File operations, shell commands,
+and checkpoints are scoped to this directory.</p>
+<p><strong>Storage</strong>: Symlinked at <code class="docutils literal notranslate"><span class="pre">…/&lt;conversation-id&gt;/workspace/</span></code> → the actual directory.</p>
+<p><strong>Set via</strong>: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--workspace</span> <span class="pre">&lt;dir&gt;</span></code></p>
+</section>
+<section id="checkpoint">
+<h3>Checkpoint<a class="headerlink" href="#checkpoint" title="Link to this heading">#</a></h3>
+<p>A clean git HEAD reference recorded in the workspace’s git history. Use to restore the workspace
+to a known good state before large or risky changes. Requires a committed working tree.</p>
+<p><strong>Commands</strong>: <code class="docutils literal notranslate"><span class="pre">/checkpoint</span> <span class="pre">create</span></code>, <code class="docutils literal notranslate"><span class="pre">/checkpoint</span> <span class="pre">list</span></code>, <code class="docutils literal notranslate"><span class="pre">/checkpoint</span> <span class="pre">diff</span> <span class="pre">&lt;id&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">/checkpoint</span> <span class="pre">restore</span> <span class="pre">&lt;id&gt;</span></code></p>
+<p><strong>Distinction from Snapshot</strong>: Checkpoints require a committed tree; snapshots capture any state
+including uncommitted changes.</p>
+</section>
+<section id="snapshot">
+<h3>Snapshot<a class="headerlink" href="#snapshot" title="Link to this heading">#</a></h3>
+<p>A workspace state capture recorded in a side-git shadow repository. Can capture committed
+or uncommitted changes. Created automatically before and after each mutating tool call when
+the <code class="docutils literal notranslate"><span class="pre">auto_snapshots</span></code> plugin is enabled.</p>
+<p><strong>Commands</strong>: <code class="docutils literal notranslate"><span class="pre">/snapshot</span> <span class="pre">create</span> <span class="pre">[label]</span></code>, <code class="docutils literal notranslate"><span class="pre">/snapshot</span> <span class="pre">list</span></code>, <code class="docutils literal notranslate"><span class="pre">/snapshot</span> <span class="pre">restore</span> <span class="pre">&lt;sha&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">/snapshot</span> <span class="pre">diff</span> <span class="pre">&lt;sha&gt;</span></code></p>
+</section>
+<section id="backtrack-marker">
+<h3>Backtrack Marker<a class="headerlink" href="#backtrack-marker" title="Link to this heading">#</a></h3>
+<p>A named conversation position persisted to disk (in <code class="docutils literal notranslate"><span class="pre">conv-checkpoints.jsonl</span></code> alongside the log).
+Rewinding with <code class="docutils literal notranslate"><span class="pre">/backtrack</span></code> truncates the conversation log to the saved index and creates a backup
+branch — the log on disk is modified, but workspace files are not.</p>
+<p><strong>Commands</strong>: <code class="docutils literal notranslate"><span class="pre">/backtrack</span> <span class="pre">mark</span> <span class="pre">[label]</span></code>, <code class="docutils literal notranslate"><span class="pre">/backtrack</span> <span class="pre">list</span></code>, <code class="docutils literal notranslate"><span class="pre">/backtrack</span> <span class="pre">&lt;label|N&gt;</span></code></p>
+<p><strong>Distinction</strong>: Unlike <code class="docutils literal notranslate"><span class="pre">/checkpoint</span></code> and <code class="docutils literal notranslate"><span class="pre">/snapshot</span></code>, backtracking does not touch workspace files.</p>
+</section>
+<section id="analytics-session">
+<span id="id6"></span><h3>Analytics Session<a class="headerlink" href="#analytics-session" title="Link to this heading">#</a></h3>
+<p>A completed run record stored by the <code class="docutils literal notranslate"><span class="pre">gptme-sessions</span></code> package. Tracks metadata about a finished
+run: duration, cost, model, category, and quality grades. Cross-harness: records runs from
+gptme, Claude Code, Codex, and other compatible harnesses.</p>
+<p><strong>Storage</strong>: <code class="docutils literal notranslate"><span class="pre">~/.local/share/gptme-sessions/sessions.jsonl</span></code> (configurable)</p>
+<p><strong>Commands</strong>: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">sessions</span> <span class="pre">query</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">sessions</span> <span class="pre">show</span> <span class="pre">&lt;id&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">sessions</span> <span class="pre">stats</span></code></p>
+<p><strong>Disambiguation</strong>: Not the same as “starting a session” (everyday usage for launching gptme
+in a conversation). The analytics session is only created <em>after</em> the run completes.</p>
 </section>
 </section>
 <section id="configuration">
@@ -692,9 +787,16 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runnable-tool">Runnable Tool</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#session-concepts">Session Concepts</a><ul class="nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#conversation-and-session-concepts">Conversation and Session Concepts</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#conversation">Conversation</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#branch">Branch</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fork">Fork</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#log-logmanager">Log / LogManager</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace">Workspace</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#checkpoint">Checkpoint</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#snapshot">Snapshot</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#backtrack-marker">Backtrack Marker</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#analytics-session">Analytics Session</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a><ul class="nav section-nav flex-column">

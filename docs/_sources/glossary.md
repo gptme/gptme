@@ -61,13 +61,114 @@ A parsed representation of a tool invocation found in an assistant's response.
 ### Runnable Tool
 A tool that can be executed in the current context. Some tools may be defined but not runnable (e.g., disabled or context-restricted).
 
-## Session Concepts
+## Conversation and Session Concepts
+
+(conversation)=
+### Conversation
+The primary unit of persistence in gptme. A named history of messages exchanged with an LLM,
+stored as a directory on disk. Each conversation has a unique ID (a random adjective-color-animal
+name by default, or a name you supply with `--name`).
+
+**Storage**: `~/.local/share/gptme/logs/<conversation-id>/conversation.jsonl`
+
+**Commands**:
+- Start: `gptme --name my-project "your prompt"` or just `gptme` (auto-names)
+- Resume: `gptme --name my-project` (by name) or `gptme -r` (most recent)
+- List: `gptme chats list`
+- Search: `gptme chats search <query>`
+- Rename: `/rename` in the TUI, or `gptme chats rename <id>`
+- Delete: `/delete` in the TUI
+
+**Disambiguation**: "conversation" is the persistent log on disk. A "run" or "session" (everyday use)
+means launching gptme and working in a conversation — no special object, just a process attached to
+a log. For analytics-tracking sessions, see [Analytics Session](#analytics-session).
+
+(branch)=
+### Branch
+An alternative message thread stored alongside the main thread within the same conversation
+directory. The default branch is named `"main"` and stored as `conversation.jsonl`.
+Named branches are stored as `branches/<branch-name>.jsonl` in the same log directory.
+
+Branches are mainly a **server-side concept**: the `gptme-server` API accepts a `branch` parameter
+on step/tool calls, allowing multiple AI exploration paths in the same conversation simultaneously.
+The TUI's `/fork` command creates a new top-level conversation rather than a branch within
+the current one.
+
+**Storage**: `…/<conversation-id>/branches/<branch-name>.jsonl`
+
+(fork)=
+### Fork
+A new, independent conversation created from a copy of messages 0 through turn N of an
+existing conversation. The original conversation is never modified. Both the TUI command
+and the CLI produce a new conversation directory.
+
+**Usage**:
+```bash
+# Fork at turn 3 (includes turns 0–2, the first 3 user+assistant exchanges)
+gptme-util chats fork my-project --at-turn 3
+
+# Fork with a custom name
+gptme-util chats fork my-project --at-turn 3 --name my-project-v2
+
+# Within a running conversation, fork at the current turn:
+# /fork my-experiment
+```
+
+**Distinction from Branch**: A fork creates a separate conversation ID with its own directory;
+a branch lives inside the original conversation's directory (server-side only).
 
 ### Log / LogManager
 The conversation history and its management system. Stores all messages exchanged in a session.
+`LogManager` handles file locking, branching, and workspace resolution. View reduction lives in
+`gptme/util/reduce.py`; workspace symlink creation happens in `ChatConfig.save()`.
+
+**Code reference**: `gptme/logmanager/manager.py`
 
 ### Workspace
-The directory context in which gptme operates. Tools like file operations are scoped to the workspace.
+The filesystem directory gptme operates in during a conversation. File operations, shell commands,
+and checkpoints are scoped to this directory.
+
+**Storage**: Symlinked at `…/<conversation-id>/workspace/` → the actual directory.
+
+**Set via**: `gptme --workspace <dir>`
+
+### Checkpoint
+A clean git HEAD reference recorded in the workspace's git history. Use to restore the workspace
+to a known good state before large or risky changes. Requires a committed working tree.
+
+**Commands**: `/checkpoint create`, `/checkpoint list`, `/checkpoint diff <id>`, `/checkpoint restore <id>`
+
+**Distinction from Snapshot**: Checkpoints require a committed tree; snapshots capture any state
+including uncommitted changes.
+
+### Snapshot
+A workspace state capture recorded in a side-git shadow repository. Can capture committed
+or uncommitted changes. Created automatically before and after each mutating tool call when
+the `auto_snapshots` plugin is enabled.
+
+**Commands**: `/snapshot create [label]`, `/snapshot list`, `/snapshot restore <sha>`, `/snapshot diff <sha>`
+
+### Backtrack Marker
+A named conversation position persisted to disk (in `conv-checkpoints.jsonl` alongside the log).
+Rewinding with `/backtrack` truncates the conversation log to the saved index and creates a backup
+branch — the log on disk is modified, but workspace files are not.
+
+**Commands**: `/backtrack mark [label]`, `/backtrack list`, `/backtrack <label|N>`
+
+**Distinction**: Unlike `/checkpoint` and `/snapshot`, backtracking does not touch workspace files.
+
+(analytics-session)=
+### Analytics Session
+A completed run record stored by the `gptme-sessions` package. Tracks metadata about a finished
+run: duration, cost, model, category, and quality grades. Cross-harness: records runs from
+gptme, Claude Code, Codex, and other compatible harnesses.
+
+**Storage**: `~/.local/share/gptme-sessions/sessions.jsonl` (configurable)
+
+**Commands**: `gptme sessions query`, `gptme sessions show <id>`, `gptme sessions stats`
+
+**Disambiguation**: Not the same as "starting a session" (everyday usage for launching gptme
+in a conversation). The analytics session is only created *after* the run completes.
 
 ## Configuration
 

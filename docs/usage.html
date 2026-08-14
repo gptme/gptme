@@ -497,6 +497,7 @@ document.write(`
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-conversations">Managing Conversations</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#interfaces">Interfaces</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#features">Features</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#writing-files">Writing Files</a></li>
@@ -536,20 +537,21 @@ document.write(`
 <p class="topic-title">Table of Contents</p>
 <ul class="simple">
 <li><p><a class="reference internal" href="#commands" id="id1">Commands</a></p></li>
-<li><p><a class="reference internal" href="#interfaces" id="id2">Interfaces</a></p></li>
-<li><p><a class="reference internal" href="#features" id="id3">Features</a></p>
+<li><p><a class="reference internal" href="#managing-conversations" id="id2">Managing Conversations</a></p></li>
+<li><p><a class="reference internal" href="#interfaces" id="id3">Interfaces</a></p></li>
+<li><p><a class="reference internal" href="#features" id="id4">Features</a></p>
 <ul>
-<li><p><a class="reference internal" href="#writing-files" id="id4">Writing Files</a></p></li>
-<li><p><a class="reference internal" href="#making-changes" id="id5">Making Changes</a></p></li>
-<li><p><a class="reference internal" href="#browser-integration" id="id6">Browser Integration</a></p></li>
-<li><p><a class="reference internal" href="#multiprompt-syntax" id="id7">Multiprompt syntax</a></p></li>
-<li><p><a class="reference internal" href="#queue-follow-up-prompts" id="id8">Queue follow-up prompts</a></p></li>
-<li><p><a class="reference internal" href="#tool-selection-patterns" id="id9">Tool Selection Patterns</a></p></li>
-<li><p><a class="reference internal" href="#minimal-context-mode" id="id10">Minimal context mode</a></p></li>
-<li><p><a class="reference internal" href="#skip-confirmation-prompts" id="id11">Skip confirmation prompts</a></p></li>
-<li><p><a class="reference internal" href="#non-interactive-mode" id="id12">Non-interactive mode</a></p></li>
-<li><p><a class="reference internal" href="#machine-readable-output" id="id13">Machine-readable output</a></p></li>
-<li><p><a class="reference internal" href="#pre-commit-integration" id="id14">Pre-commit Integration</a></p></li>
+<li><p><a class="reference internal" href="#writing-files" id="id5">Writing Files</a></p></li>
+<li><p><a class="reference internal" href="#making-changes" id="id6">Making Changes</a></p></li>
+<li><p><a class="reference internal" href="#browser-integration" id="id7">Browser Integration</a></p></li>
+<li><p><a class="reference internal" href="#multiprompt-syntax" id="id8">Multiprompt syntax</a></p></li>
+<li><p><a class="reference internal" href="#queue-follow-up-prompts" id="id9">Queue follow-up prompts</a></p></li>
+<li><p><a class="reference internal" href="#tool-selection-patterns" id="id10">Tool Selection Patterns</a></p></li>
+<li><p><a class="reference internal" href="#minimal-context-mode" id="id11">Minimal context mode</a></p></li>
+<li><p><a class="reference internal" href="#skip-confirmation-prompts" id="id12">Skip confirmation prompts</a></p></li>
+<li><p><a class="reference internal" href="#non-interactive-mode" id="id13">Non-interactive mode</a></p></li>
+<li><p><a class="reference internal" href="#machine-readable-output" id="id14">Machine-readable output</a></p></li>
+<li><p><a class="reference internal" href="#pre-commit-integration" id="id15">Pre-commit Integration</a></p></li>
 </ul>
 </li>
 </ul>
@@ -569,6 +571,61 @@ For the complete reference, see <a class="reference internal" href="commands.htm
 <li><p><code class="docutils literal notranslate"><span class="pre">/tokens</span></code> - Show token usage and costs</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">/exit</span></code> - Exit the program</p></li>
 </ul>
+</section>
+<section id="managing-conversations">
+<span id="usage-conversations"></span><h2>Managing Conversations<a class="headerlink" href="#managing-conversations" title="Link to this heading">#</a></h2>
+<p>Every gptme interaction is part of a <strong>conversation</strong> — a named history of
+messages persisted on disk. Conversations can be resumed, searched, forked,
+and renamed.</p>
+<p>For term definitions (conversation, branch, fork, analytics session), see the <a class="reference internal" href="glossary.html"><span class="doc">Glossary</span></a>.</p>
+<p><strong>Start or resume a named conversation</strong></p>
+<p>Give a conversation an explicit name so you can return to it later:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Start a new named conversation</span>
+gptme<span class="w"> </span>--name<span class="w"> </span>my-refactor<span class="w"> </span><span class="s2">&quot;let&#39;s refactor the auth module&quot;</span>
+
+<span class="c1"># Resume that same conversation in a future session</span>
+gptme<span class="w"> </span>--name<span class="w"> </span>my-refactor
+
+<span class="c1"># Resume the most recently modified conversation (any name)</span>
+gptme<span class="w"> </span>-r
+</pre></div>
+</div>
+<p>Without <code class="docutils literal notranslate"><span class="pre">--name</span></code>, gptme assigns a random name (e.g. <code class="docutils literal notranslate"><span class="pre">hopping-blue-robot</span></code>).</p>
+<p><strong>List and search conversations</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># List the 20 most recent conversations</span>
+gptme<span class="w"> </span>chats<span class="w"> </span>list
+
+<span class="c1"># Show full metadata (model, cost, token counts)</span>
+gptme<span class="w"> </span>chats<span class="w"> </span>list<span class="w"> </span>--metadata
+
+<span class="c1"># Search conversation content</span>
+gptme<span class="w"> </span>chats<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;auth module refactor&quot;</span>
+
+<span class="c1"># Machine-readable JSON output</span>
+gptme<span class="w"> </span>chats<span class="w"> </span>list<span class="w"> </span>--json
+</pre></div>
+</div>
+<p><strong>Fork a conversation to explore an alternate approach</strong></p>
+<p>Forking creates a new independent conversation from messages up to turn N.
+The original conversation is unchanged.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Fork after the third user+assistant exchange</span>
+gptme-util<span class="w"> </span>chats<span class="w"> </span>fork<span class="w"> </span>my-refactor<span class="w"> </span>--at-turn<span class="w"> </span><span class="m">3</span>
+
+<span class="c1"># Fork with a custom name for the new conversation</span>
+gptme-util<span class="w"> </span>chats<span class="w"> </span>fork<span class="w"> </span>my-refactor<span class="w"> </span>--at-turn<span class="w"> </span><span class="m">3</span><span class="w"> </span>--name<span class="w"> </span>my-refactor-v2
+
+<span class="c1"># Then resume the fork normally</span>
+gptme<span class="w"> </span>--name<span class="w"> </span>my-refactor-v2
+</pre></div>
+</div>
+<p>Within a running conversation, <code class="docutils literal notranslate"><span class="pre">/fork</span> <span class="pre">my-experiment</span></code> achieves the same result
+at the current turn (see <a class="reference internal" href="commands.html"><span class="doc">Commands</span></a>).</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">/fork</span></code> and <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">chats</span> <span class="pre">fork</span></code> both create a <strong>new top-level conversation</strong>,
+not a branch inside the current one. For workspace rollback before risky changes,
+use <code class="docutils literal notranslate"><span class="pre">/checkpoint</span></code> (committed state) or <code class="docutils literal notranslate"><span class="pre">/snapshot</span></code> (any state) instead.</p>
+</div>
 </section>
 <section id="interfaces">
 <h2>Interfaces<a class="headerlink" href="#interfaces" title="Link to this heading">#</a></h2>
@@ -890,6 +947,7 @@ def my_function(x: int, y: int) -> int:
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-conversations">Managing Conversations</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#interfaces">Interfaces</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#features">Features</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#writing-files">Writing Files</a></li>
