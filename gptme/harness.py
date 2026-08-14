@@ -175,6 +175,27 @@ def annotate_message_with_harness_updates(
     )
 
 
+def _has_unterminated_delimiter_quote(token: str) -> bool:
+    """Return True if a token's value part starts with a quote that is not closed.
+
+    A *delimiter-style* quote is one that opens a value (``reason="text``).  An
+    apostrophe embedded mid-word (``reason=user's``) is an intentional character,
+    not a delimiter, so it is NOT flagged.  The distinction is: does the value
+    start with the quote character?
+
+    Examples::
+
+        _has_unterminated_delimiter_quote('reason="unterminated')  # True
+        _has_unterminated_delimiter_quote("reason=user's")         # False
+        _has_unterminated_delimiter_quote('reason="done"')         # False
+    """
+    value = token.split("=", 1)[1] if "=" in token else token
+    for quote in ('"', "'"):
+        if value.startswith(quote) and not (len(value) >= 2 and value.endswith(quote)):
+            return True
+    return False
+
+
 def _rejoin_reason_tokens(tokens: list[str]) -> list[str]:
     """Re-join bare continuation words into the reason= token.
 
@@ -226,6 +247,14 @@ def _parse_harness_update_line(
         # and the bare token "request" triggers an unexpected-token error.
         raw_tokens = payload.split()
         tokens = _rejoin_reason_tokens(raw_tokens)
+        # Detect delimiter-style quotes that shlex couldn't close
+        # (e.g. reason="unterminated).  Record as error so the audit log never
+        # contains a request with a malformed reason value.
+        for tok in tokens:
+            if _has_unterminated_delimiter_quote(tok):
+                return None, HarnessUpdateError(
+                    raw, f"unterminated quoted value in token '{tok}'"
+                )
 
     if len(tokens) < 2:
         return None, HarnessUpdateError(

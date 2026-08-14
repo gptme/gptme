@@ -18,7 +18,7 @@ HARNESS_UPDATE: disable_tool shell reason="Task is pure analysis" urgency=low ap
 Required fields:
 
 - `change_type`: `enable_tool`, `disable_tool`, or `configure_tool`
-- `tool_name`: must match a real available tool
+- `tool_name`: must be a tool known to gptme's module system (not necessarily currently enabled in the session — `enable_tool` requests are expected to name tools that are not yet active)
 - `reason`
 - `urgency`: `low`, `medium`, or `high`
 - `approval`: `auto`, `log_only`, or `user_confirm`

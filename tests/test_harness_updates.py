@@ -209,6 +209,22 @@ def test_extract_harness_updates_accepts_known_tool_via_module_discovery():
     assert requests_[0].change_type == "enable_tool"
 
 
+def test_extract_harness_updates_rejects_unterminated_quote_in_fallback_path():
+    """An assistant line with an unterminated quoted value triggers the shlex
+    ValueError fallback.  After the fallback to whitespace splitting the
+    malformed token (e.g. ``reason="unterminated``) must be detected and
+    rejected, not recorded with a corrupted reason value."""
+    content = 'HARNESS_UPDATE: enable_tool shell reason="unterminated urgency=low approval=auto'
+
+    requests_, errors = extract_harness_updates(
+        content, available_tool_names={"shell", "web_fetch"}
+    )
+
+    assert requests_ == [], f"Expected no valid requests, got: {requests_}"
+    assert len(errors) == 1
+    assert "unterminated" in errors[0].error
+
+
 def test_extract_harness_updates_rejects_empty_payload():
     """A bare HARNESS_UPDATE: line with no following text is rejected."""
     content = "HARNESS_UPDATE:"
