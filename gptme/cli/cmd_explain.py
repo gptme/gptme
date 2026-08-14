@@ -43,12 +43,37 @@ class FAQEntry:
         }
 
 
+_STOP: frozenset[str] = frozenset(
+    {
+        "the",
+        "how",
+        "what",
+        "are",
+        "and",
+        "for",
+        "can",
+        "does",
+        "its",
+        "has",
+        "was",
+        "but",
+        "not",
+        "you",
+        "all",
+        "any",
+        "had",
+    }
+)
+
+
 def _normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
 def _tokens(text: str) -> set[str]:
-    return {tok for tok in _normalize(text).split() if len(tok) > 2}
+    return {
+        tok for tok in _normalize(text).split() if len(tok) > 2 and tok not in _STOP
+    }
 
 
 @lru_cache(maxsize=1)

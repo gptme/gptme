@@ -45,8 +45,8 @@ topics:
 
       To make room:
 
-          /compact     compact the conversation
-          /summarize   replace history with a summary
+          /compact     compact the conversation (replaces history with a summary)
+          /summarize   print a summary of the conversation (does not replace history)
 
       If you are hitting the limit constantly, the usual causes are large files
       pulled into context and a very long session. Starting a fresh conversation
