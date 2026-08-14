@@ -564,12 +564,14 @@ Run 'gptme-util --help' for all utility commands."""
         # misleading "invalid choice" here. Resolved lazily: tool discovery
         # imports most of gptme and must not run at module import time.
         lambda: _known_tool_names() + ["none"],
-        allow_prefixes=["+", "-"],
+        allow_prefixes=["+", "-", "hint:"],
         extra_choices_for_prefix={"-": _known_tool_names},
-        # Only '+' is lenient: plugin tools (added via '+tool') aren't known at
-        # parse time. '-tool' exclusions stay strict against known tools so typos
-        # like '-shel' are caught early instead of being silently ignored.
-        lenient_prefixes=["+"],
+        # '+' is lenient: plugin tools (added via '+tool') aren't known at
+        # parse time. '-tool' exclusions stay strict against known tools so
+        # typos like '-shel' are caught early instead of being silently ignored.
+        # 'hint:' is also lenient: hint tag names (e.g. 'hint:read-only') are
+        # not in the tool-name choice set; they're validated at load time.
+        lenient_prefixes=["+", "hint:"],
         metavar="TOOL",
     ),
     help="Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use '-tool' to exclude from defaults (e.g., '-t=-browser'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). See 'Available tools' above for the list.",

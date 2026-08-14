@@ -1657,6 +1657,20 @@ def test_tools_read_only_preset_is_valid_cli_choice(runner: CliRunner):
     assert __version__ in result.output
 
 
+def test_tools_hint_prefix_is_valid_cli_choice(runner: CliRunner):
+    """hint:X patterns must pass --tools CLI validation.
+
+    Hint tag names are not tool names, so they aren't in the choice set, but
+    they should be accepted at parse time and validated against loaded tools at
+    runtime.  Regression for P2 finding: docs showed hint:read-only as a
+    working CLI option but CommaSeparatedChoice was rejecting it.
+    """
+    result = runner.invoke(cli.main, ["-t", "hint:read-only", "--version"])
+
+    assert result.exit_code == 0, result.output
+    assert __version__ in result.output
+
+
 @pytest.mark.parametrize(
     "tool_spec",
     [

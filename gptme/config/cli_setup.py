@@ -186,8 +186,24 @@ def setup_config_from_cli(
             excluded_tools = [
                 tool.strip() for tool in tool_list_str.split(",") if tool.strip()
             ]
+            # Detect attempts to exclude preset names (they're not tools in the
+            # default set; '-read-only' does nothing and is almost certainly wrong).
+            preset_exclusions = [t for t in excluded_tools if t in TOOL_PRESETS]
+            if preset_exclusions:
+                logger.warning(
+                    "Cannot exclude preset name(s) %s with '-' syntax. "
+                    "Presets select an exclusive tool boundary — use "
+                    "'--tools %s' to select one, not '--%s'.",
+                    ", ".join(preset_exclusions),
+                    preset_exclusions[0],
+                    preset_exclusions[0],
+                )
             default_tools = [tool.name for tool in get_toolchain(None)]
-            non_default = [t for t in excluded_tools if t not in default_tools]
+            non_default = [
+                t
+                for t in excluded_tools
+                if t not in default_tools and t not in TOOL_PRESETS
+            ]
             if non_default:
                 logger.warning(
                     "Tool(s) %s are not in the default toolset and cannot be excluded",
@@ -218,7 +234,9 @@ def setup_config_from_cli(
         resolved_tool_allowlist = existing_chat_config.tools
     elif tools_env := config.get_env("TOOL_ALLOWLIST"):
         # Fall back to env/config for new conversations or when no saved tools
-        resolved_tool_allowlist = [tool.strip() for tool in tools_env.split(",")]
+        resolved_tool_allowlist = [
+            tool.strip() for tool in tools_env.split(",") if tool.strip()
+        ]
 
     # A preset is "selected" if the allowlist is a literal preset name.
     # Preset names are now persisted verbatim (not expanded) so that resumed
