@@ -187,16 +187,13 @@ def setup_config_from_cli(
                 tool.strip() for tool in tool_list_str.split(",") if tool.strip()
             ]
             # Detect attempts to exclude preset names (they're not tools in the
-            # default set; '-read-only' does nothing and is almost certainly wrong).
+            # default set; '-read-only' selects nothing and is almost certainly wrong).
             preset_exclusions = [t for t in excluded_tools if t in TOOL_PRESETS]
             if preset_exclusions:
-                logger.warning(
-                    "Cannot exclude preset name(s) %s with '-' syntax. "
-                    "Presets select an exclusive tool boundary — use "
-                    "'--tools %s' to select one, not '--%s'.",
-                    ", ".join(preset_exclusions),
-                    preset_exclusions[0],
-                    preset_exclusions[0],
+                raise ValueError(
+                    f"Cannot exclude preset name '{preset_exclusions[0]}' with '-' syntax. "
+                    f"Presets select an exclusive tool boundary — use "
+                    f"'--tools {preset_exclusions[0]}' to select one."
                 )
             default_tools = [tool.name for tool in get_toolchain(None)]
             non_default = [
@@ -218,7 +215,7 @@ def setup_config_from_cli(
         else:
             # Normal mode - CLI override replaces defaults
             resolved_tool_allowlist = [
-                tool.strip() for tool in tool_allowlist.split(",")
+                tool.strip() for tool in tool_allowlist.split(",") if tool.strip()
             ]
     elif gear_tool_allowlist is not None:
         if gear_tool_allowlist and gear_tool_allowlist[0].startswith("+"):
