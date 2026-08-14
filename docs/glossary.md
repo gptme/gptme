@@ -119,7 +119,8 @@ a branch lives inside the original conversation's directory (server-side only).
 
 ### Log / LogManager
 The conversation history and its management system. Stores all messages exchanged in a session.
-`LogManager` handles file locking, branching, view compression, and workspace linking.
+`LogManager` handles file locking, branching, and workspace resolution. View reduction lives in
+`gptme/util/reduce.py`; workspace symlink creation happens in `ChatConfig.save()`.
 
 **Code reference**: `gptme/logmanager/manager.py`
 
@@ -148,8 +149,9 @@ the `auto_snapshots` plugin is enabled.
 **Commands**: `/snapshot create [label]`, `/snapshot list`, `/snapshot restore <sha>`, `/snapshot diff <sha>`
 
 ### Backtrack Marker
-An in-memory conversation position marker. Rewinding with `/backtrack` replays the conversation
-log up to the marker — only the message history changes, not the filesystem.
+A named conversation position persisted to disk (in `conv-checkpoints.jsonl` alongside the log).
+Rewinding with `/backtrack` truncates the conversation log to the saved index and creates a backup
+branch — the log on disk is modified, but workspace files are not.
 
 **Commands**: `/backtrack mark [label]`, `/backtrack list`, `/backtrack <label|N>`
 
