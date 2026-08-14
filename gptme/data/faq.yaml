@@ -1,0 +1,149 @@
+# FAQ entries served by `gptme explain <topic>`.
+#
+# Each entry:
+#   topic:    canonical id, matched exactly first (kebab-case)
+#   aliases:  extra terms users are likely to type
+#   question: the question this answers, shown as a heading
+#   answer:   plain text, no external lookups
+#   see_also: other topic ids (validated by tests)
+topics:
+  - topic: branches
+    aliases: [branch, branching, fork, forking, checkout]
+    question: What are branches in gptme?
+    answer: |
+      A conversation is stored as a JSONL log. A *branch* is an alternate log
+      for the same conversation, so you can explore a different path without
+      losing the original.
+
+      On disk, inside a conversation's directory:
+
+          conversation.jsonl        <- the "main" branch
+          branches/<name>.jsonl     <- every other branch
+
+      Branches are created for you when you rewind: `/undo`, `/edit` and
+      `/backtrack` save the messages they drop into a backup branch, so a
+      rewind is recoverable rather than destructive.
+
+      Branches are *not* the same as forking. `/fork` copies the whole
+      conversation into a new one with its own id; a branch stays inside the
+      current conversation. Use `/fork` when you want two conversations to keep
+      growing separately, and rewinding when you want to retry from a point.
+    see_also: [logs, commands]
+
+  - topic: context
+    aliases: [context window, context limit, token limit, too long, truncation]
+    question: How does gptme decide what goes in the context window?
+    answer: |
+      Every request sends the system prompt, any auto-included workspace files,
+      matched lessons/skills, and the conversation so far. That total is bounded
+      by the model's context window, so a long session eventually has to shrink.
+
+      To see where the tokens are going:
+
+          /context     show the context token breakdown
+          /tokens      show token usage and cost (alias: /cost)
+
+      To make room:
+
+          /compact     compact the conversation
+          /summarize   replace history with a summary
+
+      If you are hitting the limit constantly, the usual causes are large files
+      pulled into context and a very long session. Starting a fresh conversation
+      is cheaper than fighting a full window.
+    see_also: [models, logs]
+
+  - topic: logs
+    aliases: [log, logging, history, conversations, where are my chats, transcripts]
+    question: Where are conversations stored?
+    answer: |
+      Conversations live under the data directory as one directory per
+      conversation, each holding a `conversation.jsonl` log. Override the
+      location with the `GPTME_LOGS_HOME` environment variable.
+
+      From inside a session:
+
+          /log         show the conversation log
+          /export      export the conversation as HTML
+
+      From the shell:
+
+          gptme-util chats list
+          gptme-util chats search <query>
+          gptme-util chats read <id>
+
+      The logs are plain JSONL, so they are also readable with normal text
+      tooling. Note this is conversation history, not the debug logger output.
+    see_also: [branches, commands]
+
+  - topic: models
+    aliases: [model, provider, llm, which model, switch model, api key]
+    question: How do I choose or switch models?
+    answer: |
+      gptme talks to several providers, and the model is selected per
+      conversation rather than baked in.
+
+          gptme --model <model>     pick a model when starting
+          /models                   list available models
+          /model                    show or switch the current model
+
+      Model ids are usually `provider/name`. Which providers are available
+      depends on the API keys in your environment and config, so `/models`
+      reflects your setup rather than a fixed list.
+    see_also: [context, config]
+
+  - topic: tools
+    aliases: [tool, toolset, shell tool, what can it do, capabilities]
+    question: What are tools and how do I control them?
+    answer: |
+      Tools are the capabilities the assistant can invoke: running shell
+      commands, patching files, saving files, browsing, and more. The assistant
+      calls them by emitting a tool block, which gptme executes.
+
+          /tools                        show the available tools
+          gptme --tools shell,patch     restrict the session to specific tools
+
+      Restricting tools is the practical way to bound what a session can do —
+      a session without the shell tool cannot run commands. Tools can also be
+      added by plugins, so an install may expose more than the built-in set.
+    see_also: [commands, config]
+
+  - topic: commands
+    aliases: [command, slash commands, slash, "/help", builtin commands]
+    question: What slash commands are available in a session?
+    answer: |
+      Inside a session, lines starting with `/` are commands handled by gptme
+      itself instead of being sent to the model. `/help` lists them all; the
+      ones people reach for most:
+
+          /log /export         inspect and export the conversation
+          /undo /edit /backtrack   rewind (saves a backup branch)
+          /fork /rename /delete    manage conversations
+          /model /models /tools    inspect the current setup
+          /context /tokens         see what the context costs
+          /compact /summarize      shrink a long conversation
+          /exit                    leave
+
+      Shell-side subcommands live under `gptme-util` (for example
+      `gptme-util chats list`).
+    see_also: [branches, context]
+
+  - topic: config
+    aliases: [configuration, settings, gptme.toml, project config, env]
+    question: How is gptme configured?
+    answer: |
+      Configuration comes from three places, most specific winning:
+
+      1. command-line flags for the current run
+      2. a project `gptme.toml` in the working directory or repo root
+      3. the global user config
+
+      A project `gptme.toml` is the useful one for repositories: it can
+      auto-include files in the prompt so every session in that repo starts
+      with the same context. Environment variables carry API keys and path
+      overrides such as `GPTME_LOGS_HOME`.
+
+      `gptme-util` also exposes inspection subcommands (for example
+      `gptme-util models` and `gptme-util tools`) when you want to check what
+      the current configuration resolves to.
+    see_also: [models, tools]

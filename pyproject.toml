@@ -54,6 +54,7 @@ include = [
     # webui-dist is generated and gitignored; an explicit path include is
     # required so Poetry does not silently omit it from release artifacts.
     { path = "gptme/server/webui-dist", format = ["sdist", "wheel"] },
+    "gptme/data/*.yaml",
     "gptme/eval/tbench/setup.sh",
     "media/*.png",
     "media/*.wav",
