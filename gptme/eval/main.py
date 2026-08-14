@@ -109,6 +109,7 @@ def docker_reexec(argv: list[str]) -> None:
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
         "OPENROUTER_API_KEY",
+        "ORCAROUTER_API_KEY",
         "GROQ_API_KEY",
         "DEEPSEEK_API_KEY",
         "XAI_API_KEY",

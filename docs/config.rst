@@ -147,6 +147,8 @@ If no model is configured, gptme will scan your API keys and pick the first avai
      - ``ANTHROPIC_API_KEY``
    * - ``openrouter``
      - ``OPENROUTER_API_KEY``
+   * - ``orcarouter``
+     - ``ORCAROUTER_API_KEY``
    * - ``gemini``
      - ``GEMINI_API_KEY``
    * - ``groq``

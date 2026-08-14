@@ -521,6 +521,60 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     },
     "nvidia": {},
     "azure": {},
+    # OrcaRouter — OpenAI-compatible LLM gateway, provider/model naming.
+    # Model keys use the full sub-provider/model path (everything after
+    # "orcarouter/"); the gateway rejects bare ids, so the namespace is required.
+    # This is only the static fallback used when /v1/models is unreachable —
+    # the full catalog (188 models as of 2026-08-02) is fetched dynamically.
+    "orcarouter": {
+        "openai/gpt-5.6-luna": {
+            "context": 1_050_000,
+            "max_output": 128_000,
+            "price_input": 0.2,
+            "price_output": 1.2,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "supports_strict_tools": True,
+            "preferred_edit_format": "diff",
+        },
+        "openai/gpt-5.5": {
+            "context": 1_000_000,
+            "max_output": 128_000,
+            "price_input": 5,
+            "price_output": 30,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "supports_strict_tools": True,
+            "preferred_edit_format": "diff",
+        },
+        "anthropic/claude-sonnet-5": {
+            "context": 1_000_000,
+            "max_output": 128_000,
+            "price_input": 2,
+            "price_output": 10,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "preferred_edit_format": "diff",
+        },
+        "google/gemini-3.5-flash": {
+            "context": 1_048_576,
+            "max_output": 65_536,
+            "price_input": 1.5,
+            "price_output": 9,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "preferred_edit_format": "diff",
+        },
+        # Virtual router, not a model: the gateway picks an upstream per
+        # request. Price varies with the routed upstream, so it is left at 0
+        # (same convention as dynamically discovered models).
+        "orcarouter/auto": {
+            "context": 128_000,
+            "max_output": 16_384,
+            "supports_vision": True,
+            "preferred_edit_format": "diff",
+        },
+    },
     # Requesty — OpenAI-compatible LLM gateway, provider/model naming.
     # Model keys use the full sub-provider/model path (everything after "requesty/").
     "requesty": {
