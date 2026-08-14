@@ -291,6 +291,66 @@ def test_status_table_includes_provider_fields(monkeypatch):
     assert "test_value" in result.output
 
 
+def test_status_narrative_non_list_return_does_not_crash(monkeypatch):
+    """Verify a provider returning a non-list from narrative_sections() does not crash.
+
+    The protocol promises list[str], but a provider could return a bare string.
+    extend(str) iterates over its chars and inserts each as a separate section,
+    producing garbage.  The guard inside build_document() must skip the return
+    value entirely when it is not a list, so the join at the end never crashes
+    and the output contains none of the stray characters.
+    """
+
+    class _StringReturnProvider:
+        name = "string_return"
+
+        def collect(self) -> dict:
+            return {}
+
+        def narrative_sections(self):
+            return "## Not A List\n\nThis is a bare string."
+
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [_StringReturnProvider()])
+
+    result = CliRunner().invoke(status)
+    assert result.exit_code == 0, result.output
+    # The bare string must NOT appear in the output (not even single chars as sections).
+    assert "## Not A List" not in result.output
+    # Core sections must still be present.
+    assert "# gptme Status" in result.output
+
+
+def test_status_narrative_non_string_elements_dropped(monkeypatch):
+    """Verify non-string elements from narrative_sections() are silently dropped.
+
+    A provider may return a mixed list such as [42, "## Valid Section"].
+    Passing that list directly to sections.extend() succeeds, but
+    '\\n\\n'.join(sections) then crashes because 42 is not a str.
+    The guard inside build_document() must filter out non-string elements
+    so only the valid string sections reach the join.
+    """
+
+    class _MixedListProvider:
+        name = "mixed_list"
+
+        def collect(self) -> dict:
+            return {}
+
+        def narrative_sections(self):
+            # Mix: an integer, a valid string, and None.
+            return [42, "## Valid Section\n\n- from provider", None]
+
+    monkeypatch.setattr(cmd_status, "load_providers", lambda: [_MixedListProvider()])
+
+    result = CliRunner().invoke(status)
+    assert result.exit_code == 0, result.output
+    # Only the valid string section should appear.
+    assert "## Valid Section" in result.output
+    assert "from provider" in result.output
+    # Core sections must still be present.
+    assert "# gptme Status" in result.output
+
+
 def test_status_broken_provider_does_not_crash(monkeypatch):
     """Verify a provider whose collect() raises does not crash the command."""
 

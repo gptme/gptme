@@ -398,7 +398,21 @@ def build_document(providers: list[StatusProvider] | None = None) -> str:
     for provider in providers:
         try:
             extra_sections = provider.narrative_sections()
-            sections.extend(extra_sections)
+            if not isinstance(extra_sections, list):
+                logger.debug(
+                    "Provider %r narrative_sections() returned %r, expected list[str]; skipping",
+                    _provider_name(provider),
+                    type(extra_sections).__name__,
+                )
+            else:
+                valid = [s for s in extra_sections if isinstance(s, str)]
+                if len(valid) < len(extra_sections):
+                    logger.debug(
+                        "Provider %r narrative_sections() returned %d non-string item(s); dropped",
+                        _provider_name(provider),
+                        len(extra_sections) - len(valid),
+                    )
+                sections.extend(valid)
         except Exception as exc:
             logger.debug(
                 "Provider %r narrative_sections() failed: %s",
