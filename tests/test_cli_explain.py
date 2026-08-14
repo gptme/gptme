@@ -51,6 +51,28 @@ def test_topic_ids_and_aliases_are_unique(entries):
             seen[name] = entry.topic
 
 
+def test_normalized_aliases_are_unique(entries):
+    """Normalized aliases must be unique across all topics.
+
+    ``suggest_topics`` builds a ``{normalized_alias: topic}`` dict where a
+    collision silently overwrites the earlier topic, causing incorrect or
+    incomplete suggestions. Raw-name uniqueness (tested above) is not enough —
+    'context-window' and 'context window' are distinct raw names but normalize
+    to the same string.
+    """
+    from gptme.cli.cmd_explain import _normalize
+
+    seen: dict[str, str] = {}
+    for entry in entries:
+        for name in entry.names:
+            norm = _normalize(name)
+            assert norm not in seen, (
+                f"normalized alias {norm!r} (from {name!r}) collides: "
+                f"already claimed by {seen[norm]!r}, now also by {entry.topic!r}"
+            )
+            seen[norm] = entry.topic
+
+
 @pytest.mark.parametrize(
     ("query", "expected"),
     [
