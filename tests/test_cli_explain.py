@@ -1,6 +1,7 @@
 """Tests for `gptme-util explain`."""
 
 import json
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -126,3 +127,32 @@ def test_explain_registered_in_util_group():
     from gptme.cli.util import UTIL_SUBCOMMANDS
 
     assert "explain" in UTIL_SUBCOMMANDS
+
+
+# Regression: P1 — load_faq raises a friendly ClickException on broken data file
+def test_load_faq_missing_file_raises_friendly_error(tmp_path):
+    """Missing FAQ file produces a readable error, not a raw FileNotFoundError traceback."""
+    missing = tmp_path / "does_not_exist.yaml"
+    from click import ClickException
+
+    with pytest.raises(ClickException, match="Could not read FAQ file"):
+        load_faq.__wrapped__(str(missing))  # bypass lru_cache
+
+
+def test_load_faq_malformed_yaml_raises_friendly_error(tmp_path, runner):
+    """Malformed YAML produces a readable error, not a raw yaml.YAMLError traceback."""
+    bad_yaml = tmp_path / "bad.yaml"
+    bad_yaml.write_text("topics: [\n  - {unclosed")
+    from click import ClickException
+
+    with pytest.raises(ClickException, match="Could not parse FAQ file"):
+        load_faq.__wrapped__(str(bad_yaml))  # bypass lru_cache
+
+
+# Regression: P2 — explain --list with empty FAQ does not crash on max()
+def test_explain_list_with_empty_faq_does_not_crash(runner):
+    """Empty FAQ entries list must not raise ValueError from max() with no default."""
+    with patch("gptme.cli.cmd_explain.load_faq", return_value=[]):
+        result = runner.invoke(explain, [])
+    assert result.exit_code == 0
+    assert "Topics" in result.output

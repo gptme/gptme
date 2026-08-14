@@ -97,7 +97,14 @@ def _tokens(text: str) -> set[str]:
 def load_faq(path: str | None = None) -> list[FAQEntry]:
     """Load FAQ entries from the bundled YAML file."""
     faq_path = Path(path) if path else FAQ_PATH
-    data = yaml.safe_load(faq_path.read_text()) or {}
+    try:
+        text = faq_path.read_text()
+    except OSError as e:
+        raise click.ClickException(f"Could not read FAQ file {faq_path}: {e}") from e
+    try:
+        data = yaml.safe_load(text) or {}
+    except yaml.YAMLError as e:
+        raise click.ClickException(f"Could not parse FAQ file {faq_path}: {e}") from e
     return [
         FAQEntry(
             topic=entry["topic"],
@@ -176,7 +183,7 @@ def explain(query: tuple[str, ...], as_json: bool) -> None:
             click.echo(json.dumps([e.to_dict() for e in entries], indent=2))
             return
         click.echo("Topics (use: gptme explain <topic>)\n")
-        width = max(len(e.topic) for e in entries)
+        width = max((len(e.topic) for e in entries), default=0)
         for e in entries:
             click.echo(f"  {e.topic:<{width}}  {e.question}")
         return
