@@ -241,9 +241,7 @@ jobs:
           .cache-id
 
     - name: Install dependencies
-      run: |
-        make build
-        poetry install
+      run: poetry install
 
     - name: Run Windows path/config smoke tests
       env:
