@@ -231,6 +231,7 @@
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="design/hook-based-confirmations.html">Design: Hook-Based Tool Confirmations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="design/elicitation.html">Design: Generalized Elicitation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design/ptc-tool-interface.html">Design: Programmatic Tool Calling (PTC) Interface</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
 <ul class="nav bd-sidenav">
@@ -505,6 +506,7 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced-workflows">⚡ Advanced Workflows</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#knowledge-planning">🧠 Knowledge &amp; Planning</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#extensions">🔌 Extensions</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-interface-architecture">Tool Interface Architecture</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#combinations">Combinations</a></li>
 </ul>
 </li>
@@ -634,6 +636,30 @@ document.write(`
 <ul class="simple">
 <li><p><a class="reference internal" href="#mcp">MCP</a> - Discover and connect Model Context Protocol servers</p></li>
 </ul>
+</section>
+<section id="tool-interface-architecture">
+<h3>Tool Interface Architecture<a class="headerlink" href="#tool-interface-architecture" title="Link to this heading">#</a></h3>
+<p>gptme’s default tool interface is <strong>Programmatic Tool Calling (PTC)</strong>: the model
+writes executable code in fenced code blocks, and gptme runs it directly. For the
+default <code class="docutils literal notranslate"><span class="pre">markdown</span></code> and <code class="docutils literal notranslate"><span class="pre">xml</span></code> formats, no JSON schemas are sent to the model
+and no JSON-structured responses are parsed.</p>
+<p>The primary dispatch path is <code class="docutils literal notranslate"><span class="pre">&quot;markdown&quot;</span></code> format: a fenced code block whose
+language tag identifies any registered tool name (<code class="docutils literal notranslate"><span class="pre">python</span></code>, <code class="docutils literal notranslate"><span class="pre">shell</span></code>, <code class="docutils literal notranslate"><span class="pre">save</span></code>,
+<code class="docutils literal notranslate"><span class="pre">patch</span></code>, and others), and whose content gptme routes to
+<code class="docutils literal notranslate"><span class="pre">ToolSpec.execute(code,</span> <span class="pre">args,</span> <span class="pre">kwargs)</span></code>. For Python, this means IPython’s
+<code class="docutils literal notranslate"><span class="pre">run_cell()</span></code>; for Shell, <code class="docutils literal notranslate"><span class="pre">subprocess.Popen</span></code> with a stateful bash shell.</p>
+<p>gptme also supports a <strong>provider-native tool mode</strong> (<code class="docutils literal notranslate"><span class="pre">&quot;tool&quot;</span></code> format) for
+OpenAI and Anthropic APIs, where <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> parameters are converted to
+JSON-schema definitions and sent to the provider — trading context-rot resilience
+for provider-side tool routing compatibility.</p>
+<p><strong>Why default to PTC?</strong> A 2026 benchmark study (arXiv:2608.06370, <em>“The Bitter Lesson of
+Tool Calling”</em>) found that PTC matches or exceeds JSON-schema tool calling on
+11/14 models and — critically — <strong>maintains accuracy under context rot</strong> (long
+sessions with accumulated tool history) while JSON-schema accuracy degrades ~2.3%.
+Autonomous gptme sessions routinely accumulate 50–200 tool calls; this is exactly
+the regime where JSON-schema approaches falter.</p>
+<p>See <a class="reference internal" href="design/ptc-tool-interface.html"><span class="doc">Design: Programmatic Tool Calling (PTC) Interface</span></a> for the full architecture documentation and
+2026-08-13 audit of dispatch paths in <code class="docutils literal notranslate"><span class="pre">gptme/tools/</span></code>.</p>
 </section>
 <section id="combinations">
 <h3>Combinations<a class="headerlink" href="#combinations" title="Link to this heading">#</a></h3>
@@ -6812,6 +6838,7 @@ spawning subagents programmatically:</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced-workflows">⚡ Advanced Workflows</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#knowledge-planning">🧠 Knowledge &amp; Planning</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#extensions">🔌 Extensions</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-interface-architecture">Tool Interface Architecture</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#combinations">Combinations</a></li>
 </ul>
 </li>

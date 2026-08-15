@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>How to Debug Python &#8212; gptme</title>
+    <title>Design: Programmatic Tool Calling (PTC) Interface &#8212; gptme</title>
   
   
   
@@ -43,13 +43,13 @@
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/asciinema-player_3.12.1.js"></script>
     <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'howto/debug-python';</script>
-    <link rel="canonical" href="https://gptme.org/docs/howto/debug-python.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'design/ptc-tool-interface';</script>
+    <link rel="canonical" href="https://gptme.org/docs/design/ptc-tool-interface.html" />
     <link rel="icon" href="../_static/logo.png"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="How to Automate Tasks" href="automate-task.html" />
-    <link rel="prev" title="How to Review Code" href="code-review.html" />
+    <link rel="next" title="Alternatives" href="../alternatives.html" />
+    <link rel="prev" title="Design: Generalized Elicitation" href="elicitation.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   </head>
@@ -160,7 +160,7 @@
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="current nav bd-sidenav">
+<ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../system-dependencies.html">System Dependencies</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
@@ -171,16 +171,16 @@
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cookbook.html">Cookbook</a></li>
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">How-To Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="choose-workflow.html">Choose a workflow for your task</a></li>
-<li class="toctree-l2"><a class="reference internal" href="minimal-context.html">Run gptme with minimal context</a></li>
-<li class="toctree-l2"><a class="reference internal" href="edit-files.html">How to Edit Files</a></li>
-<li class="toctree-l2"><a class="reference internal" href="code-review.html">How to Review Code</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">How to Debug Python</a></li>
-<li class="toctree-l2"><a class="reference internal" href="automate-task.html">How to Automate Tasks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="refactor.html">How to Refactor Code</a></li>
-<li class="toctree-l2"><a class="reference internal" href="computer-use.html">How to Automate GUIs with Computer Use</a></li>
-<li class="toctree-l2"><a class="reference internal" href="tts-setup.html">Set Up Text-to-Speech</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../howto/index.html">How-To Guides</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../howto/choose-workflow.html">Choose a workflow for your task</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/minimal-context.html">Run gptme with minimal context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/edit-files.html">How to Edit Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/code-review.html">How to Review Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/debug-python.html">How to Debug Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/automate-task.html">How to Automate Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/refactor.html">How to Refactor Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/computer-use.html">How to Automate GUIs with Computer Use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/tts-setup.html">Set Up Text-to-Speech</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../tools.html">Tools</a></li>
@@ -228,10 +228,10 @@
 <li class="toctree-l1"><a class="reference internal" href="../finetuning.html">Finetuning</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
-<ul class="nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="../design/hook-based-confirmations.html">Design: Hook-Based Tool Confirmations</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../design/elicitation.html">Design: Generalized Elicitation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../design/ptc-tool-interface.html">Design: Programmatic Tool Calling (PTC) Interface</a></li>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="hook-based-confirmations.html">Design: Hook-Based Tool Confirmations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="elicitation.html">Design: Generalized Elicitation</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Design: Programmatic Tool Calling (PTC) Interface</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
 <ul class="nav bd-sidenav">
@@ -373,7 +373,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/howto/debug-python.md" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/design/ptc-tool-interface.md" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -403,7 +403,7 @@
       
       
       
-      <li><a href="../_sources/howto/debug-python.md" target="_blank"
+      <li><a href="../_sources/design/ptc-tool-interface.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -487,7 +487,7 @@ document.write(`
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>How to Debug Python</h1>
+    <h1>Design: Programmatic Tool Calling (PTC) Interface</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -497,14 +497,17 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fix-a-failing-test">Fix a failing test</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#debug-a-traceback">Debug a traceback</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reproduce-and-fix-a-bug-from-a-description">Reproduce and fix a bug from a description</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#trace-a-performance-issue">Trace a performance issue</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#add-debug-logging-and-re-run">Add debug logging and re-run</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#investigate-a-flaky-test">Investigate a flaky test</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fix-a-type-error-found-by-mypy">Fix a type error found by mypy</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tips">Tips</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#summary">Summary</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dispatch-paths">Dispatch Paths</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#primary-markdown-code-blocks-ptc">Primary: Markdown code blocks (PTC)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#secondary-xml-code-blocks">Secondary: XML code blocks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tertiary-tool-format-provider-native-tool-mode">Tertiary: “tool” format (provider-native tool mode)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-adapter">MCP adapter</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#audit-no-json-schema-dispatch-paths-in-gptme-tools">Audit: No JSON-Schema Dispatch Paths in <code class="docutils literal notranslate"><span class="pre">gptme/tools/</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#why-ptc-favours-long-context-context-rot-argument">Why PTC Favours Long Context (Context Rot Argument)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#references">References</a></li>
 </ul>
             </nav>
         </div>
@@ -516,62 +519,180 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="how-to-debug-python">
-<h1>How to Debug Python<a class="headerlink" href="#how-to-debug-python" title="Link to this heading">#</a></h1>
-<p>Use gptme to reproduce an error, trace through it, and apply a fix — without leaving the terminal.</p>
-<section id="fix-a-failing-test">
-<h2>Fix a failing test<a class="headerlink" href="#fix-a-failing-test" title="Link to this heading">#</a></h2>
-<p>Pass the test output and the relevant files:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>tests/test_api.py<span class="w"> </span>-x<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;fix the failing test&#39;</span><span class="w"> </span>src/api.py<span class="w"> </span>tests/test_api.py
+  <section id="design-programmatic-tool-calling-ptc-interface">
+<h1>Design: Programmatic Tool Calling (PTC) Interface<a class="headerlink" href="#design-programmatic-tool-calling-ptc-interface" title="Link to this heading">#</a></h1>
+<p><strong>Date</strong>: 2026-08-13
+<strong>Status</strong>: Stable — this documents the existing architecture</p>
+<section id="summary">
+<h2>Summary<a class="headerlink" href="#summary" title="Link to this heading">#</a></h2>
+<p>gptme’s primary tool interface is <strong>Programmatic Tool Calling (PTC)</strong>:
+the model outputs <em>executable code</em> in fenced code blocks, and gptme runs it
+directly via Python (IPython) or the shell. For the default <code class="docutils literal notranslate"><span class="pre">markdown</span></code> and <code class="docutils literal notranslate"><span class="pre">xml</span></code>
+formats, no JSON schemas are handed to the model and no JSON-structured tool-call
+responses are parsed.</p>
+<p>gptme also supports a <strong>provider-native tool mode</strong> (the <code class="docutils literal notranslate"><span class="pre">&quot;tool&quot;</span></code> format) for
+OpenAI and Anthropic APIs. In this mode, <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> parameters are converted to
+JSON-schema tool definitions and sent to the provider; the provider returns
+structured tool calls which gptme parses before dispatching to <code class="docutils literal notranslate"><span class="pre">ToolSpec.execute</span></code>.
+This path trades the context-rot resilience of PTC for compatibility with
+provider-side tool routing.</p>
+<p>This matters because gptme’s long-running autonomous sessions accumulate 50–200 tool
+calls in a single conversation. JSON-schema tool definitions are verbose and repetitive
+in context; accumulated provider-native tool history crowds out the actual task. PTC
+code blocks are shorter, more compositional, and less sensitive to context length.
+gptme’s markdown-first design is architecturally positioned to remain stable in the
+long-context regime where JSON-schema approaches are most likely to degrade.</p>
+</section>
+<hr class="docutils" />
+<section id="dispatch-paths">
+<h2>Dispatch Paths<a class="headerlink" href="#dispatch-paths" title="Link to this heading">#</a></h2>
+<section id="primary-markdown-code-blocks-ptc">
+<h3>Primary: Markdown code blocks (PTC)<a class="headerlink" href="#primary-markdown-code-blocks-ptc" title="Link to this heading">#</a></h3>
+<p>The default and primary tool format is <code class="docutils literal notranslate"><span class="pre">&quot;markdown&quot;</span></code>. The model writes:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>```python
+print(&quot;hello&quot;)
+```
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">-x</span></code> flag stops at the first failure so the output is focused.</p>
+<p>gptme parses the fenced code block, identifies the language tag as a tool name
+(<code class="docutils literal notranslate"><span class="pre">python</span></code>, <code class="docutils literal notranslate"><span class="pre">shell</span></code>, <code class="docutils literal notranslate"><span class="pre">save</span></code>, <code class="docutils literal notranslate"><span class="pre">patch</span></code>, …), and calls the registered <code class="docutils literal notranslate"><span class="pre">ToolSpec.execute</span></code>
+function with the block content as <code class="docutils literal notranslate"><span class="pre">code</span></code>. For <code class="docutils literal notranslate"><span class="pre">python</span></code>, this runs the code via
+IPython’s <code class="docutils literal notranslate"><span class="pre">run_cell()</span></code>; for <code class="docutils literal notranslate"><span class="pre">shell</span></code>, via <code class="docutils literal notranslate"><span class="pre">subprocess.Popen</span></code> with a stateful bash
+shell. <strong>There is no JSON parsing in this path.</strong> The content is code; it runs as
+code.</p>
 </section>
-<section id="debug-a-traceback">
-<h2>Debug a traceback<a class="headerlink" href="#debug-a-traceback" title="Link to this heading">#</a></h2>
-<p>Pipe the error and the source file:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>myapp.py<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;explain this traceback and fix the root cause&#39;</span><span class="w"> </span>myapp.py
+<section id="secondary-xml-code-blocks">
+<h3>Secondary: XML code blocks<a class="headerlink" href="#secondary-xml-code-blocks" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">&quot;xml&quot;</span></code> format wraps the same code in XML tags:</p>
+<div class="highlight-xml notranslate"><div class="highlight"><pre><span></span><span class="nt">&lt;tool-use&gt;</span>
+<span class="nt">&lt;python&gt;</span>
+print(&quot;hello&quot;)
+<span class="nt">&lt;/python&gt;</span>
+<span class="nt">&lt;/tool-use&gt;</span>
 </pre></div>
 </div>
+<p>Dispatch is identical — <code class="docutils literal notranslate"><span class="pre">tool.execute(content,</span> <span class="pre">args,</span> <span class="pre">kwargs)</span></code> — with the code block
+content passing straight through. Still PTC.</p>
 </section>
-<section id="reproduce-and-fix-a-bug-from-a-description">
-<h2>Reproduce and fix a bug from a description<a class="headerlink" href="#reproduce-and-fix-a-bug-from-a-description" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;users report that login fails when the username contains a space; reproduce the bug and fix it&#39;</span><span class="w"> </span>src/auth.py<span class="w"> </span>tests/test_auth.py
-</pre></div>
-</div>
-<p>gptme will write a failing test, run it, trace the error, and apply the fix.</p>
-</section>
-<section id="trace-a-performance-issue">
-<h2>Trace a performance issue<a class="headerlink" href="#trace-a-performance-issue" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>cProfile<span class="w"> </span>-s<span class="w"> </span>cumulative<span class="w"> </span>myapp.py<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;identify the bottleneck and suggest a fix&#39;</span><span class="w"> </span>myapp.py
-</pre></div>
-</div>
-</section>
-<section id="add-debug-logging-and-re-run">
-<h2>Add debug logging and re-run<a class="headerlink" href="#add-debug-logging-and-re-run" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;add temporary debug logging to trace the request path, run the failing test, then remove the logging&#39;</span><span class="w"> </span>src/handler.py
-</pre></div>
-</div>
-</section>
-<section id="investigate-a-flaky-test">
-<h2>Investigate a flaky test<a class="headerlink" href="#investigate-a-flaky-test" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;this test fails intermittently; find the source of flakiness and fix it&#39;</span><span class="w"> </span>tests/test_cache.py<span class="w"> </span>src/cache.py
-</pre></div>
-</div>
-<p>Useful pattern: tell gptme to run the test multiple times and look for patterns.</p>
-</section>
-<section id="fix-a-type-error-found-by-mypy">
-<h2>Fix a type error found by mypy<a class="headerlink" href="#fix-a-type-error-found-by-mypy" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mypy<span class="w"> </span>src/<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;fix all type errors&#39;</span><span class="w"> </span>src/
-</pre></div>
-</div>
-</section>
-<section id="tips">
-<h2>Tips<a class="headerlink" href="#tips" title="Link to this heading">#</a></h2>
+<section id="tertiary-tool-format-provider-native-tool-mode">
+<h3>Tertiary: “tool” format (provider-native tool mode)<a class="headerlink" href="#tertiary-tool-format-provider-native-tool-mode" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">&quot;tool&quot;</span></code> format (<code class="docutils literal notranslate"><span class="pre">&#64;name(id):</span> <span class="pre">{...}</span></code>) supports providers that expose a native
+tool-use API (e.g., OpenAI Responses API, Anthropic tool use).</p>
+<p><strong>This is the one path where JSON schemas are sent to the model and structured
+tool-call responses are parsed.</strong> The implementation spans two layers:</p>
 <ul class="simple">
-<li><p><strong>Run the test inside gptme</strong>: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'run</span> <span class="pre">the</span> <span class="pre">tests</span> <span class="pre">and</span> <span class="pre">fix</span> <span class="pre">failures'</span></code> lets it iterate without you copy-pasting output.</p></li>
-<li><p><strong>Include the full error</strong>: don’t truncate the traceback — the line numbers matter.</p></li>
-<li><p><strong>Chain the fix with a test</strong>: end with <code class="docutils literal notranslate"> <span class="pre">-</span> <span class="pre">'run</span> <span class="pre">the</span> <span class="pre">tests</span> <span class="pre">again</span> <span class="pre">and</span> <span class="pre">confirm</span> <span class="pre">they</span> <span class="pre">pass'</span></code> to close the loop.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">gptme/llm/</span></code></strong> (schema → provider): <code class="docutils literal notranslate"><span class="pre">_spec2tool</span></code> in <code class="docutils literal notranslate"><span class="pre">llm_openai.py</span></code> /
+<code class="docutils literal notranslate"><span class="pre">llm_anthropic.py</span></code> converts each <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code>’s <code class="docutils literal notranslate"><span class="pre">.parameters</span></code> to a JSON-schema
+tool definition and sends it to the provider alongside the conversation.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">gptme/tools/base.py</span></code></strong> (provider → dispatch): <code class="docutils literal notranslate"><span class="pre">ToolUse.iter_from_content</span></code>
+with <code class="docutils literal notranslate"><span class="pre">active_format</span> <span class="pre">==</span> <span class="pre">&quot;tool&quot;</span></code> parses the <code class="docutils literal notranslate"><span class="pre">&#64;name(id):</span> <span class="pre">{...}</span></code> response using
+<code class="docutils literal notranslate"><span class="pre">json_repair.loads</span></code>, extracts <code class="docutils literal notranslate"><span class="pre">kwargs</span></code>, and yields a <code class="docutils literal notranslate"><span class="pre">ToolUse</span></code> that then calls
+<code class="docutils literal notranslate"><span class="pre">ToolSpec.execute</span></code>.</p></li>
+</ul>
+<p>The <code class="docutils literal notranslate"><span class="pre">ToolSpec.execute</span></code> interface itself is code-based in all formats; the JSON
+layer is the serialisation envelope for provider-native calls, handled in
+<code class="docutils literal notranslate"><span class="pre">gptme/llm/</span></code> (outbound schemas) and <code class="docutils literal notranslate"><span class="pre">gptme/tools/base.py</span></code> (inbound argument
+parsing).</p>
+</section>
+<section id="mcp-adapter">
+<h3>MCP adapter<a class="headerlink" href="#mcp-adapter" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">gptme/tools/mcp_adapter.py</span></code> speaks the MCP protocol, which uses JSON Schema to
+describe external MCP server tools. This schema is used to <strong>generate human-readable
+instructions</strong> for the model (not to gate dispatch) and to validate MCP server
+responses. gptme’s own tools are never dispatched via JSON schema.</p>
+</section>
+</section>
+<hr class="docutils" />
+<section id="audit-no-json-schema-dispatch-paths-in-gptme-tools">
+<h2>Audit: No JSON-Schema Dispatch Paths in <code class="docutils literal notranslate"><span class="pre">gptme/tools/</span></code><a class="headerlink" href="#audit-no-json-schema-dispatch-paths-in-gptme-tools" title="Link to this heading">#</a></h2>
+<p>Audit run 2026-08-13, commit range: <code class="docutils literal notranslate"><span class="pre">origin/master</span></code>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>grep<span class="w"> </span>-r<span class="w"> </span><span class="s2">&quot;json\|schema\|Json\|Schema&quot;</span><span class="w"> </span>gptme/tools/<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--include<span class="o">=</span><span class="s2">&quot;*.py&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-v<span class="w"> </span>__pycache__<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-v<span class="w"> </span><span class="nb">test</span>
+</pre></div>
+</div>
+<p><strong>Findings by file</strong>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>File</p></th>
+<th class="head"><p>JSON usage</p></th>
+<th class="head"><p>Dispatch path?</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">base.py</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">_to_json</span></code>/<code class="docutils literal notranslate"><span class="pre">_to_params</span></code> serialisation + <code class="docutils literal notranslate"><span class="pre">ToolUse.iter_from_content</span></code> “tool”-format JSON parser (<code class="docutils literal notranslate"><span class="pre">json_repair.loads</span></code>)</p></td>
+<td><p>⚠️ Part of provider-native path — parses <code class="docutils literal notranslate"><span class="pre">&#64;name(id):</span> <span class="pre">{...}</span></code> responses</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mcp_adapter.py</span></code></p></td>
+<td><p>MCP protocol JSON schema for external server tools</p></td>
+<td><p>❌ Not gptme tool dispatch</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">patch_anchored.py</span></code></p></td>
+<td><p>JSON array of edit operations (tool’s own content format)</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vent.py</span></code></p></td>
+<td><p>JSONL output to friction ledger</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">progress.py</span></code></p></td>
+<td><p>JSONL output to progress log</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">shell.py</span></code></p></td>
+<td><p>context-savings JSONL log</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">restart.py</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--output-schema</span></code> CLI flag for structured subagent output</p></td>
+<td><p>❌ Not tool dispatch</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Verdict</strong>: Two distinct things are worth separating here:</p>
+<ol class="arabic simple">
+<li><p><strong>Schema-definition dispatch</strong> (using a JSON schema to <em>select</em> which tool to invoke):
+never occurs in any path. The <code class="docutils literal notranslate"><span class="pre">&#64;name(id):</span> <span class="pre">{...}</span></code> format in the provider-native path
+names the tool directly; the schema is only sent <em>outbound</em> to the provider to help
+it structure its response, not used inbound to route calls.</p></li>
+<li><p><strong>JSON argument parsing after tool selection</strong>: <code class="docutils literal notranslate"><span class="pre">base.py</span></code> <strong>does</strong> parse JSON from
+provider responses via <code class="docutils literal notranslate"><span class="pre">ToolUse.iter_from_content</span></code> with <code class="docutils literal notranslate"><span class="pre">active_format</span> <span class="pre">==</span> <span class="pre">&quot;tool&quot;</span></code>.
+This <code class="docutils literal notranslate"><span class="pre">json_repair.loads</span></code> call is the trust boundary for untrusted provider data —
+<strong>security reviewers should treat this as in-scope</strong> even though it is not schema-guided
+dispatch.</p></li>
+</ol>
+<p>For markdown and XML formats, <code class="docutils literal notranslate"><span class="pre">ToolSpec.execute(code,</span> <span class="pre">args,</span> <span class="pre">kwargs)</span></code> receives raw code block
+content with no JSON parsing at any layer. The ⚠️ on <code class="docutils literal notranslate"><span class="pre">base.py</span></code> above applies only to the
+<code class="docutils literal notranslate"><span class="pre">&quot;tool&quot;</span></code> format (provider-native mode); the outbound schema half lives in <code class="docutils literal notranslate"><span class="pre">gptme/llm/</span></code>.</p>
+</section>
+<hr class="docutils" />
+<section id="why-ptc-favours-long-context-context-rot-argument">
+<h2>Why PTC Favours Long Context (Context Rot Argument)<a class="headerlink" href="#why-ptc-favours-long-context-context-rot-argument" title="Link to this heading">#</a></h2>
+<p>JSON-schema tool calling sends the full parameter schema for every available tool on
+every turn. In a long autonomous session this adds significant token overhead that
+repeats with every message. PTC code blocks carry no per-turn schema payload: the
+model writes code, gptme runs it — the only context each block occupies is the code
+itself.</p>
+<p>The concern compounds under <strong>context rot</strong>: when prior tool-call history accumulates
+(50–200 entries in a typical autonomous run), JSON-schema responses grow proportionally
+because each prior turn’s structured <code class="docutils literal notranslate"><span class="pre">tool_call</span></code> / <code class="docutils literal notranslate"><span class="pre">tool_result</span></code> pair is preserved in
+the conversation. PTC history is just markdown code blocks and their output — shorter,
+compositional, and no more repetitive than the code itself.</p>
+<p><strong>Reasoning</strong>: gptme’s long-running autonomous sessions sit in the regime most
+sensitive to this effect. The markdown-first PTC interface avoids the per-turn schema
+overhead and the structured-call repetition that makes long JSON-schema contexts
+harder for models to attend through.</p>
+</section>
+<hr class="docutils" />
+<section id="references">
+<h2>References<a class="headerlink" href="#references" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme/tools/base.py</span></code> — <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code>, <code class="docutils literal notranslate"><span class="pre">ToolUse</span></code>, dispatch paths, <code class="docutils literal notranslate"><span class="pre">ToolFormat</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme/tools/python.py</span></code> — IPython execution backend</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme/tools/shell.py</span></code> — subprocess bash execution backend</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme/tools/mcp_adapter.py</span></code> — MCP protocol bridge (external tool JSON schema)</p></li>
+<li><p>Issue <a class="reference external" href="https://github.com/gptme/gptme/issues/3540">#3540</a> — audit request</p></li>
 </ul>
 </section>
 </section>
@@ -588,20 +709,20 @@ document.write(`
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="code-review.html"
+       href="elicitation.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">How to Review Code</p>
+        <p class="prev-next-title">Design: Generalized Elicitation</p>
       </div>
     </a>
     <a class="right-next"
-       href="automate-task.html"
+       href="../alternatives.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">How to Automate Tasks</p>
+        <p class="prev-next-title">Alternatives</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -621,14 +742,17 @@ document.write(`
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fix-a-failing-test">Fix a failing test</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#debug-a-traceback">Debug a traceback</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reproduce-and-fix-a-bug-from-a-description">Reproduce and fix a bug from a description</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#trace-a-performance-issue">Trace a performance issue</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#add-debug-logging-and-re-run">Add debug logging and re-run</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#investigate-a-flaky-test">Investigate a flaky test</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fix-a-type-error-found-by-mypy">Fix a type error found by mypy</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tips">Tips</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#summary">Summary</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dispatch-paths">Dispatch Paths</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#primary-markdown-code-blocks-ptc">Primary: Markdown code blocks (PTC)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#secondary-xml-code-blocks">Secondary: XML code blocks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tertiary-tool-format-provider-native-tool-mode">Tertiary: “tool” format (provider-native tool mode)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-adapter">MCP adapter</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#audit-no-json-schema-dispatch-paths-in-gptme-tools">Audit: No JSON-Schema Dispatch Paths in <code class="docutils literal notranslate"><span class="pre">gptme/tools/</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#why-ptc-favours-long-context-context-rot-argument">Why PTC Favours Long Context (Context Rot Argument)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#references">References</a></li>
 </ul>
   </nav></div>
 

@@ -231,6 +231,7 @@
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="design/hook-based-confirmations.html">Design: Hook-Based Tool Confirmations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="design/elicitation.html">Design: Generalized Elicitation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design/ptc-tool-interface.html">Design: Programmatic Tool Calling (PTC) Interface</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
 <ul class="current nav bd-sidenav">
@@ -544,20 +545,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     108723 | gptme.cli.main
-     113727 |           gptme.tools
-     129470 |         gptme.config.cli_setup
-     155904 |       gptme.config
-     161142 |     gptme.llm
-     197369 |     playwright.sync_api._generated
-     206645 |   playwright.sync_api
-     216097 |   gptme.commands
-     219404 | gptme.tools._browser_playwright
-     279878 | gptme.chat
+      84799 | gptme.cli.main
+      88640 |           gptme.tools
+     100507 |         gptme.config.cli_setup
+     120840 |       gptme.config
+     124813 |     gptme.llm
+     156444 |     playwright.sync_api._generated
+     163455 |   playwright.sync_api
+     166902 |   gptme.commands
+     173109 | gptme.tools._browser_playwright
+     219062 | gptme.chat
 
-real	0m1.580s
-user	0m1.321s
-sys	0m0.193s
+real	0m1.303s
+user	0m1.066s
+sys	0m0.147s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -565,23 +566,23 @@ make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     144.4 ms ±  13.8 ms    [User: 122.8 ms, System: 21.5 ms]
-  Range (min … max):   135.8 ms … 182.5 ms    10 runs
+  Time (mean ± σ):     113.0 ms ±   5.7 ms    [User: 94.4 ms, System: 18.5 ms]
+  Range (min … max):   107.8 ms … 128.2 ms    10 runs
+ 
+Benchmark 2: gptme --help
+  Time (mean ± σ):     443.3 ms ±   5.3 ms    [User: 390.9 ms, System: 52.3 ms]
+  Range (min … max):   434.4 ms … 453.0 ms    10 runs
+ 
+Benchmark 3: full start/exit cycle
+  Time (mean ± σ):     873.6 ms ±  87.5 ms    [User: 630.9 ms, System: 494.1 ms]
+  Range (min … max):   811.0 ms … 1084.7 ms    10 runs
  
   Warning: Statistical outliers were detected. Consider re-running this benchmark on a quiet system without any interferences from other programs. It might help to use the &#39;--warmup&#39; or &#39;--prepare&#39; options.
  
-Benchmark 2: gptme --help
-  Time (mean ± σ):     535.5 ms ±   5.4 ms    [User: 466.0 ms, System: 69.2 ms]
-  Range (min … max):   528.6 ms … 542.6 ms    10 runs
- 
-Benchmark 3: full start/exit cycle
-  Time (mean ± σ):     992.1 ms ±   9.6 ms    [User: 741.6 ms, System: 606.8 ms]
-  Range (min … max):   976.0 ms … 1009.5 ms    10 runs
- 
 Summary
   import gptme.cli.main ran
-    3.71 ± 0.36 times faster than gptme --help
-    6.87 ± 0.66 times faster than full start/exit cycle
+    3.92 ± 0.20 times faster than gptme --help
+    7.73 ± 0.87 times faster than full start/exit cycle
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -3094,7 +3095,7 @@ Clone found (python)
 │ Total:     │ 477            │ 174346      │ 816234       │ 167          │ 2019 (1.16%)     │ 11614 (1.42%)     │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 167 clones.
-time: 357.373ms
+time: 325.831ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>

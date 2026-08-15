@@ -55,6 +55,7 @@
 - [Finetuning](https://gptme.org/docs/_sources/finetuning.md)
 - [Design: Hook-Based Tool Confirmations](https://gptme.org/docs/_sources/design/hook-based-confirmations.md)
 - [Design: Generalized Elicitation](https://gptme.org/docs/_sources/design/elicitation.md)
+- [Design: Programmatic Tool Calling (PTC) Interface](https://gptme.org/docs/_sources/design/ptc-tool-interface.md)
 - [Alternatives](https://gptme.org/docs/_sources/alternatives.rst)
 - [Are we tiny?](https://gptme.org/docs/_sources/arewetiny.rst)
 - [What does “gptme” stand for?](https://gptme.org/docs/_sources/misc/acronyms.md)
