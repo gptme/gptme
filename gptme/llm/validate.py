@@ -11,6 +11,7 @@ PROVIDER_DOCS: dict[str, str] = {
     "openai": "https://platform.openai.com/account/api-keys",
     "anthropic": "https://console.anthropic.com/settings/keys",
     "openrouter": "https://openrouter.ai/settings/keys",
+    "trustedrouter": "https://trustedrouter.com/keys",
     "gemini": "https://aistudio.google.com/app/apikey",
     "google": "https://aistudio.google.com/app/apikey",  # alias for gemini
     "groq": "https://console.groq.com/keys",

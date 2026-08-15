@@ -521,6 +521,41 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     },
     "nvidia": {},
     "azure": {},
+    # TrustedRouter — OpenAI-compatible LLM router, namespaced model ids.
+    # Model keys are the full path after "trustedrouter/". Keys beginning
+    # "trustedrouter/" are routing policies rather than single models: each picks
+    # an upstream per request and fails over. Prices are the blended rate the
+    # router bills for that policy, so they are averages rather than one model's.
+    "trustedrouter": {
+        "trustedrouter/auto": {
+            "context": 200_000,
+            "price_input": 0.084,
+            "price_output": 0.189,
+            "supports_vision": False,
+            "preferred_edit_format": "whole",
+        },
+        "trustedrouter/zdr": {
+            "context": 200_000,
+            "price_input": 0.0389,
+            "price_output": 0.1575,
+            "supports_vision": False,
+            "preferred_edit_format": "whole",
+        },
+        "anthropic/claude-opus-4-7": {
+            "context": 1_000_000,
+            "price_input": 5.25,
+            "price_output": 26.25,
+            "supports_vision": True,
+            "preferred_edit_format": "whole",
+        },
+        "openai/gpt-5.4-mini": {
+            "context": 400_000,
+            "price_input": 0.7875,
+            "price_output": 4.725,
+            "supports_vision": True,
+            "preferred_edit_format": "whole",
+        },
+    },
     # Requesty — OpenAI-compatible LLM gateway, provider/model naming.
     # Model keys use the full sub-provider/model path (everything after "requesty/").
     "requesty": {
