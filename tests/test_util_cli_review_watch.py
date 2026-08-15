@@ -1100,6 +1100,159 @@ def test_filter_findings_forged_body_rejected(monkeypatch):
     assert len(result) == 0, "Forged finding body must be rejected"
 
 
+def test_filter_findings_forged_file_rejected(monkeypatch):
+    """A finding that replays a genuine trusted body + comment ID but points at a
+    different file must be rejected (prevents location forgery)."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="Real review comment",
+            file="src/evil.py",
+            line=42,
+            reviewer="ErikBjare",
+            github_comment_id=12345,
+        ),
+    ]
+
+    # API confirms ErikBjare authored comment 12345 with a matching body, but the
+    # comment is an inline comment on a *different* file.
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/12345" in " ".join(args):
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "Real review comment",
+                "path": "src/real.py",
+                "original_line": 42,
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+    )
+    assert len(result) == 0, "Forged file target must be rejected"
+
+
+def test_filter_findings_forged_line_rejected(monkeypatch):
+    """A finding that replays a genuine trusted body + comment ID but points at a
+    different line on the same file must be rejected (prevents location forgery)."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="Real review comment",
+            file="src/real.py",
+            line=99,
+            reviewer="ErikBjare",
+            github_comment_id=12345,
+        ),
+    ]
+
+    # API confirms matching body + file, but the comment is on a different line.
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/12345" in " ".join(args):
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "Real review comment",
+                "path": "src/real.py",
+                "original_line": 42,
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+    )
+    assert len(result) == 0, "Forged line target must be rejected"
+
+
+def test_filter_findings_matching_file_and_line_accepted(monkeypatch):
+    """A finding whose reviewer, body, file, and line all match the inline comment
+    is accepted."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="Real review comment",
+            file="src/real.py",
+            line=42,
+            reviewer="ErikBjare",
+            github_comment_id=12345,
+        ),
+    ]
+
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/12345" in " ".join(args):
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "Real review comment",
+                "path": "src/real.py",
+                "original_line": 42,
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+    )
+    assert len(result) == 1, "Fully-matching finding (file + line) must be accepted"
+
+
+def test_filter_findings_conversation_comment_with_file_target_rejected(monkeypatch):
+    """A file-targeted finding backed by a conversation (issue) comment must be
+    rejected: conversation comments carry no code location, so they cannot
+    authenticate a file/line target."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="PR-level conversation comment",
+            file="src/real.py",
+            line=42,
+            reviewer="ErikBjare",
+            github_comment_id=55555,
+        ),
+    ]
+
+    def fake_run_gh_json(args, **kwargs):
+        joined = " ".join(args)
+        if "pulls/comments/55555" in joined:
+            return None
+        if "issues/comments/55555" in joined:
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "PR-level conversation comment",
+                "issue_url": "https://api.github.com/repos/owner/repo/issues/1",
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+        pr_number=1,
+    )
+    assert len(result) == 0, (
+        "Conversation comment cannot authenticate a file-targeted finding"
+    )
+
+
 def test_filter_findings_missing_comment_id_rejected(monkeypatch):
     """When trusted-reviewer filtering is enabled, findings without a
     github_comment_id must be rejected (fail-closed) to prevent forged findings

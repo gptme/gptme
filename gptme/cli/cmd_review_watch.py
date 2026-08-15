@@ -303,6 +303,8 @@ def _verify_comment_reviewer(
     expected_reviewer: str,
     expected_body: str = "",
     target_pr_number: int | None = None,
+    expected_file: str = "",
+    expected_line: int | None = None,
 ) -> tuple[bool, str]:
     """Verify a PR review comment belongs to the claimed reviewer and has matching body.
 
@@ -310,14 +312,17 @@ def _verify_comment_reviewer(
     1. ``user.login`` case-insensitively (using casefold for proper Unicode handling)
     2. Comment body matches the artifact finding body exactly (if provided)
     3. If target_pr_number is provided, verifies the comment is on that specific PR
+    4. If expected_file is provided, verifies the comment is an inline review
+       comment on that same file (and same line when expected_line is given) so
+       a genuine trusted body cannot be replayed against a forged code location
 
     Tries the inline review-comment endpoint first (``pulls/comments``); falls
     back to the issue-comment endpoint (``issues/comments``) for PR-level
     conversation comments, which live in a separate ID space.
 
-    Returns (verified, body) where verified is True only if login matches and
-    body is authentic. When verification fails, body is empty string.
-    Fails closed on network errors or mismatches.
+    Returns (verified, body) where verified is True only if login, body, and
+    (when requested) file/line location are authentic. When verification fails,
+    body is empty string. Fails closed on network errors or mismatches.
     """
     # Try inline review comment endpoint first.
     data = run_gh_json(
@@ -400,6 +405,55 @@ def _verify_comment_reviewer(
             )
             return False, ""
 
+    # Verify the finding's file/line target matches the comment's code location.
+    # A file-targeted finding is only authentic when the backing comment is an
+    # inline review comment (attached to a diff line) on that same file — and
+    # same line, when the finding specifies one. Without this, an attacker can
+    # replay a genuine trusted body + comment ID but redirect the fix session at
+    # attacker-chosen code (see gptme/gptme#3451 threat model).
+    if expected_file:
+        if is_issue_comment:
+            # Conversation (issue) comments are not attached to a diff line, so
+            # they carry no file/line location and cannot authenticate a
+            # file-targeted finding. Reject fail-closed.
+            logger.warning(
+                "GitHub comment %d is a conversation comment with no code "
+                "location; cannot authenticate finding targeting '%s'; rejecting.",
+                comment_id,
+                expected_file,
+            )
+            return False, ""
+
+        comment_path = data.get("path", "")
+        if comment_path != expected_file:
+            logger.warning(
+                "GitHub comment %d file mismatch: artifact targets '%s', "
+                "comment is on '%s'; rejecting finding (prevents location forgery).",
+                comment_id,
+                expected_file,
+                comment_path,
+            )
+            return False, ""
+
+        if expected_line is not None:
+            # Inline review comments carry both ``line`` (current diff position)
+            # and ``original_line`` (position in the original file). The finding's
+            # ``line`` maps to ``original_line`` when round-tripped via
+            # ``ReviewFinding.from_github_comment``, so compare against that
+            # first and fall back to ``line`` for comments lacking it.
+            comment_line = data.get("original_line") or data.get("line")
+            if comment_line != expected_line:
+                logger.warning(
+                    "GitHub comment %d line mismatch: artifact targets line %s "
+                    "on '%s', comment is on line %s; rejecting finding (prevents "
+                    "location forgery).",
+                    comment_id,
+                    expected_line,
+                    expected_file,
+                    comment_line,
+                )
+                return False, ""
+
     return True, comment_body
 
 
@@ -422,9 +476,9 @@ def _filter_findings_by_trusted_reviewers(
     When ``trusted_reviewers`` is enabled, all findings MUST carry a
     ``github_comment_id`` to be verifiable against the GitHub API.  This
     prevents forged artifacts from injecting attacker-controlled findings.
-    The reviewer field and finding body are cross-checked against GitHub
-    before the finding is accepted.  Findings that fail API verification or
-    lack a ``github_comment_id`` are rejected (fail-closed).
+    The reviewer field, finding body, and file/line target are cross-checked
+    against GitHub before the finding is accepted.  Findings that fail API
+    verification or lack a ``github_comment_id`` are rejected (fail-closed).
 
     When ``pr_number`` is provided, verified comments are checked to ensure
     they are on the target PR (prevents cross-PR comment injection).
@@ -468,6 +522,8 @@ def _filter_findings_by_trusted_reviewers(
                 expected_reviewer=f.reviewer,
                 expected_body=f.body,  # Verify the finding body matches the comment
                 target_pr_number=pr_number,  # Verify comment is on target PR
+                expected_file=f.file,  # Verify finding's file target matches comment
+                expected_line=f.line,  # Verify finding's line target matches comment
             )
             if not verified:
                 continue
