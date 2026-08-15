@@ -19,12 +19,8 @@ src-tauri/icons/icon.png:
 	cd ../webui && npm i && npm run build
 
 gptme-server-build:
-	@if [ ! -f bins/gptme-server-$$(rustc -Vv | grep host | cut -f2 -d' ') ]; then \
-		echo "Building gptme-server sidecar..."; \
-		./scripts/build-sidecar.sh; \
-	else \
-		echo "gptme-server sidecar already exists, skipping"; \
-	fi
+	@echo "Ensuring gptme-server sidecar is current..."
+	./scripts/build-sidecar.sh
 
 prebuild: ../webui/dist src-tauri/icons/icon.png
 	@$(MAKE) gptme-server-build

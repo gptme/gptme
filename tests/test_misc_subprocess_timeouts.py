@@ -77,6 +77,45 @@ class TestVersionTimeouts:
             result = get_git_version("/tmp")
             assert result is None
 
+    def test_not_a_directory_returns_none(self):
+        """PyInstaller onefile __file__ looks like exe\\gptme; cwd is not a directory."""
+        with patch.object(
+            _version_mod.subprocess,
+            "call",
+            side_effect=NotADirectoryError(
+                "[WinError 267] The directory name is invalid"
+            ),
+        ):
+            from gptme.__version__ import get_git_version
+
+            result = get_git_version(r"C:\App\gptme-server.exe\gptme")
+            assert result is None
+
+    def test_frozen_skips_git_subprocess(self):
+        """Bundled sidecar must not spawn git against a fake package path."""
+        with (
+            patch.object(_version_mod.sys, "frozen", True, create=True),
+            patch.object(_version_mod.subprocess, "call") as mock_call,
+        ):
+            from gptme.__version__ import get_git_version
+
+            result = get_git_version("/tmp")
+            assert result is None
+            mock_call.assert_not_called()
+
+    def test_version_access_never_raises(self):
+        """Importing __version__ must not crash gptme-server create_app."""
+        _version_mod._cached_version = None
+        _version_mod.__dict__.pop("__version__", None)
+        with patch.object(
+            _version_mod.importlib.metadata,
+            "version",
+            side_effect=RuntimeError("metadata exploded"),
+        ):
+            result = _version_mod.__getattr__("__version__")
+        assert isinstance(result, str)
+        assert result
+
 
 # ── dirs.py ──────────────────────────────────────────────────────────
 

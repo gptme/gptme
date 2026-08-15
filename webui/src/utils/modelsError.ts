@@ -9,6 +9,7 @@
  * `{"error":"Missing authentication credentials"}`).
  */
 import { isDemoMode } from '@/utils/connectionConfig';
+import { messageFromApiErrorBody } from '@/utils/errors';
 
 export async function buildModelsFetchError(response: Response): Promise<Error> {
   if (isDemoMode()) {
@@ -16,9 +17,10 @@ export async function buildModelsFetchError(response: Response): Promise<Error> 
   }
   let detail = response.statusText;
   try {
-    const body = await response.clone().json();
-    if (body && typeof body.error === 'string' && body.error) {
-      detail = body.error;
+    const body: unknown = await response.clone().json();
+    const fromBody = messageFromApiErrorBody(body, '');
+    if (fromBody) {
+      detail = fromBody;
     }
   } catch {
     // Body is not JSON or already consumed; fall back to statusText.

@@ -38,6 +38,17 @@ describe('buildModelsFetchError', () => {
     expect(err.message).toBe('Failed to fetch models: 401 Missing authentication credentials');
   });
 
+  it('surfaces nested provider error objects instead of [object Object]', async () => {
+    const err = await buildModelsFetchError(
+      mockResponse({
+        status: 502,
+        statusText: '',
+        jsonBody: { error: { message: 'Cannot retrieve provider settings' } },
+      })
+    );
+    expect(err.message).toBe('Failed to fetch models: 502 Cannot retrieve provider settings');
+  });
+
   it('falls back to statusText when the body has no error field', async () => {
     const err = await buildModelsFetchError(
       mockResponse({ status: 500, statusText: 'Internal Server Error', jsonBody: {} })

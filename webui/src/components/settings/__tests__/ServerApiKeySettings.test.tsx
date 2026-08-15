@@ -145,4 +145,23 @@ describe('ServerApiKeySettings', () => {
       screen.getByText('Configured via config.local.toml (ANTHROPIC_API_KEY)')
     ).toBeInTheDocument();
   });
+
+  it('toasts nested API error objects instead of [object Object]', async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: { message: 'Cannot retrieve provider settings' } }),
+    });
+
+    render(<ServerApiKeySettings />);
+
+    fireEvent.change(screen.getByLabelText(/api key/i), {
+      target: { value: 'sk-or-test-key' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save api key/i }));
+
+    await waitFor(() => {
+      expect(mockError).toHaveBeenCalledWith('Cannot retrieve provider settings');
+    });
+    expect(mockError).not.toHaveBeenCalledWith('[object Object]');
+  });
 });

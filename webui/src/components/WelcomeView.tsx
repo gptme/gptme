@@ -26,6 +26,7 @@ import { isLikelyChromeCorsPna } from '@/utils/api';
 import { isDemoMode } from '@/utils/connectionConfig';
 import { appRoute, chatRoute } from '@/utils/routes';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
+import { formatUnknownError } from '@/utils/errors';
 import { useTauriServerStatus } from '@/hooks/useTauriServerStatus';
 
 const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://localhost:5700']);
@@ -156,7 +157,7 @@ export const WelcomeView = () => {
     try {
       await invokeTauri('start_server');
     } catch (error) {
-      const msg = String(error);
+      const msg = formatUnknownError(error, 'Failed to start the server');
       if (!msg.includes('already running')) {
         toast.error('Failed to start the server. Please restart the app.');
         setIsRestartingServer(false);

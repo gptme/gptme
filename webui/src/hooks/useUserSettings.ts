@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { use$ } from '@legendapp/state/react';
 import { useApi } from '@/contexts/ApiContext';
 import { isDemoMode } from '@/utils/connectionConfig';
+import { formatUnknownError } from '@/utils/errors';
 
 export type UserSettingSource = 'env' | 'config.local.toml' | 'config.toml' | 'oauth';
 
@@ -83,7 +84,7 @@ export function useUserSettings() {
         setIsLoading(false);
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
-        setError(err instanceof Error ? err.message : 'Failed to fetch user settings');
+        setError(formatUnknownError(err, 'Failed to fetch user settings'));
         setSettings(null);
         setIsLoading(false);
       }

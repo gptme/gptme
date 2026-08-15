@@ -1,14 +1,22 @@
 import importlib.metadata
 import os.path
 import subprocess
+import sys
 
 from .util.git_cmd import GIT_CMD
 
 _cached_version: str | None = None
 
 
+def _is_frozen() -> bool:
+    """True inside PyInstaller/cx_Freeze binaries (the Tauri gptme-server sidecar)."""
+    return bool(getattr(sys, "frozen", False))
+
+
 def get_git_version(package_dir):
     """Get version information from git."""
+    if _is_frozen():
+        return None
     try:
 
         def git_cmd(cmd):
@@ -39,8 +47,12 @@ def get_git_version(package_dir):
     except (
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
-        FileNotFoundError,
+        OSError,
     ):
+        # OSError covers FileNotFoundError and NotADirectoryError. The latter is
+        # raised on Windows when PyInstaller onefile sets __file__ to
+        # `gptme-server.exe\gptme\...` — that path is not a real directory, and
+        # using it as subprocess cwd used to crash gptme-server at import.
         pass
     return None
 
@@ -49,6 +61,10 @@ def _compute_version() -> str:
     """Compute version string. Called lazily on first access of __version__."""
     try:
         version = importlib.metadata.version("gptme")
+        if _is_frozen():
+            # Frozen sidecars are not git checkouts. Never spawn git against the
+            # fake `__file__` path inside the bundled executable.
+            return version
         git_hash = None
 
         # Method 1: Check direct_url.json (for pip installs from git)
@@ -106,7 +122,12 @@ def __getattr__(name: str):
     if name == "__version__":
         global _cached_version
         if _cached_version is None:
-            _cached_version = _compute_version()
+            try:
+                _cached_version = _compute_version()
+            except Exception:
+                # Version is displayed in /api/v2 and A2A metadata. It must never
+                # take down gptme-server (Tauri create_app imports this module).
+                _cached_version = "0.0.0 (unknown)"
         globals()["__version__"] = _cached_version
         return _cached_version
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

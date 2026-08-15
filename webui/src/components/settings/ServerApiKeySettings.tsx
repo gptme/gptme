@@ -10,6 +10,7 @@ import {
   API_KEY_PROVIDER_OPTIONS,
   type ApiKeyProvider,
 } from '@/utils/apiKeyProviders';
+import { formatUnknownError, messageFromApiErrorBody } from '@/utils/errors';
 import { toast } from 'sonner';
 
 type SaveApiKeyResponse = {
@@ -83,16 +84,14 @@ export function ServerApiKeySettings() {
         }),
       });
 
-      let data: SaveApiKeyResponse | { error?: string } | null = null;
+      let data: SaveApiKeyResponse | unknown = null;
       try {
-        data = (await response.json()) as SaveApiKeyResponse | { error?: string };
+        data = await response.json();
       } catch {
         data = null;
       }
       if (!response.ok) {
-        throw new Error(
-          data && 'error' in data && data.error ? data.error : 'Failed to save API key'
-        );
+        throw new Error(messageFromApiErrorBody(data, 'Failed to save API key'));
       }
 
       const result = data as SaveApiKeyResponse | null;
@@ -104,7 +103,7 @@ export function ServerApiKeySettings() {
           : 'API key saved. Restart the server to apply it.'
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save API key');
+      toast.error(formatUnknownError(error, 'Failed to save API key'));
     } finally {
       setIsSaving(false);
     }

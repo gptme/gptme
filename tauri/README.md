@@ -41,7 +41,8 @@ make dev
 From the **repo root**:
 
 ```bash
-# Build the sidecar (requires uv + pyinstaller)
+# Build the sidecar (requires uv + pyinstaller). Rebuilds automatically when
+# gptme Python sources are newer than the existing binary.
 make tauri-build-sidecar
 
 # Build the app

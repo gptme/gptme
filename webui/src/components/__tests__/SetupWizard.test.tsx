@@ -1219,4 +1219,139 @@ describe('SetupWizard', () => {
     expect(mockInvokeTauri).not.toHaveBeenCalledWith('stop_server');
     expect(mockInvokeTauri).not.toHaveBeenCalledWith('start_server');
   });
+
+  it('surfaces nested API error objects instead of [object Object]', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5700,
+        port_available: false,
+        manages_local_server: true,
+      },
+    });
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: [
+            {
+              id: 'openrouter/openai/gpt-4.1',
+              provider: 'openrouter',
+              model: 'openai/gpt-4.1',
+            },
+          ],
+          recommended: ['openrouter/openai/gpt-4.1'],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        json: async () => ({ error: { message: 'Cannot retrieve provider settings' } }),
+      });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'openrouter' } });
+    fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: 'sk-or-test-key' } });
+    fireEvent.click(screen.getByRole('button', { name: /save and restart server/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Cannot retrieve provider settings')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('[object Object]')).not.toBeInTheDocument();
+  });
+
+  it('surfaces Tauri invoke object errors instead of [object Object]', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5700,
+        port_available: false,
+        manages_local_server: true,
+      },
+    });
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: [
+            {
+              id: 'openrouter/openai/gpt-4.1',
+              provider: 'openrouter',
+              model: 'openai/gpt-4.1',
+            },
+          ],
+          recommended: ['openrouter/openai/gpt-4.1'],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: 'ok', env_var: 'OPENROUTER_API_KEY' }),
+      });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+    mockInvokeTauri.mockImplementation(async (cmd: string) => {
+      if (cmd === 'start_server') {
+        throw { message: 'Sidecar error: Failed to execute script' };
+      }
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'openrouter' } });
+    fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: 'sk-or-test-key' } });
+    fireEvent.click(screen.getByRole('button', { name: /save and restart server/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Sidecar error: Failed to execute script')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('[object Object]')).not.toBeInTheDocument();
+  });
 });

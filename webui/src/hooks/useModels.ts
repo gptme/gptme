@@ -3,6 +3,7 @@ import { use$ } from '@legendapp/state/react';
 import { useApi } from '@/contexts/ApiContext';
 import { buildModelsFetchError } from '@/utils/modelsError';
 import { isDemoMode } from '@/utils/connectionConfig';
+import { formatUnknownError } from '@/utils/errors';
 
 export interface ModelInfo {
   id: string;
@@ -80,7 +81,7 @@ export function useModels() {
         setFavoritesState(data.favorites || []);
       } catch (err) {
         console.error('Failed to fetch models:', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch models');
+        setError(formatUnknownError(err, 'Failed to fetch models'));
         setModels([]);
         setDefaultModel(null);
         setRecommendedModels([]);

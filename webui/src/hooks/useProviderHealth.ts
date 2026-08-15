@@ -4,6 +4,7 @@ import { useApi } from '@/contexts/ApiContext';
 import { providerHealth$ } from '@/stores/providerHealth';
 import type { ProviderHealthResponse } from '@/stores/providerHealth';
 import { isDemoMode } from '@/utils/connectionConfig';
+import { formatUnknownError } from '@/utils/errors';
 
 export const POLL_INTERVAL_MS = 30_000;
 
@@ -44,14 +45,20 @@ export function useProviderHealth(poll = false) {
           return;
         }
         if (!response.ok) {
-          throw new Error(`Failed to fetch provider health: ${response.statusText}`);
+          let detail = response.statusText;
+          try {
+            const body: unknown = await response.json();
+            detail = formatUnknownError(body, detail);
+          } catch {
+            // Body is not JSON; keep statusText.
+          }
+          const suffix = detail ? `: ${detail}` : ` (${response.status})`;
+          throw new Error(`Failed to fetch provider health${suffix}`);
         }
         const data = (await response.json()) as ProviderHealthResponse;
         providerHealth$.data.set(data);
       } catch (err) {
-        providerHealth$.error.set(
-          err instanceof Error ? err.message : 'Failed to fetch provider health'
-        );
+        providerHealth$.error.set(formatUnknownError(err, 'Failed to fetch provider health'));
       } finally {
         providerHealth$.isLoading.set(false);
       }

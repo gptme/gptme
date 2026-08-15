@@ -18,6 +18,7 @@ import {
   API_KEY_PROVIDER_OPTIONS,
   type ApiKeyProvider,
 } from '@/utils/apiKeyProviders';
+import { formatUnknownError, messageFromApiErrorBody } from '@/utils/errors';
 import { fetchProviderConfigured } from '@/utils/providerStatus';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
 import { isDemoMode, processConnectionFromHash } from '@/utils/connectionConfig';
@@ -164,10 +165,8 @@ export function SetupWizard() {
 
       let message = `Failed to save API key (${resp.status})`;
       try {
-        const data = (await resp.json()) as { error?: string };
-        if (data.error) {
-          message = data.error;
-        }
+        const data: unknown = await resp.json();
+        message = messageFromApiErrorBody(data, message);
       } catch {
         // Fall back to the generic status-based message.
       }
@@ -193,7 +192,7 @@ export function SetupWizard() {
     } catch (error) {
       setAvailableModels([]);
       setRecommendedModels([]);
-      setModelsError(error instanceof Error ? error.message : 'Failed to load available models.');
+      setModelsError(formatUnknownError(error, 'Failed to load available models.'));
     } finally {
       setModelsLoading(false);
     }
@@ -255,7 +254,7 @@ export function SetupWizard() {
         return;
       } catch (error) {
         lastError = error;
-        const message = error instanceof Error ? error.message : String(error);
+        const message = formatUnknownError(error, 'Failed to start gptme-server');
         const shouldRetry =
           /port\s+\d+\s+is already in use/i.test(message) || /already in use/i.test(message);
 
@@ -267,7 +266,7 @@ export function SetupWizard() {
       }
     }
 
-    throw lastError instanceof Error ? lastError : new Error('Failed to start gptme-server');
+    throw new Error(formatUnknownError(lastError, 'Failed to start gptme-server'));
   }, []);
 
   const waitForRestartedServer = useCallback(async () => {
@@ -442,7 +441,7 @@ export function SetupWizard() {
       lastAutoAdvanceBaseUrlRef.current = null;
       await waitForRestartedServer();
     } catch (err) {
-      setApiKeyError(err instanceof Error ? err.message : String(err));
+      setApiKeyError(formatUnknownError(err, 'Failed to save API key'));
     } finally {
       setApiKeySaving(false);
     }
@@ -454,9 +453,10 @@ export function SetupWizard() {
       await checkProviderAndAdvance({ assumeConfiguredOnError: false });
     } catch (err) {
       setApiKeyError(
-        err instanceof Error
-          ? err.message
-          : 'Could not verify provider configuration. Try again in a few seconds.'
+        formatUnknownError(
+          err,
+          'Could not verify provider configuration. Try again in a few seconds.'
+        )
       );
     }
   };
