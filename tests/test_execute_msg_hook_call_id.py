@@ -103,6 +103,25 @@ def test_post_hook_message_does_not_get_call_id(fake_echo_tool, monkeypatch):
     )
 
 
+def test_post_hook_receives_single_message_tool_result(fake_echo_tool, monkeypatch):
+    """TOOL_EXECUTE_POST should receive result_msgs even for single-message tools."""
+    captured = {}
+
+    def fake_trigger(hook_type, data, **kwargs):
+        if hook_type == HookType.TOOL_EXECUTE_POST:
+            captured["result_msgs"] = data.result_msgs
+        return []
+
+    monkeypatch.setattr("gptme.hooks.trigger_hook", fake_trigger)
+
+    msg = Message("assistant", '@echo(call-single-result): {"text": "hello"}')
+    list(execute_msg(msg))
+
+    assert captured["result_msgs"] is not None
+    assert len(captured["result_msgs"]) == 1
+    assert captured["result_msgs"][0].content == "echo: hello"
+
+
 def test_pre_hook_message_does_not_get_call_id(fake_echo_tool, monkeypatch):
     """TOOL_EXECUTE_PRE hook messages must NOT inherit the tool's call_id either."""
     hook_msg = Message("system", "pre-hook notification")

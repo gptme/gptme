@@ -862,9 +862,7 @@ class ToolUse:
                         log=log,
                         workspace=workspace,
                         tool_use=self,
-                        result_msgs=tuple(result_msgs)
-                        if generator_result is not None
-                        else None,
+                        result_msgs=tuple(result_msgs) if result_msgs else None,
                     )
                     if post_hook_msgs := trigger_hook(
                         HookType.TOOL_EXECUTE_POST,

@@ -60,6 +60,37 @@ Plugin ``init(config)`` hooks can read that config via
 ``config.project.plugin.get("my_plugin", {}) if config.project else {}`` and
 ``config.user.plugin.get("my_plugin", {}) if config.user else {}``.
 
+Agent-Devtools Tracing
+----------------------
+
+``gptme`` already exposes the runtime lifecycle hooks needed for tracing, so
+Agent-Devtools integration is an **optional plugin** layered on top of that
+existing hook surface rather than a second hook framework.
+
+.. code-block:: toml
+
+   [plugin.agent_devtools]
+   endpoint = "http://127.0.0.1:3000/events"
+   timeout = 1.0
+   include_sensitive = false
+
+When enabled, the plugin exports best-effort HTTP traces for these existing hook
+events:
+
+- ``session.start``
+- ``session.end``
+- ``turn.pre``
+- ``tool.execute.pre``
+- ``tool.execute.post``
+- ``generation.pre``
+- ``generation.post``
+
+Privacy defaults are conservative: raw prompts, file contents, and full tool
+payloads are omitted unless ``include_sensitive = true`` is explicitly set.
+
+``TOOL_CONFIRM`` remains the blocking policy surface. The Agent-Devtools plugin
+only observes and exports traces; it does not approve or deny tool execution.
+
 Skills vs Plugins
 -----------------
 
