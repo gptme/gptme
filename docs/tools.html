@@ -533,6 +533,11 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer">Computer</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rag">RAG</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#morph">Morph</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hashline-edit">Hashline Edit</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workflow">Workflow</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#edit-syntax">Edit syntax</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gh">GH</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-a-new-native-wrapper">Adding a new native wrapper</a></li>
 </ul>
@@ -578,6 +583,7 @@ document.write(`
 <li><p><a class="reference internal" href="#save">Save</a> - Create and overwrite files</p></li>
 <li><p><a class="reference internal" href="#patch">Patch</a> - Apply precise changes to existing files</p></li>
 <li><p><a class="reference internal" href="#morph">Morph</a> - Apply fast targeted edits using Morph Fast Apply</p></li>
+<li><p><a class="reference internal" href="#hashline-edit">Hashline Edit</a> - Snapshot-anchored line-range edits with stale-file detection</p></li>
 </ul>
 </section>
 <section id="code-development">
@@ -3287,6 +3293,7 @@ The line-range parameters (start_line, end_line) only apply when reading a singl
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">```hello.py
+> [hello.py#09FAFB7D]
 >    1       print("Hello world")
 >    2       print("Goodbye world")
 > ```</pre>
@@ -3313,9 +3320,11 @@ goodbye.py
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">```hello.py
+> [hello.py#D4E0A53D]
 >    1       print("Hello world")
 > ```
 > ```goodbye.py
+> [goodbye.py#CF728AB6]
 >    1       print("Goodbye world")
 > ```</pre>
   </td>
@@ -5856,8 +5865,192 @@ THIRD_EDIT
 </dd></dl>
 
 </section>
+<section id="hashline-edit">
+<span id="id2"></span><h2>Hashline Edit<a class="headerlink" href="#hashline-edit" title="Link to this heading">#</a></h2>
+<p>Snapshot-anchored file editing inspired by oh-my-pi’s Hashline format.</p>
+<p>Provides the <code class="docutils literal notranslate"><span class="pre">hashline_edit</span></code> tool: a two-call editing cycle where the
+<code class="docutils literal notranslate"><span class="pre">read</span></code> tool populates a snapshot store with a file-level 4-byte SHA-256 tag,
+and <code class="docutils literal notranslate"><span class="pre">hashline_edit</span></code> verifies that tag before applying line-range operations.</p>
+<section id="workflow">
+<h3>Workflow<a class="headerlink" href="#workflow" title="Link to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">read</span> <span class="pre">&lt;path&gt;</span></code> — returns the file with a <code class="docutils literal notranslate"><span class="pre">[PATH#TAG]</span></code> header on the first
+line of the code block body.  The snapshot is stored in-memory.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hashline_edit</span> <span class="pre">&lt;path&gt;</span></code> — the code block body must begin with
+<code class="docutils literal notranslate"><span class="pre">[PATH#TAG]</span></code> matching the tag seen in step 1, then list one or more
+<code class="docutils literal notranslate"><span class="pre">PUT</span></code>/<code class="docutils literal notranslate"><span class="pre">CUT</span></code> operations.</p></li>
+</ol>
+</section>
+<section id="edit-syntax">
+<h3>Edit syntax<a class="headerlink" href="#edit-syntax" title="Link to this heading">#</a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>[PATH#TAG]
+PUT N.=M:       — replace lines N through M (inclusive) with new content
++new line 1
++new line 2
+PUT &lt;N:         — insert the new content BEFORE line N
++new line
+PUT &gt;N:         — insert the new content AFTER line N
++new line
+PUT N*:         — replace the syntactic block starting at line N
++new content
+CUT N.=M        — delete lines N through M (no content block follows)
+CUT N.=M @r    — delete and save to named register r
+PUT &gt;N @r       — paste register r content AFTER line N (no content block)
+PUT &lt;N @r       — paste register r content BEFORE line N (no content block)
+PUT N.=M: @r    — replace lines N–M with register r content (no content block)
+</pre></div>
+</div>
+<p>Content lines are prefixed with <code class="docutils literal notranslate"><span class="pre">+</span></code>.  An operation’s content block ends at
+the next operation header or end-of-input.  Register-paste operations have no
+content block.</p>
+<p>If the live file’s hash no longer matches the stored snapshot tag the entire
+edit is rejected with a clear error — no silent corruption.</p>
+<p class="rubric">Instructions</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use after ``read`` to apply precise, safe line edits without re-reading the full file.
+The tag from ``read`` anchors your edits to the exact version you saw — any external
+change to the file on disk is detected and rejected before a single byte is written.
+
+Prefer this tool over ``patch`` when you have exact line numbers and want to avoid
+repeating large context blocks.  You can chain multiple operations in one call;
+line numbers always reference the version ``read`` showed you.
+
+<span class="gu">### Workflow</span>
+
+<span class="k">1.</span> Call ``read &lt;path&gt;`` — the output starts with ``[PATH#TAG]`` on the first line
+   inside the code block.  Remember this TAG.
+<span class="k">2.</span> Write a ``hashline_edit &lt;path&gt;`` block beginning with the same ``[PATH#TAG]``
+   header, followed by one or more operations.
+
+<span class="gu">### Recovery from rejection</span>
+
+If the file changed between ``read`` and your edit, you will see:
+  ``hashline_edit: file has changed since snapshot was captured…``
+Re-read the file with ``read`` to get a new tag and restate your operations.
+
+<span class="gu">### Operations</span>
+
+| Syntax            | Effect                                           |
+|-------------------|--------------------------------------------------|
+| ``PUT N.=M:``     | Replace lines N through M with new lines         |
+| ``PUT N*:``       | Replace the syntactic block at line N            |
+| ``PUT &lt;N:``       | Insert new lines BEFORE line N                   |
+| ``PUT &gt;N:``       | Insert new lines AFTER line N                    |
+| ``CUT N.=M``      | Delete lines N through M                         |
+| ``CUT N.=M <span class="ni">@r</span>``   | Delete lines N–M and save to register <span class="ge">*r*</span>        |
+| ``PUT N.=M: <span class="ni">@r</span>``  | Replace lines N–M with content of register <span class="ge">*r*</span>   |
+| ``PUT &lt;N <span class="ni">@r</span>``     | Insert register <span class="ge">*r*</span> content BEFORE line N        |
+| ``PUT &gt;N <span class="ni">@r</span>``     | Insert register <span class="ge">*r*</span> content AFTER line N         |
+
+``PUT N*:`` replaces a whole indented construct — point it at the ``def``,
+``class``, ``if``, ``for``, ``while``, or ``try`` line and the system finds the
+closing line for you, including any ``elif``/``else``/``except``/``finally``
+clauses attached to that same statement.  Use it instead of ``PUT N.=M:`` when
+you want to replace an entire function/block and don&#39;t want to count lines by
+hand.
+
+Point N at the actual header line (e.g. the ``def`` line, not a decorator or a
+comment above it) — the block is resolved from that line&#39;s indentation.
+Constructs the heuristic can&#39;t reliably reproduce: blocks that mix tabs and
+spaces, or a header followed by a same-indentation line that is <span class="ge">*not*</span> a
+continuation clause (e.g. a one-line ``if x: y`` body) — for those, fall back to
+``PUT N.=M:`` with an explicit line range.
+
+<span class="gs">**Registers**</span> avoid reproducing unchanged content when moving or copying exact
+lines within one edit call, reducing tokens and transcription mistakes.
+``CUT N.=M <span class="ni">@r</span>`` captures deleted lines into register <span class="ge">*r*</span> (a short word), then
+``PUT &gt;N <span class="ni">@r</span>`` or ``PUT &lt;N <span class="ni">@r</span>`` pastes them. Registers are resolved from the
+original file state, so a cut at line 5 and a paste at line 20 work correctly
+regardless of apply order. The PUT destination must be outside the CUT range.
+
+New content lines are prefixed with ``+``.  An empty line ends a content block.
+CUT (with or without a register) has no content block.  Register-paste operations
+(``PUT ... <span class="ni">@r</span>``) also have no content block.  Line numbers reference the version
+shown by ``read``.
+
+<span class="gu">### Example</span>
+
+<span class="sb">```</span>
+<span class="sb">[greet.py#A1B2C3D4]</span>
+<span class="sb">PUT 2.=3:</span>
+<span class="sb">+    print(f&quot;Hi, {name}&quot;)</span>
+<span class="sb">CUT 4.=4</span>
+<span class="sb">PUT &gt;5:</span>
+<span class="sb">+    return name</span>
+<span class="sb">```</span>
+
+<span class="gu">### Register example (move a function to the bottom)</span>
+
+<span class="sb">```</span>
+<span class="sb">[module.py#A1B2C3D4]</span>
+<span class="sb">CUT 3.=10 @fn</span>
+<span class="sb">PUT &gt;40 @fn</span>
+<span class="sb">```</span>
+</pre></div>
+</div>
+<p class="rubric">Examples</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">update greet.py to use an f-string</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">First, read the file:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">read greet.py</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">```greet.py
+> [greet.py#A1B2C3D4]
+>    1\tdef greet(name):
+>    2\t    msg = "Hello, " + name
+>    3\t    print(msg)
+> ```</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;"><div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">hashline_edit greet.py</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">[greet.py#A1B2C3D4]
+PUT 2.=3:
++    print(f"Hi, {name}")
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">hashline_edit applied to `greet.py` (1 operation)</pre>
+  </td>
+</tr>
+</table></section>
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.hashline_edit.</span></span><span class="sig-name descname"><span class="pre">HashlineOp</span></span></dt>
+<dd><p>A single parsed edit operation.</p>
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">kind</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'replace'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'insert_before'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'insert_after'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'delete'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'block_replace'</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">end</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">text</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">register_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolved_register_lines</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py">
+<em class="property"><span class="pre">exception</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.hashline_edit.</span></span><span class="sig-name descname"><span class="pre">ParseError</span></span></dt>
+<dd></dd></dl>
+
+</section>
 <section id="gh">
-<span id="id2"></span><h2>GH<a class="headerlink" href="#gh" title="Link to this heading">#</a></h2>
+<span id="id3"></span><h2>GH<a class="headerlink" href="#gh" title="Link to this heading">#</a></h2>
 <p>GitHub integration tool.</p>
 <p>Use native handlers only when they help the assistant succeed more reliably
 than a raw <code class="docutils literal notranslate"><span class="pre">gh</span></code> command in the shell tool.  The native path is worth it when
@@ -6874,6 +7067,11 @@ spawning subagents programmatically:</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer">Computer</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rag">RAG</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#morph">Morph</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hashline-edit">Hashline Edit</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workflow">Workflow</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#edit-syntax">Edit syntax</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gh">GH</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-a-new-native-wrapper">Adding a new native wrapper</a></li>
 </ul>

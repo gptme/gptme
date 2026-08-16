@@ -13,6 +13,7 @@ Overview
 - `Save`_ - Create and overwrite files
 - `Patch`_ - Apply precise changes to existing files
 - `Morph`_ - Apply fast targeted edits using Morph Fast Apply
+- `Hashline Edit`_ - Snapshot-anchored line-range edits with stale-file detection
 
 💻 Code & Development
 ^^^^^^^^^^^^^^^^^^^^^
@@ -476,6 +477,15 @@ Morph
 -----
 
 .. automodule:: gptme.tools.morph
+    :members:
+    :noindex:
+
+.. _hashline edit:
+
+Hashline Edit
+-------------
+
+.. automodule:: gptme.tools.hashline_edit
     :members:
     :noindex:
 
