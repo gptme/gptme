@@ -196,14 +196,15 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
             continue
 
         # A comment begins at an unquoted ``#`` at the start of a shell word.
-        # Markers inside it are inert to the shell and must not hide later lines
-        # from command validation.
+        # Besides whitespace, a shell control operator starts a new word, so
+        # ``;#`` and ``|#`` begin comments too. Markers inside a comment are
+        # inert and must not hide later executable lines from validation.
         line_start = cmd.rfind("\n", 0, match.start()) + 1
         prefix = cmd[line_start : match.start()]
         prefix_quotes = _find_quotes(prefix)
         if any(
             char == "#"
-            and (i == 0 or prefix[i - 1].isspace())
+            and (i == 0 or prefix[i - 1].isspace() or prefix[i - 1] in ";&|")
             and not _is_in_quoted_region(i, prefix_quotes)
             for i, char in enumerate(prefix)
         ):

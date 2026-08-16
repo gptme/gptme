@@ -108,8 +108,9 @@ class TestFindHeredocRegions:
         regions = _find_heredoc_regions(cmd)
         assert len(regions) == 1
 
-    def test_heredoc_marker_in_comment_is_ignored(self):
-        cmd = "rg foo # <<TAG\nsh -c id\nTAG"
+    @pytest.mark.parametrize("prefix", ["rg foo #", "echo foo;#", "echo foo|#"])
+    def test_heredoc_marker_in_comment_is_ignored(self, prefix: str):
+        cmd = f"{prefix} <<TAG\nsh -c id\nTAG"
         assert _find_heredoc_regions(cmd) == []
 
     @pytest.mark.parametrize(
@@ -654,8 +655,10 @@ class TestEdgeCases:
         assert is_allowlisted("cat << EOF\nhello\nEOF")
         assert is_allowlisted("cat << END-TAG\n-exec\nEND-TAG")
 
-    def test_heredoc_marker_in_comment_cannot_hide_command(self):
-        assert not is_allowlisted("rg foo # <<TAG\nsh -c id\nTAG")
+    @pytest.mark.parametrize("prefix", ["rg foo #", "echo foo;#", "echo foo|#"])
+    def test_heredoc_marker_in_comment_cannot_hide_command(self, prefix: str):
+        cmd = f"{prefix} <<TAG\nsort -o payload.sh data.txt\nTAG"
+        assert not is_allowlisted(cmd)
 
     @pytest.mark.parametrize(
         "marker",
