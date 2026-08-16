@@ -1,7 +1,8 @@
-"""Harness update parsing and audit helpers.
+"""Assistant-authored tool-change request parsing and audit helpers.
 
-Phase 1 is audit-only: assistant messages may request harness changes, but
-gptme only validates and records those requests. Tool availability is unchanged.
+Phase 1 is audit-only: assistants may request changes to session tool
+configuration, but gptme only validates and records those requests. Tool
+availability is unchanged.
 """
 
 from __future__ import annotations
@@ -11,20 +12,20 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal, cast
 
-from .message import HarnessUpdateErrorMetadata, HarnessUpdateMetadata
+from .message import ToolChangeRequestErrorMetadata, ToolChangeRequestMetadata
 
 if TYPE_CHECKING:
     from .message import Message, MessageMetadata
 
-HARNESS_UPDATE_PREFIX = "HARNESS_UPDATE:"
+TOOL_CHANGE_REQUEST_PREFIX = "TOOL_CHANGE_REQUEST:"
 _VALID_CHANGE_TYPES = {"enable_tool", "disable_tool", "configure_tool"}
 _VALID_URGENCY = {"low", "medium", "high"}
 _VALID_APPROVAL = {"auto", "log_only", "user_confirm"}
 
 
 @dataclass(frozen=True)
-class HarnessUpdateRequest:
-    """Validated assistant request for a session-local harness change."""
+class ToolChangeRequest:
+    """Validated assistant request for a session-local tool configuration change."""
 
     change_type: Literal["enable_tool", "disable_tool", "configure_tool"]
     tool_name: str
@@ -34,8 +35,8 @@ class HarnessUpdateRequest:
     raw_line: str
     extra: dict[str, str] = field(default_factory=dict)
 
-    def to_metadata(self) -> HarnessUpdateMetadata:
-        record: HarnessUpdateMetadata = {
+    def to_metadata(self) -> ToolChangeRequestMetadata:
+        record: ToolChangeRequestMetadata = {
             "change_type": self.change_type,
             "tool_name": self.tool_name,
             "reason": self.reason,
@@ -49,28 +50,28 @@ class HarnessUpdateRequest:
 
 
 @dataclass(frozen=True)
-class HarnessUpdateError:
-    """Rejected harness update line with an explicit reason."""
+class ToolChangeRequestError:
+    """Rejected tool-change request line with an explicit reason."""
 
     raw_line: str
     error: str
 
-    def to_metadata(self) -> HarnessUpdateErrorMetadata:
+    def to_metadata(self) -> ToolChangeRequestErrorMetadata:
         return {"raw_line": self.raw_line, "error": self.error}
 
 
 @dataclass
-class SessionHarnessState:
-    """Per-session audit state for harness update requests."""
+class SessionToolChangeState:
+    """Per-session audit state for tool-change requests."""
 
-    requests: list[HarnessUpdateRequest] = field(default_factory=list)
-    rejections: list[HarnessUpdateError] = field(default_factory=list)
+    requests: list[ToolChangeRequest] = field(default_factory=list)
+    rejections: list[ToolChangeRequestError] = field(default_factory=list)
     last_update_at: datetime | None = None
 
     def record(
         self,
-        requests: list[HarnessUpdateRequest],
-        rejections: list[HarnessUpdateError],
+        requests: list[ToolChangeRequest],
+        rejections: list[ToolChangeRequestError],
         *,
         when: datetime | None = None,
     ) -> None:
@@ -81,10 +82,10 @@ class SessionHarnessState:
         self.last_update_at = when or datetime.now(tz=timezone.utc)
 
 
-def extract_harness_updates(
+def extract_tool_change_requests(
     content: str, *, available_tool_names: set[str] | None = None
-) -> tuple[list[HarnessUpdateRequest], list[HarnessUpdateError]]:
-    """Extract and validate all harness update lines from assistant content.
+) -> tuple[list[ToolChangeRequest], list[ToolChangeRequestError]]:
+    """Extract and validate all tool-change request lines from assistant content.
 
     ``available_tool_names`` is the set of tool names considered valid for
     validation.  When *not* provided it defaults to **all tools discoverable
@@ -103,21 +104,22 @@ def extract_harness_updates(
     # prefix string, causing an unnecessary get_available_tools() call on every
     # such assistant message.
     if not any(
-        line.lstrip().startswith(HARNESS_UPDATE_PREFIX) for line in content.splitlines()
+        line.lstrip().startswith(TOOL_CHANGE_REQUEST_PREFIX)
+        for line in content.splitlines()
     ):
         return [], []
 
     if available_tool_names is None:
         available_tool_names = _get_all_known_tool_names()
 
-    requests: list[HarnessUpdateRequest] = []
-    errors: list[HarnessUpdateError] = []
+    requests: list[ToolChangeRequest] = []
+    errors: list[ToolChangeRequestError] = []
 
     for line in content.splitlines():
         stripped = line.strip()
-        if not stripped.startswith(HARNESS_UPDATE_PREFIX):
+        if not stripped.startswith(TOOL_CHANGE_REQUEST_PREFIX):
             continue
-        request, error = _parse_harness_update_line(
+        request, error = _parse_tool_change_request_line(
             stripped, available_tool_names=available_tool_names
         )
         if request is not None:
@@ -128,15 +130,15 @@ def extract_harness_updates(
     return requests, errors
 
 
-def annotate_message_with_harness_updates(
+def annotate_message_with_tool_change_requests(
     message: Message,
     *,
-    session_harness: SessionHarnessState | None = None,
+    session_tool_changes: SessionToolChangeState | None = None,
     available_tool_names: set[str] | None = None,
-) -> tuple[Message, list[HarnessUpdateRequest], list[HarnessUpdateError]]:
-    """Attach parsed harness updates to message metadata and optional session state."""
+) -> tuple[Message, list[ToolChangeRequest], list[ToolChangeRequestError]]:
+    """Attach parsed tool-change requests to message metadata and optional session state."""
 
-    requests, errors = extract_harness_updates(
+    requests, errors = extract_tool_change_requests(
         message.content, available_tool_names=available_tool_names
     )
     if not requests and not errors:
@@ -146,27 +148,29 @@ def annotate_message_with_harness_updates(
 
     if requests:
         existing = cast(
-            list[HarnessUpdateMetadata], metadata.get("harness_updates", [])
+            list[ToolChangeRequestMetadata], metadata.get("tool_change_requests", [])
         )
-        metadata["harness_updates"] = existing + [r.to_metadata() for r in requests]
+        metadata["tool_change_requests"] = existing + [
+            r.to_metadata() for r in requests
+        ]
     if errors:
         existing_errors = cast(
-            list[HarnessUpdateErrorMetadata],
-            metadata.get("harness_update_errors", []),
+            list[ToolChangeRequestErrorMetadata],
+            metadata.get("tool_change_request_errors", []),
         )
-        metadata["harness_update_errors"] = existing_errors + [
+        metadata["tool_change_request_errors"] = existing_errors + [
             e.to_metadata() for e in errors
         ]
 
-    if session_harness is not None:
+    if session_tool_changes is not None:
         # Normalize to UTC: Message.timestamp defaults to datetime.now() which
-        # is naive.  SessionHarnessState.record() only substitutes utcnow()
+        # is naive.  SessionToolChangeState.record() only substitutes utcnow()
         # when when=None, so a naive timestamp would be stored as-is, breaking
         # any subsequent tz-aware comparison (e.g. session age checks).
         ts = message.timestamp
         if ts is not None and ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
-        session_harness.record(requests, errors, when=ts)
+        session_tool_changes.record(requests, errors, when=ts)
 
     return (
         message.replace(metadata=cast("MessageMetadata", metadata)),
@@ -228,13 +232,13 @@ def _rejoin_reason_tokens(tokens: list[str]) -> list[str]:
     return result
 
 
-def _parse_harness_update_line(
+def _parse_tool_change_request_line(
     line: str, *, available_tool_names: set[str]
-) -> tuple[HarnessUpdateRequest | None, HarnessUpdateError | None]:
+) -> tuple[ToolChangeRequest | None, ToolChangeRequestError | None]:
     raw = line
-    payload = line[len(HARNESS_UPDATE_PREFIX) :].strip()
+    payload = line[len(TOOL_CHANGE_REQUEST_PREFIX) :].strip()
     if not payload:
-        return None, HarnessUpdateError(raw, "missing update payload")
+        return None, ToolChangeRequestError(raw, "missing update payload")
 
     try:
         tokens = shlex.split(payload)
@@ -252,32 +256,32 @@ def _parse_harness_update_line(
         # contains a request with a malformed reason value.
         for tok in tokens:
             if _has_unterminated_delimiter_quote(tok):
-                return None, HarnessUpdateError(
+                return None, ToolChangeRequestError(
                     raw, f"unterminated quoted value in token '{tok}'"
                 )
 
     if len(tokens) < 2:
-        return None, HarnessUpdateError(
-            raw, "expected change_type and tool_name after HARNESS_UPDATE:"
+        return None, ToolChangeRequestError(
+            raw, "expected change_type and tool_name after TOOL_CHANGE_REQUEST:"
         )
 
     change_type = tokens[0]
     tool_name = tokens[1]
     if change_type not in _VALID_CHANGE_TYPES:
-        return None, HarnessUpdateError(raw, f"unknown change_type '{change_type}'")
+        return None, ToolChangeRequestError(raw, f"unknown change_type '{change_type}'")
     if tool_name not in available_tool_names:
-        return None, HarnessUpdateError(raw, f"unknown tool '{tool_name}'")
+        return None, ToolChangeRequestError(raw, f"unknown tool '{tool_name}'")
 
     values: dict[str, str] = {}
     extras: dict[str, str] = {}
     for token in tokens[2:]:
         if "=" not in token:
-            return None, HarnessUpdateError(
+            return None, ToolChangeRequestError(
                 raw, f"unexpected token '{token}' (expected key=value)"
             )
         key, value = token.split("=", 1)
         if not key:
-            return None, HarnessUpdateError(raw, "empty key in key=value token")
+            return None, ToolChangeRequestError(raw, "empty key in key=value token")
         if key in {"reason", "urgency", "approval", "approval_mode"}:
             values[key] = value
         else:
@@ -285,11 +289,11 @@ def _parse_harness_update_line(
 
     reason = values.get("reason", "").strip()
     if not reason:
-        return None, HarnessUpdateError(raw, "missing reason=<text>")
+        return None, ToolChangeRequestError(raw, "missing reason=<text>")
 
     urgency = values.get("urgency", "").strip()
     if urgency not in _VALID_URGENCY:
-        return None, HarnessUpdateError(
+        return None, ToolChangeRequestError(
             raw, "urgency must be one of: low, medium, high"
         )
 
@@ -297,12 +301,12 @@ def _parse_harness_update_line(
         values.get("approval") or values.get("approval_mode") or ""
     ).strip()
     if approval_mode not in _VALID_APPROVAL:
-        return None, HarnessUpdateError(
+        return None, ToolChangeRequestError(
             raw, "approval must be one of: auto, log_only, user_confirm"
         )
 
     return (
-        HarnessUpdateRequest(
+        ToolChangeRequest(
             change_type=cast(
                 Literal["enable_tool", "disable_tool", "configure_tool"],
                 change_type,

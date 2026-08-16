@@ -138,8 +138,8 @@ class MessageTimings(TypedDict, total=False):
     """Per-tool breakdown, e.g. ``{"shell": 1200, "browser": 450}``."""
 
 
-class HarnessUpdateMetadata(TypedDict, total=False):
-    """Persisted record of a validated harness update request."""
+class ToolChangeRequestMetadata(TypedDict, total=False):
+    """Persisted record of a validated tool-change request."""
 
     change_type: str
     tool_name: str
@@ -150,8 +150,8 @@ class HarnessUpdateMetadata(TypedDict, total=False):
     extra: dict[str, str]
 
 
-class HarnessUpdateErrorMetadata(TypedDict, total=False):
-    """Persisted record of a rejected harness update request."""
+class ToolChangeRequestErrorMetadata(TypedDict, total=False):
+    """Persisted record of a rejected tool-change request."""
 
     raw_line: str
     error: str
@@ -191,8 +191,8 @@ class MessageMetadata(TypedDict, total=False):
     voice_call: dict[str, Any]  # Voice call metadata (call_sid, source, etc.)
     artifacts: list[ArtifactDescriptor]  # tool/plugin-emitted artifact descriptors
     tool: str  # tool that produced this result message
-    harness_updates: list[HarnessUpdateMetadata]
-    harness_update_errors: list[HarnessUpdateErrorMetadata]
+    tool_change_requests: list[ToolChangeRequestMetadata]
+    tool_change_request_errors: list[ToolChangeRequestErrorMetadata]
     # Identifies one generated startup-prompt generation. A newer generation
     # supersedes older ones in provider context while all remain on disk.
     prompt_generation: str

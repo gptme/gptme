@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
-from .harness import SessionHarnessState
+from .tool_change import SessionToolChangeState
 
 if TYPE_CHECKING:
     from .logmanager import LogManager
@@ -40,7 +40,7 @@ class BaseSession:
     log: LogManager | None = None
     conversation_id: str | None = None
     cwd: str | None = None
-    harness: SessionHarnessState = field(default_factory=SessionHarnessState)
+    tool_changes: SessionToolChangeState = field(default_factory=SessionToolChangeState)
     active: bool = True
     created_at: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
     last_activity: datetime = field(

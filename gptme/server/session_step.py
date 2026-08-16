@@ -23,13 +23,13 @@ from typing import TYPE_CHECKING, Any
 from ..config import ChatConfig, require_workspace_exists
 from ..dirs import get_logs_dir
 from ..executor import prepare_execution_environment
-from ..harness import annotate_message_with_harness_updates
 from ..hooks import HookType, trigger_hook
 from ..hooks.confirm import ConfirmationResult
 from ..llm import _chat_complete, _stream
 from ..logmanager import LogManager, prepare_messages
 from ..message import Message, MessageMetadata, MessageTimings
 from ..telemetry import trace_function
+from ..tool_change import annotate_message_with_tool_change_requests
 from ..tools import ToolUse, get_tools
 from ..tools.shell import set_workspace_cwd
 from .api_v2_common import ConfigChangedEvent, ErrorEvent, msg2dict
@@ -532,8 +532,8 @@ async def _acp_step(
                 final_text = "".join(stream_tokens) if stream_tokens else text
                 stream_tokens.clear()
                 msg = Message("assistant", final_text)
-                msg, _, _ = annotate_message_with_harness_updates(
-                    msg, session_harness=session.harness
+                msg, _, _ = annotate_message_with_tool_change_requests(
+                    msg, session_tool_changes=session.tool_changes
                 )
                 _append_and_notify(manager, session, msg)
                 manager.write()
@@ -868,8 +868,8 @@ def step(
 
         # Persist the assistant message
         msg = Message("assistant", output, metadata=metadata)
-        msg, _, _ = annotate_message_with_harness_updates(
-            msg, session_harness=session.harness
+        msg, _, _ = annotate_message_with_tool_change_requests(
+            msg, session_tool_changes=session.tool_changes
         )
 
         _append_and_notify(manager, session, msg)
