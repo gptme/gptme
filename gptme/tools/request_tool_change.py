@@ -26,8 +26,17 @@ def execute_request_tool_change(
 
     change_type = values.get("change_type", "")
     tool_name = values.get("tool_name", "")
-    reason = values.get("reason", "").strip()
+    reason = values.get("reason", "")
     urgency = values.get("urgency", "")
+
+    if not all(
+        isinstance(value, str) for value in (change_type, tool_name, reason, urgency)
+    ):
+        return Message(
+            "system",
+            "request_tool_change: all arguments must be strings",
+            quiet=True,
+        )
 
     if change_type not in _VALID_CHANGE_TYPES:
         return Message(
@@ -45,7 +54,7 @@ def execute_request_tool_change(
             quiet=True,
         )
 
-    if not reason:
+    if not reason.strip():
         return Message(
             "system",
             "request_tool_change: reason must not be empty",

@@ -94,3 +94,31 @@ def test_request_tool_change_rejects_invalid_fields():
             return_value=[ToolSpec(name="shell", desc="Run commands")],
         ):
             assert expected in _execute(**kwargs).content
+
+
+def test_request_tool_change_rejects_non_string_fields():
+    cases = [
+        {
+            "change_type": "enable_tool",
+            "tool_name": "shell",
+            "reason": None,
+            "urgency": "medium",
+        },
+        {
+            "change_type": "enable_tool",
+            "tool_name": "shell",
+            "reason": 123,
+            "urgency": "medium",
+        },
+        {
+            "change_type": "enable_tool",
+            "tool_name": ["shell"],
+            "reason": "Need it",
+            "urgency": "medium",
+        },
+    ]
+
+    for kwargs in cases:
+        result = execute_request_tool_change(None, None, kwargs)  # type: ignore[arg-type]
+        assert result.content == "request_tool_change: all arguments must be strings"
+        assert result.quiet is True
