@@ -174,9 +174,16 @@ def setup_config_from_cli(
             additional_tools = [
                 tool.strip() for tool in tool_list_str.split(",") if tool.strip()
             ]
-            # Get default tools and add the additional ones
-            default_tools = [tool.name for tool in get_toolchain(None)]
-            resolved_tool_allowlist = default_tools.copy()
+            # Add to the configured tool policy when one exists; otherwise use
+            # the built-in defaults. Additive CLI features such as task manifests
+            # must not silently replace a project's TOOL_ALLOWLIST configuration.
+            if existing_chat_config and existing_chat_config.tools:
+                base_tools = existing_chat_config.tools
+            elif tools_env := config.get_env("TOOL_ALLOWLIST"):
+                base_tools = [tool.strip() for tool in tools_env.split(",")]
+            else:
+                base_tools = [tool.name for tool in get_toolchain(None)]
+            resolved_tool_allowlist = base_tools.copy()
             for tool in additional_tools:
                 if tool not in resolved_tool_allowlist:
                     resolved_tool_allowlist.append(tool)
