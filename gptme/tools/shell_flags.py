@@ -407,6 +407,48 @@ def _lex(cmd: str) -> list[str] | None:
         return None
 
 
+def _split_lines(cmd: str) -> list[str]:
+    """Split a command block on newlines that actually separate commands.
+
+    ``shlex`` treats newlines as ordinary whitespace, so a multi-command block
+    would otherwise collapse into a single segment and later commands would be
+    validated against the *first* binary's flag table. That is exploitable
+    wherever two binaries give the same flag different meanings — ``find -o``
+    is a harmless OR operator, ``sort -o`` overwrites a file.
+
+    Newlines inside quotes are data, and a backslash-newline is a line
+    continuation, so neither splits.
+    """
+    parts: list[str] = []
+    buf: list[str] = []
+    in_single = in_double = False
+    i = 0
+    while i < len(cmd):
+        char = cmd[i]
+        if char == "\\" and not in_single and i + 1 < len(cmd):
+            if cmd[i + 1] == "\n":
+                # Line continuation — drop both, the logical line continues.
+                i += 2
+                continue
+            buf.append(char)
+            buf.append(cmd[i + 1])
+            i += 2
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+        elif char == '"' and not in_single:
+            in_double = not in_double
+
+        if char == "\n" and not in_single and not in_double:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(char)
+        i += 1
+    parts.append("".join(buf))
+    return [part for part in parts if part.strip()]
+
+
 def _split_segments(tokens: list[str]) -> list[list[str]]:
     """Split a flat token list into pipeline/list segments."""
     segments: list[list[str]] = [[]]
@@ -538,7 +580,10 @@ def flags_permitted(cmd: str) -> bool:
     binary's permitted set, or when the command cannot be parsed. A False
     result does not forbid the command — it makes it require confirmation.
     """
-    tokens = _lex(cmd)
-    if tokens is None:
-        return False
-    return all(_check_segment(segment) for segment in _split_segments(tokens))
+    for line in _split_lines(cmd):
+        tokens = _lex(line)
+        if tokens is None:
+            return False
+        if not all(_check_segment(segment) for segment in _split_segments(tokens)):
+            return False
+    return True

@@ -971,6 +971,26 @@ class TestFlagParsingShapes:
         assert not is_allowlisted('echo "payload" > /tmp/exploit.sh')
         assert not is_allowlisted('echo "payload" >> ~/.bashrc')
 
+    def test_newline_separated_commands_checked_independently(self):
+        """Each line is its own command, so flags must not cross binaries.
+
+        shlex treats newlines as whitespace, so a multi-command block would
+        otherwise be validated entirely against the FIRST binary's table.
+        `find -o` is a harmless OR operator; `sort -o` overwrites a file.
+        """
+        assert not is_allowlisted("find . -name x\nsort -o payload.sh data.txt")
+        assert not is_allowlisted("rg pattern\nfind . -maxdepth 0 -fprintf out '%f'")
+        assert not is_allowlisted("ls -la\ntree -o payload.sh")
+        # ...while a benign multi-line block still auto-approves
+        assert is_allowlisted("ls -la\ngrep -rn foo .\nwc -l f.txt")
+
+    def test_quoted_newlines_and_continuations_are_not_command_breaks(self):
+        from gptme.tools.shell_flags import flags_permitted
+
+        assert flags_permitted('echo "line1\nline2"')
+        assert flags_permitted("grep 'a\nb' f.txt")
+        assert flags_permitted("ls -la \\\n  -h")
+
     def test_dash_runs_are_operands_not_flags(self):
         assert is_allowlisted('grep "---" f.txt')
         assert is_allowlisted("grep -- --- f.txt")
