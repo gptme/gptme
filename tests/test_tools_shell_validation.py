@@ -971,6 +971,8 @@ class TestFlagParsingShapes:
     def test_value_is_not_mistaken_for_a_flag(self):
         # -e takes the next token as its pattern, even when it looks like a flag
         assert is_allowlisted("grep -e -dashy-pattern f.txt")
+        assert is_allowlisted("grep -e -- f.txt")
+        assert is_allowlisted("rg -e -- f.txt")
         assert is_allowlisted("find . -name '-weird-name'")
         assert is_allowlisted("sort -k1,2 -t: data.txt")
 

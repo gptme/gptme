@@ -596,7 +596,7 @@ def _check_segment(segment: list[str]) -> bool:
             # example ``rg -T --pre``). Reject all unknown long options; short
             # values remain supported because arbitrary patterns such as
             # ``grep -e -dashy-pattern`` are common and cannot name long flags.
-            if value.startswith("--"):
+            if value.startswith("--") and value != "--":
                 name = value[2:].partition("=")[0]
                 if name not in spec.long and name not in spec.long_value:
                     return False
