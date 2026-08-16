@@ -346,7 +346,8 @@ def _has_command_substitution(cmd: str) -> bool:
     single quotes.  The fix adds ``in_double`` tracking and gates single-quote
     transitions on ``not in_double``.
 
-    Returns True if executable backtick or ``$(...)`` syntax is found.
+    Returns True if executable backtick, ``$(...)`` or ``<(...)``/``>(...)``
+    process-substitution syntax is found.
     """
     # Walk the string tracking both single- and double-quote context.
     in_single = False
@@ -368,6 +369,16 @@ def _has_command_substitution(cmd: str) -> bool:
         # Backticks and $(...) substitute when not inside single quotes. Both
         # still substitute inside double-quoted strings.
         elif not in_single and (c == "`" or cmd.startswith("$(", i)):
+            return True
+        # Process substitution <(...) / >(...) runs a command too, but unlike
+        # $(...) it is inert inside double quotes, so both quote contexts
+        # suppress it. Without this, `rg pattern <(sh -c id)` auto-approved:
+        # the inner command never appears at a separator cmd_regex looks for.
+        elif (
+            not in_single
+            and not in_double
+            and (cmd.startswith("<(", i) or cmd.startswith(">(", i))
+        ):
             return True
         i += 1
     return False

@@ -991,6 +991,30 @@ class TestFlagParsingShapes:
         assert flags_permitted("grep 'a\nb' f.txt")
         assert flags_permitted("ls -la \\\n  -h")
 
+    def test_all_bash_list_operators_split_segments(self):
+        """Every operator must start a new segment, not just `|` and `&&`.
+
+        `rg -o` is --only-matching; `sort -o` overwrites a file. If `|&` is
+        not recognised as an operator, `sort -o` gets validated against
+        ripgrep's table.
+        """
+        assert not is_allowlisted("rg pattern |& sort -o payload.sh")
+        assert not is_allowlisted("ls; rg p |& tree -o payload.sh")
+        assert not is_allowlisted("ls -la & sort -o payload.sh f")
+        assert not is_allowlisted("ls -la ;; sort -o payload.sh f")
+        # ...and benign uses of the same operators still auto-approve
+        assert is_allowlisted("cat f.txt |& head")
+        assert is_allowlisted("ls -la && pwd")
+        assert is_allowlisted("ls -la; pwd")
+
+    def test_process_substitution_requires_confirmation(self):
+        """`<(cmd)` executes cmd, and its name never reaches cmd_regex."""
+        assert not is_allowlisted("rg pattern <(sh -c id)")
+        assert not is_allowlisted("cat <(id)")
+        assert not is_allowlisted("grep foo >(tee out)")
+        # A literal `<(` inside quotes is not process substitution
+        assert is_allowlisted("grep 'a<(b' f.txt")
+
     def test_dash_runs_are_operands_not_flags(self):
         assert is_allowlisted('grep "---" f.txt')
         assert is_allowlisted("grep -- --- f.txt")

@@ -380,9 +380,13 @@ PERMITTED_FLAGS: dict[str, FlagSpec] = {
     ),
 }
 
-# Shell operator tokens produced by the punctuation-aware lexer. Each starts a
-# new pipeline segment (and therefore a new binary whose flags we must check).
-_SEGMENT_SEPARATORS = frozenset({"|", "||", "&&", "&", ";", ";;", "\n"})
+# Characters that make up bash's list/pipeline operators. A token composed
+# entirely of these starts a new segment — and therefore a new binary whose
+# flag table applies. Matching on the character set rather than an enumerated
+# list covers `|`, `||`, `&`, `&&`, `|&`, `;`, `;;`, `;&` and `;;&` without
+# relying on us having thought of every operator bash supports. `(` and `)`
+# are deliberately excluded: escaped parens are how find groups expressions.
+_OPERATOR_CHARS = frozenset("|&;")
 
 # Redirection operators: the token that follows is a filename, not a flag.
 _REDIRECTIONS = frozenset({"<", ">", ">>", "<<", "<<-", "<<<", ">|", "<>", "&>", ">&"})
@@ -449,11 +453,16 @@ def _split_lines(cmd: str) -> list[str]:
     return [part for part in parts if part.strip()]
 
 
+def _is_operator(token: str) -> bool:
+    """Whether a token is a bash list/pipeline operator."""
+    return bool(token) and all(char in _OPERATOR_CHARS for char in token)
+
+
 def _split_segments(tokens: list[str]) -> list[list[str]]:
     """Split a flat token list into pipeline/list segments."""
     segments: list[list[str]] = [[]]
     for token in tokens:
-        if token in _SEGMENT_SEPARATORS:
+        if _is_operator(token):
             segments.append([])
         else:
             segments[-1].append(token)
