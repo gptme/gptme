@@ -1211,6 +1211,113 @@ def test_filter_findings_matching_file_and_line_accepted(monkeypatch):
     assert len(result) == 1, "Fully-matching finding (file + line) must be accepted"
 
 
+def test_filter_findings_current_line_accepted(monkeypatch):
+    """A current-side line is accepted when GitHub also returns a different
+    original-side line for the same inline comment."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="Real review comment",
+            file="src/real.py",
+            line=47,
+            reviewer="ErikBjare",
+            github_comment_id=12345,
+        ),
+    ]
+
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/12345" in " ".join(args):
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "Real review comment",
+                "path": "src/real.py",
+                "original_line": 42,
+                "line": 47,
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+    )
+    assert len(result) == 1, "Current-side line on the comment must be accepted"
+
+
+def test_filter_findings_line_only_comment_accepted(monkeypatch):
+    """A comment on an added line is accepted when GitHub omits original_line."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="Real review comment",
+            file="src/real.py",
+            line=42,
+            reviewer="ErikBjare",
+            github_comment_id=12345,
+        ),
+    ]
+
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/12345" in " ".join(args):
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "Real review comment",
+                "path": "src/real.py",
+                "line": 42,
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+    )
+    assert len(result) == 1, "Line-only inline comment must be accepted"
+
+
+def test_filter_findings_file_without_line_accepted(monkeypatch):
+    """A file-only finding authenticates against the comment path without
+    requiring a line."""
+    from gptme.util.review import ReviewFinding
+
+    findings = [
+        ReviewFinding(
+            body="Real review comment",
+            file="src/real.py",
+            reviewer="ErikBjare",
+            github_comment_id=12345,
+        ),
+    ]
+
+    def fake_run_gh_json(args, **kwargs):
+        if "pulls/comments/12345" in " ".join(args):
+            return {
+                "user": {"login": "ErikBjare"},
+                "body": "Real review comment",
+                "path": "src/real.py",
+                "original_line": 42,
+            }
+        return None
+
+    monkeypatch.setattr(cmd_review_watch, "run_gh_json", fake_run_gh_json)
+
+    result = cmd_review_watch._filter_findings_by_trusted_reviewers(
+        findings,
+        ("ErikBjare",),
+        owner="owner",
+        repo="repo",
+    )
+    assert len(result) == 1, "Matching file-only finding must be accepted"
+
+
 def test_filter_findings_conversation_comment_with_file_target_rejected(monkeypatch):
     """A file-targeted finding backed by a conversation (issue) comment must be
     rejected: conversation comments carry no code location, so they cannot

@@ -436,21 +436,24 @@ def _verify_comment_reviewer(
             return False, ""
 
         if expected_line is not None:
-            # Inline review comments carry both ``line`` (current diff position)
-            # and ``original_line`` (position in the original file). The finding's
-            # ``line`` maps to ``original_line`` when round-tripped via
-            # ``ReviewFinding.from_github_comment``, so compare against that
-            # first and fall back to ``line`` for comments lacking it.
-            comment_line = data.get("original_line") or data.get("line")
-            if comment_line != expected_line:
+            # ``ReviewFinding.from_github_comment`` records ``original_line``,
+            # while other artifact producers may record the current ``line``.
+            # Both locations are authenticated by this inline comment, so accept
+            # either when GitHub returns both values for a moved line.
+            comment_lines = {
+                line
+                for line in (data.get("original_line"), data.get("line"))
+                if line is not None
+            }
+            if expected_line not in comment_lines:
                 logger.warning(
                     "GitHub comment %d line mismatch: artifact targets line %s "
-                    "on '%s', comment is on line %s; rejecting finding (prevents "
-                    "location forgery).",
+                    "on '%s', comment is on line(s) %s; rejecting finding "
+                    "(prevents location forgery).",
                     comment_id,
                     expected_line,
                     expected_file,
-                    comment_line,
+                    sorted(comment_lines),
                 )
                 return False, ""
 
