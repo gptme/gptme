@@ -233,6 +233,70 @@ def test_show_prompt_stats_exits_before_chat(monkeypatch, tmp_path: Path, runner
     assert seen["kwargs"]["initial_prompt"] == "query-dependent stats"
 
 
+def test_show_prompt_stats_does_not_retry_after_config_fallback(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """An unrelated init failure after config fallback is reported without a retry."""
+    from gptme.tool_manifests import TaskToolManifest
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest",
+        lambda task_type, workspace: TaskToolManifest(
+            task_type=task_type,
+            tool_names=("github.search_code",),
+            path=workspace / "state" / "mcp-task-manifests.jsonl",
+        ),
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["shell"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    setup_calls: list[str | None] = []
+    init_calls: list[list[str] | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        if tool_allowlist and "github.search_code" in tool_allowlist:
+            raise ValueError("Tool 'github.search_code' not found")
+        return fake_config
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        raise ValueError("Tool 'shell' not found")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "query",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert "Tool 'shell' not found" in result.output
+    assert len(setup_calls) == 2
+    assert init_calls == [["shell"]]
+
+
 def test_no_workspace_flag_wires_correctly(monkeypatch, tmp_path: Path, runner):
     """--no-workspace should pass context_mode=selective, context_include=[] to get_prompt_stats."""
     monkeypatch.setenv("HOME", str(tmp_path))
