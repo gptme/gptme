@@ -108,6 +108,18 @@ class TestFindHeredocRegions:
         regions = _find_heredoc_regions(cmd)
         assert len(regions) == 1
 
+    def test_heredoc_marker_in_comment_is_ignored(self):
+        cmd = "rg foo # <<TAG\nsh -c id\nTAG"
+        assert _find_heredoc_regions(cmd) == []
+
+    def test_hash_inside_shell_word_is_not_a_comment(self):
+        cmd = "cat foo#bar <<TAG\nhello\nTAG"
+        assert len(_find_heredoc_regions(cmd)) == 1
+
+    def test_hash_inside_quotes_is_not_a_comment(self):
+        cmd = 'echo "# literal" <<TAG\nhello\nTAG'
+        assert len(_find_heredoc_regions(cmd)) == 1
+
     def test_indented_heredoc(self):
         cmd = "cat <<- EOF\n\thello world\n\tEOF"
         regions = _find_heredoc_regions(cmd)
@@ -619,6 +631,9 @@ class TestEdgeCases:
     def test_heredoc_data_does_not_look_like_commands_or_flags(self):
         assert is_allowlisted("cat << EOF\nhello\nEOF")
         assert is_allowlisted("cat << END-TAG\n-exec\nEND-TAG")
+
+    def test_heredoc_marker_in_comment_cannot_hide_command(self):
+        assert not is_allowlisted("rg foo # <<TAG\nsh -c id\nTAG")
 
     def test_unquoted_heredoc_command_substitution_is_not_allowlisted(self):
         assert not is_allowlisted("cat << EOF\n$(id)\nEOF")

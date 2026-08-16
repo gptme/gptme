@@ -181,6 +181,20 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
     heredoc_pattern = re.compile(r"<<-?\s*(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s;&|<>]+))")
 
     for match in heredoc_pattern.finditer(cmd):
+        # A comment begins at an unquoted ``#`` at the start of a shell word.
+        # Markers inside it are inert to the shell and must not hide later lines
+        # from command validation.
+        line_start = cmd.rfind("\n", 0, match.start()) + 1
+        prefix = cmd[line_start : match.start()]
+        quoted_regions = _find_quotes(prefix)
+        if any(
+            char == "#"
+            and (i == 0 or prefix[i - 1].isspace())
+            and not _is_in_quoted_region(i, quoted_regions)
+            for i, char in enumerate(prefix)
+        ):
+            continue
+
         delimiter = next(group for group in match.groups() if group is not None)
 
         # Find where the content starts (after the first newline after the marker)
