@@ -569,6 +569,19 @@ def _check_segment(segment: list[str]) -> bool:
         if not permitted:
             return False
         if consumes_next:
+            if index >= len(segment):
+                return False
+            value = segment[index]
+            # Values may legitimately start with a dash (grep patterns and
+            # negative find durations), but a *forbidden long option* here
+            # could otherwise be swallowed by a value-taking flag (for
+            # example ``rg -T --pre``). Reject all unknown long options; short
+            # values remain supported because arbitrary patterns such as
+            # ``grep -e -dashy-pattern`` are common and cannot name long flags.
+            if value.startswith("--"):
+                name = value[2:].partition("=")[0]
+                if name not in spec.long and name not in spec.long_value:
+                    return False
             index += 1
 
     if spec.max_operands is not None:

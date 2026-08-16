@@ -103,6 +103,11 @@ class TestFindHeredocRegions:
         regions = _find_heredoc_regions(cmd)
         assert len(regions) == 1
 
+    def test_punctuation_in_delimiter(self):
+        cmd = "cat << END-TAG\nhello world\nEND-TAG"
+        regions = _find_heredoc_regions(cmd)
+        assert len(regions) == 1
+
     def test_indented_heredoc(self):
         cmd = "cat <<- EOF\n\thello world\n\tEOF"
         regions = _find_heredoc_regions(cmd)
@@ -611,6 +616,13 @@ class TestEdgeCases:
         # The "ls -la" outside heredoc is fine, the dangerous stuff is in heredoc
         assert not denied
 
+    def test_heredoc_data_does_not_look_like_commands_or_flags(self):
+        assert is_allowlisted("cat << EOF\nhello\nEOF")
+        assert is_allowlisted("cat << END-TAG\n-exec\nEND-TAG")
+
+    def test_unquoted_heredoc_command_substitution_is_not_allowlisted(self):
+        assert not is_allowlisted("cat << EOF\n$(id)\nEOF")
+
     def test_git_add_dotenv_not_denied(self):
         """git add .env should not trigger the git add . rule."""
         denied, _, _ = is_denylisted("git add .env")
@@ -1014,6 +1026,13 @@ class TestFlagParsingShapes:
         assert not is_allowlisted("grep foo >(tee out)")
         # A literal `<(` inside quotes is not process substitution
         assert is_allowlisted("grep 'a<(b' f.txt")
+
+    def test_rg_value_flags_cannot_hide_exec_flag(self):
+        """Value-taking -M/-T cannot swallow a forbidden long flag."""
+        assert not is_allowlisted("rg -T --pre /bin/sh pattern")
+        assert not is_allowlisted("rg -M --pre /bin/sh pattern")
+        assert is_allowlisted("rg -T js pattern")
+        assert is_allowlisted("rg -M 120 pattern")
 
     def test_dash_runs_are_operands_not_flags(self):
         assert is_allowlisted('grep "---" f.txt')

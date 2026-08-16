@@ -175,12 +175,13 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
     """
     heredoc_regions = []
 
-    # Pattern to match heredoc operators with optional quotes around delimiter
-    # Matches: << or <<- followed by optional whitespace and delimiter (with optional quotes)
-    heredoc_pattern = re.compile(r"<<-?\s*([\"']?)(\w+)\1")
+    # A delimiter is a shell word, not necessarily an identifier. Support
+    # punctuation commonly used to make delimiters distinctive (for example
+    # ``END-TAG``), while stopping unquoted words at shell metacharacters.
+    heredoc_pattern = re.compile(r"<<-?\s*(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s;&|<>]+))")
 
     for match in heredoc_pattern.finditer(cmd):
-        delimiter = match.group(2)
+        delimiter = next(group for group in match.groups() if group is not None)
 
         # Find where the content starts (after the first newline after the marker)
         search_start = match.end()
@@ -195,15 +196,19 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
         while True:
             newline_idx = cmd.find("\n", pos)
             if newline_idx == -1:
-                # Check if remaining text is the delimiter
+                # Check if remaining text is the delimiter. Include the
+                # delimiter itself in the safe region: it is shell syntax, not
+                # a command following the heredoc.
                 if cmd[pos:].strip() == delimiter:
-                    heredoc_regions.append((content_start, pos))
+                    heredoc_regions.append((content_start, len(cmd)))
                 break
 
-            # Check if the line from pos to newline_idx is just the delimiter
+            # Check if the line from pos to newline_idx is just the delimiter.
+            # Include the terminator line but preserve its newline, so a real
+            # command on the following line remains independently visible.
             line = cmd[pos:newline_idx]
             if line.strip() == delimiter:
-                heredoc_regions.append((content_start, pos))
+                heredoc_regions.append((content_start, newline_idx))
                 break
 
             pos = newline_idx + 1
@@ -421,9 +426,14 @@ def is_allowlisted(cmd: str) -> bool:
     the command — it falls through to the normal confirmation prompt. See
     ``gptme/tools/shell_flags.py`` for the tables and the rationale.
     """
+    # Heredoc bodies are data, not command segments or arguments. Keep the
+    # original command for substitution/redirection checks below: an unquoted
+    # heredoc body can itself perform command substitution.
+    cmd_without_heredoc_data = _blank_heredoc_bodies(cmd)
+
     # Check if all commands in the pipeline are allowlisted
     # This blocks non-allowlisted commands like: python, perl, xargs, sh, bash, etc.
-    for match in cmd_regex.finditer(cmd):
+    for match in cmd_regex.finditer(cmd_without_heredoc_data):
         for group in match.groups():
             if group and group not in allowlist_commands:
                 return False
@@ -453,9 +463,9 @@ def is_allowlisted(cmd: str) -> bool:
     # none of which the denylist covered. A permitted-flag model fails closed
     # on flag number five instead of waiting for someone to report it.
     #
-    # Heredoc bodies are data, not arguments, so blank them out first —
+    # Heredoc bodies are data, not arguments, so use the blanked command —
     # otherwise a heredoc line starting with `-` would look like a flag.
-    return flags_permitted(_blank_heredoc_bodies(cmd))
+    return flags_permitted(cmd_without_heredoc_data)
 
 
 def is_denylisted(cmd: str) -> tuple[bool, str | None, str | None]:
