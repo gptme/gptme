@@ -258,6 +258,23 @@ class TestPromptGptme:
         assert "gptme v" in content
         assert "general-purpose AI assistant" in content
 
+    def test_next_step_guidance_present(self):
+        """The concrete-next-step instruction is in the full prompt."""
+        from gptme.prompts import prompt_gptme
+
+        msgs = list(prompt_gptme(interactive=True))
+        content = msgs[0].content
+        assert "End your response with a concrete next step" in content
+        assert "offer to elaborate" in content
+
+    def test_next_step_guidance_present_when_compact(self):
+        """The instruction applies uniformly — compact prompts get it too."""
+        from gptme.prompts import prompt_gptme
+
+        msgs = list(prompt_gptme(interactive=True, compact=True))
+        content = msgs[0].content
+        assert "End with a concrete next step" in content
+
     def test_thinking_tags_without_reasoning_model(self):
         """Models without native reasoning get <thinking> tag instructions."""
         from gptme.prompts import prompt_gptme

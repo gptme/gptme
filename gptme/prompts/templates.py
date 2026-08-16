@@ -133,6 +133,16 @@ Always consider the full range of your available tools and abilities when approa
         if compact
         else "Maintain a professional and efficient communication style. Be concise but thorough in your explanations."
     )
+    # Applied uniformly across backends: measurement across Claude, GPT-4o and
+    # Codex found ending on an offer/question instead of an action to be the
+    # shared weakness, not a per-backend one.
+    next_step_guidance = (
+        "End with a concrete next step (a command or specific action), not an offer to elaborate. Ask a clarifying question only when the request is genuinely ambiguous."
+        if compact
+        else """End your response with a concrete next step: a command to run, a file to change, or a specific action to take.
+Do not end with an offer to elaborate ("I can give you a patch if you want") or a generic suggestion.
+Ask a clarifying question only when the request is genuinely ambiguous and you cannot proceed without the answer."""
+    )
 
     default_base_prompt = f"""
 You are {agent_blurb}. {
@@ -174,6 +184,8 @@ Do not suggest opening a browser or editor, instead do it using available tools.
 
 {communication_guidance}
 
+{next_step_guidance}
+
 {"Use `<thinking>` tags to think before you answer." if use_thinking_tags else ""}
 """.strip()
 
@@ -189,6 +201,7 @@ Use absolute paths and `pwd` when needed.
 Do not suggest opening a browser or editor when available tools can do it.
 {tool_guidance}
 {communication_guidance}
+{next_step_guidance}
 {"Use `<thinking>` tags to think before you answer." if use_thinking_tags else ""}
 """.strip()
 
