@@ -35,6 +35,20 @@ VALIDATION_CONNECTION_ERROR = "Could not connect to the API. Please check your n
 VALIDATION_PROVIDER_ERROR_PREFIX = "Validation failed:"
 
 
+def _http_status_error(status_code: int) -> tuple[bool, str]:
+    """Map an unexpected HTTP status to a validation error tuple.
+
+    5xx responses mean the provider is down, not that the key is bad, so they
+    use VALIDATION_PROVIDER_ERROR_PREFIX so api_v2 can return 502 instead of 422.
+    """
+    if status_code >= 500:
+        return (
+            False,
+            f"{VALIDATION_PROVIDER_ERROR_PREFIX} Provider unavailable (HTTP {status_code})",
+        )
+    return False, f"API returned status {status_code}"
+
+
 def validate_api_key(
     api_key: str,
     provider: str,
@@ -77,12 +91,22 @@ def validate_api_key(
         if provider == "xai":
             return _validate_xai(api_key, timeout)
         if provider == "azure":
-            # Azure requires endpoint configuration, skip validation
+            # Azure requires endpoint configuration, skip live validation
             logger.info("Azure API key validation skipped (requires endpoint config)")
-            return True, ""
-        if provider in ("nvidia", "local"):
-            # Local models don't need API key validation
-            logger.info(f"{provider} provider doesn't require API key validation")
+            return (
+                True,
+                "Key accepted without live validation — Azure requires endpoint configuration to validate",
+            )
+        if provider == "nvidia":
+            # NVIDIA validation would need an org-specific endpoint, skip
+            logger.info("NVIDIA API key validation skipped (requires org endpoint)")
+            return (
+                True,
+                "Key accepted without live validation — NVIDIA keys are checked on first use",
+            )
+        if provider == "local":
+            # Local models typically use a placeholder key or none at all
+            logger.info("Local provider doesn't require API key validation")
             return True, ""
         # Unknown or custom provider, skip validation
         logger.info(f"No validation available for provider: {provider}")
@@ -111,7 +135,7 @@ def _validate_openai(api_key: str, timeout: int) -> tuple[bool, str]:
     if response.status_code == 429:
         # Rate limited but key is valid
         return True, ""
-    return False, f"API returned status {response.status_code}"
+    return _http_status_error(response.status_code)
 
 
 def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -159,7 +183,7 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
     if response.status_code == 429:
         # Rate limited but key is valid
         return True, ""
-    return False, f"API returned status {response.status_code}"
+    return _http_status_error(response.status_code)
 
 
 def _validate_openrouter(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -180,7 +204,7 @@ def _validate_openrouter(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    return False, f"API returned status {response.status_code}"
+    return _http_status_error(response.status_code)
 
 
 def _validate_openai_compatible(
@@ -201,7 +225,7 @@ def _validate_openai_compatible(
         return False, "API key forbidden. It may lack required permissions."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    return False, f"API returned status {response.status_code}"
+    return _http_status_error(response.status_code)
 
 
 def _validate_google(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -223,7 +247,7 @@ def _validate_google(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, error.get("message", "Unknown error")
     if response.status_code == 403:
         return False, "API key forbidden. It may lack required permissions."
-    return False, f"API returned status {response.status_code}"
+    return _http_status_error(response.status_code)
 
 
 def _validate_groq(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -240,7 +264,7 @@ def _validate_groq(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    return False, f"API returned status {response.status_code}"
+    return _http_status_error(response.status_code)
 
 
 def _validate_deepseek(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -257,7 +281,7 @@ def _validate_deepseek(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    return False, f"API returned status {response.status_code}"
+    return _http_status_error(response.status_code)
 
 
 def _validate_xai(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -274,4 +298,4 @@ def _validate_xai(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    return False, f"API returned status {response.status_code}"
+    return _http_status_error(response.status_code)

@@ -6,6 +6,7 @@ import pytest
 
 from gptme.llm.validate import (
     PROVIDER_DOCS,
+    VALIDATION_PROVIDER_ERROR_PREFIX,
     _validate_anthropic,
     _validate_openai,
     _validate_openai_compatible,
@@ -188,7 +189,9 @@ class TestValidateOpenAICompatible:
             (401, False, "Invalid API key"),
             (403, False, "forbidden"),
             (429, True, ""),
-            (500, False, "status 500"),
+            # 5xx → provider-unavailable error, not a credential failure
+            (500, False, VALIDATION_PROVIDER_ERROR_PREFIX),
+            (503, False, VALIDATION_PROVIDER_ERROR_PREFIX),
         ],
     )
     @patch("gptme.llm.validate.requests.get")
@@ -207,6 +210,29 @@ class TestValidateOpenAICompatible:
             headers={"Authorization": "Bearer test-key"},
             timeout=10,
         )
+
+
+class TestUnvalidatableProviders:
+    """Tests for providers where live validation is not possible."""
+
+    def test_azure_returns_warning_not_silent(self):
+        """Azure validation skip should surface a warning, not silently pass."""
+        is_valid, msg = validate_api_key("some-azure-key", "azure")
+        assert is_valid
+        assert msg != ""
+        assert "azure" in msg.lower() or "validation" in msg.lower()
+
+    def test_nvidia_returns_warning_not_silent(self):
+        """NVIDIA validation skip should surface a warning, not silently pass."""
+        is_valid, msg = validate_api_key("nvapi-some-key", "nvidia")
+        assert is_valid
+        assert msg != ""
+
+    def test_local_passes_silently(self):
+        """Local providers use placeholder keys and need no warning."""
+        is_valid, msg = validate_api_key("ignore", "local")
+        assert is_valid
+        assert msg == ""
 
 
 class TestProviderDocs:

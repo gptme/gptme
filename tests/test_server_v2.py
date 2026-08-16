@@ -591,6 +591,8 @@ def test_v2_user_api_key_rejects_invalid_key_via_provider(
         "Request timed out. Please check your network connection.",
         "Could not connect to the API. Please check your network.",
         "Validation failed: provider returned malformed response",
+        # 5xx provider responses now produce this prefix too — must be 502, not 422
+        "Validation failed: Provider unavailable (HTTP 500)",
     ],
 )
 def test_v2_user_api_key_returns_bad_gateway_when_provider_unreachable(
@@ -697,6 +699,30 @@ def test_v2_user_api_key_warns_on_quota_exhausted(
     assert data["status"] == "ok"
     assert data.get("warning") is not None
     assert "quota" in data["warning"].lower() or "exhausted" in data["warning"].lower()
+
+
+def test_v2_user_api_key_azure_surfaces_no_validation_warning(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """Azure keys are accepted but a warning must surface — validation is a no-op there."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+    monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+
+    response = client.post(
+        "/api/v2/user/api-key",
+        json={"provider": "azure", "api_key": "garbage-azure-key"},
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["status"] == "ok"
+    # Key is accepted, but a warning must be present so the UI can inform the user
+    assert data.get("warning") is not None
+    assert data["warning"] != ""
 
 
 def test_v2_user_api_key_skip_validation_bypasses_live_check(
