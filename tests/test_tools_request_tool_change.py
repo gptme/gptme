@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+from gptme.tools import get_available_tools
 from gptme.tools.base import ToolSpec
 from gptme.tools.request_tool_change import execute_request_tool_change, tool
 
@@ -12,6 +13,11 @@ def _execute(**kwargs: str):
 
 def test_request_tool_change_is_opt_in():
     assert tool.disabled_by_default is True
+
+
+def test_request_tool_change_is_discoverable():
+    available_tools = get_available_tools(include_mcp=False)
+    assert tool in available_tools
 
 
 @patch("gptme.tools.request_tool_change.get_available_tools")
