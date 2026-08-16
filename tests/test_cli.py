@@ -1664,6 +1664,14 @@ def test_tools_hint_prefix_is_valid_cli_choice(runner: CliRunner):
     assert __version__ in result.output
 
 
+def test_tools_hint_destructive_is_valid_cli_choice(runner: CliRunner):
+    """hint:destructive must be accepted — it is a real hint used by shell, patch, save, etc."""
+    result = runner.invoke(cli.main, ["-t", "hint:destructive", "--version"])
+
+    assert result.exit_code == 0, result.output
+    assert __version__ in result.output
+
+
 def test_tools_unknown_hint_fails_cli_validation(runner: CliRunner):
     result = runner.invoke(cli.main, ["-t", "hint:red-only", "--version"])
 

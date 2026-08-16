@@ -417,6 +417,19 @@ def _known_tool_names() -> list[str]:
     return sorted(names)
 
 
+def _known_hint_names() -> list[str]:
+    """Hint tags defined across all known built-in tools.
+
+    Imports the tool subsystem, so only call this lazily — never at module import time.
+    """
+    from ..tools import get_available_tools
+
+    hints: set[str] = set()
+    for tool in get_available_tools(include_mcp=False):
+        hints.update(tool.hints)
+    return sorted(hints)
+
+
 docstring = f"""
 gptme is a chat-CLI for LLMs, empowering them with tools to run shell commands, execute code, read and manipulate files, and more.
 
@@ -567,7 +580,7 @@ Run 'gptme-util --help' for all utility commands."""
         allow_prefixes=["+", "-", "hint:"],
         extra_choices_for_prefix={
             "-": _known_tool_names,
-            "hint:": lambda: ["read-only"],
+            "hint:": _known_hint_names,
         },
         # '+' is lenient: plugin tools (added via '+tool') aren't known at
         # parse time. '-tool' exclusions and built-in hint tags stay strict so
