@@ -285,12 +285,15 @@ def _has_file_redirection(cmd: str) -> bool:
     Ignores heredoc operators (<< and <<-).
     """
     quoted_regions = _find_quotes(cmd)
+    heredoc_regions = _find_heredoc_regions(cmd)
 
-    # Look for > or >> that are not in quotes and not part of heredoc
+    # Look for > or >> that are not in quotes or heredoc data.
     i = 0
     while i < len(cmd):
-        # Skip if we're in a quoted region
-        if _is_in_quoted_region(i, quoted_regions):
+        # Skip if we're in a quoted or heredoc region.
+        if _is_in_quoted_region(i, quoted_regions) or _is_in_quoted_region(
+            i, heredoc_regions
+        ):
             i += 1
             continue
 
@@ -298,8 +301,8 @@ def _has_file_redirection(cmd: str) -> bool:
         if i < len(cmd) - 1 and cmd[i : i + 2] == ">>":
             return True
 
-        # Any unquoted ``>`` writes to a file, including the ``<>`` read-write
-        # operator. Heredocs contain no ``>`` and need no exception here.
+        # Any remaining unquoted ``>`` writes to a file, including the ``<>``
+        # read-write operator.
         if cmd[i] == ">":
             return True
 
@@ -434,6 +437,39 @@ def _blank_heredoc_bodies(cmd: str) -> str:
     return "".join(chars)
 
 
+def _blank_shell_comments(cmd: str) -> str:
+    """Replace unquoted shell comments with blanks, preserving newlines."""
+    chars = list(cmd)
+    in_single = in_double = in_comment = False
+    i = 0
+    while i < len(cmd):
+        char = cmd[i]
+        if in_comment:
+            if char == "\n":
+                in_comment = False
+            else:
+                chars[i] = " "
+            i += 1
+            continue
+        if char == "\\" and not in_single and i + 1 < len(cmd):
+            i += 2
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+        elif char == '"' and not in_single:
+            in_double = not in_double
+        elif (
+            char == "#"
+            and not in_single
+            and not in_double
+            and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|")
+        ):
+            chars[i] = " "
+            in_comment = True
+        i += 1
+    return "".join(chars)
+
+
 def is_allowlisted(cmd: str) -> bool:
     """Check if a shell command is safe to auto-approve.
 
@@ -456,10 +492,11 @@ def is_allowlisted(cmd: str) -> bool:
     # original command for substitution/redirection checks below: an unquoted
     # heredoc body can itself perform command substitution.
     cmd_without_heredoc_data = _blank_heredoc_bodies(cmd)
+    cmd_without_inert_data = _blank_shell_comments(cmd_without_heredoc_data)
 
     # Check if all commands in the pipeline are allowlisted
     # This blocks non-allowlisted commands like: python, perl, xargs, sh, bash, etc.
-    for match in cmd_regex.finditer(cmd_without_heredoc_data):
+    for match in cmd_regex.finditer(cmd_without_inert_data):
         for group in match.groups():
             if group and group not in allowlist_commands:
                 return False
@@ -489,9 +526,10 @@ def is_allowlisted(cmd: str) -> bool:
     # none of which the denylist covered. A permitted-flag model fails closed
     # on flag number five instead of waiting for someone to report it.
     #
-    # Heredoc bodies are data, not arguments, so use the blanked command —
-    # otherwise a heredoc line starting with `-` would look like a flag.
-    return flags_permitted(cmd_without_heredoc_data)
+    # Heredoc bodies and shell comments are data, not arguments, so use the
+    # blanked command — otherwise inert text starting with `-` would look like
+    # a flag and force an unnecessary confirmation prompt.
+    return flags_permitted(cmd_without_inert_data)
 
 
 def is_denylisted(cmd: str) -> tuple[bool, str | None, str | None]:

@@ -437,7 +437,6 @@ def _split_lines(cmd: str) -> list[str]:
             i += 1
             continue
         if in_comment:
-            buf.append(char)
             i += 1
             continue
         if char == "\\" and not in_single and i + 1 < len(cmd):
@@ -457,9 +456,13 @@ def _split_lines(cmd: str) -> list[str]:
             char == "#"
             and not in_single
             and not in_double
-            and (not buf or buf[-1].isspace())
+            and (not buf or buf[-1].isspace() or buf[-1] in ";&|")
         ):
+            # Comments are inert data. Drop their contents so tokens that look
+            # like flags cannot force an unnecessary confirmation prompt.
             in_comment = True
+            i += 1
+            continue
 
         if char == "\n" and not in_single and not in_double:
             parts.append("".join(buf))

@@ -248,6 +248,9 @@ class TestHasFileRedirection:
         # << should not be detected as > redirection
         assert not _has_file_redirection("cat << EOF")
 
+    def test_greater_than_in_heredoc_body_not_redirect(self):
+        assert not _has_file_redirection("cat << EOF\nhello > world\nEOF")
+
     def test_read_write_redirection_is_redirect(self):
         assert _has_file_redirection("sort 2<> payload.sh")
 
@@ -654,6 +657,14 @@ class TestEdgeCases:
     def test_heredoc_data_does_not_look_like_commands_or_flags(self):
         assert is_allowlisted("cat << EOF\nhello\nEOF")
         assert is_allowlisted("cat << END-TAG\n-exec\nEND-TAG")
+        assert is_allowlisted("cat << EOF\nhello > world\nEOF")
+
+    @pytest.mark.parametrize("operator", [";", "&", "|"])
+    def test_comment_after_control_operator_does_not_look_like_flags(
+        self, operator: str
+    ):
+        assert is_allowlisted(f"echo hi{operator}# ls -la")
+        assert is_allowlisted(f"echo hi{operator}# -unknown")
 
     @pytest.mark.parametrize("prefix", ["rg foo #", "echo foo;#", "echo foo|#"])
     def test_heredoc_marker_in_comment_cannot_hide_command(self, prefix: str):
