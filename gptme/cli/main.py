@@ -1062,7 +1062,10 @@ def main(
     def apply_tool_manifest(workspace_path: Path) -> str | None:
         if not tool_manifest_type:
             return tool_allowlist_str
-        if ctx.get_parameter_source("tool_allowlist") == ParameterSource.COMMANDLINE:
+        if ctx.get_parameter_source("tool_allowlist") in {
+            ParameterSource.COMMANDLINE,
+            ParameterSource.ENVIRONMENT,
+        }:
             raise click.UsageError("--tool-manifest cannot be combined with --tools")
         if selected_profile and selected_profile.tools is not None:
             raise click.UsageError(
