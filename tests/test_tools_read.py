@@ -7,8 +7,19 @@ from unittest.mock import patch
 
 import pytest
 
+from gptme.tools._hashline_snapshot import compute_tag
 from gptme.tools.pruner import PrunePlan
-from gptme.tools.read import execute_read
+from gptme.tools.read import examples, execute_read
+
+
+def test_examples_compute_hashline_tags_from_displayed_content():
+    rendered = examples("markdown")
+    hello = 'print("Hello world")\n'
+    goodbye = 'print("Goodbye world")\n'
+
+    assert f"[hello.py#{compute_tag(hello)}]" in rendered
+    assert f"[goodbye.py#{compute_tag(goodbye)}]" in rendered
+    assert f"[hello.py#{compute_tag(hello + goodbye)}]" in rendered
 
 
 def test_read_file(tmp_path: Path):

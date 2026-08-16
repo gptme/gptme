@@ -50,13 +50,18 @@ instructions_format = {
 
 
 def examples(tool_format):
+    from ._hashline_snapshot import compute_tag
+
+    hello = 'print("Hello world")\n'
+    goodbye = 'print("Goodbye world")\n'
+    combined = hello + goodbye
     batch_paths = "hello.py\ngoodbye.py"
     return f"""
 > User: read hello.py
 > Assistant:
 {ToolUse("read", ["hello.py"], "").to_output(tool_format)}
 > System: ```hello.py
-> [hello.py#09FAFB7D]
+> [hello.py#{compute_tag(combined)}]
 >    1\tprint("Hello world")
 >    2\tprint("Goodbye world")
 > ```
@@ -65,11 +70,11 @@ def examples(tool_format):
 > Assistant:
 {ToolUse("read", [], batch_paths).to_output(tool_format)}
 > System: ```hello.py
-> [hello.py#D4E0A53D]
+> [hello.py#{compute_tag(hello)}]
 >    1\tprint("Hello world")
 > ```
 > ```goodbye.py
-> [goodbye.py#CF728AB6]
+> [goodbye.py#{compute_tag(goodbye)}]
 >    1\tprint("Goodbye world")
 > ```
 """.strip()
