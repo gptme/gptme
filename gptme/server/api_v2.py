@@ -3077,7 +3077,12 @@ def api_user():
         "pick the key up immediately."
     ),
     request_body=UserApiKeySaveRequest,
-    responses={200: UserApiKeySaveResponse, 400: ErrorResponse},
+    responses={
+        200: UserApiKeySaveResponse,
+        400: ErrorResponse,
+        422: ErrorResponse,
+        502: ErrorResponse,
+    },
     tags=["user"],
 )
 def api_user_api_key():
@@ -3126,7 +3131,11 @@ def api_user_api_key():
     if not skip_validation:
         from ..llm.validate import validate_api_key  # fmt: skip
 
-        is_valid, validation_msg = validate_api_key(trimmed_api_key, provider)
+        try:
+            is_valid, validation_msg = validate_api_key(trimmed_api_key, provider)
+        except Exception:
+            logger.exception("Unexpected error validating %s API key", provider)
+            return flask.jsonify({"error": "Provider validation failed"}), 502
         if not is_valid:
             return flask.jsonify({"error": validation_msg}), 400
         if validation_msg:

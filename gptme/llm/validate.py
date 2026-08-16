@@ -52,6 +52,14 @@ def validate_api_key(
             return _validate_anthropic(api_key, timeout)
         if provider == "openrouter":
             return _validate_openrouter(api_key, timeout)
+        if provider == "requesty":
+            return _validate_openai_compatible(
+                api_key, timeout, "https://router.requesty.ai/v1"
+            )
+        if provider == "moonshot":
+            return _validate_openai_compatible(
+                api_key, timeout, "https://api.moonshot.ai/v1"
+            )
         if provider in ("google", "gemini"):
             return _validate_google(api_key, timeout)
         if provider == "groq":
@@ -155,6 +163,25 @@ def _validate_openrouter(api_key: str, timeout: int) -> tuple[bool, str]:
     if response.status_code == 200:
         return True, ""
     if response.status_code == 401:
+        return False, "Invalid API key. Please check your key and try again."
+    if response.status_code == 429:
+        return True, ""  # Rate limited but key is valid
+    return False, f"API returned status {response.status_code}"
+
+
+def _validate_openai_compatible(
+    api_key: str, timeout: int, base_url: str
+) -> tuple[bool, str]:
+    """Validate an OpenAI-compatible provider key by listing models."""
+    response = requests.get(
+        f"{base_url.rstrip('/')}/models",
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=timeout,
+    )
+
+    if response.status_code == 200:
+        return True, ""
+    if response.status_code in (401, 403):
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid

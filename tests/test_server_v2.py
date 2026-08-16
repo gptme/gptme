@@ -585,6 +585,31 @@ def test_v2_user_api_key_rejects_invalid_key_via_provider(
     assert not local_file.exists()
 
 
+def test_v2_user_api_key_handles_validator_exception(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """A provider outage should return JSON without persisting the key."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+
+    def raise_provider_error(key, provider):
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr("gptme.server.api_v2.validate_api_key", raise_provider_error)
+
+    response = client.post(
+        "/api/v2/user/api-key",
+        json={"provider": "anthropic", "api_key": "sk-ant-test"},
+    )
+
+    assert response.status_code == 502
+    assert response.get_json() == {"error": "Provider validation failed"}
+    assert not (tmp_path / "config.local.toml").exists()
+
+
 def test_v2_user_api_key_accepts_valid_key_via_provider(
     client: FlaskClient, tmp_path, monkeypatch
 ):

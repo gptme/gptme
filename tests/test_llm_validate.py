@@ -6,6 +6,7 @@ from gptme.llm.validate import (
     PROVIDER_DOCS,
     _validate_anthropic,
     _validate_openai,
+    _validate_openai_compatible,
     _validate_openrouter,
     validate_api_key,
 )
@@ -40,6 +41,22 @@ class TestValidateApiKey:
         mock_validate.return_value = (True, "")
         validate_api_key("sk-or-test", "openrouter")
         mock_validate.assert_called_once_with("sk-or-test", 10)
+
+    @patch("gptme.llm.validate._validate_openai_compatible")
+    def test_requesty_provider_calls_compatible_validator(self, mock_validate):
+        mock_validate.return_value = (True, "")
+        validate_api_key("req-test", "requesty")
+        mock_validate.assert_called_once_with(
+            "req-test", 10, "https://router.requesty.ai/v1"
+        )
+
+    @patch("gptme.llm.validate._validate_openai_compatible")
+    def test_moonshot_provider_calls_compatible_validator(self, mock_validate):
+        mock_validate.return_value = (True, "")
+        validate_api_key("moonshot-test", "moonshot")
+        mock_validate.assert_called_once_with(
+            "moonshot-test", 10, "https://api.moonshot.ai/v1"
+        )
 
 
 class TestValidateOpenAI:
@@ -137,6 +154,25 @@ class TestValidateOpenRouter:
         is_valid, error = _validate_openrouter("sk-or-invalid-key", 10)
         assert not is_valid
         assert "Invalid API key" in error
+
+
+class TestValidateOpenAICompatible:
+    """Tests for OpenAI-compatible provider key validation."""
+
+    @patch("gptme.llm.validate.requests.get")
+    def test_invalid_key_returns_false(self, mock_get):
+        mock_get.return_value = Mock(status_code=401)
+        is_valid, error = _validate_openai_compatible(
+            "invalid-key", 10, "https://example.com/v1/"
+        )
+
+        assert not is_valid
+        assert "Invalid API key" in error
+        mock_get.assert_called_once_with(
+            "https://example.com/v1/models",
+            headers={"Authorization": "Bearer invalid-key"},
+            timeout=10,
+        )
 
 
 class TestProviderDocs:
