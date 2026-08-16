@@ -2,7 +2,10 @@
 
 import logging
 
-import requests
+try:
+    import requests
+except ImportError:
+    requests = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,10 @@ def validate_api_key(
         - (True, "") if valid
         - (False, "error description") if invalid
     """
+    if requests is None:
+        logger.warning("requests library not available, skipping API key validation")
+        return True, ""
+
     try:
         if provider == "openai":
             return _validate_openai(api_key, timeout)
