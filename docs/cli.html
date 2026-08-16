@@ -600,6 +600,7 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <div class="line">gptme “fix TODOs” main.py                  Include file or URL in context</div>
 <div class="line">gptme “review” github.com/org/repo/pull/1  Include a GitHub PR in context</div>
 <div class="line">gptme –tools none “what is 2+2”           No tools, just chat</div>
+<div class="line">gptme -t read-only “summarize this repo”   Read files only; no writes or execution</div>
 <div class="line">gptme -t patch,save “fix typo” main.py     Only specific tools (comma-separated)</div>
 <div class="line">gptme -t +subagent “plan a refactor”       Default tools + subagent</div>
 <div class="line">gptme -t=-browser “summarize code”         Default tools minus browser</div>

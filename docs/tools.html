@@ -6650,17 +6650,26 @@ gptme<span class="w"> </span>--tools<span class="w"> </span>-shell,computer<span
 
 <span class="c1"># Disable all tools (pure conversation)</span>
 gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">&quot;&quot;</span><span class="w"> </span><span class="s2">&quot;just talk to me&quot;</span>
+
+<span class="c1"># Strict audit mode: only the built-in read tool, no writes or execution</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>read-only<span class="w"> </span><span class="s2">&quot;summarise this repo&quot;</span>
 </pre></div>
 </div>
 <p>Glob patterns (<code class="docutils literal notranslate"><span class="pre">*</span></code>, <code class="docutils literal notranslate"><span class="pre">?</span></code>, <code class="docutils literal notranslate"><span class="pre">[...]</span></code>) are also supported, matched against tool
 names with <a class="reference external" href="https://docs.python.org/3/library/fnmatch.html#fnmatch.fnmatchcase" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">fnmatch.fnmatchcase()</span></code></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">read-only</span></code> is a named preset, not a hint pattern. It expands to the built-in
+<code class="docutils literal notranslate"><span class="pre">read</span></code> tool only, and cannot be combined with other tool names. This makes it
+safe for auditing untrusted workspaces where <code class="docutils literal notranslate"><span class="pre">shell</span></code>, <code class="docutils literal notranslate"><span class="pre">ipython</span></code>, <code class="docutils literal notranslate"><span class="pre">save</span></code>,
+<code class="docutils literal notranslate"><span class="pre">append</span></code> and <code class="docutils literal notranslate"><span class="pre">patch</span></code> must stay unavailable. Use <code class="docutils literal notranslate"><span class="pre">hint:read-only</span></code> only when
+you explicitly want to trust third-party tool annotations, such as MCP server
+metadata.</p>
 </section>
 <section id="hint-based-patterns">
 <span id="hint-allowlist"></span><h3>Hint-based patterns<a class="headerlink" href="#hint-based-patterns" title="Link to this heading">#</a></h3>
 <p>Tools can carry <strong>capability hints</strong> — semantic tags that describe what a tool
 does. Hint-based allowlist entries let you match entire categories of tools at
 once using the <code class="docutils literal notranslate"><span class="pre">hint:</span></code> prefix:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Allow only tools annotated as read-only (safe for untrusted workspaces)</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Allow only tools annotated as read-only</span>
 gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">&quot;hint:read-only&quot;</span><span class="w"> </span><span class="s2">&quot;summarise this repo&quot;</span>
 
 <span class="c1"># Mix exact names with hint patterns</span>
@@ -6697,9 +6706,9 @@ reach outside the current environment.</p></td>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Built-in gptme tools do not carry hints in the current release. Hints are
-currently populated automatically from <strong>MCP tool annotations</strong> (see below).
-You can also set hints explicitly when <a class="reference internal" href="custom_tool.html"><span class="doc">writing custom tools</span></a>.</p>
+<p>The built-in <code class="docutils literal notranslate"><span class="pre">read</span></code> tool carries the <code class="docutils literal notranslate"><span class="pre">read-only</span></code> hint. MCP tools can also
+carry the hint through server-supplied annotations (see below), so
+<code class="docutils literal notranslate"><span class="pre">hint:read-only</span></code> is broader than the strict <code class="docutils literal notranslate"><span class="pre">read-only</span></code> preset.</p>
 </div>
 </section>
 <section id="mcp-tool-annotations">
