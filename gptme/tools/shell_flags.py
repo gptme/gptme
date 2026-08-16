@@ -421,14 +421,25 @@ def _split_lines(cmd: str) -> list[str]:
     is a harmless OR operator, ``sort -o`` overwrites a file.
 
     Newlines inside quotes are data, and a backslash-newline is a line
-    continuation, so neither splits.
+    continuation, so neither splits. Shell comments run to the newline, so
+    quotes and continuations inside them cannot affect the following line.
     """
     parts: list[str] = []
     buf: list[str] = []
-    in_single = in_double = False
+    in_single = in_double = in_comment = False
     i = 0
     while i < len(cmd):
         char = cmd[i]
+        if char == "\n" and in_comment:
+            parts.append("".join(buf))
+            buf = []
+            in_comment = False
+            i += 1
+            continue
+        if in_comment:
+            buf.append(char)
+            i += 1
+            continue
         if char == "\\" and not in_single and i + 1 < len(cmd):
             if cmd[i + 1] == "\n":
                 # Line continuation — drop both, the logical line continues.
@@ -442,6 +453,13 @@ def _split_lines(cmd: str) -> list[str]:
             in_single = not in_single
         elif char == '"' and not in_single:
             in_double = not in_double
+        elif (
+            char == "#"
+            and not in_single
+            and not in_double
+            and (not buf or buf[-1].isspace())
+        ):
+            in_comment = True
 
         if char == "\n" and not in_single and not in_double:
             parts.append("".join(buf))

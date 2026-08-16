@@ -612,6 +612,17 @@ class TestEdgeCases:
         denied, _, _ = is_denylisted(cmd)
         assert denied
 
+    @pytest.mark.parametrize(
+        "comment",
+        ["# don't", ' # "', "# \\", "# \\\\"],
+    )
+    def test_comment_syntax_cannot_merge_next_command(self, comment: str):
+        cmd = f"echo foo {comment}\nsort -o payload.sh data.txt"
+        assert not is_allowlisted(cmd)
+
+    def test_hash_inside_word_does_not_start_comment(self):
+        assert is_allowlisted("echo foo#bar\necho baz")
+
     def test_cd_is_allowlisted(self):
         assert is_allowlisted("cd /tmp")
 
