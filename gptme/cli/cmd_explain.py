@@ -105,16 +105,19 @@ def load_faq(path: str | None = None) -> list[FAQEntry]:
         data = yaml.safe_load(text) or {}
     except yaml.YAMLError as e:
         raise click.ClickException(f"Could not parse FAQ file {faq_path}: {e}") from e
-    return [
-        FAQEntry(
-            topic=entry["topic"],
-            question=entry["question"],
-            answer=entry["answer"],
-            aliases=entry.get("aliases", []),
-            see_also=entry.get("see_also", []),
-        )
-        for entry in data.get("topics", [])
-    ]
+    try:
+        return [
+            FAQEntry(
+                topic=entry["topic"],
+                question=entry["question"],
+                answer=entry["answer"],
+                aliases=entry.get("aliases", []),
+                see_also=entry.get("see_also", []),
+            )
+            for entry in data.get("topics", [])
+        ]
+    except (AttributeError, KeyError, TypeError) as e:
+        raise click.ClickException(f"Invalid FAQ structure in {faq_path}: {e}") from e
 
 
 def find_topic(query: str, entries: list[FAQEntry]) -> FAQEntry | None:

@@ -171,6 +171,23 @@ def test_load_faq_malformed_yaml_raises_friendly_error(tmp_path, runner):
         load_faq.__wrapped__(str(bad_yaml))  # bypass lru_cache
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        "topics: invalid",
+        "topics:\n  - question: Missing topic\n    answer: Broken entry",
+    ],
+)
+def test_load_faq_invalid_structure_raises_friendly_error(tmp_path, content):
+    """Structurally invalid YAML produces a readable error, not a raw traceback."""
+    bad_yaml = tmp_path / "bad.yaml"
+    bad_yaml.write_text(content)
+    from click import ClickException
+
+    with pytest.raises(ClickException, match="Invalid FAQ structure"):
+        load_faq.__wrapped__(str(bad_yaml))  # bypass lru_cache
+
+
 # Regression: P2 — explain --list with empty FAQ does not crash on max()
 def test_explain_list_with_empty_faq_does_not_crash(runner):
     """Empty FAQ entries list must not raise ValueError from max() with no default."""
