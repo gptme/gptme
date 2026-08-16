@@ -93,7 +93,8 @@ responses. gptme's own tools are never dispatched via JSON schema.
 
 ## Audit: No JSON-Schema Dispatch Paths in `gptme/tools/`
 
-Audit run 2026-08-16, commit `66057c6e8`, all `gptme/tools/*.py` files.
+Audit run 2026-08-16, commit `66057c6e8`, all Python files recursively under
+`gptme/tools/`.
 
 ```bash
 grep -r "json\|schema\|Json\|Schema" gptme/tools/ \
@@ -112,8 +113,13 @@ grep -r "json\|schema\|Json\|Schema" gptme/tools/ \
 | `elicit.py` | JSON for form-spec parsing (`json.loads(code)`) and response formatting | ❌ Not dispatch — parses the tool's own content, not tool selection |
 | `form.py` | JSON for form result output formatting | ❌ Not dispatch |
 | `gh.py` | JSON parsing of `gh` CLI output (PR details, check runs) | ❌ Not dispatch |
-| `computer.py` | JSON for action telemetry recording | ❌ Not dispatch |
+| `computer.py`, `computer_semantic.py` | JSON for action telemetry and semantic-target payloads | ❌ Not dispatch |
 | `pruner.py` | JSON parsing of pruner payload in message content | ❌ Not dispatch |
+| `autocompact/engine.py` | Conversation JSONL path and message-position bookkeeping | ❌ Not dispatch |
+| `subagent/api.py` | JSONL cancellation protocol and structured-output schema forwarding | ❌ Not dispatch |
+| `subagent/batch.py` | Structured-output JSON decoding and optional Pydantic result validation | ❌ Not dispatch — subagent result content |
+| `subagent/control.py`, `subagent/execution.py` | JSONL control/progress protocol and structured-output plumbing | ❌ Not dispatch |
+| `subagent/hooks.py`, `subagent/types.py` | JSON Schema prompt generation plus JSON syntax normalization for structured subagent results | ❌ Not dispatch — validates the subagent's result content |
 | `vent.py` | JSONL output to friction ledger | ❌ Not dispatch |
 | `progress.py` | JSONL output to progress log | ❌ Not dispatch |
 | `shell.py` | JSONL context-savings log | ❌ Not dispatch |
@@ -154,13 +160,19 @@ because each prior turn's structured `tool_call` / `tool_result` pair is preserv
 the conversation. PTC history is just markdown code blocks and their output — shorter,
 compositional, and no more repetitive than the code itself.
 
-**Empirical evidence**: A 2026 benchmark study directly quantified this effect.
-arXiv:2608.06370v1 (*"The Bitter Lesson of Tool Calling"*, BFCL v4, 14 models)
-found that PTC matches or exceeds JSON-schema calling on 11/14 models — with GPT-5.6
-improving +10.6% under PTC — and that **JSON-schema accuracy degrades ~2.3%** on
-average as tool history accumulates while PTC accuracy remains stable. gptme's
-long-running autonomous sessions (50–200 tool calls per run) sit precisely in the
-regime where this gap is most pronounced.
+**Empirical evidence**: A 2026 benchmark study, arXiv:2608.06370v1 (*"The Bitter
+Lesson of Tool Calling"*), compared PTC with native JSON tool calling across 14
+models on BFCL v4. PTC matched or exceeded JSON on 11/14 models, with the GPT-5.6
+family improving by up to 10.6 percentage points. In a separate context-flooding
+ablation (31 entries per condition), the authors expanded the available tool set
+from only task-relevant schemas to 128 schemas with unrelated decoys. Mean JSON
+accuracy fell 2.3 percentage points, while mean PTC accuracy rose 5.5 points.
+
+That ablation tests schema flooding in a single benchmark query, not accumulated
+multi-turn history, so it does not directly measure gptme's 50–200-call sessions.
+It supports the narrower claim that PTC is robust when irrelevant tool definitions
+inflate the context; the extrapolation to long-running sessions above remains an
+architectural rationale rather than a measured result.
 
 ---
 
@@ -170,5 +182,5 @@ regime where this gap is most pronounced.
 - `gptme/tools/python.py` — IPython execution backend
 - `gptme/tools/shell.py` — subprocess bash execution backend
 - `gptme/tools/mcp_adapter.py` — MCP protocol bridge (external tool JSON schema)
-- arXiv:2608.06370v1 — *"The Bitter Lesson of Tool Calling"* (August 2026): BFCL v4 benchmark comparing PTC vs JSON-schema tool calling across 14 models; key finding: PTC ≥ JSON on 11/14 models; JSON accuracy degrades ~2.3% under context rot while PTC is stable
+- [arXiv:2608.06370v1](https://arxiv.org/abs/2608.06370v1) — *"The Bitter Lesson of Tool Calling"* (August 2026): BFCL v4 benchmark across 14 models; its context-flooding ablation compares task-relevant schemas with 128 schemas containing unrelated decoys
 - Issue [#3540](https://github.com/gptme/gptme/issues/3540) — audit request
