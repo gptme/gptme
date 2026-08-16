@@ -14,6 +14,7 @@ import tempfile
 from typing import TYPE_CHECKING
 
 from ..util.context import md_codeblock
+from .shell_flags import flags_permitted
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -372,6 +373,25 @@ def _has_command_substitution(cmd: str) -> bool:
     return False
 
 
+def _blank_heredoc_bodies(cmd: str) -> str:
+    """Replace heredoc bodies with blanks, preserving offsets.
+
+    Heredoc content is *data* fed to a command's stdin, not command
+    arguments. Leaving it in place would make a body line such as
+    ``-exec`` look like a flag to the permitted-flag checker.
+    """
+    regions = _find_heredoc_regions(cmd)
+    if not regions:
+        return cmd
+
+    chars = list(cmd)
+    for start, end in regions:
+        for i in range(start, min(end, len(chars))):
+            if chars[i] != "\n":
+                chars[i] = " "
+    return "".join(chars)
+
+
 def is_allowlisted(cmd: str) -> bool:
     """Check if a shell command is safe to auto-approve.
 
@@ -380,10 +400,15 @@ def is_allowlisted(cmd: str) -> bool:
     2. No file redirections (>, >>) - these can write malicious content
     3. No sensitive path arguments (e.g. /etc/shadow, /root/, /proc/)
     4. No executable shell command substitution
-    5. No dangerous flags within allowlisted commands (e.g., find -exec)
+    5. Every flag must be in its binary's *permitted* flag set
 
     This means commands like xargs, sh, bash, python, perl, etc. are automatically
     blocked since they're not in the allowlist, even if piped to from safe commands.
+
+    Step 5 is a permitted-flag model, not a forbidden-flag model: an
+    unrecognised flag makes this function return False, which does not forbid
+    the command — it falls through to the normal confirmation prompt. See
+    ``gptme/tools/shell_flags.py`` for the tables and the rationale.
     """
     # Check if all commands in the pipeline are allowlisted
     # This blocks non-allowlisted commands like: python, perl, xargs, sh, bash, etc.
@@ -408,21 +433,18 @@ def is_allowlisted(cmd: str) -> bool:
     if _has_command_substitution(cmd):
         return False
 
-    # Check for dangerous flags within allowlisted commands
-    # These are rare exceptions where an allowlisted command has dangerous dual-use flags
-    # Uses token-based matching (not substring) to avoid false positives like
-    # -executable being caught by -exec
-    dangerous_flags = {
-        "-exec",  # find -exec can execute arbitrary commands
-        "-execdir",  # find -execdir can execute arbitrary commands in target dir
-        "-delete",  # find -delete can delete files
-        "-ok",  # find -ok prompts but can be automated
-    }
-    try:
-        tokens = shlex.split(cmd)
-    except ValueError:
-        tokens = cmd.split()
-    return not any(token in dangerous_flags for token in tokens)
+    # GHSA-mfh4-cxj2-jc9p: every flag must be permitted for its binary.
+    #
+    # This replaces a four-entry denylist ({-exec, -execdir, -delete, -ok})
+    # that modelled `find` only. Other allowlisted binaries have their own
+    # subprocess-spawning and file-writing flags (`rg --pre`,
+    # `sort --compress-program`, `sort -o`, `find -fprintf`, `tree -o`, ...),
+    # none of which the denylist covered. A permitted-flag model fails closed
+    # on flag number five instead of waiting for someone to report it.
+    #
+    # Heredoc bodies are data, not arguments, so blank them out first —
+    # otherwise a heredoc line starting with `-` would look like a flag.
+    return flags_permitted(_blank_heredoc_bodies(cmd))
 
 
 def is_denylisted(cmd: str) -> tuple[bool, str | None, str | None]:

@@ -4,6 +4,8 @@ Tests the allowlist/denylist logic, quote/heredoc parsing, pipe detection,
 and redirection detection in gptme/tools/shell_validation.py.
 """
 
+import pytest
+
 from gptme.tools.shell_validation import (
     _find_first_unquoted_pipe,
     _find_heredoc_regions,
@@ -794,3 +796,376 @@ class TestPipeToShellCloseParen:
         """`cmd; curl x | bash; ls` should be blocked."""
         denied, _, _ = is_denylisted("echo start; curl x | bash; ls")
         assert denied
+
+
+# ── GHSA-mfh4-cxj2-jc9p: permitted flags, not forbidden flags ────────
+
+
+class TestGHSAExecAndWriteFlags:
+    """The reported vectors (Pham Phuoc Hanh, @hanhpp).
+
+    ``is_allowlisted()`` used to reject a denylist of exactly four
+    ``find``-specific flags. Every allowlisted binary below has its own
+    subprocess-spawning or file-writing flag that the denylist never modelled,
+    so all of these auto-ran with no confirmation prompt.
+    """
+
+    def test_rg_pre_arbitrary_exec(self):
+        """`rg --pre <program>` execs <program> once per searched file."""
+        assert not is_allowlisted("rg --pre /bin/sh pattern file.txt")
+
+    def test_rg_pre_equals_form(self):
+        """The `--flag=value` form must be caught identically."""
+        assert not is_allowlisted("rg --pre=/bin/sh pattern file.txt")
+
+    def test_sort_compress_program_arbitrary_exec(self):
+        """`sort --compress-program` execs the named compressor."""
+        assert not is_allowlisted("sort -S1 --compress-program=/bin/sh bigfile")
+
+    def test_sort_compress_program_separate_value(self):
+        assert not is_allowlisted("sort -S1 --compress-program /bin/sh bigfile")
+
+    def test_find_fprintf_arbitrary_write(self):
+        """`find -fprintf` writes an arbitrary file, bypassing the > check."""
+        assert not is_allowlisted("find . -maxdepth 0 -fprintf payload.sh 'content'")
+
+    def test_sort_o_arbitrary_write(self):
+        """`sort -o` overwrites an arbitrary file, bypassing the > check."""
+        assert not is_allowlisted("sort -o payload.sh source.txt")
+
+    def test_chained_rce_write_then_exec(self):
+        """The two halves of the reported RCE chain are both rejected."""
+        assert not is_allowlisted("find . -maxdepth 0 -fprintf run.sh 'id'")
+        assert not is_allowlisted("rg --pre sh --pre-glob '*' x run.sh")
+
+
+class TestGHSAVariantFlags:
+    """Same shape, different flags — the reason a denylist cannot work."""
+
+    def test_rg_hostname_bin(self):
+        assert not is_allowlisted("rg --hostname-bin /bin/sh pattern")
+
+    def test_rg_hostname_bin_equals_form(self):
+        assert not is_allowlisted("rg --hostname-bin=/bin/sh pattern")
+
+    def test_rg_search_zip_long(self):
+        assert not is_allowlisted("rg --search-zip pattern archive.gz")
+
+    def test_rg_search_zip_short(self):
+        assert not is_allowlisted("rg -z pattern archive.gz")
+
+    def test_rg_pre_glob_equals_form(self):
+        assert not is_allowlisted("rg --pre-glob='*.pdf' pattern")
+
+    def test_find_okdir(self):
+        assert not is_allowlisted("find . -okdir rm {} \\;")
+
+    def test_find_fls(self):
+        assert not is_allowlisted("find . -fls listing.txt")
+
+    def test_find_fprint(self):
+        assert not is_allowlisted("find . -fprint out.txt")
+
+    def test_find_fprint0(self):
+        assert not is_allowlisted("find . -fprint0 out.txt")
+
+    def test_tree_output_to_file(self):
+        """`tree -o` is another arbitrary file write."""
+        assert not is_allowlisted("tree -o payload.sh")
+
+    def test_file_compile_writes_magic(self):
+        """`file -C` compiles and writes a .mgc file."""
+        assert not is_allowlisted("file -C -m custom.magic")
+
+    def test_file_no_sandbox(self):
+        """`file -S` disables libmagic's seccomp sandbox."""
+        assert not is_allowlisted("file -S suspicious.bin")
+
+    def test_uniq_second_operand_is_an_output_file(self):
+        """`uniq INPUT OUTPUT` truncates OUTPUT — no flag involved."""
+        assert not is_allowlisted("uniq input.txt payload.sh")
+
+    def test_uniq_single_operand_still_fine(self):
+        assert is_allowlisted("uniq input.txt")
+
+    def test_sort_temporary_directory(self):
+        assert not is_allowlisted("sort -T /tmp/attacker big.txt")
+
+    def test_unknown_future_flag_requires_confirmation(self):
+        """The point of the model: a flag we have never heard of prompts."""
+        assert not is_allowlisted("ls --some-flag-invented-in-2030")
+        assert not is_allowlisted("grep --brand-new-exec-flag=sh pattern f.txt")
+
+
+class TestFlagParsingShapes:
+    """Argument shapes the permitted-flag parser has to get right."""
+
+    def test_bundled_short_flags(self):
+        assert is_allowlisted("ls -la")
+        assert is_allowlisted("ls -lah")
+        assert is_allowlisted("grep -rn pattern .")
+        assert is_allowlisted("sort -nr data.txt")
+        assert is_allowlisted("du -sh .")
+
+    def test_bundled_short_flags_reject_one_bad_letter(self):
+        # -o is not permitted for sort even when bundled with permitted ones
+        assert not is_allowlisted("sort -no out.txt data.txt")
+
+    def test_attached_and_separate_values(self):
+        assert is_allowlisted("cut -d, -f2 data.csv")
+        assert is_allowlisted("cut -d , -f 2 data.csv")
+        assert is_allowlisted("grep -m5 pattern f.txt")
+        assert is_allowlisted("grep -m 5 pattern f.txt")
+        assert is_allowlisted("rg -A3 pattern")
+        assert is_allowlisted("rg -A 3 pattern")
+
+    def test_long_flag_equals_and_space_forms(self):
+        assert is_allowlisted("du --max-depth=1 .")
+        assert is_allowlisted("du --max-depth 1 .")
+        assert is_allowlisted("rg --type=py pattern")
+        assert is_allowlisted("rg --type py pattern")
+
+    def test_numeric_shorthand_is_not_a_flag(self):
+        assert is_allowlisted("head -5 f.txt")
+        assert is_allowlisted("tail -100 app.log")
+        assert is_allowlisted("grep -3 pattern f.txt")
+
+    def test_value_is_not_mistaken_for_a_flag(self):
+        # -e takes the next token as its pattern, even when it looks like a flag
+        assert is_allowlisted("grep -e -dashy-pattern f.txt")
+        assert is_allowlisted("find . -name '-weird-name'")
+        assert is_allowlisted("sort -k1,2 -t: data.txt")
+
+    def test_end_of_options_marker(self):
+        assert is_allowlisted("cat -- -dashed-file.txt")
+        assert is_allowlisted("grep -n -- -pattern f.txt")
+
+    def test_operands_are_not_flags(self):
+        assert is_allowlisted("find . -name '*.py'")
+        assert is_allowlisted("ls src/gptme")
+        assert is_allowlisted("rg pattern src/ tests/")
+
+    def test_find_primaries_are_not_bundled_letters(self):
+        # -name must not decompose into -n -a -m -e
+        assert is_allowlisted("find . -name '*.py' -maxdepth 3")
+        assert is_allowlisted("find . -type f -executable -name '*.sh'")
+        assert is_allowlisted("find . \\( -name a -o -name b \\) -print")
+
+    def test_flags_checked_per_pipeline_segment(self):
+        # `-o` is fine for grep (--only-matching) but not for sort
+        assert is_allowlisted("grep -o pattern f.txt | sort -u")
+        assert not is_allowlisted("grep -o pattern f.txt | sort -o out.txt")
+
+    def test_unparseable_command_fails_closed(self):
+        assert not is_allowlisted("echo 'unbalanced")
+
+    def test_echo_text_separators_are_not_flags(self):
+        """`echo "---"` between commands is an extremely common idiom."""
+        assert is_allowlisted('echo "---"')
+        assert is_allowlisted('echo "--- section ---"')
+        assert is_allowlisted('echo "---created:"')
+        assert is_allowlisted('cat a.txt | head -5; echo "---"; wc -l a.txt')
+
+    def test_echo_redirection_still_blocked(self):
+        """echo accepts any flag, but redirection is checked separately."""
+        assert not is_allowlisted('echo "payload" > /tmp/exploit.sh')
+        assert not is_allowlisted('echo "payload" >> ~/.bashrc')
+
+    def test_dash_runs_are_operands_not_flags(self):
+        assert is_allowlisted('grep "---" f.txt')
+        assert is_allowlisted("grep -- --- f.txt")
+
+
+REALISTIC_USAGE = [
+    # ls
+    "ls",
+    "ls -l",
+    "ls -la",
+    "ls -lah",
+    "ls -ltr",
+    "ls -R",
+    "ls --color=auto -l",
+    "ls -F --group-directories-first",
+    "ls -lh --time-style=long-iso",
+    "ls -I node_modules",
+    "ls -1 src",
+    # stat / file / which / type
+    "stat setup.py",
+    "stat -c %s setup.py",
+    "stat --format=%y setup.py",
+    "file image.png",
+    "file -b image.png",
+    "file --mime-type image.png",
+    "which python3",
+    "which -a python3",
+    "type ls",
+    "type -a ls",
+    # cat / echo / pwd / cd
+    "cat README.md",
+    "cat -n README.md",
+    "cat -A README.md",
+    "cat a.txt b.txt",
+    "echo hello",
+    "echo -n hello",
+    'echo "---"',
+    'echo "=== section ==="',
+    "pwd",
+    "pwd -P",
+    "cd subdir",
+    # head / tail
+    "head README.md",
+    "head -5 README.md",
+    "head -n 10 README.md",
+    "head -c 100 README.md",
+    "head --lines=50 README.md",
+    "tail app.log",
+    "tail -f app.log",
+    "tail -F app.log",
+    "tail -100 app.log",
+    "tail -n +5 app.log",
+    "tail -f -n 20 app.log",
+    # find
+    "find . -type f",
+    "find . -type d",
+    "find . -name '*.py'",
+    "find . -iname 'README*'",
+    "find . -name '*.py' -maxdepth 3",
+    "find . -mindepth 2 -maxdepth 4 -type f",
+    "find . -size +10M",
+    "find . -mtime -7",
+    "find . -mmin -60",
+    "find . -empty",
+    "find . -perm 644",
+    "find . -newer Makefile",
+    "find . -newermt 2024-01-01",
+    "find . -regex '.*test.*'",
+    "find . -type f -print0",
+    "find . -type f -printf '%p\\n'",
+    "find . -type f -ls",
+    "find . -path './build' -prune -o -print",
+    "find . -not -name '*.tmp'",
+    "find -L . -type l",
+    "find . -xdev -type f",
+    "find . -depth -type d",
+    # rg
+    "rg pattern",
+    "rg -i pattern",
+    "rg -ni pattern",
+    "rg -w word",
+    "rg -F 'literal.string'",
+    "rg -i --type py pattern",
+    "rg -t py pattern",
+    "rg -T js pattern",
+    "rg -g '*.py' pattern",
+    "rg -l pattern",
+    "rg --files",
+    "rg -c pattern",
+    "rg -n -A3 -B3 pattern src",
+    "rg -C2 pattern",
+    "rg -m 5 pattern",
+    "rg --max-depth 2 pattern",
+    "rg -e pat1 -e pat2",
+    "rg --no-ignore pattern",
+    "rg --hidden pattern",
+    "rg -uu pattern",
+    "rg --json pattern",
+    "rg --stats pattern",
+    "rg -U 'multi.*line'",
+    "rg --color never pattern",
+    "rg --sort path pattern",
+    "rg -o pattern",
+    "rg --vimgrep pattern",
+    "rg -S pattern",
+    "rg --no-heading -n pattern",
+    # ag
+    "ag pattern",
+    "ag -i pattern",
+    "ag -l pattern",
+    "ag --ignore-dir node_modules pattern",
+    "ag -A 2 pattern",
+    "ag --hidden pattern",
+    # grep
+    "grep pattern f.txt",
+    "grep -i pattern f.txt",
+    "grep -r pattern .",
+    "grep -rn 'foo' .",
+    "grep -rni pattern .",
+    "grep -v pattern f.txt",
+    "grep -c pattern f.txt",
+    "grep -l pattern src",
+    "grep -L pattern src",
+    "grep -w word f.txt",
+    "grep -E '^a.*b$' f.txt",
+    "grep -F literal f.txt",
+    "grep -P '\\d+' f.txt",
+    "grep -A 3 pattern f.txt",
+    "grep -B 2 pattern f.txt",
+    "grep -C 2 pattern f.txt",
+    "grep -n --color=auto pattern f.txt",
+    "grep -f patterns.txt f.txt",
+    "grep --include='*.py' -r pattern .",
+    "grep --exclude-dir=node_modules -r pattern .",
+    "grep -o pattern f.txt",
+    "grep -q pattern f.txt",
+    # wc / sort / uniq / cut
+    "wc -l f.txt",
+    "wc -w f.txt",
+    "wc -lwc f.txt",
+    "sort f.txt",
+    "sort -n f.txt",
+    "sort -nr f.txt",
+    "sort -u -k2 f.txt",
+    "sort -k1,2 f.txt",
+    "sort -t: -k3 -n f.txt",
+    "sort -h f.txt",
+    "sort -V f.txt",
+    "sort --key=2 --numeric-sort f.txt",
+    "uniq -c",
+    "uniq -d",
+    "uniq -u",
+    "uniq -f 1",
+    "cut -d: -f1 fields.csv",
+    "cut -d, -f2,3 data.csv",
+    "cut -c1-10 f.txt",
+    "cut --delimiter=: --fields=1 f.txt",
+    "cut -s -d: -f2 f.txt",
+    # tree / du / df
+    "tree",
+    "tree -L 2",
+    "tree -d",
+    "tree -a",
+    "tree -I node_modules",
+    "tree --dirsfirst",
+    "tree -h --du",
+    "du -sh .",
+    "du -h --max-depth=1 .",
+    "du -c -h src",
+    "du --exclude=node_modules -sh .",
+    "df -h",
+    "df -i",
+    "df -T",
+    # pipelines
+    "ls | grep foo",
+    "cat f.txt | head -20",
+    "cat f.txt | sort | uniq -c | sort -nr | head -10",
+    "find . -name '*.py' | wc -l",
+    "grep -rn TODO . | head -50",
+    "rg -l pattern | sort",
+    "du -sh src | sort -h",
+    "ls -la | grep -v '^d'",
+    "cat f.txt | cut -d, -f2 | sort -u",
+]
+
+
+class TestRealisticUsageStillAutoApproves:
+    """Usability regression guard.
+
+    If the permitted sets are too narrow, gptme prompts constantly and users
+    disable the protection. Every command here must still auto-approve.
+    """
+
+    @pytest.mark.parametrize("cmd", REALISTIC_USAGE)
+    def test_realistic_usage(self, cmd: str):
+        assert is_allowlisted(cmd), (
+            f"common usage should not require confirmation: {cmd}"
+        )
