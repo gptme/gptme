@@ -105,7 +105,7 @@ class TestVersionTimeouts:
 
     def test_version_access_never_raises(self):
         """Importing __version__ must not crash gptme-server create_app."""
-        _version_mod._cached_version = None
+        setattr(_version_mod, "_cached_version", None)
         _version_mod.__dict__.pop("__version__", None)
         with patch.object(
             _version_mod.importlib.metadata,
