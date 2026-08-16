@@ -1028,20 +1028,32 @@ def test_tool_manifest_missing_file_is_usage_error(runner: CliRunner, tmp_path: 
     assert "Traceback" not in result.output
 
 
-def test_tool_manifest_cannot_combine_with_tools(runner: CliRunner, tmp_path: Path):
+@pytest.mark.parametrize(
+    ("tools_args", "env"),
+    [
+        (["--tools", "read"], None),
+        ([], {"GPTME_TOOL_ALLOWLIST": "read"}),
+    ],
+)
+def test_tool_manifest_cannot_combine_with_tools(
+    runner: CliRunner,
+    tmp_path: Path,
+    tools_args: list[str],
+    env: dict[str, str] | None,
+):
     result = runner.invoke(
         cli.main,
         [
             "--non-interactive",
             "--workspace",
             str(tmp_path),
-            "--tools",
-            "read",
+            *tools_args,
             "--tool-manifest",
             "research",
             "hello",
         ],
         input="",
+        env=env,
     )
 
     assert result.exit_code == 2
