@@ -93,7 +93,7 @@ responses. gptme's own tools are never dispatched via JSON schema.
 
 ## Audit: No JSON-Schema Dispatch Paths in `gptme/tools/`
 
-Audit run 2026-08-13, commit range: `origin/master`.
+Audit run 2026-08-16, commit `66057c6e8`, all `gptme/tools/*.py` files.
 
 ```bash
 grep -r "json\|schema\|Json\|Schema" gptme/tools/ \
@@ -106,11 +106,20 @@ grep -r "json\|schema\|Json\|Schema" gptme/tools/ \
 |------|-----------|----------------|
 | `base.py` | `_to_json`/`_to_params` serialisation + `ToolUse.iter_from_content` "tool"-format JSON parser (`json_repair.loads`) | ⚠️ Part of provider-native path — parses `@name(id): {...}` responses |
 | `mcp_adapter.py` | MCP protocol JSON schema for external server tools | ❌ Not gptme tool dispatch |
+| `mcp.py` | MCP protocol JSON parsing for server commands and arguments | ❌ Not dispatch |
 | `patch_anchored.py` | JSON array of edit operations (tool's own content format) | ❌ Not dispatch |
+| `patch_many.py` | JSON array of edit operations (multi-patch content format) | ❌ Not dispatch |
+| `elicit.py` | JSON for form-spec parsing (`json.loads(code)`) and response formatting | ❌ Not dispatch — parses the tool's own content, not tool selection |
+| `form.py` | JSON for form result output formatting | ❌ Not dispatch |
+| `gh.py` | JSON parsing of `gh` CLI output (PR details, check runs) | ❌ Not dispatch |
+| `computer.py` | JSON for action telemetry recording | ❌ Not dispatch |
+| `pruner.py` | JSON parsing of pruner payload in message content | ❌ Not dispatch |
 | `vent.py` | JSONL output to friction ledger | ❌ Not dispatch |
 | `progress.py` | JSONL output to progress log | ❌ Not dispatch |
-| `shell.py` | context-savings JSONL log | ❌ Not dispatch |
+| `shell.py` | JSONL context-savings log | ❌ Not dispatch |
 | `restart.py` | `--output-schema` CLI flag for structured subagent output | ❌ Not tool dispatch |
+| `chats.py`, `rag.py` | JSONL conversation file reading | ❌ Not dispatch |
+| `_browser_playwright.py`, `browser.py`, `_browser_thread.py` | Browser session state JSON | ❌ Not dispatch |
 
 **Verdict**: Two distinct things are worth separating here:
 
@@ -145,10 +154,13 @@ because each prior turn's structured `tool_call` / `tool_result` pair is preserv
 the conversation. PTC history is just markdown code blocks and their output — shorter,
 compositional, and no more repetitive than the code itself.
 
-**Reasoning**: gptme's long-running autonomous sessions sit in the regime most
-sensitive to this effect. The markdown-first PTC interface avoids the per-turn schema
-overhead and the structured-call repetition that makes long JSON-schema contexts
-harder for models to attend through.
+**Empirical evidence**: A 2026 benchmark study directly quantified this effect.
+arXiv:2608.06370v1 (*"The Bitter Lesson of Tool Calling"*, BFCL v4, 14 models)
+found that PTC matches or exceeds JSON-schema calling on 11/14 models — with GPT-5.6
+improving +10.6% under PTC — and that **JSON-schema accuracy degrades ~2.3%** on
+average as tool history accumulates while PTC accuracy remains stable. gptme's
+long-running autonomous sessions (50–200 tool calls per run) sit precisely in the
+regime where this gap is most pronounced.
 
 ---
 
@@ -158,4 +170,5 @@ harder for models to attend through.
 - `gptme/tools/python.py` — IPython execution backend
 - `gptme/tools/shell.py` — subprocess bash execution backend
 - `gptme/tools/mcp_adapter.py` — MCP protocol bridge (external tool JSON schema)
+- arXiv:2608.06370v1 — *"The Bitter Lesson of Tool Calling"* (August 2026): BFCL v4 benchmark comparing PTC vs JSON-schema tool calling across 14 models; key finding: PTC ≥ JSON on 11/14 models; JSON accuracy degrades ~2.3% under context rot while PTC is stable
 - Issue [#3540](https://github.com/gptme/gptme/issues/3540) — audit request
