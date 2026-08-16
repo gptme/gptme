@@ -233,6 +233,78 @@ def test_show_prompt_stats_exits_before_chat(monkeypatch, tmp_path: Path, runner
     assert seen["kwargs"]["initial_prompt"] == "query-dependent stats"
 
 
+def test_show_prompt_stats_manifest_fallback_passes_empty_allowlist(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Filtering the only manifest tool must not reload it through None."""
+    from gptme.tool_manifests import TaskToolManifest
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest",
+        lambda task_type, workspace: TaskToolManifest(
+            task_type=task_type,
+            tool_names=("github.search_code",),
+            path=workspace / "state" / "mcp-task-manifests.jsonl",
+        ),
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    init_calls: list[list[str] | None] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        if tools is None or "github.search_code" in tools:
+            raise ValueError("Tool 'github.search_code' not found")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr(
+        "gptme.prompts.get_prompt_stats",
+        lambda **_: SimpleNamespace(
+            sections=[],
+            total_messages=0,
+            total_chars=0,
+            total_tokens=0,
+            cacheable_tokens=0,
+            dynamic_tokens=0,
+        ),
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.format_prompt_stats", lambda *_, **__: "prompt-stats-output"
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "query",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert init_calls == [["github.search_code"], []]
+
+
 def test_show_prompt_stats_does_not_retry_after_config_fallback(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
@@ -1315,8 +1387,10 @@ def test_tool_manifest_unavailable_tool_falls_back_gracefully(
     assert "Traceback" not in result.output
     # init_tools called twice: first with manifest tools, then with fallback
     assert len(init_calls) == 2
-    # Second call must NOT contain the manifest tool
-    second_call = init_calls[1] or []
+    # Second call must NOT contain the manifest tool. It stays an explicit list
+    # even when filtering removes every tool; None would reload stale config.
+    second_call = init_calls[1]
+    assert isinstance(second_call, list)
     assert not any("github" in t for t in second_call)
     # config.chat.tools must be kept in sync with the fallback list so that
     # chat() → init_tools() cannot crash on the still-unavailable manifest tool

@@ -1265,7 +1265,7 @@ def main(
                         t
                         for t in (config.chat.tools or [])
                         if t not in _manifest_tool_names
-                    ] or None
+                    ]
                     try:
                         tools = init_tools(fallback_stats_tools)
                     except ValueError as e2:
@@ -1474,7 +1474,7 @@ def main(
                 }
             fallback_tools = [
                 t for t in (config.chat.tools or []) if t not in manifest_tool_names
-            ] or None
+            ]
             try:
                 tools = init_tools(fallback_tools)
                 # Keep config in sync so chat() → init() → init_tools() uses
