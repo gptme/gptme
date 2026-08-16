@@ -32,6 +32,7 @@ OAUTH_PROVIDERS: set[str] = {"openai-subscription", "grok-subscription"}
 # credential failures without parsing provider-specific responses.
 VALIDATION_TIMEOUT_ERROR = "Request timed out. Please check your network connection."
 VALIDATION_CONNECTION_ERROR = "Could not connect to the API. Please check your network."
+VALIDATION_PROVIDER_ERROR_PREFIX = "Validation failed:"
 
 
 def validate_api_key(
@@ -92,7 +93,7 @@ def validate_api_key(
         return False, VALIDATION_CONNECTION_ERROR
     except requests.exceptions.RequestException as e:
         logger.exception(f"Unexpected error validating {provider} API key")
-        return False, f"Validation failed: {e}"
+        return False, f"{VALIDATION_PROVIDER_ERROR_PREFIX} {e}"
 
 
 def _validate_openai(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -194,8 +195,10 @@ def _validate_openai_compatible(
 
     if response.status_code == 200:
         return True, ""
-    if response.status_code in (401, 403):
+    if response.status_code == 401:
         return False, "Invalid API key. Please check your key and try again."
+    if response.status_code == 403:
+        return False, "API key forbidden. It may lack required permissions."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
     return False, f"API returned status {response.status_code}"

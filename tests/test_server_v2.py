@@ -590,6 +590,7 @@ def test_v2_user_api_key_rejects_invalid_key_via_provider(
     [
         "Request timed out. Please check your network connection.",
         "Could not connect to the API. Please check your network.",
+        "Validation failed: provider returned malformed response",
     ],
 )
 def test_v2_user_api_key_returns_bad_gateway_when_provider_unreachable(

@@ -2,6 +2,8 @@
 
 from unittest.mock import Mock, patch
 
+import pytest
+
 from gptme.llm.validate import (
     PROVIDER_DOCS,
     _validate_anthropic,
@@ -179,18 +181,30 @@ class TestValidateOpenRouter:
 class TestValidateOpenAICompatible:
     """Tests for OpenAI-compatible provider key validation."""
 
+    @pytest.mark.parametrize(
+        ("status_code", "expected_valid", "expected_message"),
+        [
+            (200, True, ""),
+            (401, False, "Invalid API key"),
+            (403, False, "forbidden"),
+            (429, True, ""),
+            (500, False, "status 500"),
+        ],
+    )
     @patch("gptme.llm.validate.requests.get")
-    def test_invalid_key_returns_false(self, mock_get):
-        mock_get.return_value = Mock(status_code=401)
+    def test_status_classification(
+        self, mock_get, status_code, expected_valid, expected_message
+    ):
+        mock_get.return_value = Mock(status_code=status_code)
         is_valid, error = _validate_openai_compatible(
-            "invalid-key", 10, "https://example.com/v1/"
+            "test-key", 10, "https://example.com/v1/"
         )
 
-        assert not is_valid
-        assert "Invalid API key" in error
+        assert is_valid is expected_valid
+        assert expected_message.lower() in error.lower()
         mock_get.assert_called_once_with(
             "https://example.com/v1/models",
-            headers={"Authorization": "Bearer invalid-key"},
+            headers={"Authorization": "Bearer test-key"},
             timeout=10,
         )
 

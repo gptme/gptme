@@ -55,6 +55,7 @@ from gptme.llm.models import (
 from gptme.llm.models.types import is_custom_provider
 from gptme.llm.validate import (
     VALIDATION_CONNECTION_ERROR,
+    VALIDATION_PROVIDER_ERROR_PREFIX,
     VALIDATION_TIMEOUT_ERROR,
     validate_api_key,
 )
@@ -3144,7 +3145,7 @@ def api_user_api_key():
             if validation_msg in {
                 VALIDATION_TIMEOUT_ERROR,
                 VALIDATION_CONNECTION_ERROR,
-            }:
+            } or validation_msg.startswith(VALIDATION_PROVIDER_ERROR_PREFIX):
                 return flask.jsonify({"error": validation_msg}), 502
             return flask.jsonify({"error": validation_msg}), 422
         if validation_msg:
