@@ -88,9 +88,12 @@ def _normalize(text: str) -> str:
 
 
 def _tokens(text: str) -> set[str]:
-    return {
+    tokens = {
         tok for tok in _normalize(text).split() if len(tok) > 2 and tok not in _STOP
     }
+    # Match simple singular/plural variants without a language-heavy stemmer.
+    variants = {tok[:-1] if tok.endswith("s") else f"{tok}s" for tok in tokens}
+    return tokens | variants
 
 
 @lru_cache(maxsize=1)
@@ -124,7 +127,7 @@ def find_topic(query: str, entries: list[FAQEntry]) -> FAQEntry | None:
     """Best FAQ entry for a query, or None if nothing matches well enough.
 
     Exact topic/alias match wins; otherwise the entry sharing the most query
-    words with its topic, aliases, or question.
+    words with its topic or aliases.
     """
     normalized = _normalize(query)
     if not normalized:
@@ -185,8 +188,11 @@ def explain(query: tuple[str, ...], as_json: bool) -> None:
         if as_json:
             click.echo(json.dumps([e.to_dict() for e in entries], indent=2))
             return
+        if not entries:
+            click.echo("No topics available.")
+            return
         click.echo("Topics (use: gptme explain <topic>)\n")
-        width = max((len(e.topic) for e in entries), default=0)
+        width = max(len(e.topic) for e in entries)
         for e in entries:
             click.echo(f"  {e.topic:<{width}}  {e.question}")
         return
@@ -202,7 +208,10 @@ def explain(query: tuple[str, ...], as_json: bool) -> None:
             )
         else:
             click.echo(f"No topic matches {query_str!r}.", err=True)
-            click.echo(f"Did you mean: {', '.join(suggestions)}?", err=True)
+            if suggestions:
+                click.echo(f"Did you mean: {', '.join(suggestions)}?", err=True)
+            else:
+                click.echo("No topics available.", err=True)
         raise SystemExit(1)
 
     if as_json:

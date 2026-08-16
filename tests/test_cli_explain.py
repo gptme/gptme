@@ -82,6 +82,7 @@ def test_normalized_aliases_are_unique(entries):
         ("context", "context"),
         ("token limit", "context"),  # multi-word alias
         ("what are tools", "tools"),  # keyword overlap, not exact
+        ("what are commands", "commands"),  # plural query, singular alias
         # Regression: generic question words ("where", "stored") must not
         # override a direct topic-name match ("config") via question-text overlap.
         ("where is config stored", "config"),
@@ -188,10 +189,18 @@ def test_load_faq_invalid_structure_raises_friendly_error(tmp_path, content):
         load_faq.__wrapped__(str(bad_yaml))  # bypass lru_cache
 
 
-# Regression: P2 — explain --list with empty FAQ does not crash on max()
+# Regression: P2 — an empty FAQ gives useful output for both command branches
 def test_explain_list_with_empty_faq_does_not_crash(runner):
     """Empty FAQ entries list must not raise ValueError from max() with no default."""
     with patch("gptme.cli.cmd_explain.load_faq", return_value=[]):
         result = runner.invoke(explain, [])
     assert result.exit_code == 0
-    assert "Topics" in result.output
+    assert "No topics available" in result.output
+
+
+def test_explain_unknown_topic_with_empty_faq_has_no_blank_suggestion(runner):
+    with patch("gptme.cli.cmd_explain.load_faq", return_value=[]):
+        result = runner.invoke(explain, ["branches"])
+    assert result.exit_code == 1
+    assert "No topics available" in result.output
+    assert "Did you mean" not in result.output
