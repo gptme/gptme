@@ -2062,3 +2062,25 @@ def test_setup_config_from_cli_explicit_tools_override_gear(tmp_path):
     assert config.chat is not None
     assert config.chat.gear == 3
     assert config.chat.tools == ["read"]
+
+
+def test_setup_config_from_cli_noninteractive_gear_profile_adds_complete(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist=None,
+        tool_format=None,
+        gear=0,
+        stream=True,
+        interactive=False,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read", "chats", "complete"]

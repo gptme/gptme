@@ -235,6 +235,13 @@ def setup_config_from_cli(
             tool.strip() for tool in tools_env.split(",") if tool.strip()
         ]
 
+    # Profiles may override a gear's tool list. Apply that final override before
+    # deciding whether non-interactive mode should add the completion signal.
+    if gear_profile_name and not agent_path:
+        gear_profile = get_profile(gear_profile_name)
+        if gear_profile and gear_profile.tools is not None and tool_allowlist is None:
+            resolved_tool_allowlist = list(gear_profile.tools)
+
     # A preset is "selected" if the allowlist is a literal preset name.
     # Preset names are now persisted verbatim (not expanded) so that resumed
     # sessions continue to be recognised here without ambiguity.
@@ -283,11 +290,6 @@ def setup_config_from_cli(
     resolved_no_confirm = gear_no_confirm if no_confirm is None else no_confirm
 
     # Handle agent_path with similar precedence
-    if gear_profile_name and not agent_path:
-        gear_profile = get_profile(gear_profile_name)
-        if gear_profile and gear_profile.tools is not None and tool_allowlist is None:
-            resolved_tool_allowlist = list(gear_profile.tools)
-
     resolved_agent_path: Path | None = agent_path
     if agent_path is None and existing_chat_config and existing_chat_config.agent:
         # When resuming, use saved conversation agent unless CLI override provided
