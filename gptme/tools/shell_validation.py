@@ -180,17 +180,31 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
     # ``END-TAG``), while stopping unquoted words at shell metacharacters.
     heredoc_pattern = re.compile(r"<<-?\s*(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s;&|<>]+))")
 
+    quoted_regions = _find_quotes(cmd)
+
     for match in heredoc_pattern.finditer(cmd):
+        # Quoted or escaped ``<<`` text is inert to the shell and must not hide
+        # later lines from command validation.
+        if _is_in_quoted_region(match.start(), quoted_regions):
+            continue
+        backslashes = 0
+        pos = match.start() - 1
+        while pos >= 0 and cmd[pos] == "\\":
+            backslashes += 1
+            pos -= 1
+        if backslashes % 2:
+            continue
+
         # A comment begins at an unquoted ``#`` at the start of a shell word.
         # Markers inside it are inert to the shell and must not hide later lines
         # from command validation.
         line_start = cmd.rfind("\n", 0, match.start()) + 1
         prefix = cmd[line_start : match.start()]
-        quoted_regions = _find_quotes(prefix)
+        prefix_quotes = _find_quotes(prefix)
         if any(
             char == "#"
             and (i == 0 or prefix[i - 1].isspace())
-            and not _is_in_quoted_region(i, quoted_regions)
+            and not _is_in_quoted_region(i, prefix_quotes)
             for i, char in enumerate(prefix)
         ):
             continue
@@ -283,12 +297,9 @@ def _has_file_redirection(cmd: str) -> bool:
         if i < len(cmd) - 1 and cmd[i : i + 2] == ">>":
             return True
 
-        # Check for > but not << (heredoc)
+        # Any unquoted ``>`` writes to a file, including the ``<>`` read-write
+        # operator. Heredocs contain no ``>`` and need no exception here.
         if cmd[i] == ">":
-            # Make sure it's not part of << or <<-
-            if i > 0 and cmd[i - 1] == "<":
-                i += 1
-                continue
             return True
 
         i += 1

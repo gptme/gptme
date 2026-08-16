@@ -112,6 +112,14 @@ class TestFindHeredocRegions:
         cmd = "rg foo # <<TAG\nsh -c id\nTAG"
         assert _find_heredoc_regions(cmd) == []
 
+    @pytest.mark.parametrize(
+        "marker",
+        ["'<<TAG'", '"<<TAG"', r"\<<TAG"],
+    )
+    def test_inert_heredoc_marker_is_ignored(self, marker: str):
+        cmd = f"rg {marker}\nsh -c id\nTAG"
+        assert _find_heredoc_regions(cmd) == []
+
     def test_hash_inside_shell_word_is_not_a_comment(self):
         cmd = "cat foo#bar <<TAG\nhello\nTAG"
         assert len(_find_heredoc_regions(cmd)) == 1
@@ -238,6 +246,9 @@ class TestHasFileRedirection:
     def test_heredoc_not_redirect(self):
         # << should not be detected as > redirection
         assert not _has_file_redirection("cat << EOF")
+
+    def test_read_write_redirection_is_redirect(self):
+        assert _has_file_redirection("sort 2<> payload.sh")
 
     def test_input_redirect_not_detected(self):
         # < alone should not trigger
@@ -645,6 +656,17 @@ class TestEdgeCases:
 
     def test_heredoc_marker_in_comment_cannot_hide_command(self):
         assert not is_allowlisted("rg foo # <<TAG\nsh -c id\nTAG")
+
+    @pytest.mark.parametrize(
+        "marker",
+        ["'<<TAG'", '"<<TAG"', r"\<<TAG"],
+    )
+    def test_inert_heredoc_marker_cannot_hide_command(self, marker: str):
+        cmd = f"rg {marker}\nsh -c id\nTAG"
+        assert not is_allowlisted(cmd)
+
+    def test_read_write_redirection_cannot_overwrite_file(self):
+        assert not is_allowlisted("sort 2<> payload.sh")
 
     def test_unquoted_heredoc_command_substitution_is_not_allowlisted(self):
         assert not is_allowlisted("cat << EOF\n$(id)\nEOF")
