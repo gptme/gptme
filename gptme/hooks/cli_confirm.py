@@ -70,7 +70,7 @@ def cli_confirm_hook(
     - Supports editing content before execution
     - Supports copying content to clipboard
 
-    Low-risk (read-only) tool calls are auto-approved without prompting.
+    Low-risk (read-only) tool calls can be auto-approved without prompting.
     """
     from ..tools.risk import classify_tool_risk  # fmt: skip
 
@@ -78,18 +78,16 @@ def cli_confirm_hook(
     content = preview or tool_use.content
     lang = _get_lang_for_tool(tool_use.tool, content)
 
-    # Auto-approve read-only tool calls without prompting.
-    # This reduces friction for safe reads (file reads, git status, web search)
-    # that should never block an interactive session.
+    # Auto-approve read-only tool calls without prompting when explicitly enabled.
     # Still show the preview so the user can see what was executed.
     #
     # Note: READ-tier auto-approval intentionally does NOT interact with the
     # check_auto_confirm() counter ("a N" in interactive mode). The counter is for
     # temporarily auto-approving WRITE-tier operations, so READ calls do not consume
-    # that budget. Users can disable unconditional READ approval through config.
+    # that budget. Users must explicitly enable READ approval through config.
     risk = classify_tool_risk(tool_use)
     auto_approve_read = get_config().get_env_bool(
-        "GPTME_AUTO_APPROVE_READ", default=True
+        "GPTME_AUTO_APPROVE_READ", default=False
     )
     if auto_approve_read and risk <= _AUTO_APPROVE_TIER_MAX:
         logger.debug(f"Auto-approving read-tier tool: {tool_use.tool}")

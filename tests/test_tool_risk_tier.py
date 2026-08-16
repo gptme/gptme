@@ -172,21 +172,27 @@ def confirm_spy(monkeypatch: pytest.MonkeyPatch) -> dict:
 
 
 @pytest.mark.parametrize("tool", ["read", "rag", "web_search", "vision", "screenshot"])
-def test_read_tier_is_auto_approved_without_prompting(
-    tool: str, confirm_spy: dict
+def test_read_tier_is_auto_approved_when_enabled(
+    tool: str, confirm_spy: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from gptme.hooks.cli_confirm import cli_confirm_hook
     from gptme.hooks.confirm import ConfirmAction
 
+    monkeypatch.setenv("GPTME_AUTO_APPROVE_READ", "1")
+
     result = cli_confirm_hook(_tu(tool, "some content"))
 
     assert result.action == ConfirmAction.CONFIRM
-    assert confirm_spy["prompted"] == 0, "READ-tier call must not prompt"
+    assert confirm_spy["prompted"] == 0, "enabled READ-tier calls must not prompt"
 
 
-def test_read_tier_auto_approval_still_shows_preview(confirm_spy: dict) -> None:
+def test_read_tier_auto_approval_still_shows_preview(
+    confirm_spy: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Auto-approval must stay visible — the user still sees what ran."""
     from gptme.hooks.cli_confirm import cli_confirm_hook
+
+    monkeypatch.setenv("GPTME_AUTO_APPROVE_READ", "1")
 
     cli_confirm_hook(_tu("read", "cat ~/.ssh/config"))
 
@@ -194,19 +200,25 @@ def test_read_tier_auto_approval_still_shows_preview(confirm_spy: dict) -> None:
 
 
 def test_contentless_read_tier_auto_approval_still_shows_preview(
-    confirm_spy: dict,
+    confirm_spy: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Contentless READ-tier calls still show the tool name before approval."""
     from gptme.hooks.cli_confirm import cli_confirm_hook
+
+    monkeypatch.setenv("GPTME_AUTO_APPROVE_READ", "1")
 
     cli_confirm_hook(_tu("screenshot"))
 
     assert confirm_spy["previews"] == ["screenshot"]
 
 
-def test_read_tier_uses_provided_preview(confirm_spy: dict) -> None:
+def test_read_tier_uses_provided_preview(
+    confirm_spy: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A rendered preview overrides raw tool content before auto-approval."""
     from gptme.hooks.cli_confirm import cli_confirm_hook
+
+    monkeypatch.setenv("GPTME_AUTO_APPROVE_READ", "1")
 
     cli_confirm_hook(_tu("screenshot"), preview="formatted screenshot preview")
 
@@ -214,13 +226,9 @@ def test_read_tier_uses_provided_preview(confirm_spy: dict) -> None:
     assert confirm_spy["prompted"] == 0
 
 
-def test_read_tier_auto_approval_can_be_disabled(
-    confirm_spy: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Users can restore confirmation prompts for READ-tier calls."""
+def test_read_tier_prompts_by_default(confirm_spy: dict) -> None:
+    """Sensitive READ-tier calls keep their veto point by default."""
     from gptme.hooks.cli_confirm import cli_confirm_hook
-
-    monkeypatch.setenv("GPTME_AUTO_APPROVE_READ", "0")
 
     cli_confirm_hook(_tu("read", "~/.ssh/id_rsa"))
 
@@ -261,7 +269,7 @@ def test_auto_approve_threshold_matches_read_tier() -> None:
 
 
 def test_read_tier_does_not_consume_auto_confirm_counter(
-    confirm_spy: dict,
+    confirm_spy: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """READ-tier auto-approval must not decrement the "a N" counter.
 
@@ -276,6 +284,7 @@ def test_read_tier_does_not_consume_auto_confirm_counter(
     from gptme.hooks.cli_confirm import cli_confirm_hook, set_auto_confirm
     from gptme.hooks.confirm import ConfirmAction, check_auto_confirm
 
+    monkeypatch.setenv("GPTME_AUTO_APPROVE_READ", "1")
     set_auto_confirm(count=2)  # User requests 2 WRITE auto-confirms
 
     # A READ-tier call auto-approves without consuming the counter.
