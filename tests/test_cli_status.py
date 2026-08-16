@@ -820,6 +820,39 @@ def test_status_json_provider_nested_non_string_key_does_not_crash(monkeypatch):
     assert nested["str_key"] == "ok"
 
 
+def test_status_json_provider_broken_nested_key_does_not_drop_other_fields(
+    monkeypatch,
+):
+    """A nested key with broken __str__ is isolated to its top-level field."""
+
+    class _BadStrKey:
+        def __str__(self) -> str:
+            raise RuntimeError("__str__ is broken")
+
+    class _BrokenNestedKeyProvider:
+        name = "broken_nested_key"
+
+        def collect(self) -> dict:
+            return {"broken": {_BadStrKey(): "bad"}, "normal_key": "ok"}
+
+        def narrative_sections(self) -> list:
+            return []
+
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda n=3: [])
+    monkeypatch.setattr(cmd_status, "_session_id", lambda: "session-broken-key")
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _path=None: "1G / 2G (50%)")
+    monkeypatch.setattr(
+        cmd_status, "load_providers", lambda: [_BrokenNestedKeyProvider()]
+    )
+
+    result = CliRunner().invoke(status, ["--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "broken" not in data
+    assert data["normal_key"] == "ok"
+
+
 def test_status_json_provider_tuple_nested_non_string_key_does_not_crash(monkeypatch):
     """Verify a provider returning a tuple containing a dict with non-string keys
     does not crash --json.

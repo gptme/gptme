@@ -307,8 +307,17 @@ def _status_data(providers: list[StatusProvider] | None = None) -> dict[str, obj
                     continue
                 # Sanitize nested dict keys: json.dumps requires all dict keys
                 # at every nesting level to be strings, and default= only handles
-                # non-serializable *values*, not invalid *keys*.
-                status_data[key] = _sanitize_nested_dict_keys(val)
+                # non-serializable *values*, not invalid *keys*.  Isolate malformed
+                # values to one field so valid fields from the provider survive.
+                try:
+                    status_data[key] = _sanitize_nested_dict_keys(val)
+                except Exception as exc:
+                    logger.debug(
+                        "Provider %r value for key %r failed to sanitize: %s — skipping",
+                        _provider_name(provider),
+                        key,
+                        exc,
+                    )
         except Exception as exc:
             logger.debug(
                 "Provider %r collect() failed: %s", _provider_name(provider), exc
