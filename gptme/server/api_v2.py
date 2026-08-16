@@ -53,7 +53,11 @@ from gptme.llm.models import (
     set_default_model,
 )
 from gptme.llm.models.types import is_custom_provider
-from gptme.llm.validate import validate_api_key
+from gptme.llm.validate import (
+    VALIDATION_CONNECTION_ERROR,
+    VALIDATION_TIMEOUT_ERROR,
+    validate_api_key,
+)
 from gptme.prompts import get_prompt
 
 from ..commands import handle_cmd
@@ -3137,7 +3141,12 @@ def api_user_api_key():
             logger.exception("Unexpected error validating %s API key", provider)
             return flask.jsonify({"error": "Provider validation failed"}), 502
         if not is_valid:
-            return flask.jsonify({"error": validation_msg}), 400
+            if validation_msg in {
+                VALIDATION_TIMEOUT_ERROR,
+                VALIDATION_CONNECTION_ERROR,
+            }:
+                return flask.jsonify({"error": validation_msg}), 502
+            return flask.jsonify({"error": validation_msg}), 422
         if validation_msg:
             key_warning = validation_msg
 

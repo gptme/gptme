@@ -585,6 +585,37 @@ def test_v2_user_api_key_rejects_invalid_key_via_provider(
     assert not local_file.exists()
 
 
+@pytest.mark.parametrize(
+    "validation_error",
+    [
+        "Request timed out. Please check your network connection.",
+        "Could not connect to the API. Please check your network.",
+    ],
+)
+def test_v2_user_api_key_returns_bad_gateway_when_provider_unreachable(
+    client: FlaskClient, tmp_path, monkeypatch, validation_error
+):
+    """Connectivity failures should return 502 without persisting the key."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+    monkeypatch.setattr(
+        "gptme.server.api_v2.validate_api_key",
+        lambda key, provider: (False, validation_error),
+    )
+
+    response = client.post(
+        "/api/v2/user/api-key",
+        json={"provider": "anthropic", "api_key": "sk-ant-test"},
+    )
+
+    assert response.status_code == 502
+    assert response.get_json() == {"error": validation_error}
+    assert not (tmp_path / "config.local.toml").exists()
+
+
 def test_v2_user_api_key_handles_validator_exception(
     client: FlaskClient, tmp_path, monkeypatch
 ):

@@ -18,6 +18,8 @@ PROVIDER_DOCS: dict[str, str] = {
     "xai": "https://console.x.ai/",
     "azure": "https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub",
     "nvidia": "https://build.nvidia.com/",
+    "requesty": "https://app.requesty.ai/api-keys",
+    "moonshot": "https://platform.moonshot.ai/console/api-keys",
     "local": "https://gptme.org/docs/providers.html#local-models",
     "openai-subscription": "https://gptme.org/docs/providers.html#openai-subscription",
     "grok-subscription": "https://gptme.org/docs/providers.html#grok-subscription",
@@ -25,6 +27,11 @@ PROVIDER_DOCS: dict[str, str] = {
 
 # Providers that use OAuth instead of API keys
 OAUTH_PROVIDERS: set[str] = {"openai-subscription", "grok-subscription"}
+
+# Stable messages used by callers to distinguish provider availability failures from
+# credential failures without parsing provider-specific responses.
+VALIDATION_TIMEOUT_ERROR = "Request timed out. Please check your network connection."
+VALIDATION_CONNECTION_ERROR = "Could not connect to the API. Please check your network."
 
 
 def validate_api_key(
@@ -80,9 +87,9 @@ def validate_api_key(
         logger.info(f"No validation available for provider: {provider}")
         return True, ""
     except requests.exceptions.Timeout:
-        return False, "Request timed out. Please check your network connection."
+        return False, VALIDATION_TIMEOUT_ERROR
     except requests.exceptions.ConnectionError:
-        return False, "Could not connect to the API. Please check your network."
+        return False, VALIDATION_CONNECTION_ERROR
     except requests.exceptions.RequestException as e:
         logger.exception(f"Unexpected error validating {provider} API key")
         return False, f"Validation failed: {e}"
@@ -134,8 +141,14 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
             error_data = response.json()
         except ValueError:
             return False, "Invalid API key. Please check your key and try again."
-        error_msg = error_data.get("error", {}).get("message", "").lower()
-        if "authentication" in error_msg:
+        error = error_data.get("error", {})
+        error_type = error.get("type", "").lower()
+        error_msg = error.get("message", "").lower()
+        if (
+            "authentication" in error_msg
+            or "invalid api key" in error_msg
+            or "invalid_api_key" in error_type
+        ):
             return False, "Invalid API key. Please check your key and try again."
         if "usage limits" in error_msg:
             # Key is valid but account has hit its usage quota
