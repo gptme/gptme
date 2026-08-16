@@ -622,6 +622,27 @@ def test_build_table_document_core_key_collision():
     assert "| safe_key |" in doc
 
 
+def test_build_table_document_provider_str_raises_does_not_drop_other_fields():
+    """A malformed provider value is isolated to its own table cell."""
+
+    class _BadStrValue:
+        def __str__(self) -> str:
+            raise RuntimeError("__str__ is broken")
+
+    class _BadStrProvider:
+        name = "bad_str"
+
+        def collect(self) -> dict:
+            return {"broken_value": _BadStrValue(), "normal_key": "ok"}
+
+        def narrative_sections(self) -> list:
+            return []
+
+    doc = build_table_document(providers=[_BadStrProvider()])
+    assert "| broken_value | <unserializable> |" in doc
+    assert "| normal_key | ok |" in doc
+
+
 def test_status_json_provider_str_raises_does_not_crash(monkeypatch):
     """Verify a provider value whose __str__() raises does not abort --json output."""
 

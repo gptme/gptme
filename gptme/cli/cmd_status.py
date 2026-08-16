@@ -372,7 +372,10 @@ def build_table_document(providers: list[StatusProvider] | None = None) -> str:
                     )
                     continue
                 seen_keys.add(key)
-                cell = _markdown_table_cell(val)
+                try:
+                    cell = _markdown_table_cell(val)
+                except Exception:
+                    cell = "<unserializable>"
                 lines.append(f"| {key} | {cell} |")
         except Exception as exc:
             logger.debug(
