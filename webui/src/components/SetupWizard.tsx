@@ -117,7 +117,6 @@ export function SetupWizard() {
   const externalStep = use$(setupWizard$.step);
   const isRemoteOnlyTauri = isTauri && managesLocalServer === false;
   const isDeterminingTauriMode = isTauri && isLoadingTauriStatus;
-  const cloudSetupSupported = !isRemoteOnlyTauri;
   const canManageApiKeyInApp = isTauri && managesLocalServer === true;
   const [remoteBaseUrl, setRemoteBaseUrl] = useState(
     connectionConfig.baseUrl === 'http://127.0.0.1:5700' ? '' : connectionConfig.baseUrl
@@ -587,18 +586,13 @@ export function SetupWizard() {
               </button>
               <button
                 onClick={() => setStep('cloud')}
-                disabled={!cloudSetupSupported}
-                className="flex items-start gap-4 rounded-lg border p-4 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+                className="flex items-start gap-4 rounded-lg border p-4 text-left transition-colors hover:bg-accent"
               >
                 <Cloud className="mt-0.5 h-6 w-6 shrink-0" />
                 <div>
-                  <div className="font-medium">
-                    {cloudSetupSupported ? 'Cloud' : 'Cloud (coming soon on mobile)'}
-                  </div>
+                  <div className="font-medium">Cloud</div>
                   <div className="text-sm text-muted-foreground">
-                    {cloudSetupSupported
-                      ? 'Connect to gptme.ai for a managed experience. No setup required.'
-                      : 'Not ready on this mobile build yet. Use a server URL for now.'}
+                    Connect to gptme.ai for a managed experience. No setup required.
                   </div>
                 </div>
               </button>
@@ -633,8 +627,8 @@ export function SetupWizard() {
               ) : isRemoteOnlyTauri ? (
                 <div className="flex flex-col gap-3">
                   <p className="text-sm text-muted-foreground">
-                    Enter the URL for a remote gptme server. Cloud sign-in is not ready on this
-                    mobile build yet, so use Bob or another hosted gptme server for now.
+                    Enter the URL for a remote gptme server. Use Cloud instead if you want the
+                    managed <code>gptme.ai</code> sign-in flow.
                   </p>
                   <Input
                     autoComplete="url"
@@ -756,19 +750,16 @@ export function SetupWizard() {
             <DialogHeader>
               <DialogTitle>Cloud setup</DialogTitle>
               <DialogDescription>
-                {cloudSetupSupported
-                  ? 'Sign in to gptme.ai for a fully managed experience.'
-                  : 'Cloud sign-in is not available on this mobile build yet.'}
+                Sign in to gptme.ai for a fully managed experience.
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4 py-4">
               <div className="flex flex-col gap-3">
                 <p className="text-sm text-muted-foreground">
-                  {cloudSetupSupported
-                    ? "You'll be redirected to gptme.ai to sign in. After authentication, you'll be connected automatically."
-                    : 'Use the Remote server path for now and connect to Bob or another hosted gptme server by URL.'}
+                  You&apos;ll be redirected to gptme.ai to sign in. After authentication,
+                  you&apos;ll be connected automatically.
                 </p>
-                {cloudSetupSupported && cloudLoginStarted && !isConnected && (
+                {cloudLoginStarted && !isConnected && (
                   <div className="rounded-lg border border-border/70 bg-muted px-3 py-2 text-sm text-muted-foreground">
                     Waiting for sign-in to complete… This window will update automatically once the
                     app connects.
@@ -779,7 +770,7 @@ export function SetupWizard() {
                     {connectError}
                   </div>
                 )}
-                {cloudSetupSupported && isTauri && (
+                {isTauri && (
                   <p className="text-xs text-muted-foreground">
                     The app will handle the login callback via the <code>gptme://</code> deep link.
                   </p>
@@ -790,19 +781,17 @@ export function SetupWizard() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  setStep(cloudSetupSupported ? 'mode' : 'local');
+                  setStep('mode');
                   setCloudLoginStarted(false);
                   setConnectError(null);
                 }}
               >
-                {cloudSetupSupported ? 'Back' : 'Use Remote server'}
+                Back
               </Button>
-              {cloudSetupSupported && (
-                <Button onClick={handleCloudLogin} className="gap-2">
-                  Sign in to gptme.ai
-                  <ExternalLink className="h-4 w-4" />
-                </Button>
-              )}
+              <Button onClick={handleCloudLogin} className="gap-2">
+                Sign in to gptme.ai
+                <ExternalLink className="h-4 w-4" />
+              </Button>
             </DialogFooter>
           </>
         )}

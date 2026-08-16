@@ -40,6 +40,11 @@
   },
   "plugins": {
     "deep-link": {
+      "mobile": [
+        {
+          "scheme": ["gptme"]
+        }
+      ],
       "desktop": {
         "schemes": ["gptme"]
       }

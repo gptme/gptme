@@ -692,7 +692,7 @@ describe('SetupWizard', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('disables cloud setup on remote-only tauri builds', () => {
+  it('supports cloud setup on remote-only tauri builds', async () => {
     mockIsTauriEnvironment.mockReturnValue(true);
     mockUseTauriServerStatus.mockReturnValue({
       isLoading: false,
@@ -714,61 +714,14 @@ describe('SetupWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /get started/i }));
 
     const cloudButton = screen.getByRole('button', { name: /cloud/i });
-    expect(cloudButton).toBeDisabled();
-    expect(screen.getByText(/not ready on this mobile build yet/i)).toBeInTheDocument();
+    expect(cloudButton).toBeEnabled();
+    expect(screen.queryByText(/not ready on this mobile build yet/i)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /remote server/i }));
+    fireEvent.click(cloudButton);
+    fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
 
-    expect(
-      screen.getByText(/cloud sign-in is not ready on this mobile build yet/i)
-    ).toBeInTheDocument();
-  });
-
-  it('falls back to remote-server guidance when cloud step is opened on remote-only tauri', async () => {
-    mockIsTauriEnvironment.mockReturnValue(true);
-    mockUseTauriServerStatus.mockReturnValue({
-      isLoading: false,
-      managesLocalServer: false,
-      serverStatus: {
-        running: false,
-        port: 5700,
-        port_available: false,
-        manages_local_server: false,
-      },
-    });
-    localStorage.setItem('gptme-settings', JSON.stringify({ hasCompletedSetup: true }));
-
-    const { rerender } = render(
-      <SettingsProvider>
-        <SetupWizard />
-      </SettingsProvider>
-    );
-
-    act(() => {
-      setupWizard$.step.set('cloud');
-      setupWizard$.open.set(true);
-    });
-
-    rerender(
-      <SettingsProvider>
-        <SetupWizard />
-      </SettingsProvider>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /cloud setup/i })).toBeInTheDocument();
-    });
-
-    expect(
-      screen.getByText(/cloud sign-in is not available on this mobile build yet/i)
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /sign in to gptme.ai/i })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /use remote server/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /remote server setup/i })).toBeInTheDocument();
-    });
+    expect(mockOpen).toHaveBeenCalledWith(CLOUD_AUTH_URL, '_blank');
+    expect(screen.getByText(/waiting for sign-in to complete/i)).toBeInTheDocument();
   });
 
   it('connects to a remote server during tauri mobile setup', async () => {
