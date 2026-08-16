@@ -231,6 +231,10 @@ class UserApiKeySaveRequest(BaseModel):
         None,
         description="Optional fully qualified default model to persist in [env.MODEL]",
     )
+    skip_validation: bool = Field(
+        False,
+        description="Skip live provider validation of the key (for testing or offline use)",
+    )
 
 
 class UserApiKeySaveResponse(BaseModel):
@@ -242,6 +246,10 @@ class UserApiKeySaveResponse(BaseModel):
     restart_required: bool = Field(
         True,
         description="Whether the running server must be restarted before the new key is guaranteed to take effect",
+    )
+    warning: str | None = Field(
+        None,
+        description="Optional non-fatal warning (e.g. quota exhausted but key is valid)",
     )
 
 
