@@ -56,7 +56,6 @@ from ..hooks.confirm import ConfirmationResult
 from ..llm.models import ModelMeta, get_default_model
 from ..logmanager import LogManager
 from ..message import Message
-from ..tool_change import SessionToolChangeState
 from ..tools import ToolFormat, ToolUse
 from ..tools.base import ToolUse as ToolUseType
 from ..tools.base import get_tool_format
@@ -1031,8 +1030,6 @@ class GptmeApp(App):
         self.manager = manager
         self.tool_format: ToolFormat = tool_format
         self.workspace = workspace or manager.workspace
-        # Per-session audit state for TOOL_CHANGE_REQUEST messages, mirroring server path.
-        self._session_tool_changes = SessionToolChangeState()
         self.auto_confirm = auto_confirm
         self.inline = inline
         self.experimental_jelly_errors = experimental_jelly_errors
@@ -1460,7 +1457,6 @@ class GptmeApp(App):
                         logdir=manager.logdir,
                         on_token=self._on_token,
                         on_thinking=self._on_thinking,
-                        session_tool_changes=self._session_tool_changes,
                     ):
                         # each yield may follow a tool execution that reset
                         # the tty (e.g. ipython init) — reassert raw mode

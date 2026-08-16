@@ -138,25 +138,6 @@ class MessageTimings(TypedDict, total=False):
     """Per-tool breakdown, e.g. ``{"shell": 1200, "browser": 450}``."""
 
 
-class ToolChangeRequestMetadata(TypedDict, total=False):
-    """Persisted record of a validated tool-change request."""
-
-    change_type: str
-    tool_name: str
-    reason: str
-    urgency: str
-    approval_mode: str
-    raw_line: str
-    extra: dict[str, str]
-
-
-class ToolChangeRequestErrorMetadata(TypedDict, total=False):
-    """Persisted record of a rejected tool-change request."""
-
-    raw_line: str
-    error: str
-
-
 class MessageMetadata(TypedDict, total=False):
     """
     Metadata stored with each message.
@@ -191,8 +172,6 @@ class MessageMetadata(TypedDict, total=False):
     voice_call: dict[str, Any]  # Voice call metadata (call_sid, source, etc.)
     artifacts: list[ArtifactDescriptor]  # tool/plugin-emitted artifact descriptors
     tool: str  # tool that produced this result message
-    tool_change_requests: list[ToolChangeRequestMetadata]
-    tool_change_request_errors: list[ToolChangeRequestErrorMetadata]
     # Identifies one generated startup-prompt generation. A newer generation
     # supersedes older ones in provider context while all remain on disk.
     prompt_generation: str

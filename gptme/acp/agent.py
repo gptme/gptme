@@ -1207,7 +1207,6 @@ class GptmeAgent:
                             model=effective_model,
                             on_token=on_token,
                             logdir=log.logdir,
-                            session_tool_changes=session.tool_changes,
                         )
                     )
                     response_msgs.extend(step_msgs)

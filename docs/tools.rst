@@ -501,38 +501,20 @@ Vent
     :members:
     :noindex:
 
-Assistant tool-change requests
-------------------------------
+Request tool change
+-------------------
 
-Assistants may emit structured requests to change the tools available in their
-current session. This is a separate relief-valve signal from ``vent``: ``vent``
-records operational friction, while a tool-change request names a concrete tool
-configuration change.
+``request_tool_change`` is an opt-in, audit-only relief valve for assistants
+that need a different session tool configuration. It records a structured
+request in ordinary tool-call history; it does not enable, disable, or configure
+any tool. Enable it explicitly with ``-t +request_tool_change``.
 
-Phase 1 is audit-only. gptme validates each request and records it in the
-assistant message metadata; it does not change tool availability or execution
-semantics.
+This is separate from ``vent``: ``vent`` records operational friction, while
+``request_tool_change`` names a concrete tool-configuration request.
 
-Syntax::
-
-    TOOL_CHANGE_REQUEST: enable_tool web_fetch reason="Need fresh docs" urgency=medium approval=auto
-    TOOL_CHANGE_REQUEST: disable_tool shell reason="Task is pure analysis" urgency=low approval=log_only
-
-The required values are:
-
-- ``change_type``: ``enable_tool``, ``disable_tool``, or ``configure_tool``
-
-- ``tool_name``: a tool known to gptme's module system (it need not currently
-  be enabled, since an ``enable_tool`` request normally names an inactive tool)
-
-- ``reason``: why the assistant needs the change
-
-- ``urgency``: ``low``, ``medium``, or ``high``
-
-- ``approval``: ``auto``, ``log_only``, or ``user_confirm``
-
-Validated requests are stored as ``tool_change_requests``. Rejected requests
-are stored as ``tool_change_request_errors``.
+.. automodule:: gptme.tools.request_tool_change
+    :members:
+    :noindex:
 
 Complete
 --------
