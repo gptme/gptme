@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from rich import print
 from rich.console import Console
 
+from ..config import get_config
 from ..util.ask_execute import print_confirmation_help, print_preview
 from ..util.clipboard import copy
 from ..util.prompt import prompt_alert
@@ -35,8 +36,8 @@ logger = logging.getLogger(__name__)
 console = Console(log_path=False)
 
 # Risk tier threshold for auto-approval in interactive mode.
-# Calls classified at this tier or below are approved without prompting.
-# Set to RiskTier.READ (1) to auto-approve only read-only operations.
+# Calls classified at this tier or below are approved without prompting unless
+# GPTME_AUTO_APPROVE_READ is disabled.
 _AUTO_APPROVE_TIER_MAX = 1  # corresponds to RiskTier.READ
 
 
@@ -82,14 +83,15 @@ def cli_confirm_hook(
     # that should never block an interactive session.
     # Still show the preview so the user can see what was executed.
     #
-    # Note: READ-tier auto-approval is unconditional and intentionally does NOT
-    # interact with the check_auto_confirm() counter ("a N" in interactive mode).
-    # The counter is for temporarily auto-approving WRITE-tier operations; READ
-    # calls are always safe and are approved regardless of counter state.
-    # A user who sets "a 3" gets exactly 3 WRITE auto-confirms; READ calls do
-    # not consume that budget.
+    # Note: READ-tier auto-approval intentionally does NOT interact with the
+    # check_auto_confirm() counter ("a N" in interactive mode). The counter is for
+    # temporarily auto-approving WRITE-tier operations, so READ calls do not consume
+    # that budget. Users can disable unconditional READ approval through config.
     risk = classify_tool_risk(tool_use)
-    if risk <= _AUTO_APPROVE_TIER_MAX:
+    auto_approve_read = get_config().get_env_bool(
+        "GPTME_AUTO_APPROVE_READ", default=True
+    )
+    if auto_approve_read and risk <= _AUTO_APPROVE_TIER_MAX:
         logger.debug(f"Auto-approving read-tier tool: {tool_use.tool}")
         preview_content = content or tool_use.tool
         print_preview(preview_content, lang, copy=bool(content))

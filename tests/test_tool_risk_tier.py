@@ -204,6 +204,30 @@ def test_contentless_read_tier_auto_approval_still_shows_preview(
     assert confirm_spy["previews"] == ["screenshot"]
 
 
+def test_read_tier_uses_provided_preview(confirm_spy: dict) -> None:
+    """A rendered preview overrides raw tool content before auto-approval."""
+    from gptme.hooks.cli_confirm import cli_confirm_hook
+
+    cli_confirm_hook(_tu("screenshot"), preview="formatted screenshot preview")
+
+    assert confirm_spy["previews"] == ["formatted screenshot preview"]
+    assert confirm_spy["prompted"] == 0
+
+
+def test_read_tier_auto_approval_can_be_disabled(
+    confirm_spy: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Users can restore confirmation prompts for READ-tier calls."""
+    from gptme.hooks.cli_confirm import cli_confirm_hook
+
+    monkeypatch.setenv("GPTME_AUTO_APPROVE_READ", "0")
+
+    cli_confirm_hook(_tu("read", "~/.ssh/id_rsa"))
+
+    assert confirm_spy["previews"] == ["~/.ssh/id_rsa"]
+    assert confirm_spy["prompted"] == 1
+
+
 @pytest.mark.parametrize(
     ("tool", "content"),
     [
