@@ -7,7 +7,7 @@ authors = [
 ]
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.15"
 dynamic = ["dependencies"]  # "version"
 
 [project.urls]
@@ -61,7 +61,7 @@ include = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = ">=3.10,<3.15"
 click = "^8.4"
 click-default-group = "^1.2.4"
 python-dotenv = "^1.2.2"
