@@ -137,12 +137,17 @@ Always consider the full range of your available tools and abilities when approa
     # Codex found ending on an offer/question instead of an action to be the
     # shared weakness, not a per-backend one.
     next_step_guidance = (
-        "End with a concrete next step (a command or specific action), not an offer to elaborate. Ask a clarifying question only when the request is genuinely ambiguous."
+        "End with a concrete next step (a command or specific action), not an offer to elaborate."
         if compact
         else """End your response with a concrete next step: a command to run, a file to change, or a specific action to take.
-Do not end with an offer to elaborate ("I can give you a patch if you want") or a generic suggestion.
-Ask a clarifying question only when the request is genuinely ambiguous and you cannot proceed without the answer."""
+Do not end with an offer to elaborate ("I can give you a patch if you want") or a generic suggestion."""
     )
+    if interactive:
+        next_step_guidance += (
+            " Ask a clarifying question only when the request is genuinely ambiguous."
+            if compact
+            else "\nAsk a clarifying question only when the request is genuinely ambiguous and you cannot proceed without the answer."
+        )
 
     default_base_prompt = f"""
 You are {agent_blurb}. {

@@ -275,6 +275,22 @@ class TestPromptGptme:
         content = msgs[0].content
         assert "End with a concrete next step" in content
 
+    @pytest.mark.parametrize("compact", [False, True])
+    def test_clarifying_question_guidance_only_in_interactive_mode(self, compact):
+        """Non-interactive agents must proceed instead of asking questions."""
+        from gptme.prompts import prompt_gptme
+
+        interactive_content = list(prompt_gptme(interactive=True, compact=compact))[
+            0
+        ].content
+        non_interactive_content = list(
+            prompt_gptme(interactive=False, compact=compact)
+        )[0].content
+
+        assert "Ask a clarifying question only when" in interactive_content
+        assert "Ask a clarifying question only when" not in non_interactive_content
+        assert "concrete next step" in non_interactive_content
+
     def test_thinking_tags_without_reasoning_model(self):
         """Models without native reasoning get <thinking> tag instructions."""
         from gptme.prompts import prompt_gptme
