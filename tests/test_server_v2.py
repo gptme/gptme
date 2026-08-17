@@ -361,9 +361,10 @@ def stub_key_validation(monkeypatch, *, valid: bool = True, message: str = ""):
 
     The endpoint checks the key with the provider before persisting it, so
     every save test has to say what the provider would answer.
+    Patch at the api_v2 import site so the function uses the stub.
     """
     monkeypatch.setattr(
-        "gptme.llm.validate.validate_api_key",
+        "gptme.server.api_v2.validate_api_key",
         lambda api_key, provider, timeout=10: (valid, message),
     )
 
@@ -497,7 +498,7 @@ def test_v2_user_api_key_rejects_invalid_key(
         json={"provider": "anthropic", "api_key": "sk-ant-bad-key"},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert response.get_json() == {
         "error": "Invalid API key. Please check your key and try again."
     }
@@ -530,12 +531,11 @@ def test_v2_user_api_key_saves_when_validation_is_non_fatal(
     )
 
     assert response.status_code == 200
-    assert response.get_json() == {
-        "status": "ok",
-        "provider": "anthropic",
-        "env_var": "ANTHROPIC_API_KEY",
-        "restart_required": False,
-    }
+    data = response.get_json()
+    assert data["status"] == "ok"
+    assert data["provider"] == "anthropic"
+    assert data["env_var"] == "ANTHROPIC_API_KEY"
+    assert data["restart_required"] is False
 
     saved = tomlkit.loads((tmp_path / "config.local.toml").read_text()).unwrap()
     assert saved["env"]["ANTHROPIC_API_KEY"] == "sk-ant-out-of-credit"

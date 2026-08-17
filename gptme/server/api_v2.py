@@ -3076,7 +3076,8 @@ def api_user():
     description=(
         "Persist a provider API key into the user's global gptme config. "
         "The key is checked against the provider before it is written, so an "
-        "invalid key is rejected with 400 rather than saved. "
+        "invalid key is rejected with 422 rather than saved; "
+        "provider connectivity failures return 502. "
         "Intended for first-run onboarding flows; callers should restart the "
         "server after a successful write if they need the running process to "
         "pick the key up immediately."
@@ -3134,8 +3135,6 @@ def api_user_api_key():
     # skip_validation=True is for offline/test use where live network calls aren't available.
     key_warning: str | None = None
     if not skip_validation:
-        from ..llm.validate import validate_api_key  # fmt: skip
-
         try:
             is_valid, validation_msg = validate_api_key(trimmed_api_key, provider)
         except Exception:
