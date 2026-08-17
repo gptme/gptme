@@ -743,8 +743,10 @@ class TestReadIntegration:
 
         prev = get_tools()
         set_tools([tool])
-        yield
-        set_tools(prev)
+        try:
+            yield
+        finally:
+            set_tools(prev)
 
     def test_read_stores_snapshot(self, tmp_path: Path):
         f = tmp_path / "sample.py"

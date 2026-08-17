@@ -45,10 +45,17 @@ def test_read_file_with_line_numbers(tmp_path: Path):
 
 def test_read_file_no_hashline_tag_without_hashline_tool(tmp_path: Path):
     """Without hashline_edit loaded, read output must not contain a [path#tag] header."""
+    from gptme.tools import get_tools, set_tools
+
     path = tmp_path / "test.py"
     path.write_text('print("hello")\n')
 
-    messages = list(execute_read(None, [str(path)], None))
+    prev = get_tools()
+    set_tools([])
+    try:
+        messages = list(execute_read(None, [str(path)], None))
+    finally:
+        set_tools(prev)
     assert len(messages) == 1
     assert "[" + str(path) + "#" not in messages[0].content
 
