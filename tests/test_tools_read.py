@@ -55,13 +55,18 @@ def test_read_file_no_hashline_tag_without_hashline_tool(tmp_path: Path):
 
 def test_read_file_includes_hashline_tag_when_hashline_tool_active(tmp_path: Path):
     """With hashline_edit loaded, read output must include a [path#tag] header."""
-    from unittest.mock import patch
+    from gptme.tools import get_tools, set_tools
+    from gptme.tools.hashline_edit import tool as hashline_tool
 
     path = tmp_path / "test.py"
     path.write_text('print("hello")\n')
 
-    with patch("gptme.tools.has_tool", return_value=True):
+    prev = get_tools()
+    set_tools([hashline_tool])
+    try:
         messages = list(execute_read(None, [str(path)], None))
+    finally:
+        set_tools(prev)
 
     assert len(messages) == 1
     assert "[" + str(path) + "#" in messages[0].content
