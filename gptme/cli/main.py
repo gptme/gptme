@@ -1361,6 +1361,9 @@ def main(
                     ]
                     try:
                         tools = init_tools(fallback_stats_tools)
+                        # Keep config in sync with main path behaviour so any future
+                        # code in this block that reads config.chat.tools stays consistent.
+                        config.chat.tools = fallback_stats_tools
                     except ValueError as e2:
                         raise click.UsageError(str(e2)) from e2
                 else:
