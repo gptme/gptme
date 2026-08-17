@@ -183,17 +183,19 @@
 <li class="toctree-l2"><a class="reference internal" href="howto/tts-setup.html">Set Up Text-to-Speech</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
-<li class="toctree-l1"><a class="reference internal" href="browser.html">Browser Tool</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="browser.html">Browser Tool</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tool-formats.html">Tool Formats</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="provider-integration.html">Provider Integration Guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
 <li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
@@ -541,7 +543,7 @@ document.write(`
 <li><p>DeepSeek V3 (<code class="docutils literal notranslate"><span class="pre">deepseek/deepseek-chat</span></code>)</p></li>
 <li><p>DeepSeek R1 (<code class="docutils literal notranslate"><span class="pre">deepseek/deepseek-reasoner</span></code>)</p></li>
 </ul>
-<p>Note that some models may perform better or worse with different <code class="docutils literal notranslate"><span class="pre">--tool-format</span></code> options (<code class="docutils literal notranslate"><span class="pre">markdown</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">tool</span></code> for native tool-calling).</p>
+<p>Note that some models may perform better or worse with different <code class="docutils literal notranslate"><span class="pre">--tool-format</span></code> options (<code class="docutils literal notranslate"><span class="pre">markdown</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">tool</span></code> for native tool-calling). See <a class="reference internal" href="tool-formats.html"><span class="doc">Tool Formats</span></a> for what each format does and how to choose one.</p>
 <p>Note that many providers on OpenRouter have poor performance and reliability, so be sure to test your chosen model/provider combination before committing to it. This is especially true for open weight models which any provider can host at any quality. You can choose a specific provider by appending with <code class="docutils literal notranslate"><span class="pre">:provider</span></code>, e.g. <code class="docutils literal notranslate"><span class="pre">openrouter/qwen/qwen3-coder:alibaba/opensource</span></code>.</p>
 <p>Note that pricing for models varies widely when accounting for caching, making some providers much cheaper than others. Anthropic is known and tested to cache well, significantly reducing costs for conversations with many turns.</p>
 <p>You can get an overview of actual model usage in the wild from the <a class="reference external" href="https://openrouter.ai/apps?url=https://github.com/gptme/gptme">OpenRouter app analytics for gptme</a>.</p>
@@ -597,7 +599,7 @@ Hermes 3 70B                  default     0/4 (0%)         0/4         -
 </div>
 <p><strong>Notes:</strong></p>
 <ul class="simple">
-<li><p><em>Format</em> shows the best-performing <code class="docutils literal notranslate"><span class="pre">--tool-format</span></code> for each model.</p></li>
+<li><p><em>Format</em> shows the best-performing <code class="docutils literal notranslate"><span class="pre">--tool-format</span></code> for each model (see <a class="reference internal" href="tool-formats.html"><span class="doc">Tool Formats</span></a>).</p></li>
 <li><p><em>Basic</em> tests cover fundamental tool use (file I/O, shell, git, Python).</p></li>
 <li><p><em>Practical</em> tests cover real-world programming tasks (APIs, data processing, refactoring).</p></li>
 <li><p>Models with fewer than 4 tests are excluded.</p></li>

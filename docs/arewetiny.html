@@ -183,17 +183,19 @@
 <li class="toctree-l2"><a class="reference internal" href="howto/tts-setup.html">Set Up Text-to-Speech</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
-<li class="toctree-l1"><a class="reference internal" href="browser.html">Browser Tool</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="browser.html">Browser Tool</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tool-formats.html">Tool Formats</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="provider-integration.html">Provider Integration Guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
 <li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
@@ -545,20 +547,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     114981 |       playwright._impl._assertions
-     120349 |           gptme.tools
-     135869 |         gptme.config.cli_setup
-     163303 |       gptme.config
-     168743 |     gptme.llm
-     227310 |   gptme.commands
-     230602 |     playwright.sync_api._generated
-     241912 |   playwright.sync_api
-     257845 | gptme.tools._browser_playwright
-     298663 | gptme.chat
+     114324 | gptme.cli.main
+     121343 |           gptme.tools
+     136945 |         gptme.config.cli_setup
+     165095 |       gptme.config
+     170708 |     gptme.llm
+     201374 |     playwright.sync_api._generated
+     210602 |   playwright.sync_api
+     223213 | gptme.tools._browser_playwright
+     231288 |   gptme.commands
+     302441 | gptme.chat
 
-real	0m1.732s
-user	0m1.540s
-sys	0m0.196s
+real	0m1.641s
+user	0m1.437s
+sys	0m0.201s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -566,21 +568,21 @@ make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     142.0 ms ±   3.0 ms    [User: 122.2 ms, System: 19.7 ms]
-  Range (min … max):   137.1 ms … 148.1 ms    10 runs
+  Time (mean ± σ):     140.4 ms ±   1.8 ms    [User: 118.8 ms, System: 21.6 ms]
+  Range (min … max):   138.5 ms … 143.4 ms    10 runs
  
 Benchmark 2: gptme --help
-  Time (mean ± σ):     583.3 ms ±  18.5 ms    [User: 517.8 ms, System: 65.2 ms]
-  Range (min … max):   560.2 ms … 621.7 ms    10 runs
+  Time (mean ± σ):     596.1 ms ±  16.3 ms    [User: 527.1 ms, System: 68.7 ms]
+  Range (min … max):   568.0 ms … 617.5 ms    10 runs
  
 Benchmark 3: full start/exit cycle
-  Time (mean ± σ):      1.040 s ±  0.021 s    [User: 0.818 s, System: 0.561 s]
-  Range (min … max):    1.010 s …  1.072 s    10 runs
+  Time (mean ± σ):      1.058 s ±  0.029 s    [User: 0.845 s, System: 0.549 s]
+  Range (min … max):    1.035 s …  1.130 s    10 runs
  
 Summary
   import gptme.cli.main ran
-    4.11 ± 0.16 times faster than gptme --help
-    7.32 ± 0.21 times faster than full start/exit cycle
+    4.24 ± 0.13 times faster than gptme --help
+    7.53 ± 0.23 times faster than full start/exit cycle
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -3107,7 +3109,7 @@ Clone found (python)
 │ Total:     │ 481            │ 175717      │ 824268       │ 167          │ 2019 (1.15%)     │ 11614 (1.41%)     │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 167 clones.
-time: 375.141ms
+time: 387.775ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>

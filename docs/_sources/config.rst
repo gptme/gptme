@@ -62,7 +62,7 @@ Here is an example:
     #OPENAI_BASE_URL = "http://localhost:11434/v1"
 
     # Uncomment to change tool configuration
-    #TOOL_FORMAT = "markdown" # Select the tool formal. One of `markdown`, `xml`, `tool`
+    #TOOL_FORMAT = "markdown" # Select the tool format. One of `markdown`, `xml`, `tool` (see docs: Tool Formats)
     #TOOL_ALLOWLIST = "save,append,patch,ipython,shell,browser"  # Comma separated list of allowed tools
     #TOOL_MODULES = "gptme.tools,custom.tools" # List of python comma separated python module path
 
@@ -376,7 +376,7 @@ The variable name is derived from the parameter name in uppercase.
 Common examples:
 
 - ``GPTME_MODEL`` - Set the model (equivalent to ``--model``)
-- ``GPTME_TOOL_FORMAT`` - Set the tool format (equivalent to ``--tool-format``)
+- ``GPTME_TOOL_FORMAT`` - Set the tool format (equivalent to ``--tool-format``), see :doc:`tool-formats`
 - ``GPTME_WORKSPACE`` - Set the workspace (equivalent to ``--workspace``)
 - ``GPTME_TOOL_ALLOWLIST`` - Set allowed tools (equivalent to ``--tools``)
 

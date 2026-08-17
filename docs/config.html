@@ -183,17 +183,19 @@
 <li class="toctree-l2"><a class="reference internal" href="howto/tts-setup.html">Set Up Text-to-Speech</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
-<li class="toctree-l1"><a class="reference internal" href="browser.html">Browser Tool</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="browser.html">Browser Tool</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Configuration</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tool-formats.html">Tool Formats</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="provider-integration.html">Provider Integration Guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
 <li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
@@ -576,7 +578,7 @@ document.write(`
 <span class="c1">#OPENAI_BASE_URL = &quot;http://localhost:11434/v1&quot;</span>
 
 <span class="c1"># Uncomment to change tool configuration</span>
-<span class="c1">#TOOL_FORMAT = &quot;markdown&quot; # Select the tool formal. One of `markdown`, `xml`, `tool`</span>
+<span class="c1">#TOOL_FORMAT = &quot;markdown&quot; # Select the tool format. One of `markdown`, `xml`, `tool` (see docs: Tool Formats)</span>
 <span class="c1">#TOOL_ALLOWLIST = &quot;save,append,patch,ipython,shell,browser&quot;  # Comma separated list of allowed tools</span>
 <span class="c1">#TOOL_MODULES = &quot;gptme.tools,custom.tools&quot; # List of python comma separated python module path</span>
 
@@ -851,7 +853,7 @@ The variable name is derived from the parameter name in uppercase.</p>
 <p>Common examples:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_MODEL</span></code> - Set the model (equivalent to <code class="docutils literal notranslate"><span class="pre">--model</span></code>)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TOOL_FORMAT</span></code> - Set the tool format (equivalent to <code class="docutils literal notranslate"><span class="pre">--tool-format</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TOOL_FORMAT</span></code> - Set the tool format (equivalent to <code class="docutils literal notranslate"><span class="pre">--tool-format</span></code>), see <a class="reference internal" href="tool-formats.html"><span class="doc">Tool Formats</span></a></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_WORKSPACE</span></code> - Set the workspace (equivalent to <code class="docutils literal notranslate"><span class="pre">--workspace</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TOOL_ALLOWLIST</span></code> - Set allowed tools (equivalent to <code class="docutils literal notranslate"><span class="pre">--tools</span></code>)</p></li>
 </ul>

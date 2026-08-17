@@ -184,17 +184,19 @@
 <li class="toctree-l2"><a class="reference internal" href="howto/tts-setup.html">Set Up Text-to-Speech</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
-<li class="toctree-l1"><a class="reference internal" href="browser.html">Browser Tool</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="browser.html">Browser Tool</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tool-formats.html">Tool Formats</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="provider-integration.html">Provider Integration Guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
 <li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
@@ -628,14 +630,6 @@ document.write(`
 <li class="toctree-l2"><a class="reference internal" href="tools.html#tool-selection-allowlists">Tool Selection &amp; Allowlists</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="browser.html">Browser Tool</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="browser.html#backends">Backends</a></li>
-<li class="toctree-l2"><a class="reference internal" href="browser.html#engine-configuration-gptme-browser-engine">Engine Configuration (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_ENGINE</span></code>)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="browser.html#cdp-mode-gptme-browser-cdp-url">CDP Mode (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code>)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="browser.html#session-persistence-gptme-browser-storage-state">Session Persistence (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_STORAGE_STATE</span></code>)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="browser.html#environment-variables-reference">Environment Variables Reference</a></li>
-</ul>
-</li>
 <li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="commands.html#overview">Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="commands.html#built-in-commands">Built-in Commands</a></li>
@@ -670,17 +664,16 @@ document.write(`
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="providers.html">Providers</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#ollama-local">Ollama (local)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#lm-studio-local">LM Studio (local)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#vllm-and-openai-compatible-servers">vLLM and OpenAI-compatible servers</a></li>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#configuration">Configuration</a></li>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#setting-a-default-model">Setting a default model</a></li>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#backward-compatibility">Backward compatibility</a></li>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#related-discussions">Related discussions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers.html#selecting-a-provider-and-model">Selecting a provider and model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers.html#configuring-credentials">Configuring credentials</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers.html#openai-platform">OpenAI Platform</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers.html#openrouter">OpenRouter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers.html#requesty">Requesty</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers.html#groq">Groq</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers.html#openai-subscription">OpenAI Subscription</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers.html#gptme-managed-service">gptme Managed Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers.html#provider-plugins-entry-points">Provider Plugins (Entry Points)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers.html#local">Local</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="provider-integration.html">Provider Integration Guide</a><ul>
@@ -996,95 +989,11 @@ document.write(`
 <div class="toctree-wrapper compound">
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="alternatives.html#gptme-vs-claude-code-vs-aider-vs-cursor-open-source-ai-coding-agent-comparison">gptme vs Claude Code vs Aider vs Cursor — Open Source AI Coding Agent Comparison</a></li>
-<li class="toctree-l2"><a class="reference internal" href="alternatives.html#what-makes-gptme-different">What Makes gptme Different</a></li>
-<li class="toctree-l2"><a class="reference internal" href="alternatives.html#feature-comparison">Feature Comparison</a></li>
-<li class="toctree-l2"><a class="reference internal" href="alternatives.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="alternatives.html#projects">Projects</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="arewetiny.html">Are we tiny?</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="arewetiny.html#startup-time">Startup time</a></li>
-<li class="toctree-l2"><a class="reference internal" href="arewetiny.html#lines-of-code">Lines of code</a></li>
-<li class="toctree-l2"><a class="reference internal" href="arewetiny.html#code-metrics">Code Metrics</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="misc/acronyms.html">What does “gptme” stand for?</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="misc/acronyms.html#practical">Practical</a></li>
-<li class="toctree-l2"><a class="reference internal" href="misc/acronyms.html#philosophical">Philosophical</a></li>
-<li class="toctree-l2"><a class="reference internal" href="misc/acronyms.html#sassy">Sassy</a></li>
-<li class="toctree-l2"><a class="reference internal" href="misc/acronyms.html#wholesome">Wholesome</a></li>
-<li class="toctree-l2"><a class="reference internal" href="misc/acronyms.html#dystopian-but-only-mildly">Dystopian (but only mildly)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="misc/acronyms.html#absurd">Absurd</a></li>
-<li class="toctree-l2"><a class="reference internal" href="misc/acronyms.html#meta">Meta</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="timeline.html#unreleased">Unreleased</a></li>
-<li class="toctree-l2"><a class="reference internal" href="timeline.html#id1">2026</a></li>
-<li class="toctree-l2"><a class="reference internal" href="timeline.html#id2">2025</a></li>
-<li class="toctree-l2"><a class="reference internal" href="timeline.html#id3">2024</a></li>
-<li class="toctree-l2"><a class="reference internal" href="timeline.html#id4">2023</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="changelog.html">Changelog</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.32.1.html">v0.32.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.32.0.html">v0.32.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.31.0.html">v0.31.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.30.0.html">v0.30.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.29.0.html">v0.29.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.3.html">v0.28.3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.2.html">v0.28.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.1.html">v0.28.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.0.html">v0.28.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.27.0.html">v0.27.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.26.0.html">v0.26.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.25.0.html">v0.25.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.1.html">v0.24.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.0.html">v0.24.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.23.0.html">v0.23.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.22.0.html">v0.22.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.21.0.html">v0.21.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.20.0.html">v0.20.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.19.0.html">v0.19.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.18.0.html">v0.18.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.17.0.html">v0.17.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.16.0.html">v0.16.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.15.0.html">v0.15.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.14.0.html">v0.14.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.13.0.html">v0.13.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.12.0.html">v0.12.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.11.0.html">v0.11.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.5.html">v0.10.5</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.4.html">v0.10.4</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.3.html">v0.10.3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.2.html">v0.10.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.1.html">v0.10.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.0.html">v0.10.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.4.html">v0.9.4</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.3.html">v0.9.3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.2.html">v0.9.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.1.html">v0.9.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.0.html">v0.9.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.1.html">v0.8.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.0.html">v0.8.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.7.0.html">v0.7.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.1.html">v0.6.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.0.html">v0.6.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.5.0.html">v0.5.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.2.html">v0.4.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.1.html">v0.4.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.0.html">v0.4.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.3.html">v0.3.3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.2.html">v0.3.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.1.html">v0.3.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.0.html">v0.3.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.2.html">v0.2.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.1.html">v0.2.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="releases/v0.1.1.html">v0.1.1</a></li>
-</ul>
-</li>
+<li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="misc/acronyms.html">What does “gptme” stand for?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="changelog.html">Changelog</a></li>
 </ul>
 </div>
 <div class="toctree-wrapper compound">

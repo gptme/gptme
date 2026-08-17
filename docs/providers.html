@@ -183,17 +183,19 @@
 <li class="toctree-l2"><a class="reference internal" href="howto/tts-setup.html">Set Up Text-to-Speech</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
-<li class="toctree-l1"><a class="reference internal" href="browser.html">Browser Tool</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="browser.html">Browser Tool</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Providers</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tool-formats.html">Tool Formats</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="provider-integration.html">Provider Integration Guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
 <li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
@@ -474,7 +476,9 @@ document.write(`
   </button>
 `);
 </script>
-
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
 </div></div>
       
     </div>
@@ -490,6 +494,23 @@ document.write(`
     <div id="print-main-content">
         <div id="jb-print-toc">
             
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#selecting-a-provider-and-model">Selecting a provider and model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuring-credentials">Configuring credentials</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#openai-platform">OpenAI Platform</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#openrouter">OpenRouter</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#requesty">Requesty</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#groq">Groq</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#openai-subscription">OpenAI Subscription</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-managed-service">gptme Managed Service</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-plugins-entry-points">Provider Plugins (Entry Points)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local">Local</a></li>
+</ul>
+            </nav>
         </div>
     </div>
 </div>
@@ -504,23 +525,11 @@ document.write(`
 <p>We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Requesty, Deepseek, Azure, and any OpenAI-compatible server (e.g. <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">llama-cpp-python</span></code>).</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>We are in the process of adding support for configurable <a class="reference external" href="providers-custom">custom providers</a>.</p>
+<p>We are in the process of adding support for configurable <a class="reference internal" href="providers-custom.html"><span class="doc">custom providers</span></a>.</p>
 </div>
 <p>You can find our model recommendations on the <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a> page.</p>
-<div class="toctree-wrapper compound">
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#ollama-local">Ollama (local)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#lm-studio-local">LM Studio (local)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#vllm-and-openai-compatible-servers">vLLM and OpenAI-compatible servers</a></li>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#configuration">Configuration</a></li>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#setting-a-default-model">Setting a default model</a></li>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#backward-compatibility">Backward compatibility</a></li>
-<li class="toctree-l2"><a class="reference internal" href="providers-custom.html#related-discussions">Related discussions</a></li>
-</ul>
-</li>
-</ul>
-</div>
+<section id="selecting-a-provider-and-model">
+<h2>Selecting a provider and model<a class="headerlink" href="#selecting-a-provider-and-model" title="Link to this heading">#</a></h2>
 <p>To select a provider and model, run <code class="docutils literal notranslate"><span class="pre">gptme</span></code> with the <code class="docutils literal notranslate"><span class="pre">-m</span></code>/<code class="docutils literal notranslate"><span class="pre">--model</span></code> flag set to <code class="docutils literal notranslate"><span class="pre">&lt;provider&gt;/&lt;model&gt;</span></code>, for example:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5.5
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic<span class="w">  </span><span class="c1"># will use provider default</span>
@@ -535,6 +544,11 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 </pre></div>
 </div>
 <p>You can list the models known to gptme using <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'/models'</span> <span class="pre">-</span> <span class="pre">'/exit'</span></code>.</p>
+<p>Which tool format a model performs best with also varies by provider and model —
+see <a class="reference internal" href="tool-formats.html"><span class="doc">Tool Formats</span></a> for how to choose one.</p>
+</section>
+<section id="configuring-credentials">
+<h2>Configuring credentials<a class="headerlink" href="#configuring-credentials" title="Link to this heading">#</a></h2>
 <p>To configure provider credentials interactively, run <code class="docutils literal notranslate"><span class="pre">/account</span></code> inside gptme:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/account
 /account setup
@@ -553,7 +567,9 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 <li><p><code class="docutils literal notranslate"><span class="pre">GROQ_API_KEY=&quot;your-api-key&quot;</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">DEEPSEEK_API_KEY=&quot;your-api-key&quot;</span></code></p></li>
 </ul>
-<p class="rubric">OpenAI Platform</p>
+</section>
+<section id="openai-platform">
+<h2>OpenAI Platform<a class="headerlink" href="#openai-platform" title="Link to this heading">#</a></h2>
 <p>Use the direct OpenAI Platform provider with <code class="docutils literal notranslate"><span class="pre">openai/&lt;model&gt;</span></code>:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-4o
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
@@ -583,7 +599,9 @@ falsy values.</p>
 <code class="docutils literal notranslate"><span class="pre">openai-subscription</span></code> provider uses its own Responses API path by
 default.</p>
 </div>
-<p class="rubric">OpenRouter</p>
+</section>
+<section id="openrouter">
+<h2>OpenRouter<a class="headerlink" href="#openrouter" title="Link to this heading">#</a></h2>
 <p><a class="reference external" href="https://openrouter.ai/">OpenRouter</a> provides access to 100+ models through a single API key. gptme applies sensible defaults for OpenRouter requests:</p>
 <ul class="simple">
 <li><p><strong>Provider routing</strong>: <code class="docutils literal notranslate"><span class="pre">require_parameters</span></code> is enabled, ensuring the routed provider supports all request parameters (tools, response format, etc.). This prevents silent failures when OpenRouter falls back to a provider that doesn’t support function calling.</p></li>
@@ -605,7 +623,9 @@ default.</p>
 <span class="n">OPENROUTER_QUANTIZATION</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;fp16,bf16&quot;</span>
 </pre></div>
 </div>
-<p class="rubric">Requesty</p>
+</section>
+<section id="requesty">
+<h2>Requesty<a class="headerlink" href="#requesty" title="Link to this heading">#</a></h2>
 <p><a class="reference external" href="https://requesty.ai/">Requesty</a> is an OpenAI-compatible LLM gateway that routes to many models through a single API key, using the same <code class="docutils literal notranslate"><span class="pre">provider/model</span></code> naming as OpenRouter (e.g. <code class="docutils literal notranslate"><span class="pre">requesty/openai/gpt-4o-mini</span></code>, <code class="docutils literal notranslate"><span class="pre">requesty/anthropic/claude-sonnet-4-5</span></code>). It is reached through the standard OpenAI-compatible client path.</p>
 <p><strong>Configuration:</strong></p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In gptme.toml or ~/.config/gptme/config.toml</span>
@@ -614,7 +634,9 @@ default.</p>
 </pre></div>
 </div>
 <p>Get an API key at <a class="reference external" href="https://app.requesty.ai/api-keys">https://app.requesty.ai/api-keys</a>. See <a class="reference external" href="https://docs.requesty.ai">https://docs.requesty.ai</a> for details.</p>
-<p class="rubric">Groq</p>
+</section>
+<section id="groq">
+<h2>Groq<a class="headerlink" href="#groq" title="Link to this heading">#</a></h2>
 <p><a class="reference external" href="https://groq.com/">Groq</a> provides fast inference for open-source models via its own API key — <strong>not</strong> through the <code class="docutils literal notranslate"><span class="pre">OPENAI_BASE_URL</span></code> / <code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code> pattern.</p>
 <p><strong>Configuration:</strong></p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GROQ_API_KEY</span><span class="o">=</span><span class="s2">&quot;gsk_...&quot;</span>
@@ -641,7 +663,9 @@ The <code class="docutils literal notranslate"><span class="pre">groq/&lt;model&
 <li><p><code class="docutils literal notranslate"><span class="pre">groq/llama-3.3-70b-versatile</span></code> — fast 70B Llama 3.3</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">groq/llama-3.1-8b-instant</span></code> — fastest, smallest</p></li>
 </ul>
-<p class="rubric">OpenAI Subscription</p>
+</section>
+<section id="openai-subscription">
+<h2>OpenAI Subscription<a class="headerlink" href="#openai-subscription" title="Link to this heading">#</a></h2>
 <p>You can use your existing ChatGPT Plus/Pro subscription with gptme. This uses the ChatGPT backend API (Codex endpoint) instead of the OpenAI Platform API, allowing you to leverage your subscription for development.</p>
 <p><strong>Setup:</strong></p>
 <p>Authenticate using the OAuth command (opens browser for login):</p>
@@ -678,7 +702,9 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 For production or multi-user applications, use the OpenAI Platform API.
 OAuth credentials are stored locally and access tokens are refreshed automatically.</p>
 </div>
-<p class="rubric">gptme Managed Service</p>
+</section>
+<section id="gptme-managed-service">
+<h2>gptme Managed Service<a class="headerlink" href="#gptme-managed-service" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">gptme</span></code> provider connects to the <a class="reference external" href="https://gptme.ai">gptme.ai</a> managed service, which acts as an OpenAI-compatible LLM proxy/gateway. This gives you access to multiple model providers (Anthropic, OpenAI, etc.) through a single account.</p>
 <p><strong>Setup:</strong></p>
 <p>Authenticate using the Device Flow command:</p>
@@ -704,7 +730,9 @@ gptme-auth<span class="w"> </span>status<span class="w">              </span><sp
 gptme-auth<span class="w"> </span><span class="nb">logout</span><span class="w">              </span><span class="c1"># Remove stored credentials</span>
 </pre></div>
 </div>
-<p class="rubric">Provider Plugins (Entry Points)</p>
+</section>
+<section id="provider-plugins-entry-points">
+<h2>Provider Plugins (Entry Points)<a class="headerlink" href="#provider-plugins-entry-points" title="Link to this heading">#</a></h2>
 <p>Third-party packages can register LLM providers via Python entry points, making them available immediately after <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code> without any configuration changes.</p>
 <p><strong>How it works:</strong> A plugin package declares an entry point in the <code class="docutils literal notranslate"><span class="pre">gptme.providers</span></code> group:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">project</span><span class="o">.</span><span class="n">entry</span><span class="o">-</span><span class="n">points</span><span class="o">.</span><span class="s2">&quot;gptme.providers&quot;</span><span class="p">]</span>
@@ -784,7 +812,9 @@ gptme-auth<span class="w"> </span><span class="nb">logout</span><span class="w">
 <p class="admonition-title">Note</p>
 <p>For new plugins, consider using the <a class="reference internal" href="plugins.html#unified-plugins"><span class="std std-ref">unified plugin system</span></a> (<code class="docutils literal notranslate"><span class="pre">gptme.plugins</span></code> entry-point group) instead. It lets a single package provide tools, hooks, commands, <strong>and</strong> a provider together. The <code class="docutils literal notranslate"><span class="pre">gptme.providers</span></code> group still works and is supported for backward compatibility.</p>
 </div>
-<p class="rubric">Local</p>
+</section>
+<section id="local">
+<h2>Local<a class="headerlink" href="#local" title="Link to this heading">#</a></h2>
 <p>You can use local LLM models using any OpenAI API-compatible server.</p>
 <p>To achieve that with <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, install it then run:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>ollama<span class="w"> </span>pull<span class="w"> </span>llama3.2:1b
@@ -796,6 +826,14 @@ ollama<span class="w"> </span>serve
 <p class="admonition-title">Note</p>
 <p>Small models won’t work well with tools, severely limiting the usefulness of gptme. You can find an overview of how different models perform on the <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a> page.</p>
 </div>
+<div class="toctree-wrapper compound">
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">More about providers</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tool-formats.html">Tool Formats</a></li>
+</ul>
+</div>
+</section>
 </section>
 
 
@@ -833,6 +871,30 @@ ollama<span class="w"> </span>serve
             </div>
             
             
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#selecting-a-provider-and-model">Selecting a provider and model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuring-credentials">Configuring credentials</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#openai-platform">OpenAI Platform</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#openrouter">OpenRouter</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#requesty">Requesty</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#groq">Groq</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#openai-subscription">OpenAI Subscription</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-managed-service">gptme Managed Service</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-plugins-entry-points">Provider Plugins (Entry Points)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local">Local</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
               
             
           </div>

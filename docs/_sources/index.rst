@@ -32,13 +32,11 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    cookbook
    howto/index
    tools
-   browser
    commands
    cli
    tui
    config
    providers
-   providers-custom
    provider-integration
    model-routing
    security
@@ -82,7 +80,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    design/ptc-tool-interface
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: About
 
    alternatives
