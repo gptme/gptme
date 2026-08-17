@@ -172,6 +172,24 @@ class TestValidateAnthropic:
         assert "Invalid API key" in error
 
     @patch("gptme.llm.validate.requests.post")
+    def test_authentication_error_type_returns_false(self, mock_post):
+        """A 400 with type=authentication_error should be treated as invalid key."""
+        mock_post.return_value = Mock(
+            status_code=400,
+            json=Mock(
+                return_value={
+                    "error": {
+                        "type": "authentication_error",
+                        "message": "Invalid key",
+                    }
+                }
+            ),
+        )
+        is_valid, error = _validate_anthropic("sk-ant-invalid-key", 10)
+        assert not is_valid
+        assert "Invalid API key" in error
+
+    @patch("gptme.llm.validate.requests.post")
     def test_quota_exhausted_returns_warning(self, mock_post):
         """Quota-exhausted 400 response should return (True, warning_msg) not (True, '')."""
         quota_msg = "You have reached your specified API usage limits. You will regain access on 2026-05-01 at 00:00 UTC."

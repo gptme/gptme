@@ -173,6 +173,8 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
             "authentication" in error_msg
             or "invalid api key" in error_msg
             or "invalid_api_key" in error_type
+            or "authentication_error" in error_type
+            or "permission_error" in error_type
         ):
             return False, "Invalid API key. Please check your key and try again."
         if "usage limits" in error_msg:
