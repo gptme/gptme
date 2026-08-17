@@ -736,6 +736,13 @@ class TestExecuteHashlineEdit:
 
 
 class TestReadIntegration:
+    @pytest.fixture(autouse=True)
+    def _activate_hashline(self, monkeypatch):
+        """Simulate a session where hashline_edit is loaded so read stores snapshots."""
+        monkeypatch.setattr(
+            "gptme.tools.has_tool", lambda name: name == "hashline_edit"
+        )
+
     def test_read_stores_snapshot(self, tmp_path: Path):
         f = tmp_path / "sample.py"
         f.write_text("def hello():\n    pass\n")

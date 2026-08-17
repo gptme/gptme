@@ -7,19 +7,15 @@ from unittest.mock import patch
 
 import pytest
 
-from gptme.tools._hashline_snapshot import compute_tag
 from gptme.tools.pruner import PrunePlan
 from gptme.tools.read import examples, execute_read
 
 
-def test_examples_compute_hashline_tags_from_displayed_content():
+def test_examples_show_plain_output_without_hashline_tags():
     rendered = examples("markdown")
-    hello = 'print("Hello world")\n'
-    goodbye = 'print("Goodbye world")\n'
-
-    assert f"[hello.py#{compute_tag(hello)}]" in rendered
-    assert f"[goodbye.py#{compute_tag(goodbye)}]" in rendered
-    assert f"[hello.py#{compute_tag(hello + goodbye)}]" in rendered
+    # Examples should not contain hashline tags — they represent a plain read session.
+    assert "[hello.py#" not in rendered
+    assert "[goodbye.py#" not in rendered
 
 
 def test_read_file(tmp_path: Path):
@@ -45,6 +41,30 @@ def test_read_file_with_line_numbers(tmp_path: Path):
     content = messages[0].content
     assert "1\t" in content
     assert "2\t" in content
+
+
+def test_read_file_no_hashline_tag_without_hashline_tool(tmp_path: Path):
+    """Without hashline_edit loaded, read output must not contain a [path#tag] header."""
+    path = tmp_path / "test.py"
+    path.write_text('print("hello")\n')
+
+    messages = list(execute_read(None, [str(path)], None))
+    assert len(messages) == 1
+    assert "[" + str(path) + "#" not in messages[0].content
+
+
+def test_read_file_includes_hashline_tag_when_hashline_tool_active(tmp_path: Path):
+    """With hashline_edit loaded, read output must include a [path#tag] header."""
+    from unittest.mock import patch
+
+    path = tmp_path / "test.py"
+    path.write_text('print("hello")\n')
+
+    with patch("gptme.tools.has_tool", return_value=True):
+        messages = list(execute_read(None, [str(path)], None))
+
+    assert len(messages) == 1
+    assert "[" + str(path) + "#" in messages[0].content
 
 
 def test_read_file_line_range_kwargs(tmp_path: Path):

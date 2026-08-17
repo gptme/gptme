@@ -50,18 +50,12 @@ instructions_format = {
 
 
 def examples(tool_format):
-    from ._hashline_snapshot import compute_tag
-
-    hello = 'print("Hello world")\n'
-    goodbye = 'print("Goodbye world")\n'
-    combined = hello + goodbye
     batch_paths = "hello.py\ngoodbye.py"
     return f"""
 > User: read hello.py
 > Assistant:
 {ToolUse("read", ["hello.py"], "").to_output(tool_format)}
 > System: ```hello.py
-> [hello.py#{compute_tag(combined)}]
 >    1\tprint("Hello world")
 >    2\tprint("Goodbye world")
 > ```
@@ -70,11 +64,9 @@ def examples(tool_format):
 > Assistant:
 {ToolUse("read", [], batch_paths).to_output(tool_format)}
 > System: ```hello.py
-> [hello.py#{compute_tag(hello)}]
 >    1\tprint("Hello world")
 > ```
 > ```goodbye.py
-> [goodbye.py#{compute_tag(goodbye)}]
 >    1\tprint("Goodbye world")
 > ```
 """.strip()
@@ -225,11 +217,6 @@ def _read_one(
         yield Message("system", f"Permission denied: {path}")
         return
 
-    # Store snapshot for hashline_edit verification (always uses full content)
-    from ._hashline_snapshot import store_snapshot
-
-    tag = store_snapshot(str(path), content)
-
     lines = content.splitlines()
     total_lines = len(lines)
 
@@ -297,9 +284,17 @@ def _read_one(
         shown = f"{start_idx + 1}-{end_idx}"
         range_info = f" (lines {shown} of {total_lines})"
 
-    # Include snapshot tag header so hashline_edit can verify freshness
-    tag_header = f"[{path}#{tag}]"
-    body = md_codeblock(f"{path}{range_info}", tag_header + "\n" + numbered)
+    # When hashline_edit is active, store a snapshot and include the tag header
+    # so the edit tool can verify freshness. Plain read sessions see no tag.
+    from . import has_tool
+
+    if has_tool("hashline_edit"):
+        from ._hashline_snapshot import store_snapshot
+
+        tag = store_snapshot(str(path), content)
+        body = md_codeblock(f"{path}{range_info}", f"[{path}#{tag}]\n" + numbered)
+    else:
+        body = md_codeblock(f"{path}{range_info}", numbered)
     if pruned_message_prefix:
         body = pruned_message_prefix + "\n\n" + body
 
