@@ -737,11 +737,14 @@ class TestExecuteHashlineEdit:
 
 class TestReadIntegration:
     @pytest.fixture(autouse=True)
-    def _activate_hashline(self, monkeypatch):
+    def _activate_hashline(self):
         """Simulate a session where hashline_edit is loaded so read stores snapshots."""
-        monkeypatch.setattr(
-            "gptme.tools.has_tool", lambda name: name == "hashline_edit"
-        )
+        from gptme.tools import get_tools, set_tools
+
+        prev = get_tools()
+        set_tools([tool])
+        yield
+        set_tools(prev)
 
     def test_read_stores_snapshot(self, tmp_path: Path):
         f = tmp_path / "sample.py"
