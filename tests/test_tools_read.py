@@ -79,6 +79,32 @@ def test_read_file_includes_hashline_tag_when_hashline_tool_active(tmp_path: Pat
     assert "[" + str(path) + "#" in messages[0].content
 
 
+def test_read_file_snapshot_stored_even_without_hashline_tool(tmp_path: Path):
+    """Snapshot is stored even when hashline_edit is not loaded at read time.
+
+    This preserves mid-session activation: a user can read files without
+    hashline_edit, then load_tool('hashline_edit') and still edit those files.
+    """
+    from gptme.tools import get_tools, set_tools
+    from gptme.tools._hashline_snapshot import _store, get_stored_tag
+
+    path = tmp_path / "test.py"
+    path.write_text('print("hello")\n')
+
+    prev = get_tools()
+    set_tools([])
+    try:
+        _store.clear()
+        list(execute_read(None, [str(path)], None))
+    finally:
+        set_tools(prev)
+
+    assert get_stored_tag(str(path.resolve())) is not None, (
+        "Snapshot must be stored even when hashline_edit is inactive, "
+        "so load_tool('hashline_edit') can edit files read before activation."
+    )
+
+
 def test_read_file_line_range_kwargs(tmp_path: Path):
     """Test reading a line range via kwargs."""
     path = tmp_path / "test.txt"
