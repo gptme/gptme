@@ -284,14 +284,16 @@ def _read_one(
         shown = f"{start_idx + 1}-{end_idx}"
         range_info = f" (lines {shown} of {total_lines})"
 
-    # When hashline_edit is active, store a snapshot and include the tag header
-    # so the edit tool can verify freshness. Plain read sessions see no tag.
+    # Always store a snapshot so hashline_edit can edit files that were read
+    # before the tool was activated. Only show the [path#tag] header when
+    # hashline_edit is already active — plain sessions see no tag in output.
+    from ._hashline_snapshot import store_snapshot
+
+    tag = store_snapshot(str(path), content)
+
     from . import has_tool
 
     if has_tool("hashline_edit"):
-        from ._hashline_snapshot import store_snapshot
-
-        tag = store_snapshot(str(path), content)
         body = md_codeblock(f"{path}{range_info}", f"[{path}#{tag}]\n" + numbered)
     else:
         body = md_codeblock(f"{path}{range_info}", numbered)
