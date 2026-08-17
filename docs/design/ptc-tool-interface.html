@@ -605,7 +605,8 @@ responses. gptme’s own tools are never dispatched via JSON schema.</p>
 <hr class="docutils" />
 <section id="audit-no-json-schema-dispatch-paths-in-gptme-tools">
 <h2>Audit: No JSON-Schema Dispatch Paths in <code class="docutils literal notranslate"><span class="pre">gptme/tools/</span></code><a class="headerlink" href="#audit-no-json-schema-dispatch-paths-in-gptme-tools" title="Link to this heading">#</a></h2>
-<p>Audit run 2026-08-13, commit range: <code class="docutils literal notranslate"><span class="pre">origin/master</span></code>.</p>
+<p>Audit run 2026-08-16, commit <code class="docutils literal notranslate"><span class="pre">66057c6e8</span></code>, all Python files recursively under
+<code class="docutils literal notranslate"><span class="pre">gptme/tools/</span></code>.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>grep<span class="w"> </span>-r<span class="w"> </span><span class="s2">&quot;json\|schema\|Json\|Schema&quot;</span><span class="w"> </span>gptme/tools/<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--include<span class="o">=</span><span class="s2">&quot;*.py&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-v<span class="w"> </span>__pycache__<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-v<span class="w"> </span><span class="nb">test</span>
 </pre></div>
@@ -627,9 +628,57 @@ responses. gptme’s own tools are never dispatched via JSON schema.</p>
 <td><p>MCP protocol JSON schema for external server tools</p></td>
 <td><p>❌ Not gptme tool dispatch</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">patch_anchored.py</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">mcp.py</span></code></p></td>
+<td><p>MCP protocol JSON parsing for server commands and arguments</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">patch_anchored.py</span></code></p></td>
 <td><p>JSON array of edit operations (tool’s own content format)</p></td>
 <td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">patch_many.py</span></code></p></td>
+<td><p>JSON array of edit operations (multi-patch content format)</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">elicit.py</span></code></p></td>
+<td><p>JSON for form-spec parsing (<code class="docutils literal notranslate"><span class="pre">json.loads(code)</span></code>) and response formatting</p></td>
+<td><p>❌ Not dispatch — parses the tool’s own content, not tool selection</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">form.py</span></code></p></td>
+<td><p>JSON for form result output formatting</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">gh.py</span></code></p></td>
+<td><p>JSON parsing of <code class="docutils literal notranslate"><span class="pre">gh</span></code> CLI output (PR details, check runs)</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">computer.py</span></code>, <code class="docutils literal notranslate"><span class="pre">computer_semantic.py</span></code></p></td>
+<td><p>JSON for action telemetry and semantic-target payloads</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pruner.py</span></code></p></td>
+<td><p>JSON parsing of pruner payload in message content</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">autocompact/engine.py</span></code></p></td>
+<td><p>Conversation JSONL path and message-position bookkeeping</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">subagent/api.py</span></code></p></td>
+<td><p>JSONL cancellation protocol and structured-output schema forwarding</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">subagent/batch.py</span></code></p></td>
+<td><p>Structured-output JSON decoding and optional Pydantic result validation</p></td>
+<td><p>❌ Not dispatch — subagent result content</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">subagent/control.py</span></code>, <code class="docutils literal notranslate"><span class="pre">subagent/execution.py</span></code></p></td>
+<td><p>JSONL control/progress protocol and structured-output plumbing</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">subagent/hooks.py</span></code>, <code class="docutils literal notranslate"><span class="pre">subagent/types.py</span></code></p></td>
+<td><p>JSON Schema prompt generation plus JSON syntax normalization for structured subagent results</p></td>
+<td><p>❌ Not dispatch — validates the subagent’s result content</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vent.py</span></code></p></td>
 <td><p>JSONL output to friction ledger</p></td>
@@ -640,12 +689,20 @@ responses. gptme’s own tools are never dispatched via JSON schema.</p>
 <td><p>❌ Not dispatch</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">shell.py</span></code></p></td>
-<td><p>context-savings JSONL log</p></td>
+<td><p>JSONL context-savings log</p></td>
 <td><p>❌ Not dispatch</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">restart.py</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">--output-schema</span></code> CLI flag for structured subagent output</p></td>
 <td><p>❌ Not tool dispatch</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">chats.py</span></code>, <code class="docutils literal notranslate"><span class="pre">rag.py</span></code></p></td>
+<td><p>JSONL conversation file reading</p></td>
+<td><p>❌ Not dispatch</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">_browser_playwright.py</span></code>, <code class="docutils literal notranslate"><span class="pre">browser.py</span></code>, <code class="docutils literal notranslate"><span class="pre">_browser_thread.py</span></code></p></td>
+<td><p>Browser session state JSON</p></td>
+<td><p>❌ Not dispatch</p></td>
 </tr>
 </tbody>
 </table>
@@ -679,10 +736,18 @@ itself.</p>
 because each prior turn’s structured <code class="docutils literal notranslate"><span class="pre">tool_call</span></code> / <code class="docutils literal notranslate"><span class="pre">tool_result</span></code> pair is preserved in
 the conversation. PTC history is just markdown code blocks and their output — shorter,
 compositional, and no more repetitive than the code itself.</p>
-<p><strong>Reasoning</strong>: gptme’s long-running autonomous sessions sit in the regime most
-sensitive to this effect. The markdown-first PTC interface avoids the per-turn schema
-overhead and the structured-call repetition that makes long JSON-schema contexts
-harder for models to attend through.</p>
+<p><strong>Empirical evidence</strong>: A 2026 benchmark study, arXiv:2608.06370v1 (<em>“The Bitter
+Lesson of Tool Calling”</em>), compared PTC with native JSON tool calling across 14
+models on BFCL v4. PTC matched or exceeded JSON on 11/14 models, with the GPT-5.6
+family improving by up to 10.6 percentage points. In a separate context-flooding
+ablation (31 entries per condition), the authors expanded the available tool set
+from only task-relevant schemas to 128 schemas with unrelated decoys. Mean JSON
+accuracy fell 2.3 percentage points, while mean PTC accuracy rose 5.5 points.</p>
+<p>That ablation tests schema flooding in a single benchmark query, not accumulated
+multi-turn history, so it does not directly measure gptme’s 50–200-call sessions.
+It supports the narrower claim that PTC is robust when irrelevant tool definitions
+inflate the context; the extrapolation to long-running sessions above remains an
+architectural rationale rather than a measured result.</p>
 </section>
 <hr class="docutils" />
 <section id="references">
@@ -692,6 +757,7 @@ harder for models to attend through.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">gptme/tools/python.py</span></code> — IPython execution backend</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gptme/tools/shell.py</span></code> — subprocess bash execution backend</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gptme/tools/mcp_adapter.py</span></code> — MCP protocol bridge (external tool JSON schema)</p></li>
+<li><p><a class="reference external" href="https://arxiv.org/abs/2608.06370v1">arXiv:2608.06370v1</a> — <em>“The Bitter Lesson of Tool Calling”</em> (August 2026): BFCL v4 benchmark across 14 models; its context-flooding ablation compares task-relevant schemas with 128 schemas containing unrelated decoys</p></li>
 <li><p>Issue <a class="reference external" href="https://github.com/gptme/gptme/issues/3540">#3540</a> — audit request</p></li>
 </ul>
 </section>
