@@ -284,16 +284,14 @@ def _read_one(
         shown = f"{start_idx + 1}-{end_idx}"
         range_info = f" (lines {shown} of {total_lines})"
 
-    # Always store a snapshot so hashline_edit can edit files that were read
-    # before the tool was activated. Only show the [path#tag] header when
-    # hashline_edit is already active — plain sessions see no tag in output.
-    from ._hashline_snapshot import store_snapshot
+    # Only store a snapshot and show [path#tag] when hashline_edit is active.
+    # notify_file_read returns the tag when hashline_edit is loaded, else None,
+    # so read.py never imports _hashline_snapshot directly.
+    from . import notify_file_read
 
-    tag = store_snapshot(str(path), content)
+    tag = notify_file_read(str(path), content)
 
-    from . import has_tool
-
-    if has_tool("hashline_edit"):
+    if tag is not None:
         body = md_codeblock(f"{path}{range_info}", f"[{path}#{tag}]\n" + numbered)
     else:
         body = md_codeblock(f"{path}{range_info}", numbered)
