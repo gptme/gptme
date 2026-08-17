@@ -189,8 +189,6 @@ Do not suggest opening a browser or editor, instead do it using available tools.
 
 {communication_guidance}
 
-{next_step_guidance}
-
 {"Use `<thinking>` tags to think before you answer." if use_thinking_tags else ""}
 """.strip()
 
@@ -206,7 +204,6 @@ Use absolute paths and `pwd` when needed.
 Do not suggest opening a browser or editor when available tools can do it.
 {tool_guidance}
 {communication_guidance}
-{next_step_guidance}
 {"Use `<thinking>` tags to think before you answer." if use_thinking_tags else ""}
 """.strip()
 
@@ -238,6 +235,9 @@ Proceed directly with the most appropriate actions to complete the task.
         + "\n\n"
         + (interactive_prompt if interactive else non_interactive_prompt)
     )
+    # next_step_guidance is applied uniformly even when a project overrides
+    # base_prompt, so the concrete-next-step instruction is not silently dropped.
+    full_prompt += "\n\n" + next_step_guidance
     if _needs_tool_use_enforcement(model_meta):
         full_prompt += _TOOL_USE_ENFORCEMENT_PROMPT
     if tool_format == "xml":

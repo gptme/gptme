@@ -348,6 +348,9 @@ class TestPromptGptme:
             msgs = list(prompt_gptme(interactive=True))
         content = msgs[0].content
         assert "Custom base prompt for my project." in content
+        # The concrete-next-step instruction must still apply, not silently drop
+        # when a project overrides the base prompt.
+        assert "End your response with a concrete next step" in content
 
     def test_xml_format_wraps_in_role(self):
         """XML format wraps the entire prompt in <role> tags."""
