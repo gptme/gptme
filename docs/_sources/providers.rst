@@ -7,73 +7,6 @@ We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter,
 
     We are in the process of adding support for configurable `custom providers <providers-custom>`_.
 
-.. rubric:: Provider Plugins (Entry Points)
-
-Third-party packages can register LLM providers via Python entry points, making them available immediately after ``pip install`` without any configuration changes.
-
-**How it works:** A plugin package declares an entry point in the ``gptme.providers`` group::
-
-    [project.entry-points."gptme.providers"]
-    minimax = "gptme_provider_minimax:provider"
-
-Where ``provider`` is a ``ProviderPlugin`` instance.
-
-**Usage:** Once installed, use the provider name as the model prefix::
-
-    pip install gptme-provider-minimax
-    gptme "hello" -m minimax/MiniMax-M3
-
-**Creating a provider plugin:**
-
-.. code-block:: python
-
-    from gptme.llm.models import ModelMeta, ProviderPlugin
-
-    provider = ProviderPlugin(
-        name="minimax",                          # Unique provider name
-        api_key_env="MINIMAX_API_KEY",           # Env var for API key
-        base_url="https://api.minimax.chat/v1",  # OpenAI-compatible endpoint
-        models=[
-            ModelMeta(
-                provider="unknown",
-                model="minimax/MiniMax-M3",
-                context=1_000_000,
-                price_input=0.6,
-                price_output=2.4,
-                supports_vision=True,
-                supports_reasoning=True,
-            ),
-            ModelMeta(
-                provider="unknown",
-                model="minimax/MiniMax-M2.7",
-                context=204_800,
-                price_input=0.3,
-                price_output=1.2,
-                supports_reasoning=True,
-            ),
-        ],
-    )
-
-**ProviderPlugin fields:**
-
-================= ======== ==========================================================
-Field             Required Description
-================= ======== ==========================================================
-``name``           Yes      Unique provider name (e.g. ``"minimax"``)
-``api_key_env``    Yes      Environment variable holding the API key
-``base_url``       Yes      OpenAI-compatible API base URL
-``models``         No       List of ``ModelMeta`` objects
-``init``           No       Custom ``(Config) -> None``; ``None`` = auto-init OpenAI client
-================= ======== ==========================================================
-
-If ``init`` is provided, it **must** register an OpenAI-compatible client before returning, or gptme will raise a ``RuntimeError``.
-
-Plugin providers are auto-initialised on first use and routed through the OpenAI client path.
-
-.. note::
-
-   For new plugins, consider using the :ref:`unified plugin system <unified-plugins>` (``gptme.plugins`` entry-point group) instead. It lets a single package provide tools, hooks, commands, **and** a provider together. The ``gptme.providers`` group still works and is supported for backward compatibility.
-
 You can find our model recommendations on the :doc:`evals` page.
 
 .. toctree::
@@ -316,6 +249,73 @@ Models are pass-through: ``gptme/<model>`` proxies to the corresponding backend 
     gptme-auth login --no-browser  # Print URL instead of opening browser
     gptme-auth status              # Show current login status
     gptme-auth logout              # Remove stored credentials
+
+.. rubric:: Provider Plugins (Entry Points)
+
+Third-party packages can register LLM providers via Python entry points, making them available immediately after ``pip install`` without any configuration changes.
+
+**How it works:** A plugin package declares an entry point in the ``gptme.providers`` group::
+
+    [project.entry-points."gptme.providers"]
+    minimax = "gptme_provider_minimax:provider"
+
+Where ``provider`` is a ``ProviderPlugin`` instance.
+
+**Usage:** Once installed, use the provider name as the model prefix::
+
+    pip install gptme-provider-minimax
+    gptme "hello" -m minimax/MiniMax-M3
+
+**Creating a provider plugin:**
+
+.. code-block:: python
+
+    from gptme.llm.models import ModelMeta, ProviderPlugin
+
+    provider = ProviderPlugin(
+        name="minimax",                          # Unique provider name
+        api_key_env="MINIMAX_API_KEY",           # Env var for API key
+        base_url="https://api.minimax.chat/v1",  # OpenAI-compatible endpoint
+        models=[
+            ModelMeta(
+                provider="unknown",
+                model="minimax/MiniMax-M3",
+                context=1_000_000,
+                price_input=0.6,
+                price_output=2.4,
+                supports_vision=True,
+                supports_reasoning=True,
+            ),
+            ModelMeta(
+                provider="unknown",
+                model="minimax/MiniMax-M2.7",
+                context=204_800,
+                price_input=0.3,
+                price_output=1.2,
+                supports_reasoning=True,
+            ),
+        ],
+    )
+
+**ProviderPlugin fields:**
+
+================= ======== ==========================================================
+Field             Required Description
+================= ======== ==========================================================
+``name``           Yes      Unique provider name (e.g. ``"minimax"``)
+``api_key_env``    Yes      Environment variable holding the API key
+``base_url``       Yes      OpenAI-compatible API base URL
+``models``         No       List of ``ModelMeta`` objects
+``init``           No       Custom ``(Config) -> None``; ``None`` = auto-init OpenAI client
+================= ======== ==========================================================
+
+If ``init`` is provided, it **must** register an OpenAI-compatible client before returning, or gptme will raise a ``RuntimeError``.
+
+Plugin providers are auto-initialised on first use and routed through the OpenAI client path.
+
+.. note::
+
+   For new plugins, consider using the :ref:`unified plugin system <unified-plugins>` (``gptme.plugins`` entry-point group) instead. It lets a single package provide tools, hooks, commands, **and** a provider together. The ``gptme.providers`` group still works and is supported for backward compatibility.
 
 .. rubric:: Local
 
