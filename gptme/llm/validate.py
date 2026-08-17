@@ -247,6 +247,8 @@ def _validate_google(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, error.get("message", "Unknown error")
     if response.status_code == 403:
         return False, "API key forbidden. It may lack required permissions."
+    if response.status_code == 429:
+        return True, ""
     return _http_status_error(response.status_code)
 
 

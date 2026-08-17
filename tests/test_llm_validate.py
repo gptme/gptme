@@ -8,6 +8,7 @@ from gptme.llm.validate import (
     PROVIDER_DOCS,
     VALIDATION_PROVIDER_ERROR_PREFIX,
     _validate_anthropic,
+    _validate_google,
     _validate_openai,
     _validate_openai_compatible,
     _validate_openrouter,
@@ -88,6 +89,34 @@ class TestValidateOpenAI:
         is_valid, error = _validate_openai("sk-valid-key", 10)
         assert is_valid
         assert error == ""
+
+
+class TestValidateGoogle:
+    """Tests for Google AI (Gemini) API key validation."""
+
+    @patch("gptme.llm.validate.requests.get")
+    def test_valid_key_returns_true(self, mock_get):
+        """Valid API key should return (True, '')."""
+        mock_get.return_value = Mock(status_code=200)
+        is_valid, error = _validate_google("valid-gemini-key", 10)
+        assert is_valid
+        assert error == ""
+
+    @patch("gptme.llm.validate.requests.get")
+    def test_rate_limited_returns_true(self, mock_get):
+        """Rate-limited key is valid — 429 should not be treated as an auth failure."""
+        mock_get.return_value = Mock(status_code=429)
+        is_valid, error = _validate_google("valid-gemini-key", 10)
+        assert is_valid
+        assert error == ""
+
+    @patch("gptme.llm.validate.requests.get")
+    def test_provider_unavailable_returns_502_prefix(self, mock_get):
+        """5xx responses should return provider-unavailable prefix, not auth failure."""
+        mock_get.return_value = Mock(status_code=500)
+        is_valid, error = _validate_google("some-key", 10)
+        assert not is_valid
+        assert VALIDATION_PROVIDER_ERROR_PREFIX in error
 
 
 class TestValidateAnthropic:
