@@ -739,3 +739,9 @@ spawning subagents programmatically:
     # gptme.toml
     [env]
     TOOL_ALLOWLIST = "shell,patch,save,read,hint:read-only"
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Tool guides
+
+   browser

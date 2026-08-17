@@ -30,7 +30,7 @@ Decent alternatives include:
 - DeepSeek V3 (``deepseek/deepseek-chat``)
 - DeepSeek R1 (``deepseek/deepseek-reasoner``)
 
-Note that some models may perform better or worse with different ``--tool-format`` options (``markdown``, ``xml``, or ``tool`` for native tool-calling).
+Note that some models may perform better or worse with different ``--tool-format`` options (``markdown``, ``xml``, or ``tool`` for native tool-calling). See :doc:`tool-formats` for what each format does and how to choose one.
 
 Note that many providers on OpenRouter have poor performance and reliability, so be sure to test your chosen model/provider combination before committing to it. This is especially true for open weight models which any provider can host at any quality. You can choose a specific provider by appending with ``:provider``, e.g. ``openrouter/qwen/qwen3-coder:alibaba/opensource``.
 
@@ -50,7 +50,7 @@ The table below shows pass rates across our eval suites for each model (best too
 
 **Notes:**
 
-- *Format* shows the best-performing ``--tool-format`` for each model.
+- *Format* shows the best-performing ``--tool-format`` for each model (see :doc:`tool-formats`).
 - *Basic* tests cover fundamental tool use (file I/O, shell, git, Python).
 - *Practical* tests cover real-world programming tasks (APIs, data processing, refactoring).
 - Models with fewer than 4 tests are excluded.
