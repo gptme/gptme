@@ -796,6 +796,38 @@ class TestReadIntegration:
 
 
 # ---------------------------------------------------------------------------
+# Read tool integration — snapshot stored even without hashline active
+# ---------------------------------------------------------------------------
+
+
+class TestReadIntegrationWithoutHashline:
+    """Snapshot behavior when hashline_edit is NOT active at read time."""
+
+    def test_snapshot_stored_even_without_hashline_tool(self, tmp_path: Path):
+        """Snapshot is stored even when hashline_edit is not loaded at read time.
+
+        This preserves mid-session activation: a user can read files without
+        hashline_edit, then load_tool('hashline_edit') and still edit those files.
+        """
+        from gptme.tools import get_tools, set_tools
+
+        path = tmp_path / "test.py"
+        path.write_text('print("hello")\n')
+
+        prev = get_tools()
+        set_tools([])  # no hashline_edit active
+        try:
+            list(execute_read(None, [str(path)], None))
+        finally:
+            set_tools(prev)
+
+        assert get_stored_tag(str(path.resolve())) is not None, (
+            "Snapshot must be stored even when hashline_edit is inactive, "
+            "so load_tool('hashline_edit') can edit files read before activation."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Block resolution (_resolve_block_end)
 # ---------------------------------------------------------------------------
 
