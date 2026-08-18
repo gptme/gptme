@@ -190,6 +190,24 @@ class TestValidateAnthropic:
         assert "Invalid API key" in error
 
     @patch("gptme.llm.validate.requests.post")
+    def test_permission_error_type_returns_true_with_warning(self, mock_post):
+        """A 400 with type=permission_error means key is valid but lacks probe-model access."""
+        mock_post.return_value = Mock(
+            status_code=400,
+            json=Mock(
+                return_value={
+                    "error": {
+                        "type": "permission_error",
+                        "message": "Your API key does not have access to this model.",
+                    }
+                }
+            ),
+        )
+        is_valid, error = _validate_anthropic("sk-ant-restricted-key", 10)
+        assert is_valid, "permission_error means valid key with restricted model access"
+        assert error != "", "should surface a warning about restricted access"
+
+    @patch("gptme.llm.validate.requests.post")
     def test_quota_exhausted_returns_warning(self, mock_post):
         """Quota-exhausted 400 response should return (True, warning_msg) not (True, '')."""
         quota_msg = "You have reached your specified API usage limits. You will regain access on 2026-05-01 at 00:00 UTC."
