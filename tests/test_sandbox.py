@@ -15,6 +15,8 @@ from gptme.sandbox import (
     _bwrap_cmd,
     _ensure_python_wasm,
     _firejail_cmd,
+    _parse_size,
+    apply_memory_limit,
     build_env,
     sandbox_exec_python,
     sandbox_exec_wasmtime,
@@ -872,3 +874,63 @@ class TestWasmtimeExecUnit:
 
         assert (stdout, rc) == ("", 1)
         assert "Wasmtime error" in stderr
+
+
+# ---------------------------------------------------------------------------
+# _parse_size
+# ---------------------------------------------------------------------------
+
+
+class TestParseSize:
+    def test_plain_bytes(self):
+        assert _parse_size("1024") == 1024
+
+    def test_kilobytes_suffix(self):
+        assert _parse_size("4K") == 4 * 1024
+
+    def test_megabytes_suffix(self):
+        assert _parse_size("512M") == 512 * 1024**2
+
+    def test_gigabytes_suffix_case_insensitive(self):
+        assert _parse_size("1g") == 1024**3
+
+    def test_terabytes_suffix(self):
+        assert _parse_size("2T") == 2 * 1024**4
+
+    def test_strips_whitespace(self):
+        assert _parse_size("  8M ") == 8 * 1024**2
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError, match="empty size"):
+            _parse_size("")
+
+    def test_invalid_raises(self):
+        with pytest.raises(ValueError, match="invalid size"):
+            _parse_size("abc")
+
+
+# ---------------------------------------------------------------------------
+# apply_memory_limit
+# ---------------------------------------------------------------------------
+
+
+class TestApplyMemoryLimit:
+    def test_none_limit_returns_unchanged(self):
+        cmd = ["bash"]
+        assert apply_memory_limit(cmd, None) is cmd
+
+    def test_persistent_shell_form(self):
+        # 512 MiB → 524288 KiB
+        result = apply_memory_limit(["bash"], 512 * 1024**2)
+        assert result == ["bash", "-c", "ulimit -v 524288; exec bash"]
+
+    def test_command_form_prepends_ulimit(self):
+        result = apply_memory_limit(["bash", "-c", "echo hi"], 1024 * 1024)
+        assert result == ["bash", "-c", "ulimit -v 1024; echo hi"]
+
+    def test_empty_cmd_returns_unchanged(self):
+        assert apply_memory_limit([], 1024) == []
+
+    def test_small_limit_rounds_up_to_one_kib(self):
+        result = apply_memory_limit(["bash"], 1)
+        assert result == ["bash", "-c", "ulimit -v 1; exec bash"]

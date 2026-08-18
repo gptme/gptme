@@ -179,6 +179,50 @@ def wrap_shell_cmd(config: SandboxConfig, cmd: list[str]) -> list[str]:
     return cmd
 
 
+def _parse_size(value: str) -> int:
+    """Parse a human-readable size string into bytes.
+
+    Accepts a plain integer (bytes) or an integer with a binary unit suffix
+    (``K``/``M``/``G``/``T``, case-insensitive), e.g. ``"512M"`` → 536870912.
+    """
+    value = value.strip()
+    if not value:
+        raise ValueError("empty size")
+    units = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
+    suffix = value[-1].upper()
+    factor = units.get(suffix, 1)
+    number = value[:-1] if suffix in units else value
+    try:
+        return int(number) * factor
+    except ValueError as exc:
+        raise ValueError(f"invalid size: {value!r}") from exc
+
+
+def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
+    """Cap the address space of a bash invocation via ``ulimit -v``.
+
+    ``limit`` is in bytes (``None`` → no limit, returns ``cmd`` unchanged).
+    POSIX-only: ``ulimit`` is a bash builtin, so callers skip this on Windows.
+
+    Composes with the sandbox wrapper: apply it to the *inner* bash command
+    before ``wrap_shell_cmd`` so firejail/bwrap run the limited shell inside
+    the sandbox rather than limiting the sandbox launcher itself.
+
+    Two forms are supported:
+      - ``["bash"]``            → ``["bash", "-c", "ulimit -v N; exec bash"]``
+      - ``["bash", "-c", "..."]`` → ``["bash", "-c", "ulimit -v N; ..."]``
+    """
+    if limit is None or not cmd:
+        return cmd
+    kib = max(1, limit // 1024)  # ulimit -v is expressed in KiB
+    prefix = f"ulimit -v {kib}; "
+    if len(cmd) >= 3 and cmd[1] == "-c":
+        return [cmd[0], cmd[1], prefix + cmd[2], *cmd[3:]]
+    # Persistent shell form: re-exec the shell so the limit applies to it and
+    # every child it spawns (the semantic we want for a long-lived shell).
+    return [cmd[0], "-c", f"{prefix}exec {cmd[0]}"]
+
+
 def build_env(config: SandboxConfig) -> dict[str, str] | None:
     """Return sanitized environment dict, or None to inherit current env.
 

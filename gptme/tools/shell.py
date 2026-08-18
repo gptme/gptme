@@ -8,6 +8,12 @@ Configuration:
         - Invalid values default to 1200 seconds (20 minutes)
         - If not set, defaults to 1200 seconds (20 minutes)
 
+    GPTME_SHELL_MEMORY_LIMIT: Optional per-shell address-space ceiling (POSIX only,
+        off by default). Accepts a plain byte count or a binary suffix (e.g.
+        "512M", "1G"). Applies to the persistent shell and any command it runs
+        via `ulimit -v`, so a runaway build fails with an allocation error
+        instead of stalling the session.
+
     GPTME_SHELL_TRUNC_PRE_TOKENS / GPTME_SHELL_TRUNC_POST_TOKENS: Override the
     head/tail token budget for stdout truncation. Defaults: 2000 / 8000.
     GPTME_SHELL_TRUNC_STDERR_PRE_TOKENS / GPTME_SHELL_TRUNC_STDERR_POST_TOKENS:
@@ -34,7 +40,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..message import Message
-from ..sandbox import SandboxConfig, build_env, wrap_shell_cmd
+from ..sandbox import (
+    SandboxConfig,
+    _parse_size,
+    apply_memory_limit,
+    build_env,
+    wrap_shell_cmd,
+)
 from ..util import get_installed_programs
 from ..util.ask_execute import execute_with_confirmation
 from ..util.context import md_codeblock
@@ -253,6 +265,28 @@ def examples(tool_format):
 """.strip()
 
 
+def _get_memory_limit() -> int | None:
+    """Read the opt-in shell memory ceiling in bytes, or None if unset.
+
+    Knob is ``GPTME_SHELL_MEMORY_LIMIT`` (env) or ``[env] SHELL_MEMORY_LIMIT``
+    (config.toml). The value is a byte count or a binary-suffixed size (e.g.
+    ``"512M"``). Unparseable values are logged and treated as unset.
+    """
+    from ..config import get_config  # deferred: avoid import cycle
+
+    raw = get_config().get_env("SHELL_MEMORY_LIMIT")
+    if not raw:
+        return None
+    try:
+        return _parse_size(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid GPTME_SHELL_MEMORY_LIMIT=%r (expected e.g. '512M')",
+            raw,
+        )
+        return None
+
+
 class ShellSession:
     process: subprocess.Popen
     stdout_fd: int
@@ -260,9 +294,11 @@ class ShellSession:
     delimiter: str
     start_marker: str  # Fix for Issue #408: Add start marker to prevent output mixing
     _cwd: str | None  # Workspace directory for this session (thread-safe)
+    _memory_limit: int | None  # Address-space ceiling in bytes (None = off)
 
     def __init__(self, cwd: str | None = None) -> None:
         self._cwd = cwd
+        self._memory_limit = _get_memory_limit()
         self._init()
 
         # close on exit
@@ -278,6 +314,8 @@ class ShellSession:
             popen_kwargs = {
                 "start_new_session": True,  # Create new process group for proper signal handling
             }
+            if self._memory_limit is not None:
+                shell_cmd = apply_memory_limit(shell_cmd, self._memory_limit)
 
         # Apply sandbox wrapper if GPTME_SANDBOX is set
         sandbox = SandboxConfig.from_env(
@@ -408,8 +446,11 @@ class ShellSession:
                     "PYTHONUNBUFFERED": "1",
                 }
             )
+            shell_cmd = ["bash", "-c", command]
+            if self._memory_limit is not None:
+                shell_cmd = apply_memory_limit(shell_cmd, self._memory_limit)
             proc = subprocess.Popen(
-                ["bash", "-c", command],
+                shell_cmd,
                 stdin=tty_stdin,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
