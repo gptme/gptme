@@ -380,6 +380,7 @@ def get_model(model: str) -> ModelMeta:
                     return replace(
                         model_meta,
                         model=model,  # Preserve original name with suffix
+                        default_tool_format=model_meta.default_tool_format or "tool",
                     )
         except Exception as e:
             logger.debug("Failed to fetch OpenRouter models for %s: %s", model, e)
