@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..message import Message
+from ..sandbox import apply_memory_limit
 from ..util.context import md_codeblock
 
 _is_windows = os.name == "nt"
@@ -172,7 +173,9 @@ def _get_next_job_id() -> int:
         return job_id
 
 
-def start_background_job(command: str) -> BackgroundJob:
+def start_background_job(
+    command: str, memory_limit: int | None = None
+) -> BackgroundJob:
     """Start a command as a background job (thread-safe)."""
     # Proactively clean up finished jobs to prevent memory accumulation
     cleanup_finished_jobs()
@@ -181,10 +184,13 @@ def start_background_job(command: str) -> BackgroundJob:
 
     # Start process with separate stdout/stderr pipes
     popen_kwargs: dict = {}
+    shell_cmd: list[str] = ["bash", "-c", command]
     if not _is_windows:
         popen_kwargs["start_new_session"] = True
+        if memory_limit is not None:
+            shell_cmd = apply_memory_limit(shell_cmd, memory_limit)
     process = subprocess.Popen(
-        ["bash", "-c", command],
+        shell_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         stdin=subprocess.DEVNULL,
@@ -247,7 +253,9 @@ atexit.register(reset_background_jobs)
 # Background command handlers
 
 
-def execute_bg_command(command: str) -> Generator[Message, None, None]:
+def execute_bg_command(
+    command: str, memory_limit: int | None = None
+) -> Generator[Message, None, None]:
     """Start a command as a background job."""
     from .shell_validation import is_denylisted
 
@@ -263,7 +271,7 @@ def execute_bg_command(command: str) -> Generator[Message, None, None]:
         )
         return
 
-    job = start_background_job(command)
+    job = start_background_job(command, memory_limit=memory_limit)
     yield Message(
         "system",
         f"Started background job **#{job.id}**: `{command}`\n\n"

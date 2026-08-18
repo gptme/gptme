@@ -908,6 +908,14 @@ class TestParseSize:
         with pytest.raises(ValueError, match="invalid size"):
             _parse_size("abc")
 
+    def test_zero_raises(self):
+        with pytest.raises(ValueError, match="positive"):
+            _parse_size("0")
+
+    def test_negative_raises(self):
+        with pytest.raises(ValueError, match="positive"):
+            _parse_size("-1")
+
 
 # ---------------------------------------------------------------------------
 # apply_memory_limit
@@ -922,15 +930,15 @@ class TestApplyMemoryLimit:
     def test_persistent_shell_form(self):
         # 512 MiB → 524288 KiB
         result = apply_memory_limit(["bash"], 512 * 1024**2)
-        assert result == ["bash", "-c", "ulimit -v 524288; exec bash"]
+        assert result == ["bash", "-c", "ulimit -v 524288 && exec bash"]
 
     def test_command_form_prepends_ulimit(self):
         result = apply_memory_limit(["bash", "-c", "echo hi"], 1024 * 1024)
-        assert result == ["bash", "-c", "ulimit -v 1024; echo hi"]
+        assert result == ["bash", "-c", "ulimit -v 1024 && echo hi"]
 
     def test_empty_cmd_returns_unchanged(self):
         assert apply_memory_limit([], 1024) == []
 
     def test_small_limit_rounds_up_to_one_kib(self):
         result = apply_memory_limit(["bash"], 1)
-        assert result == ["bash", "-c", "ulimit -v 1; exec bash"]
+        assert result == ["bash", "-c", "ulimit -v 1 && exec bash"]

@@ -1714,10 +1714,11 @@ def execute_shell(
 
     if bg_line_idx is not None:
         # Found a bg command
+        _bg_memory_limit = _get_memory_limit()
         if bg_line_idx == 0 and len(lines) == 1:
             # Simple case: bg is the only command
             bg_cmd = cmd_stripped[3:].strip()
-            yield from execute_bg_command(bg_cmd)
+            yield from execute_bg_command(bg_cmd, memory_limit=_bg_memory_limit)
             return
         elif bg_line_idx > 0:
             # bg is on a later line - execute preceding commands first (Issue #992)
@@ -1728,7 +1729,7 @@ def execute_shell(
             # Now execute the bg command
             bg_line = lines[bg_line_idx].strip()
             bg_cmd = bg_line[3:].strip()  # Remove "bg " prefix
-            yield from execute_bg_command(bg_cmd)
+            yield from execute_bg_command(bg_cmd, memory_limit=_bg_memory_limit)
             # Execute any remaining commands after bg (unlikely but handle it)
             if bg_line_idx < len(lines) - 1:
                 remaining_cmds = "\n".join(lines[bg_line_idx + 1 :])
@@ -1740,7 +1741,7 @@ def execute_shell(
             # Start bg job, then execute remaining commands
             bg_line = lines[0].strip()
             bg_cmd = bg_line[3:].strip()
-            yield from execute_bg_command(bg_cmd)
+            yield from execute_bg_command(bg_cmd, memory_limit=_bg_memory_limit)
             remaining_cmds = "\n".join(lines[1:])
             if remaining_cmds.strip():
                 yield from execute_shell(remaining_cmds, None, None)

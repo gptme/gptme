@@ -193,9 +193,12 @@ def _parse_size(value: str) -> int:
     factor = units.get(suffix, 1)
     number = value[:-1] if suffix in units else value
     try:
-        return int(number) * factor
+        result = int(number) * factor
     except ValueError as exc:
         raise ValueError(f"invalid size: {value!r}") from exc
+    if result <= 0:
+        raise ValueError(f"size must be positive: {value!r}")
+    return result
 
 
 def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
@@ -215,7 +218,8 @@ def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
     if limit is None or not cmd:
         return cmd
     kib = max(1, limit // 1024)  # ulimit -v is expressed in KiB
-    prefix = f"ulimit -v {kib}; "
+    # Use && so that a failed ulimit prevents the command from running unrestricted.
+    prefix = f"ulimit -v {kib} && "
     if len(cmd) >= 3 and cmd[1] == "-c":
         return [cmd[0], cmd[1], prefix + cmd[2], *cmd[3:]]
     # Persistent shell form: re-exec the shell so the limit applies to it and
