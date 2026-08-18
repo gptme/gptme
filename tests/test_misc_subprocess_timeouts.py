@@ -132,8 +132,7 @@ class TestDirsTimeouts:
         )
         from gptme.dirs import _get_project_git_dir_call
 
-        get_project_git_dir_call = _get_project_git_dir_call
-        get_project_git_dir_call()
+        _get_project_git_dir_call()
         assert "timeout" in mock_run.call_args.kwargs
 
     @patch("gptme.dirs.subprocess.run")
