@@ -105,8 +105,9 @@ class TestVersionTimeouts:
 
     def test_version_access_never_raises(self):
         """Importing __version__ must not crash gptme-server create_app."""
-        setattr(_version_mod, "_cached_version", None)
-        _version_mod.__dict__.pop("__version__", None)
+        module_vars = vars(_version_mod)
+        module_vars["_cached_version"] = None
+        module_vars.pop("__version__", None)
         with patch.object(
             _version_mod.importlib.metadata,
             "version",
@@ -131,7 +132,8 @@ class TestDirsTimeouts:
         )
         from gptme.dirs import _get_project_git_dir_call
 
-        _get_project_git_dir_call()
+        get_project_git_dir_call = _get_project_git_dir_call
+        get_project_git_dir_call()
         assert "timeout" in mock_run.call_args.kwargs
 
     @patch("gptme.dirs.subprocess.run")
@@ -204,7 +206,7 @@ class TestFileSelectorTimeouts:
 
     @patch("gptme.context.selector.file_selector.subprocess.run")
     def test_get_git_status_files_passes_timeout(self, mock_run):
-        """get_git_status_files passes timeout to subprocess.run."""
+        """get_git_status_files passes timeout."""
         mock_run.return_value = subprocess.CompletedProcess(
             args=[], returncode=0, stdout=" M file1.py\n?? file2.py\n"
         )
