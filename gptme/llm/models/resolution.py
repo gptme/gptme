@@ -271,8 +271,14 @@ def get_model(model: str) -> ModelMeta:
                             or model_meta.model == lookup_model_name
                         ):
                             # Preserve the original model_name (with suffix) in the returned
-                            # ModelMeta, carrying all other fields intact.
-                            return replace(model_meta, model=model_name)
+                            # ModelMeta, carrying all other fields intact. Set
+                            # default_tool_format if the API didn't supply one.
+                            return replace(
+                                model_meta,
+                                model=model_name,
+                                default_tool_format=model_meta.default_tool_format
+                                or "tool",
+                            )
 
                     # gptme cloud models carry their real backend as a prefix in
                     # `.model` (e.g. "anthropic/claude-sonnet-4-6"). A 2-segment
@@ -296,7 +302,11 @@ def get_model(model: str) -> ModelMeta:
                                     m.model,
                                 )
                             )
-                            return replace(suffix_matches[0])
+                            best = suffix_matches[0]
+                            return replace(
+                                best,
+                                default_tool_format=best.default_tool_format or "tool",
+                            )
                 except Exception as e:
                     # Fall back to unknown model metadata
                     logger.debug(
