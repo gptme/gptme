@@ -607,6 +607,10 @@ OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
         "nvidia",
         "azure",
         "local",
+        # gptme.ai proxies to various backends, but the client itself talks to it
+        # via the OpenAI-compatible API (see llm_openai.py) — same fallback applies
+        # when dynamic fetch fails/misses and no static registry entry exists.
+        "gptme",
     }
 )
 MODELS = {

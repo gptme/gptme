@@ -951,6 +951,16 @@ class TestGetModelIntegration:
         assert model.provider == "nvidia"
         assert model.default_tool_format == "tool"
 
+    def test_gptme_with_no_dynamic_match_returns_tool_format(self):
+        """gptme provider falls back to tool format when dynamic fetch misses.
+
+        gptme.ai proxies to various backends, but the client itself talks to it
+        via the OpenAI-compatible API — same fallback as azure/local/nvidia.
+        """
+        model = get_model("gptme/totally-unknown-model-xyz")
+        assert model.provider == "gptme"
+        assert model.default_tool_format == "tool"
+
     def test_set_default_model_with_invalid_raises(self):
         """Setting default model with invalid name should still work (fallback)."""
         # get_model always returns something, even for unknowns
