@@ -205,7 +205,7 @@ class TestFileSelectorTimeouts:
 
     @patch("gptme.context.selector.file_selector.subprocess.run")
     def test_get_git_status_files_passes_timeout(self, mock_run):
-        """get_git_status_files passes timeout."""
+        """get_git_status_files passes timeout to subprocess.run."""
         mock_run.return_value = subprocess.CompletedProcess(
             args=[], returncode=0, stdout=" M file1.py\n?? file2.py\n"
         )
