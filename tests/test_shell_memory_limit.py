@@ -57,7 +57,10 @@ def test_memory_limit_allows_small_allocation(monkeypatch):
 def test_integer_config_value_does_not_raise():
     """Integer TOML config values (e.g. SHELL_MEMORY_LIMIT = 536870912) must not
     raise AttributeError via value.strip() — they should be coerced to str first."""
-    with patch("gptme.config.get_config") as mock_cfg:
+    with (
+        patch("gptme.config.get_config") as mock_cfg,
+        patch("gptme.tools.shell.verify_memory_limit"),
+    ):
         mock_env = mock_cfg.return_value
         mock_env.get_env.return_value = 536870912  # integer, not string
         result = _get_memory_limit()

@@ -942,6 +942,9 @@ class TestApplyMemoryLimit:
         assert result[1] == "-c"
         assert "ulimit -v 1024" in result[2]
         assert "echo hi" in result[2]
+        # Script must be wrapped in a group so && gates the entire script, not
+        # just its first statement (e.g. `ulimit && a; b` runs b even if ulimit fails).
+        assert "{ echo hi; }" in result[2]
 
     def test_empty_cmd_returns_unchanged(self):
         assert apply_memory_limit([], 1024) == []
