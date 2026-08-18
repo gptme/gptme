@@ -20,6 +20,7 @@ from gptme.sandbox import (
     build_env,
     sandbox_exec_python,
     sandbox_exec_wasmtime,
+    verify_memory_limit,
     wrap_shell_cmd,
 )
 
@@ -928,7 +929,7 @@ class TestApplyMemoryLimit:
         assert apply_memory_limit(cmd, None) is cmd
 
     def test_persistent_shell_form(self):
-        # 512 MiB → 524288 KiB; best-effort fallback prefix used
+        # 512 MiB → 524288 KiB; hard-gate (&&) so a failed ulimit aborts the shell
         result = apply_memory_limit(["bash"], 512 * 1024**2)
         assert result[0] == "bash"
         assert result[1] == "-c"
@@ -957,10 +958,36 @@ class TestApplyMemoryLimit:
         assert "ulimit -v 2" in result[2]
         assert "exec bash" in result[2]
 
-    def test_ulimit_failure_falls_back_gracefully(self):
-        # The prefix must not use && — a failed ulimit should not prevent the shell
-        # from starting. Verify the separator is not && alone.
+    def test_uses_hard_gate_not_soft_fallback(self):
+        # The prefix must use && so a failed ulimit aborts the shell rather than
+        # running it unrestricted.  verify_memory_limit() surfaces failures at
+        # the Python level before the shell is spawned.
         result = apply_memory_limit(["bash"], 512 * 1024**2)
         script = result[2]
-        # The ulimit invocation should fall back (|| or ;) rather than hard-gate (&&).
-        assert " && exec" not in script
+        assert " && exec" in script
+
+
+# ---------------------------------------------------------------------------
+# verify_memory_limit
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyMemoryLimit:
+    def test_raises_when_ulimit_fails(self):
+        from unittest.mock import MagicMock
+
+        result = MagicMock()
+        result.returncode = 1
+        with (
+            patch("gptme.sandbox.subprocess.run", return_value=result),
+            pytest.raises(ValueError, match="cannot be enforced"),
+        ):
+            verify_memory_limit(512 * 1024**2)
+
+    def test_succeeds_when_ulimit_works(self):
+        from unittest.mock import MagicMock
+
+        result = MagicMock()
+        result.returncode = 0
+        with patch("gptme.sandbox.subprocess.run", return_value=result):
+            verify_memory_limit(512 * 1024**2)  # should not raise

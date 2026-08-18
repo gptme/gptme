@@ -45,6 +45,7 @@ from ..sandbox import (
     _parse_size,
     apply_memory_limit,
     build_env,
+    verify_memory_limit,
     wrap_shell_cmd,
 )
 from ..util import get_installed_programs
@@ -278,13 +279,22 @@ def _get_memory_limit() -> int | None:
     if not raw:
         return None
     try:
-        return _parse_size(str(raw))
+        limit = _parse_size(str(raw))
     except (ValueError, AttributeError):
         logger.warning(
             "Ignoring invalid GPTME_SHELL_MEMORY_LIMIT=%r (expected e.g. '512M')",
             raw,
         )
         return None
+    try:
+        verify_memory_limit(limit)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Cannot start shell: GPTME_SHELL_MEMORY_LIMIT is set but cannot be "
+            f"enforced on this system. Either unset the variable or reduce the value. "
+            f"Details: {exc}"
+        ) from exc
+    return limit
 
 
 class ShellSession:

@@ -220,14 +220,38 @@ def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
     kib = max(
         1, (limit + 1023) // 1024
     )  # ulimit -v is in KiB; ceil so applied limit ≥ requested
-    # Best-effort: if ulimit -v is unavailable or the limit exceeds the hard limit,
-    # warn and continue without the ceiling rather than silently killing the shell.
-    prefix = f"ulimit -v {kib} 2>/dev/null || echo 'WARNING: GPTME_SHELL_MEMORY_LIMIT ignored: ulimit -v failed' >&2; "
+    # Hard-gate: if ulimit -v fails at runtime the shell aborts rather than
+    # running unrestricted.  Call verify_memory_limit() before spawning so
+    # failures surface at the Python level with a clear message.
+    prefix = f"ulimit -v {kib} && "
     if len(cmd) >= 3 and cmd[1] == "-c":
         return [cmd[0], cmd[1], prefix + cmd[2], *cmd[3:]]
     # Persistent shell form: re-exec the shell so the limit applies to it and
     # every child it spawns (the semantic we want for a long-lived shell).
     return [cmd[0], "-c", f"{prefix}exec {cmd[0]}"]
+
+
+def verify_memory_limit(limit: int) -> None:
+    """Verify that ``ulimit -v`` can apply *limit* bytes on this system.
+
+    Raises ``ValueError`` if the limit cannot be applied (e.g. it exceeds the
+    hard limit or ``ulimit -v`` is unavailable).  Call this before spawning a
+    shell so failures surface at the Python level — an informative error —
+    rather than silently leaving the shell unrestricted.
+    """
+    kib = max(1, (limit + 1023) // 1024)
+    result = subprocess.run(
+        ["bash", "-c", f"ulimit -v {kib}"],
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(
+            f"GPTME_SHELL_MEMORY_LIMIT cannot be enforced: "
+            f"'ulimit -v {kib}' exited {result.returncode}. "
+            f"Check your system's ulimit hard limit or reduce the configured value."
+        )
 
 
 def build_env(config: SandboxConfig) -> dict[str, str] | None:
