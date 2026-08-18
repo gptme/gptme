@@ -928,23 +928,39 @@ class TestApplyMemoryLimit:
         assert apply_memory_limit(cmd, None) is cmd
 
     def test_persistent_shell_form(self):
-        # 512 MiB → 524288 KiB
+        # 512 MiB → 524288 KiB; best-effort fallback prefix used
         result = apply_memory_limit(["bash"], 512 * 1024**2)
-        assert result == ["bash", "-c", "ulimit -v 524288 && exec bash"]
+        assert result[0] == "bash"
+        assert result[1] == "-c"
+        assert "ulimit -v 524288" in result[2]
+        assert "exec bash" in result[2]
 
     def test_command_form_prepends_ulimit(self):
         result = apply_memory_limit(["bash", "-c", "echo hi"], 1024 * 1024)
-        assert result == ["bash", "-c", "ulimit -v 1024 && echo hi"]
+        assert result[0] == "bash"
+        assert result[1] == "-c"
+        assert "ulimit -v 1024" in result[2]
+        assert "echo hi" in result[2]
 
     def test_empty_cmd_returns_unchanged(self):
         assert apply_memory_limit([], 1024) == []
 
     def test_small_limit_rounds_up_to_one_kib(self):
         result = apply_memory_limit(["bash"], 1)
-        assert result == ["bash", "-c", "ulimit -v 1 && exec bash"]
+        assert "ulimit -v 1" in result[2]
+        assert "exec bash" in result[2]
 
     def test_non_kib_aligned_limit_rounds_up(self):
         # 2000 bytes is not KiB-aligned; floor gives 1 KiB (under-allocates),
         # ceiling gives 2 KiB (at least the requested amount).
         result = apply_memory_limit(["bash"], 2000)
-        assert result == ["bash", "-c", "ulimit -v 2 && exec bash"]
+        assert "ulimit -v 2" in result[2]
+        assert "exec bash" in result[2]
+
+    def test_ulimit_failure_falls_back_gracefully(self):
+        # The prefix must not use && — a failed ulimit should not prevent the shell
+        # from starting. Verify the separator is not && alone.
+        result = apply_memory_limit(["bash"], 512 * 1024**2)
+        script = result[2]
+        # The ulimit invocation should fall back (|| or ;) rather than hard-gate (&&).
+        assert " && exec" not in script

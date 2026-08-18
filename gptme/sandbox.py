@@ -220,8 +220,9 @@ def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
     kib = max(
         1, (limit + 1023) // 1024
     )  # ulimit -v is in KiB; ceil so applied limit ≥ requested
-    # Use && so that a failed ulimit prevents the command from running unrestricted.
-    prefix = f"ulimit -v {kib} && "
+    # Best-effort: if ulimit -v is unavailable or the limit exceeds the hard limit,
+    # warn and continue without the ceiling rather than silently killing the shell.
+    prefix = f"ulimit -v {kib} 2>/dev/null || echo 'WARNING: GPTME_SHELL_MEMORY_LIMIT ignored: ulimit -v failed' >&2; "
     if len(cmd) >= 3 and cmd[1] == "-c":
         return [cmd[0], cmd[1], prefix + cmd[2], *cmd[3:]]
     # Persistent shell form: re-exec the shell so the limit applies to it and

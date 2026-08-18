@@ -5,10 +5,11 @@ allocation error instead of taking the session (or host) down with it.
 """
 
 import os
+from unittest.mock import patch
 
 import pytest
 
-from gptme.tools.shell import ShellSession
+from gptme.tools.shell import ShellSession, _get_memory_limit
 
 pytestmark = pytest.mark.skipif(
     os.name == "nt", reason="ulimit -v is POSIX-only (no resource module on Windows)"
@@ -51,3 +52,13 @@ def test_memory_limit_allows_small_allocation(monkeypatch):
         assert code == 0, f"stderr: {stderr}"
     finally:
         shell.close()
+
+
+def test_integer_config_value_does_not_raise():
+    """Integer TOML config values (e.g. SHELL_MEMORY_LIMIT = 536870912) must not
+    raise AttributeError via value.strip() — they should be coerced to str first."""
+    with patch("gptme.config.get_config") as mock_cfg:
+        mock_env = mock_cfg.return_value
+        mock_env.get_env.return_value = 536870912  # integer, not string
+        result = _get_memory_limit()
+    assert result == 536870912, f"Expected 512MiB in bytes, got {result}"

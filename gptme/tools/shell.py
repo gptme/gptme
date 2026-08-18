@@ -278,8 +278,8 @@ def _get_memory_limit() -> int | None:
     if not raw:
         return None
     try:
-        return _parse_size(raw)
-    except ValueError:
+        return _parse_size(str(raw))
+    except (ValueError, AttributeError):
         logger.warning(
             "Ignoring invalid GPTME_SHELL_MEMORY_LIMIT=%r (expected e.g. '512M')",
             raw,
