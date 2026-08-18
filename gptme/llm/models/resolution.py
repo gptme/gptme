@@ -270,22 +270,9 @@ def get_model(model: str) -> ModelMeta:
                             model_meta.model == model_name
                             or model_meta.model == lookup_model_name
                         ):
-                            # Preserve the original model_name (with suffix) in the returned ModelMeta
-                            # Use the found model's metadata but with the requested name
-                            return ModelMeta(
-                                provider=model_meta.provider,
-                                model=model_name,  # Preserve original name with suffix
-                                context=model_meta.context,
-                                max_output=model_meta.max_output,
-                                supports_streaming=model_meta.supports_streaming,
-                                supports_vision=model_meta.supports_vision,
-                                supports_reasoning=model_meta.supports_reasoning,
-                                supports_responses_api=model_meta.supports_responses_api,
-                                supports_parallel_tool_calls=model_meta.supports_parallel_tool_calls,
-                                price_input=model_meta.price_input,
-                                price_output=model_meta.price_output,
-                                knowledge_cutoff=model_meta.knowledge_cutoff,
-                            )
+                            # Preserve the original model_name (with suffix) in the returned
+                            # ModelMeta, carrying all other fields intact.
+                            return replace(model_meta, model=model_name)
 
                     # gptme cloud models carry their real backend as a prefix in
                     # `.model` (e.g. "anthropic/claude-sonnet-4-6"). A 2-segment
