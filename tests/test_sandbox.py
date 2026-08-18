@@ -942,3 +942,9 @@ class TestApplyMemoryLimit:
     def test_small_limit_rounds_up_to_one_kib(self):
         result = apply_memory_limit(["bash"], 1)
         assert result == ["bash", "-c", "ulimit -v 1 && exec bash"]
+
+    def test_non_kib_aligned_limit_rounds_up(self):
+        # 2000 bytes is not KiB-aligned; floor gives 1 KiB (under-allocates),
+        # ceiling gives 2 KiB (at least the requested amount).
+        result = apply_memory_limit(["bash"], 2000)
+        assert result == ["bash", "-c", "ulimit -v 2 && exec bash"]

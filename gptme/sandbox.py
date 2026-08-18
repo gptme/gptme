@@ -217,7 +217,9 @@ def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
     """
     if limit is None or not cmd:
         return cmd
-    kib = max(1, limit // 1024)  # ulimit -v is expressed in KiB
+    kib = max(
+        1, (limit + 1023) // 1024
+    )  # ulimit -v is in KiB; ceil so applied limit ≥ requested
     # Use && so that a failed ulimit prevents the command from running unrestricted.
     prefix = f"ulimit -v {kib} && "
     if len(cmd) >= 3 and cmd[1] == "-c":
