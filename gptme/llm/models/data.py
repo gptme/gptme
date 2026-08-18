@@ -591,23 +591,27 @@ assert set(PROVIDERS) == set(MODELS.keys())
 # default_tool_format="tool" on every model that doesn't already have one set.
 # Anthropic and mock are excluded: anthropic uses the Anthropic SDK (not OpenAI-compat),
 # and mock models are test-only stubs that don't need a tool format preference.
-_OPENAI_COMPAT_PROVIDERS = {
-    "openai",
-    "openai-subscription",
-    "gemini",
-    "deepseek",
-    "groq",
-    "xai",
-    "grok-subscription",
-    "moonshot",
-    "requesty",
-    "openrouter",
-    "azure",
-    "local",
-}
+# Exported (no leading underscore) so resolution.py can apply it to dynamic fallbacks.
+OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
+    {
+        "openai",
+        "openai-subscription",
+        "gemini",
+        "deepseek",
+        "groq",
+        "xai",
+        "grok-subscription",
+        "moonshot",
+        "requesty",
+        "openrouter",
+        "nvidia",
+        "azure",
+        "local",
+    }
+)
 MODELS = {
     provider: _set_tool_format(models, "tool")
-    if provider in _OPENAI_COMPAT_PROVIDERS
+    if provider in OPENAI_COMPAT_PROVIDERS
     else models
     for provider, models in MODELS.items()
 }

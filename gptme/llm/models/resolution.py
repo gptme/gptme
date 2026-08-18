@@ -5,7 +5,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import cast
 
-from .data import MODELS
+from .data import MODELS, OPENAI_COMPAT_PROVIDERS
 from .types import (
     _DATE_SUFFIX_PATTERN,
     _MODEL_FAMILY_PATTERN,
@@ -325,6 +325,14 @@ def get_model(model: str) -> ModelMeta:
             if provider not in ("openrouter", "local", "gptme"):
                 log_warn_once(
                     f"Unknown model: using generic fallback for {provider}/{model_name}"
+                )
+            # Apply tool format for OpenAI-compat providers even on dynamic fallbacks.
+            # _set_tool_format() stamped static MODELS entries but can't help empty
+            # registries (azure, local, nvidia); set it here so the resolution path
+            # gives the same default as the registry-based path.
+            if provider in OPENAI_COMPAT_PROVIDERS:
+                return ModelMeta(
+                    provider, model_name, context=128_000, default_tool_format="tool"
                 )
             return ModelMeta(provider, model_name, context=128_000)
         # Unknown provider
