@@ -308,7 +308,19 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     # Auth: run `grok login` or `gptme auth grok-subscription`.
     "grok-subscription": _mark_subscription(
         {
-            # grok-4.5 — frontier model available on SuperGrok subscription
+            # grok-4.6 — current frontier model on SuperGrok subscription and
+            # the grok CLI default (grok CLI 0.2.117, 2026-08). Context/output
+            # assumed equal to grok-4.5 until xAI publishes the model card.
+            "grok-4.6": {
+                "context": 500_000,
+                "max_output": 128_000,
+                "price_input": 2,
+                "price_output": 6,
+                "supports_vision": True,
+                "supports_reasoning": True,
+                "preferred_edit_format": "diff",
+            },
+            # grok-4.5 — previous frontier model available on SuperGrok subscription
             # https://x.ai/blog/grok-4-5 (500K context, reasoning support)
             "grok-4.5": {
                 "context": 500_000,

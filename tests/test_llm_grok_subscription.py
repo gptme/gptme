@@ -399,7 +399,7 @@ def test_grok_subscription_default_model():
     from gptme.llm import PROVIDER_DEFAULT_MODELS
 
     assert (
-        PROVIDER_DEFAULT_MODELS.get("grok-subscription") == "grok-subscription/grok-4.5"
+        PROVIDER_DEFAULT_MODELS.get("grok-subscription") == "grok-subscription/grok-4.6"
     )
 
 
@@ -420,3 +420,29 @@ def test_grok_subscription_appears_in_available_providers(tmp_path):
 
     provider_names = [p for p, _ in providers]
     assert "grok-subscription" in provider_names
+
+
+def test_grok_subscription_supports_tools_api():
+    """grok-subscription routes to an OpenAI-compatible proxy that supports
+    function calling; `--tool-format tool` must not raise."""
+    from gptme.llm.llm_openai import _spec2tool
+    from gptme.llm.models import get_model
+    from gptme.tools.base import Parameter, ToolSpec
+
+    spec = ToolSpec(
+        name="echo",
+        desc="echo a value",
+        parameters=[Parameter(name="value", type="string", description="v")],
+    )
+    tool = _spec2tool(spec, get_model("grok-subscription/grok-4.6"))
+    assert tool["type"] == "function"
+    assert tool["function"]["name"] == "echo"
+
+
+def test_grok_46_is_registered():
+    from gptme.llm.models import get_model
+
+    meta = get_model("grok-subscription/grok-4.6")
+    assert meta.provider == "grok-subscription"
+    assert meta.model == "grok-4.6"
+    assert meta.context == 500_000

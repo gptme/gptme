@@ -12,7 +12,7 @@ scope ``api:access`` explicitly authorizes this endpoint.
 Prerequisite: Install and authenticate the grok CLI first:
     1. Install: download from https://grok.com/download or ``pip install grok-cli``
     2. Login: ``grok login``
-    3. Use:   ``gptme --model grok-subscription/grok-4.5``
+    3. Use:   ``gptme --model grok-subscription/grok-4.6``
 
 Or authenticate directly via gptme (opens grok.com in browser):
     ``gptme auth grok-subscription``

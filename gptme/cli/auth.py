@@ -345,7 +345,7 @@ def auth_grok_subscription():
                 f"[green]✓ Found valid grok CLI tokens at {_get_grok_cli_auth_path()}[/green]"
             )
             console.print(
-                "\nYou can now use models like: [cyan]grok-subscription/grok-4.5[/cyan]"
+                "\nYou can now use models like: [cyan]grok-subscription/grok-4.6[/cyan]"
             )
             return
 
@@ -490,7 +490,7 @@ def auth_grok_subscription():
 
     console.print("\n[green bold]✓ Authentication successful![/green bold]")
     console.print(
-        "\nYou can now use models like: [cyan]grok-subscription/grok-4.5[/cyan]"
+        "\nYou can now use models like: [cyan]grok-subscription/grok-4.6[/cyan]"
     )
 
 

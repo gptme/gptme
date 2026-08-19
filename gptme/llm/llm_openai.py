@@ -1925,7 +1925,10 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
         )
         description = description[:1024]
 
-    # Custom providers are OpenAI-compatible and support tools API
+    # Custom providers are OpenAI-compatible and support tools API.
+    # grok-subscription routes to xAI's OpenAI-compatible subscription proxy
+    # (cli-chat-proxy.grok.com), which supports function calling — without it
+    # here, `--tool-format tool` raised "Provider doesn't support tools API".
     if model.provider in [
         "openai",
         "azure",
@@ -1933,6 +1936,7 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
         "deepseek",
         "moonshot",
         "local",
+        "grok-subscription",
     ] or is_custom_provider(model.model.split("/")[0]):
         all_required = all(p.required for p in spec.parameters)
         supports_strict = model.supports_strict_tools and all_required

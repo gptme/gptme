@@ -96,7 +96,7 @@ PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "gemini": "gemini/gemini-2.0-flash",
     "groq": "groq/llama-3.3-70b-versatile",
     "xai": "xai/grok-3-mini",
-    "grok-subscription": "grok-subscription/grok-4.5",
+    "grok-subscription": "grok-subscription/grok-4.6",
     "deepseek": "deepseek/deepseek-chat",
     "moonshot": "moonshot/kimi-k2.6",
 }
