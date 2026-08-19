@@ -1042,7 +1042,9 @@ def test_keep_head_protects_head_messages_from_reasoning_strip():
 def test_keep_head_protects_head_messages_from_tool_truncation():
     """Test that keep_head messages are not truncated even when over the limit."""
     model = get_default_model() or get_model("gpt-4")
-    target_tokens = int(0.85 * model.context)
+    # Clamp to at least 2100 so the tail always exceeds max_tool_result_tokens=2000,
+    # ensuring phase-2 truncation fires regardless of the model's context size.
+    target_tokens = max(2100, int(0.85 * model.context))
 
     words = [f"file_{i}.txt" for i in range(target_tokens // 2)]
     massive = "\n".join(words)
