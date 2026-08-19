@@ -39,7 +39,7 @@ WorkingDirectory={work_dir}
 Environment=GPTME_AGENT_NAME={name}
 Environment=GPTME_AGENT_MODEL={model}
 Environment=GPTME_NON_INTERACTIVE=1
-ExecStart={work_dir}/gptme-agent-run.sh
+ExecStart="{work_dir}/gptme-agent-run.sh"
 StandardOutput=journal
 StandardError=journal
 Restart=on-failure
@@ -53,7 +53,6 @@ WantedBy=default.target
 SYSTEMD_TIMER_TEMPLATE = """\
 [Unit]
 Description=gptme Autonomous Agent Timer: {name}
-Requires={name}.service
 
 [Timer]
 OnCalendar={schedule}
@@ -67,7 +66,7 @@ WantedBy=timers.target
 SCHEDULES: dict[str, str] = {
     "hourly": "*-*-* *:00:00",
     "daily": "*-*-* 00:00:00",
-    "weekly": "*-*-* 00:00:00",
+    "weekly": "Mon *-*-* 00:00:00",
 }
 
 STARTUP_SCRIPT_TEMPLATE = """\
@@ -154,13 +153,17 @@ def _resolve_work_dir(work_dir: str) -> Path:
     return path
 
 
-def _write_file(path: Path, content: str, force: bool = False) -> None:
-    """Write a file, skipping existing files unless --force is set."""
+def _write_file(path: Path, content: str, force: bool = False) -> bool:
+    """Write a file, skipping existing files unless --force is set.
+
+    Returns True if the file was written, False if skipped.
+    """
     if path.exists() and not force:
         click.echo(f"  Skipped existing {path} (use --force to overwrite)")
-        return
+        return False
     path.write_text(content)
     click.echo(f"  Created {path}")
+    return True
 
 
 @click.group(
@@ -262,8 +265,13 @@ def init(
         force=force,
     )
 
-    # Timer (skip for on-demand)
-    if timer_schedule != "on-demand":
+    # Timer (skip for on-demand; remove stale timer if switching to on-demand)
+    if timer_schedule == "on-demand":
+        stale_timer = out_dir / f"{name}.timer"
+        if stale_timer.exists():
+            stale_timer.unlink()
+            click.echo(f"  Removed stale timer {stale_timer} (on-demand mode)")
+    else:
         schedule = SCHEDULES.get(timer_schedule, SCHEDULES["daily"])
         _write_file(
             out_dir / f"{name}.timer",
@@ -285,12 +293,13 @@ def init(
 
     # Startup script
     startup = work / "gptme-agent-run.sh"
-    _write_file(
+    written = _write_file(
         startup,
         STARTUP_SCRIPT_TEMPLATE.format(name=name, work_dir=work),
         force=force,
     )
-    startup.chmod(0o755)
+    if written:
+        startup.chmod(0o755)
 
     click.echo()
     click.echo(f"✅ Initialized headless agent '{name}'")
