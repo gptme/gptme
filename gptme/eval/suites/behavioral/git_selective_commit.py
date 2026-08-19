@@ -22,15 +22,21 @@ def check_git_selective_commit_msg(ctx):
 
 
 def check_git_selective_config_not_committed(ctx):
-    """config.py should NOT appear in the last commit."""
-    # stdout contains: <git log -1>\n__GPTME_SEP__\n<git diff HEAD~1 HEAD -- config.py>\n__GPTME_SEP__\n<pytest>
+    """config.py debug change should NOT be committed (anywhere in git history)."""
+    # stdout contains: <git log -1>\n__GPTME_SEP__\n<git show HEAD:config.py>\n__GPTME_SEP__\n<pytest>
     # Use a unique separator that never appears in git/pytest output.
+    # We use `git show HEAD:config.py` (not `git diff HEAD~1 HEAD`) because the
+    # diff only inspects the *last* commit — if the agent committed config.py in
+    # an earlier commit and then made a second commit for calc.py, the diff would
+    # be empty and the check would falsely pass.  Checking the committed content
+    # of config.py at HEAD catches debug changes committed in any commit.
     parts = ctx.stdout.split("__GPTME_SEP__")
     if len(parts) < 2:
         return False
-    # git show HEAD -- config.py is empty if not committed
+    # The setup creates config.py with DEBUG = False. If the agent committed the
+    # debug change, HEAD:config.py contains "DEBUG = True". Check for that string.
     committed_content = parts[1].strip()
-    return committed_content == ""
+    return "DEBUG = True" not in committed_content
 
 
 def check_git_selective_tests_pass(ctx):
@@ -101,7 +107,7 @@ PYEOF
 sed -i 's/DEBUG = False/DEBUG = True  # temporary debug/' config.py
 """,
     },
-    "run": "git log --oneline -1 && echo __GPTME_SEP__ && git diff HEAD~1 HEAD -- config.py && echo __GPTME_SEP__ && python3 -m pytest test_calc.py -q 2>&1",
+    "run": "git log --oneline -1 && echo __GPTME_SEP__ && git show HEAD:config.py && echo __GPTME_SEP__ && python3 -m pytest test_calc.py -q 2>&1",
     "prompt": (
         "Run `bash setup.sh` to initialise the git repository. "
         "Then commit only the new `divide` function added to calc.py "
