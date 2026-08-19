@@ -100,9 +100,21 @@ def _setup_cli_mocks(
             "auth_error",
             cli.EXIT_AUTH_ERROR,
         ),
-        # Model unavailable via 503
+        # Model unavailable via 503 in message
         (
             ValueError("Codex API error 503: service unavailable"),
+            "model_unavailable",
+            cli.EXIT_MODEL_UNAVAIL,
+        ),
+        # Model unavailable via SDK-native exception type (openai/anthropic style)
+        (
+            type("NotFoundError", (Exception,), {})("model not found"),
+            "model_unavailable",
+            cli.EXIT_MODEL_UNAVAIL,
+        ),
+        # InternalServerError also maps to model_unavailable
+        (
+            type("InternalServerError", (Exception,), {})("upstream error"),
             "model_unavailable",
             cli.EXIT_MODEL_UNAVAIL,
         ),

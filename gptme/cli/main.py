@@ -1740,9 +1740,12 @@ def _classify_fatal_error(e: BaseException) -> tuple[str, int]:
         return "auth_error", EXIT_AUTH_ERROR
 
     # Model / service unavailable — 404 or 503 response (exit 77)
-    if (
-        "404" in emsg or "503" in emsg or "model_unavailable" in emsg_lower
-    ) and "api error" in emsg_lower:
+    # SDK-native exceptions (openai.NotFoundError, openai.InternalServerError, etc.)
+    # are matched by type name; string-based fallback handles bare HTTP error messages.
+    if etype in ("NotFoundError", "ServiceUnavailableError", "InternalServerError") or (
+        ("404" in emsg or "503" in emsg or "model_unavailable" in emsg_lower)
+        and "api error" in emsg_lower
+    ):
         return "model_unavailable", EXIT_MODEL_UNAVAIL
 
     return "generic", 1
