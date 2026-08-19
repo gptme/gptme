@@ -106,17 +106,37 @@ def _setup_cli_mocks(
             "model_unavailable",
             cli.EXIT_MODEL_UNAVAIL,
         ),
+        # Rate limit via bare "429 Too Many Requests" (no keyword suffix)
+        (
+            ValueError("429 Too Many Requests"),
+            "rate_limit",
+            cli.EXIT_RATE_LIMIT,
+        ),
+        # Auth error via bare "401 Client Error: Unauthorized" (no "api error" phrase)
+        (
+            ValueError(
+                "401 Client Error: Unauthorized for url: https://api.example.com"
+            ),
+            "auth_error",
+            cli.EXIT_AUTH_ERROR,
+        ),
         # Model unavailable via SDK-native exception type (openai/anthropic style)
         (
             type("NotFoundError", (Exception,), {})("model not found"),
             "model_unavailable",
             cli.EXIT_MODEL_UNAVAIL,
         ),
-        # InternalServerError also maps to model_unavailable
+        # ServiceUnavailableError (503) maps to model_unavailable
         (
-            type("InternalServerError", (Exception,), {})("upstream error"),
+            type("ServiceUnavailableError", (Exception,), {})("service down"),
             "model_unavailable",
             cli.EXIT_MODEL_UNAVAIL,
+        ),
+        # InternalServerError (HTTP 500/502/504) falls through to generic exit 1
+        (
+            type("InternalServerError", (Exception,), {})("upstream 500"),
+            "generic",
+            1,
         ),
         # Generic fallback
         (

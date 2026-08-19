@@ -1554,8 +1554,11 @@ def main(
                 logger.error(
                     f"  at {last_frame.filename}:{last_frame.lineno} in {last_frame.name}"
                 )
-        error_class, exit_code = _classify_fatal_error(e)
-        _write_terminal_error_to_log(logdir, error_class, exit_code, str(e))
+        if not config.chat.interactive:
+            error_class, exit_code = _classify_fatal_error(e)
+            _write_terminal_error_to_log(logdir, error_class, exit_code, str(e))
+        else:
+            exit_code = 1
         sys.exit(exit_code)
     finally:
         shutdown_telemetry()
@@ -1729,22 +1732,23 @@ def _classify_fatal_error(e: BaseException) -> tuple[str, int]:
             "rate" in emsg_lower
             or "usage_limit_reached" in emsg_lower
             or "quota" in emsg_lower
+            or "too many requests" in emsg_lower
         )
     ):
         return "rate_limit", EXIT_RATE_LIMIT
 
     # Authentication / permission denied — needs credential update (exit 76)
     if etype in ("AuthenticationError", "PermissionDeniedError", "GptmeAuthError") or (
-        ("401" in emsg or "403" in emsg) and "api error" in emsg_lower
+        "401" in emsg or "403" in emsg
     ):
         return "auth_error", EXIT_AUTH_ERROR
 
-    # Model / service unavailable — 404 or 503 response (exit 77)
-    # SDK-native exceptions (openai.NotFoundError, openai.InternalServerError, etc.)
-    # are matched by type name; string-based fallback handles bare HTTP error messages.
-    if etype in ("NotFoundError", "ServiceUnavailableError", "InternalServerError") or (
-        ("404" in emsg or "503" in emsg or "model_unavailable" in emsg_lower)
-        and "api error" in emsg_lower
+    # Model / service unavailable — 404 or 503 response (exit 77).
+    # SDK-native: NotFoundError (404) and ServiceUnavailableError (503) match by type
+    # name.  InternalServerError covers HTTP 500/502/504 — those are generic server
+    # errors, not a predictable availability failure, so they fall through to exit 1.
+    if etype in ("NotFoundError", "ServiceUnavailableError") or (
+        "404" in emsg or "503" in emsg or "model_unavailable" in emsg_lower
     ):
         return "model_unavailable", EXIT_MODEL_UNAVAIL
 
