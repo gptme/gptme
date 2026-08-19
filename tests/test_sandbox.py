@@ -989,6 +989,24 @@ class TestApplyMemoryLimit:
 # ---------------------------------------------------------------------------
 
 
+class TestGetMemoryLimitWindowsGuard:
+    """_get_memory_limit() must return None on Windows without calling the verifier."""
+
+    def test_returns_none_on_windows_without_calling_verifier(self, monkeypatch):
+        """When _is_windows is True the function exits early; verify_memory_limit
+        is never called, so FileNotFoundError from missing bash never surfaces."""
+        monkeypatch.setenv("GPTME_SHELL_MEMORY_LIMIT", "256M")
+        with (
+            patch("gptme.tools.shell._is_windows", True),
+            patch("gptme.tools.shell.verify_memory_limit") as mock_verify,
+        ):
+            from gptme.tools.shell import _get_memory_limit
+
+            result = _get_memory_limit()
+        assert result is None
+        mock_verify.assert_not_called()
+
+
 class TestVerifyMemoryLimit:
     def test_raises_when_ulimit_fails(self):
         from unittest.mock import MagicMock
