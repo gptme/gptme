@@ -28,10 +28,12 @@ sidecar_is_stale() {
         return 0
     fi
     # Also rebuild when packaging/dependency config changes (pyproject.toml,
-    # poetry.lock, uv.lock) — these affect which packages get frozen into the
-    # sidecar even when no .py source file changes.
+    # uv.lock) — these affect which packages get frozen into the sidecar even
+    # when no .py source file changes.  poetry.lock is excluded: the install
+    # path only consults uv.lock, so watching poetry.lock would trigger spurious
+    # rebuilds whose result doesn't reflect the poetry.lock change.
     local config_files=("$REPO_ROOT/pyproject.toml")
-    for f in "$REPO_ROOT/poetry.lock" "$REPO_ROOT/uv.lock"; do
+    for f in "$REPO_ROOT/uv.lock"; do
         [[ -f "$f" ]] && config_files+=("$f")
     done
     for f in "${config_files[@]}"; do
@@ -56,14 +58,17 @@ echo "Building gptme-server sidecar for $TRIPLE..."
 mkdir -p "$BINS_DIR"
 
 # Install gptme from local source into a venv, then freeze with PyInstaller.
-# When uv.lock exists, use uv sync --frozen so a lock-file-triggered rebuild
-# actually installs the pinned versions that caused the staleness.
-# When only poetry.lock exists (or no lock file at all), fall back to
-# uv pip install, which behaves like the original installation path.
-# pyinstaller is in [tool.poetry.group.dev.dependencies]; server extras add Flask etc.
+# When uv.lock exists, use uv sync (without --frozen) so the lock is updated
+# if pyproject.toml changed since the last `uv lock` run.  --frozen would fail
+# when pyproject.toml is newer than uv.lock (e.g. after adding a dep without
+# running `uv lock`), breaking the very workflow that staleness detection exists
+# to support.  uv sync still installs the exact pinned versions when the lock
+# is already current, so the pin-enforcement goal is preserved.
+# When uv.lock is absent, fall back to uv pip install (original path).
+# pyinstaller is in [tool.uv.dev-dependencies]; server extras add Flask etc.
 cd "$REPO_ROOT"
 if [[ -f "uv.lock" ]]; then
-    uv sync --frozen --extra server --group dev --quiet
+    uv sync --extra server --group dev --quiet
 else
     [[ -d ".venv" ]] || uv venv .venv
     uv pip install --quiet ".[server]" pyinstaller
