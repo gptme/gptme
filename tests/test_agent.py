@@ -740,10 +740,12 @@ class TestCLI:
             assert result.exit_code == 0
             assert "No agents installed" in result.output
 
-    def test_scan_shows_active_agents(self, runner, mocker):
+    def test_scan_shows_active_agents(self, runner, monkeypatch):
         """Test scan command exposes the shared live-agent scanner."""
         agent = _make_scanned_agent()
-        mocker.patch("gptme.hooks.workspace_agents.scan_agents", return_value=[agent])
+        monkeypatch.setattr(
+            "gptme.hooks.workspace_agents.scan_agents", lambda **_: [agent]
+        )
 
         result = runner.invoke(main, ["scan"])
 
