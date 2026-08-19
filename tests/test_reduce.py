@@ -1104,3 +1104,100 @@ def test_proactive_summarize_error_falls_back(monkeypatch):
         set_default_model(original_model) if original_model else _default_model_var.set(
             None
         )
+
+
+def test_limit_log_preserves_pinned_markdown_tool_result():
+    """limit_log must also protect non-call_id (markdown) tool results of pinned assistant.
+
+    Scenario: a pinned assistant message contains a tool call, and the immediately
+    following system message is a gptme-native markdown result (no call_id).  The
+    old code only added call_id system messages to extra_pinned_ids, leaving the
+    markdown result eligible for budget exclusion.  When excluded, _is_orphaned
+    does NOT catch it (no call_id), so the pinned assistant survives with no result
+    — producing an incoherent log.
+
+    With the fix: ALL consecutive system messages after a pinned assistant tool-use
+    are added to extra_pinned_ids, so the markdown result is always reserved.
+    """
+    from gptme.llm.models.resolution import _default_model_var
+
+    original_model = _default_model_var.get()
+    try:
+        # Budget: context=5 tokens.
+        # Messages: system(1) + pinned-assistant-tool(2) + markdown-result(1) + newest(3)
+        # Without fix: system+newest=4 fits; pinned assistant kept but markdown result
+        # excluded from tail → log has dangling tool call with no result.
+        # With fix: markdown result also in extra_pinned; always reserved.
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=6)
+        set_default_model(tiny_model)
+
+        # Markdown tool result: system message with no call_id
+        tool_call_msg = Message("assistant", "tool call", pinned=True)
+        markdown_result_msg = Message("system", "markdown result")  # no call_id
+
+        msgs = [
+            Message("system", "system"),  # 1 tok — initial system
+            tool_call_msg,  # 2 tok — pinned tool call
+            markdown_result_msg,  # 2 tok — markdown result (no call_id)
+            Message("user", "newest"),  # 1 tok — recent context
+        ]
+
+        result = limit_log(msgs)
+        result_contents = [m.content for m in result]
+
+        assert "tool call" in result_contents, (
+            "Pinned assistant tool call must be preserved"
+        )
+        assert "markdown result" in result_contents, (
+            "Markdown tool result of pinned call must be preserved (no call_id path)"
+        )
+        assert "system" in result_contents, "Initial system message must be preserved"
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+
+
+def test_limit_log_pinned_system_not_orphaned():
+    """_is_orphaned must not drop a pinned system message even when its anchor is excluded.
+
+    Scenario: a pinned system message's preceding non-system message is NOT in the
+    tail budget selection.  The old _is_orphaned would walk back to that absent anchor
+    and return True, removing the pinned message — defeating the pin guarantee.
+
+    With the fix: _is_orphaned skips messages whose id is in extra_pinned_ids.
+    """
+    from gptme.llm.models.resolution import _default_model_var
+
+    original_model = _default_model_var.get()
+    try:
+        # Budget: context=4 tokens.
+        # Messages: system(1) + assistant-anchor(2) + pinned-result(1) + user(1)
+        # always = system(1) + pinned-result(1) = 2; tail_budget=2; newest is user(1).
+        # assistant-anchor(2) > remaining(1) so it's dropped.
+        # Old _is_orphaned: pinned-result walks back to absent assistant → orphaned → dropped.
+        # New _is_orphaned: pinned-result is in extra_pinned_ids → exempt → kept.
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=4)
+        set_default_model(tiny_model)
+
+        anchor_msg = Message("assistant", "anchor msg")  # 2 tok — non-pinned anchor
+        pinned_result = Message("system", "pinned result", pinned=True)  # 1 tok
+
+        msgs = [
+            Message("system", "system"),  # 1 tok — initial system
+            anchor_msg,  # 2 tok — anchor (will be budget-excluded)
+            pinned_result,  # 1 tok — pinned system result
+            Message("user", "newest"),  # 1 tok — newest
+        ]
+
+        result = limit_log(msgs)
+        result_contents = [m.content for m in result]
+
+        assert "pinned result" in result_contents, (
+            "Pinned system message must not be dropped by _is_orphaned even when anchor is excluded"
+        )
+        assert "system" in result_contents, "Initial system message must be preserved"
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )

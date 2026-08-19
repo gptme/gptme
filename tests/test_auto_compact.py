@@ -1178,3 +1178,20 @@ def test_compact_auto_handler_honors_env_keep_head(monkeypatch):
     assert captured_keep_head.get("value") == 5, (
         f"Expected keep_head=5 from env override, got {captured_keep_head.get('value')}"
     )
+
+
+def test_get_keep_head_negative_falls_back_to_default(monkeypatch):
+    """_get_keep_head must treat negative env values as invalid and return the configured default.
+
+    A user setting GPTME_AUTOCOMPACT_KEEP_HEAD=-1 might expect head retention to fall
+    back to the default (2), not to be silently disabled. The old code returned
+    max(0, int(raw)) = 0 for negatives, defeating head protection.
+    """
+    from gptme.tools.autocompact.config import _get_keep_head
+
+    monkeypatch.setenv("GPTME_AUTOCOMPACT_KEEP_HEAD", "-1")
+    result = _get_keep_head()
+
+    assert result == 2, (
+        f"Negative GPTME_AUTOCOMPACT_KEEP_HEAD=-1 should fall back to default 2, got {result}"
+    )

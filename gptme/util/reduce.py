@@ -558,9 +558,12 @@ def limit_log(log: list[Message]) -> list[Message]:
             if m.role == "assistant":
                 for j in range(i + 1, len(log_tail)):
                     nxt = log_tail[j]
-                    if nxt.role == "system" and nxt.call_id:
+                    if nxt.role == "system":
+                        # Include ALL consecutive system messages (both call_id
+                        # and markdown/no-call_id tool results) so orphan-drop
+                        # passes never strip the result of a pinned tool call.
                         extra_pinned_ids.add(id(nxt))
-                    elif nxt.role != "system":
+                    else:
                         break
     extra_pinned = [m for m in log_tail if id(m) in extra_pinned_ids]
 
@@ -597,7 +600,11 @@ def limit_log(log: list[Message]) -> list[Message]:
     initial_id_set = {id(m) for m in initial_system_msgs}
 
     def _is_orphaned(msg: Message) -> bool:
-        if msg.role != "system" or id(msg) in initial_id_set:
+        if (
+            msg.role != "system"
+            or id(msg) in initial_id_set
+            or id(msg) in extra_pinned_ids
+        ):
             return False
         idx = log_by_id.get(id(msg))
         if idx is None or idx == 0:

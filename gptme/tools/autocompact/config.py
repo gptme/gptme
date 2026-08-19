@@ -37,7 +37,13 @@ def _get_keep_head() -> int:
     raw = get_config().get_env("GPTME_AUTOCOMPACT_KEEP_HEAD")
     if raw is not None:
         try:
-            return max(0, int(raw))
+            val = int(raw)
+            if val < 0:
+                logger.warning(
+                    f"Invalid GPTME_AUTOCOMPACT_KEEP_HEAD={raw!r} (negative), using default {cfg.keep_head}"
+                )
+                return cfg.keep_head
+            return val
         except ValueError:
             logger.warning(
                 f"Invalid GPTME_AUTOCOMPACT_KEEP_HEAD={raw!r}, using default {cfg.keep_head}"
