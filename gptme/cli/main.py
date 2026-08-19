@@ -812,9 +812,10 @@ Run 'gptme-util --help' for all utility commands."""
     default=None,
     type=str,
     envvar="GPTME_TOOL_MANIFEST",
-    help="Task-optimized MCP tool manifest: code_review, implementation, debugging, "
-    "data_analysis, research, content_writing, planning, project_ops. "
-    "Adds the manifest's curated MCP tools to the session's default built-in tools.",
+    help="Task-optimized tool preset loaded from a manifest file: code_review, "
+    "implementation, debugging, data_analysis, research, content_writing, planning, "
+    "project_ops. When the manifest includes built-in tools, produces an explicit "
+    "allowlist; otherwise adds the manifest's MCP tools to the session's defaults.",
 )
 def main(
     ctx: click.Context,
@@ -1083,13 +1084,19 @@ def main(
         except (OSError, ValueError) as e:
             raise click.UsageError(str(e)) from e
         logger.info(
-            "Using tool manifest %s from %s (%d tools)",
+            "Using tool manifest %s from %s (%d MCP tools, %d built-in tools)",
             manifest.task_type,
             manifest.path,
             len(manifest.tool_names),
+            len(manifest.builtin_tools),
         )
-        # Prefix with '+' so manifest tools are ADDED to built-in defaults
-        # rather than replacing them (a bare list would drop read/shell/save/etc.)
+        if manifest.builtin_tools:
+            # Explicit allowlist: built-in tools + MCP tools (no additive prefix)
+            # When the manifest specifies built-in tools, produce an exact allowlist
+            # so that tools outside both sets are excluded from the session.
+            return ",".join(manifest.all_tool_names)
+        # Additive prefix: MCP tools are ADDED to the full default built-in set
+        # (a bare list would drop read/shell/save/etc. — the '+' preserves them)
         return "+" + ",".join(manifest.tool_names)
 
     if profile and not show_version:
