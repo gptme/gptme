@@ -208,6 +208,32 @@ class TestValidateAnthropic:
         assert error != "", "should surface a warning about restricted access"
 
     @patch("gptme.llm.validate.requests.post")
+    def test_permission_error_with_auth_words_in_message_returns_true(self, mock_post):
+        """permission_error type wins even if the message body contains auth-related words.
+
+        Regression guard for the ordering bug where auth-substring check ran before
+        the permission_error check: a message like "Authentication required to access
+        model" would have triggered the auth branch and returned False (invalid key)
+        despite the type being permission_error.
+        """
+        mock_post.return_value = Mock(
+            status_code=400,
+            json=Mock(
+                return_value={
+                    "error": {
+                        "type": "permission_error",
+                        "message": "Authentication required to access claude-haiku-4-5.",
+                    }
+                }
+            ),
+        )
+        is_valid, error = _validate_anthropic("sk-ant-restricted-key", 10)
+        assert is_valid, (
+            "permission_error type must win over auth substrings in message"
+        )
+        assert error != "", "should surface a warning about restricted access"
+
+    @patch("gptme.llm.validate.requests.post")
     def test_quota_exhausted_returns_warning(self, mock_post):
         """Quota-exhausted 400 response should return (True, warning_msg) not (True, '')."""
         quota_msg = "You have reached your specified API usage limits. You will regain access on 2026-05-01 at 00:00 UTC."

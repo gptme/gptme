@@ -169,13 +169,10 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
         error = error_data.get("error", {})
         error_type = error.get("type", "").lower()
         error_msg = error.get("message", "").lower()
-        if (
-            "authentication" in error_msg
-            or "invalid api key" in error_msg
-            or "invalid_api_key" in error_type
-            or "authentication_error" in error_type
-        ):
-            return False, "Invalid API key. Please check your key and try again."
+        # Check permission_error BEFORE auth substrings: the key is valid even if
+        # the message happens to contain "authentication" (e.g. "Authentication
+        # required to access model"). If auth-substrings were checked first, a
+        # permission_error with such a message would be misclassified as invalid.
         if "permission_error" in error_type:
             # Key is valid but lacks access to the probe model; the key will work
             # for models the account can actually access.
@@ -183,6 +180,13 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
                 True,
                 "API key valid but lacks access to the probe model. It may work for other models.",
             )
+        if (
+            "authentication" in error_msg
+            or "invalid api key" in error_msg
+            or "invalid_api_key" in error_type
+            or "authentication_error" in error_type
+        ):
+            return False, "Invalid API key. Please check your key and try again."
         if "usage limits" in error_msg:
             # Key is valid but account has hit its usage quota
             raw_msg = error_data.get("error", {}).get("message", "")
