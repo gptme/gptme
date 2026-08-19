@@ -272,7 +272,11 @@ def _get_memory_limit() -> int | None:
     Knob is ``GPTME_SHELL_MEMORY_LIMIT`` (env) or ``[env] SHELL_MEMORY_LIMIT``
     (config.toml). The value is a byte count or a binary-suffixed size (e.g.
     ``"512M"``). Unparseable values are logged and treated as unset.
+
+    POSIX-only: returns None on Windows because ``ulimit -v`` is not available.
     """
+    if _is_windows:
+        return None  # ulimit -v is a POSIX-only bash builtin; skip silently
     from ..config import get_config  # deferred: avoid import cycle
 
     raw = get_config().get_env("SHELL_MEMORY_LIMIT")
