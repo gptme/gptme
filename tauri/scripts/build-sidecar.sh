@@ -65,7 +65,8 @@ mkdir -p "$BINS_DIR"
 # to support.  uv sync still installs the exact pinned versions when the lock
 # is already current, so the pin-enforcement goal is preserved.
 # When uv.lock is absent, fall back to uv pip install (original path).
-# pyinstaller is in [tool.uv.dev-dependencies]; server extras add Flask etc.
+# pyinstaller is in [tool.poetry.group.dev.dependencies]; uv maps Poetry groups
+# to --group NAME, so --group dev selects it.  server extras add Flask etc.
 cd "$REPO_ROOT"
 if [[ -f "uv.lock" ]]; then
     uv sync --extra server --group dev --quiet
