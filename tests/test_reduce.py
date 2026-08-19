@@ -443,6 +443,52 @@ def test_limit_log_partial_call_id_results_dropped():
         )
 
 
+def test_limit_log_preserves_pinned_head():
+    """limit_log must not drop pinned messages even when they are oldest and non-system.
+
+    Scenario: auto_compact_log marks the first N messages as pinned=True to protect
+    task context. If the compacted log still exceeds the model context, prepare_messages
+    calls limit_log, which builds tail-first and would normally drop the oldest
+    non-system messages — exactly the pinned head messages.
+
+    With the fix: pinned messages are always included (like initial system messages),
+    and the remaining budget is filled from the newest non-pinned messages.
+    """
+    from gptme.llm.models.resolution import _default_model_var
+
+    original_model = _default_model_var.get()
+    try:
+        # Token counts (gpt-4 tokenizer):
+        #   "system" = 1 tok, "task" = 1 tok, "older reply" = 2 tok, "newest message" = 3 tok.
+        # Context=5: system(1) + task(1) + newest(3) = 5, fits.
+        # With old code: system + newest alone = 4, pinned "task" dropped.
+        # With fix: task is always included; tail_budget = 3, newest(3) fits, older(2)+newest(3)=5>3 → only newest.
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=5)
+        set_default_model(tiny_model)
+
+        msgs = [
+            Message("system", "system"),  # 1 tok — initial system, always kept
+            Message("user", "task", pinned=True),  # 1 tok — pinned head
+            Message("assistant", "older reply"),  # 2 tok — old, non-pinned
+            Message("user", "newest message"),  # 2 tok — new, non-pinned
+        ]
+
+        result = limit_log(msgs)
+        result_contents = [m.content for m in result]
+
+        # The pinned "task" message must survive despite being older than "newest".
+        assert "task" in result_contents, "Pinned head message must be preserved"
+        assert "system" in result_contents, "Initial system message must be preserved"
+        # "older reply" should be dropped in favour of pinned head + newest.
+        assert "older reply" not in result_contents, (
+            "Non-pinned older message should be dropped when budget is tight"
+        )
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+
+
 # ---------------------------------------------------------------------------
 # Tests for proactive_summarize_log
 # ---------------------------------------------------------------------------

@@ -533,7 +533,7 @@ def limit_log(log: list[Message]) -> list[Message]:
     """
     Picks messages until the total number of tokens exceeds limit,
     then removes the last message to get below the limit.
-    Will always pick the first few system messages.
+    Will always pick the first few system messages and any pinned messages.
     """
     model = get_default_model()
     assert model, "No model loaded"
@@ -545,19 +545,34 @@ def limit_log(log: list[Message]) -> list[Message]:
             break
         initial_system_msgs.append(msg)
 
-    # Pick the messages in latest-first order
+    # Also always include pinned messages beyond the initial system block
+    # (e.g. keep_head-protected task context marked pinned by auto_compact_log).
+    extra_pinned = [m for m in log[len(initial_system_msgs) :] if m.pinned]
+    extra_pinned_ids = {id(m) for m in extra_pinned}
+
+    # Reserve budget for always-included messages.
+    always_tokens = len_tokens(initial_system_msgs + extra_pinned, model.model)
+    tail_budget = max(0, model.context - always_tokens)
+
+    # Pick the non-pinned messages in latest-first order within the remaining budget.
     msgs = []
     for msg in reversed(log[len(initial_system_msgs) :]):
+        if id(msg) in extra_pinned_ids:
+            continue  # already included
         msgs.append(msg)
-        if len_tokens(msgs, model.model) > model.context:
+        if len_tokens(msgs, model.model) > tail_budget:
             break
 
     # Remove the message that put us over the limit
-    if len_tokens(msgs, model.model) > model.context:
+    if len_tokens(msgs, model.model) > tail_budget:
         # skip the last message
         msgs.pop()
 
-    result = initial_system_msgs + list(reversed(msgs))
+    # Reconstruct in original log order, preserving initial + pinned + tail selection.
+    kept_ids = (
+        {id(m) for m in initial_system_msgs} | extra_pinned_ids | {id(m) for m in msgs}
+    )
+    result = [m for m in log if id(m) in kept_ids]
 
     # Pass 1 — drop non-call_id system messages whose anchor was removed.
     # These are gptme-native tool results (markdown format, no call_id).
