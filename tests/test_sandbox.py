@@ -924,28 +924,42 @@ class TestParseSize:
 
 
 class TestApplyMemoryLimit:
+    # apply_memory_limit now prepends ["env", "-u", "BASH_ENV"] to every
+    # returned command so that bash starts with BASH_ENV unset at the
+    # process-environment level.  The returned list is always:
+    #   ["env", "-u", "BASH_ENV", <bash>, "-c", <script>, ...]
+    # so result[0:3] == ["env", "-u", "BASH_ENV"], result[3] is the bash
+    # binary, result[4] == "-c", and result[5] (or result[-1]) is the script.
+    ENV_PREFIX = ["env", "-u", "BASH_ENV"]
+
     def test_none_limit_returns_unchanged(self):
         cmd = ["bash"]
         assert apply_memory_limit(cmd, None) is cmd
 
     def test_persistent_shell_form(self):
-        # 512 MiB → 524288 KiB; hard-gate (&&) so a failed ulimit aborts the shell
+        # 512 MiB → 524288 KiB; hard-gate (&&) so a failed ulimit aborts the shell.
+        # Result: ["env", "-u", "BASH_ENV", "bash", "-c", "ulimit -v 524288 && BASH_ENV='' exec bash"]
         result = apply_memory_limit(["bash"], 512 * 1024**2)
-        assert result[0] == "bash"
-        assert result[1] == "-c"
-        assert "ulimit -v 524288" in result[2]
-        assert "exec bash" in result[2]
+        assert result[:3] == self.ENV_PREFIX
+        assert result[3] == "bash"
+        assert result[4] == "-c"
+        script = result[5]
+        assert "ulimit -v 524288" in script
+        assert "exec bash" in script
 
     def test_command_form_prepends_ulimit(self):
+        # Result: ["env", "-u", "BASH_ENV", "bash", "-c", "ulimit -v 1024 && { echo hi\n}"]
         result = apply_memory_limit(["bash", "-c", "echo hi"], 1024 * 1024)
-        assert result[0] == "bash"
-        assert result[1] == "-c"
-        assert "ulimit -v 1024" in result[2]
-        assert "echo hi" in result[2]
+        assert result[:3] == self.ENV_PREFIX
+        assert result[3] == "bash"
+        assert result[4] == "-c"
+        script = result[5]
+        assert "ulimit -v 1024" in script
+        assert "echo hi" in script
         # Script must be wrapped in a group so && gates the entire script, not
         # just its first statement (e.g. `ulimit && a; b` runs b even if ulimit fails).
-        assert "{ echo hi" in result[2]
-        assert result[2].endswith("}")
+        assert "{ echo hi" in script
+        assert script.endswith("}")
 
     def test_command_form_trailing_comment_not_swallowed(self):
         # A script ending with a # comment must not comment out the closing }.
@@ -954,7 +968,7 @@ class TestApplyMemoryLimit:
         result = apply_memory_limit(
             ["bash", "-c", "echo hi  # trailing comment"], 1024 * 1024
         )
-        script = result[2]
+        script = result[-1]
         assert "# trailing comment" in script
         # The closing brace must be on its own line, not on the comment line.
         lines = script.splitlines()
@@ -965,29 +979,47 @@ class TestApplyMemoryLimit:
 
     def test_small_limit_rounds_up_to_one_kib(self):
         result = apply_memory_limit(["bash"], 1)
-        assert "ulimit -v 1" in result[2]
-        assert "exec bash" in result[2]
+        script = result[-1]
+        assert "ulimit -v 1" in script
+        assert "exec bash" in script
 
     def test_non_kib_aligned_limit_rounds_up(self):
         # 2000 bytes is not KiB-aligned; floor gives 1 KiB (under-allocates),
         # ceiling gives 2 KiB (at least the requested amount).
         result = apply_memory_limit(["bash"], 2000)
-        assert "ulimit -v 2" in result[2]
-        assert "exec bash" in result[2]
+        script = result[-1]
+        assert "ulimit -v 2" in script
+        assert "exec bash" in script
 
     def test_uses_hard_gate_not_soft_fallback(self):
         # The prefix must use && so a failed ulimit aborts the shell rather than
         # running it unrestricted.  verify_memory_limit() surfaces failures at
         # the Python level before the shell is spawned.
         result = apply_memory_limit(["bash"], 512 * 1024**2)
-        script = result[2]
+        script = result[-1]
         assert " && " in script and "exec" in script
 
+    def test_both_forms_use_env_u_bash_env(self):
+        # Both forms must prepend env -u BASH_ENV so that bash starts with
+        # BASH_ENV unset at the OS-environment level.  Bash sources BASH_ENV
+        # before executing any -c script; without this, startup code in
+        # $BASH_ENV runs before ulimit is installed.
+        persistent = apply_memory_limit(["bash"], 512 * 1024**2)
+        one_shot = apply_memory_limit(["bash", "-c", "echo hi"], 512 * 1024**2)
+        assert persistent[:3] == self.ENV_PREFIX, (
+            "persistent form missing env -u BASH_ENV prefix"
+        )
+        assert one_shot[:3] == self.ENV_PREFIX, (
+            "one-shot form missing env -u BASH_ENV prefix"
+        )
+
     def test_persistent_form_clears_bash_env(self):
-        # BASH_ENV must be cleared before exec so a user $BASH_ENV script that
-        # resets ulimits (e.g. `ulimit -v unlimited`) cannot bypass the ceiling.
+        # The -c script must also clear BASH_ENV inline before exec so the
+        # replacement shell inherits a clean environment (belt-and-suspenders:
+        # env handles the outer shell, the inline assignment handles the exec'd
+        # shell which may have started with its own environment).
         result = apply_memory_limit(["bash"], 512 * 1024**2)
-        script = result[2]
+        script = result[-1]
         # BASH_ENV='' must appear between ulimit and exec
         ulimit_pos = script.index("ulimit")
         bash_env_pos = script.index("BASH_ENV=''")
@@ -998,9 +1030,10 @@ class TestApplyMemoryLimit:
         # apply_memory_limit(["bash", "--norc"], N) must not drop --norc so the
         # function honours its contract for callers that pass startup flags.
         result = apply_memory_limit(["bash", "--norc"], 512 * 1024**2)
-        assert result[0] == "bash"
-        assert result[1] == "-c"
-        assert "exec bash --norc" in result[2]
+        assert result[:3] == self.ENV_PREFIX
+        assert result[3] == "bash"
+        assert result[4] == "-c"
+        assert "exec bash --norc" in result[-1]
 
 
 # ---------------------------------------------------------------------------

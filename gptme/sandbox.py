@@ -212,13 +212,22 @@ def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
     before ``wrap_shell_cmd`` so firejail/bwrap run the limited shell inside
     the sandbox rather than limiting the sandbox launcher itself.
 
-    Two forms are supported:
-      - ``["bash"]``            → ``["bash", "-c", "ulimit -v N && BASH_ENV='' exec bash"]``
-      - ``["bash", "-c", "..."]`` → ``["bash", "-c", "ulimit -v N && { ...; }"]``
+    Both forms are prefixed with ``env -u BASH_ENV`` so that bash starts with
+    ``BASH_ENV`` unset in its process environment.  This prevents any user
+    startup script referenced by ``$BASH_ENV`` from running *before* the
+    ``ulimit -v`` command in the ``-c`` script, which would otherwise allow the
+    startup code to execute outside the configured ceiling.
 
-    The persistent shell form clears ``BASH_ENV`` before exec so that any
-    user ``$BASH_ENV`` script that resets limits (e.g. ``ulimit -v unlimited``)
-    cannot silently bypass the configured ceiling in the replacement shell.
+    Two forms are supported:
+      - ``["bash"]``            → ``["env", "-u", "BASH_ENV", "bash", "-c",
+                                    "ulimit -v N && BASH_ENV='' exec bash"]``
+      - ``["bash", "-c", "..."]`` → ``["env", "-u", "BASH_ENV", "bash", "-c",
+                                       "ulimit -v N && { ...; }"]``
+
+    The persistent shell form additionally clears ``BASH_ENV`` inline before
+    exec so the replacement shell also inherits a clean environment (belt and
+    suspenders: env handles the outer shell, the inline assignment handles the
+    exec'd shell).
     """
     if limit is None or not cmd:
         return cmd
@@ -229,19 +238,24 @@ def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
     # running unrestricted.  Call verify_memory_limit() before spawning so
     # failures surface at the Python level with a clear message.
     prefix = f"ulimit -v {kib} && "
+    # Prepend `env -u BASH_ENV` so bash starts with BASH_ENV unset at the
+    # process-environment level.  Bash sources BASH_ENV before executing any
+    # -c script, so without this, startup code in $BASH_ENV would run before
+    # ulimit is installed and could allocate memory outside the ceiling.
+    env_prefix = ["env", "-u", "BASH_ENV"]
     if len(cmd) >= 3 and cmd[1] == "-c":
         # Wrap in a group so && gates the entire user script, not just its first
         # statement (shell parses `ulimit -v N && a; b` as `(ulimit && a); b`).
         # Use a newline before } so a trailing # comment in cmd[2] doesn't
         # comment out the closing brace.
-        return [cmd[0], cmd[1], prefix + "{ " + cmd[2] + "\n}", *cmd[3:]]
+        return [*env_prefix, cmd[0], cmd[1], prefix + "{ " + cmd[2] + "\n}", *cmd[3:]]
     # Persistent shell form: re-exec the shell so the limit applies to it and
-    # every child it spawns.  Clear BASH_ENV first so any user script that
-    # resets ulimits cannot bypass the configured ceiling in the exec'd shell.
+    # every child it spawns.  Clear BASH_ENV inline before exec as well so the
+    # replacement shell also has no BASH_ENV to source on startup.
     # Preserve all original arguments (e.g. --norc) in the exec'd shell so the
     # function honours its contract for any future caller that passes extra flags.
     exec_cmd = " ".join(shlex.quote(a) for a in cmd)
-    return [cmd[0], "-c", f"{prefix}BASH_ENV='' exec {exec_cmd}"]
+    return [*env_prefix, cmd[0], "-c", f"{prefix}BASH_ENV='' exec {exec_cmd}"]
 
 
 def verify_memory_limit(limit: int) -> None:
