@@ -433,9 +433,9 @@ class TestValidateApiKeyStatus:
         mock_response.raise_for_status.side_effect = requests.HTTPError(
             response=mock_response
         )
-        mock_validate.return_value = (False, "API returned status 503")
-        # The helper would call raise_for_status() and propagate HTTPError;
-        # simulate that path directly.
+        # The helper calls raise_for_status() and propagates HTTPError;
+        # side_effect makes the mock raise directly (return_value is unused
+        # when side_effect is set, so only side_effect is configured here).
         mock_validate.side_effect = requests.HTTPError(response=mock_response)
         status, message = validate_api_key_status("sk-key", "openai")
         assert status is ApiKeyValidationStatus.UNREACHABLE
