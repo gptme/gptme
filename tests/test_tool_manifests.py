@@ -110,3 +110,67 @@ def test_load_task_manifest_rejects_path_injection(
 
     with pytest.raises(ValueError, match=match):
         load_task_manifest("research", tmp_path)
+
+
+def test_load_task_manifest_with_builtin_tools(tmp_path: Path):
+    """builtin_tools field produces an explicit allowlist (non-additive)."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review",'
+        '"builtin_tools":["read","grep","glob"],'
+        '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    manifest = load_task_manifest("code_review", tmp_path)
+
+    assert manifest.builtin_tools == ("read", "grep", "glob")
+    assert manifest.tool_names == ("github.search_code",)
+    assert manifest.all_tool_names == ("read", "grep", "glob", "github.search_code")
+
+
+def test_load_task_manifest_without_builtin_tools(tmp_path: Path):
+    """When builtin_tools is absent, builtin_tools is an empty tuple."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    manifest = load_task_manifest("research", tmp_path)
+
+    assert manifest.builtin_tools == ()
+    assert manifest.all_tool_names == ("github.search_code",)
+
+
+def test_load_task_manifest_rejects_invalid_builtin_tool_name(tmp_path: Path):
+    """builtin_tools entries must be simple identifier-like names."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research",'
+        '"builtin_tools":["read","../evil.py"],'
+        '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must match"):
+        load_task_manifest("research", tmp_path)
+
+
+def test_load_task_manifest_deduplicates_builtin_tools(tmp_path: Path):
+    """Duplicate builtin_tools entries are silently deduplicated."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research",'
+        '"builtin_tools":["read","grep","read"],'
+        '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    manifest = load_task_manifest("research", tmp_path)
+
+    assert manifest.builtin_tools == ("read", "grep")
