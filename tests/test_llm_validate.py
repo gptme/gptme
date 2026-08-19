@@ -389,3 +389,23 @@ class TestValidateApiKeyStatus:
         """Providers without validation should map to UNSUPPORTED."""
         status, _ = validate_api_key_status("some-key", "azure")
         assert status is ApiKeyValidationStatus.UNSUPPORTED
+
+    @patch("gptme.llm.validate._validate_openai")
+    def test_server_error_returns_unreachable(self, mock_validate):
+        """A 5xx from the provider should map to UNREACHABLE, not INVALID.
+
+        A provider outage is not proof that the key is bad — the save must not
+        be blocked.
+        """
+        mock_response = Mock()
+        mock_response.status_code = 503
+        mock_response.raise_for_status.side_effect = requests.HTTPError(
+            response=mock_response
+        )
+        mock_validate.return_value = (False, "API returned status 503")
+        # The helper would call raise_for_status() and propagate HTTPError;
+        # simulate that path directly.
+        mock_validate.side_effect = requests.HTTPError(response=mock_response)
+        status, message = validate_api_key_status("sk-key", "openai")
+        assert status is ApiKeyValidationStatus.UNREACHABLE
+        assert "503" in message

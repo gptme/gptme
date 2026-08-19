@@ -25,7 +25,7 @@ from gptme.__version__ import __version__
 # Increment CONTRACT_REVISION for additive (backward-compatible) changes;
 # increment API_VERSION and update the URL prefix for breaking changes.
 API_VERSION = 2
-CONTRACT_REVISION = 1
+CONTRACT_REVISION = 2
 
 logger = logging.getLogger(__name__)
 

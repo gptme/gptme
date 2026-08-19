@@ -156,6 +156,13 @@ def validate_api_key_status(
             ApiKeyValidationStatus.UNREACHABLE,
             "Could not connect to the API. Please check your network.",
         )
+    except requests.exceptions.HTTPError as e:
+        # 5xx from the provider — server is reachable but broken; not a key rejection.
+        status_code = e.response.status_code if e.response is not None else "unknown"
+        return (
+            ApiKeyValidationStatus.UNREACHABLE,
+            f"Provider returned server error {status_code}. Please try again later.",
+        )
     except requests.exceptions.RequestException as e:
         logger.exception(f"Unexpected error validating {provider} API key")
         return ApiKeyValidationStatus.UNREACHABLE, f"Validation failed: {e}"
@@ -176,7 +183,9 @@ def _validate_openai(api_key: str, timeout: int) -> tuple[bool, str]:
     if response.status_code == 429:
         # Rate limited but key is valid
         return True, ""
-    return _http_status_error(response.status_code)
+    if response.status_code >= 500:
+        response.raise_for_status()
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -236,7 +245,9 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
     if response.status_code == 429:
         # Rate limited but key is valid
         return True, ""
-    return _http_status_error(response.status_code)
+    if response.status_code >= 500:
+        response.raise_for_status()
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_openrouter(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -257,7 +268,9 @@ def _validate_openrouter(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    return _http_status_error(response.status_code)
+    if response.status_code >= 500:
+        response.raise_for_status()
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_openai_compatible(
@@ -278,7 +291,9 @@ def _validate_openai_compatible(
         return False, "API key forbidden. It may lack required permissions."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    return _http_status_error(response.status_code)
+    if response.status_code >= 500:
+        response.raise_for_status()
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_google(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -302,7 +317,9 @@ def _validate_google(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "API key forbidden. It may lack required permissions."
     if response.status_code == 429:
         return True, ""
-    return _http_status_error(response.status_code)
+    if response.status_code >= 500:
+        response.raise_for_status()
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_groq(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -319,7 +336,9 @@ def _validate_groq(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    return _http_status_error(response.status_code)
+    if response.status_code >= 500:
+        response.raise_for_status()
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_deepseek(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -336,7 +355,9 @@ def _validate_deepseek(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    return _http_status_error(response.status_code)
+    if response.status_code >= 500:
+        response.raise_for_status()
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_xai(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -353,4 +374,6 @@ def _validate_xai(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    return _http_status_error(response.status_code)
+    if response.status_code >= 500:
+        response.raise_for_status()
+    return False, f"API returned status {response.status_code}"
