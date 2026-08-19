@@ -3,6 +3,7 @@ from __future__ import annotations
 import atexit
 import importlib
 import importlib.metadata as _ilm
+import json
 import logging
 import os
 import select
@@ -1553,7 +1554,9 @@ def main(
                 logger.error(
                     f"  at {last_frame.filename}:{last_frame.lineno} in {last_frame.name}"
                 )
-        sys.exit(1)
+        error_class, exit_code = _classify_fatal_error(e)
+        _write_terminal_error_to_log(logdir, error_class, exit_code, str(e))
+        sys.exit(exit_code)
     finally:
         shutdown_telemetry()
         if get_config().get_env_bool("GPTME_EXIT_STATS"):
@@ -1699,6 +1702,79 @@ def _cleanup_aborted_new_logdir(logdir: Path, *, preexisting: bool) -> None:
         shutil.rmtree(logdir)
     except OSError:
         pass
+
+
+# Exit codes for non-interactive fatal failures (documented in docs/cli.rst).
+# These mirror POSIX sysexits.h conventions where applicable.
+EXIT_RATE_LIMIT = 75  # EX_TEMPFAIL — quota exhausted, retry later
+EXIT_AUTH_ERROR = 76  # EX_PROTOCOL — credential / permission problem
+EXIT_MODEL_UNAVAIL = 77  # EX_NOPERM   — model/service not reachable
+
+
+def _classify_fatal_error(e: BaseException) -> tuple[str, int]:
+    """Classify a fatal exception into (error_class, exit_code).
+
+    Returns a string class name and an exit code.  The default for
+    unclassified exceptions is ("generic", 1) to preserve the existing
+    behaviour.
+    """
+    etype = type(e).__name__
+    emsg = str(e)
+    emsg_lower = emsg.lower()
+
+    # Rate-limit / quota exhausted — temporary, retry later (exit 75)
+    if etype == "RateLimitError" or (
+        "429" in emsg
+        and (
+            "rate" in emsg_lower
+            or "usage_limit_reached" in emsg_lower
+            or "quota" in emsg_lower
+        )
+    ):
+        return "rate_limit", EXIT_RATE_LIMIT
+
+    # Authentication / permission denied — needs credential update (exit 76)
+    if etype in ("AuthenticationError", "PermissionDeniedError", "GptmeAuthError") or (
+        ("401" in emsg or "403" in emsg) and "api error" in emsg_lower
+    ):
+        return "auth_error", EXIT_AUTH_ERROR
+
+    # Model / service unavailable — 404 or 503 response (exit 77)
+    if (
+        "404" in emsg or "503" in emsg or "model_unavailable" in emsg_lower
+    ) and "api error" in emsg_lower:
+        return "model_unavailable", EXIT_MODEL_UNAVAIL
+
+    return "generic", 1
+
+
+def _write_terminal_error_to_log(
+    logdir: Path, error_class: str, exit_code: int, message: str
+) -> None:
+    """Append a terminal error system message to the conversation log.
+
+    This gives machine-readable evidence of the failure in the same
+    ``conversation.jsonl`` that callers inspect for assistant output, instead
+    of silently ending the log at the user prompt.
+    """
+    log_file = logdir / "conversation.jsonl"
+    if not logdir.exists():
+        return
+    event = {
+        "role": "system",
+        "content": f"error: {error_class}\n{message}",
+        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        "metadata": {
+            "error": True,
+            "error_class": error_class,
+            "exit_code": exit_code,
+        },
+    }
+    try:
+        with open(log_file, "a") as f:
+            f.write(json.dumps(event) + "\n")
+    except OSError:
+        pass  # best-effort — don't mask the original failure
 
 
 def _read_stdin() -> str:
