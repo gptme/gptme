@@ -65,6 +65,17 @@ class TestValidateApiKey:
             "moonshot-test", 10, "https://api.moonshot.ai/v1"
         )
 
+    @patch("gptme.llm.validate._validate_openai", side_effect=requests.ConnectionError)
+    def test_unreachable_provider_returns_true(self, mock_validate):
+        """UNREACHABLE must map to True in the boolean wrapper.
+
+        A transient network blip must not lock a CLI user out of saving a key
+        they know is good — the same policy the server BYOK endpoint applies.
+        """
+        is_valid, message = validate_api_key("sk-ok", "openai")
+        assert is_valid, "UNREACHABLE should allow save (warn but not block)"
+        assert "network" in message.lower() or "connect" in message.lower()
+
 
 class TestValidateOpenAI:
     """Tests for OpenAI API key validation."""

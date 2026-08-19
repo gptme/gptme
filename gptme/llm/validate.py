@@ -84,14 +84,18 @@ def validate_api_key(
     Returns:
         Tuple of (is_valid, error_message)
         - (True, "") if valid
-        - (False, "error description") if invalid
+        - (True, "warning message") if provider unreachable (warn but allow)
+        - (False, "error description") if definitively invalid
     """
     status, message = validate_api_key_status(api_key, provider, timeout=timeout)
     # UNSUPPORTED providers (azure, local, custom) historically counted as
     # valid because there is no key to reject — preserve that for CLI callers.
+    # UNREACHABLE also counts as "allow" — a transient network blip must not
+    # lock a CLI user out of saving a key they know is good.
     return status in (
         ApiKeyValidationStatus.VALID,
         ApiKeyValidationStatus.UNSUPPORTED,
+        ApiKeyValidationStatus.UNREACHABLE,
     ), message
 
 
