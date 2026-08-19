@@ -183,7 +183,7 @@ def _validate_openai(api_key: str, timeout: int) -> tuple[bool, str]:
     if response.status_code == 429:
         # Rate limited but key is valid
         return True, ""
-    if response.status_code >= 500:
+    if response.status_code == 408 or response.status_code >= 500:
         response.raise_for_status()
     return False, f"API returned status {response.status_code}"
 
@@ -245,7 +245,7 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
     if response.status_code == 429:
         # Rate limited but key is valid
         return True, ""
-    if response.status_code >= 500:
+    if response.status_code == 408 or response.status_code >= 500:
         response.raise_for_status()
     return False, f"API returned status {response.status_code}"
 
@@ -268,7 +268,7 @@ def _validate_openrouter(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    if response.status_code >= 500:
+    if response.status_code == 408 or response.status_code >= 500:
         response.raise_for_status()
     return False, f"API returned status {response.status_code}"
 
@@ -317,7 +317,7 @@ def _validate_google(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "API key forbidden. It may lack required permissions."
     if response.status_code == 429:
         return True, ""
-    if response.status_code >= 500:
+    if response.status_code == 408 or response.status_code >= 500:
         response.raise_for_status()
     return False, f"API returned status {response.status_code}"
 
@@ -336,7 +336,7 @@ def _validate_groq(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    if response.status_code >= 500:
+    if response.status_code == 408 or response.status_code >= 500:
         response.raise_for_status()
     return False, f"API returned status {response.status_code}"
 
@@ -355,7 +355,7 @@ def _validate_deepseek(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    if response.status_code >= 500:
+    if response.status_code == 408 or response.status_code >= 500:
         response.raise_for_status()
     return False, f"API returned status {response.status_code}"
 
@@ -374,6 +374,6 @@ def _validate_xai(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    if response.status_code >= 500:
+    if response.status_code == 408 or response.status_code >= 500:
         response.raise_for_status()
     return False, f"API returned status {response.status_code}"

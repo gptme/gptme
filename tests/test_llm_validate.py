@@ -391,6 +391,20 @@ class TestValidateApiKeyStatus:
         assert status is ApiKeyValidationStatus.UNSUPPORTED
 
     @patch("gptme.llm.validate._validate_openai")
+    def test_408_request_timeout_returns_unreachable(self, mock_validate):
+        """HTTP 408 (Request Timeout) must map to UNREACHABLE, not INVALID.
+
+        A server-side timeout is a transient condition — it does not mean the
+        key is bad.  Without this fix, 408 fell through the status branches and
+        returned False → INVALID, blocking the save with a 400 error.
+        """
+        mock_response = Mock()
+        mock_response.status_code = 408
+        mock_validate.side_effect = requests.HTTPError(response=mock_response)
+        status, message = validate_api_key_status("sk-key", "openai")
+        assert status is ApiKeyValidationStatus.UNREACHABLE
+
+    @patch("gptme.llm.validate._validate_openai")
     def test_server_error_returns_unreachable(self, mock_validate):
         """A 5xx from the provider should map to UNREACHABLE, not INVALID.
 
