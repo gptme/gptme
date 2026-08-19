@@ -276,19 +276,29 @@ def init(
                 click.echo(
                     f"  Disabling loaded timer unit {name}.timer (on-demand mode, --force)"
                 )
-                result = subprocess.run(
-                    ["systemctl", "--user", "disable", "--now", f"{name}.timer"],
-                    check=False,  # best-effort; unit may not be enabled
-                )
-                if result.returncode != 0:
+                try:
+                    result = subprocess.run(
+                        ["systemctl", "--user", "disable", "--now", f"{name}.timer"],
+                        check=False,  # best-effort; unit may not be enabled
+                    )
+                except FileNotFoundError:
                     click.echo(
-                        f"  Warning: could not disable {name}.timer "
-                        "(unit may not be enabled/loaded). "
-                        "Periodic runs may continue until the next daemon-reload.",
+                        f"  Warning: systemctl not found; cannot disable {name}.timer. "
+                        "Remove the timer file manually and run "
+                        "'systemctl --user daemon-reload' to clear the unit.",
                         err=True,
                     )
-                stale_timer.unlink()
-                click.echo(f"  Removed stale timer file {stale_timer}")
+                else:
+                    if result.returncode != 0:
+                        click.echo(
+                            f"  Warning: could not disable {name}.timer "
+                            "(unit may not be enabled/loaded). "
+                            "Periodic runs may continue until the next daemon-reload.",
+                            err=True,
+                        )
+                    else:
+                        stale_timer.unlink()
+                        click.echo(f"  Removed stale timer file {stale_timer}")
             else:
                 click.echo(
                     f"  Warning: existing timer {stale_timer} preserved (use --force to remove)."

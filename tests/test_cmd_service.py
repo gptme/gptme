@@ -122,12 +122,13 @@ def test_on_demand_preserves_existing_timer_without_force(tmp_path: Path) -> Non
     )
 
 
-def test_on_demand_removes_existing_timer_with_force(tmp_path: Path) -> None:
+def test_on_demand_force_removes_timer_when_disable_succeeds(tmp_path: Path) -> None:
     """Switching to on-demand WITH --force should disable-then-remove an existing timer.
 
     The unit must be disabled BEFORE the file is removed so that systemd can
     still resolve the unit name during ``disable --now``.  We mock subprocess.run
-    to capture the disable call and verify it fires while the file is still present.
+    to capture the disable call (returncode=0) and verify it fires while the file
+    is still present, after which the file is removed.
     """
     from unittest.mock import MagicMock, patch
 
@@ -141,7 +142,7 @@ def test_on_demand_removes_existing_timer_with_force(tmp_path: Path) -> None:
         # Record whether the timer file existed when systemctl disable was called
         if "disable" in cmd:
             disable_call_saw_file.append(timer.exists())
-        return MagicMock(returncode=1)  # simulate unit-not-found (best-effort)
+        return MagicMock(returncode=0)  # simulate successful disable
 
     out_dir = tmp_path / "systemd"
     runner = CliRunner()
@@ -163,16 +164,97 @@ def test_on_demand_removes_existing_timer_with_force(tmp_path: Path) -> None:
         )
     assert result.exit_code == 0, result.output
 
-    assert not timer.exists(), "existing timer should be removed with --force"
+    assert not timer.exists(), (
+        "existing timer should be removed with --force when disable succeeds"
+    )
     assert disable_call_saw_file, (
         "systemctl disable must be called during --force cleanup"
     )
     assert all(disable_call_saw_file), (
         "systemctl disable must be called BEFORE the timer file is removed"
     )
-    # When disable returns non-zero (unit not enabled), a warning should be emitted.
+
+
+def test_on_demand_force_preserves_timer_when_disable_fails(tmp_path: Path) -> None:
+    """When disable --now returns nonzero, the timer file must be preserved.
+
+    Removing the file after a failed disable makes the loaded unit unresolvable
+    and harder to stop later.  A warning must be emitted so the operator knows
+    periodic runs may continue.
+    """
+    from unittest.mock import MagicMock, patch
+
+    _run_init(tmp_path)
+    timer = tmp_path / "systemd" / "testagent.timer"
+    assert timer.exists()
+
+    out_dir = tmp_path / "systemd"
+    runner = CliRunner()
+    with patch(
+        "gptme.cli.cmd_service.subprocess.run",
+        return_value=MagicMock(returncode=1),
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--name",
+                "testagent",
+                "--work-dir",
+                str(tmp_path),
+                "--output-dir",
+                str(out_dir),
+                "--timer-schedule",
+                "on-demand",
+                "--force",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+
+    assert timer.exists(), "timer file must be preserved when disable fails"
     assert "Warning" in result.output, (
         "a warning should be printed when systemctl disable fails"
+    )
+
+
+def test_on_demand_force_handles_missing_systemctl(tmp_path: Path) -> None:
+    """When systemctl is not available, scaffolding must continue without crashing.
+
+    The timer file should be preserved and a clear warning emitted.
+    """
+    from unittest.mock import patch
+
+    _run_init(tmp_path)
+    timer = tmp_path / "systemd" / "testagent.timer"
+    assert timer.exists()
+
+    out_dir = tmp_path / "systemd"
+    runner = CliRunner()
+    with patch(
+        "gptme.cli.cmd_service.subprocess.run",
+        side_effect=FileNotFoundError("systemctl not found"),
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--name",
+                "testagent",
+                "--work-dir",
+                str(tmp_path),
+                "--output-dir",
+                str(out_dir),
+                "--timer-schedule",
+                "on-demand",
+                "--force",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert timer.exists(), "timer file must be preserved when systemctl is unavailable"
+    assert "Warning" in result.output, "must warn when systemctl is not found"
+    # Scaffold must complete (workspace files still generated)
+    assert (tmp_path / "gptme.toml").exists(), (
+        "scaffolding must continue despite missing systemctl"
     )
 
 
