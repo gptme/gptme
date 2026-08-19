@@ -20,6 +20,7 @@ After generation, run:
 from __future__ import annotations
 
 import logging
+import subprocess
 from pathlib import Path
 
 import click
@@ -270,14 +271,17 @@ def init(
         stale_timer = out_dir / f"{name}.timer"
         if stale_timer.exists():
             if force:
+                # Disable the unit BEFORE removing the file so systemd can
+                # resolve and stop the unit while the file is still present.
+                click.echo(
+                    f"  Disabling loaded timer unit {name}.timer (on-demand mode, --force)"
+                )
+                subprocess.run(
+                    ["systemctl", "--user", "disable", "--now", f"{name}.timer"],
+                    check=False,  # best-effort; unit may not be enabled
+                )
                 stale_timer.unlink()
-                click.echo(
-                    f"  Removed stale timer {stale_timer} (on-demand mode, --force)"
-                )
-                click.echo(
-                    "  Note: the unit may still be loaded — disable it to stop active runs:"
-                )
-                click.echo(f"    systemctl --user disable --now {name}.timer")
+                click.echo(f"  Removed stale timer file {stale_timer}")
             else:
                 click.echo(
                     f"  Warning: existing timer {stale_timer} preserved (use --force to remove)."

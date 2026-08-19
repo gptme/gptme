@@ -123,13 +123,36 @@ def test_on_demand_preserves_existing_timer_without_force(tmp_path: Path) -> Non
 
 
 def test_on_demand_removes_existing_timer_with_force(tmp_path: Path) -> None:
-    """Switching to on-demand WITH --force should remove an existing timer."""
+    """Switching to on-demand WITH --force should disable-then-remove an existing timer.
+
+    The unit must be disabled BEFORE the file is removed so that systemd can
+    still resolve the unit name during ``disable --now``.  We mock subprocess.run
+    to capture the disable call and verify it fires while the file is still present.
+    """
+    from unittest.mock import MagicMock, patch
+
     _run_init(tmp_path)
     timer = tmp_path / "systemd" / "testagent.timer"
     assert timer.exists()
 
-    _run_init(tmp_path, "--timer-schedule", "on-demand", "--force")
+    disable_call_saw_file: list[bool] = []
+
+    def _mock_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        # Record whether the timer file existed when systemctl disable was called
+        if "disable" in cmd:
+            disable_call_saw_file.append(timer.exists())
+        return MagicMock(returncode=1)  # simulate unit-not-found (best-effort)
+
+    with patch("gptme.cli.cmd_service.subprocess.run", side_effect=_mock_run):
+        _run_init(tmp_path, "--timer-schedule", "on-demand", "--force")
+
     assert not timer.exists(), "existing timer should be removed with --force"
+    assert disable_call_saw_file, (
+        "systemctl disable must be called during --force cleanup"
+    )
+    assert all(disable_call_saw_file), (
+        "systemctl disable must be called BEFORE the timer file is removed"
+    )
 
 
 def test_force_overwrites_existing(tmp_path: Path) -> None:
