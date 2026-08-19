@@ -309,8 +309,10 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     "grok-subscription": _mark_subscription(
         {
             # grok-4.6 — current frontier model on SuperGrok subscription and
-            # the grok CLI default (grok CLI 0.2.117, 2026-08). Context/output
-            # assumed equal to grok-4.5 until xAI publishes the model card.
+            # the grok CLI default (grok CLI 0.2.117, 2026-08).
+            # https://docs.x.ai/developers/models/grok-4.6 — 500K context,
+            # text+image input, reasoning, function calling, structured outputs.
+            # $2/$6 per 1M below 200K prompt tokens ($4/$12 above; $0.50 cached).
             "grok-4.6": {
                 "context": 500_000,
                 "max_output": 128_000,
