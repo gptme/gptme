@@ -3075,7 +3075,7 @@ def api_user():
         "Persist a provider API key into the user's global gptme config. "
         "The key is checked against the provider before it is written, so an "
         "invalid key is rejected with 422 rather than saved; "
-        "provider connectivity failures return 502. "
+        "provider connectivity failures save the key with a 200 and a warning field. "
         "Intended for first-run onboarding flows; callers should restart the "
         "server after a successful write if they need the running process to "
         "pick the key up immediately."

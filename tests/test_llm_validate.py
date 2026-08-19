@@ -126,7 +126,9 @@ class TestValidateGoogle:
     @patch("gptme.llm.validate.requests.get")
     def test_provider_unavailable_raises_http_error(self, mock_get):
         """5xx responses raise HTTPError so the tri-state wrapper maps them to UNREACHABLE."""
-        mock_get.return_value = Mock(status_code=500)
+        mock_response = Mock(status_code=500)
+        mock_response.raise_for_status.side_effect = requests.HTTPError()
+        mock_get.return_value = mock_response
         with pytest.raises(requests.HTTPError):
             _validate_google("some-key", 10)
 
@@ -314,7 +316,9 @@ class TestValidateOpenAICompatible:
     @patch("gptme.llm.validate.requests.get")
     def test_5xx_raises_http_error(self, mock_get):
         """A 5xx must raise HTTPError so the tri-state wrapper maps it to UNREACHABLE."""
-        mock_get.return_value = Mock(status_code=503)
+        mock_response = Mock(status_code=503)
+        mock_response.raise_for_status.side_effect = requests.HTTPError()
+        mock_get.return_value = mock_response
         with pytest.raises(requests.HTTPError):
             _validate_openai_compatible("test-key", 10, "https://example.com/v1/")
 
