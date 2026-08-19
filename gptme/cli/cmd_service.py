@@ -20,10 +20,15 @@ After generation, run:
 from __future__ import annotations
 
 import logging
+import re
+import shlex
 import subprocess
 from pathlib import Path
 
 import click
+
+# Allowed characters for the agent name: matches systemd unit-name conventions.
+_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +40,6 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=%u
 WorkingDirectory={work_dir}
 Environment=GPTME_AGENT_NAME={name}
 Environment=GPTME_AGENT_MODEL={model}
@@ -77,7 +81,7 @@ STARTUP_SCRIPT_TEMPLATE = """\
 set -euo pipefail
 
 AGENT_NAME="{name}"
-WORK_DIR="{work_dir}"
+WORK_DIR={work_dir}
 JOURNAL_DIR="$WORK_DIR/journal/$(date +%Y-%m-%d)"
 
 mkdir -p "$JOURNAL_DIR"
@@ -253,6 +257,13 @@ def init(
         systemctl --user daemon-reload
         systemctl --user enable --now myagent.timer
     """
+    if not _NAME_RE.match(name):
+        raise click.BadParameter(
+            f"Name {name!r} contains invalid characters. "
+            "Only letters, digits, hyphens, and underscores are allowed.",
+            param_hint="'--name'",
+        )
+
     work = _resolve_work_dir(work_dir)
     out_dir = Path(output_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -331,7 +342,7 @@ def init(
     startup = work / "gptme-agent-run.sh"
     written = _write_file(
         startup,
-        STARTUP_SCRIPT_TEMPLATE.format(name=name, work_dir=work),
+        STARTUP_SCRIPT_TEMPLATE.format(name=name, work_dir=shlex.quote(str(work))),
         force=force,
     )
     if written:

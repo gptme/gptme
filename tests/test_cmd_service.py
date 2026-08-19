@@ -267,3 +267,38 @@ def test_force_overwrites_existing(tmp_path: Path) -> None:
     # With --force, it is overwritten.
     _run_init(tmp_path, "--force")
     assert (tmp_path / "gptme.toml").read_text() != "changed"
+
+
+def test_invalid_name_rejected(tmp_path: Path) -> None:
+    """Names with shell metacharacters or spaces must be rejected at the CLI level."""
+    from click.testing import CliRunner
+
+    runner = CliRunner()
+    for bad_name in ['x"; touch /tmp/pwned; #', "my agent", "a/b", "foo@bar"]:
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--name",
+                bad_name,
+                "--work-dir",
+                str(tmp_path),
+                "--output-dir",
+                str(tmp_path / "systemd"),
+            ],
+        )
+        assert result.exit_code != 0, (
+            f"should reject invalid name {bad_name!r}, got exit 0"
+        )
+        assert "invalid characters" in result.output.lower(), (
+            f"should report invalid characters for {bad_name!r}"
+        )
+
+
+def test_service_unit_has_no_user_directive(tmp_path: Path) -> None:
+    """The generated service unit must not contain 'User=' (invalid in user units)."""
+    _run_init(tmp_path)
+    service_text = (tmp_path / "systemd" / "testagent.service").read_text()
+    assert "User=" not in service_text, (
+        "User= directive is not supported in systemd user units and must not be generated"
+    )
