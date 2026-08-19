@@ -1013,6 +1013,27 @@ class TestApplyMemoryLimit:
             "one-shot form missing env -u BASH_ENV prefix"
         )
 
+    def test_hard_limit_set_before_soft_limit(self):
+        # Both forms must set the hard limit (ulimit -H -v) before the soft
+        # limit so subprocesses cannot raise the soft limit back to unlimited
+        # via `ulimit -v unlimited`.  Hard-limit lowering is best-effort
+        # (suppressed with 2>/dev/null) so pre-existing lower hard limits are
+        # respected; the soft-limit command still fails fast if kib > hard.
+        persistent = apply_memory_limit(["bash"], 512 * 1024**2)
+        one_shot = apply_memory_limit(["bash", "-c", "echo hi"], 512 * 1024**2)
+        for name, result in (("persistent", persistent), ("one-shot", one_shot)):
+            script = result[-1]
+            hard_pos = script.index("ulimit -H -v ")
+            soft_pos = script.index("ulimit -v ", hard_pos + 1)
+            assert hard_pos < soft_pos, (
+                f"{name} form: hard-limit command must precede soft-limit command"
+            )
+            # Hard limit is best-effort (2>/dev/null) so a pre-existing lower
+            # hard limit doesn't crash the shell; the soft ulimit gates the &&.
+            assert "2>/dev/null" in script[hard_pos:soft_pos], (
+                f"{name} form: ulimit -H -v must be followed by 2>/dev/null"
+            )
+
     def test_persistent_form_clears_bash_env(self):
         # The -c script must also clear BASH_ENV inline before exec so the
         # replacement shell inherits a clean environment (belt-and-suspenders:

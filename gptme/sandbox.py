@@ -234,10 +234,13 @@ def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
     kib = max(
         1, (limit + 1023) // 1024
     )  # ulimit -v is in KiB; ceil so applied limit ≥ requested
-    # Hard-gate: if ulimit -v fails at runtime the shell aborts rather than
-    # running unrestricted.  Call verify_memory_limit() before spawning so
-    # failures surface at the Python level with a clear message.
-    prefix = f"ulimit -v {kib} && "
+    # Set both the hard and soft RLIMIT_AS so subprocesses cannot raise the
+    # soft limit back to unlimited via `ulimit -v unlimited`.  The hard limit
+    # is lowered first (best-effort; suppressed if it is already below kib, in
+    # which case verify_memory_limit will have caught the unsatisfiable config
+    # before we get here).  The soft limit is then set to the same value and
+    # gates the user command via &&.
+    prefix = f"ulimit -H -v {kib} 2>/dev/null; ulimit -v {kib} && "
     # Prepend `env -u BASH_ENV` so bash starts with BASH_ENV unset at the
     # process-environment level.  Bash sources BASH_ENV before executing any
     # -c script, so without this, startup code in $BASH_ENV would run before
@@ -259,16 +262,18 @@ def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
 
 
 def verify_memory_limit(limit: int) -> None:
-    """Verify that ``ulimit -v`` can apply *limit* bytes on this system.
+    """Verify that both the hard and soft ``ulimit -v`` can be applied on this system.
 
-    Raises ``ValueError`` if the limit cannot be applied (e.g. it exceeds the
-    hard limit or ``ulimit -v`` is unavailable).  Call this before spawning a
-    shell so failures surface at the Python level — an informative error —
-    rather than silently leaving the shell unrestricted.
+    Sets the hard limit first (best-effort) then the soft limit so the check
+    mirrors the actual prefix used in ``apply_memory_limit``.  Raises
+    ``ValueError`` if either step fails — for example, if *limit* exceeds the
+    current system hard limit and we cannot lower it.  Call this before
+    spawning a shell so failures surface at the Python level — an informative
+    error — rather than silently leaving the shell unrestricted.
     """
     kib = max(1, (limit + 1023) // 1024)
     result = subprocess.run(
-        ["bash", "-c", f"ulimit -v {kib}"],
+        ["bash", "-c", f"ulimit -H -v {kib} 2>/dev/null; ulimit -v {kib}"],
         capture_output=True,
         timeout=5,
         check=False,
