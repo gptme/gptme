@@ -951,11 +951,13 @@ class TestGetModelIntegration:
         assert model.provider == "nvidia"
         assert model.default_tool_format == "tool"
 
-    def test_gptme_with_no_dynamic_match_returns_tool_format(self):
+    @patch("gptme.llm.models.listing._get_models_for_provider", return_value=[])
+    def test_gptme_with_no_dynamic_match_returns_tool_format(self, _mock_fetch):
         """gptme provider falls back to tool format when dynamic fetch misses.
 
         gptme.ai proxies to various backends, but the client itself talks to it
         via the OpenAI-compatible API — same fallback as azure/local/nvidia.
+        Mock the dynamic fetch so this stays hermetic (no real network request).
         """
         model = get_model("gptme/totally-unknown-model-xyz")
         assert model.provider == "gptme"
