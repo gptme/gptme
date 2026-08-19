@@ -108,6 +108,26 @@ The ``settings`` section contains user-level CLI defaults. Currently supported:
     [settings]
     gear = 2
 
+- ``tool_select_by_app``: Map of application-name glob to tool allowlist, used by
+  ``gptme --tool-select-by-app``. When that flag is passed, gptme asks a local
+  `ActivityWatch <https://activitywatch.net/>`_ server which application is focused
+  and loads the first matching rule's tools instead of the default set. Keys are
+  case-insensitive globs and are evaluated in declaration order, so put specific
+  patterns first.
+
+.. code-block:: toml
+
+    [settings.tool_select_by_app]
+    "*firefox*" = ["browser", "read"]
+    "code" = ["shell", "read", "save", "patch"]
+
+The flag is a *last* fallback: an explicit ``--tools``/``-t``, the
+``TOOL_ALLOWLIST`` env var, and a per-chat tool list all take precedence. If
+ActivityWatch is unreachable, has recorded no window events, or no rule matches
+the focused app, gptme falls back to the default toolset. The ActivityWatch
+server URL defaults to ``http://localhost:5600`` and can be overridden with the
+``AW_SERVER_URL`` env var. gptme only reads from ActivityWatch; it never writes.
+
 .. _how-model-selection-works:
 
 How model selection works

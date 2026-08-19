@@ -211,6 +211,11 @@ class SettingsConfig:
 
     gear: int | None = None
 
+    # Map of app-name glob -> tool allowlist, used by --tool-select-by-app.
+    # Keys are case-insensitive globs matched against the focused application
+    # reported by ActivityWatch; first match wins.
+    tool_select_by_app: dict[str, list[str]] = field(default_factory=dict)
+
 
 @dataclass
 class UserConfig:

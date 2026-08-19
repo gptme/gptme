@@ -157,6 +157,38 @@ def _init_single_tool(tool: ToolSpec) -> ToolSpec:
     return tool
 
 
+def _tool_select_by_app_rules(config) -> dict[str, list[str]]:
+    """Merged [settings].tool_select_by_app rules (project overrides user)."""
+    rules = dict(config.user.settings.tool_select_by_app)
+    if config.project:
+        rules.update(config.project.settings.tool_select_by_app)
+    return rules
+
+
+def _allowlist_from_activitywatch(config) -> list[str] | None:
+    """Resolve a tool allowlist from the focused app, if opted in.
+
+    Returns None whenever the feature is off, unconfigured, or ActivityWatch
+    can't answer — so callers fall back to the default toolset.
+    """
+    if (config.get_env("GPTME_TOOL_SELECT_BY_APP") or "").lower() not in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return None
+    rules = _tool_select_by_app_rules(config)
+    if not rules:
+        logger.warning(
+            "--tool-select-by-app is set but no [settings].tool_select_by_app "
+            "rules are configured, using default tools"
+        )
+        return None
+    from ._activitywatch import resolve_allowlist_for_current_app  # fmt: skip
+
+    return resolve_allowlist_for_current_app(rules)
+
+
 def init_tools(
     allowlist: list[str] | None = None,
 ) -> list[ToolSpec]:
@@ -183,6 +215,10 @@ def init_tools(
                 allowlist = env_allowlist.split(",")
             elif config.chat and config.chat.tools:
                 allowlist = config.chat.tools
+            else:
+                # Last fallback: let ActivityWatch pick tools for the focused app.
+                # Opt-in via --tool-select-by-app (which sets the env var).
+                allowlist = _allowlist_from_activitywatch(config)
 
         allowlist = expand_tool_allowlist_presets(allowlist)
 

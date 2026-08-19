@@ -715,6 +715,14 @@ Run 'gptme-util --help' for all utility commands."""
     help="Prompt injection hygiene for tool outputs: off (disabled), warn (flag suspicious content), block (redact HIGH-severity patterns). Overrides GPTME_INJECTION_HYGIENE env var.",
 )
 @click.option(
+    "--tool-select-by-app",
+    "tool_select_by_app",
+    is_flag=True,
+    default=False,
+    envvar="GPTME_TOOL_SELECT_BY_APP",
+    help="Pick the tool allowlist from the focused application, as reported by a local ActivityWatch server, using the [settings].tool_select_by_app rules in gptme.toml. Ignored when --tools is given; falls back to the default toolset if ActivityWatch is unreachable or no rule matches.",
+)
+@click.option(
     "--manifest-dir",
     "manifest_dir",
     default=None,
@@ -756,6 +764,7 @@ def main(
     no_workspace: bool,
     output_schema: str | None,
     injection_hygiene: str | None,
+    tool_select_by_app: bool,
     manifest_dir: Path | None,
 ):
     """Main entrypoint for the CLI."""
@@ -872,6 +881,11 @@ def main(
     # so this only fires when the flag was explicitly passed on the command line.
     if injection_hygiene is not None:
         os.environ["GPTME_INJECTION_HYGIENE"] = injection_hygiene
+
+    # Consumed by init_tools() as a last-resort allowlist source, so it applies
+    # to any code path that loads tools (chat, server, subagents).
+    if tool_select_by_app:
+        os.environ["GPTME_TOOL_SELECT_BY_APP"] = "1"
 
     # Convert tool_allowlist from tuple to string or None
     # Use get_parameter_source to distinguish between default (None) and explicit empty list
