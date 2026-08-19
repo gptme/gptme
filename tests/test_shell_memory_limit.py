@@ -23,6 +23,13 @@ def _make_shell():
 def test_memory_limit_unset_keeps_behavior(monkeypatch):
     """With no limit set, a moderate allocation succeeds as before."""
     monkeypatch.delenv("GPTME_SHELL_MEMORY_LIMIT", raising=False)
+    # Also block any [env] SHELL_MEMORY_LIMIT from config.toml so the test is
+    # hermetic in environments that have that key set.
+    from unittest.mock import MagicMock
+
+    mock_cfg = MagicMock()
+    mock_cfg.get_env.return_value = None
+    monkeypatch.setattr("gptme.config.get_config", lambda: mock_cfg)
     shell = _make_shell()
     try:
         code, stdout, stderr = shell.run("python3 -c 'bytearray(64 * 1024 * 1024)'")
