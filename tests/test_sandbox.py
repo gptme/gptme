@@ -944,7 +944,21 @@ class TestApplyMemoryLimit:
         assert "echo hi" in result[2]
         # Script must be wrapped in a group so && gates the entire script, not
         # just its first statement (e.g. `ulimit && a; b` runs b even if ulimit fails).
-        assert "{ echo hi; }" in result[2]
+        assert "{ echo hi" in result[2]
+        assert result[2].endswith("}")
+
+    def test_command_form_trailing_comment_not_swallowed(self):
+        # A script ending with a # comment must not comment out the closing }.
+        # Before fix: `{ echo hi  # note; }` → `; }` commented out, bash error.
+        # After fix:  `{ echo hi  # note\n}` → } on its own line, always executes.
+        result = apply_memory_limit(
+            ["bash", "-c", "echo hi  # trailing comment"], 1024 * 1024
+        )
+        script = result[2]
+        assert "# trailing comment" in script
+        # The closing brace must be on its own line, not on the comment line.
+        lines = script.splitlines()
+        assert lines[-1].strip() == "}"
 
     def test_empty_cmd_returns_unchanged(self):
         assert apply_memory_limit([], 1024) == []

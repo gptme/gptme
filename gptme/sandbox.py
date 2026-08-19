@@ -227,7 +227,9 @@ def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
     if len(cmd) >= 3 and cmd[1] == "-c":
         # Wrap in a group so && gates the entire user script, not just its first
         # statement (shell parses `ulimit -v N && a; b` as `(ulimit && a); b`).
-        return [cmd[0], cmd[1], prefix + "{ " + cmd[2] + "; }", *cmd[3:]]
+        # Use a newline before } so a trailing # comment in cmd[2] doesn't
+        # comment out the closing brace.
+        return [cmd[0], cmd[1], prefix + "{ " + cmd[2] + "\n}", *cmd[3:]]
     # Persistent shell form: re-exec the shell so the limit applies to it and
     # every child it spawns (the semantic we want for a long-lived shell).
     return [cmd[0], "-c", f"{prefix}exec {cmd[0]}"]
