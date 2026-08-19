@@ -110,7 +110,12 @@ def auto_compact_log(
         and not needs_compacting
         and not needs_phase3_compression
     ):
-        yield from log
+        # Pin protected head messages even on early return so downstream
+        # limit_log (e.g. in prepare_messages) cannot drop them.
+        yield from (
+            m.replace(pinned=True) if keep_head > 0 and idx < keep_head else m
+            for idx, m in enumerate(log)
+        )
         return
 
     if needs_compacting:
@@ -300,7 +305,13 @@ def auto_compact_log(
             f"({reduction_pct:.1f}% reduction, saved {total_saved:,} tokens) "
             f"[{breakdown_str}]"
         )
-        yield from compacted_log
+        # Pin protected head messages so a downstream limit_log call (e.g. in
+        # prepare_messages) cannot drop them — limit_log only preserves pinned
+        # or initial-system messages, not arbitrary index positions.
+        yield from (
+            m.replace(pinned=True) if keep_head > 0 and idx < keep_head else m
+            for idx, m in enumerate(compacted_log)
+        )
         return
 
     # If still over limit, fall back to regular reduction.

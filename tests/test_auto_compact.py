@@ -1195,3 +1195,51 @@ def test_get_keep_head_negative_falls_back_to_default(monkeypatch):
     assert result == 2, (
         f"Negative GPTME_AUTOCOMPACT_KEEP_HEAD=-1 should fall back to default 2, got {result}"
     )
+
+
+def test_keep_head_success_path_pins_head_messages():
+    """keep_head messages must be pinned on ALL yield paths, including early-return and success.
+
+    Two paths previously missed pinning:
+    1. Early-return path (log already fits in budget — no compaction needed).
+    2. Success path (compaction brought final_tokens <= limit).
+
+    Without pinning, a downstream limit_log call (e.g. in prepare_messages)
+    could still drop the protected head messages because limit_log only preserves
+    initial-system and pinned=True messages.
+
+    Fix: pin the first keep_head messages on every yield path.
+    """
+    from gptme.tools.autocompact.engine import auto_compact_log
+
+    model = get_default_model() or get_model("gpt-4")
+    # Build a log with a massive tool result that phase-2 truncates, bringing
+    # final_tokens <= limit so the SUCCESS path fires (not the fallback).
+    target_tokens = max(2100, int(0.85 * model.context))
+    words = [f"file_{i}.txt" for i in range(target_tokens // 2)]
+    massive = "\n".join(words)
+    head1 = "SYSTEM PROMPT — must be pinned"
+    head2 = "USER TASK — must be pinned"
+
+    messages = [
+        Message("system", head1, datetime.now(tz=timezone.utc)),
+        Message("user", head2, datetime.now(tz=timezone.utc)),
+        Message("assistant", "running", datetime.now(tz=timezone.utc)),
+        Message("system", massive, datetime.now(tz=timezone.utc)),
+    ]
+
+    # Phase-2 truncates the massive tail; final_tokens <= limit → success path
+    compacted = list(auto_compact_log(messages, keep_head=2))
+
+    assert len(compacted) >= 2
+    assert compacted[0].content == head1
+    assert compacted[1].content == head2
+    assert compacted[0].pinned, (
+        "head[0] must be pinned so downstream limit_log skips it"
+    )
+    assert compacted[1].pinned, (
+        "head[1] must be pinned so downstream limit_log skips it"
+    )
+    # Non-head messages must NOT be pinned
+    for m in compacted[2:]:
+        assert not m.pinned, f"non-head message should not be pinned: {m.content[:30]}"

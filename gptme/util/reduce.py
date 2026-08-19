@@ -504,6 +504,11 @@ def _drop_orphaned_tool_pairs(
 
             if msg.role == "system" and msg.call_id:
                 # Case 1: walk backward to find nearest non-system anchor.
+                # Pinned tool results are never dropped, even if the anchor
+                # was excluded — keep_head may protect results whose assistant
+                # anchor lies outside the protected window.
+                if msg.pinned:
+                    continue
                 for j in range(idx - 1, -1, -1):
                     if original[j].role != "system":
                         if id(original[j]) not in kept_ids:

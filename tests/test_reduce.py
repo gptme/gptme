@@ -1201,3 +1201,32 @@ def test_limit_log_pinned_system_not_orphaned():
         set_default_model(original_model) if original_model else _default_model_var.set(
             None
         )
+
+
+def test_drop_orphaned_tool_pairs_preserves_pinned_tool_result():
+    """_drop_orphaned_tool_pairs must not drop a pinned system tool result.
+
+    When a system message with call_id is pinned, its anchor assistant may have
+    been excluded from the pruned set by limit_log. Previously _drop_orphaned_tool_pairs
+    would detect the missing anchor and remove the pinned result too. The fix: skip
+    Case 1 removal if the system message has pinned=True.
+
+    Regression test for: _drop_orphaned_tool_pairs ignoring pinned flag.
+    """
+    from gptme.util.reduce import _drop_orphaned_tool_pairs
+
+    anchor = Message("assistant", "fn call", call_id="call_abc")
+    pinned_result = Message("system", "fn result", pinned=True, call_id="call_abc")
+    user = Message("user", "follow up")
+
+    original = [anchor, pinned_result, user]
+
+    # Pruned: anchor was excluded (budget or index), only result + user remain
+    pruned = [pinned_result, user]
+
+    result = _drop_orphaned_tool_pairs(original, pruned)
+    result_contents = [m.content for m in result]
+
+    assert "fn result" in result_contents, (
+        "Pinned tool result must survive _drop_orphaned_tool_pairs even when anchor is absent"
+    )
