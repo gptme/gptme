@@ -138,7 +138,9 @@ Always consider the full range of your available tools and abilities when approa
         else "Maintain a professional and efficient communication style. Be concise but thorough in your explanations."
     )
 
-    # Determine which editing tools are active in this session
+    # Determine which editing tools are active in this session.
+    # Tool names are the registered .name values: "patch" (gptme/tools/patch.py)
+    # and "save" (gptme/tools/save.py). Not "write" — that is an alias in some docs.
     tool_names = {t.name for t in (tools or [])}
     has_patch = "patch" in tool_names
     has_save = "save" in tool_names
