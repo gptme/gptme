@@ -74,6 +74,13 @@ def validate_api_key(
         - (True, "") if valid
         - (True, "warning message") if provider unreachable (warn but allow)
         - (False, "error description") if definitively invalid
+
+    Note:
+        Callers MUST check the second element and surface any non-empty warning
+        to the user; a non-empty message with is_valid=True means the key was
+        saved without being confirmed reachable, and the user should be notified.
+        (All current built-in CLI callers — setup, doctor, onboard, account —
+        already do this.)
     """
     status, message = validate_api_key_status(api_key, provider, timeout=timeout)
     # UNSUPPORTED providers (azure, local, custom) historically counted as
