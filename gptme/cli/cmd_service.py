@@ -276,8 +276,12 @@ def init(
                 )
             else:
                 click.echo(
-                    f"  Warning: existing timer {stale_timer} preserved (use --force to remove)"
+                    f"  Warning: existing timer {stale_timer} preserved (use --force to remove)."
                 )
+                click.echo(
+                    "  The scheduled runs remain active until you disable the timer:"
+                )
+                click.echo(f"    systemctl --user disable --now {name}.timer")
     else:
         schedule = SCHEDULES.get(timer_schedule, SCHEDULES["daily"])
         _write_file(

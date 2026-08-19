@@ -90,15 +90,36 @@ def test_on_demand_skips_timer(tmp_path: Path) -> None:
 
 
 def test_on_demand_preserves_existing_timer_without_force(tmp_path: Path) -> None:
-    """Switching to on-demand without --force must NOT delete an existing timer."""
+    """Switching to on-demand without --force must NOT delete an existing timer,
+    but MUST print systemctl disable instructions so the operator can stop it."""
     # First scaffold a periodic agent (creates testagent.timer)
     _run_init(tmp_path)
     timer = tmp_path / "systemd" / "testagent.timer"
     assert timer.exists()
 
-    # Reinitialize as on-demand WITHOUT --force → timer must be preserved
-    _run_init(tmp_path, "--timer-schedule", "on-demand")
+    # Reinitialize as on-demand WITHOUT --force → timer file must be preserved
+    out_dir = tmp_path / "systemd"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            "--name",
+            "testagent",
+            "--work-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(out_dir),
+            "--timer-schedule",
+            "on-demand",
+        ],
+    )
+    assert result.exit_code == 0, result.output
     assert timer.exists(), "existing timer should be preserved without --force"
+    # Must tell the operator how to stop the live timer, not just how to remove the file
+    assert "systemctl --user disable --now testagent.timer" in result.output, (
+        "warning must include the systemctl disable command so the operator can stop periodic runs"
+    )
 
 
 def test_on_demand_removes_existing_timer_with_force(tmp_path: Path) -> None:
