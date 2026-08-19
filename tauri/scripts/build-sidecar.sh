@@ -24,7 +24,22 @@ sidecar_is_stale() {
     local sidecar="$1"
     # Rebuild when any gptme Python source is newer than the frozen binary.
     # `find -newer` is available in Git Bash on Windows.
-    [[ -n "$(find "$REPO_ROOT/gptme" -name '*.py' -newer "$sidecar" 2>/dev/null | head -n 1)" ]]
+    if [[ -n "$(find "$REPO_ROOT/gptme" -name '*.py' -newer "$sidecar" 2>/dev/null | head -n 1)" ]]; then
+        return 0
+    fi
+    # Also rebuild when packaging/dependency config changes (pyproject.toml,
+    # poetry.lock, uv.lock) — these affect which packages get frozen into the
+    # sidecar even when no .py source file changes.
+    local config_files=("$REPO_ROOT/pyproject.toml")
+    for f in "$REPO_ROOT/poetry.lock" "$REPO_ROOT/uv.lock"; do
+        [[ -f "$f" ]] && config_files+=("$f")
+    done
+    for f in "${config_files[@]}"; do
+        if [[ -f "$f" && "$f" -nt "$sidecar" ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 if [[ -f "$OUT" ]]; then
