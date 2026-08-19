@@ -212,8 +212,12 @@ def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
     the sandbox rather than limiting the sandbox launcher itself.
 
     Two forms are supported:
-      - ``["bash"]``            → ``["bash", "-c", "ulimit -v N; exec bash"]``
-      - ``["bash", "-c", "..."]`` → ``["bash", "-c", "ulimit -v N; ..."]``
+      - ``["bash"]``            → ``["bash", "-c", "ulimit -v N && BASH_ENV='' exec bash"]``
+      - ``["bash", "-c", "..."]`` → ``["bash", "-c", "ulimit -v N && { ...; }"]``
+
+    The persistent shell form clears ``BASH_ENV`` before exec so that any
+    user ``$BASH_ENV`` script that resets limits (e.g. ``ulimit -v unlimited``)
+    cannot silently bypass the configured ceiling in the replacement shell.
     """
     if limit is None or not cmd:
         return cmd
@@ -231,8 +235,9 @@ def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
         # comment out the closing brace.
         return [cmd[0], cmd[1], prefix + "{ " + cmd[2] + "\n}", *cmd[3:]]
     # Persistent shell form: re-exec the shell so the limit applies to it and
-    # every child it spawns (the semantic we want for a long-lived shell).
-    return [cmd[0], "-c", f"{prefix}exec {cmd[0]}"]
+    # every child it spawns.  Clear BASH_ENV first so any user script that
+    # resets ulimits cannot bypass the configured ceiling in the exec'd shell.
+    return [cmd[0], "-c", f"{prefix}BASH_ENV='' exec {cmd[0]}"]
 
 
 def verify_memory_limit(limit: int) -> None:

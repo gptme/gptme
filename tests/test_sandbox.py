@@ -981,7 +981,18 @@ class TestApplyMemoryLimit:
         # the Python level before the shell is spawned.
         result = apply_memory_limit(["bash"], 512 * 1024**2)
         script = result[2]
-        assert " && exec" in script
+        assert " && " in script and "exec" in script
+
+    def test_persistent_form_clears_bash_env(self):
+        # BASH_ENV must be cleared before exec so a user $BASH_ENV script that
+        # resets ulimits (e.g. `ulimit -v unlimited`) cannot bypass the ceiling.
+        result = apply_memory_limit(["bash"], 512 * 1024**2)
+        script = result[2]
+        # BASH_ENV='' must appear between ulimit and exec
+        ulimit_pos = script.index("ulimit")
+        bash_env_pos = script.index("BASH_ENV=''")
+        exec_pos = script.index("exec")
+        assert ulimit_pos < bash_env_pos < exec_pos
 
 
 # ---------------------------------------------------------------------------
