@@ -54,10 +54,8 @@ from gptme.llm.models import (
 )
 from gptme.llm.models.types import is_custom_provider
 from gptme.llm.validate import (
-    VALIDATION_CONNECTION_ERROR,
-    VALIDATION_PROVIDER_ERROR_PREFIX,
-    VALIDATION_TIMEOUT_ERROR,
-    validate_api_key,
+    ApiKeyValidationStatus,
+    validate_api_key_status,
 )
 from gptme.prompts import get_prompt
 
@@ -3129,26 +3127,20 @@ def api_user_api_key():
         return flask.jsonify({"error": str(exc)}), 400
 
     # Check the key with the provider before writing it. `/account setup` has always
-    # done this (gptme/commands/account.py); this endpoint did not. Same validator, so
-    # both paths agree on what "valid" means: rate-limited or quota-exhausted keys are
-    # valid, and providers without a check (azure, nvidia, local) are skipped.
-    # skip_validation=True is for offline/test use where live network calls aren't available.
-    key_warning: str | None = None
-    if not skip_validation:
-        try:
-            is_valid, validation_msg = validate_api_key(trimmed_api_key, provider)
-        except Exception:
-            logger.exception("Unexpected error validating %s API key", provider)
-            return flask.jsonify({"error": "Provider validation failed"}), 502
-        if not is_valid:
-            if validation_msg in {
-                VALIDATION_TIMEOUT_ERROR,
-                VALIDATION_CONNECTION_ERROR,
-            } or validation_msg.startswith(VALIDATION_PROVIDER_ERROR_PREFIX):
-                return flask.jsonify({"error": validation_msg}), 502
-            return flask.jsonify({"error": validation_msg}), 422
-        if validation_msg:
-            key_warning = validation_msg
+    # done this (gptme/commands/account.py); this endpoint did not, so onboarding
+    # accepted a bad key, reported "status": "ok", and the user only found out when
+    # the first generation came back with a raw provider auth error. Same validator,
+    # so both onboarding paths agree on what "valid" means: a rate-limited or
+    # quota-exhausted key is valid, and providers without a check are skipped.
+    #
+    # We use the tri-state status rather than the boolean so an unreachable
+    # provider is a warning, not a hard block: a transient network blip must not
+    # lock a first-run user out of saving a key they know is good.
+    validation_status, validation_error = validate_api_key_status(
+        trimmed_api_key, provider
+    )
+    if validation_status is ApiKeyValidationStatus.INVALID:
+        return flask.jsonify({"error": validation_error}), 400
 
     env_var = PROVIDER_API_KEYS[provider]
     set_config_value(f"env.{env_var}", trimmed_api_key, reload=False, local=True)
@@ -3162,18 +3154,19 @@ def api_user_api_key():
     if trimmed_model is not None:
         os.environ["MODEL"] = trimmed_model
 
-    logger.info(
-        "Saved %s to user config via /api/v2/user/api-key (applied live)", env_var
-    )
-    resp: dict = {
+    response: dict = {
         "status": "ok",
         "provider": provider,
         "env_var": env_var,
         "restart_required": False,
     }
-    if key_warning:
-        resp["warning"] = key_warning
-    return flask.jsonify(resp)
+    if validation_status is ApiKeyValidationStatus.UNREACHABLE:
+        response["warning"] = validation_error
+
+    logger.info(
+        "Saved %s to user config via /api/v2/user/api-key (applied live)", env_var
+    )
+    return flask.jsonify(response)
 
 
 @v2_api.route("/api/v2/user/default-model", methods=["POST"])

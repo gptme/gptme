@@ -356,16 +356,26 @@ def test_webui_deploy_trigger_dispatches_workflow(client: FlaskClient, monkeypat
     }
 
 
-def stub_key_validation(monkeypatch, *, valid: bool = True, message: str = ""):
+def stub_key_validation(
+    monkeypatch,
+    *,
+    status: str = "VALID",
+    message: str = "",
+):
     """Stand in for the live provider call /api/v2/user/api-key makes.
 
     The endpoint checks the key with the provider before persisting it, so
-    every save test has to say what the provider would answer.
+    every save test has to say what the provider would answer. ``status`` is
+    one of the ``ApiKeyValidationStatus`` values: VALID (default), INVALID
+    (block the save), or UNREACHABLE (save but warn).
     Patch at the api_v2 import site so the function uses the stub.
     """
+    from gptme.llm.validate import ApiKeyValidationStatus
+
+    validation_status = ApiKeyValidationStatus[status]
     monkeypatch.setattr(
-        "gptme.server.api_v2.validate_api_key",
-        lambda api_key, provider, timeout=10: (valid, message),
+        "gptme.server.api_v2.validate_api_key_status",
+        lambda api_key, provider, timeout=10: (validation_status, message),
     )
 
 
@@ -489,7 +499,7 @@ def test_v2_user_api_key_rejects_invalid_key(
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     stub_key_validation(
         monkeypatch,
-        valid=False,
+        status="INVALID",
         message="Invalid API key. Please check your key and try again.",
     )
 
@@ -539,6 +549,36 @@ def test_v2_user_api_key_saves_when_validation_is_non_fatal(
 
     saved = tomlkit.loads((tmp_path / "config.local.toml").read_text()).unwrap()
     assert saved["env"]["ANTHROPIC_API_KEY"] == "sk-ant-out-of-credit"
+
+
+def test_v2_user_api_key_unreachable_warns_but_saves(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """An unreachable provider must not block the save; it returns a warning."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    stub_key_validation(
+        monkeypatch,
+        status="UNREACHABLE",
+        message="Request timed out. Please check your network connection.",
+    )
+
+    response = client.post(
+        "/api/v2/user/api-key",
+        json={"provider": "anthropic", "api_key": "sk-ant-live-key"},
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["status"] == "ok"
+    assert data["warning"] == "Request timed out. Please check your network connection."
+
+    saved = tomlkit.loads((tmp_path / "config.local.toml").read_text()).unwrap()
+    assert saved["env"]["ANTHROPIC_API_KEY"] == "sk-ant-live-key"
 
 
 def test_v2_user_api_key_rejects_unknown_provider(client: FlaskClient):

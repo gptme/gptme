@@ -145,7 +145,11 @@ export function SetupWizard() {
   );
 
   const saveApiKeyToServer = useCallback(
-    async (provider: ApiKeyProvider, apiKeyValue: string, model?: string) => {
+    async (
+      provider: ApiKeyProvider,
+      apiKeyValue: string,
+      model?: string
+    ): Promise<{ warning?: string }> => {
       const resp = await fetch(`${connectionConfig.baseUrl}/api/v2/user/api-key`, {
         method: 'POST',
         headers: withAuthHeaders(api.authHeader, {
@@ -159,7 +163,15 @@ export function SetupWizard() {
       });
 
       if (resp.ok) {
-        return;
+        // A successful save may still carry a non-blocking warning (e.g. the
+        // provider could not be reached for key validation). Surface it so the
+        // user knows the key was saved but not confirmed.
+        try {
+          const data = (await resp.json()) as { warning?: string };
+          return { warning: data.warning };
+        } catch {
+          return {};
+        }
       }
 
       let message = `Failed to save API key (${resp.status})`;
@@ -429,7 +441,16 @@ export function SetupWizard() {
     setApiKeySaving(true);
     setApiKeyError(null);
     try {
-      await saveApiKeyToServer(apiKeyProvider, trimmed, apiKeyModel || undefined);
+      const { warning } = await saveApiKeyToServer(
+        apiKeyProvider,
+        trimmed,
+        apiKeyModel || undefined
+      );
+      if (warning) {
+        // The save succeeds, so we proceed to the completion step — surface the
+        // unverified-key notice as a toast so it is not hidden by that transition.
+        toast.warning(warning);
+      }
       try {
         await invokeTauri('stop_server');
       } catch {

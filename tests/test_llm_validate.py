@@ -3,9 +3,11 @@
 from unittest.mock import Mock, patch
 
 import pytest
+import requests
 
 from gptme.llm.validate import (
     PROVIDER_DOCS,
+    ApiKeyValidationStatus,
     VALIDATION_PROVIDER_ERROR_PREFIX,
     _validate_anthropic,
     _validate_google,
@@ -13,6 +15,7 @@ from gptme.llm.validate import (
     _validate_openai_compatible,
     _validate_openrouter,
     validate_api_key,
+    validate_api_key_status,
 )
 
 
@@ -349,3 +352,40 @@ class TestProviderDocs:
         for provider in expected_providers:
             assert provider in PROVIDER_DOCS
             assert PROVIDER_DOCS[provider].startswith("https://")
+
+
+class TestValidateApiKeyStatus:
+    """Tests for the tri-state validate_api_key_status function."""
+
+    @patch("gptme.llm.validate._validate_openai")
+    def test_valid_returns_valid_status(self, mock_validate):
+        """A valid key should map to the VALID status."""
+        mock_validate.return_value = (True, "")
+        status, message = validate_api_key_status("sk-ok", "openai")
+        assert status is ApiKeyValidationStatus.VALID
+        assert message == ""
+
+    @patch("gptme.llm.validate._validate_openai")
+    def test_invalid_returns_invalid_status(self, mock_validate):
+        """A provider-rejected key should map to the INVALID status."""
+        mock_validate.return_value = (False, "Invalid API key. Please check your key.")
+        status, message = validate_api_key_status("sk-bad", "openai")
+        assert status is ApiKeyValidationStatus.INVALID
+        assert "Invalid API key" in message
+
+    @patch("gptme.llm.validate._validate_openai", side_effect=requests.ConnectionError)
+    def test_connection_error_returns_unreachable(self, mock_validate):
+        """A network failure should map to UNREACHABLE, not INVALID."""
+        status, _ = validate_api_key_status("sk-key", "openai")
+        assert status is ApiKeyValidationStatus.UNREACHABLE
+
+    @patch("gptme.llm.validate._validate_openai", side_effect=requests.Timeout)
+    def test_timeout_returns_unreachable(self, mock_validate):
+        """A request timeout should map to UNREACHABLE, not INVALID."""
+        status, _ = validate_api_key_status("sk-key", "openai")
+        assert status is ApiKeyValidationStatus.UNREACHABLE
+
+    def test_unsupported_provider_returns_unsupported(self):
+        """Providers without validation should map to UNSUPPORTED."""
+        status, _ = validate_api_key_status("some-key", "azure")
+        assert status is ApiKeyValidationStatus.UNSUPPORTED

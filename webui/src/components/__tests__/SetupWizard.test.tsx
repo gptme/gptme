@@ -176,7 +176,7 @@ jest.mock('lucide-react', () => ({
 }));
 
 jest.mock('sonner', () => ({
-  toast: { success: jest.fn(), error: jest.fn() },
+  toast: { success: jest.fn(), error: jest.fn(), warning: jest.fn() },
 }));
 
 describe('SetupWizard', () => {
@@ -225,6 +225,7 @@ describe('SetupWizard', () => {
     });
     (toast.success as jest.Mock).mockClear();
     (toast.error as jest.Mock).mockClear();
+    (toast.warning as jest.Mock).mockClear();
   });
 
   it('stays closed in demo mode even for first-time users', () => {
@@ -1171,6 +1172,83 @@ describe('SetupWizard', () => {
     expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
     expect(mockInvokeTauri).not.toHaveBeenCalledWith('stop_server');
     expect(mockInvokeTauri).not.toHaveBeenCalledWith('start_server');
+  });
+
+  it('surfaces a non-blocking warning when the provider is unreachable', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5700,
+        port_available: false,
+        manages_local_server: true,
+      },
+    });
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: [
+            {
+              id: 'anthropic/claude-sonnet-4-7',
+              provider: 'anthropic',
+              model: 'claude-sonnet-4-7',
+            },
+          ],
+          recommended: ['anthropic/claude-sonnet-4-7'],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'ok',
+          env_var: 'ANTHROPIC_API_KEY',
+          warning: 'Request timed out. Please check your network connection.',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: true }),
+      });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+    mockInvokeTauri.mockResolvedValue(undefined);
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: 'sk-good' } });
+    fireEvent.click(screen.getByRole('button', { name: /save and restart server/i }));
+
+    await waitFor(() => {
+      expect(toast.warning).toHaveBeenCalledWith(
+        'Request timed out. Please check your network connection.'
+      );
+    });
+    expect(mockInvokeTauri).toHaveBeenCalledWith('stop_server');
+    expect(mockInvokeTauri).toHaveBeenCalledWith('start_server');
   });
 
   it('surfaces nested API error objects instead of [object Object]', async () => {

@@ -249,7 +249,7 @@ class UserApiKeySaveResponse(BaseModel):
     )
     warning: str | None = Field(
         None,
-        description="Optional non-fatal warning (e.g. quota exhausted but key is valid)",
+        description="Non-blocking warning when the key was saved but could not be verified (e.g. provider unreachable)",
     )
 
 

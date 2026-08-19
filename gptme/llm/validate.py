@@ -1,10 +1,29 @@
 """API key validation utilities for gptme."""
 
 import logging
+from enum import Enum
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+class ApiKeyValidationStatus(str, Enum):
+    """Result of validating a provider API key.
+
+    Distinct from a boolean because a network failure (provider unreachable)
+    is not the same as the key being definitively rejected — a first-run save
+    flow must not lock a user out of saving a key they know is good just
+    because of a transient network blip.
+    """
+
+    VALID = "valid"
+    INVALID = "invalid"  # provider explicitly rejected the key (401/403)
+    UNREACHABLE = "unreachable"  # could not reach provider (timeout / connection / 5xx)
+    UNSUPPORTED = (
+        "unsupported"  # provider has no validation path (azure, local, custom)
+    )
+
 
 # Provider documentation URLs
 PROVIDER_DOCS: dict[str, str] = {
@@ -67,57 +86,79 @@ def validate_api_key(
         - (True, "") if valid
         - (False, "error description") if invalid
     """
+    status, message = validate_api_key_status(api_key, provider, timeout=timeout)
+    # UNSUPPORTED providers (azure, local, custom) historically counted as
+    # valid because there is no key to reject — preserve that for CLI callers.
+    return status in (
+        ApiKeyValidationStatus.VALID,
+        ApiKeyValidationStatus.UNSUPPORTED,
+    ), message
+
+
+def validate_api_key_status(
+    api_key: str,
+    provider: str,
+    timeout: int = 10,
+) -> tuple[ApiKeyValidationStatus, str]:
+    """Validate an API key, returning a tri-state status distinct from a boolean.
+
+    Unlike :func:`validate_api_key`, this distinguishes a definitively-rejected
+    key (``INVALID``) from a provider that could not be reached
+    (``UNREACHABLE``). Callers that gate a first-run save on validation should
+    block on ``INVALID`` but only warn on ``UNREACHABLE`` so a transient network
+    blip never locks the user out of saving a key they know is good.
+    """
     try:
         if provider == "openai":
-            return _validate_openai(api_key, timeout)
-        if provider == "anthropic":
-            return _validate_anthropic(api_key, timeout)
-        if provider == "openrouter":
-            return _validate_openrouter(api_key, timeout)
-        if provider == "requesty":
-            return _validate_openai_compatible(
+            is_valid, message = _validate_openai(api_key, timeout)
+        elif provider == "anthropic":
+            is_valid, message = _validate_anthropic(api_key, timeout)
+        elif provider == "openrouter":
+            is_valid, message = _validate_openrouter(api_key, timeout)
+        elif provider == "requesty":
+            is_valid, message = _validate_openai_compatible(
                 api_key, timeout, "https://router.requesty.ai/v1"
             )
-        if provider == "moonshot":
-            return _validate_openai_compatible(
+        elif provider == "moonshot":
+            is_valid, message = _validate_openai_compatible(
                 api_key, timeout, "https://api.moonshot.ai/v1"
             )
-        if provider in ("google", "gemini"):
-            return _validate_google(api_key, timeout)
-        if provider == "groq":
-            return _validate_groq(api_key, timeout)
-        if provider == "deepseek":
-            return _validate_deepseek(api_key, timeout)
-        if provider == "xai":
-            return _validate_xai(api_key, timeout)
-        if provider == "azure":
-            # Azure requires endpoint configuration, skip live validation
+        elif provider in ("google", "gemini"):
+            is_valid, message = _validate_google(api_key, timeout)
+        elif provider == "groq":
+            is_valid, message = _validate_groq(api_key, timeout)
+        elif provider == "deepseek":
+            is_valid, message = _validate_deepseek(api_key, timeout)
+        elif provider == "xai":
+            is_valid, message = _validate_xai(api_key, timeout)
+        elif provider == "azure":
+            # Azure requires endpoint configuration, skip validation
             logger.info("Azure API key validation skipped (requires endpoint config)")
-            return (
-                True,
-                "Key accepted without live validation — Azure requires endpoint configuration to validate",
-            )
-        if provider == "nvidia":
-            # NVIDIA validation would need an org-specific endpoint, skip
-            logger.info("NVIDIA API key validation skipped (requires org endpoint)")
-            return (
-                True,
-                "Key accepted without live validation — NVIDIA keys are checked on first use",
-            )
-        if provider == "local":
-            # Local models typically use a placeholder key or none at all
-            logger.info("Local provider doesn't require API key validation")
-            return True, ""
-        # Unknown or custom provider, skip validation
-        logger.info(f"No validation available for provider: {provider}")
-        return True, ""
+            return ApiKeyValidationStatus.UNSUPPORTED, ""
+        elif provider in ("nvidia", "local"):
+            # Local models don't need API key validation
+            logger.info(f"{provider} provider doesn't require API key validation")
+            return ApiKeyValidationStatus.UNSUPPORTED, ""
+        else:
+            # Unknown or custom provider, skip validation
+            logger.info(f"No validation available for provider: {provider}")
+            return ApiKeyValidationStatus.UNSUPPORTED, ""
+        if is_valid:
+            return ApiKeyValidationStatus.VALID, message
+        return ApiKeyValidationStatus.INVALID, message
     except requests.exceptions.Timeout:
-        return False, VALIDATION_TIMEOUT_ERROR
+        return (
+            ApiKeyValidationStatus.UNREACHABLE,
+            "Request timed out. Please check your network connection.",
+        )
     except requests.exceptions.ConnectionError:
-        return False, VALIDATION_CONNECTION_ERROR
+        return (
+            ApiKeyValidationStatus.UNREACHABLE,
+            "Could not connect to the API. Please check your network.",
+        )
     except requests.exceptions.RequestException as e:
         logger.exception(f"Unexpected error validating {provider} API key")
-        return False, f"{VALIDATION_PROVIDER_ERROR_PREFIX} {e}"
+        return ApiKeyValidationStatus.UNREACHABLE, f"Validation failed: {e}"
 
 
 def _validate_openai(api_key: str, timeout: int) -> tuple[bool, str]:
