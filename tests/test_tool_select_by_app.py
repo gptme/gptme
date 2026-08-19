@@ -190,3 +190,20 @@ def test_allowlist_from_activitywatch_uses_config_env_server_url(monkeypatch):
     assert all(u.startswith("http://aw-custom:5600") for u in captured_urls), (
         f"Expected custom AW server URL, got: {captured_urls}"
     )
+
+
+def test_allowlist_from_activitywatch_rejects_non_string_server_url(monkeypatch):
+    """A non-string AW_SERVER_URL (e.g. integer from TOML) must warn and return None."""
+    monkeypatch.setenv("GPTME_TOOL_SELECT_BY_APP", "1")
+    monkeypatch.delenv("AW_SERVER_URL", raising=False)
+
+    config = _config(user_rules={"*": ["shell"]})
+    # Simulate a misconfigured integer port number instead of a URL string
+    config.user.env["AW_SERVER_URL"] = 5600  # type: ignore[assignment]
+
+    with patch("gptme.tools._activitywatch._get_json") as mock_get_json:
+        result = _allowlist_from_activitywatch(config)
+
+    # Must gracefully return None instead of crashing on .rstrip()
+    assert result is None, "Non-string AW_SERVER_URL should fall back to None"
+    mock_get_json.assert_not_called()

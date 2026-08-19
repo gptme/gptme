@@ -195,6 +195,12 @@ def _allowlist_from_activitywatch(config) -> list[str] | None:
     from ._activitywatch import resolve_allowlist_for_current_app  # fmt: skip
 
     server_url = config.get_env("AW_SERVER_URL") or None
+    if server_url is not None and not isinstance(server_url, str):
+        logger.warning(
+            "AW_SERVER_URL must be a string (got %s), using default toolset",
+            type(server_url).__name__,
+        )
+        return None
     return resolve_allowlist_for_current_app(rules, server=server_url)
 
 
