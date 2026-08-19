@@ -72,3 +72,20 @@ def test_integer_config_value_does_not_raise():
         mock_env.get_env.return_value = 536870912  # integer, not string
         result = _get_memory_limit()
     assert result == 536870912, f"Expected 512MiB in bytes, got {result}"
+
+
+def test_unenforceable_limit_warns_and_returns_none():
+    """When the system hard ulimit is below the configured ceiling,
+    _get_memory_limit() must log a warning and return None rather than raise
+    RuntimeError — a misconfiguration should not crash every shell invocation."""
+    with (
+        patch("gptme.config.get_config") as mock_cfg,
+        patch(
+            "gptme.tools.shell.verify_memory_limit",
+            side_effect=ValueError("hard limit exceeded"),
+        ),
+    ):
+        mock_env = mock_cfg.return_value
+        mock_env.get_env.return_value = "4G"  # exceeds hypothetical hard limit
+        result = _get_memory_limit()
+    assert result is None

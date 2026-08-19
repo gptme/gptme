@@ -271,7 +271,9 @@ def _get_memory_limit() -> int | None:
 
     Knob is ``GPTME_SHELL_MEMORY_LIMIT`` (env) or ``[env] SHELL_MEMORY_LIMIT``
     (config.toml). The value is a byte count or a binary-suffixed size (e.g.
-    ``"512M"``). Unparseable values are logged and treated as unset.
+    ``"512M"``). Unparseable values and unenforceable limits (e.g. the value
+    exceeds the system hard ulimit) are both logged as warnings and treated as
+    unset so a misconfiguration never breaks the shell tool entirely.
 
     POSIX-only: returns None on Windows because ``ulimit -v`` is not available.
     """
@@ -293,11 +295,16 @@ def _get_memory_limit() -> int | None:
     try:
         verify_memory_limit(limit)
     except ValueError as exc:
-        raise RuntimeError(
-            f"Cannot start shell: GPTME_SHELL_MEMORY_LIMIT is set but cannot be "
-            f"enforced on this system. Either unset the variable or reduce the value. "
-            f"Details: {exc}"
-        ) from exc
+        # Treat an unenforceable limit as unset rather than crashing the shell.
+        # A misconfigured ceiling (e.g. 4G on a system with a 2G hard ulimit)
+        # should not prevent every shell command from working.
+        logger.warning(
+            "GPTME_SHELL_MEMORY_LIMIT=%r cannot be enforced on this system "
+            "(running without memory ceiling). Details: %s",
+            raw,
+            exc,
+        )
+        return None
     return limit
 
 

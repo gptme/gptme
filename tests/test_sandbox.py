@@ -994,6 +994,14 @@ class TestApplyMemoryLimit:
         exec_pos = script.index("exec")
         assert ulimit_pos < bash_env_pos < exec_pos
 
+    def test_persistent_form_preserves_extra_flags(self):
+        # apply_memory_limit(["bash", "--norc"], N) must not drop --norc so the
+        # function honours its contract for callers that pass startup flags.
+        result = apply_memory_limit(["bash", "--norc"], 512 * 1024**2)
+        assert result[0] == "bash"
+        assert result[1] == "-c"
+        assert "exec bash --norc" in result[2]
+
 
 # ---------------------------------------------------------------------------
 # verify_memory_limit

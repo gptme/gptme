@@ -34,6 +34,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -237,7 +238,10 @@ def apply_memory_limit(cmd: list[str], limit: int | None) -> list[str]:
     # Persistent shell form: re-exec the shell so the limit applies to it and
     # every child it spawns.  Clear BASH_ENV first so any user script that
     # resets ulimits cannot bypass the configured ceiling in the exec'd shell.
-    return [cmd[0], "-c", f"{prefix}BASH_ENV='' exec {cmd[0]}"]
+    # Preserve all original arguments (e.g. --norc) in the exec'd shell so the
+    # function honours its contract for any future caller that passes extra flags.
+    exec_cmd = " ".join(shlex.quote(a) for a in cmd)
+    return [cmd[0], "-c", f"{prefix}BASH_ENV='' exec {exec_cmd}"]
 
 
 def verify_memory_limit(limit: int) -> None:
