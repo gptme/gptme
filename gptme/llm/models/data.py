@@ -20,7 +20,7 @@ def _set_tool_format(
     """Stamp a default_tool_format on all models that don't already have one."""
     return {
         name: props
-        if "default_tool_format" in props
+        if props.get("default_tool_format")
         else {**props, "default_tool_format": tool_format}
         for name, props in models.items()
     }
