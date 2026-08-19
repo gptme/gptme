@@ -276,10 +276,17 @@ def init(
                 click.echo(
                     f"  Disabling loaded timer unit {name}.timer (on-demand mode, --force)"
                 )
-                subprocess.run(
+                result = subprocess.run(
                     ["systemctl", "--user", "disable", "--now", f"{name}.timer"],
                     check=False,  # best-effort; unit may not be enabled
                 )
+                if result.returncode != 0:
+                    click.echo(
+                        f"  Warning: could not disable {name}.timer "
+                        "(unit may not be enabled/loaded). "
+                        "Periodic runs may continue until the next daemon-reload.",
+                        err=True,
+                    )
                 stale_timer.unlink()
                 click.echo(f"  Removed stale timer file {stale_timer}")
             else:
