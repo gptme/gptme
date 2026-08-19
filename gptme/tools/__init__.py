@@ -158,10 +158,18 @@ def _init_single_tool(tool: ToolSpec) -> ToolSpec:
 
 
 def _tool_select_by_app_rules(config) -> dict[str, list[str]]:
-    """Merged [settings].tool_select_by_app rules (project overrides user)."""
-    rules = dict(config.user.settings.tool_select_by_app)
+    """Merged [settings].tool_select_by_app rules (project overrides user).
+
+    Project rules are inserted first so they are evaluated first in
+    match_app_rules's first-match-wins iteration.  User rules fill in any
+    patterns not already covered by the project.
+    """
+    rules: dict[str, list[str]] = {}
     if config.project:
         rules.update(config.project.settings.tool_select_by_app)
+    for key, value in config.user.settings.tool_select_by_app.items():
+        if key not in rules:
+            rules[key] = value
     return rules
 
 
@@ -186,7 +194,8 @@ def _allowlist_from_activitywatch(config) -> list[str] | None:
         return None
     from ._activitywatch import resolve_allowlist_for_current_app  # fmt: skip
 
-    return resolve_allowlist_for_current_app(rules)
+    server_url = config.get_env("AW_SERVER_URL") or None
+    return resolve_allowlist_for_current_app(rules, server=server_url)
 
 
 def init_tools(

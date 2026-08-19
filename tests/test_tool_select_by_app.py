@@ -146,3 +146,47 @@ def test_allowlist_from_activitywatch_opted_in_without_rules(monkeypatch):
     monkeypatch.setenv("GPTME_TOOL_SELECT_BY_APP", "1")
     with patch("gptme.tools._activitywatch._get_json", side_effect=AssertionError):
         assert _allowlist_from_activitywatch(_config()) is None
+
+
+def test_rules_project_glob_beats_user_catchall():
+    """Project-specific globs should be evaluated before a broad user catch-all."""
+    config = _config(
+        user_rules={"*": ["shell"]},
+        project_rules={"*firefox*": ["browser"]},
+    )
+    rules = _tool_select_by_app_rules(config)
+    # Project rule must come first in iteration so it wins for "firefox"
+    result = match_app_rules("firefox", rules)
+    assert result == ["browser"], (
+        "Project glob '*firefox*' should win over user catch-all '*'"
+    )
+
+
+def test_allowlist_from_activitywatch_uses_config_env_server_url(monkeypatch):
+    """AW_SERVER_URL set in [env] config layer must reach the AW client."""
+    monkeypatch.setenv("GPTME_TOOL_SELECT_BY_APP", "1")
+    # Ensure process env does NOT have the override so only config-layer wins
+    monkeypatch.delenv("AW_SERVER_URL", raising=False)
+    monkeypatch.delenv("GPTME_AW_SERVER_URL", raising=False)
+
+    captured_urls: list[str] = []
+
+    def _spy_get_json(url: str, timeout: float):
+        captured_urls.append(url)
+        if url.endswith("/api/0/buckets/"):
+            return BUCKETS
+        if "/events" in url:
+            return [{"data": {"app": "firefox", "title": "t"}}]
+        raise AssertionError(f"unexpected url: {url}")
+
+    config = _config(user_rules={"*firefox*": ["browser"]})
+    # Set custom server URL via the config user-env layer (simulates [env] in gptme.toml)
+    config.user.env["AW_SERVER_URL"] = "http://aw-custom:5600"
+
+    with patch("gptme.tools._activitywatch._get_json", _spy_get_json):
+        result = _allowlist_from_activitywatch(config)
+
+    assert result == ["browser"]
+    assert all(u.startswith("http://aw-custom:5600") for u in captured_urls), (
+        f"Expected custom AW server URL, got: {captured_urls}"
+    )
