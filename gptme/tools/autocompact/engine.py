@@ -304,12 +304,13 @@ def auto_compact_log(
         return
 
     # If still over limit, fall back to regular reduction.
-    # Protected head messages are yielded verbatim; reduce_log only sees the tail
-    # so it cannot remove or truncate task context the caller marked as protected.
+    # Protected head messages are yielded with pinned=True so any downstream
+    # reduce_log call (e.g. in prepare_messages) also skips them — it only
+    # respects the pinned flag, not the keep_head index.
     logger.info("Auto-compacting not sufficient, falling back to regular reduction")
 
     if keep_head > 0 and keep_head < len(compacted_log):
-        head_msgs = compacted_log[:keep_head]
+        head_msgs = [m.replace(pinned=True) for m in compacted_log[:keep_head]]
         tail_msgs = compacted_log[keep_head:]
         head_tokens = len_tokens(head_msgs, model.model)
         tail_limit = max(0, limit - head_tokens)
@@ -317,12 +318,13 @@ def auto_compact_log(
         yield from reduce_log(tail_msgs, tail_limit)
     elif keep_head >= len(compacted_log):
         # All messages are protected — accept the budget overshoot verbatim.
-        # Per documented behavior: if the head alone exceeds the limit,
-        # compaction accepts the overshoot rather than corrupting task context.
+        # Pin every message so that if the result is still over the model's
+        # context limit, a downstream reduce_log in prepare_messages cannot
+        # summarize or drop task context.
         logger.info(
-            "keep_head covers all %d messages; yielding verbatim (accepting budget overshoot)",
+            "keep_head covers all %d messages; yielding pinned verbatim (accepting budget overshoot)",
             len(compacted_log),
         )
-        yield from compacted_log
+        yield from (m.replace(pinned=True) for m in compacted_log)
     else:
         yield from reduce_log(compacted_log, limit)

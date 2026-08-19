@@ -1090,8 +1090,12 @@ def test_keep_head_survives_reduce_log_fallback():
     # limit=1 guarantees phases 1-3 leave us over-limit, triggering the fallback
     compacted = list(auto_compact_log(messages, limit=1, keep_head=1))
 
-    # Head message must be yielded verbatim
+    # Head message must be yielded verbatim and pinned so downstream reduce_log
+    # (e.g. in prepare_messages) cannot summarize or remove it.
     assert compacted[0].content == head_content
+    assert compacted[0].pinned, (
+        "head message must be pinned to survive downstream reduce_log"
+    )
 
 
 def test_keep_head_fully_protected_log_yields_verbatim():
@@ -1114,6 +1118,12 @@ def test_keep_head_fully_protected_log_yields_verbatim():
     assert len(compacted) == 2
     assert compacted[0].content == head1
     assert compacted[1].content == head2
+    assert compacted[0].pinned, (
+        "head messages must be pinned to survive downstream reduce_log"
+    )
+    assert compacted[1].pinned, (
+        "head messages must be pinned to survive downstream reduce_log"
+    )
 
 
 def test_compact_auto_handler_honors_env_keep_head(monkeypatch):
