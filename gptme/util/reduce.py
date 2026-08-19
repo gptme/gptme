@@ -547,8 +547,22 @@ def limit_log(log: list[Message]) -> list[Message]:
 
     # Also always include pinned messages beyond the initial system block
     # (e.g. keep_head-protected task context marked pinned by auto_compact_log).
-    extra_pinned = [m for m in log[len(initial_system_msgs) :] if m.pinned]
-    extra_pinned_ids = {id(m) for m in extra_pinned}
+    # For pinned assistant messages, extend protection to their immediately following
+    # call_id tool results so _drop_orphaned_tool_pairs doesn't remove the pinned
+    # assistant when its result was excluded from the tail budget.
+    log_tail = log[len(initial_system_msgs) :]
+    extra_pinned_ids: set[int] = set()
+    for i, m in enumerate(log_tail):
+        if m.pinned:
+            extra_pinned_ids.add(id(m))
+            if m.role == "assistant":
+                for j in range(i + 1, len(log_tail)):
+                    nxt = log_tail[j]
+                    if nxt.role == "system" and nxt.call_id:
+                        extra_pinned_ids.add(id(nxt))
+                    elif nxt.role != "system":
+                        break
+    extra_pinned = [m for m in log_tail if id(m) in extra_pinned_ids]
 
     # Reserve budget for always-included messages.
     always_tokens = len_tokens(initial_system_msgs + extra_pinned, model.model)
@@ -556,7 +570,7 @@ def limit_log(log: list[Message]) -> list[Message]:
 
     # Pick the non-pinned messages in latest-first order within the remaining budget.
     msgs = []
-    for msg in reversed(log[len(initial_system_msgs) :]):
+    for msg in reversed(log_tail):
         if id(msg) in extra_pinned_ids:
             continue  # already included
         msgs.append(msg)

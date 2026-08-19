@@ -489,6 +489,54 @@ def test_limit_log_preserves_pinned_head():
         )
 
 
+def test_limit_log_preserves_pinned_tool_call_pair():
+    """limit_log must not drop a pinned assistant tool-call when its result is clipped.
+
+    Scenario: keep_head pins an assistant message that contains a tool call, but the
+    immediately following tool result is not pinned and falls outside the tail budget.
+    _drop_orphaned_tool_pairs would remove the orphaned assistant — but the result
+    should also be included in the always-reserved set to maintain pair atomicity.
+
+    With the fix: extra_pinned is extended to include immediately following call_id
+    results of pinned assistant messages, so the pair is always preserved together.
+    """
+    from gptme.llm.models.resolution import _default_model_var
+
+    original_model = _default_model_var.get()
+    try:
+        # Budget: context=5 tokens.
+        # Messages: system(1) + assistant-with-call(2) + system-result(1) + newest(3)
+        # Without fix: system+newest=4 fits; pinned assistant-call kept but its result
+        # excluded from tail → _drop_orphaned_tool_pairs removes assistant.
+        # With fix: assistant-call + its result both in extra_pinned (reserved budget).
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=7)
+        set_default_model(tiny_model)
+
+        tool_call_msg = Message("assistant", "tool call", pinned=True)
+        tool_result_msg = Message("system", "result", call_id="abc123")
+        msgs = [
+            Message("system", "system"),  # 1 tok — initial system
+            tool_call_msg,  # 2 tok — pinned tool call
+            tool_result_msg,  # 1 tok — tool result (not pinned, but must be kept)
+            Message("user", "newest message"),  # 2 tok — recent context
+        ]
+
+        result = limit_log(msgs)
+        result_contents = [m.content for m in result]
+
+        assert "tool call" in result_contents, (
+            "Pinned assistant tool call must be preserved"
+        )
+        assert "result" in result_contents, (
+            "Tool result of pinned call must be preserved (atomicity)"
+        )
+        assert "system" in result_contents, "Initial system message must be preserved"
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+
+
 # ---------------------------------------------------------------------------
 # Tests for proactive_summarize_log
 # ---------------------------------------------------------------------------
