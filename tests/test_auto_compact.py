@@ -1000,3 +1000,74 @@ def test_resume_via_llm_with_view_branch():
     # Status messages should be hidden
     for msg in results:
         assert msg.hide is True
+
+
+def test_keep_head_protects_head_messages_from_reasoning_strip():
+    """Test that keep_head messages are not modified by reasoning stripping."""
+    messages = [
+        Message(
+            "user",
+            "Original task <think>old reasoning</think>",
+            datetime.now(tz=timezone.utc),
+        ),
+        Message(
+            "assistant",
+            "Reply <think>old reasoning</think>",
+            datetime.now(tz=timezone.utc),
+        ),
+        Message(
+            "user", "Later <think>old reasoning</think>", datetime.now(tz=timezone.utc)
+        ),
+        Message(
+            "assistant",
+            "Final <think>old reasoning</think>",
+            datetime.now(tz=timezone.utc),
+        ),
+    ]
+
+    # With keep_head=1, the first message (system prompt / task) must be untouched
+    compacted = list(
+        auto_compact_log(messages, reasoning_strip_age_threshold=0, keep_head=1)
+    )
+
+    # Head message preserved verbatim
+    assert compacted[0].content == messages[0].content
+    assert "<think>" in compacted[0].content
+
+    # Later messages still get reasoning stripped
+    for msg in compacted[1:]:
+        assert "<think>" not in msg.content
+
+
+def test_keep_head_protects_head_messages_from_tool_truncation():
+    """Test that keep_head messages are not truncated even when over the limit."""
+    model = get_default_model() or get_model("gpt-4")
+    target_tokens = int(0.85 * model.context)
+
+    words = [f"file_{i}.txt" for i in range(target_tokens // 2)]
+    massive = "\n".join(words)
+    head_content = "HEAD TASK CONTENT that must be preserved verbatim"
+    tail_content = f"Ran command: `find /usr -type f`\n{massive}"
+
+    messages = [
+        Message("system", head_content, datetime.now(tz=timezone.utc)),
+        Message("assistant", "running", datetime.now(tz=timezone.utc)),
+        Message("system", tail_content, datetime.now(tz=timezone.utc)),
+    ]
+
+    compacted = list(auto_compact_log(messages, keep_head=1))
+
+    # Head message preserved verbatim despite massive tail triggering truncation
+    assert compacted[0].content == head_content
+    # Tail was truncated
+    assert "[Large tool output removed" in compacted[2].content
+
+
+def test_keep_head_zero_is_default_behavior():
+    """Test that keep_head=0 (default) gives identical output to no param."""
+    messages = create_test_conversation()
+
+    default = list(auto_compact_log(messages))
+    explicit = list(auto_compact_log(messages, keep_head=0))
+
+    assert default == explicit

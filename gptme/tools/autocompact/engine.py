@@ -31,6 +31,7 @@ def auto_compact_log(
     max_tool_result_tokens: int = 2000,
     reasoning_strip_age_threshold: int = 5,
     logdir: Path | None = None,
+    keep_head: int = 0,
 ) -> Generator[Message, None, None]:
     """
     Auto-compact log for conversations with massive tool results.
@@ -56,6 +57,11 @@ def auto_compact_log(
         max_tool_result_tokens: Maximum tokens allowed in a tool result before removal
         reasoning_strip_age_threshold: Strip reasoning from messages >N positions back
         logdir: Path to conversation directory for saving removed outputs
+        keep_head: Number of messages at the start of the log to protect from all
+            compaction (default 0 = no protection, existing behavior). Protected
+            head messages are yielded verbatim and count toward the token budget but
+            are never reduced. If the head alone exceeds the limit, compaction accepts
+            the overshoot rather than reducing the protected task context.
     """
 
     # Build master context index for byte-range references
@@ -120,7 +126,7 @@ def auto_compact_log(
     reasoning_tokens_saved = 0
 
     for idx, msg in enumerate(log):
-        if msg.pinned:
+        if msg.pinned or idx < keep_head:
             compacted_log.append(msg)
             continue
 
@@ -153,7 +159,7 @@ def auto_compact_log(
         # Identify all candidate tool results for truncation (with original indices)
         candidates: list[tuple[int, int, Message]] = []  # (idx, tokens, msg)
         for idx, msg in enumerate(compacted_log):
-            if msg.pinned:
+            if msg.pinned or idx < keep_head:
                 continue
             if msg.role == "system":
                 msg_tokens = len_tokens(msg.content, model.model)
@@ -214,7 +220,7 @@ def auto_compact_log(
     # Phase 3: Extractive compression for long assistant messages
     compacted_log_len = len(compacted_log)
     for idx, msg in enumerate(compacted_log):
-        if msg.pinned:
+        if msg.pinned or idx < keep_head:
             continue
 
         distance_from_end = compacted_log_len - idx - 1
