@@ -265,12 +265,19 @@ def init(
         force=force,
     )
 
-    # Timer (skip for on-demand; remove stale timer if switching to on-demand)
+    # Timer (skip for on-demand; remove stale timer only with --force)
     if timer_schedule == "on-demand":
         stale_timer = out_dir / f"{name}.timer"
         if stale_timer.exists():
-            stale_timer.unlink()
-            click.echo(f"  Removed stale timer {stale_timer} (on-demand mode)")
+            if force:
+                stale_timer.unlink()
+                click.echo(
+                    f"  Removed stale timer {stale_timer} (on-demand mode, --force)"
+                )
+            else:
+                click.echo(
+                    f"  Warning: existing timer {stale_timer} preserved (use --force to remove)"
+                )
     else:
         schedule = SCHEDULES.get(timer_schedule, SCHEDULES["daily"])
         _write_file(

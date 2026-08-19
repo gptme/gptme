@@ -89,6 +89,28 @@ def test_on_demand_skips_timer(tmp_path: Path) -> None:
     assert not (tmp_path / "systemd" / "testagent.timer").exists()
 
 
+def test_on_demand_preserves_existing_timer_without_force(tmp_path: Path) -> None:
+    """Switching to on-demand without --force must NOT delete an existing timer."""
+    # First scaffold a periodic agent (creates testagent.timer)
+    _run_init(tmp_path)
+    timer = tmp_path / "systemd" / "testagent.timer"
+    assert timer.exists()
+
+    # Reinitialize as on-demand WITHOUT --force → timer must be preserved
+    _run_init(tmp_path, "--timer-schedule", "on-demand")
+    assert timer.exists(), "existing timer should be preserved without --force"
+
+
+def test_on_demand_removes_existing_timer_with_force(tmp_path: Path) -> None:
+    """Switching to on-demand WITH --force should remove an existing timer."""
+    _run_init(tmp_path)
+    timer = tmp_path / "systemd" / "testagent.timer"
+    assert timer.exists()
+
+    _run_init(tmp_path, "--timer-schedule", "on-demand", "--force")
+    assert not timer.exists(), "existing timer should be removed with --force"
+
+
 def test_force_overwrites_existing(tmp_path: Path) -> None:
     _run_init(tmp_path)
     (tmp_path / "gptme.toml").write_text("changed")
