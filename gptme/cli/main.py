@@ -1353,14 +1353,23 @@ def main(
                         e,
                     )
                     _manifest_tool_names: set[str] = set()
-                    if stats_tool_allowlist_str and stats_tool_allowlist_str.startswith(
-                        "+"
-                    ):
-                        _manifest_tool_names = {
-                            t.strip()
-                            for t in stats_tool_allowlist_str[1:].split(",")
-                            if t.strip()
-                        }
+                    if stats_tool_allowlist_str:
+                        if stats_tool_allowlist_str.startswith("+"):
+                            # Additive manifest (no builtin_tools): manifest tools
+                            # are the ones added via '+'.
+                            _manifest_tool_names = {
+                                t.strip()
+                                for t in stats_tool_allowlist_str[1:].split(",")
+                                if t.strip()
+                            }
+                        else:
+                            # Explicit allowlist (builtin_tools manifest): only strip
+                            # MCP-style entries (server.tool, contains '.').
+                            _manifest_tool_names = {
+                                t.strip()
+                                for t in stats_tool_allowlist_str.split(",")
+                                if t.strip() and "." in t.strip()
+                            }
                     fallback_stats_tools = [
                         t
                         for t in (config.chat.tools or [])
@@ -1571,10 +1580,27 @@ def main(
                 e,
             )
             manifest_tool_names: set[str] = set()
-            if tool_allowlist_str and tool_allowlist_str.startswith("+"):
-                manifest_tool_names = {
-                    t.strip() for t in tool_allowlist_str[1:].split(",") if t.strip()
-                }
+            if tool_allowlist_str:
+                if tool_allowlist_str.startswith("+"):
+                    # Additive manifest (no builtin_tools): manifest tools are the
+                    # ones added via '+'; built-ins are the defaults and need not be
+                    # stripped for the fallback.
+                    manifest_tool_names = {
+                        t.strip()
+                        for t in tool_allowlist_str[1:].split(",")
+                        if t.strip()
+                    }
+                else:
+                    # Explicit allowlist (builtin_tools manifest): only strip the
+                    # MCP-style entries (server.tool format containing '.') so the
+                    # built-in tools listed in the manifest survive in the fallback
+                    # session.  Built-in names never contain a dot, so this is a safe
+                    # discriminator.
+                    manifest_tool_names = {
+                        t.strip()
+                        for t in tool_allowlist_str.split(",")
+                        if t.strip() and "." in t.strip()
+                    }
             fallback_tools = [
                 t for t in (config.chat.tools or []) if t not in manifest_tool_names
             ]
