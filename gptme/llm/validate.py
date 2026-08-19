@@ -47,25 +47,13 @@ PROVIDER_DOCS: dict[str, str] = {
 # Providers that use OAuth instead of API keys
 OAUTH_PROVIDERS: set[str] = {"openai-subscription", "grok-subscription"}
 
-# Stable messages used by callers to distinguish provider availability failures from
-# credential failures without parsing provider-specific responses.
+# Error message constants returned by validate_api_key / validate_api_key_status.
+# Callers that need to distinguish transient connectivity failures from definitive
+# key rejections can compare against these instead of hard-coding message strings.
 VALIDATION_TIMEOUT_ERROR = "Request timed out. Please check your network connection."
 VALIDATION_CONNECTION_ERROR = "Could not connect to the API. Please check your network."
-VALIDATION_PROVIDER_ERROR_PREFIX = "Validation failed:"
-
-
-def _http_status_error(status_code: int) -> tuple[bool, str]:
-    """Map an unexpected HTTP status to a validation error tuple.
-
-    5xx responses mean the provider is down, not that the key is bad, so they
-    use VALIDATION_PROVIDER_ERROR_PREFIX so api_v2 can return 502 instead of 422.
-    """
-    if status_code >= 500:
-        return (
-            False,
-            f"{VALIDATION_PROVIDER_ERROR_PREFIX} Provider unavailable (HTTP {status_code})",
-        )
-    return False, f"API returned status {status_code}"
+# Prefix for server-side errors (full message: "Provider returned server error <code>. …")
+VALIDATION_PROVIDER_ERROR_PREFIX = "Provider returned server error"
 
 
 def validate_api_key(
@@ -82,7 +70,7 @@ def validate_api_key(
         timeout: Request timeout in seconds
 
     Returns:
-        Tuple of (is_valid, error_message)
+        Tuple of (is_valid, message)
         - (True, "") if valid
         - (True, "warning message") if provider unreachable (warn but allow)
         - (False, "error description") if definitively invalid
@@ -136,12 +124,22 @@ def validate_api_key_status(
         elif provider == "xai":
             is_valid, message = _validate_xai(api_key, timeout)
         elif provider == "azure":
-            # Azure requires endpoint configuration, skip validation
+            # Azure requires endpoint configuration, skip live validation
             logger.info("Azure API key validation skipped (requires endpoint config)")
-            return ApiKeyValidationStatus.UNSUPPORTED, ""
-        elif provider in ("nvidia", "local"):
-            # Local models don't need API key validation
-            logger.info(f"{provider} provider doesn't require API key validation")
+            return (
+                ApiKeyValidationStatus.UNSUPPORTED,
+                "Key accepted without live validation — Azure requires endpoint configuration to validate",
+            )
+        elif provider == "nvidia":
+            # NVIDIA validation would need an org-specific endpoint, skip
+            logger.info("NVIDIA API key validation skipped (requires org endpoint)")
+            return (
+                ApiKeyValidationStatus.UNSUPPORTED,
+                "Key accepted without live validation — NVIDIA keys are checked on first use",
+            )
+        elif provider == "local":
+            # Local models typically use a placeholder key or none at all
+            logger.info("Local provider doesn't require API key validation")
             return ApiKeyValidationStatus.UNSUPPORTED, ""
         else:
             # Unknown or custom provider, skip validation
@@ -151,21 +149,15 @@ def validate_api_key_status(
             return ApiKeyValidationStatus.VALID, message
         return ApiKeyValidationStatus.INVALID, message
     except requests.exceptions.Timeout:
-        return (
-            ApiKeyValidationStatus.UNREACHABLE,
-            "Request timed out. Please check your network connection.",
-        )
+        return ApiKeyValidationStatus.UNREACHABLE, VALIDATION_TIMEOUT_ERROR
     except requests.exceptions.ConnectionError:
-        return (
-            ApiKeyValidationStatus.UNREACHABLE,
-            "Could not connect to the API. Please check your network.",
-        )
+        return ApiKeyValidationStatus.UNREACHABLE, VALIDATION_CONNECTION_ERROR
     except requests.exceptions.HTTPError as e:
-        # 5xx from the provider — server is reachable but broken; not a key rejection.
+        # 408/5xx from the provider — server is reachable but broken; not a key rejection.
         status_code = e.response.status_code if e.response is not None else "unknown"
         return (
             ApiKeyValidationStatus.UNREACHABLE,
-            f"Provider returned server error {status_code}. Please try again later.",
+            f"{VALIDATION_PROVIDER_ERROR_PREFIX} {status_code}. Please try again later.",
         )
     except requests.exceptions.RequestException as e:
         logger.exception(f"Unexpected error validating {provider} API key")
@@ -295,7 +287,7 @@ def _validate_openai_compatible(
         return False, "API key forbidden. It may lack required permissions."
     if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    if response.status_code >= 500:
+    if response.status_code == 408 or response.status_code >= 500:
         response.raise_for_status()
     return False, f"API returned status {response.status_code}"
 

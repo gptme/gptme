@@ -8,7 +8,6 @@ import requests
 from gptme.llm.validate import (
     PROVIDER_DOCS,
     ApiKeyValidationStatus,
-    VALIDATION_PROVIDER_ERROR_PREFIX,
     _validate_anthropic,
     _validate_google,
     _validate_openai,
@@ -125,12 +124,11 @@ class TestValidateGoogle:
         assert error == ""
 
     @patch("gptme.llm.validate.requests.get")
-    def test_provider_unavailable_returns_502_prefix(self, mock_get):
-        """5xx responses should return provider-unavailable prefix, not auth failure."""
+    def test_provider_unavailable_raises_http_error(self, mock_get):
+        """5xx responses raise HTTPError so the tri-state wrapper maps them to UNREACHABLE."""
         mock_get.return_value = Mock(status_code=500)
-        is_valid, error = _validate_google("some-key", 10)
-        assert not is_valid
-        assert VALIDATION_PROVIDER_ERROR_PREFIX in error
+        with pytest.raises(requests.HTTPError):
+            _validate_google("some-key", 10)
 
 
 class TestValidateAnthropic:
@@ -294,9 +292,6 @@ class TestValidateOpenAICompatible:
             (401, False, "Invalid API key"),
             (403, False, "forbidden"),
             (429, True, ""),
-            # 5xx → provider-unavailable error, not a credential failure
-            (500, False, VALIDATION_PROVIDER_ERROR_PREFIX),
-            (503, False, VALIDATION_PROVIDER_ERROR_PREFIX),
         ],
     )
     @patch("gptme.llm.validate.requests.get")
@@ -315,6 +310,13 @@ class TestValidateOpenAICompatible:
             headers={"Authorization": "Bearer test-key"},
             timeout=10,
         )
+
+    @patch("gptme.llm.validate.requests.get")
+    def test_5xx_raises_http_error(self, mock_get):
+        """A 5xx must raise HTTPError so the tri-state wrapper maps it to UNREACHABLE."""
+        mock_get.return_value = Mock(status_code=503)
+        with pytest.raises(requests.HTTPError):
+            _validate_openai_compatible("test-key", 10, "https://example.com/v1/")
 
 
 class TestUnvalidatableProviders:

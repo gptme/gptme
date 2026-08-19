@@ -13,6 +13,7 @@ import tomlkit
 
 from gptme.config import ChatConfig, MCPConfig
 from gptme.llm.models import ModelMeta, get_default_model
+from gptme.llm.validate import ApiKeyValidationStatus
 from gptme.prompts import get_prompt
 from gptme.tools import get_toolchain
 
@@ -603,9 +604,9 @@ def test_v2_user_api_key_rejects_invalid_key_via_provider(
     monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr(
-        "gptme.server.api_v2.validate_api_key",
+        "gptme.server.api_v2.validate_api_key_status",
         lambda key, provider, **kw: (
-            False,
+            ApiKeyValidationStatus.INVALID,
             "Invalid API key. Please check your key and try again.",
         ),
     )
@@ -625,54 +626,22 @@ def test_v2_user_api_key_rejects_invalid_key_via_provider(
     assert not local_file.exists()
 
 
-@pytest.mark.parametrize(
-    "validation_error",
-    [
-        "Request timed out. Please check your network connection.",
-        "Could not connect to the API. Please check your network.",
-        "Validation failed: provider returned malformed response",
-        # 5xx provider responses now produce this prefix too — must be 502, not 422
-        "Validation failed: Provider unavailable (HTTP 500)",
-    ],
-)
-def test_v2_user_api_key_returns_bad_gateway_when_provider_unreachable(
-    client: FlaskClient, tmp_path, monkeypatch, validation_error
-):
-    """Connectivity failures should return 502 without persisting the key."""
-    import gptme.config.user as user_mod
-
-    config_file = tmp_path / "config.toml"
-    monkeypatch.setattr(user_mod, "config_path", str(config_file))
-    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
-    monkeypatch.setattr(
-        "gptme.server.api_v2.validate_api_key",
-        lambda key, provider: (False, validation_error),
-    )
-
-    response = client.post(
-        "/api/v2/user/api-key",
-        json={"provider": "anthropic", "api_key": "sk-ant-test"},
-    )
-
-    assert response.status_code == 502
-    assert response.get_json() == {"error": validation_error}
-    assert not (tmp_path / "config.local.toml").exists()
-
-
 def test_v2_user_api_key_handles_validator_exception(
     client: FlaskClient, tmp_path, monkeypatch
 ):
-    """A provider outage should return JSON without persisting the key."""
+    """An unexpected validator exception should return 502 without persisting the key."""
     import gptme.config.user as user_mod
 
     config_file = tmp_path / "config.toml"
     monkeypatch.setattr(user_mod, "config_path", str(config_file))
     monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
 
-    def raise_provider_error(key, provider):
+    def raise_provider_error(key, provider, timeout=10):
         raise RuntimeError("provider unavailable")
 
-    monkeypatch.setattr("gptme.server.api_v2.validate_api_key", raise_provider_error)
+    monkeypatch.setattr(
+        "gptme.server.api_v2.validate_api_key_status", raise_provider_error
+    )
 
     response = client.post(
         "/api/v2/user/api-key",
@@ -695,8 +664,8 @@ def test_v2_user_api_key_accepts_valid_key_via_provider(
     monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr(
-        "gptme.server.api_v2.validate_api_key",
-        lambda key, provider, **kw: (True, ""),
+        "gptme.server.api_v2.validate_api_key_status",
+        lambda key, provider, **kw: (ApiKeyValidationStatus.VALID, ""),
     )
 
     response = client.post(
@@ -725,8 +694,11 @@ def test_v2_user_api_key_warns_on_quota_exhausted(
     monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr(
-        "gptme.server.api_v2.validate_api_key",
-        lambda key, provider, **kw: (True, "API quota exhausted — resets in 3 days"),
+        "gptme.server.api_v2.validate_api_key_status",
+        lambda key, provider, **kw: (
+            ApiKeyValidationStatus.VALID,
+            "API quota exhausted — resets in 3 days",
+        ),
     )
 
     response = client.post(
@@ -780,9 +752,12 @@ def test_v2_user_api_key_skip_validation_bypasses_live_check(
 
     def fake_validate(key, provider, **kw):
         called.append((key, provider))
-        return (False, "Invalid API key")  # would fail if called
+        return (
+            ApiKeyValidationStatus.INVALID,
+            "Invalid API key",
+        )  # would fail if called
 
-    monkeypatch.setattr("gptme.server.api_v2.validate_api_key", fake_validate)
+    monkeypatch.setattr("gptme.server.api_v2.validate_api_key_status", fake_validate)
 
     response = client.post(
         "/api/v2/user/api-key",

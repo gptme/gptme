@@ -3136,11 +3136,20 @@ def api_user_api_key():
     # We use the tri-state status rather than the boolean so an unreachable
     # provider is a warning, not a hard block: a transient network blip must not
     # lock a first-run user out of saving a key they know is good.
-    validation_status, validation_error = validate_api_key_status(
-        trimmed_api_key, provider
-    )
-    if validation_status is ApiKeyValidationStatus.INVALID:
-        return flask.jsonify({"error": validation_error}), 400
+    # skip_validation=True is for offline/test use where live network calls aren't available.
+    key_warning: str | None = None
+    if not skip_validation:
+        try:
+            validation_status, validation_msg = validate_api_key_status(
+                trimmed_api_key, provider
+            )
+        except Exception:
+            logger.exception("Unexpected error validating %s API key", provider)
+            return flask.jsonify({"error": "Provider validation failed"}), 502
+        if validation_status is ApiKeyValidationStatus.INVALID:
+            return flask.jsonify({"error": validation_msg}), 422
+        if validation_msg:
+            key_warning = validation_msg
 
     env_var = PROVIDER_API_KEYS[provider]
     set_config_value(f"env.{env_var}", trimmed_api_key, reload=False, local=True)
@@ -3160,8 +3169,8 @@ def api_user_api_key():
         "env_var": env_var,
         "restart_required": False,
     }
-    if validation_status is ApiKeyValidationStatus.UNREACHABLE:
-        response["warning"] = validation_error
+    if key_warning:
+        response["warning"] = key_warning
 
     logger.info(
         "Saved %s to user config via /api/v2/user/api-key (applied live)", env_var
