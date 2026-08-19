@@ -1094,6 +1094,28 @@ def test_keep_head_survives_reduce_log_fallback():
     assert compacted[0].content == head_content
 
 
+def test_keep_head_fully_protected_log_yields_verbatim():
+    """When keep_head >= message count, all messages are protected.
+
+    The fallback must yield the entire log verbatim rather than passing it to
+    reduce_log (which has no knowledge of keep_head and would truncate the
+    "protected" head messages).
+    """
+    head1 = "SYSTEM PROMPT — must survive"
+    head2 = "USER TASK — must survive"
+    messages = [
+        Message("system", head1, datetime.now(tz=timezone.utc)),
+        Message("user", head2, datetime.now(tz=timezone.utc)),
+    ]
+
+    # keep_head=2 covers all 2 messages; limit=1 forces the fallback
+    compacted = list(auto_compact_log(messages, limit=1, keep_head=2))
+
+    assert len(compacted) == 2
+    assert compacted[0].content == head1
+    assert compacted[1].content == head2
+
+
 def test_compact_auto_handler_honors_env_keep_head(monkeypatch):
     """The /compact auto handler must use _get_keep_head(), not a hardcoded default.
 

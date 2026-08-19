@@ -315,5 +315,14 @@ def auto_compact_log(
         tail_limit = max(0, limit - head_tokens)
         yield from head_msgs
         yield from reduce_log(tail_msgs, tail_limit)
+    elif keep_head >= len(compacted_log):
+        # All messages are protected — accept the budget overshoot verbatim.
+        # Per documented behavior: if the head alone exceeds the limit,
+        # compaction accepts the overshoot rather than corrupting task context.
+        logger.info(
+            "keep_head covers all %d messages; yielding verbatim (accepting budget overshoot)",
+            len(compacted_log),
+        )
+        yield from compacted_log
     else:
         yield from reduce_log(compacted_log, limit)
