@@ -274,6 +274,10 @@ def init(
                 click.echo(
                     f"  Removed stale timer {stale_timer} (on-demand mode, --force)"
                 )
+                click.echo(
+                    "  Note: the unit may still be loaded — disable it to stop active runs:"
+                )
+                click.echo(f"    systemctl --user disable --now {name}.timer")
             else:
                 click.echo(
                     f"  Warning: existing timer {stale_timer} preserved (use --force to remove)."
