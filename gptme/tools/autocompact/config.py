@@ -4,7 +4,10 @@ Settings here control how aggressive compaction is and whether the head of the
 conversation (the system prompt and original task) is protected from reduction.
 """
 
+import logging
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -20,3 +23,23 @@ class AutoCompactConfig:
 
     keep_head: int = 2
     """Number of messages at the start of the log to protect from compaction."""
+
+
+def _get_keep_head() -> int:
+    """Resolve the number of head messages to protect from compaction.
+
+    Priority: ``GPTME_AUTOCOMPACT_KEEP_HEAD`` env var > :class:`AutoCompactConfig`
+    default. Invalid/negative values fall back to the configured default.
+    """
+    from ...config import get_config
+
+    cfg = AutoCompactConfig()
+    raw = get_config().get_env("GPTME_AUTOCOMPACT_KEEP_HEAD")
+    if raw is not None:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            logger.warning(
+                f"Invalid GPTME_AUTOCOMPACT_KEEP_HEAD={raw!r}, using default {cfg.keep_head}"
+            )
+    return cfg.keep_head

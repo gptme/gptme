@@ -1071,3 +1071,76 @@ def test_keep_head_zero_is_default_behavior():
     explicit = list(auto_compact_log(messages, keep_head=0))
 
     assert default == explicit
+
+
+def test_keep_head_survives_reduce_log_fallback():
+    """Protected head messages must not be touched by the reduce_log fallback.
+
+    Passes a limit of 1 token so all three primary phases are guaranteed to
+    fail to reach the limit and the fallback fires.  The head message must
+    come out identical despite reduce_log being called on the tail.
+    """
+    head_content = "SYSTEM PROMPT — task context that must survive compaction"
+    messages = [
+        Message("system", head_content, datetime.now(tz=timezone.utc)),
+        Message("user", "word " * 500, datetime.now(tz=timezone.utc)),
+        Message("assistant", "word " * 500, datetime.now(tz=timezone.utc)),
+    ]
+
+    # limit=1 guarantees phases 1-3 leave us over-limit, triggering the fallback
+    compacted = list(auto_compact_log(messages, limit=1, keep_head=1))
+
+    # Head message must be yielded verbatim
+    assert compacted[0].content == head_content
+
+
+def test_compact_auto_handler_honors_env_keep_head(monkeypatch):
+    """The /compact auto handler must use _get_keep_head(), not a hardcoded default.
+
+    When GPTME_AUTOCOMPACT_KEEP_HEAD differs from the AutoCompactConfig default,
+    the handler must pass the env value — not the dataclass default — to
+    auto_compact_log.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact.handlers import _compact_auto
+
+    # Set up a mock context
+    mock_logdir = MagicMock()
+    mock_ctx = MagicMock()
+    mock_ctx.manager.logdir = mock_logdir
+
+    msgs = [
+        Message("system", "System prompt"),
+        Message("user", "word " * 200),
+        Message("system", "tool result " * 200),
+    ]
+
+    captured_keep_head = {}
+
+    def fake_auto_compact_log(log, logdir=None, keep_head=0, **kw):
+        captured_keep_head["value"] = keep_head
+        yield from log
+
+    with (
+        patch(
+            "gptme.tools.autocompact.handlers.should_auto_compact",
+            return_value="rule_based",
+        ),
+        patch(
+            "gptme.tools.autocompact.handlers.auto_compact_log",
+            side_effect=fake_auto_compact_log,
+        ),
+        patch("gptme.tools.autocompact.handlers.get_default_model", return_value=None),
+        patch("gptme.config.get_config") as mock_get_config,
+    ):
+        # Simulate env var returning "5"
+        mock_cfg = MagicMock()
+        mock_cfg.get_env.return_value = "5"
+        mock_get_config.return_value = mock_cfg
+
+        list(_compact_auto(mock_ctx, msgs))
+
+    assert captured_keep_head.get("value") == 5, (
+        f"Expected keep_head=5 from env override, got {captured_keep_head.get('value')}"
+    )

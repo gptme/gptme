@@ -5,7 +5,7 @@ from collections.abc import Generator
 from ...llm.models import get_default_model
 from ...logmanager import Log
 from ...message import Message, len_tokens
-from .config import AutoCompactConfig
+from .config import _get_keep_head
 from .decision import should_auto_compact
 from .engine import auto_compact_log
 from .resume import _resume_via_llm
@@ -47,9 +47,7 @@ def _compact_auto(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
 
     # Apply auto-compacting
     compacted_msgs = list(
-        auto_compact_log(
-            msgs, logdir=ctx.manager.logdir, keep_head=AutoCompactConfig().keep_head
-        )
+        auto_compact_log(msgs, logdir=ctx.manager.logdir, keep_head=_get_keep_head())
     )
 
     # Calculate reduction stats

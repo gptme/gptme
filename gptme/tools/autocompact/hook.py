@@ -11,12 +11,11 @@ from collections.abc import Generator
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from ...config import get_config
 from ...hooks import HookType, StopPropagation, trigger_hook
 from ...llm.models import get_default_model
 from ...message import Message, len_tokens
 from ..base import ToolSpec
-from .config import AutoCompactConfig
+from .config import _get_keep_head
 from .decision import should_auto_compact
 from .engine import auto_compact_log
 from .handlers import cmd_compact_handler
@@ -30,24 +29,6 @@ logger = logging.getLogger(__name__)
 # Reentrancy guard to prevent infinite loops
 _last_autocompact_time = 0.0
 _autocompact_min_interval = 60  # Minimum 60 seconds between autocompact attempts
-
-
-def _get_keep_head() -> int:
-    """Resolve the number of head messages to protect from compaction.
-
-    Priority: ``GPTME_AUTOCOMPACT_KEEP_HEAD`` env var > :class:`AutoCompactConfig`
-    default. Invalid/negative values fall back to the configured default.
-    """
-    cfg = AutoCompactConfig()
-    raw = get_config().get_env("GPTME_AUTOCOMPACT_KEEP_HEAD")
-    if raw is not None:
-        try:
-            return max(0, int(raw))
-        except ValueError:
-            logger.warning(
-                f"Invalid GPTME_AUTOCOMPACT_KEEP_HEAD={raw!r}, using default {cfg.keep_head}"
-            )
-    return cfg.keep_head
 
 
 def _get_compacted_name(conversation_name: str) -> str:

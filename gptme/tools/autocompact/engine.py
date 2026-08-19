@@ -303,7 +303,17 @@ def auto_compact_log(
         yield from compacted_log
         return
 
-    # If still over limit, fall back to regular reduction
+    # If still over limit, fall back to regular reduction.
+    # Protected head messages are yielded verbatim; reduce_log only sees the tail
+    # so it cannot remove or truncate task context the caller marked as protected.
     logger.info("Auto-compacting not sufficient, falling back to regular reduction")
 
-    yield from reduce_log(compacted_log, limit)
+    if keep_head > 0 and keep_head < len(compacted_log):
+        head_msgs = compacted_log[:keep_head]
+        tail_msgs = compacted_log[keep_head:]
+        head_tokens = len_tokens(head_msgs, model.model)
+        tail_limit = max(0, limit - head_tokens)
+        yield from head_msgs
+        yield from reduce_log(tail_msgs, tail_limit)
+    else:
+        yield from reduce_log(compacted_log, limit)
