@@ -55,11 +55,12 @@ fi
 echo "Building gptme-server sidecar for $TRIPLE..."
 mkdir -p "$BINS_DIR"
 
-# Install gptme from local source into an isolated venv, then freeze with PyInstaller
+# Install gptme from local source into a venv, then freeze with PyInstaller.
+# uv sync --frozen uses uv.lock exactly, so a lock-file-triggered rebuild
+# actually installs the pinned versions that caused the staleness.
+# pyinstaller is in [tool.poetry.group.dev.dependencies]; server extras add Flask etc.
 cd "$REPO_ROOT"
-# uv pip install requires a virtual environment — create one if absent
-[[ -d ".venv" ]] || uv venv .venv
-uv pip install --quiet ".[server]" pyinstaller
+uv sync --frozen --extra server --group dev --quiet
 uv run pyinstaller \
     --onefile \
     --name gptme-server \
