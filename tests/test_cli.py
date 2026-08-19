@@ -1397,6 +1397,91 @@ def test_tool_manifest_unavailable_tool_falls_back_gracefully(
     assert not any("github" in t for t in (fake_config.chat.tools or []))
 
 
+def test_tool_manifest_builtin_tools_unavailable_mcp_falls_back_gracefully(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Manifest with builtin_tools + an unavailable MCP tool still starts.
+
+    When a manifest declares builtin_tools, apply_tool_manifest returns an explicit
+    allowlist WITHOUT the '+' prefix (e.g. "read,grep,github.search_code").
+    The init_tools fallback must still identify the MCP-style tool names and strip
+    them, while keeping the built-in tools in the fallback session.
+    """
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":['
+        '{"server_name":"github","tool_name":"search_code"}],'
+        '"builtin_tools":["read","grep"]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            # Explicit allowlist from builtin_tools manifest: builtins + MCP tool
+            tools=["read", "grep", "github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+
+    init_calls: list[Any] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        if any(isinstance(t, str) and "github" in t for t in (tools or [])):
+            raise ValueError("Tool 'github.search_code' not found")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    # Session must start despite the unavailable MCP tool
+    assert result.exit_code == 0
+    assert "Traceback" not in result.output
+    # init_tools called twice: first with manifest tools, then with fallback
+    assert len(init_calls) == 2
+    # Second call must strip the MCP tool but KEEP the built-in tools
+    second_call = init_calls[1]
+    assert isinstance(second_call, list)
+    assert not any("github" in t for t in second_call), (
+        "MCP tool should be removed in fallback"
+    )
+    assert "read" in second_call, "built-in tool should survive the fallback"
+    assert "grep" in second_call, "built-in tool should survive the fallback"
+    # config.chat.tools must be in sync with the fallback (no unavailable MCP tool)
+    assert not any("github" in t for t in (fake_config.chat.tools or []))
+
+
 def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
