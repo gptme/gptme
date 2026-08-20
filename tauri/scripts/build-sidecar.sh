@@ -50,7 +50,15 @@ sidecar_is_stale() {
     local uvlock_now=0
     if [[ -f "$REPO_ROOT/uv.lock" ]]; then uvlock_now=1; fi
     local uvlock_was=0
-    if [[ -f "$uvlock_marker" ]]; then uvlock_was=$(cat "$uvlock_marker"); fi
+    if [[ -f "$uvlock_marker" ]]; then
+        if [[ ! -r "$uvlock_marker" ]]; then
+            return 0
+        fi
+        uvlock_was=$(<"$uvlock_marker")
+        if [[ "$uvlock_was" != 0 && "$uvlock_was" != 1 ]]; then
+            return 0
+        fi
+    fi
     if [[ "$uvlock_now" != "$uvlock_was" ]]; then
         return 0
     fi
