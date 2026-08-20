@@ -1167,7 +1167,7 @@ def main(
         get_prompt_stats,
     )
     from ..telemetry import init_telemetry, shutdown_telemetry
-    from ..tools import init_tools
+    from ..tools import ToolAllowlistError, init_tools
     from ..util.context import md_codeblock
     from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
     from ..util.prompt import add_history
@@ -1296,8 +1296,8 @@ def main(
                     agent_path=Path(agent_path) if agent_path else None,
                 )
             except ValueError as e:
-                if tool_manifest_type:
-                    # Manifest tool unavailable during config normalisation —
+                if tool_manifest_type and isinstance(e, ToolAllowlistError):
+                    # A manifest tool was unavailable during config normalisation —
                     # retry without the manifest allowlist (same fallback as the
                     # main path and the init_tools path below).
                     # Same builtin-preservation logic as the main path below:
@@ -1536,9 +1536,9 @@ def main(
             agent_path=Path(agent_path) if agent_path else None,
         )
     except ValueError as e:
-        if tool_manifest_type:
-            # Manifest tool unavailable during config normalisation (MCP server
-            # may not be running).  Retry without the manifest allowlist so the
+        if tool_manifest_type and isinstance(e, ToolAllowlistError):
+            # A manifest tool was unavailable during config normalisation (MCP
+            # server may not be running). Retry without the manifest allowlist so the
             # session still starts with the default tools.
             # Preserve builtin tools from the manifest when stripping unavailable
             # MCP tools.  For builtin_tools manifests (explicit allowlist, no '+'

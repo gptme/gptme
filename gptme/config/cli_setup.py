@@ -183,7 +183,12 @@ def setup_config_from_cli(
                 base_tools = [tool.strip() for tool in tools_env.split(",")]
             else:
                 base_tools = [tool.name for tool in get_toolchain(None)]
-            resolved_tool_allowlist = base_tools.copy()
+            # A persisted/configured preset is valid by itself but cannot be
+            # combined with additional names. Expand it before applying the
+            # additive override so ``read-only`` + ``save`` becomes the concrete
+            # allowlist ``read,save`` rather than an invalid mixed preset list.
+            resolved_tool_allowlist = expand_tool_allowlist_presets(base_tools.copy())
+            assert resolved_tool_allowlist is not None
             for tool in additional_tools:
                 if tool not in resolved_tool_allowlist:
                     resolved_tool_allowlist.append(tool)
