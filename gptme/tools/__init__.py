@@ -42,11 +42,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class ToolAllowlistError(ValueError):
+    """An allowlist entry could not be resolved to an available tool."""
+
+
 __all__ = [
     # types
     "ToolSpec",
     "ToolUse",
     "ToolFormat",
+    "ToolAllowlistError",
     "ToolFunction",
     "Parameter",
     # functions
@@ -225,7 +230,7 @@ def init_tools(
             matched_available = matching_allowlist_tools(tool_name, available_tools)
             if matched_available:
                 if any(tool.is_available for tool in matched_available):
-                    raise ValueError(
+                    raise ToolAllowlistError(
                         f"Tool '{tool_name}' matched available tools that should "
                         "have been loaded but were not found in loaded_tools"
                     )
@@ -233,7 +238,7 @@ def init_tools(
                     "%s Skipping.", _unavailable_message(tool_name, matched_available)
                 )
                 continue
-            raise ValueError(f"Tool '{tool_name}' not found")
+            raise ToolAllowlistError(f"Tool '{tool_name}' not found")
 
         return loaded_tools
 
@@ -273,7 +278,7 @@ def get_toolchain(
             matched_tools = matching_allowlist_tools(tool_name, available_tools)
             if not matched_tools:
                 if strict:
-                    raise ValueError(
+                    raise ToolAllowlistError(
                         f"Tool '{tool_name}' not found. Available tools: {', '.join(sorted(available_tool_names))}"
                     )
                 logger.warning("Tool '%s' in allowlist not found, skipping", tool_name)
@@ -282,7 +287,7 @@ def get_toolchain(
             if not any(tool.is_available for tool in matched_tools):
                 msg = _unavailable_message(tool_name, matched_tools)
                 if strict:
-                    raise ValueError(msg)
+                    raise ToolAllowlistError(msg)
                 logger.warning("%s Skipping.", msg)
                 continue
 

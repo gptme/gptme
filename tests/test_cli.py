@@ -19,7 +19,7 @@ import gptme.constants
 import gptme.tools.browser
 from gptme.__version__ import __version__
 from gptme.message import Message
-from gptme.tools import ToolUse
+from gptme.tools import ToolAllowlistError, ToolUse
 
 project_root = Path(__file__).parent.parent
 logo = project_root / "media" / "logo.png"
@@ -267,7 +267,7 @@ def test_show_prompt_stats_manifest_fallback_passes_empty_allowlist(
     def fake_init_tools(tools):
         init_calls.append(tools)
         if tools is None or "github.search_code" in tools:
-            raise ValueError("Tool 'github.search_code' not found")
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
         return []
 
     monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
@@ -340,7 +340,7 @@ def test_show_prompt_stats_does_not_retry_after_config_fallback(
     def fake_setup_config(*, tool_allowlist=None, **_kwargs):
         setup_calls.append(tool_allowlist)
         if tool_allowlist and "github.search_code" in tool_allowlist:
-            raise ValueError("Tool 'github.search_code' not found")
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
         return fake_config
 
     def fake_init_tools(tools):
@@ -1359,7 +1359,7 @@ def test_tool_manifest_unavailable_tool_falls_back_gracefully(
         if init_calls and any(
             isinstance(t, str) and "github" in t for t in (tools or [])
         ):
-            raise ValueError("Tool 'github.search_code' not found")
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
         return []
 
     monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
@@ -1442,7 +1442,7 @@ def test_tool_manifest_builtin_tools_unavailable_mcp_falls_back_gracefully(
     def fake_init_tools(tools):
         init_calls.append(tools)
         if any(isinstance(t, str) and "github" in t for t in (tools or [])):
-            raise ValueError("Tool 'github.search_code' not found")
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
         return []
 
     monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
@@ -1484,6 +1484,48 @@ def test_tool_manifest_builtin_tools_unavailable_mcp_falls_back_gracefully(
     assert "grep" in second_call, "built-in tool should survive the fallback"
     # config.chat.tools must be in sync with the fallback (no unavailable MCP tool)
     assert not any("github" in t for t in (fake_config.chat.tools or []))
+
+
+def test_tool_manifest_unrelated_config_error_does_not_retry(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """A manifest must not turn an unrelated config error into a fallback retry."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ValueError("Invalid model configuration")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda: [SimpleNamespace(name="github.search_code", is_available=True)],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert "Invalid model configuration" in result.output
+    assert "Manifest" not in result.output
+    assert len(setup_calls) == 1
 
 
 def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
@@ -1533,7 +1575,7 @@ def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
             and tool_allowlist.startswith("+")
             and "github" in tool_allowlist
         ):
-            raise ValueError("Tool 'github.search_code' not found")
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
         return fake_config
 
     monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
@@ -1620,7 +1662,7 @@ def test_tool_manifest_builtin_tools_config_setup_failure_preserves_builtins(
         # First call has the explicit manifest allowlist (no '+' prefix) which
         # includes the MCP tool — simulate normalisation failure.
         if tool_allowlist and "github" in tool_allowlist:
-            raise ValueError("Tool 'github.search_code' not found")
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
         return fake_config
 
     monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
