@@ -48,9 +48,9 @@ sidecar_is_stale() {
     # file records uv.lock presence at build time; any mismatch forces rebuild.
     local uvlock_marker="${sidecar}.uvlock-present"
     local uvlock_now=0
-    [[ -f "$REPO_ROOT/uv.lock" ]] && uvlock_now=1
+    if [[ -f "$REPO_ROOT/uv.lock" ]]; then uvlock_now=1; fi
     local uvlock_was=0
-    [[ -f "$uvlock_marker" ]] && uvlock_was=$(cat "$uvlock_marker")
+    if [[ -f "$uvlock_marker" ]]; then uvlock_was=$(cat "$uvlock_marker"); fi
     if [[ "$uvlock_now" != "$uvlock_was" ]]; then
         return 0
     fi
@@ -102,7 +102,7 @@ uv run pyinstaller \
     gptme/server/__main__.py
 
 # Rename to include target triple (Tauri sidecar convention)
-_uvlock_state=0; [[ -f "$REPO_ROOT/uv.lock" ]] && _uvlock_state=1
+_uvlock_state=0; if [[ -f "$REPO_ROOT/uv.lock" ]]; then _uvlock_state=1; fi
 if [[ -f "$BINS_DIR/gptme-server.exe" ]]; then
     mv "$BINS_DIR/gptme-server.exe" "${BINS_DIR}/gptme-server-${TRIPLE}.exe"
     echo "Sidecar built: ${BINS_DIR}/gptme-server-${TRIPLE}.exe"
