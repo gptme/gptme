@@ -103,6 +103,17 @@ def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
             "MCP-only manifest aliases cannot be combined with manifests "
             "that declare builtin_tools"
         )
+
+    presets = [tool for tool in non_alias_tools if tool in TOOL_PRESETS]
+    if presets:
+        if len(non_alias_tools) != 1:
+            preset_list = ", ".join(presets)
+            raise ValueError(
+                f"Tool preset(s) {preset_list} cannot be combined with other tools"
+            )
+        preset_tools = list(TOOL_PRESETS[presets[0]])
+        return ",".join([*preset_tools, *manifest_aliases])
+
     return "+" + ",".join([*manifest_aliases, *non_alias_tools])
 
 
