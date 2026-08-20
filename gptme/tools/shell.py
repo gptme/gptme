@@ -24,6 +24,7 @@ Configuration:
 """
 
 import atexit
+import codecs
 import logging
 import os
 import re
@@ -524,18 +525,17 @@ class ShellSession:
 
             stdout_chunks: list[str] = []
             stderr_chunks: list[str] = []
+            decoders = {
+                "out": codecs.getincrementaldecoder("utf-8")(errors="replace"),
+                "err": codecs.getincrementaldecoder("utf-8")(errors="replace"),
+            }
             sentinels = 0
-            proc_exited_at: float | None = None
+            exited_at: float | None = None
             start_time = time.monotonic() if timeout is not None else None
 
-            def consume(item: tuple[str, bytes] | None) -> None:
-                nonlocal sentinels
-                if item is None:
-                    sentinels += 1
+            def append_text(tag: str, text: str) -> None:
+                if not text:
                     return
-
-                tag, chunk = item
-                text = chunk.decode("utf-8", errors="replace")
                 if tag == "out":
                     stdout_chunks.append(text)
                     if output:
@@ -544,6 +544,15 @@ class ShellSession:
                     stderr_chunks.append(text)
                     if output:
                         print(text, end="", file=sys.stderr)
+
+            def consume(item: tuple[str, bytes] | None) -> None:
+                nonlocal sentinels
+                if item is None:
+                    sentinels += 1
+                    return
+
+                tag, chunk = item
+                append_text(tag, decoders[tag].decode(chunk))
 
             def finish_readers(*, stop: bool = False) -> None:
                 if stop:
@@ -555,6 +564,8 @@ class ShellSession:
                         consume(data_q.get_nowait())
                     except Empty:
                         break
+                for tag, decoder in decoders.items():
+                    append_text(tag, decoder.decode(b"", final=True))
 
             try:
                 while sentinels < 2:
@@ -562,7 +573,8 @@ class ShellSession:
                     if timeout is not None and start_time is not None:
                         elapsed = time.monotonic() - start_time
                         if elapsed >= timeout:
-                            proc.kill()
+                            if proc.poll() is None:
+                                proc.kill()
                             proc.wait()
                             finish_readers(stop=True)
                             return (
@@ -576,21 +588,20 @@ class ShellSession:
 
                     try:
                         consume(data_q.get(timeout=get_timeout))
-                        # Only an idle queue starts the post-exit grace period.
-                        # Resetting this on every chunk lets a fast-exiting command
-                        # drain arbitrarily large buffered output without truncation.
-                        proc_exited_at = None
                     except Empty:
-                        if proc.poll() is not None:
-                            if proc_exited_at is None:
-                                proc_exited_at = time.monotonic()
-                            elif time.monotonic() - proc_exited_at >= 1.0:
-                                # A background descendant can inherit the pipes,
-                                # preventing EOF after the command itself exits.
-                                break
+                        pass
+
+                    if proc.poll() is not None:
+                        if exited_at is None:
+                            exited_at = time.monotonic()
+                        elif time.monotonic() - exited_at >= 1.0:
+                            # Bound the total post-exit drain time: a background
+                            # descendant may retain and continuously write to a pipe.
+                            break
             except KeyboardInterrupt:
                 print()
-                proc.kill()
+                if proc.poll() is None:
+                    proc.kill()
                 proc.wait()
                 finish_readers(stop=True)
                 partial_stdout = trim_blank_lines("".join(stdout_chunks))

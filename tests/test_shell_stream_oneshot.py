@@ -63,6 +63,41 @@ def test_run_with_tty_does_not_wait_for_background_descendant(shell):
     assert elapsed < 3
 
 
+def test_run_with_tty_continuous_descendant_output_has_bounded_grace(shell):
+    """Continuous descendant output cannot extend the post-exit grace forever."""
+    started = time.monotonic()
+    ret, out, err = shell._run_with_tty(
+        "(while true; do printf x; sleep 0.01; done) & echo foreground",
+        output=False,
+    )
+    elapsed = time.monotonic() - started
+
+    assert ret == 0
+    assert out.startswith("foreground")
+    assert err == ""
+    assert elapsed < 3
+
+
+def test_run_with_tty_preserves_utf8_split_across_read_chunks(shell, monkeypatch):
+    """Streaming uses incremental decoders for split multibyte characters."""
+    real_read = os.read
+    first_stdout_read = True
+
+    def split_read(fd, size):
+        nonlocal first_stdout_read
+        if first_stdout_read and size == 2**16:
+            first_stdout_read = False
+            size = 1
+        return real_read(fd, size)
+
+    monkeypatch.setattr(os, "read", split_read)
+    ret, out, err = shell._run_with_tty("printf 'é'", output=False)
+
+    assert ret == 0
+    assert out == "é"
+    assert err == ""
+
+
 def test_run_with_tty_stderr(shell):
     """_run_with_tty captures stderr separately."""
     ret, out, err = shell._run_with_tty(
