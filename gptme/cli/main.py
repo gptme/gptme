@@ -1610,12 +1610,6 @@ def main(
             # config.chat.tools has no manifest tools, so manifest_tool_names would
             # be empty and we'd retry init_tools with the identical tool list that
             # just failed — a vacuous retry that still aborts.
-            logger.warning(
-                "Manifest %r tool unavailable: %s — running without manifest tools. "
-                "Start the MCP server to use manifest tools.",
-                tool_manifest_type,
-                e,
-            )
             manifest_tool_names: set[str] = set()
             if tool_allowlist_str:
                 if tool_allowlist_str.startswith("+"):
@@ -1638,8 +1632,45 @@ def main(
                         for t in tool_allowlist_str.split(",")
                         if t.strip() and "." in t.strip()
                     }
+
+            # Probe each manifest tool individually so we only drop the ones
+            # that are actually unavailable, keeping working MCP tools in the
+            # session when only one server is down.
+            from ..tools import (  # fmt: skip
+                get_available_tools as _get_available,
+            )
+            from ..tools import (
+                matching_allowlist_tools as _match_allowlist,
+            )
+
+            _available = _get_available()
+            unavailable_manifest_tools: set[str] = set()
+            for _mt in manifest_tool_names:
+                _matched = _match_allowlist(_mt, _available)
+                if not _matched or not any(t.is_available for t in _matched):
+                    unavailable_manifest_tools.add(_mt)
+                    logger.warning(
+                        "Manifest tool %r is unavailable (MCP server may not be running),"
+                        " skipping for this session.",
+                        _mt,
+                    )
+
+            logger.warning(
+                "Manifest %r: %d/%d tool(s) unavailable — starting session with %s. "
+                "Start the missing MCP server(s) to restore full manifest behaviour.",
+                tool_manifest_type,
+                len(unavailable_manifest_tools),
+                len(manifest_tool_names),
+                (
+                    "remaining manifest tools"
+                    if len(unavailable_manifest_tools) < len(manifest_tool_names)
+                    else "built-in tools only"
+                ),
+            )
             fallback_tools = [
-                t for t in (config.chat.tools or []) if t not in manifest_tool_names
+                t
+                for t in (config.chat.tools or [])
+                if t not in unavailable_manifest_tools
             ]
             try:
                 tools = init_tools(fallback_tools)
