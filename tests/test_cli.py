@@ -19,7 +19,7 @@ import gptme.constants
 import gptme.tools.browser
 from gptme.__version__ import __version__
 from gptme.message import Message
-from gptme.tools import ToolAllowlistError, ToolUse
+from gptme.tools import ToolAllowlistError, ToolSpec, ToolUse
 
 project_root = Path(__file__).parent.parent
 logo = project_root / "media" / "logo.png"
@@ -272,6 +272,7 @@ def test_show_prompt_stats_manifest_fallback_passes_empty_allowlist(
 
     monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
     monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: [])
     monkeypatch.setattr(
         "gptme.prompts.get_prompt_stats",
         lambda **_: SimpleNamespace(
@@ -303,6 +304,88 @@ def test_show_prompt_stats_manifest_fallback_passes_empty_allowlist(
 
     assert result.exit_code == 0
     assert init_calls == [["github.search_code"], []]
+
+
+def test_show_prompt_stats_manifest_fallback_keeps_available_tools(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Prompt stats drops only the unavailable manifest entries."""
+    from gptme.tool_manifests import TaskToolManifest
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest",
+        lambda task_type, workspace: TaskToolManifest(
+            task_type=task_type,
+            tool_names=("github.search_code", "time.get_current_time"),
+            path=workspace / "state" / "task-manifests.jsonl",
+        ),
+    )
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read", "github.search_code", "time.get_current_time"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    init_calls: list[list[str] | None] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        if tools and "github.search_code" in tools:
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda: [
+            ToolSpec("github.search_code", "", available=False),
+            ToolSpec("time.get_current_time", "", available=True),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.get_prompt_stats",
+        lambda **_: SimpleNamespace(
+            sections=[],
+            total_messages=0,
+            total_chars=0,
+            total_tokens=0,
+            cacheable_tokens=0,
+            dynamic_tokens=0,
+        ),
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.format_prompt_stats", lambda *_, **__: "prompt-stats-output"
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "query",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert init_calls == [
+        ["read", "github.search_code", "time.get_current_time"],
+        ["read", "time.get_current_time"],
+    ]
+    assert fake_config.chat.tools == ["read", "time.get_current_time"]
 
 
 def test_show_prompt_stats_does_not_retry_after_config_fallback(
@@ -1133,6 +1216,69 @@ def test_tool_manifest_cannot_combine_with_tools(
     assert "Traceback" not in result.output
 
 
+def test_tool_manifest_cannot_combine_with_project_tool_allowlist(
+    runner: CliRunner, tmp_path: Path
+):
+    (tmp_path / "gptme.toml").write_text(
+        '[env]\nTOOL_ALLOWLIST = "read-only"\n', encoding="utf-8"
+    )
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":[],"builtin_tools":["read","shell"]}\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with a configured TOOL_ALLOWLIST"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
+def test_tool_manifest_cannot_combine_with_configured_gear_tools(
+    runner: CliRunner, tmp_path: Path
+):
+    (tmp_path / "gptme.toml").write_text("[settings]\ngear = 2\n", encoding="utf-8")
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text('{"task_type":"research","tools":[]}\n', encoding="utf-8")
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with a configured gear that sets tools"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
 def test_tool_manifest_cannot_combine_with_profile_tools(
     runner: CliRunner, tmp_path: Path
 ):
@@ -1364,6 +1510,7 @@ def test_tool_manifest_unavailable_tool_falls_back_gracefully(
 
     monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
     monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: [])
     monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
     monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
     monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
