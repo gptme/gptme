@@ -958,6 +958,50 @@ class TestTransportRegistry(unittest.TestCase):
         self.assertIsNot(original, replacement)
         self.assertEqual(closed, [True])
 
+    def test_registering_unknown_selected_name_replaces_native_fallback(self):
+        """Late registration replaces the cached fallback for that env-var name."""
+        import gptme.tools.computer_transport as ct
+
+        class ReplacementStub(StubTransport):
+            pass
+
+        with (
+            patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "late-transport"}),
+            patch.object(ct, "NativeComputerTransport", StubTransport),
+        ):
+            fallback = get_transport()
+            register_transport("late-transport", ReplacementStub)
+            replacement = get_transport()
+
+        self.assertIsInstance(fallback, StubTransport)
+        self.assertIsInstance(replacement, ReplacementStub)
+        self.assertIsNot(fallback, replacement)
+
+    def test_failed_close_does_not_prevent_replacement(self):
+        """A broken old transport cannot retain stale registration state."""
+
+        class FailingCloseStub(StubTransport):
+            def close(self) -> None:
+                raise RuntimeError("close failed")
+
+        class ReplacementStub(StubTransport):
+            pass
+
+        register_transport("broken-close", FailingCloseStub)
+
+        with patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "broken-close"}):
+            original = get_transport()
+            with self.assertLogs(
+                "gptme.tools.computer_transport", level="ERROR"
+            ) as logs:
+                register_transport("broken-close", ReplacementStub)
+            replacement = get_transport()
+
+        self.assertIsInstance(original, FailingCloseStub)
+        self.assertIsInstance(replacement, ReplacementStub)
+        self.assertIsNot(original, replacement)
+        self.assertIn("Failed to close transport", "\n".join(logs.output))
+
     def test_unknown_name_still_falls_back_to_native(self):
         """Registry lookup must not change behaviour for unregistered names."""
         import gptme.tools.computer_transport as ct

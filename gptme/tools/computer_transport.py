@@ -719,13 +719,21 @@ def register_transport(name: str, factory: Callable[[], ComputerTransport]) -> N
             f"cannot register {name!r}: shadows a built-in gptme transport"
         )
 
-    # Re-registering the selected transport must make the replacement effective
-    # immediately rather than leaving the old name-keyed instance cached.
-    if name in _transport_registry and _transport_name == name:
-        if _transport is not None:
-            _transport.close()
+    # Registering the selected name must make the factory effective immediately,
+    # including when the current cache is the native fallback for an unknown name.
+    if _transport_name == name:
+        stale_transport = _transport
         _transport = None
         _transport_name = None
+        if stale_transport is not None:
+            try:
+                stale_transport.close()
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).exception(
+                    "Failed to close transport %r while replacing its factory", name
+                )
 
     _transport_registry[name] = factory
 
