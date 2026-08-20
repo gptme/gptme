@@ -10,6 +10,7 @@ import shutil
 import subprocess
 from typing import TYPE_CHECKING
 
+import pytest
 from click.testing import CliRunner
 
 if TYPE_CHECKING:
@@ -219,11 +220,13 @@ def test_on_demand_force_preserves_timer_when_disable_fails(tmp_path: Path) -> N
     )
 
 
-def test_on_demand_force_handles_missing_systemctl(tmp_path: Path) -> None:
-    """When systemctl is not available, scaffolding must continue without crashing.
-
-    The timer file should be preserved and a clear warning emitted.
-    """
+@pytest.mark.parametrize(
+    "error", [FileNotFoundError("systemctl not found"), PermissionError("denied")]
+)
+def test_on_demand_force_handles_systemctl_os_error(
+    tmp_path: Path, error: OSError
+) -> None:
+    """OS errors invoking systemctl must warn and preserve the timer file."""
     from unittest.mock import patch
 
     _run_init(tmp_path)
@@ -234,7 +237,7 @@ def test_on_demand_force_handles_missing_systemctl(tmp_path: Path) -> None:
     runner = CliRunner()
     with patch(
         "gptme.cli.cmd_service.subprocess.run",
-        side_effect=FileNotFoundError("systemctl not found"),
+        side_effect=error,
     ):
         result = runner.invoke(
             cli,
@@ -252,11 +255,11 @@ def test_on_demand_force_handles_missing_systemctl(tmp_path: Path) -> None:
             ],
         )
     assert result.exit_code == 0, result.output
-    assert timer.exists(), "timer file must be preserved when systemctl is unavailable"
-    assert "Warning" in result.output, "must warn when systemctl is not found"
+    assert timer.exists(), "timer file must be preserved when systemctl cannot run"
+    assert "Warning" in result.output, "must warn when systemctl cannot run"
     # Scaffold must complete (workspace files still generated)
     assert (tmp_path / "gptme.toml").exists(), (
-        "scaffolding must continue despite missing systemctl"
+        "scaffolding must continue despite systemctl failure"
     )
 
 
@@ -330,25 +333,55 @@ def test_work_dir_percent_is_escaped_in_unit(tmp_path: Path) -> None:
     assert f"WorkingDirectory={work}".replace("%", "%%") in service_text
 
 
-def test_work_dir_newline_rejected(tmp_path: Path) -> None:
-    """A work-dir with an embedded newline must be rejected, not written into the unit."""
+@pytest.mark.parametrize(
+    "value",
+    [
+        "evil\nExecStartPre=/bin/true",
+        'evil"dir',
+        "evil'dir",
+        "evil\\dir",
+    ],
+)
+def test_unsafe_work_dir_rejected(tmp_path: Path, value: str) -> None:
+    """Unsafe unit-file and executable-path characters must be rejected."""
     from unittest.mock import patch
 
     runner = CliRunner()
     with patch(
         "gptme.cli.cmd_service._resolve_work_dir",
-        return_value=tmp_path / "evil\nExecStartPre=/bin/true",
+        return_value=tmp_path / value,
     ):
         result = runner.invoke(
             cli,
             [
                 "init",
                 "--name",
-                "newlineagent",
+                "unsafeagent",
                 "--work-dir",
                 str(tmp_path),
                 "--output-dir",
                 str(tmp_path / "systemd3"),
             ],
         )
-    assert result.exit_code != 0, "newline in work-dir must be rejected"
+    assert result.exit_code != 0, f"unsafe work-dir {value!r} must be rejected"
+
+
+def test_model_newline_rejected(tmp_path: Path) -> None:
+    """A model must not inject an additional systemd directive."""
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            "--name",
+            "modelagent",
+            "--model",
+            "gpt-4o-mini\nEnvironment=GPTME_MALICIOUS=1",
+            "--work-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path / "systemd4"),
+        ],
+    )
+    assert result.exit_code != 0, "newline in model must be rejected"
+    assert not (tmp_path / "systemd4" / "modelagent.service").exists()

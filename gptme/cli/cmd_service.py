@@ -41,12 +41,17 @@ def _escape_systemd_value(value: str) -> str:
 
     Doubles literal '%' so systemd doesn't expand it as a specifier (e.g. a
     work-dir of `/tmp/%h` would otherwise expand to the user's home dir), and
-    rejects newlines, which would terminate the current directive and let the
-    rest of the value inject arbitrary unit directives.
+    rejects characters that systemd cannot represent safely in an executable
+    path or that would terminate the current directive.
     """
     if "\n" in value or "\r" in value:
         raise click.BadParameter(
             f"{value!r} must not contain newlines (would corrupt the generated unit file)"
+        )
+    if any(char in value for char in ("\\", '"', "'")):
+        raise click.BadParameter(
+            f"{value!r} must not contain quotes or backslashes "
+            "(unsupported in a systemd executable path)"
         )
     return value.replace("%", "%%")
 
@@ -286,6 +291,8 @@ def init(
     work = _resolve_work_dir(work_dir)
     out_dir = Path(output_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    escaped_work_dir = _escape_systemd_value(str(work))
+    escaped_model = _escape_systemd_value(model)
 
     click.echo(f"Scaffolding headless agent '{name}'...")
 
@@ -293,7 +300,7 @@ def init(
     _write_file(
         out_dir / f"{name}.service",
         SYSTEMD_SERVICE_TEMPLATE.format(
-            name=name, model=model, work_dir=_escape_systemd_value(str(work))
+            name=name, model=escaped_model, work_dir=escaped_work_dir
         ),
         force=force,
     )
@@ -314,10 +321,10 @@ def init(
                         check=False,  # best-effort; unit may not be enabled
                         timeout=_SYSTEMCTL_TIMEOUT_SEC,
                     )
-                except FileNotFoundError:
+                except OSError as exc:
                     click.echo(
-                        f"  Warning: systemctl not found; cannot disable {name}.timer. "
-                        "Remove the timer file manually and run "
+                        f"  Warning: cannot run systemctl to disable {name}.timer: "
+                        f"{exc}. Remove the timer file manually and run "
                         "'systemctl --user daemon-reload' to clear the unit.",
                         err=True,
                     )
