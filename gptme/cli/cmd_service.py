@@ -56,6 +56,11 @@ def _escape_systemd_value(value: str) -> str:
     return value.replace("%", "%%")
 
 
+def _escape_systemd_exec_value(value: str) -> str:
+    """Escape a validated unit value for an ExecStart command line."""
+    return _escape_systemd_value(value).replace("$", r"\x24")
+
+
 SYSTEMD_SERVICE_TEMPLATE = """\
 [Unit]
 Description=gptme Autonomous Agent: {name}
@@ -66,9 +71,9 @@ After=network-online.target
 Type=simple
 WorkingDirectory={work_dir}
 Environment=GPTME_AGENT_NAME={name}
-Environment=GPTME_AGENT_MODEL={model}
+Environment="GPTME_AGENT_MODEL={model}"
 Environment=GPTME_NON_INTERACTIVE=1
-ExecStart="{work_dir}/gptme-agent-run.sh"
+ExecStart=:"{exec_work_dir}/gptme-agent-run.sh"
 StandardOutput=journal
 StandardError=journal
 Restart=on-failure
@@ -292,6 +297,7 @@ def init(
     out_dir = Path(output_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     escaped_work_dir = _escape_systemd_value(str(work))
+    escaped_exec_work_dir = _escape_systemd_exec_value(str(work))
     escaped_model = _escape_systemd_value(model)
 
     click.echo(f"Scaffolding headless agent '{name}'...")
@@ -300,7 +306,10 @@ def init(
     _write_file(
         out_dir / f"{name}.service",
         SYSTEMD_SERVICE_TEMPLATE.format(
-            name=name, model=escaped_model, work_dir=escaped_work_dir
+            name=name,
+            model=escaped_model,
+            work_dir=escaped_work_dir,
+            exec_work_dir=escaped_exec_work_dir,
         ),
         force=force,
     )

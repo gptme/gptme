@@ -354,6 +354,31 @@ def test_work_dir_percent_is_escaped_in_unit(tmp_path: Path) -> None:
     assert f"WorkingDirectory={work}".replace("%", "%%") in service_text
 
 
+def test_work_dir_dollar_is_escaped_in_execstart(tmp_path: Path) -> None:
+    """A work-dir containing '$' must stay literal in an ExecStart command."""
+    work = tmp_path / "gptme-$agent"
+    work.mkdir()
+    out_dir = tmp_path / "systemd-dollar"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            "--name",
+            "dollaragent",
+            "--work-dir",
+            str(work),
+            "--output-dir",
+            str(out_dir),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    service_text = (out_dir / "dollaragent.service").read_text()
+    escaped_work = str(work).replace("$", r"\x24")
+    assert f"WorkingDirectory={work}" in service_text
+    assert f'ExecStart=:"{escaped_work}/gptme-agent-run.sh"' in service_text
+
+
 @pytest.mark.parametrize(
     "value",
     [
@@ -385,6 +410,28 @@ def test_unsafe_work_dir_rejected(tmp_path: Path, value: str) -> None:
             ],
         )
     assert result.exit_code != 0, f"unsafe work-dir {value!r} must be rejected"
+
+
+def test_model_with_spaces_is_quoted_in_unit(tmp_path: Path) -> None:
+    """A model containing spaces must remain one Environment assignment."""
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            "--name",
+            "modelagent",
+            "--model",
+            "gpt-4o mini",
+            "--work-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path / "systemd-model-space"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    service_text = (tmp_path / "systemd-model-space" / "modelagent.service").read_text()
+    assert 'Environment="GPTME_AGENT_MODEL=gpt-4o mini"' in service_text
 
 
 def test_model_newline_rejected(tmp_path: Path) -> None:
