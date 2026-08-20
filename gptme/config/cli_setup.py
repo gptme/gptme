@@ -92,7 +92,7 @@ def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
                 raise
             try:
                 manifest = load_task_manifest(requested_tool, workspace)
-            except (FileNotFoundError, ValueError):
+            except (OSError, ValueError):
                 non_alias_tools.append(requested_tool)
                 continue
             if manifest.builtin_tools:
@@ -138,8 +138,8 @@ def _normalize_tool_allowlist(
     are loaded later by ``init_tools()`` and must remain as file paths.
 
     When *workspace* is provided, a single unknown item is checked against the
-    workspace manifest (``state/mcp-task-manifests.jsonl``).  If it matches a
-    task type, it is expanded to the manifest's ``builtin_tools + tool_names``
+    workspace manifest (``state/task-manifests.jsonl``).  If it matches a task
+    type, it is expanded to the manifest's ``builtin_tools + tool_names``
     list — making ``--tools code_review`` an ergonomic alias for
     ``--tool-manifest code_review``.
 
@@ -213,7 +213,7 @@ def _normalize_tool_allowlist(
 
             try:
                 manifest = load_task_manifest(item, workspace)
-            except (FileNotFoundError, ValueError):
+            except (OSError, ValueError):
                 manifest = None
 
             if manifest is not None:
@@ -239,6 +239,7 @@ def setup_config_from_cli(
     logdir: Path,
     model: str | None = None,
     tool_allowlist: str | None = None,
+    manifest_workspace: Path | None = None,
     tool_format: "ToolFormat | None" = None,
     prune_tool_output: bool | None = None,
     gear: int | None = None,
@@ -300,10 +301,14 @@ def setup_config_from_cli(
         gear_tool_allowlist = gear_resolution.tool_allowlist
         gear_no_confirm = gear_resolution.no_confirm
 
-    # Handle tool allowlist with similar precedence
+    # Handle tool allowlist with similar precedence. The configuration workspace
+    # can differ from the workspace that owns task manifests (for ``@log``).
     resolved_tool_allowlist: list[str] | None = None
+    requested_tool_allowlist = tool_allowlist
     if tool_allowlist is not None:
-        tool_allowlist = _resolve_manifest_aliases(tool_allowlist, workspace)
+        tool_allowlist = _resolve_manifest_aliases(
+            tool_allowlist, manifest_workspace or workspace
+        )
 
         # Check for additive syntax (starts with '+')
         if tool_allowlist.startswith("+"):
@@ -392,13 +397,36 @@ def setup_config_from_cli(
         if gear_profile and gear_profile.tools is not None and tool_allowlist is None:
             resolved_tool_allowlist = list(gear_profile.tools)
 
-    # A preset is "selected" if the allowlist is a literal preset name.
-    # Preset names are now persisted verbatim (not expanded) so that resumed
-    # sessions continue to be recognised here without ambiguity.
+    # Keep the exclusive boundary when an MCP-only manifest alias extends a
+    # preset. Alias resolution expands the preset into concrete tools, so inspect
+    # the original CLI or configured base as well as the resolved allowlist.
+    configured_base_tools = (
+        existing_chat_config.tools
+        if existing_chat_config and existing_chat_config.tools
+        else (
+            [tool.strip() for tool in tools_env.split(",") if tool.strip()]
+            if (tools_env := config.get_env("TOOL_ALLOWLIST"))
+            else None
+        )
+    )
+    requested_tool_names = (
+        [tool.strip() for tool in requested_tool_allowlist.split(",")]
+        if requested_tool_allowlist is not None
+        else []
+    )
     tool_preset_selected = (
-        resolved_tool_allowlist is not None
-        and len(resolved_tool_allowlist) == 1
-        and resolved_tool_allowlist[0] in TOOL_PRESETS
+        (
+            resolved_tool_allowlist is not None
+            and len(resolved_tool_allowlist) == 1
+            and resolved_tool_allowlist[0] in TOOL_PRESETS
+        )
+        or any(tool in TOOL_PRESETS for tool in requested_tool_names)
+        or (
+            tool_allowlist is not None
+            and configured_base_tools is not None
+            and len(configured_base_tools) == 1
+            and configured_base_tools[0] in TOOL_PRESETS
+        )
     )
 
     # Automatically add 'complete' tool in non-interactive mode, except for
@@ -474,7 +502,7 @@ def setup_config_from_cli(
         or gear_tool_allowlist is not None
     ):
         config.chat.tools = _normalize_tool_allowlist(
-            resolved_tool_allowlist, workspace=workspace
+            resolved_tool_allowlist, workspace=manifest_workspace or workspace
         )
 
     # Save and set the final config
