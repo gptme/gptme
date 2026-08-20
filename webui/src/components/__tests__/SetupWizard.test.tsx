@@ -1293,6 +1293,14 @@ describe('SetupWizard', () => {
       expect(screen.getByText(/Invalid API key/i)).toBeInTheDocument();
     });
 
+    // Pin the *inline* requirement: asserting the text is merely "in the document"
+    // would also pass if the error were rendered only as a toast, so assert both
+    // that no error toast fired and that the message sits in the provider step's
+    // form, next to the save button.
+    expect(toast.error).not.toHaveBeenCalled();
+    const saveButton = screen.getByRole('button', { name: /save and restart server/i });
+    expect(saveButton.parentElement).toContainElement(screen.getByText(/Invalid API key/i));
+
     // The wizard must NOT advance past the provider step.
     expect(screen.queryByRole('heading', { name: /you're all set/i })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
