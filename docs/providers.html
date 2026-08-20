@@ -507,6 +507,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#requesty">Requesty</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#groq">Groq</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#openai-subscription">OpenAI Subscription</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#grok-subscription">Grok Subscription</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-managed-service">gptme Managed Service</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-plugins-entry-points">Provider Plugins (Entry Points)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local">Local</a></li>
@@ -524,6 +525,7 @@ document.write(`
   <section id="providers">
 <h1>Providers<a class="headerlink" href="#providers" title="Link to this heading">#</a></h1>
 <p>We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Requesty, Deepseek, Azure, and any OpenAI-compatible server (e.g. <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">llama-cpp-python</span></code>).</p>
+<p>You can also bring your own subscription instead of an API key: a ChatGPT Plus/Pro plan via <a class="reference internal" href="#openai-subscription">OpenAI Subscription</a> or a SuperGrok plan via <a class="reference internal" href="#grok-subscription">Grok Subscription</a>.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>We are in the process of adding support for configurable <a class="reference internal" href="providers-custom.html"><span class="doc">custom providers</span></a>.</p>
@@ -540,6 +542,8 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gemini/gemini-2.5-flash
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>xai/grok-4
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.5-pro
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>grok-subscription/grok-4.6
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:1b
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gptme/claude-sonnet-4-6
 </pre></div>
@@ -558,6 +562,7 @@ see <a class="reference internal" href="tool-formats.html"><span class="doc">Too
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">/account</span> <span class="pre">setup</span> <span class="pre">openrouter</span></code> starts browser-based OpenRouter sign-in using OAuth / PKCE, stores the resulting key in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/credentials.toml</span></code>, and switches the default model to OpenRouter’s recommended default.</p>
 <p>For providers without OAuth onboarding yet, <code class="docutils literal notranslate"><span class="pre">/account</span> <span class="pre">setup</span> <span class="pre">&lt;provider&gt;</span></code> prompts for the key without putting it in shell history and stores it in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/credentials.toml</span></code> (or <code class="docutils literal notranslate"><span class="pre">$XDG_CONFIG_HOME/gptme/credentials.toml</span></code> if set). Supported manual providers currently include <code class="docutils literal notranslate"><span class="pre">anthropic</span></code>, <code class="docutils literal notranslate"><span class="pre">openai</span></code>, <code class="docutils literal notranslate"><span class="pre">deepseek</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini</span></code>, <code class="docutils literal notranslate"><span class="pre">groq</span></code>, and <code class="docutils literal notranslate"><span class="pre">xai</span></code>.</p>
+<p>Subscription sign-in (ChatGPT Plus/Pro and SuperGrok) is also offered in the first-run setup when gptme starts without any configured credentials.</p>
 <p>You can still use the <code class="docutils literal notranslate"><span class="pre">[env]</span></code> section in the <a class="reference internal" href="config.html#global-config"><span class="std std-ref">Global config</span></a> file to store API keys using the same format as the environment variables:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY=&quot;your-api-key&quot;</span></code></p></li>
@@ -702,6 +707,34 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 <p>This is for <strong>personal development use</strong> with your own ChatGPT Plus/Pro subscription.
 For production or multi-user applications, use the OpenAI Platform API.
 OAuth credentials are stored locally and access tokens are refreshed automatically.</p>
+</div>
+</section>
+<section id="grok-subscription">
+<h2>Grok Subscription<a class="headerlink" href="#grok-subscription" title="Link to this heading">#</a></h2>
+<p>You can use your existing SuperGrok subscription (<a class="reference external" href="https://grok.com">grok.com</a>) with gptme, instead of an xAI API key. This uses the same subscription endpoint as the grok CLI.</p>
+<p><strong>Setup:</strong></p>
+<p>If you have the grok CLI installed and have run <code class="docutils literal notranslate"><span class="pre">grok</span> <span class="pre">login</span></code>, gptme automatically reuses those tokens (from <code class="docutils literal notranslate"><span class="pre">~/.grok/auth.json</span></code>) with no extra steps.</p>
+<p>Otherwise, authenticate directly using the OAuth command (opens browser for login):</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span>grok-subscription
+</pre></div>
+</div>
+<p>This stores credentials locally at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/oauth/grok_subscription.json</span></code>.
+Access tokens are automatically refreshed before expiry, and refreshed tokens are synced back to the grok CLI’s auth file when present.</p>
+<p><strong>Usage:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>grok-subscription/grok-4.6
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>grok-subscription/grok-4.5
+</pre></div>
+</div>
+<p><strong>Available Models:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">grok-4.6</span></code> - Current frontier model (500K context, vision, reasoning)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">grok-4.5</span></code> - Previous frontier model (500K context, vision, reasoning)</p></li>
+</ul>
+<p>The subscription endpoint is OpenAI-compatible and supports native function calling (<code class="docutils literal notranslate"><span class="pre">--tool-format</span> <span class="pre">tool</span></code>).</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is for <strong>personal development use</strong> with your own SuperGrok subscription.
+For production or multi-user applications, use the xAI Platform API (<code class="docutils literal notranslate"><span class="pre">xai</span></code> provider) with an API key from <a class="reference external" href="https://console.x.ai">console.x.ai</a>.</p>
 </div>
 </section>
 <section id="gptme-managed-service">
@@ -889,6 +922,7 @@ ollama<span class="w"> </span>serve
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#requesty">Requesty</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#groq">Groq</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#openai-subscription">OpenAI Subscription</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#grok-subscription">Grok Subscription</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-managed-service">gptme Managed Service</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-plugins-entry-points">Provider Plugins (Entry Points)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local">Local</a></li>

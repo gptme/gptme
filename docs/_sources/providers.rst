@@ -3,6 +3,8 @@ Providers
 
 We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Requesty, Deepseek, Azure, and any OpenAI-compatible server (e.g. ``ollama``, ``llama-cpp-python``).
 
+You can also bring your own subscription instead of an API key: a ChatGPT Plus/Pro plan via `OpenAI Subscription`_ or a SuperGrok plan via `Grok Subscription`_.
+
 .. note::
 
     We are in the process of adding support for configurable :doc:`custom providers <providers-custom>`.
@@ -24,6 +26,8 @@ To select a provider and model, run ``gptme`` with the ``-m``/``--model`` flag s
     gptme "hello" -m gemini/gemini-2.5-flash
     gptme "hello" -m groq/llama-3.3-70b-versatile
     gptme "hello" -m xai/grok-4
+    gptme "hello" -m openai-subscription/gpt-5.5-pro
+    gptme "hello" -m grok-subscription/grok-4.6
     gptme "hello" -m local/llama3.2:1b
     gptme "hello" -m gptme/claude-sonnet-4-6
 
@@ -46,6 +50,8 @@ To configure provider credentials interactively, run ``/account`` inside gptme:
 ``/account setup openrouter`` starts browser-based OpenRouter sign-in using OAuth / PKCE, stores the resulting key in ``~/.config/gptme/credentials.toml``, and switches the default model to OpenRouter's recommended default.
 
 For providers without OAuth onboarding yet, ``/account setup <provider>`` prompts for the key without putting it in shell history and stores it in ``~/.config/gptme/credentials.toml`` (or ``$XDG_CONFIG_HOME/gptme/credentials.toml`` if set). Supported manual providers currently include ``anthropic``, ``openai``, ``deepseek``, ``gemini``, ``groq``, and ``xai``.
+
+Subscription sign-in (ChatGPT Plus/Pro and SuperGrok) is also offered in the first-run setup when gptme starts without any configured credentials.
 
 You can still use the ``[env]`` section in the :ref:`global-config` file to store API keys using the same format as the environment variables:
 
@@ -221,6 +227,43 @@ You can also append reasoning levels: ``:low``, ``:medium``, ``:high``, or ``:xh
     This is for **personal development use** with your own ChatGPT Plus/Pro subscription.
     For production or multi-user applications, use the OpenAI Platform API.
     OAuth credentials are stored locally and access tokens are refreshed automatically.
+
+Grok Subscription
+-----------------
+
+You can use your existing SuperGrok subscription (`grok.com <https://grok.com>`_) with gptme, instead of an xAI API key. This uses the same subscription endpoint as the grok CLI.
+
+**Setup:**
+
+If you have the grok CLI installed and have run ``grok login``, gptme automatically reuses those tokens (from ``~/.grok/auth.json``) with no extra steps.
+
+Otherwise, authenticate directly using the OAuth command (opens browser for login):
+
+.. code-block:: sh
+
+    gptme-auth grok-subscription
+
+This stores credentials locally at ``~/.config/gptme/oauth/grok_subscription.json``.
+Access tokens are automatically refreshed before expiry, and refreshed tokens are synced back to the grok CLI's auth file when present.
+
+**Usage:**
+
+.. code-block:: sh
+
+    gptme "hello" -m grok-subscription/grok-4.6
+    gptme "hello" -m grok-subscription/grok-4.5
+
+**Available Models:**
+
+- ``grok-4.6`` - Current frontier model (500K context, vision, reasoning)
+- ``grok-4.5`` - Previous frontier model (500K context, vision, reasoning)
+
+The subscription endpoint is OpenAI-compatible and supports native function calling (``--tool-format tool``).
+
+.. note::
+
+    This is for **personal development use** with your own SuperGrok subscription.
+    For production or multi-user applications, use the xAI Platform API (``xai`` provider) with an API key from `console.x.ai <https://console.x.ai>`_.
 
 gptme Managed Service
 ---------------------
