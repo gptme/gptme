@@ -79,9 +79,9 @@ echo "Building gptme-server sidecar for $TRIPLE..."
 mkdir -p "$BINS_DIR"
 
 # Install gptme from local source into a venv, then freeze with PyInstaller.
-# When uv.lock exists, prefer --frozen so the lock actually enforces the
-# pinned versions.  If the lock is stale vs pyproject.toml, uv --frozen exits
-# non-zero; we warn and fall back to an unlocked sync (run `uv lock` to fix).
+# When uv.lock exists, use --frozen so the lock actually enforces the pinned
+# versions without modifying the lock file. If the lock cannot satisfy the
+# current pyproject.toml, stop and ask the developer to update it explicitly.
 # When uv.lock is absent (e.g. fresh checkout — it is gitignored), fall back
 # to uv pip install.  This path is NOT lock-pinned; prefer generating a uv.lock
 # (`uv lock`) or committing it for reproducible sidecar builds.
@@ -89,10 +89,10 @@ mkdir -p "$BINS_DIR"
 # to --group NAME, so --group dev selects it.  server extras add Flask etc.
 cd "$REPO_ROOT"
 if [[ -f "uv.lock" ]]; then
-    if ! uv sync --frozen --extra server --group dev --quiet 2>/dev/null; then
-        echo "WARNING: uv.lock is out of date with pyproject.toml." \
-             "Run 'uv lock' to update it. Falling back to unlocked sync..." >&2
-        uv sync --extra server --group dev --quiet
+    if ! uv sync --frozen --extra server --group dev --quiet; then
+        echo "ERROR: uv.lock cannot satisfy pyproject.toml." \
+             "Run 'uv lock' to update it, then rebuild the sidecar." >&2
+        exit 1
     fi
 else
     if [[ -f "poetry.lock" ]]; then
