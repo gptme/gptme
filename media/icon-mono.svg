@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 32 32" role="img" aria-label="gptme">
+  <title>gptme</title>
+  <!-- Helmet + ear pods, with the face plate cut out (even-odd) -->
+  <path fill="currentColor" fill-rule="evenodd" d="
+    M16,5.6 a11,11 0 1,0 0,22 a11,11 0 1,0 0,-22 Z
+    M7.2,17.2
+    C7.2,12.1 8.9,9.7 11.3,9.7
+    C13.3,9.7 15.0,10.6 16,11.5
+    C17.0,10.6 18.7,9.7 20.7,9.7
+    C23.1,9.7 24.8,12.1 24.8,17.2
+    C24.8,21.5 21.2,23.8 16,23.8
+    C10.8,23.8 7.2,21.5 7.2,17.2 Z"/>
+  <circle cx="3.0" cy="16.8" r="2.15" fill="currentColor"/>
+  <circle cx="29.0" cy="16.8" r="2.15" fill="currentColor"/>
+  <!-- Eyes and smile sit inside the cut-out face -->
+  <circle cx="12.1" cy="16.3" r="2.35" fill="currentColor"/>
+  <circle cx="19.9" cy="16.3" r="2.35" fill="currentColor"/>
+  <path d="M14.1,19.8 Q16,21.6 17.9,19.8" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+</svg>
