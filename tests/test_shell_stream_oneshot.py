@@ -51,6 +51,39 @@ def test_run_with_tty_collects_output_queued_at_exit(shell):
     assert err == ""
 
 
+def test_run_with_tty_drains_buffered_output_after_slow_consumer(shell, monkeypatch):
+    """Reader cleanup does not truncate output that takes over a second to drain."""
+    real_read = os.read
+
+    def slow_read(fd, size):
+        time.sleep(0.02)
+        return real_read(fd, min(size, 4096))
+
+    monkeypatch.setattr(os, "read", slow_read)
+    expected_size = 256 * 1024
+    ret, out, err = shell._run_with_tty(
+        f"python3 -c 'import sys; sys.stdout.write(\"x\" * {expected_size})'",
+        output=False,
+    )
+
+    assert ret == 0
+    assert out == "x" * expected_size
+    assert err == ""
+
+
+def test_run_with_tty_does_not_timeout_after_direct_child_exits(shell):
+    """A descendant retaining the pipe cannot turn child success into timeout."""
+    ret, out, err = shell._run_with_tty(
+        "(while true; do printf x; sleep 0.01; done) & echo foreground",
+        output=False,
+        timeout=0.2,
+    )
+
+    assert ret == 0
+    assert out.startswith("foreground")
+    assert err == ""
+
+
 def test_run_with_tty_does_not_wait_for_background_descendant(shell):
     """A descendant retaining the output pipes does not hang the caller."""
     started = time.monotonic()

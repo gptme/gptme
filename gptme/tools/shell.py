@@ -501,16 +501,21 @@ class ShellSession:
             stop_readers = threading.Event()
 
             def _reader(src: IO[bytes], tag: str) -> None:
+                fd = src.fileno()
                 try:
-                    fd = src.fileno()
-                    while not stop_readers.is_set():
+                    while True:
                         readable, _, _ = select.select([fd], [], [], 0.1)
                         if not readable:
+                            if stop_readers.is_set():
+                                break
                             continue
                         chunk = os.read(fd, 2**16)
                         if not chunk:
                             break
                         data_q.put((tag, chunk))
+                except OSError:
+                    if not stop_readers.is_set():
+                        raise
                 finally:
                     data_q.put(None)  # one sentinel per thread
 
@@ -531,6 +536,7 @@ class ShellSession:
             }
             sentinels = 0
             exited_at: float | None = None
+            exit_code: int | None = None
             start_time = time.monotonic() if timeout is not None else None
 
             def append_text(tag: str, text: str) -> None:
@@ -557,6 +563,10 @@ class ShellSession:
             def finish_readers(*, stop: bool = False) -> None:
                 if stop:
                     stop_readers.set()
+                    if proc.stdout is not None:
+                        proc.stdout.close()
+                    if proc.stderr is not None:
+                        proc.stderr.close()
                 t_out.join()
                 t_err.join()
                 while True:
@@ -569,8 +579,14 @@ class ShellSession:
 
             try:
                 while sentinels < 2:
-                    # Check overall timeout
-                    if timeout is not None and start_time is not None:
+                    # The caller timeout applies while the direct child is running.
+                    # Once it exits, use the separate post-exit grace below: a
+                    # descendant retaining the pipes must not turn success into -124.
+                    if (
+                        exit_code is None
+                        and timeout is not None
+                        and start_time is not None
+                    ):
                         elapsed = time.monotonic() - start_time
                         if elapsed >= timeout:
                             if proc.poll() is None:
@@ -591,13 +607,15 @@ class ShellSession:
                     except Empty:
                         pass
 
-                    if proc.poll() is not None:
-                        if exited_at is None:
+                    if exit_code is None:
+                        polled = proc.poll()
+                        if polled is not None:
+                            exit_code = polled
                             exited_at = time.monotonic()
-                        elif time.monotonic() - exited_at >= 1.0:
-                            # Bound the total post-exit drain time: a background
-                            # descendant may retain and continuously write to a pipe.
-                            break
+                    elif exited_at is not None and time.monotonic() - exited_at >= 1.0:
+                        # Bound the total post-exit drain time: a background
+                        # descendant may retain and continuously write to a pipe.
+                        break
             except KeyboardInterrupt:
                 print()
                 if proc.poll() is None:
@@ -608,16 +626,17 @@ class ShellSession:
                 partial_stderr = trim_blank_lines("".join(stderr_chunks))
                 raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
 
-            proc.wait()
-            # A background descendant may retain the pipes. The idle grace
-            # period drained this command's output; stop the readers only when
-            # they have not already observed EOF.
+            if exit_code is None:
+                exit_code = proc.wait()
+            # A background descendant may retain the pipes. Signal the readers
+            # after the grace; each reader still consumes one final readable
+            # chunk so data already buffered in the pipe is not discarded.
             finish_readers(stop=sentinels < 2)
         finally:
             tty_stdin.close()
 
         return (
-            proc.returncode,
+            exit_code,
             trim_blank_lines("".join(stdout_chunks)),
             trim_blank_lines("".join(stderr_chunks)),
         )
