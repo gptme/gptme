@@ -111,6 +111,22 @@ def test_run_with_tty_timeout_no_output_still_returns_minus_124(shell):
     assert isinstance(err, str)
 
 
+def test_run_with_tty_timeout_does_not_wait_for_background_descendant(shell):
+    """Timeout returns even when a descendant retains the output pipes."""
+    started = time.monotonic()
+    ret, out, err = shell._run_with_tty(
+        "sleep 10 & printf before-timeout; exec sleep 10",
+        output=False,
+        timeout=0.3,
+    )
+    elapsed = time.monotonic() - started
+
+    assert ret == -124
+    assert out == "before-timeout"
+    assert err == ""
+    assert elapsed < 3
+
+
 def test_run_with_tty_interrupt_returns_all_partial_output(shell):
     """KeyboardInterrupt reaps the child and drains output already produced."""
 
@@ -127,3 +143,26 @@ def test_run_with_tty_interrupt_returns_all_partial_output(shell):
     stdout, stderr = exc_info.value.args[0]
     assert stdout == "before-interrupt"
     assert stderr == ""
+
+
+def test_run_with_tty_interrupt_does_not_wait_for_background_descendant(shell):
+    """KeyboardInterrupt surfaces promptly when a descendant retains the pipes."""
+
+    def interrupt() -> None:
+        time.sleep(0.2)
+        os.kill(os.getpid(), signal.SIGINT)
+
+    interrupter = threading.Thread(target=interrupt)
+    interrupter.start()
+    started = time.monotonic()
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        shell._run_with_tty(
+            "sleep 10 & printf before-interrupt; exec sleep 10", output=False
+        )
+    interrupter.join()
+
+    elapsed = time.monotonic() - started
+    stdout, stderr = exc_info.value.args[0]
+    assert stdout == "before-interrupt"
+    assert stderr == ""
+    assert elapsed < 3

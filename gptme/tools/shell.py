@@ -545,7 +545,9 @@ class ShellSession:
                     if output:
                         print(text, end="", file=sys.stderr)
 
-            def finish_readers() -> None:
+            def finish_readers(*, stop: bool = False) -> None:
+                if stop:
+                    stop_readers.set()
                 t_out.join()
                 t_err.join()
                 while True:
@@ -562,7 +564,7 @@ class ShellSession:
                         if elapsed >= timeout:
                             proc.kill()
                             proc.wait()
-                            finish_readers()
+                            finish_readers(stop=True)
                             return (
                                 -124,
                                 trim_blank_lines("".join(stdout_chunks)),
@@ -590,18 +592,16 @@ class ShellSession:
                 print()
                 proc.kill()
                 proc.wait()
-                finish_readers()
+                finish_readers(stop=True)
                 partial_stdout = trim_blank_lines("".join(stdout_chunks))
                 partial_stderr = trim_blank_lines("".join(stderr_chunks))
                 raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
 
             proc.wait()
-            if sentinels < 2:
-                # A background descendant retained the pipes. The idle grace
-                # period drained this command's output; now stop and reap the
-                # readers without waiting for the descendant to exit.
-                stop_readers.set()
-            finish_readers()
+            # A background descendant may retain the pipes. The idle grace
+            # period drained this command's output; stop the readers only when
+            # they have not already observed EOF.
+            finish_readers(stop=sentinels < 2)
         finally:
             tty_stdin.close()
 
