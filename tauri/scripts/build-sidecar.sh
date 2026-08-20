@@ -28,12 +28,12 @@ sidecar_is_stale() {
         return 0
     fi
     # Also rebuild when packaging/dependency config changes (pyproject.toml,
-    # uv.lock) — these affect which packages get frozen into the sidecar even
-    # when no .py source file changes.  poetry.lock is excluded: the install
-    # path only consults uv.lock, so watching poetry.lock would trigger spurious
-    # rebuilds whose result doesn't reflect the poetry.lock change.
+    # poetry.lock, uv.lock) — these affect which packages get frozen into the
+    # sidecar even when no .py source file changes.  Both lock files are
+    # checked: poetry.lock is the committed canonical lock; uv.lock may exist
+    # on developer machines and controls the uv sync path.
     local config_files=("$REPO_ROOT/pyproject.toml")
-    for f in "$REPO_ROOT/uv.lock"; do
+    for f in "$REPO_ROOT/poetry.lock" "$REPO_ROOT/uv.lock"; do
         [[ -f "$f" ]] && config_files+=("$f")
     done
     for f in "${config_files[@]}"; do
@@ -71,19 +71,27 @@ echo "Building gptme-server sidecar for $TRIPLE..."
 mkdir -p "$BINS_DIR"
 
 # Install gptme from local source into a venv, then freeze with PyInstaller.
-# When uv.lock exists, use uv sync (without --frozen) so the lock is updated
-# if pyproject.toml changed since the last `uv lock` run.  --frozen would fail
-# when pyproject.toml is newer than uv.lock (e.g. after adding a dep without
-# running `uv lock`), breaking the very workflow that staleness detection exists
-# to support.  uv sync still installs the exact pinned versions when the lock
-# is already current, so the pin-enforcement goal is preserved.
-# When uv.lock is absent, fall back to uv pip install (original path).
+# When uv.lock exists, prefer --frozen so the lock actually enforces the
+# pinned versions.  If the lock is stale vs pyproject.toml, uv --frozen exits
+# non-zero; we warn and fall back to an unlocked sync (run `uv lock` to fix).
+# When uv.lock is absent (e.g. fresh checkout — it is gitignored), fall back
+# to uv pip install.  This path is NOT lock-pinned; prefer generating a uv.lock
+# (`uv lock`) or committing it for reproducible sidecar builds.
 # pyinstaller is in [tool.poetry.group.dev.dependencies]; uv maps Poetry groups
 # to --group NAME, so --group dev selects it.  server extras add Flask etc.
 cd "$REPO_ROOT"
 if [[ -f "uv.lock" ]]; then
-    uv sync --extra server --group dev --quiet
+    if ! uv sync --frozen --extra server --group dev --quiet 2>/dev/null; then
+        echo "WARNING: uv.lock is out of date with pyproject.toml." \
+             "Run 'uv lock' to update it. Falling back to unlocked sync..." >&2
+        uv sync --extra server --group dev --quiet
+    fi
 else
+    if [[ -f "poetry.lock" ]]; then
+        echo "WARNING: No uv.lock found (it is gitignored); install will not" \
+             "enforce pinned versions from poetry.lock." \
+             "Run 'uv lock' to generate a uv.lock for reproducible builds." >&2
+    fi
     [[ -d ".venv" ]] || uv venv .venv
     uv pip install --quiet ".[server]" pyinstaller
 fi
