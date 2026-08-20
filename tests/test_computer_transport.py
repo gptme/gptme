@@ -22,6 +22,7 @@ from gptme.tools.computer_transport import (
     NativeComputerTransport,
     _resize_image,
     get_transport,
+    register_transport,
 )
 
 
@@ -842,3 +843,119 @@ class TestDispatchTransportScroll(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTransportRegistry(unittest.TestCase):
+    """register_transport() lets out-of-tree transports be selected by name."""
+
+    def setUp(self):
+        import gptme.tools.computer_transport as ct
+
+        self._saved_registry = dict(ct._transport_registry)
+        ct._transport_registry.clear()
+        ct._transport = None
+        ct._transport_name = None
+
+    def tearDown(self):
+        import gptme.tools.computer_transport as ct
+
+        ct._transport_registry.clear()
+        ct._transport_registry.update(self._saved_registry)
+        ct._transport = None
+        ct._transport_name = None
+
+    def test_registered_transport_is_selected_by_env_var(self):
+        """GPTME_COMPUTER_TRANSPORT=<registered name> returns that transport."""
+        register_transport("stub-transport", StubTransport)
+
+        with patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "stub-transport"}):
+            transport = get_transport()
+
+        self.assertIsInstance(transport, StubTransport)
+
+    def test_factory_is_not_called_at_registration_time(self):
+        """The factory must stay lazy so heavy/platform-specific imports are deferred."""
+        calls: list[int] = []
+
+        def factory() -> ComputerTransport:
+            calls.append(1)
+            return StubTransport()
+
+        register_transport("lazy-transport", factory)
+        self.assertEqual(calls, [], "factory must not run at registration time")
+
+        with patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "lazy-transport"}):
+            get_transport()
+
+        self.assertEqual(calls, [1], "factory must run once on selection")
+
+    def test_registered_transport_is_cached_across_calls(self):
+        """A successfully created transport is reused, not rebuilt per call."""
+        calls: list[int] = []
+
+        def factory() -> ComputerTransport:
+            calls.append(1)
+            return StubTransport()
+
+        register_transport("cached-transport", factory)
+
+        with patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "cached-transport"}):
+            first = get_transport()
+            second = get_transport()
+
+        self.assertIs(first, second)
+        self.assertEqual(calls, [1])
+
+    def test_failing_factory_falls_back_to_native_and_retries(self):
+        """A raising factory must not break the computer tool, and must be retried."""
+        import gptme.tools.computer_transport as ct
+
+        calls: list[int] = []
+
+        def failing_factory() -> ComputerTransport:
+            calls.append(1)
+            raise RuntimeError("phone not connected")
+
+        register_transport("flaky-transport", failing_factory)
+
+        with (
+            patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "flaky-transport"}),
+            patch.object(ct, "NativeComputerTransport", StubTransport),
+        ):
+            transport = get_transport()
+            self.assertIsInstance(transport, StubTransport)
+            # _transport_name stays None so the next call retries the factory
+            self.assertIsNone(ct._transport_name)
+            get_transport()
+
+        self.assertEqual(calls, [1, 1], "failing factory must be retried, not cached")
+
+    def test_registering_builtin_name_raises(self):
+        """Built-in transports may not be shadowed — silently losing them is worse."""
+        for name in ("native", "cua"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                register_transport(name, StubTransport)
+
+    def test_registering_empty_name_raises(self):
+        with self.assertRaises(ValueError):
+            register_transport("   ", StubTransport)
+
+    def test_reregistering_replaces_the_factory(self):
+        class OtherStub(StubTransport):
+            pass
+
+        register_transport("dup-transport", StubTransport)
+        register_transport("dup-transport", OtherStub)
+
+        with patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "dup-transport"}):
+            self.assertIsInstance(get_transport(), OtherStub)
+
+    def test_unknown_name_still_falls_back_to_native(self):
+        """Registry lookup must not change behaviour for unregistered names."""
+        import gptme.tools.computer_transport as ct
+
+        with (
+            patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "does-not-exist"}),
+            patch.object(ct, "NativeComputerTransport", StubTransport),
+        ):
+            self.assertIsInstance(get_transport(), StubTransport)

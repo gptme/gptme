@@ -6,6 +6,8 @@ to dispatch through different backends:
 
 - **Native** (xdotool+scrot or cliclick) — default, zero-dependency
 - **Cua Sandbox** — opt-in via ``GPTME_COMPUTER_TRANSPORT=cua`` env var
+- **Out-of-tree** — any transport registered via :func:`register_transport`,
+  selected by its registered name
 
 Usage::
 
@@ -32,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import concurrent.futures
-    from collections.abc import Coroutine
+    from collections.abc import Callable, Coroutine
 
 
 class ComputerTransport(abc.ABC):
@@ -679,6 +681,43 @@ class CuaComputerTransport(ComputerTransport):
 _transport: ComputerTransport | None = None
 _transport_name: str | None = None  # env-var value the cache was built for
 
+# Out-of-tree transports, keyed by the ``GPTME_COMPUTER_TRANSPORT`` value that
+# selects them.  Populated by :func:`register_transport`.
+_transport_registry: dict[str, Callable[[], ComputerTransport]] = {}
+
+# Names handled by the built-in branches of get_transport(); may not be shadowed.
+_BUILTIN_TRANSPORTS = frozenset({"native", "cua"})
+
+
+def register_transport(name: str, factory: Callable[[], ComputerTransport]) -> None:
+    """Register an out-of-tree transport under ``name``.
+
+    Lets transports that live outside gptme (in a plugin or a separate
+    package) be selected with ``GPTME_COMPUTER_TRANSPORT=<name>``, without
+    gptme having to import or depend on them::
+
+        from gptme.tools.computer_transport import register_transport
+
+        register_transport("phone-harness", PhoneComputerTransport)
+
+    ``factory`` is called with no arguments the first time the transport is
+    selected, and must return a :class:`ComputerTransport`.  It is only
+    called when the env var actually names this transport, so importing a
+    heavy or platform-specific dependency inside the factory is fine.
+
+    Registering the same name twice replaces the previous factory.
+
+    :raises ValueError: if ``name`` is empty or shadows a built-in transport.
+    """
+    name = name.strip()
+    if not name:
+        raise ValueError("transport name must be non-empty")
+    if name in _BUILTIN_TRANSPORTS:
+        raise ValueError(
+            f"cannot register {name!r}: shadows a built-in gptme transport"
+        )
+    _transport_registry[name] = factory
+
 
 def get_transport() -> ComputerTransport | None:
     """Return the configured transport, or None for native (default) path.
@@ -688,6 +727,10 @@ def get_transport() -> ComputerTransport | None:
     - ``native`` → ``NativeComputerTransport`` (explicit opt-in to
       transport-layer wrapper around xdotool/cliclick)
     - ``cua`` → ``CuaComputerTransport`` (Docker sandbox via cua-sandbox)
+    - any name passed to :func:`register_transport` → that transport
+
+    An out-of-tree transport whose factory raises falls back to native,
+    the same way a failed ``cua`` init does.
 
     Caches the transport object.  Re-validates against the current env
     var on every call so that tests can switch backends without process
@@ -730,6 +773,23 @@ def get_transport() -> ComputerTransport | None:
             _transport = NativeComputerTransport()
             # Leave _transport_name as None so the next call retries CuaComputerTransport
             # (allows recovery from transient failures like Docker not yet running)
+            _transport_name = None
+    elif current in _transport_registry:
+        try:
+            _transport = _transport_registry[current]()
+            _transport_name = current  # only cache on success
+        except Exception as e:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "Registered transport %r failed to initialize: %s; falling back to native",
+                current,
+                e,
+            )
+            _transport = NativeComputerTransport()
+            # Leave _transport_name as None so the next call retries the
+            # registered factory (recovers from transient failures).
             _transport_name = None
     else:
         import logging
