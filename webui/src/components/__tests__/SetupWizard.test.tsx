@@ -1221,6 +1221,87 @@ describe('SetupWizard', () => {
     expect(mockInvokeTauri).not.toHaveBeenCalledWith('start_server');
   });
 
+  it('rejects an invalid provider key (422) and stays on provider step without restarting server', async () => {
+    // Regression test for https://github.com/gptme/gptme/issues/3545:
+    // Before the fix, the server saved any key without validation and the wizard
+    // advanced to "You're all set!" even with an invalid key. Now the backend
+    // validates the key and returns 422 when the provider rejects it, and the
+    // wizard must stay on the provider step without touching the server.
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5700,
+        port_available: false,
+        manages_local_server: true,
+      },
+    });
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: [
+            {
+              id: 'anthropic/claude-sonnet-4-7',
+              provider: 'anthropic',
+              model: 'claude-sonnet-4-7',
+            },
+          ],
+          recommended: ['anthropic/claude-sonnet-4-7'],
+        }),
+      })
+      // The /api/v2/user/api-key endpoint validates the key with the provider.
+      // An invalid key returns 422 Unprocessable Entity (not a 500).
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 422,
+        json: async () => ({ error: 'Invalid API key. Please check your key and try again.' }),
+      });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/api key/i), {
+      target: { value: 'sk-ant-invalid-key' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save and restart server/i }));
+
+    // The error from the backend must be shown inline (not just a toast).
+    await waitFor(() => {
+      expect(screen.getByText(/Invalid API key/i)).toBeInTheDocument();
+    });
+
+    // The wizard must NOT advance past the provider step.
+    expect(screen.queryByRole('heading', { name: /you're all set/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+
+    // The server must NOT be restarted — only valid keys should trigger a restart.
+    expect(mockInvokeTauri).not.toHaveBeenCalledWith('stop_server');
+    expect(mockInvokeTauri).not.toHaveBeenCalledWith('start_server');
+  });
+
   it('surfaces a non-blocking warning when the provider is unreachable', async () => {
     mockIsTauriEnvironment.mockReturnValue(true);
     mockUseTauriServerStatus.mockReturnValue({
