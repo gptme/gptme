@@ -1322,7 +1322,11 @@ def test_tool_manifest_log_workspace_resolves_manifest_from_cwd(
 def test_tool_manifest_unavailable_tool_falls_back_gracefully(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
-    """When a manifest tool is unavailable, warn and start without manifest tools."""
+    """When a manifest tool is unavailable, warn and start with only the working tools.
+
+    The fallback probes each manifest tool individually via get_available_tools()
+    so that a single downed MCP server does not drop the entire curated tool set.
+    """
     manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
