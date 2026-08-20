@@ -123,6 +123,21 @@ def _normalize_tool_allowlist(
                 seen.add(item)
             continue
 
+        # Built-in tools always take priority over manifest aliases so that a
+        # manifest task type named "read" can never silently replace the built-in
+        # read tool.  Try get_toolchain first; only fall through to the manifest
+        # lookup when the name is not a known built-in.
+        try:
+            toolspecs = list(get_toolchain([item]))
+            for toolspec in toolspecs:
+                if toolspec.name in seen:
+                    continue
+                normalized.append(toolspec.name)
+                seen.add(toolspec.name)
+            continue
+        except ValueError:
+            pass  # not a known built-in — check manifest next
+
         # Check if the item is a manifest task type alias when the workspace is
         # known.  This makes ``--tools code_review`` behave identically to
         # ``--tool-manifest code_review`` for workspaces that ship a manifest.
@@ -137,6 +152,8 @@ def _normalize_tool_allowlist(
                         seen.add(manifest_tool_name)
                 continue
 
+        # Not a known built-in and not a manifest alias — re-raise via get_toolchain
+        # so the caller gets the standard "Tool 'X' not found" error message.
         for toolspec in get_toolchain([item]):
             if toolspec.name in seen:
                 continue
