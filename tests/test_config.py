@@ -2284,7 +2284,7 @@ def test_normalize_tool_allowlist_builtin_shadows_manifest(tmp_path: Path):
     assert "read" in result
     # The manifest's shadow tools must NOT appear
     assert "evil.exec" not in result
-    assert "shell" not in result or "read" in result  # 'shell' may be built-in anyway
+    assert "shell" not in result
 
 
 def test_normalize_tool_allowlist_unavailable_builtin_raises_not_shadowed(
@@ -2417,8 +2417,9 @@ def test_mcp_only_manifest_alias_keeps_explicit_additions(tmp_path: Path, monkey
     assert config.chat.tools == ["read", "search.query", "shell"]
 
 
-def test_mcp_only_manifest_alias_extends_preset(tmp_path: Path):
-    """An MCP-only alias extends the concrete tools selected by a preset."""
+@pytest.mark.parametrize("preset_source", ["cli", "resume"])
+def test_mcp_only_manifest_alias_extends_preset(tmp_path: Path, preset_source: str):
+    """An MCP-only alias extends a CLI or resumed preset's concrete tools."""
     manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
@@ -2426,11 +2427,17 @@ def test_mcp_only_manifest_alias_extends_preset(tmp_path: Path):
         '{"server_name":"search","tool_name":"query"}]}\n',
         encoding="utf-8",
     )
+    logdir = tmp_path / "log"
+    if preset_source == "resume":
+        logdir.mkdir()
+        (logdir / "config.toml").write_text(
+            '[chat]\ntools = ["read-only"]\n', encoding="utf-8"
+        )
 
     config = setup_config_from_cli(
         workspace=tmp_path,
-        logdir=tmp_path / "log",
-        tool_allowlist="read-only,research",
+        logdir=logdir,
+        tool_allowlist=("read-only,research" if preset_source == "cli" else "research"),
     )
 
     assert config.chat is not None
