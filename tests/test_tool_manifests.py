@@ -7,7 +7,7 @@ from gptme.tool_manifests import load_task_manifest
 
 
 def test_load_task_manifest_returns_dotted_tool_names(tmp_path: Path):
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":['
@@ -25,7 +25,7 @@ def test_load_task_manifest_returns_dotted_tool_names(tmp_path: Path):
 
 
 def test_load_task_manifest_unknown_type_lists_available(tmp_path: Path):
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
@@ -37,7 +37,7 @@ def test_load_task_manifest_unknown_type_lists_available(tmp_path: Path):
 
 
 def test_load_task_manifest_invalid_tool_entry_is_usage_error(tmp_path: Path):
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":[{"server_name":"github"}]}\n',
@@ -50,7 +50,7 @@ def test_load_task_manifest_invalid_tool_entry_is_usage_error(tmp_path: Path):
 
 def test_load_task_manifest_rejects_comma_in_server_name(tmp_path: Path):
     """Commas in server_name would corrupt the comma-joined allowlist string."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":[{"server_name":"a,b","tool_name":"tool"}]}\n',
@@ -63,7 +63,7 @@ def test_load_task_manifest_rejects_comma_in_server_name(tmp_path: Path):
 
 def test_load_task_manifest_rejects_comma_in_tool_name(tmp_path: Path):
     """Commas in tool_name would corrupt the comma-joined allowlist string."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":[{"server_name":"server","tool_name":"a,b"}]}\n',
@@ -100,7 +100,7 @@ def test_load_task_manifest_rejects_path_injection(
     as a file path and calls load_from_file() on it. A manifest with a crafted
     server_name or tool_name can inject a path that loads attacker-controlled Python.
     """
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     record = {
         "task_type": "research",
@@ -114,7 +114,7 @@ def test_load_task_manifest_rejects_path_injection(
 
 def test_load_task_manifest_with_builtin_tools(tmp_path: Path):
     """builtin_tools field produces an explicit allowlist (non-additive)."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"code_review",'
@@ -132,7 +132,7 @@ def test_load_task_manifest_with_builtin_tools(tmp_path: Path):
 
 def test_load_task_manifest_without_builtin_tools(tmp_path: Path):
     """When builtin_tools is absent, builtin_tools is an empty tuple."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
@@ -147,7 +147,7 @@ def test_load_task_manifest_without_builtin_tools(tmp_path: Path):
 
 def test_load_task_manifest_rejects_invalid_builtin_tool_name(tmp_path: Path):
     """builtin_tools entries must be simple identifier-like names."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research",'
@@ -162,7 +162,7 @@ def test_load_task_manifest_rejects_invalid_builtin_tool_name(tmp_path: Path):
 
 def test_load_task_manifest_deduplicates_builtin_tools(tmp_path: Path):
     """Duplicate builtin_tools entries are silently deduplicated."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research",'

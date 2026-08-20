@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-DEFAULT_TOOL_MANIFEST_PATH = Path("state/mcp-task-manifests.jsonl")
+DEFAULT_TOOL_MANIFEST_PATH = Path("state/task-manifests.jsonl")
 TOOL_MANIFEST_PATH_ENV = "GPTME_TOOL_MANIFEST_PATH"
 
 # Simple identifier pattern: lowercase letters, digits, underscores, hyphens
