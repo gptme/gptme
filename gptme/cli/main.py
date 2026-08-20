@@ -730,10 +730,10 @@ Run 'gptme-util --help' for all utility commands."""
     default=None,
     type=str,
     envvar="GPTME_TOOL_MANIFEST",
-    help="Task-optimized tool preset loaded from a manifest file: code_review, "
+    help="Task-scoped tool preset loaded from a manifest file: code_review, "
     "implementation, debugging, data_analysis, research, content_writing, planning, "
-    "project_ops. When the manifest includes built-in tools, produces an explicit "
-    "allowlist; otherwise adds the manifest's MCP tools to the session's defaults.",
+    "project_ops. When the manifest specifies built-in tools, produces an explicit "
+    "allowlist; otherwise adds the manifest's tools to the session's defaults.",
 )
 def main(
     ctx: click.Context,
@@ -1184,7 +1184,7 @@ def main(
 
             try:
                 # For @log, stats_workspace_path is a temp dir — use the real
-                # workspace (cwd) so manifest resolution finds state/mcp-task-manifests.jsonl
+                # workspace (cwd) so manifest resolution finds state/task-manifests.jsonl
                 manifest_workspace = (
                     Path.cwd() if workspace == "@log" else stats_workspace_path
                 )
@@ -1416,7 +1416,7 @@ def main(
 
     # Setup complete configuration from CLI arguments and workspace
     # For @log, workspace_path is logdir/workspace — use cwd so manifest
-    # resolution finds state/mcp-task-manifests.jsonl in the real workspace
+    # resolution finds state/task-manifests.jsonl in the real workspace
     # (same logic as the stats path above at lines 1149-1152).
     manifest_workspace = Path.cwd() if workspace == "@log" else workspace_path
     pre_manifest_allowlist = (

@@ -244,7 +244,7 @@ def test_show_prompt_stats_manifest_fallback_passes_empty_allowlist(
         lambda task_type, workspace: TaskToolManifest(
             task_type=task_type,
             tool_names=("github.search_code",),
-            path=workspace / "state" / "mcp-task-manifests.jsonl",
+            path=workspace / "state" / "task-manifests.jsonl",
         ),
     )
 
@@ -316,7 +316,7 @@ def test_show_prompt_stats_does_not_retry_after_config_fallback(
         lambda task_type, workspace: TaskToolManifest(
             task_type=task_type,
             tool_names=("github.search_code",),
-            path=workspace / "state" / "mcp-task-manifests.jsonl",
+            path=workspace / "state" / "task-manifests.jsonl",
         ),
     )
 
@@ -1188,7 +1188,7 @@ def test_tool_manifest_cannot_combine_with_gear_tools(
 def test_tool_manifest_wires_allowlist_into_config(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":['
@@ -1264,7 +1264,7 @@ def test_tool_manifest_log_workspace_resolves_manifest_from_cwd(
         return TaskToolManifest(
             task_type=task_type,
             tool_names=("github.search_code",),
-            path=workspace / "state" / "mcp-task-manifests.jsonl",
+            path=workspace / "state" / "task-manifests.jsonl",
         )
 
     fake_config = SimpleNamespace(
@@ -1327,7 +1327,7 @@ def test_tool_manifest_unavailable_tool_falls_back_gracefully(
     The fallback probes each manifest tool individually via get_available_tools()
     so that a single downed MCP server does not drop the entire curated tool set.
     """
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":['
@@ -1411,7 +1411,7 @@ def test_tool_manifest_builtin_tools_unavailable_mcp_falls_back_gracefully(
     The init_tools fallback must still identify the MCP-style tool names and strip
     them, while keeping the built-in tools in the fallback session.
     """
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"code_review","tools":['
@@ -1496,7 +1496,7 @@ def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
     which calls get_toolchain([item]) with strict=True for each tool name and can
     raise ValueError before init_tools is ever reached.
     """
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":['
@@ -1585,7 +1585,7 @@ def test_tool_manifest_builtin_tools_config_setup_failure_preserves_builtins(
     When setup_config fails because github.search_code is unavailable, the session
     should retry with "read,grep" — NOT with None (the pre-manifest default).
     """
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"code_review","tools":['
