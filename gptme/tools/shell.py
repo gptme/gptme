@@ -497,10 +497,16 @@ class ShellSession:
             # stdin and the process produces no output before exiting.
             data_q: Queue[tuple[str, bytes] | None] = Queue()
 
+            stop_readers = threading.Event()
+
             def _reader(src: IO[bytes], tag: str) -> None:
                 try:
-                    while True:
-                        chunk = src.read(2**16)
+                    fd = src.fileno()
+                    while not stop_readers.is_set():
+                        readable, _, _ = select.select([fd], [], [], 0.1)
+                        if not readable:
+                            continue
+                        chunk = os.read(fd, 2**16)
                         if not chunk:
                             break
                         data_q.put((tag, chunk))
@@ -519,36 +525,44 @@ class ShellSession:
             stdout_chunks: list[str] = []
             stderr_chunks: list[str] = []
             sentinels = 0
-            start_time = time.time() if timeout else None
+            proc_exited_at: float | None = None
+            start_time = time.monotonic() if timeout is not None else None
+
+            def consume(item: tuple[str, bytes] | None) -> None:
+                nonlocal sentinels
+                if item is None:
+                    sentinels += 1
+                    return
+
+                tag, chunk = item
+                text = chunk.decode("utf-8", errors="replace")
+                if tag == "out":
+                    stdout_chunks.append(text)
+                    if output:
+                        print(text, end="", file=sys.stdout)
+                else:
+                    stderr_chunks.append(text)
+                    if output:
+                        print(text, end="", file=sys.stderr)
+
+            def finish_readers() -> None:
+                t_out.join()
+                t_err.join()
+                while True:
+                    try:
+                        consume(data_q.get_nowait())
+                    except Empty:
+                        break
 
             try:
                 while sentinels < 2:
                     # Check overall timeout
-                    if timeout and start_time:
-                        elapsed = time.time() - start_time
+                    if timeout is not None and start_time is not None:
+                        elapsed = time.monotonic() - start_time
                         if elapsed >= timeout:
                             proc.kill()
-                            t_out.join(timeout=1.0)
-                            t_err.join(timeout=1.0)
-                            # Drain anything the reader threads buffered before
-                            # being killed — the timeout check fires before the
-                            # queue is consumed, so data can sit in the queue.
-                            while True:
-                                try:
-                                    _item = data_q.get_nowait()
-                                except Empty:
-                                    break
-                                if _item is not None:
-                                    _tag, _chunk = _item
-                                    _text = _chunk.decode("utf-8", errors="replace")
-                                    if _tag == "out":
-                                        stdout_chunks.append(_text)
-                                        if output:
-                                            print(_text, end="", file=sys.stdout)
-                                    else:
-                                        stderr_chunks.append(_text)
-                                        if output:
-                                            print(_text, end="", file=sys.stderr)
+                            proc.wait()
+                            finish_readers()
                             return (
                                 -124,
                                 trim_blank_lines("".join(stdout_chunks)),
@@ -559,45 +573,35 @@ class ShellSession:
                         get_timeout = 0.05
 
                     try:
-                        item = data_q.get(timeout=get_timeout)
+                        consume(data_q.get(timeout=get_timeout))
+                        # Only an idle queue starts the post-exit grace period.
+                        # Resetting this on every chunk lets a fast-exiting command
+                        # drain arbitrarily large buffered output without truncation.
+                        proc_exited_at = None
                     except Empty:
-                        # If the process has already exited but the pipe write-ends
-                        # haven't delivered EOF yet (can happen when /dev/tty is stdin
-                        # and the process produced no output), break rather than
-                        # spinning forever waiting for reader-thread sentinels.
                         if proc.poll() is not None:
-                            break
-                        continue
-
-                    if item is None:
-                        sentinels += 1
-                        continue
-
-                    tag, chunk = item
-                    text = chunk.decode("utf-8", errors="replace")
-                    if tag == "out":
-                        stdout_chunks.append(text)
-                        if output:
-                            print(text, end="", file=sys.stdout)
-                    else:
-                        stderr_chunks.append(text)
-                        if output:
-                            print(text, end="", file=sys.stderr)
+                            if proc_exited_at is None:
+                                proc_exited_at = time.monotonic()
+                            elif time.monotonic() - proc_exited_at >= 1.0:
+                                # A background descendant can inherit the pipes,
+                                # preventing EOF after the command itself exits.
+                                break
             except KeyboardInterrupt:
                 print()
                 proc.kill()
-                t_out.join(timeout=1.0)
-                t_err.join(timeout=1.0)
+                proc.wait()
+                finish_readers()
                 partial_stdout = trim_blank_lines("".join(stdout_chunks))
                 partial_stderr = trim_blank_lines("".join(stderr_chunks))
                 raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
 
-            # Threads are daemon threads; join with timeout in case they're
-            # blocked on read() due to pipes not signalling EOF (TTY-stdin edge
-            # case). They'll be garbage-collected when proc.stdout/stderr close.
-            t_out.join(timeout=1.0)
-            t_err.join(timeout=1.0)
             proc.wait()
+            if sentinels < 2:
+                # A background descendant retained the pipes. The idle grace
+                # period drained this command's output; now stop and reap the
+                # readers without waiting for the descendant to exit.
+                stop_readers.set()
+            finish_readers()
         finally:
             tty_stdin.close()
 
