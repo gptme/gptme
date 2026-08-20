@@ -2287,6 +2287,69 @@ def test_normalize_tool_allowlist_builtin_shadows_manifest(tmp_path: Path):
     assert "shell" not in result or "read" in result  # 'shell' may be built-in anyway
 
 
+def test_normalize_tool_allowlist_unavailable_builtin_raises_not_shadowed(
+    tmp_path: Path,
+):
+    """An unavailable registered built-in must raise, not silently fall to a manifest alias.
+
+    If a tool is registered in the toolchain but currently unavailable (e.g. an
+    optional dependency is missing), ``get_toolchain`` raises a ValueError whose
+    message contains "is unavailable".  The manifest lookup must NOT run in that
+    case — doing so would silently replace a known-but-unavailable built-in with
+    unrelated manifest tools, which is a confusing and unsafe behaviour.
+    """
+    from unittest.mock import patch
+
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    # A manifest that defines a task type with the same name as a built-in.
+    manifest_path.write_text(
+        '{"task_type":"read","tools":[{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    def _raises_unavailable(allowlist, **kwargs):
+        if allowlist and allowlist[0] == "read":
+            raise ValueError("Tool 'read' is unavailable: optional dep missing")
+        # get_toolchain(None) for additive expansion — return empty list
+        return []
+
+    with (
+        patch("gptme.config.cli_setup.get_toolchain", side_effect=_raises_unavailable),
+        pytest.raises(ValueError, match="is unavailable"),
+    ):
+        _normalize_tool_allowlist(["read"], workspace=tmp_path)
+
+
+def test_normalize_tool_allowlist_mcp_only_manifest_alias_is_additive(tmp_path: Path):
+    """A manifest alias with no builtin_tools must include default built-in tools (additive).
+
+    When ``--tools research`` resolves a manifest that has MCP tools but no
+    explicit ``builtin_tools``, the expansion must include the full default
+    built-in toolset (read, shell, …) *plus* the MCP tools — matching the
+    additive behaviour of ``--tool-manifest research``.
+    """
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    # No builtin_tools field — only MCP tools.
+    manifest_path.write_text(
+        '{"task_type":"research",'
+        '"tools":[{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    result = _normalize_tool_allowlist(["research"], workspace=tmp_path)
+
+    assert result is not None
+    # MCP tool from the manifest must be present.
+    assert "search.query" in result
+    # Default built-in tool enabled by default (not disabled_by_default) must be
+    # present — additive semantics includes the full default toolset.
+    assert "shell" in result
+    # The alias name itself must not appear in the result.
+    assert "research" not in result
+
+
 def test_comma_separated_choice_lenient_unprefixed_allows_unknown():
     """CommaSeparatedChoice with lenient_unprefixed=True passes unknown names through."""
     from gptme.cli.main import CommaSeparatedChoice

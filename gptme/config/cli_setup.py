@@ -135,18 +135,38 @@ def _normalize_tool_allowlist(
                 normalized.append(toolspec.name)
                 seen.add(toolspec.name)
             continue
-        except ValueError:
-            pass  # not a known built-in — check manifest next
+        except ValueError as e:
+            # Re-raise when the tool IS registered but unavailable: the name is
+            # known to the toolchain, so the manifest must not silently shadow it.
+            # Only fall through to the manifest lookup when the name is truly not
+            # registered at all ("not found").
+            if "is unavailable" in str(e):
+                raise
+            # name is completely unknown — check manifest next
 
         # Check if the item is a manifest task type alias when the workspace is
         # known.  This makes ``--tools code_review`` behave identically to
         # ``--tool-manifest code_review`` for workspaces that ship a manifest.
         if workspace is not None:
-            from ..tool_manifests import get_manifest_preset_tools
+            from ..tool_manifests import load_task_manifest
 
-            manifest_tools = get_manifest_preset_tools(item, workspace)
-            if manifest_tools is not None:
-                for manifest_tool_name in manifest_tools:
+            try:
+                manifest = load_task_manifest(item, workspace)
+            except (FileNotFoundError, ValueError):
+                manifest = None
+
+            if manifest is not None:
+                # When the manifest has no explicit builtin_tools, mirror the
+                # additive behaviour of ``--tool-manifest``: include the full
+                # default built-in toolset first, then append the MCP tools.
+                # Manifests with explicit builtin_tools produce a closed
+                # (non-additive) allowlist — only the named built-ins + MCP tools.
+                if not manifest.builtin_tools:
+                    for toolspec in get_toolchain(None):
+                        if toolspec.name not in seen:
+                            normalized.append(toolspec.name)
+                            seen.add(toolspec.name)
+                for manifest_tool_name in manifest.all_tool_names:
                     if manifest_tool_name not in seen:
                         normalized.append(manifest_tool_name)
                         seen.add(manifest_tool_name)
