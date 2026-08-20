@@ -250,6 +250,8 @@ def test_summarize_child_output_counts_tool_calls():
 
 
 def test_run_one_prompt_invokes_child_process(monkeypatch):
+    import types
+
     calls = []
     times = iter([10.0, 12.25])
 
@@ -260,7 +262,12 @@ def test_run_one_prompt_invokes_child_process(monkeypatch):
 
     monkeypatch.setattr(cmd_batch.subprocess, "run", fake_run)
     monkeypatch.setattr(cmd_batch.sys, "executable", "/usr/bin/python-test")
-    monkeypatch.setattr(cmd_batch.time, "monotonic", lambda: next(times))
+    # Patch the module-local reference to avoid contaminating the global time module.
+    # Patching cmd_batch.time.monotonic globally can cause StopIteration when pytest
+    # internals or background threads call time.monotonic() during the test.
+    monkeypatch.setattr(
+        cmd_batch, "time", types.SimpleNamespace(monotonic=lambda: next(times))
+    )
 
     record = cmd_batch._run_one_prompt(
         index=2,
@@ -302,13 +309,20 @@ def test_run_one_prompt_invokes_child_process(monkeypatch):
 
 
 def test_run_one_prompt_reports_timeout(monkeypatch):
+    import types
+
     times = iter([1.0, 4.4567])
 
     def fake_run(cmd, **kwargs):
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs["timeout"])
 
     monkeypatch.setattr(cmd_batch.subprocess, "run", fake_run)
-    monkeypatch.setattr(cmd_batch.time, "monotonic", lambda: next(times))
+    # Patch the module-local reference to avoid contaminating the global time module.
+    # Patching cmd_batch.time.monotonic globally can cause StopIteration when pytest
+    # internals or background threads call time.monotonic() during the test.
+    monkeypatch.setattr(
+        cmd_batch, "time", types.SimpleNamespace(monotonic=lambda: next(times))
+    )
 
     record = cmd_batch._run_one_prompt(
         index=1,
