@@ -41,6 +41,19 @@ sidecar_is_stale() {
             return 0
         fi
     done
+    # Detect install-path changes caused by uv.lock appearing or disappearing.
+    # If uv.lock was present at last build but has since been deleted (or vice
+    # versa), the install path changes (uv sync vs uv pip install), so the
+    # sidecar would be built with different dependency resolution.  A marker
+    # file records uv.lock presence at build time; any mismatch forces rebuild.
+    local uvlock_marker="${sidecar}.uvlock-present"
+    local uvlock_now=0
+    [[ -f "$REPO_ROOT/uv.lock" ]] && uvlock_now=1
+    local uvlock_was=0
+    [[ -f "$uvlock_marker" ]] && uvlock_was=$(cat "$uvlock_marker")
+    if [[ "$uvlock_now" != "$uvlock_was" ]]; then
+        return 0
+    fi
     return 1
 }
 
@@ -81,12 +94,15 @@ uv run pyinstaller \
     gptme/server/__main__.py
 
 # Rename to include target triple (Tauri sidecar convention)
+_uvlock_state=0; [[ -f "$REPO_ROOT/uv.lock" ]] && _uvlock_state=1
 if [[ -f "$BINS_DIR/gptme-server.exe" ]]; then
     mv "$BINS_DIR/gptme-server.exe" "${BINS_DIR}/gptme-server-${TRIPLE}.exe"
     echo "Sidecar built: ${BINS_DIR}/gptme-server-${TRIPLE}.exe"
+    echo "$_uvlock_state" > "${BINS_DIR}/gptme-server-${TRIPLE}.exe.uvlock-present"
 elif [[ -f "$BINS_DIR/gptme-server" ]]; then
     mv "$BINS_DIR/gptme-server" "$BINS_DIR/gptme-server-${TRIPLE}"
     echo "Sidecar built: $BINS_DIR/gptme-server-${TRIPLE}"
+    echo "$_uvlock_state" > "$BINS_DIR/gptme-server-${TRIPLE}.uvlock-present"
 else
     echo "ERROR: PyInstaller did not produce gptme-server in $BINS_DIR" >&2
     exit 1
