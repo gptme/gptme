@@ -160,11 +160,11 @@ def validate_api_key_status(
     except requests.exceptions.HTTPError as e:
         # 408/5xx from the provider — server is reachable but broken; not a key rejection.
         status_code = e.response.status_code if e.response is not None else "unknown"
-        return (
-            ApiKeyValidationStatus.UNREACHABLE,
+        message = (
             f"{VALIDATION_PROVIDER_ERROR_PREFIX} Provider returned server error "
-            f"{status_code}. Please try again later.",
+            f"{status_code}. Please try again later."
         )
+        return ApiKeyValidationStatus.UNREACHABLE, message
     except requests.exceptions.RequestException as e:
         logger.exception(f"Unexpected error validating {provider} API key")
         return (
