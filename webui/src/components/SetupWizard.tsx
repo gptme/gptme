@@ -476,10 +476,18 @@ export function SetupWizard() {
     if (isTauri) {
       try {
         await invokeTauri('plugin:opener|open_url', { url: CLOUD_AUTH_URL });
-        return;
       } catch (error) {
-        console.warn('Failed to open cloud auth URL externally, falling back', error);
+        // Do NOT fall back to window.open() here: that is the exact in-WebView
+        // navigation this branch exists to avoid, and on Android it unloads the
+        // SPA that has to receive the callback. Surface a recoverable error
+        // with the URL so the user can open it manually and retry instead.
+        console.warn('Failed to open cloud auth URL externally', error);
+        setCloudLoginStarted(false);
+        setConnectError(
+          `Could not open the browser automatically. Open ${CLOUD_AUTH_URL} manually to sign in, then return to the app.`
+        );
       }
+      return;
     }
 
     window.open(CLOUD_AUTH_URL, '_blank');

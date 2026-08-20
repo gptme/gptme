@@ -732,7 +732,7 @@ describe('SetupWizard', () => {
     expect(screen.getByText(/waiting for sign-in to complete/i)).toBeInTheDocument();
   });
 
-  it('falls back to window.open when the tauri opener plugin fails', async () => {
+  it('surfaces a recoverable error when the tauri opener plugin fails', async () => {
     mockIsTauriEnvironment.mockReturnValue(true);
     mockUseTauriServerStatus.mockReturnValue({
       isLoading: false,
@@ -757,7 +757,17 @@ describe('SetupWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
     fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
 
-    await waitFor(() => expect(mockOpen).toHaveBeenCalledWith(CLOUD_AUTH_URL, '_blank'));
+    // Falling back to window.open() would re-enter the in-WebView navigation
+    // this branch exists to avoid, so the user gets an actionable error instead.
+    await waitFor(() =>
+      expect(screen.getByText(/could not open the browser automatically/i)).toBeInTheDocument()
+    );
+    // The error must name the URL so the user can open it manually.
+    expect(screen.getByText(/could not open the browser automatically/i)).toHaveTextContent(
+      CLOUD_AUTH_URL
+    );
+    expect(mockOpen).not.toHaveBeenCalled();
+    expect(screen.queryByText(/waiting for sign-in to complete/i)).not.toBeInTheDocument();
     warnSpy.mockRestore();
   });
 
