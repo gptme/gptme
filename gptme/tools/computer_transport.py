@@ -765,10 +765,23 @@ def get_transport() -> ComputerTransport | None:
     if _transport is not None and _transport_name == current:
         return _transport
 
-    # Env var changed — close the stale transport to avoid resource leaks
+    # Env var changed — clear cache before fallible cleanup so a broken
+    # third-party close() cannot preserve a stale, partially closed instance.
     if _transport is not None and _transport_name != current:
-        _transport.close()
+        stale_transport = _transport
+        stale_name = _transport_name
         _transport = None
+        _transport_name = None
+        try:
+            stale_transport.close()
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "Failed to close transport %r while switching to %r",
+                stale_name,
+                current,
+            )
 
     # No transport requested
     if not current:
@@ -795,7 +808,13 @@ def get_transport() -> ComputerTransport | None:
             _transport_name = None
     elif current in _transport_registry:
         try:
-            _transport = _transport_registry[current]()
+            transport = _transport_registry[current]()
+            if not isinstance(transport, ComputerTransport):
+                raise TypeError(
+                    f"factory for transport {current!r} returned "
+                    f"{type(transport).__name__}, expected ComputerTransport"
+                )
+            _transport = transport
             _transport_name = current  # only cache on success
         except Exception as e:
             import logging

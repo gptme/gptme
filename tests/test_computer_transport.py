@@ -902,6 +902,60 @@ class TestTransportRegistry(unittest.TestCase):
         self.assertIs(first, second)
         self.assertEqual(calls, [1])
 
+    def test_switch_with_failing_close_clears_stale_transport(self):
+        """A close failure cannot preserve stale cache state during a switch."""
+        import gptme.tools.computer_transport as ct
+
+        calls: list[int] = []
+
+        class FailingCloseStub(StubTransport):
+            def close(self) -> None:
+                raise RuntimeError("close failed")
+
+        def replacement_factory() -> ComputerTransport:
+            calls.append(1)
+            return StubTransport()
+
+        register_transport("replacement", replacement_factory)
+        ct._transport = FailingCloseStub()
+        ct._transport_name = "original"
+
+        with (
+            patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "replacement"}),
+            self.assertLogs("gptme.tools.computer_transport", level="ERROR") as logs,
+        ):
+            replacement = get_transport()
+
+        self.assertIsInstance(replacement, StubTransport)
+        self.assertEqual(calls, [1])
+        self.assertEqual(ct._transport_name, "replacement")
+        self.assertIn("Failed to close transport", "\n".join(logs.output))
+
+    def test_invalid_factory_result_falls_back_to_native_and_retries(self):
+        """A factory returning the wrong type follows the failure fallback path."""
+        import gptme.tools.computer_transport as ct
+
+        calls: list[int] = []
+
+        def invalid_factory() -> ComputerTransport:
+            calls.append(1)
+            return None  # type: ignore[return-value]
+
+        register_transport("invalid-transport", invalid_factory)
+
+        with (
+            patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "invalid-transport"}),
+            patch.object(ct, "NativeComputerTransport", StubTransport),
+            self.assertLogs("gptme.tools.computer_transport", level="WARNING") as logs,
+        ):
+            transport = get_transport()
+            self.assertIsInstance(transport, StubTransport)
+            self.assertIsNone(ct._transport_name)
+            get_transport()
+
+        self.assertEqual(calls, [1, 1])
+        self.assertIn("expected ComputerTransport", "\n".join(logs.output))
+
     def test_failing_factory_falls_back_to_native_and_retries(self):
         """A raising factory must not break the computer tool, and must be retried."""
         import gptme.tools.computer_transport as ct
