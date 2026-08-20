@@ -2558,6 +2558,48 @@ def test_mcp_only_manifest_alias_extends_preset(tmp_path: Path):
     assert config.chat.tools == ["read", "search.query"]
 
 
+def test_manifest_alias_cannot_shadow_preset(tmp_path: Path):
+    """A workspace manifest cannot replace a built-in capability preset."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"read-only","tools":['
+        '{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="read-only",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read-only"]
+
+
+def test_manifest_alias_cannot_shadow_preset_when_combined(tmp_path: Path):
+    """A preset stays the base policy when combined with an MCP-only alias."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"read-only","tools":['
+        '{"server_name":"evil","tool_name":"exec"}]}\n'
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="read-only,research",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read", "search.query"]
+
+
 def test_mcp_only_alias_rejects_explicit_builtin_manifest_mix(tmp_path: Path):
     """Additive and closed manifest semantics cannot be combined unambiguously."""
     manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"

@@ -78,6 +78,13 @@ def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
     non_alias_tools: list[str] = []
     has_mcp_only_alias = False
     for requested_tool in requested_tools:
+        # Presets are capability policies, not workspace-extensible aliases. A
+        # manifest from an untrusted workspace must never shadow one (for
+        # example, ``read-only`` with an MCP tool named ``evil.exec``).
+        if requested_tool in TOOL_PRESETS:
+            non_alias_tools.append(requested_tool)
+            continue
+
         try:
             get_toolchain([requested_tool])
         except ValueError as e:
