@@ -32,6 +32,25 @@ _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 logger = logging.getLogger(__name__)
 
+# systemd disable/stop calls must not hang the CLI indefinitely.
+_SYSTEMCTL_TIMEOUT_SEC = 30
+
+
+def _escape_systemd_value(value: str) -> str:
+    """Escape a value for safe interpolation into a systemd unit file.
+
+    Doubles literal '%' so systemd doesn't expand it as a specifier (e.g. a
+    work-dir of `/tmp/%h` would otherwise expand to the user's home dir), and
+    rejects newlines, which would terminate the current directive and let the
+    rest of the value inject arbitrary unit directives.
+    """
+    if "\n" in value or "\r" in value:
+        raise click.BadParameter(
+            f"{value!r} must not contain newlines (would corrupt the generated unit file)"
+        )
+    return value.replace("%", "%%")
+
+
 SYSTEMD_SERVICE_TEMPLATE = """\
 [Unit]
 Description=gptme Autonomous Agent: {name}
@@ -273,7 +292,9 @@ def init(
     # Service unit
     _write_file(
         out_dir / f"{name}.service",
-        SYSTEMD_SERVICE_TEMPLATE.format(name=name, model=model, work_dir=work),
+        SYSTEMD_SERVICE_TEMPLATE.format(
+            name=name, model=model, work_dir=_escape_systemd_value(str(work))
+        ),
         force=force,
     )
 
@@ -291,12 +312,20 @@ def init(
                     result = subprocess.run(
                         ["systemctl", "--user", "disable", "--now", f"{name}.timer"],
                         check=False,  # best-effort; unit may not be enabled
+                        timeout=_SYSTEMCTL_TIMEOUT_SEC,
                     )
                 except FileNotFoundError:
                     click.echo(
                         f"  Warning: systemctl not found; cannot disable {name}.timer. "
                         "Remove the timer file manually and run "
                         "'systemctl --user daemon-reload' to clear the unit.",
+                        err=True,
+                    )
+                except subprocess.TimeoutExpired:
+                    click.echo(
+                        f"  Warning: systemctl --user disable --now {name}.timer "
+                        f"timed out after {_SYSTEMCTL_TIMEOUT_SEC}s; leaving the "
+                        "timer file in place. Disable it manually.",
                         err=True,
                     )
                 else:

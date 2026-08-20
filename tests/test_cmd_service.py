@@ -78,9 +78,11 @@ def test_systemd_unit_parses(tmp_path: Path) -> None:
             text=True,
             check=False,
         )
-        # systemd-analyze verify may warn on missing ExecStart deps but should
-        # not fail hard on a syntactically valid unit.
-        assert proc.returncode in (0, 1)
+        # The generated unit (with its ExecStart script actually present in
+        # tmp_path) should verify clean — a nonzero return means a real error.
+        assert proc.returncode == 0, (
+            f"systemd-analyze verify failed:\n{proc.stdout}\n{proc.stderr}"
+        )
 
 
 def test_on_demand_skips_timer(tmp_path: Path) -> None:
@@ -302,3 +304,51 @@ def test_service_unit_has_no_user_directive(tmp_path: Path) -> None:
     assert "User=" not in service_text, (
         "User= directive is not supported in systemd user units and must not be generated"
     )
+
+
+def test_work_dir_percent_is_escaped_in_unit(tmp_path: Path) -> None:
+    """A work-dir containing '%' must not be expanded as a systemd specifier."""
+    work = tmp_path / "100% gptme-agent"
+    work.mkdir()
+    out_dir = tmp_path / "systemd2"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            "--name",
+            "pctagent",
+            "--work-dir",
+            str(work),
+            "--output-dir",
+            str(out_dir),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    service_text = (out_dir / "pctagent.service").read_text()
+    assert "%%" in service_text, "literal '%' must be doubled to '%%' for systemd"
+    assert f"WorkingDirectory={work}".replace("%", "%%") in service_text
+
+
+def test_work_dir_newline_rejected(tmp_path: Path) -> None:
+    """A work-dir with an embedded newline must be rejected, not written into the unit."""
+    from unittest.mock import patch
+
+    runner = CliRunner()
+    with patch(
+        "gptme.cli.cmd_service._resolve_work_dir",
+        return_value=tmp_path / "evil\nExecStartPre=/bin/true",
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--name",
+                "newlineagent",
+                "--work-dir",
+                str(tmp_path),
+                "--output-dir",
+                str(tmp_path / "systemd3"),
+            ],
+        )
+    assert result.exit_code != 0, "newline in work-dir must be rejected"
