@@ -841,10 +841,6 @@ class TestDispatchTransportScroll(unittest.TestCase):
         stub.scroll.assert_called_once_with(100, 200, "down")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestTransportRegistry(unittest.TestCase):
     """register_transport() lets out-of-tree transports be selected by name."""
 
@@ -940,15 +936,27 @@ class TestTransportRegistry(unittest.TestCase):
         with self.assertRaises(ValueError):
             register_transport("   ", StubTransport)
 
-    def test_reregistering_replaces_the_factory(self):
-        class OtherStub(StubTransport):
+    def test_reregistering_replaces_cached_transport(self):
+        closed: list[bool] = []
+
+        class OriginalStub(StubTransport):
+            def close(self) -> None:
+                closed.append(True)
+
+        class ReplacementStub(StubTransport):
             pass
 
-        register_transport("dup-transport", StubTransport)
-        register_transport("dup-transport", OtherStub)
+        register_transport("dup-transport", OriginalStub)
 
         with patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "dup-transport"}):
-            self.assertIsInstance(get_transport(), OtherStub)
+            original = get_transport()
+            register_transport("dup-transport", ReplacementStub)
+            replacement = get_transport()
+
+        self.assertIsInstance(original, OriginalStub)
+        self.assertIsInstance(replacement, ReplacementStub)
+        self.assertIsNot(original, replacement)
+        self.assertEqual(closed, [True])
 
     def test_unknown_name_still_falls_back_to_native(self):
         """Registry lookup must not change behaviour for unregistered names."""
@@ -959,3 +967,7 @@ class TestTransportRegistry(unittest.TestCase):
             patch.object(ct, "NativeComputerTransport", StubTransport),
         ):
             self.assertIsInstance(get_transport(), StubTransport)
+
+
+if __name__ == "__main__":
+    unittest.main()

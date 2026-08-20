@@ -709,6 +709,8 @@ def register_transport(name: str, factory: Callable[[], ComputerTransport]) -> N
 
     :raises ValueError: if ``name`` is empty or shadows a built-in transport.
     """
+    global _transport, _transport_name
+
     name = name.strip()
     if not name:
         raise ValueError("transport name must be non-empty")
@@ -716,6 +718,15 @@ def register_transport(name: str, factory: Callable[[], ComputerTransport]) -> N
         raise ValueError(
             f"cannot register {name!r}: shadows a built-in gptme transport"
         )
+
+    # Re-registering the selected transport must make the replacement effective
+    # immediately rather than leaving the old name-keyed instance cached.
+    if name in _transport_registry and _transport_name == name:
+        if _transport is not None:
+            _transport.close()
+        _transport = None
+        _transport_name = None
+
     _transport_registry[name] = factory
 
 
