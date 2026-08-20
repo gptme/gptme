@@ -28,14 +28,14 @@ sidecar_is_stale() {
         return 0
     fi
     # Also rebuild when packaging/dependency config changes (pyproject.toml,
-    # poetry.lock, uv.lock) — these affect which packages get frozen into the
-    # sidecar even when no .py source file changes.  Both lock files are
-    # checked: poetry.lock is the committed canonical lock; uv.lock may exist
-    # on developer machines and controls the uv sync path.
+    # uv.lock) — these affect which packages get frozen into the sidecar even
+    # when no .py source file changes.  poetry.lock is intentionally excluded:
+    # the install path only consults uv.lock (via uv sync --frozen), so watching
+    # poetry.lock would trigger spurious rebuilds with an identical result.
     local config_files=("$REPO_ROOT/pyproject.toml")
-    for f in "$REPO_ROOT/poetry.lock" "$REPO_ROOT/uv.lock"; do
-        [[ -f "$f" ]] && config_files+=("$f")
-    done
+    if [[ -f "$REPO_ROOT/uv.lock" ]]; then
+        config_files+=("$REPO_ROOT/uv.lock")
+    fi
     for f in "${config_files[@]}"; do
         if [[ -f "$f" && "$f" -nt "$sidecar" ]]; then
             return 0
