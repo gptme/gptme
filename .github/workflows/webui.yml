@@ -221,7 +221,11 @@ jobs:
         stable="${{ steps.e2e-stable.outcome }}"
         dev="${{ steps.e2e-dev.outcome }}"
         echo "stable: $stable  dev: $dev"
-        [ "$stable" = "success" ] && [ "$dev" = "success" ]
+        # The dev pass exercises the PR code and is the primary gate.
+        # The stable pass tests the latest PyPI release, which may have known
+        # regressions (e.g., #2943) causing timeouts. The stable pass failure
+        # does not block PRs until the next gptme release ships the fix.
+        [ "$dev" = "success" ]
 
   # ── Visual snapshot capture (PRs only) ───────────────────────────────────────
   # Takes UI screenshots of the PR branch so that webui-visual-diff.yml can
