@@ -17,6 +17,7 @@ from gptme.config import (
     load_user_config,
     setup_config_from_cli,
 )
+from gptme.config.cli_setup import _normalize_tool_allowlist
 from gptme.config.user import (
     USER_CONFIG_SOURCE_ENV,
     USER_CONFIG_SOURCE_LOCAL,
@@ -2256,3 +2257,126 @@ def test_setup_config_from_cli_noninteractive_gear_profile_adds_complete(tmp_pat
 
     assert config.chat is not None
     assert config.chat.tools == ["read", "chats", "complete"]
+
+
+# ---------------------------------------------------------------------------
+# _normalize_tool_allowlist: MCP dotted names and manifest aliases (option 3)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_tool_allowlist_passes_through_mcp_dotted_name():
+    """MCP dotted tool names (server.tool) must be passed through without validation."""
+    result = _normalize_tool_allowlist(["read", "github.search_code"])
+
+    assert result is not None
+    assert "read" in result
+    # 'github.search_code' is an MCP tool — must be preserved verbatim
+    assert "github.search_code" in result
+
+
+def test_normalize_tool_allowlist_passes_through_multiple_mcp_dotted_names():
+    """Multiple MCP dotted names are all passed through."""
+    result = _normalize_tool_allowlist(
+        ["shell", "github.search_code", "time.get_current_time"]
+    )
+
+    assert result is not None
+    assert "shell" in result
+    assert "github.search_code" in result
+    assert "time.get_current_time" in result
+
+
+def test_normalize_tool_allowlist_expands_manifest_alias(tmp_path: Path):
+    """A manifest task type used as a tool name is expanded to manifest tools."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review",'
+        '"builtin_tools":["read","grep"],'
+        '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    result = _normalize_tool_allowlist(["code_review"], workspace=tmp_path)
+
+    assert result is not None
+    assert "read" in result
+    assert "grep" in result
+    assert "github.search_code" in result
+    # The alias name itself should not appear in the result
+    assert "code_review" not in result
+
+
+def test_normalize_tool_allowlist_manifest_alias_with_extra_tool(tmp_path: Path):
+    """Manifest alias can be combined with additional built-in tools."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review",'
+        '"builtin_tools":["read","grep"],'
+        '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    result = _normalize_tool_allowlist(["code_review", "shell"], workspace=tmp_path)
+
+    assert result is not None
+    assert "read" in result
+    assert "grep" in result
+    assert "github.search_code" in result
+    assert "shell" in result
+
+
+def test_normalize_tool_allowlist_unknown_name_without_workspace_raises():
+    """Without workspace, an unknown single-word name raises via get_toolchain."""
+    with pytest.raises(ValueError, match="not found"):
+        _normalize_tool_allowlist(["totally_unknown_tool_xyz"])
+
+
+def test_normalize_tool_allowlist_unknown_name_not_in_manifest_raises(tmp_path: Path):
+    """An unknown name not in the manifest raises ValueError."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="not found"):
+        _normalize_tool_allowlist(["totally_unknown_tool_xyz"], workspace=tmp_path)
+
+
+def test_setup_config_from_cli_manifest_alias_via_tools(tmp_path: Path):
+    """--tools code_review expands via workspace manifest when manifest file exists."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+
+    manifest_path = workspace / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review",'
+        '"builtin_tools":["read","grep"],'
+        '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="code_review",
+        tool_format=None,
+        stream=True,
+        interactive=True,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    tools = config.chat.tools or []
+    assert "read" in tools
+    assert "grep" in tools
+    assert "github.search_code" in tools
+    # The alias name should not appear in the saved config
+    assert "code_review" not in tools

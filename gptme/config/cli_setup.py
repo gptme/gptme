@@ -49,7 +49,23 @@ def _is_tool_file_path(value: str) -> bool:
     )
 
 
-def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
+def _is_mcp_tool_name(value: str) -> bool:
+    """Return True if *value* looks like a dotted MCP tool name (``server.tool``).
+
+    MCP tool names use the ``<server>.<tool>`` convention and cannot be validated
+    against the built-in toolchain at config-setup time because MCP servers are
+    not yet initialized.  They are identified by the presence of a dot with
+    non-empty text on both sides, and by NOT matching the file-path heuristics.
+    """
+    if _is_tool_file_path(value):
+        return False
+    dot_idx = value.find(".")
+    return dot_idx > 0 and dot_idx < len(value) - 1
+
+
+def _normalize_tool_allowlist(
+    allowlist: list[str] | None, workspace: Path | None = None
+) -> list[str] | None:
     """Normalize an allowlist while preserving custom tool file paths and preset names.
 
     Preset names (e.g. ``"read-only"``) are kept verbatim so that provenance is
@@ -59,6 +75,16 @@ def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
 
     ``get_toolchain()`` validates and expands named tools, but custom tool files
     are loaded later by ``init_tools()`` and must remain as file paths.
+
+    When *workspace* is provided, a single unknown item is checked against the
+    workspace manifest (``state/mcp-task-manifests.jsonl``).  If it matches a
+    task type, it is expanded to the manifest's ``builtin_tools + tool_names``
+    list — making ``--tools code_review`` an ergonomic alias for
+    ``--tool-manifest code_review``.
+
+    MCP dotted tool names (``server.tool``) are passed through as-is because
+    they cannot be validated against the built-in toolchain before MCP servers
+    are initialized.
     """
     if allowlist is None:
         return None
@@ -89,11 +115,33 @@ def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
                 seen.add(normalized_item)
             continue
 
-        for tool in get_toolchain([item]):
-            if tool.name in seen:
+        # MCP dotted tool names (server.tool) are passed through without
+        # validation — the MCP layer resolves them at session startup time.
+        if _is_mcp_tool_name(item):
+            if item not in seen:
+                normalized.append(item)
+                seen.add(item)
+            continue
+
+        # Check if the item is a manifest task type alias when the workspace is
+        # known.  This makes ``--tools code_review`` behave identically to
+        # ``--tool-manifest code_review`` for workspaces that ship a manifest.
+        if workspace is not None:
+            from ..tool_manifests import get_manifest_preset_tools
+
+            manifest_tools = get_manifest_preset_tools(item, workspace)
+            if manifest_tools is not None:
+                for manifest_tool_name in manifest_tools:
+                    if manifest_tool_name not in seen:
+                        normalized.append(manifest_tool_name)
+                        seen.add(manifest_tool_name)
                 continue
-            normalized.append(tool.name)
-            seen.add(tool.name)
+
+        for toolspec in get_toolchain([item]):
+            if toolspec.name in seen:
+                continue
+            normalized.append(toolspec.name)
+            seen.add(toolspec.name)
 
     return normalized
 
@@ -335,7 +383,9 @@ def setup_config_from_cli(
         or tool_allowlist is not None
         or gear_tool_allowlist is not None
     ):
-        config.chat.tools = _normalize_tool_allowlist(resolved_tool_allowlist)
+        config.chat.tools = _normalize_tool_allowlist(
+            resolved_tool_allowlist, workspace=workspace
+        )
 
     # Save and set the final config
     config.chat.save()
