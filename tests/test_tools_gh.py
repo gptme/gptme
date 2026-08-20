@@ -7,7 +7,7 @@ execute_gh, and pass-through with mocked subprocess.
 
 import json
 import subprocess
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from gptme.tools.gh import (
     _extract_url,
@@ -377,7 +377,12 @@ class TestWaitForChecks:
         messages = list(_wait_for_checks("owner", "repo", url))
 
         assert any("Error fetching checks" in m.content for m in messages)
-        mock_sleep.assert_not_called()
+        # time.sleep is patched on the global `time` module singleton, so background
+        # threads from other tests may call it with small values (e.g. 0.05s).
+        # Only verify that the 10-second polling interval sleep was not called —
+        # that's what would indicate the function continued polling after an error.
+        poll_interval = 10
+        assert call(poll_interval) not in mock_sleep.call_args_list
 
 
 # --- _handle_pr_status ---
