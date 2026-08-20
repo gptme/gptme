@@ -282,7 +282,7 @@ def get_manifest_preset_tools(
     manifest file exists and the task type is found.  Returns ``None`` when:
 
     - The manifest file does not exist in the workspace (no ``GPTME_TOOL_MANIFEST_PATH``
-      override and no ``state/mcp-task-manifests.jsonl`` present).
+      override and no ``state/task-manifests.jsonl`` present).
     - The task type is not found in the manifest.
     - The manifest record is otherwise invalid.
 

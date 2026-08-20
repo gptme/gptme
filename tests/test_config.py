@@ -19,7 +19,10 @@ from gptme.config import (
     load_user_config,
     setup_config_from_cli,
 )
-from gptme.config.cli_setup import _normalize_tool_allowlist
+from gptme.config.cli_setup import (
+    _normalize_tool_allowlist,
+    _resolve_manifest_aliases,
+)
 from gptme.config.user import (
     USER_CONFIG_SOURCE_ENV,
     USER_CONFIG_SOURCE_LOCAL,
@@ -3193,7 +3196,7 @@ def test_normalize_tool_allowlist_passes_through_multiple_mcp_dotted_names():
 
 def test_normalize_tool_allowlist_expands_manifest_alias(tmp_path: Path):
     """A manifest task type used as a tool name is expanded to manifest tools."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"code_review",'
@@ -3214,7 +3217,7 @@ def test_normalize_tool_allowlist_expands_manifest_alias(tmp_path: Path):
 
 def test_normalize_tool_allowlist_manifest_alias_with_extra_tool(tmp_path: Path):
     """Manifest alias can be combined with additional built-in tools."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"code_review",'
@@ -3240,7 +3243,7 @@ def test_normalize_tool_allowlist_unknown_name_without_workspace_raises():
 
 def test_normalize_tool_allowlist_unknown_name_not_in_manifest_raises(tmp_path: Path):
     """An unknown name not in the manifest raises ValueError."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
@@ -3258,7 +3261,7 @@ def test_setup_config_from_cli_manifest_alias_via_tools(tmp_path: Path):
     logdir = tmp_path / "logs"
     logdir.mkdir()
 
-    manifest_path = workspace / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = workspace / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"code_review",'
@@ -3293,7 +3296,7 @@ def test_normalize_tool_allowlist_builtin_shadows_manifest(tmp_path: Path):
     A manifest that defines a task type named 'read' must NOT replace the built-in
     read tool when the user passes '--tools read'.
     """
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     # Define a task type with the same name as a built-in tool
     manifest_path.write_text(
@@ -3326,7 +3329,7 @@ def test_normalize_tool_allowlist_unavailable_builtin_raises_not_shadowed(
     """
     from unittest.mock import patch
 
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     # A manifest that defines a task type with the same name as a built-in.
     manifest_path.write_text(
@@ -3367,7 +3370,7 @@ def test_mcp_only_manifest_alias_extends_configured_allowlist(
             '[chat]\ntools = ["read", "shell"]\n', encoding="utf-8"
         )
 
-    manifest_path = workspace / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = workspace / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research",'
@@ -3397,7 +3400,7 @@ def test_multiple_mcp_only_manifest_aliases_extend_configured_allowlist(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read,shell")
-    manifest_path = workspace / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = workspace / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":['
@@ -3425,7 +3428,7 @@ def test_multiple_mcp_only_manifest_aliases_extend_configured_allowlist(
 def test_mcp_only_manifest_alias_keeps_explicit_additions(tmp_path: Path, monkeypatch):
     """Explicit tools combined with an MCP-only alias are still additive."""
     monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read")
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":['
@@ -3444,9 +3447,12 @@ def test_mcp_only_manifest_alias_keeps_explicit_additions(tmp_path: Path, monkey
 
 
 @pytest.mark.parametrize("preset_source", ["cli", "resume"])
-def test_mcp_only_manifest_alias_extends_preset(tmp_path: Path, preset_source: str):
-    """An MCP-only alias extends a CLI or resumed preset's concrete tools."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+@pytest.mark.parametrize("interactive", [True, False])
+def test_mcp_only_manifest_alias_extends_preset(
+    tmp_path: Path, preset_source: str, interactive: bool
+):
+    """An MCP-only alias extends a preset without weakening its boundary."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":['
@@ -3464,15 +3470,17 @@ def test_mcp_only_manifest_alias_extends_preset(tmp_path: Path, preset_source: s
         workspace=tmp_path,
         logdir=logdir,
         tool_allowlist=("read-only,research" if preset_source == "cli" else "research"),
+        interactive=interactive,
     )
 
     assert config.chat is not None
     assert config.chat.tools == ["read", "search.query"]
+    assert "complete" not in config.chat.tools
 
 
 def test_manifest_alias_cannot_shadow_preset(tmp_path: Path):
     """A workspace manifest cannot replace a built-in capability preset."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"read-only","tools":['
@@ -3492,7 +3500,7 @@ def test_manifest_alias_cannot_shadow_preset(tmp_path: Path):
 
 def test_manifest_alias_cannot_shadow_preset_when_combined(tmp_path: Path):
     """A preset stays the base policy when combined with an MCP-only alias."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"read-only","tools":['
@@ -3512,9 +3520,25 @@ def test_manifest_alias_cannot_shadow_preset_when_combined(tmp_path: Path):
     assert config.chat.tools == ["read", "search.query"]
 
 
+def test_unreadable_manifest_falls_back_to_unknown_tool_error(
+    tmp_path: Path, monkeypatch
+):
+    """Manifest I/O errors do not escape either alias-resolution path."""
+    from gptme import tool_manifests
+
+    def raise_permission_error(*args, **kwargs):
+        raise PermissionError("manifest is unreadable")
+
+    monkeypatch.setattr(tool_manifests, "load_task_manifest", raise_permission_error)
+
+    assert _resolve_manifest_aliases("research", tmp_path) == "research"
+    with pytest.raises(ValueError, match="not found"):
+        _normalize_tool_allowlist(["research"], tmp_path)
+
+
 def test_mcp_only_alias_rejects_explicit_builtin_manifest_mix(tmp_path: Path):
     """Additive and closed manifest semantics cannot be combined unambiguously."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":['
