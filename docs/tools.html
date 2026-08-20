@@ -694,6 +694,11 @@ the regime where JSON-schema approaches falter.</p>
 <li><p>If not set, defaults to 1200 seconds (20 minutes)</p></li>
 </ul>
 </dd>
+<dt>GPTME_SHELL_MEMORY_LIMIT: Optional per-shell address-space ceiling (POSIX only,</dt><dd><p>off by default). Accepts a plain byte count or a binary suffix (e.g.
+“512M”, “1G”). Applies to the persistent shell and any command it runs
+via <cite>ulimit -v</cite>, so a runaway build fails with an allocation error
+instead of stalling the session.</p>
+</dd>
 </dl>
 <p>GPTME_SHELL_TRUNC_PRE_TOKENS / GPTME_SHELL_TRUNC_POST_TOKENS: Override the
 head/tail token budget for stdout truncation. Defaults: 2000 / 8000.
