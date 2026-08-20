@@ -37,7 +37,7 @@ import time
 from collections.abc import Generator
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import IO, TYPE_CHECKING
 
 from ..message import Message
 from ..sandbox import (
@@ -449,8 +449,15 @@ class ShellSession:
         try:
             tty_stdin = open("/dev/tty", "rb")
         except OSError:
-            logger.warning("Could not open /dev/tty, falling back to normal run")
-            return self._run_pipe(command, output=output, timeout=timeout)
+            # /dev/tty is unavailable (CI, non-TTY container, etc.).  Don't fall
+            # back to _run_pipe: that uses the persistent bash session, so shell
+            # builtins like 'exit' would kill the session and deadlock the
+            # delimiter-read loop.  Instead keep spawning a fresh subprocess (which
+            # is what this method does) but with /dev/null as stdin — sudo won't
+            # be able to prompt for a password, but non-interactive commands work
+            # correctly and the pipe EOF is always clean.
+            logger.warning("Could not open /dev/tty, using /dev/null as stdin")
+            tty_stdin = open("/dev/null", "rb")
 
         try:
             # Inherit session env overrides so sudo commands behave consistently
@@ -480,33 +487,125 @@ class ShellSession:
                 cwd=self._cwd or os.getcwd(),
                 env=session_env,
             )
+            assert proc.stdout is not None and proc.stderr is not None
+
+            from queue import Empty, Queue
+
+            # Use threads to drain stdout and stderr concurrently — the same
+            # mechanism as communicate(), but with real-time printing as data
+            # arrives. select() alone is unreliable when /dev/tty is the child's
+            # stdin and the process produces no output before exiting.
+            data_q: Queue[tuple[str, bytes] | None] = Queue()
+
+            def _reader(src: IO[bytes], tag: str) -> None:
+                try:
+                    while True:
+                        chunk = src.read(2**16)
+                        if not chunk:
+                            break
+                        data_q.put((tag, chunk))
+                finally:
+                    data_q.put(None)  # one sentinel per thread
+
+            t_out = threading.Thread(
+                target=_reader, args=(proc.stdout, "out"), daemon=True
+            )
+            t_err = threading.Thread(
+                target=_reader, args=(proc.stderr, "err"), daemon=True
+            )
+            t_out.start()
+            t_err.start()
+
+            stdout_chunks: list[str] = []
+            stderr_chunks: list[str] = []
+            sentinels = 0
+            start_time = time.time() if timeout else None
+
             try:
-                stdout_data, stderr_data = proc.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                stdout_data, stderr_data = proc.communicate()
-                stdout_str = trim_blank_lines(
-                    stdout_data.decode("utf-8", errors="replace")
-                )
-                stderr_str = trim_blank_lines(
-                    stderr_data.decode("utf-8", errors="replace")
-                )
-                return -124, stdout_str, stderr_str
+                while sentinels < 2:
+                    # Check overall timeout
+                    if timeout and start_time:
+                        elapsed = time.time() - start_time
+                        if elapsed >= timeout:
+                            proc.kill()
+                            t_out.join(timeout=1.0)
+                            t_err.join(timeout=1.0)
+                            # Drain anything the reader threads buffered before
+                            # being killed — the timeout check fires before the
+                            # queue is consumed, so data can sit in the queue.
+                            while True:
+                                try:
+                                    _item = data_q.get_nowait()
+                                except Empty:
+                                    break
+                                if _item is not None:
+                                    _tag, _chunk = _item
+                                    _text = _chunk.decode("utf-8", errors="replace")
+                                    if _tag == "out":
+                                        stdout_chunks.append(_text)
+                                        if output:
+                                            print(_text, end="", file=sys.stdout)
+                                    else:
+                                        stderr_chunks.append(_text)
+                                        if output:
+                                            print(_text, end="", file=sys.stderr)
+                            return (
+                                -124,
+                                trim_blank_lines("".join(stdout_chunks)),
+                                trim_blank_lines("".join(stderr_chunks)),
+                            )
+                        get_timeout = min(0.05, timeout - elapsed)
+                    else:
+                        get_timeout = 0.05
+
+                    try:
+                        item = data_q.get(timeout=get_timeout)
+                    except Empty:
+                        # If the process has already exited but the pipe write-ends
+                        # haven't delivered EOF yet (can happen when /dev/tty is stdin
+                        # and the process produced no output), break rather than
+                        # spinning forever waiting for reader-thread sentinels.
+                        if proc.poll() is not None:
+                            break
+                        continue
+
+                    if item is None:
+                        sentinels += 1
+                        continue
+
+                    tag, chunk = item
+                    text = chunk.decode("utf-8", errors="replace")
+                    if tag == "out":
+                        stdout_chunks.append(text)
+                        if output:
+                            print(text, end="", file=sys.stdout)
+                    else:
+                        stderr_chunks.append(text)
+                        if output:
+                            print(text, end="", file=sys.stderr)
             except KeyboardInterrupt:
+                print()
                 proc.kill()
-                proc.communicate()
-                raise
+                t_out.join(timeout=1.0)
+                t_err.join(timeout=1.0)
+                partial_stdout = trim_blank_lines("".join(stdout_chunks))
+                partial_stderr = trim_blank_lines("".join(stderr_chunks))
+                raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
+
+            # Threads are daemon threads; join with timeout in case they're
+            # blocked on read() due to pipes not signalling EOF (TTY-stdin edge
+            # case). They'll be garbage-collected when proc.stdout/stderr close.
+            t_out.join(timeout=1.0)
+            t_err.join(timeout=1.0)
+            proc.wait()
         finally:
             tty_stdin.close()
 
-        stdout_str = trim_blank_lines(stdout_data.decode("utf-8", errors="replace"))
-        stderr_str = trim_blank_lines(stderr_data.decode("utf-8", errors="replace"))
-        if output:
-            if stdout_str:
-                print(stdout_str, file=sys.stdout)
-            if stderr_str:
-                print(stderr_str, file=sys.stderr)
-        return proc.returncode, stdout_str, stderr_str
+        return (
+            proc.returncode,
+            trim_blank_lines("".join(stdout_chunks)),
+            trim_blank_lines("".join(stderr_chunks)),
+        )
 
     def _run(
         self, command: str, output=True, tries=0, timeout: float | None = None
