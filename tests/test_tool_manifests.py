@@ -183,7 +183,7 @@ def test_load_task_manifest_deduplicates_builtin_tools(tmp_path: Path):
 
 def test_get_manifest_preset_tools_returns_tool_list(tmp_path: Path):
     """Returns all tool names (builtin + MCP) when task type exists."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"code_review",'
@@ -206,7 +206,7 @@ def test_get_manifest_preset_tools_returns_none_for_missing_file(tmp_path: Path)
 
 def test_get_manifest_preset_tools_returns_none_for_unknown_task_type(tmp_path: Path):
     """Returns None when the manifest exists but lacks the requested task type."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
@@ -222,7 +222,7 @@ def test_get_manifest_preset_tools_returns_mcp_tools_only_when_no_builtins(
     tmp_path: Path,
 ):
     """When builtin_tools is absent, returns just the MCP tool names."""
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":['
