@@ -1569,6 +1569,103 @@ def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
     assert not (setup_calls[1] and "github" in setup_calls[1])
 
 
+def test_tool_manifest_builtin_tools_config_setup_failure_preserves_builtins(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """When setup_config_from_cli raises ValueError for an unavailable MCP tool in a
+    builtin_tools manifest, the fallback retry must keep the builtin tools from the
+    manifest rather than discarding everything and using the pre-manifest allowlist.
+
+    This is the P1 defect reported against the setup_config path: apply_tool_manifest
+    returns "read,grep,github.search_code" (no '+') for a builtin_tools manifest.
+    When setup_config fails because github.search_code is unavailable, the session
+    should retry with "read,grep" — NOT with None (the pre-manifest default).
+    """
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":['
+        '{"server_name":"github","tool_name":"search_code"}],'
+        '"builtin_tools":["read","grep"]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=[
+                "read",
+                "grep",
+            ],  # builtins only — fallback already excluded MCP tool
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+
+    setup_calls: list[Any] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        # First call has the explicit manifest allowlist (no '+' prefix) which
+        # includes the MCP tool — simulate normalisation failure.
+        if tool_allowlist and "github" in tool_allowlist:
+            raise ValueError("Tool 'github.search_code' not found")
+        return fake_config
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    # Session must start despite the config-normalisation failure
+    assert result.exit_code == 0, result.output
+    assert "Traceback" not in result.output
+    # setup_config_from_cli called twice
+    assert len(setup_calls) == 2, (
+        f"Expected 2 setup calls, got {len(setup_calls)}: {setup_calls}"
+    )
+    # First call had the full manifest allowlist (builtins + MCP)
+    assert setup_calls[0] and "github.search_code" in setup_calls[0]
+    assert setup_calls[0] and "read" in setup_calls[0]
+    # Second (fallback) call must NOT include the MCP tool
+    assert not (setup_calls[1] and "github" in setup_calls[1]), (
+        f"MCP tool should be stripped from fallback call, got: {setup_calls[1]}"
+    )
+    # Second (fallback) call MUST preserve the builtin tools from the manifest
+    assert setup_calls[1] and "read" in setup_calls[1], (
+        f"Builtin tools should be preserved in fallback call, got: {setup_calls[1]}"
+    )
+    assert setup_calls[1] and "grep" in setup_calls[1], (
+        f"Builtin tools should be preserved in fallback call, got: {setup_calls[1]}"
+    )
+
+
 def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):
     # --model "  " should also be caught at parse time, same as empty string.
     result = runner.invoke(

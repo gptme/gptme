@@ -1207,20 +1207,37 @@ def main(
                     # Manifest tool unavailable during config normalisation —
                     # retry without the manifest allowlist (same fallback as the
                     # main path and the init_tools path below).
+                    # Same builtin-preservation logic as the main path below:
+                    # for explicit (builtin_tools) manifests, keep the non-MCP
+                    # entries rather than discarding all manifest selections.
+                    if (
+                        stats_tool_allowlist_str
+                        and not stats_tool_allowlist_str.startswith("+")
+                    ):
+                        _s_builtin_only = ",".join(
+                            t.strip()
+                            for t in stats_tool_allowlist_str.split(",")
+                            if t.strip() and "." not in t.strip()
+                        )
+                        stats_tool_allowlist_str = _s_builtin_only or tool_allowlist_str
+                    else:
+                        stats_tool_allowlist_str = tool_allowlist_str  # pre-manifest
                     logger.warning(
-                        "Manifest %r tool unavailable during stats config setup: %s — "
-                        "running without manifest tools.",
+                        "Manifest %r MCP tool unavailable during stats config setup: %s — "
+                        "running without MCP manifest tools%s.",
                         tool_manifest_type,
                         e,
+                        f" (keeping built-ins: {stats_tool_allowlist_str})"
+                        if stats_tool_allowlist_str
+                        else "",
                     )
-                    stats_tool_allowlist_str = tool_allowlist_str  # pre-manifest
                     stats_setup_fallback_ran = True
                     try:
                         config = setup_config_from_cli(
                             workspace=stats_workspace_path,
                             logdir=stats_logdir,
                             model=model,
-                            tool_allowlist=tool_allowlist_str,
+                            tool_allowlist=stats_tool_allowlist_str,
                             tool_format=tool_format,
                             prune_tool_output=prune_tool_output,
                             gear=selected_gear,
@@ -1430,21 +1447,41 @@ def main(
             # Manifest tool unavailable during config normalisation (MCP server
             # may not be running).  Retry without the manifest allowlist so the
             # session still starts with the default tools.
+            # Preserve builtin tools from the manifest when stripping unavailable
+            # MCP tools.  For builtin_tools manifests (explicit allowlist, no '+'
+            # prefix), the returned string combines built-in names (read, grep,
+            # shell) with MCP names (server.tool).  Only the MCP entries caused
+            # the failure; keep the built-ins in the retry so the session still
+            # uses the manifest's curated non-MCP toolset instead of silently
+            # expanding to the full default set.
+            # For additive manifests ('+' prefix) there are no manifest-specified
+            # built-ins, so fall back to the original pre-manifest allowlist.
+            if tool_allowlist_str and not tool_allowlist_str.startswith("+"):
+                _builtin_only = ",".join(
+                    t.strip()
+                    for t in tool_allowlist_str.split(",")
+                    if t.strip() and "." not in t.strip()
+                )
+                tool_allowlist_str = _builtin_only or pre_manifest_allowlist
+            else:
+                tool_allowlist_str = pre_manifest_allowlist
             logger.warning(
-                "Manifest %r tool unavailable during config setup: %s — "
-                "running without manifest tools. "
+                "Manifest %r MCP tool unavailable during config setup: %s — "
+                "running without MCP manifest tools%s. "
                 "Start the MCP server to use manifest tools.",
                 tool_manifest_type,
                 e,
+                f" (keeping built-ins: {tool_allowlist_str})"
+                if tool_allowlist_str
+                else "",
             )
-            tool_allowlist_str = pre_manifest_allowlist
             setup_fallback_ran = True
             try:
                 config = setup_config_from_cli(
                     workspace=workspace_path,
                     logdir=logdir,
                     model=model,
-                    tool_allowlist=pre_manifest_allowlist,
+                    tool_allowlist=tool_allowlist_str,
                     tool_format=tool_format,
                     prune_tool_output=prune_tool_output,
                     gear=selected_gear,
