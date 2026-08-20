@@ -196,6 +196,7 @@ class CommaSeparatedChoice(click.ParamType):
         extra_choices_for_prefix: dict[str, list[str] | Callable[[], list[str]]]
         | None = None,
         lenient_prefixes: list[str] | None = None,
+        lenient_unprefixed: bool = False,
         metavar: str | None = None,
     ):
         # Choices may be a zero-arg callable, resolved on first use, so that
@@ -214,6 +215,10 @@ class CommaSeparatedChoice(click.ParamType):
         # prefixed name like "+tts" must pass; it's resolved against the loaded
         # toolset later, which warns if it's genuinely missing.
         self.lenient_prefixes = set(lenient_prefixes or [])
+        # When True, unknown unprefixed names also pass through at parse time.
+        # Used for --tools so workspace manifest aliases (e.g. "code_review")
+        # reach _normalize_tool_allowlist instead of being rejected here.
+        self.lenient_unprefixed = lenient_unprefixed
         self._metavar = metavar
 
     @property
@@ -256,6 +261,14 @@ class CommaSeparatedChoice(click.ParamType):
             # Defer validation for lenient prefixes (e.g. "+tts" plugin tools)
             if matched_prefix in self.lenient_prefixes:
                 continue
+            # Defer validation for unknown unprefixed names when lenient_unprefixed
+            # is set.  Workspace manifest aliases (e.g. "code_review") are not
+            # known at parse time; they reach _normalize_tool_allowlist where the
+            # manifest is consulted and a proper error is raised if the name isn't
+            # found there either.
+            if matched_prefix is None and self.lenient_unprefixed:
+                if check not in self._choice_set:
+                    continue
             extra_choices = (
                 self._extra_choices(matched_prefix)
                 if matched_prefix is not None
@@ -587,6 +600,11 @@ Run 'gptme-util --help' for all utility commands."""
         # parse time. '-tool' exclusions and built-in hint tags stay strict so
         # typos like '-shel' or 'hint:red-only' fail before tool loading.
         lenient_prefixes=["+"],
+        # Unprefixed unknowns are also accepted so workspace manifest task-type
+        # aliases (e.g. '--tools code_review') can reach _normalize_tool_allowlist
+        # where the manifest is consulted.  Genuine typos of known built-in names
+        # will still be caught there via get_toolchain.
+        lenient_unprefixed=True,
         metavar="TOOL",
     ),
     help="Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use '-tool' to exclude from defaults (e.g., '-t=-browser'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). See 'Available tools' above for the list.",
