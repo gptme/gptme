@@ -274,6 +274,27 @@ def test_force_overwrites_existing(tmp_path: Path) -> None:
     assert (tmp_path / "gptme.toml").read_text() != "changed"
 
 
+def test_existing_startup_script_is_made_executable(tmp_path: Path) -> None:
+    """Reinitializing repairs startup permissions without overwriting its contents."""
+    _run_init(tmp_path)
+    startup = tmp_path / "gptme-agent-run.sh"
+    startup.write_text("#!/bin/bash\necho custom\n")
+    startup.chmod(0o644)
+
+    _run_init(tmp_path)
+
+    assert startup.read_text() == "#!/bin/bash\necho custom\n"
+    assert startup.stat().st_mode & 0o111
+
+
+def test_startup_script_uses_portable_date(tmp_path: Path) -> None:
+    """The generated script must not depend on GNU-only date options."""
+    _run_init(tmp_path)
+    startup = (tmp_path / "gptme-agent-run.sh").read_text()
+    assert "date -u +%Y-%m-%dT%H:%M:%SZ" in startup
+    assert "date --iso-8601" not in startup
+
+
 def test_invalid_name_rejected(tmp_path: Path) -> None:
     """Names with shell metacharacters or spaces must be rejected at the CLI level."""
     from click.testing import CliRunner

@@ -118,7 +118,7 @@ SESSION_LOG="$JOURNAL_DIR/session-$SESSION_ID.md"
   echo "# Session $SESSION_ID"
   echo
   echo "Agent: $AGENT_NAME"
-  echo "Started: $(date --iso-8601=seconds)"
+  echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo
 }} > "$SESSION_LOG"
 
@@ -376,13 +376,12 @@ def init(
 
     # Startup script
     startup = work / "gptme-agent-run.sh"
-    written = _write_file(
+    _write_file(
         startup,
         STARTUP_SCRIPT_TEMPLATE.format(name=name, work_dir=shlex.quote(str(work))),
         force=force,
     )
-    if written:
-        startup.chmod(0o755)
+    startup.chmod(0o755)
 
     click.echo()
     click.echo(f"✅ Initialized headless agent '{name}'")
