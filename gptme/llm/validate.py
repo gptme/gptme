@@ -47,13 +47,11 @@ PROVIDER_DOCS: dict[str, str] = {
 # Providers that use OAuth instead of API keys
 OAUTH_PROVIDERS: set[str] = {"openai-subscription", "grok-subscription"}
 
-# Error message constants returned by validate_api_key / validate_api_key_status.
-# Callers that need to distinguish transient connectivity failures from definitive
-# key rejections can compare against these instead of hard-coding message strings.
+# Stable messages retained for callers of the legacy boolean API. New callers should
+# use ApiKeyValidationStatus instead of parsing these strings.
 VALIDATION_TIMEOUT_ERROR = "Request timed out. Please check your network connection."
 VALIDATION_CONNECTION_ERROR = "Could not connect to the API. Please check your network."
-# Prefix for server-side errors (full message: "Provider returned server error <code>. …")
-VALIDATION_PROVIDER_ERROR_PREFIX = "Provider returned server error"
+VALIDATION_PROVIDER_ERROR_PREFIX = "Validation failed:"
 
 
 def validate_api_key(
@@ -164,11 +162,15 @@ def validate_api_key_status(
         status_code = e.response.status_code if e.response is not None else "unknown"
         return (
             ApiKeyValidationStatus.UNREACHABLE,
-            f"{VALIDATION_PROVIDER_ERROR_PREFIX} {status_code}. Please try again later.",
+            f"{VALIDATION_PROVIDER_ERROR_PREFIX} Provider returned server error "
+            f"{status_code}. Please try again later.",
         )
     except requests.exceptions.RequestException as e:
         logger.exception(f"Unexpected error validating {provider} API key")
-        return ApiKeyValidationStatus.UNREACHABLE, f"Validation failed: {e}"
+        return (
+            ApiKeyValidationStatus.UNREACHABLE,
+            f"{VALIDATION_PROVIDER_ERROR_PREFIX} {e}",
+        )
 
 
 def _validate_openai(api_key: str, timeout: int) -> tuple[bool, str]:

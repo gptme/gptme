@@ -7,6 +7,7 @@ import requests
 
 from gptme.llm.validate import (
     PROVIDER_DOCS,
+    VALIDATION_PROVIDER_ERROR_PREFIX,
     ApiKeyValidationStatus,
     _validate_anthropic,
     _validate_google,
@@ -420,6 +421,8 @@ class TestValidateApiKeyStatus:
         mock_validate.side_effect = requests.HTTPError(response=mock_response)
         status, message = validate_api_key_status("sk-key", "openai")
         assert status is ApiKeyValidationStatus.UNREACHABLE
+        assert message.startswith(VALIDATION_PROVIDER_ERROR_PREFIX)
+        assert "408" in message
 
     @patch("gptme.llm.validate._validate_openai")
     def test_server_error_returns_unreachable(self, mock_validate):
@@ -439,4 +442,5 @@ class TestValidateApiKeyStatus:
         mock_validate.side_effect = requests.HTTPError(response=mock_response)
         status, message = validate_api_key_status("sk-key", "openai")
         assert status is ApiKeyValidationStatus.UNREACHABLE
+        assert message.startswith(VALIDATION_PROVIDER_ERROR_PREFIX)
         assert "503" in message
