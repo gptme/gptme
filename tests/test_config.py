@@ -2321,33 +2321,120 @@ def test_normalize_tool_allowlist_unavailable_builtin_raises_not_shadowed(
         _normalize_tool_allowlist(["read"], workspace=tmp_path)
 
 
-def test_normalize_tool_allowlist_mcp_only_manifest_alias_is_additive(tmp_path: Path):
-    """A manifest alias with no builtin_tools must include default built-in tools (additive).
+@pytest.mark.parametrize("config_source", ["environment", "project", "resume"])
+def test_mcp_only_manifest_alias_extends_configured_allowlist(
+    tmp_path: Path, monkeypatch, config_source: str
+):
+    """MCP-only aliases preserve the configured base tool policy."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "log"
+    if config_source == "environment":
+        monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read,shell")
+    elif config_source == "project":
+        (workspace / "gptme.toml").write_text(
+            '[env]\nTOOL_ALLOWLIST = "read,shell"\n', encoding="utf-8"
+        )
+    else:
+        logdir.mkdir()
+        (logdir / "config.toml").write_text(
+            '[chat]\ntools = ["read", "shell"]\n', encoding="utf-8"
+        )
 
-    When ``--tools research`` resolves a manifest that has MCP tools but no
-    explicit ``builtin_tools``, the expansion must include the full default
-    built-in toolset (read, shell, …) *plus* the MCP tools — matching the
-    additive behaviour of ``--tool-manifest research``.
-    """
-    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path = workspace / "state" / "mcp-task-manifests.jsonl"
     manifest_path.parent.mkdir()
-    # No builtin_tools field — only MCP tools.
     manifest_path.write_text(
         '{"task_type":"research",'
         '"tools":[{"server_name":"search","tool_name":"query"}]}\n',
         encoding="utf-8",
     )
 
-    result = _normalize_tool_allowlist(["research"], workspace=tmp_path)
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="research",
+        tool_format=None,
+        stream=True,
+        interactive=True,
+        agent_path=None,
+    )
 
-    assert result is not None
-    # MCP tool from the manifest must be present.
-    assert "search.query" in result
-    # Default built-in tool enabled by default (not disabled_by_default) must be
-    # present — additive semantics includes the full default toolset.
-    assert "shell" in result
-    # The alias name itself must not appear in the result.
-    assert "research" not in result
+    assert config.chat is not None
+    assert config.chat.tools == ["read", "shell", "search.query"]
+
+
+def test_multiple_mcp_only_manifest_aliases_extend_configured_allowlist(
+    tmp_path: Path, monkeypatch
+):
+    """Every MCP-only alias in one --tools value is preserved."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read,shell")
+    manifest_path = workspace / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n'
+        '{"task_type":"issues","tools":['
+        '{"server_name":"github","tool_name":"get_issue"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=tmp_path / "log",
+        tool_allowlist="research,issues",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == [
+        "read",
+        "shell",
+        "search.query",
+        "github.get_issue",
+    ]
+
+
+def test_mcp_only_manifest_alias_keeps_explicit_additions(tmp_path: Path, monkeypatch):
+    """Explicit tools combined with an MCP-only alias are still additive."""
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read")
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="research,shell",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read", "search.query", "shell"]
+
+
+def test_mcp_only_alias_rejects_explicit_builtin_manifest_mix(tmp_path: Path):
+    """Additive and closed manifest semantics cannot be combined unambiguously."""
+    manifest_path = tmp_path / "state" / "mcp-task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n'
+        '{"task_type":"review","builtin_tools":["read"],"tools":['
+        '{"server_name":"github","tool_name":"get_issue"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="manifests that declare builtin_tools"):
+        setup_config_from_cli(
+            workspace=tmp_path,
+            logdir=tmp_path / "log",
+            tool_allowlist="research,review",
+        )
 
 
 def test_comma_separated_choice_lenient_unprefixed_allows_unknown():

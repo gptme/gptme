@@ -63,6 +63,49 @@ def _is_mcp_tool_name(value: str) -> bool:
     return dot_idx > 0 and dot_idx < len(value) - 1
 
 
+def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
+    """Resolve manifest aliases before applying CLI allowlist precedence."""
+    if tool_allowlist.startswith(("+", "-")):
+        return tool_allowlist
+
+    from ..tool_manifests import load_task_manifest
+
+    requested_tools = [
+        tool.strip() for tool in tool_allowlist.split(",") if tool.strip()
+    ]
+    manifest_aliases: list[str] = []
+    explicit_manifest_tools: list[str] = []
+    non_alias_tools: list[str] = []
+    has_mcp_only_alias = False
+    for requested_tool in requested_tools:
+        try:
+            get_toolchain([requested_tool])
+        except ValueError as e:
+            if "is unavailable" in str(e):
+                raise
+            try:
+                manifest = load_task_manifest(requested_tool, workspace)
+            except (FileNotFoundError, ValueError):
+                non_alias_tools.append(requested_tool)
+                continue
+            if manifest.builtin_tools:
+                explicit_manifest_tools.extend(manifest.all_tool_names)
+            else:
+                has_mcp_only_alias = True
+                manifest_aliases.extend(manifest.tool_names)
+        else:
+            non_alias_tools.append(requested_tool)
+
+    if not has_mcp_only_alias:
+        return tool_allowlist
+    if explicit_manifest_tools:
+        raise ValueError(
+            "MCP-only manifest aliases cannot be combined with manifests "
+            "that declare builtin_tools"
+        )
+    return "+" + ",".join([*manifest_aliases, *non_alias_tools])
+
+
 def _normalize_tool_allowlist(
     allowlist: list[str] | None, workspace: Path | None = None
 ) -> list[str] | None:
@@ -156,16 +199,6 @@ def _normalize_tool_allowlist(
                 manifest = None
 
             if manifest is not None:
-                # When the manifest has no explicit builtin_tools, mirror the
-                # additive behaviour of ``--tool-manifest``: include the full
-                # default built-in toolset first, then append the MCP tools.
-                # Manifests with explicit builtin_tools produce a closed
-                # (non-additive) allowlist — only the named built-ins + MCP tools.
-                if not manifest.builtin_tools:
-                    for toolspec in get_toolchain(None):
-                        if toolspec.name not in seen:
-                            normalized.append(toolspec.name)
-                            seen.add(toolspec.name)
                 for manifest_tool_name in manifest.all_tool_names:
                     if manifest_tool_name not in seen:
                         normalized.append(manifest_tool_name)
@@ -252,6 +285,8 @@ def setup_config_from_cli(
     # Handle tool allowlist with similar precedence
     resolved_tool_allowlist: list[str] | None = None
     if tool_allowlist is not None:
+        tool_allowlist = _resolve_manifest_aliases(tool_allowlist, workspace)
+
         # Check for additive syntax (starts with '+')
         if tool_allowlist.startswith("+"):
             # Strip the '+' prefix and parse the additional tools
