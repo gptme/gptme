@@ -255,6 +255,7 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
 - 🤖 **Support for many LLM [providers][docs-providers]**
   - Anthropic (Claude), OpenAI (GPT), Google (Gemini), xAI (Grok), DeepSeek, and more.
   - Use OpenRouter for access to 100+ models, or serve locally with `llama.cpp`.
+  - Bring your own subscription: use your existing ChatGPT Plus/Pro or SuperGrok plan instead of API keys (see [providers][docs-providers]).
   - [Pick the right model per task][docs-model-routing] — fast/cheap for triage, powerful for coding.
 - 🌐 **Web UI and REST API**
   - Modern [gptme-webui] bundled with `gptme-server` and hosted at [chat.gptme.org](https://chat.gptme.org).
@@ -412,6 +413,9 @@ This stack is simple and composable: selectors improve work choice, lessons stee
 - Credentials for at least one LLM provider:
   - OpenRouter can be configured interactively with `/account setup openrouter`
     inside gptme, using browser OAuth onboarding.
+  - Subscriptions work too: sign in with your ChatGPT Plus/Pro or SuperGrok plan
+    via `gptme-auth openai-subscription` or `gptme-auth grok-subscription`,
+    no API key needed (see [providers docs][docs-providers]).
   - You can also set API keys manually for [Anthropic](https://console.anthropic.com/)
     (`ANTHROPIC_API_KEY`), [OpenAI](https://platform.openai.com/)
     (`OPENAI_API_KEY`), [OpenRouter](https://openrouter.ai/)
