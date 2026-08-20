@@ -17,6 +17,40 @@ repos:
   - id: mypy
     additional_dependencies: [types-tabulate, types-docutils, tomli, tomli_w, opentelemetry-api, opentelemetry-sdk, prometheus-client, prompt_toolkit, click, pytest, openai==1.101.0, rich, tomlkit, dspy, textual]
     args: [--ignore-missing-imports, --check-untyped-defs]
+- repo: https://github.com/gptme/gptme-contrib
+  # Pin to the commit that introduced .pre-commit-hooks.yaml + --allow support.
+  # Update to a released tag/SHA once gptme-contrib#1479 is merged.
+  rev: 7875514efd358d4ff5cb4781ad961f754bfbde8d
+  hooks:
+  - id: check-root-structure
+    args:
+      # Files
+      - --allow=.dockerignore
+      - --allow=.env.example
+      - --allow=.github
+      - --allow=.gitignore
+      - --allow=.pre-commit-config.yaml
+      - --allow=AGENTS.md
+      - --allow=LICENSE
+      - --allow=Makefile
+      - --allow=README.md
+      - --allow=SECURITY.md
+      - --allow=docker-compose.yml
+      - --allow=gptme.toml
+      - --allow=mypy.ini
+      - --allow=poetry.lock
+      - --allow=pyproject.toml
+      # Directories
+      - --allow=docs
+      - --allow=gptme
+      - --allow=gptme-extension
+      - --allow=media
+      - --allow=packages
+      - --allow=scripts
+      - --allow=site
+      - --allow=tauri
+      - --allow=tests
+      - --allow=webui
 - repo: local
   hooks:
   - id: check-rst-formatting
