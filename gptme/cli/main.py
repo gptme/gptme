@@ -1060,6 +1060,30 @@ def main(
 
     _validate_custom_tool_paths(tool_allowlist_str)
 
+    def _manifest_tool_names(manifest_allowlist: str | None) -> set[str]:
+        """Return only the namespaced tools contributed by a manifest."""
+        if not manifest_allowlist:
+            return set()
+        entries = manifest_allowlist.removeprefix("+").split(",")
+        return {
+            entry.strip()
+            for entry in entries
+            if entry.strip()
+            and (manifest_allowlist.startswith("+") or "." in entry.strip())
+        }
+
+    def _unavailable_manifest_tools(manifest_allowlist: str | None) -> set[str]:
+        """Return manifest tools that discovery reports as unavailable."""
+        from ..tools import get_available_tools, matching_allowlist_tools
+
+        available = get_available_tools()
+        unavailable: set[str] = set()
+        for tool_name in _manifest_tool_names(manifest_allowlist):
+            matched = matching_allowlist_tools(tool_name, available)
+            if not matched or not any(tool.is_available for tool in matched):
+                unavailable.add(tool_name)
+        return unavailable
+
     def apply_tool_manifest(workspace_path: Path) -> str | None:
         if not tool_manifest_type:
             return tool_allowlist_str
@@ -1076,6 +1100,30 @@ def main(
             raise click.UsageError(
                 "--tool-manifest cannot be combined with a gear that sets tools"
             )
+
+        # setup_config_from_cli loads project/user config after this callback.
+        # Inspect the same effective settings here so a manifest cannot silently
+        # replace a configured capability boundary (especially an explicit
+        # builtin_tools manifest, which uses a non-additive allowlist).
+        from ..config import Config
+
+        manifest_config = Config.from_workspace(workspace_path)
+        if manifest_config.get_env("TOOL_ALLOWLIST"):
+            raise click.UsageError(
+                "--tool-manifest cannot be combined with a configured TOOL_ALLOWLIST"
+            )
+        configured_gear = (
+            manifest_config.project.settings.gear
+            if manifest_config.project
+            and manifest_config.project.settings.gear is not None
+            else manifest_config.user.settings.gear
+        )
+        if configured_gear is not None:
+            configured_gear_tools = resolve_gear(configured_gear).tool_allowlist
+            if configured_gear_tools is not None:
+                raise click.UsageError(
+                    "--tool-manifest cannot be combined with a configured gear that sets tools"
+                )
 
         from ..tool_manifests import load_task_manifest
 
@@ -1361,41 +1409,27 @@ def main(
             try:
                 tools = init_tools(config.chat.tools)
             except ValueError as e:
-                if tool_manifest_type and not stats_setup_fallback_ran:
-                    # Manifest tool unavailable (MCP server may not be running).
-                    # Warn and retry without the manifest tools.
-                    logger.warning(
-                        "Manifest %r tool unavailable: %s — running without manifest tools.",
-                        tool_manifest_type,
-                        e,
-                    )
-                    _manifest_tool_names: set[str] = set()
-                    if stats_tool_allowlist_str:
-                        if stats_tool_allowlist_str.startswith("+"):
-                            # Additive manifest (no builtin_tools): manifest tools
-                            # are the ones added via '+'.
-                            _manifest_tool_names = {
-                                t.strip()
-                                for t in stats_tool_allowlist_str[1:].split(",")
-                                if t.strip()
-                            }
-                        else:
-                            # Explicit allowlist (builtin_tools manifest): only strip
-                            # MCP-style entries (server.tool, contains '.').
-                            _manifest_tool_names = {
-                                t.strip()
-                                for t in stats_tool_allowlist_str.split(",")
-                                if t.strip() and "." in t.strip()
-                            }
+                if (
+                    tool_manifest_type
+                    and isinstance(e, ToolAllowlistError)
+                    and not stats_setup_fallback_ran
+                ):
+                    # Match normal startup: remove only unavailable manifest tools
+                    # so prompt statistics describe the real session's toolset.
+                    unavailable = _unavailable_manifest_tools(stats_tool_allowlist_str)
+                    for tool_name in unavailable:
+                        logger.warning(
+                            "Manifest tool %r is unavailable (MCP server may not be running),"
+                            " skipping for prompt stats.",
+                            tool_name,
+                        )
                     fallback_stats_tools = [
-                        t
-                        for t in (config.chat.tools or [])
-                        if t not in _manifest_tool_names
+                        tool
+                        for tool in (config.chat.tools or [])
+                        if tool not in unavailable
                     ]
                     try:
                         tools = init_tools(fallback_stats_tools)
-                        # Keep config in sync with main path behaviour so any future
-                        # code in this block that reads config.chat.tools stays consistent.
                         config.chat.tools = fallback_stats_tools
                     except ValueError as e2:
                         raise click.UsageError(str(e2)) from e2
@@ -1603,74 +1637,24 @@ def main(
     try:
         tools = init_tools(config.chat.tools)
     except ValueError as e:
-        if tool_manifest_type and not setup_fallback_ran:
-            # Manifest tool unavailable (MCP server may not be running).
-            # Warn and retry without the manifest tools so the session still starts.
-            # Skip this branch if setup_config already fell back: at that point
-            # config.chat.tools has no manifest tools, so manifest_tool_names would
-            # be empty and we'd retry init_tools with the identical tool list that
-            # just failed — a vacuous retry that still aborts.
-            manifest_tool_names: set[str] = set()
-            if tool_allowlist_str:
-                if tool_allowlist_str.startswith("+"):
-                    # Additive manifest (no builtin_tools): manifest tools are the
-                    # ones added via '+'; built-ins are the defaults and need not be
-                    # stripped for the fallback.
-                    manifest_tool_names = {
-                        t.strip()
-                        for t in tool_allowlist_str[1:].split(",")
-                        if t.strip()
-                    }
-                else:
-                    # Explicit allowlist (builtin_tools manifest): only strip the
-                    # MCP-style entries (server.tool format containing '.') so the
-                    # built-in tools listed in the manifest survive in the fallback
-                    # session.  Built-in names never contain a dot, so this is a safe
-                    # discriminator.
-                    manifest_tool_names = {
-                        t.strip()
-                        for t in tool_allowlist_str.split(",")
-                        if t.strip() and "." in t.strip()
-                    }
-
-            # Probe each manifest tool individually so we only drop the ones
-            # that are actually unavailable, keeping working MCP tools in the
-            # session when only one server is down.
-            from ..tools import (  # fmt: skip
-                get_available_tools as _get_available,
-            )
-            from ..tools import (
-                matching_allowlist_tools as _match_allowlist,
-            )
-
-            _available = _get_available()
-            unavailable_manifest_tools: set[str] = set()
-            for _mt in manifest_tool_names:
-                _matched = _match_allowlist(_mt, _available)
-                if not _matched or not any(t.is_available for t in _matched):
-                    unavailable_manifest_tools.add(_mt)
-                    logger.warning(
-                        "Manifest tool %r is unavailable (MCP server may not be running),"
-                        " skipping for this session.",
-                        _mt,
-                    )
-
-            logger.warning(
-                "Manifest %r: %d/%d tool(s) unavailable — starting session with %s. "
-                "Start the missing MCP server(s) to restore full manifest behaviour.",
-                tool_manifest_type,
-                len(unavailable_manifest_tools),
-                len(manifest_tool_names),
-                (
-                    "remaining manifest tools"
-                    if len(unavailable_manifest_tools) < len(manifest_tool_names)
-                    else "built-in tools only"
-                ),
-            )
+        if (
+            tool_manifest_type
+            and isinstance(e, ToolAllowlistError)
+            and not setup_fallback_ran
+        ):
+            # Remove only unavailable manifest tools, keeping working MCP tools
+            # and any curated built-ins in the session.
+            unavailable_manifest_tools = _unavailable_manifest_tools(tool_allowlist_str)
+            for tool_name in unavailable_manifest_tools:
+                logger.warning(
+                    "Manifest tool %r is unavailable (MCP server may not be running),"
+                    " skipping for this session.",
+                    tool_name,
+                )
             fallback_tools = [
-                t
-                for t in (config.chat.tools or [])
-                if t not in unavailable_manifest_tools
+                tool
+                for tool in (config.chat.tools or [])
+                if tool not in unavailable_manifest_tools
             ]
             try:
                 tools = init_tools(fallback_tools)
