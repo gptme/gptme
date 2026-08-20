@@ -718,10 +718,47 @@ describe('SetupWizard', () => {
     expect(screen.queryByText(/not ready on this mobile build yet/i)).not.toBeInTheDocument();
 
     fireEvent.click(cloudButton);
+    mockInvokeTauri.mockResolvedValue(undefined);
     fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
 
-    expect(mockOpen).toHaveBeenCalledWith(CLOUD_AUTH_URL, '_blank');
+    // Must go through the opener plugin, not window.open: on Android the
+    // in-WebView navigation would unload the SPA that handles the callback.
+    await waitFor(() =>
+      expect(mockInvokeTauri).toHaveBeenCalledWith('plugin:opener|open_url', {
+        url: CLOUD_AUTH_URL,
+      })
+    );
+    expect(mockOpen).not.toHaveBeenCalled();
     expect(screen.getByText(/waiting for sign-in to complete/i)).toBeInTheDocument();
+  });
+
+  it('falls back to window.open when the tauri opener plugin fails', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: false,
+      serverStatus: {
+        running: false,
+        port: 5700,
+        port_available: false,
+        manages_local_server: false,
+      },
+    });
+    mockInvokeTauri.mockRejectedValue(new Error('opener unavailable'));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
+
+    await waitFor(() => expect(mockOpen).toHaveBeenCalledWith(CLOUD_AUTH_URL, '_blank'));
+    warnSpy.mockRestore();
   });
 
   it('connects to a remote server during tauri mobile setup', async () => {
