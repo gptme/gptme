@@ -204,6 +204,21 @@ def test_get_manifest_preset_tools_returns_none_for_missing_file(tmp_path: Path)
     assert tools is None
 
 
+def test_get_manifest_preset_tools_returns_none_for_unreadable_file(
+    tmp_path: Path, monkeypatch
+):
+    """Returns None when reading the manifest raises an OS error."""
+
+    def raise_permission_error(*args, **kwargs):
+        raise PermissionError("manifest is unreadable")
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest", raise_permission_error
+    )
+
+    assert get_manifest_preset_tools("research", tmp_path) is None
+
+
 def test_get_manifest_preset_tools_returns_none_for_unknown_task_type(tmp_path: Path):
     """Returns None when the manifest exists but lacks the requested task type."""
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"

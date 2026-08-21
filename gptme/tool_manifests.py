@@ -261,6 +261,6 @@ def get_manifest_preset_tools(
     """
     try:
         manifest = load_task_manifest(task_type, workspace, manifest_path)
-    except (FileNotFoundError, ValueError):
+    except (OSError, ValueError):
         return None
     return list(manifest.all_tool_names)

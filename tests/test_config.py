@@ -2452,11 +2452,10 @@ def test_mcp_only_manifest_alias_extends_preset(
     assert "complete" not in config.chat.tools
 
 
-@pytest.mark.parametrize("additive_request", ["+research", "+search.query"])
-def test_additive_manifest_tools_preserve_configured_preset(
-    tmp_path: Path, monkeypatch, additive_request: str
+def test_additive_manifest_alias_preserves_configured_preset(
+    tmp_path: Path, monkeypatch
 ):
-    """Both additive alias forms retain the configured preset policy."""
+    """An additive manifest alias retains the configured preset policy."""
     monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
@@ -2469,13 +2468,31 @@ def test_additive_manifest_tools_preserve_configured_preset(
     config = setup_config_from_cli(
         workspace=tmp_path,
         logdir=tmp_path / "log",
-        tool_allowlist=additive_request,
+        tool_allowlist="+research",
         interactive=False,
     )
 
     assert config.chat is not None
     assert config.chat.tools == ["read", "search.query"]
     assert "complete" not in config.chat.tools
+
+
+@pytest.mark.parametrize("additive_tool", ["shell", "search.query"])
+def test_additive_explicit_tool_keeps_noninteractive_completion(
+    tmp_path: Path, monkeypatch, additive_tool: str
+):
+    """A plain additive tool must not masquerade as a manifest extension."""
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist=f"+{additive_tool}",
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read", additive_tool, "complete"]
 
 
 def test_manifest_alias_cannot_shadow_preset(tmp_path: Path):
