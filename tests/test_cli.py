@@ -1279,6 +1279,118 @@ def test_tool_manifest_cannot_combine_with_configured_gear_tools(
     assert "Traceback" not in result.output
 
 
+def test_tool_manifest_cannot_combine_with_resumed_conversation_gear_tools(
+    runner: CliRunner, tmp_path: Path
+):
+    """A saved conversation's gear boundary must not be replaced by a manifest."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text('{"task_type":"research","tools":[]}\n', encoding="utf-8")
+
+    conversation_name = f"manifest-gear-{tmp_path.name}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{tmp_path.resolve()}"\ngear = 2\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--resume",
+            "--name",
+            conversation_name,
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with a configured gear that sets tools"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
+def test_tool_manifest_cli_gear_overrides_resumed_conversation_gear_tools(
+    monkeypatch: pytest.MonkeyPatch, runner: CliRunner, tmp_path: Path
+):
+    """An explicit gear without tools takes precedence over a saved gear."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    conversation_name = f"manifest-gear-override-{tmp_path.name}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{tmp_path.resolve()}"\ngear = 2\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=[],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=1,
+        ),
+        project=None,
+    )
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--resume",
+            "--name",
+            conversation_name,
+            "--workspace",
+            str(tmp_path),
+            "--gear",
+            "1",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "configured gear that sets tools" not in result.output
+
+
 def test_tool_manifest_cli_gear_overrides_configured_gear_tools(
     monkeypatch: pytest.MonkeyPatch, runner: CliRunner, tmp_path: Path
 ):
