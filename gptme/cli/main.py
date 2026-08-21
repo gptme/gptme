@@ -969,16 +969,11 @@ def main(
     _validate_custom_tool_paths(tool_allowlist_str)
 
     def _manifest_tool_names(manifest_allowlist: str | None) -> set[str]:
-        """Return only the namespaced tools contributed by a manifest."""
+        """Return tool names contributed by a manifest."""
         if not manifest_allowlist:
             return set()
         entries = manifest_allowlist.removeprefix("+").split(",")
-        return {
-            entry.strip()
-            for entry in entries
-            if entry.strip()
-            and (manifest_allowlist.startswith("+") or "." in entry.strip())
-        }
+        return {entry.strip() for entry in entries if entry.strip()}
 
     def _unavailable_manifest_tools(manifest_allowlist: str | None) -> set[str]:
         """Return manifest tools that discovery reports as unavailable."""
@@ -991,6 +986,22 @@ def main(
             if not matched or not any(tool.is_available for tool in matched):
                 unavailable.add(tool_name)
         return unavailable
+
+    def _manifest_fallback_allowlist(
+        manifest_allowlist: str | None, pre_manifest_allowlist: str | None
+    ) -> str | None:
+        """Remove unavailable manifest tools while preserving allowlist mode."""
+        if not manifest_allowlist:
+            return pre_manifest_allowlist
+        unavailable = _unavailable_manifest_tools(manifest_allowlist)
+        remaining = [
+            entry.strip()
+            for entry in manifest_allowlist.removeprefix("+").split(",")
+            if entry.strip() and entry.strip() not in unavailable
+        ]
+        if manifest_allowlist.startswith("+"):
+            return "+" + ",".join(remaining) if remaining else pre_manifest_allowlist
+        return ",".join(remaining)
 
     def apply_tool_manifest(workspace_path: Path) -> str | None:
         if not tool_manifest_type:
@@ -1020,18 +1031,22 @@ def main(
             raise click.UsageError(
                 "--tool-manifest cannot be combined with a configured TOOL_ALLOWLIST"
             )
-        configured_gear = (
-            manifest_config.project.settings.gear
-            if manifest_config.project
-            and manifest_config.project.settings.gear is not None
-            else manifest_config.user.settings.gear
-        )
-        if configured_gear is not None:
-            configured_gear_tools = resolve_gear(configured_gear).tool_allowlist
-            if configured_gear_tools is not None:
-                raise click.UsageError(
-                    "--tool-manifest cannot be combined with a configured gear that sets tools"
-                )
+        if ctx.get_parameter_source("gear") not in {
+            ParameterSource.COMMANDLINE,
+            ParameterSource.ENVIRONMENT,
+        }:
+            configured_gear = (
+                manifest_config.project.settings.gear
+                if manifest_config.project
+                and manifest_config.project.settings.gear is not None
+                else manifest_config.user.settings.gear
+            )
+            if configured_gear is not None:
+                configured_gear_tools = resolve_gear(configured_gear).tool_allowlist
+                if configured_gear_tools is not None:
+                    raise click.UsageError(
+                        "--tool-manifest cannot be combined with a configured gear that sets tools"
+                    )
 
         from ..tool_manifests import load_task_manifest
 
@@ -1258,21 +1273,12 @@ def main(
                     # Same builtin-preservation logic as the main path below:
                     # for explicit (builtin_tools) manifests, keep the non-MCP
                     # entries rather than discarding all manifest selections.
-                    if (
-                        stats_tool_allowlist_str
-                        and not stats_tool_allowlist_str.startswith("+")
-                    ):
-                        _s_builtin_only = ",".join(
-                            t.strip()
-                            for t in stats_tool_allowlist_str.split(",")
-                            if t.strip() and "." not in t.strip()
-                        )
-                        stats_tool_allowlist_str = _s_builtin_only or tool_allowlist_str
-                    else:
-                        stats_tool_allowlist_str = tool_allowlist_str  # pre-manifest
+                    stats_tool_allowlist_str = _manifest_fallback_allowlist(
+                        stats_tool_allowlist_str, tool_allowlist_str
+                    )
                     logger.warning(
-                        "Manifest %r MCP tool unavailable during stats config setup: %s — "
-                        "running without MCP manifest tools%s.",
+                        "Manifest %r tool unavailable during stats config setup: %s — "
+                        "running without unavailable manifest tools%s.",
                         tool_manifest_type,
                         e,
                         f" (keeping built-ins: {stats_tool_allowlist_str})"
@@ -1478,31 +1484,15 @@ def main(
         )
     except ValueError as e:
         if tool_manifest_type and isinstance(e, ToolAllowlistError):
-            # A manifest tool was unavailable during config normalisation (MCP
-            # server may not be running). Retry without the manifest allowlist so the
-            # session still starts with the default tools.
-            # Preserve builtin tools from the manifest when stripping unavailable
-            # MCP tools.  For builtin_tools manifests (explicit allowlist, no '+'
-            # prefix), the returned string combines built-in names (read, grep,
-            # shell) with MCP names (server.tool).  Only the MCP entries caused
-            # the failure; keep the built-ins in the retry so the session still
-            # uses the manifest's curated non-MCP toolset instead of silently
-            # expanding to the full default set.
-            # For additive manifests ('+' prefix) there are no manifest-specified
-            # built-ins, so fall back to the original pre-manifest allowlist.
-            if tool_allowlist_str and not tool_allowlist_str.startswith("+"):
-                _builtin_only = ",".join(
-                    t.strip()
-                    for t in tool_allowlist_str.split(",")
-                    if t.strip() and "." not in t.strip()
-                )
-                tool_allowlist_str = _builtin_only or pre_manifest_allowlist
-            else:
-                tool_allowlist_str = pre_manifest_allowlist
+            # Retry after removing only unavailable manifest entries. This applies
+            # to built-ins as well as MCP tools and preserves the manifest's exact or
+            # additive allowlist mode.
+            tool_allowlist_str = _manifest_fallback_allowlist(
+                tool_allowlist_str, pre_manifest_allowlist
+            )
             logger.warning(
-                "Manifest %r MCP tool unavailable during config setup: %s — "
-                "running without MCP manifest tools%s. "
-                "Start the MCP server to use manifest tools.",
+                "Manifest %r tool unavailable during config setup: %s — "
+                "running without unavailable manifest tools%s.",
                 tool_manifest_type,
                 e,
                 f" (keeping built-ins: {tool_allowlist_str})"
