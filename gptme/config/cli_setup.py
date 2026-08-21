@@ -320,13 +320,28 @@ def setup_config_from_cli(
             additional_tools = [
                 tool.strip() for tool in tool_list_str.split(",") if tool.strip()
             ]
-            # Add to the configured tool policy when one exists; otherwise use
-            # the built-in defaults. Additive CLI features such as task manifests
-            # must not silently replace a project's TOOL_ALLOWLIST configuration.
-            if existing_chat_config and existing_chat_config.tools is not None:
-                base_tools = existing_chat_config.tools
+            configured_base_tools: list[str] | None = None
+            if existing_chat_config and existing_chat_config.tools:
+                configured_base_tools = existing_chat_config.tools
             elif tools_env := config.get_env("TOOL_ALLOWLIST"):
-                base_tools = [tool.strip() for tool in tools_env.split(",")]
+                configured_base_tools = [
+                    tool.strip() for tool in tools_env.split(",") if tool.strip()
+                ]
+
+            # MCP-only aliases are additive when used alone, just like
+            # ``--tool-manifest``. In a mixed, unprefixed ``--tools`` list,
+            # preserve the configured base when one exists; otherwise the list
+            # remains exact and must not silently gain every default tool.
+            mixed_manifest_alias = (
+                requested_tool_allowlist is not None
+                and not requested_tool_allowlist.startswith("+")
+                and "," in requested_tool_allowlist
+                and tool_allowlist != requested_tool_allowlist
+            )
+            if mixed_manifest_alias and configured_base_tools is None:
+                base_tools = []
+            elif configured_base_tools is not None:
+                base_tools = configured_base_tools
             else:
                 base_tools = [tool.name for tool in get_toolchain(None)]
             # A persisted/configured preset is valid by itself but cannot be
