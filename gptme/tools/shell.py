@@ -615,6 +615,7 @@ class ShellSession:
                     elif exited_at is not None and time.monotonic() - exited_at >= 1.0:
                         # Bound the total post-exit drain time: a background
                         # descendant may retain and continuously write to a pipe.
+                        stop_readers.set()
                         break
             except KeyboardInterrupt:
                 print()
