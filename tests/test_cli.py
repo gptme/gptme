@@ -388,6 +388,76 @@ def test_show_prompt_stats_manifest_fallback_keeps_available_tools(
     assert fake_config.chat.tools == ["read", "time.get_current_time"]
 
 
+def test_show_prompt_stats_manifest_fallback_does_not_persist_temp_config(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Prompt stats uses a temporary log and must not persist its fallback config."""
+    from gptme.tool_manifests import TaskToolManifest
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest",
+        lambda task_type, workspace: TaskToolManifest(
+            task_type=task_type,
+            tool_names=("github.search_code",),
+            path=workspace / "state" / "task-manifests.jsonl",
+        ),
+    )
+    save_calls: list[None] = []
+    fake_chat = SimpleNamespace(
+        agent_config=None,
+        tools=["read", "github.search_code"],
+        interactive=False,
+        tool_format="markdown",
+        model="local/test",
+        workspace=tmp_path,
+        stream=False,
+        agent=None,
+        gear=None,
+        save=lambda: save_calls.append(None),
+    )
+    fake_config = SimpleNamespace(chat=fake_chat, project=None)
+
+    def fake_init_tools(tools):
+        if tools and "github.search_code" in tools:
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: [])
+    monkeypatch.setattr(
+        "gptme.prompts.get_prompt_stats",
+        lambda **_: SimpleNamespace(
+            sections=[],
+            total_messages=0,
+            total_chars=0,
+            total_tokens=0,
+            cacheable_tokens=0,
+            dynamic_tokens=0,
+        ),
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.format_prompt_stats", lambda *_, **__: "prompt-stats-output"
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "query",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert save_calls == []
+
+
 def test_show_prompt_stats_does_not_retry_after_config_fallback(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
@@ -1799,6 +1869,7 @@ def test_tool_manifest_unavailable_tool_falls_back_gracefully(
             no_confirm=True,
             agent=None,
             gear=None,
+            save=lambda: None,
         ),
         project=None,
     )
@@ -1853,6 +1924,66 @@ def test_tool_manifest_unavailable_tool_falls_back_gracefully(
     assert not any("github" in t for t in (fake_config.chat.tools or []))
 
 
+def test_tool_manifest_unavailable_tool_persists_fallback_tools(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """A new conversation must not persist unavailable manifest tools for resume."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    saved_tools: list[list[str] | None] = []
+    fake_chat = SimpleNamespace(
+        agent_config=None,
+        tools=["read", "github.search_code"],
+        interactive=False,
+        tool_format="markdown",
+        model="local/test",
+        workspace=tmp_path,
+        stream=False,
+        no_confirm=True,
+        agent=None,
+        gear=None,
+    )
+    fake_chat.save = lambda: saved_tools.append(list(fake_chat.tools or []))
+    fake_config = SimpleNamespace(chat=fake_chat, project=None)
+
+    def fake_init_tools(tools):
+        if tools and "github.search_code" in tools:
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert saved_tools == [["read"]]
+
+
 def test_tool_manifest_unavailable_builtin_falls_back_gracefully(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
@@ -1878,6 +2009,7 @@ def test_tool_manifest_unavailable_builtin_falls_back_gracefully(
             no_confirm=True,
             agent=None,
             gear=None,
+            save=lambda: None,
         ),
         project=None,
     )
@@ -1957,6 +2089,7 @@ def test_tool_manifest_builtin_tools_unavailable_mcp_falls_back_gracefully(
             no_confirm=True,
             agent=None,
             gear=None,
+            save=lambda: None,
         ),
         project=None,
     )
