@@ -1396,6 +1396,52 @@ def test_tool_manifest_cannot_combine_with_resumed_conversation_tools(
     assert "Traceback" not in result.output
 
 
+def test_show_prompt_stats_tool_manifest_checks_existing_named_conversation_tools(
+    runner: CliRunner, tmp_path: Path
+):
+    """Prompt stats preserves named conversations' saved tool boundaries."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    conversation_name = f"manifest-stats-tools-{tmp_path.name}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True, exist_ok=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{tmp_path.resolve()}"\ntools = ["read-only"]\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--name",
+            conversation_name,
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with saved conversation tools"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
 def test_show_prompt_stats_tool_manifest_checks_resumed_conversation_gear(
     runner: CliRunner, tmp_path: Path
 ):
@@ -2347,6 +2393,75 @@ def test_tool_manifest_unavailable_builtin_falls_back_in_config_setup(
         "read,ipython,github.search_code",
         "read,github.search_code",
     ]
+
+
+def test_tool_manifest_expands_builtin_preset_before_fallback(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Manifest presets retain their concrete tools when another tool is unavailable."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":['
+        '{"server_name":"github","tool_name":"search_code"}],'
+        '"builtin_tools":["read-only"]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        if tool_allowlist and "github.search_code" in tool_allowlist:
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return fake_config
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda: [
+            SimpleNamespace(name="read", is_available=True),
+            SimpleNamespace(name="github.search_code", is_available=False),
+        ],
+    )
+    monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert setup_calls == ["read,github.search_code", "read"]
 
 
 def test_tool_manifest_builtin_tools_config_setup_failure_preserves_builtins(

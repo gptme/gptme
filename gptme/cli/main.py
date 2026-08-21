@@ -993,12 +993,20 @@ def main(
         """Remove unavailable manifest tools while preserving allowlist mode."""
         if not manifest_allowlist:
             return pre_manifest_allowlist
-        unavailable = _unavailable_manifest_tools(manifest_allowlist)
-        remaining = [
+        from ..tools import expand_tool_allowlist_presets
+
+        entries = [
             entry.strip()
             for entry in manifest_allowlist.removeprefix("+").split(",")
-            if entry.strip() and entry.strip() not in unavailable
+            if entry.strip()
         ]
+        if not manifest_allowlist.startswith("+"):
+            expanded_entries = expand_tool_allowlist_presets(entries)
+            assert expanded_entries is not None
+            entries = expanded_entries
+        concrete_allowlist = ",".join(entries)
+        unavailable = _unavailable_manifest_tools(concrete_allowlist)
+        remaining = [entry for entry in entries if entry not in unavailable]
         if manifest_allowlist.startswith("+"):
             return "+" + ",".join(remaining) if remaining else pre_manifest_allowlist
         return ",".join(remaining)
@@ -1076,10 +1084,14 @@ def main(
             len(manifest.builtin_tools),
         )
         if manifest.builtin_tools:
-            # Explicit allowlist: built-in tools + MCP tools (no additive prefix)
-            # When the manifest specifies built-in tools, produce an exact allowlist
-            # so that tools outside both sets are excluded from the session.
-            return ",".join(manifest.all_tool_names)
+            from ..tools import expand_tool_allowlist_presets
+
+            # Explicit allowlist: built-in tools + MCP tools (no additive prefix).
+            # Expand a named preset before adding MCP tools because presets are
+            # exclusive boundaries and cannot otherwise be mixed with tool names.
+            builtin_tools = expand_tool_allowlist_presets(list(manifest.builtin_tools))
+            assert builtin_tools is not None
+            return ",".join((*builtin_tools, *manifest.tool_names))
         # Additive prefix: MCP tools are ADDED to the full default built-in set
         # (a bare list would drop read/shell/save/etc. — the '+' preserves them)
         return "+" + ",".join(manifest.tool_names)
@@ -1267,6 +1279,10 @@ def main(
                     )
                 except ValueError as e:
                     raise click.UsageError(str(e)) from e
+            elif name != "random":
+                named_logdir = get_logs_dir() / name
+                if named_logdir.exists():
+                    conversation_logdir = named_logdir
             if workspace == "@log":
                 stats_workspace_path = stats_logdir / "workspace"
                 stats_workspace_path.mkdir(parents=True, exist_ok=True)
