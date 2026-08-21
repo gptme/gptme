@@ -184,20 +184,28 @@ class LogManager:
 
             self._acquire_lock()
 
+        # Snapshot attached files before the first provider render. Startup
+        # prompt files must stay byte-identical even if their live source changes.
+        initial_messages = self.snapshot_message_files(log or [])
+
         # load branches from adjacent files
-        self._branches = {self.current_branch: Log(log or [])}
+        self._branches = {self.current_branch: Log(initial_messages)}
         if (self.logdir / "conversation.jsonl").exists():
             _branch = "main"
             if _branch not in self._branches:
-                self._branches[_branch] = Log.read_jsonl(
-                    self.logdir / "conversation.jsonl"
+                branch_log = Log.read_jsonl(self.logdir / "conversation.jsonl")
+                self._branches[_branch] = Log(
+                    self.snapshot_message_files(branch_log.messages)
                 )
         for file in self.logdir.glob("branches/*.jsonl"):
             if file.name == self.logdir.name:
                 continue
             _branch = file.stem
             if _branch not in self._branches:
-                self._branches[_branch] = Log.read_jsonl(file)
+                branch_log = Log.read_jsonl(file)
+                self._branches[_branch] = Log(
+                    self.snapshot_message_files(branch_log.messages)
+                )
 
         # Load view branches (compacted views stored in views/ directory)
         self._views: dict[str, Log] = {}
@@ -205,7 +213,10 @@ class LogManager:
         if views_dir.exists():
             for file in views_dir.glob("*.jsonl"):
                 view_name = file.stem
-                self._views[view_name] = Log.read_jsonl(file)
+                view_log = Log.read_jsonl(file)
+                self._views[view_name] = Log(
+                    self.snapshot_message_files(view_log.messages)
+                )
                 logger.debug(f"Loaded view branch: {view_name}")
 
         # If a view was requested, load it as the active log
@@ -431,27 +442,44 @@ class LogManager:
         if not msg.quiet:
             print_msg(msg, oneline=False)
 
-    def _store_message_files(self, msg: Message) -> Message:
+    def _store_message_files(
+        self, msg: Message, *, preserve_existing: bool = False
+    ) -> Message:
         """Store attached files by content hash and return updated message."""
         if not msg.files:
             return msg
 
-        from ..util.file_storage import store_file
+        from ..util.file_storage import get_stored_path, store_file
 
         file_hashes = dict(msg.file_hashes)  # Start with existing hashes
         for filepath in msg.files:
             # Skip URIs - they can't be stored locally
             if isinstance(filepath, URI):
                 continue
-            if not filepath.exists():
+            try:
+                existing_hash = file_hashes.get(str(filepath))
+                if (
+                    preserve_existing
+                    and existing_hash
+                    and get_stored_path(self.logdir, existing_hash, filepath.suffix)
+                ):
+                    continue
+                if not filepath.is_file():
+                    continue
+                # Store by hash and record the mapping
+                file_hash, _stored_name = store_file(self.logdir, filepath)
+            except OSError as exc:
+                logger.warning("Could not snapshot attached file %s: %s", filepath, exc)
                 continue
-            # Store by hash and record the mapping
-            file_hash, stored_name = store_file(self.logdir, filepath)
             # Use full path as key to avoid collisions with same-named files
             file_hashes[str(filepath)] = file_hash
 
         # Return message with updated hashes (Message is frozen, so replace)
         return replace(msg, file_hashes=file_hashes)
+
+    def snapshot_message_files(self, msgs: list[Message]) -> list[Message]:
+        """Snapshot message attachments while preserving valid existing hashes."""
+        return [self._store_message_files(msg, preserve_existing=True) for msg in msgs]
 
     def write(self, branches=True, sync=False) -> None:
         """
@@ -827,11 +855,14 @@ def _merge_consecutive_messages(msgs: list[Message]) -> list[Message]:
     providers reject.  Merge the adjacent messages while preserving attachments
     and message flags via Message.concat().
 
-    Exception: system messages with a call_id are structured tool results.
-    Merging them would discard all but the first call_id, causing providers
-    that use the Responses API (Codex/OpenAI) to return 400 "No tool output
-    found for function call <id>" on the next multi-tool-call turn.
+    Exceptions: system messages with a call_id are structured tool results,
+    and the explicit prompt-cache boundary must remain a standalone message.
+    Merging tool results would discard all but the first call_id, causing
+    providers that use the Responses API (Codex/OpenAI) to return 400 "No tool
+    output found for function call <id>" on the next multi-tool-call turn.
     """
+    from ..prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
+
     merged: list[Message] = []
     for msg in msgs:
         if (
@@ -839,6 +870,8 @@ def _merge_consecutive_messages(msgs: list[Message]) -> list[Message]:
             and merged[-1].role == msg.role
             and not msg.call_id
             and not merged[-1].call_id
+            and msg.content != SYSTEM_PROMPT_CACHE_BOUNDARY
+            and merged[-1].content != SYSTEM_PROMPT_CACHE_BOUNDARY
         ):
             merged[-1] = merged[-1].concat(msg)
         else:

@@ -97,6 +97,57 @@ def test_active_prompt_generation_keeps_only_newest_replacement():
     assert result == [generation_two, user]
 
 
+def test_load_snapshots_initial_message_files(tmp_path: Path):
+    """Startup attachments must not be re-rendered from mutable live files."""
+    from gptme.util.context import enrich_messages_with_context
+
+    bootstrap_file = tmp_path / "bootstrap.md"
+    bootstrap_file.write_text("original bootstrap")
+    manager = LogManager.load(
+        tmp_path / "conversation",
+        initial_msgs=[Message("system", "bootstrap", files=[bootstrap_file])],
+        create=True,
+        lock=False,
+    )
+
+    first = enrich_messages_with_context(manager.log.messages, tmp_path)
+    bootstrap_file.write_text("mutated bootstrap")
+    second = enrich_messages_with_context(manager.log.messages, tmp_path)
+
+    assert manager.log.messages[0].file_hashes[str(bootstrap_file)]
+    assert first[0].content == second[0].content
+    assert "original bootstrap" in second[0].content
+    assert "mutated bootstrap" not in second[0].content
+
+
+def test_constructor_snapshots_initial_message_files(tmp_path: Path):
+    """Direct constructors used by server tasks must snapshot startup files."""
+    bootstrap_file = tmp_path / "bootstrap.md"
+    bootstrap_file.write_text("original bootstrap")
+
+    manager = LogManager(
+        [Message("system", "bootstrap", files=[bootstrap_file])],
+        logdir=tmp_path / "conversation",
+        lock=False,
+    )
+
+    assert manager.log.messages[0].file_hashes[str(bootstrap_file)]
+
+
+def test_initial_message_directories_are_not_snapshotted(tmp_path: Path):
+    """Directory prompt matches are context references, not file snapshots."""
+    context_dir = tmp_path / "docs"
+    context_dir.mkdir()
+
+    manager = LogManager(
+        [Message("system", "context", files=[context_dir])],
+        logdir=tmp_path / "conversation",
+        lock=False,
+    )
+
+    assert manager.log.messages[0].file_hashes == {}
+
+
 def test_log_repr():
     """Log.__repr__ should have matched brackets."""
     log = Log([Message("user", "hello")])
@@ -487,6 +538,19 @@ def test_merge_consecutive_still_merges_plain_same_role_messages():
     assert len(result) == 1
     assert "part one" in result[0].content
     assert "part two" in result[0].content
+
+
+def test_merge_consecutive_preserves_prompt_cache_boundary():
+    """Provider preprocessing must not merge volatile context into the prefix."""
+    from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
+
+    msgs = [
+        Message(role="system", content="static"),
+        Message(role="system", content=SYSTEM_PROMPT_CACHE_BOUNDARY),
+        Message(role="system", content="dynamic"),
+    ]
+
+    assert _merge_consecutive_messages(msgs) == msgs
 
 
 def test_read_jsonl_unknown_field(tmp_path):

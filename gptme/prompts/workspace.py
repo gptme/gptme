@@ -120,6 +120,32 @@ def _get_git_status(workspace: Path) -> str | None:
         return None
 
 
+def _workspace_runtime_sections(
+    workspace: Path, *, include_path: bool = False
+) -> list[str]:
+    """Build session-volatile workspace sections."""
+    sections = []
+    if include_path:
+        sections.append(f"**Path:** {workspace.resolve()}")
+    if tree_output := get_tree_output(workspace):
+        sections.append(f"## Project Structure\n\n{md_codeblock('', tree_output)}\n\n")
+    if git_status := _get_git_status(workspace):
+        sections.append(f"## Git Status\n\n{git_status}")
+    return sections
+
+
+def prompt_workspace_runtime(
+    workspace: Path | None = None,
+    title: str = "Project Workspace",
+    include_path: bool = False,
+) -> Generator[Message, None, None]:
+    """Generate session-volatile workspace metadata."""
+    if workspace is None:
+        return
+    if sections := _workspace_runtime_sections(workspace, include_path=include_path):
+        yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
+
+
 def find_agent_files_in_tree(
     directory: Path,
     exclude: set[str] | None = None,
@@ -180,6 +206,7 @@ def prompt_workspace(
     include_path: bool = False,
     include_context_cmd: bool = True,
     include_user_context: bool = True,
+    include_runtime_context: bool = True,
 ) -> Generator[Message, None, None]:
     """Generate the workspace context prompt."""
     # TODO: update this prompt if the files change
@@ -188,8 +215,9 @@ def prompt_workspace(
     if workspace is None:
         return
 
-    # Add workspace path if requested
-    if include_path:
+    # Keep the path at the top for direct callers, matching the historical
+    # prompt_workspace() ordering. The tree and git status stay at the end.
+    if include_runtime_context and include_path:
         sections.append(f"**Path:** {workspace.resolve()}")
 
     project = get_project_config(workspace)
@@ -355,13 +383,8 @@ def prompt_workspace(
                 f"Excluded {excluded_count} file(s) via project config exclude patterns"
             )
 
-    # Get tree output if enabled
-    if tree_output := get_tree_output(workspace):
-        sections.append(f"## Project Structure\n\n{md_codeblock('', tree_output)}\n\n")
-
-    # Get git status (branch + working tree changes)
-    if git_status := _get_git_status(workspace):
-        sections.append(f"## Git Status\n\n{git_status}")
+    if include_runtime_context:
+        sections.extend(_workspace_runtime_sections(workspace))
 
     if sections:
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))

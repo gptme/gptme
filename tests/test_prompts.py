@@ -496,6 +496,68 @@ def test_dynamic_context_has_explicit_cache_boundary(tmp_path):
     assert file_idx < boundary_idx < dynamic_idx
 
 
+def test_volatile_prompt_state_starts_after_cache_boundary(tmp_path, monkeypatch):
+    """Date, project tree, and git status must not disturb the static prefix."""
+    from gptme.message import Message
+    from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY, get_prompt
+    from gptme.util.context import enrich_messages_with_context
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "README.md").write_text("# Stable bootstrap")
+    (workspace / "gptme.toml").write_text(
+        '[prompt]\nfiles = ["README.md"]\ncontext_cmd = "printf COMPUTED_CONTEXT"\n'
+    )
+    runtime = {
+        "date": "DATE_ONE",
+        "tree": "TREE_ONE",
+        "git_status": "STATUS_ONE",
+    }
+
+    monkeypatch.setattr(
+        "gptme.prompts.prompt_timeinfo",
+        lambda tool_format="markdown": [
+            Message("system", f"## Current Date\n\n{runtime['date']}")
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.get_tree_output", lambda _workspace: runtime["tree"]
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.workspace._get_git_status",
+        lambda _workspace: runtime["git_status"],
+    )
+
+    def render() -> str:
+        messages = enrich_messages_with_context(
+            get_prompt(
+                get_tools(),
+                prompt="full",
+                workspace=workspace,
+                include_user_context=False,
+            ),
+            workspace,
+        )
+        return "\n\n".join(
+            msg.content + "\n" + "\n".join(str(path) for path in msg.files)
+            for msg in messages
+        )
+
+    first = render()
+    runtime.update(date="DATE_TWO", tree="TREE_TWO", git_status="STATUS_TWO")
+    second = render()
+
+    first_static, first_dynamic = first.split(SYSTEM_PROMPT_CACHE_BOUNDARY, 1)
+    second_static, second_dynamic = second.split(SYSTEM_PROMPT_CACHE_BOUNDARY, 1)
+
+    assert first_static == second_static
+    assert first_dynamic != second_dynamic
+    assert "# Stable bootstrap" in first_static
+    for marker in ("DATE_ONE", "TREE_ONE", "STATUS_ONE"):
+        assert marker not in first_static
+        assert marker in first_dynamic
+
+
 def test_prompt_workspace_sorts_glob_matches_deterministically(tmp_path, monkeypatch):
     """Glob matches should not depend on filesystem traversal order."""
     from gptme.prompts import prompt_workspace
