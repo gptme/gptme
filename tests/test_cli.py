@@ -1304,6 +1304,33 @@ def test_tool_manifest_cannot_combine_with_profile_tools(
     assert "Traceback" not in result.output
 
 
+def test_tool_manifest_profile_and_explicit_tools_reports_tools_conflict(
+    runner: CliRunner, tmp_path: Path
+):
+    """An explicit --tools selection overrides profile tools before conflict checks."""
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--agent-profile",
+            "explorer",
+            "--tools",
+            "read",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert "--tool-manifest cannot be combined with --tools" in result.output
+    assert "agent profile tools" not in result.output
+    assert "Traceback" not in result.output
+
+
 def test_tool_manifest_cannot_combine_with_gear_tools(
     runner: CliRunner, tmp_path: Path
 ):
@@ -1456,13 +1483,7 @@ def test_tool_manifest_log_workspace_resolves_manifest_from_cwd(
     )
 
     assert result.exit_code == 0
-    # The manifest must have been resolved using cwd, not logdir/workspace.
-    # cwd is Path.cwd() — just verify it is NOT a path ending in "workspace"
-    # (which is what logdir/workspace would look like).
-    assert len(captured_workspace) >= 1
-    assert not str(captured_workspace[-1]).endswith("workspace"), (
-        f"Manifest resolved from logdir/workspace instead of cwd: {captured_workspace[-1]}"
-    )
+    assert captured_workspace[-1] == Path.cwd()
 
 
 def test_tool_manifest_unavailable_tool_falls_back_gracefully(
