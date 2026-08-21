@@ -1101,7 +1101,9 @@ def main(
         remaining = [entry for entry in entries if entry not in unavailable]
         if manifest_allowlist.startswith("+"):
             return "+" + ",".join(remaining) if remaining else pre_manifest_allowlist
-        return ",".join(remaining)
+        # Non-additive (builtin_tools): if every entry is unavailable, fall back to
+        # the user's configured defaults instead of returning "" (which disables ALL tools).
+        return ",".join(remaining) if remaining else pre_manifest_allowlist
 
     def apply_tool_manifest(
         workspace_path: Path, conversation_logdir: Path | None = None
