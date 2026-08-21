@@ -220,7 +220,19 @@ def _normalize_tool_allowlist(
                 manifest = None
 
             if manifest is not None:
-                for manifest_tool_name in manifest.all_tool_names:
+                for builtin_tool_name in manifest.builtin_tools:
+                    try:
+                        builtin_toolspecs = get_toolchain([builtin_tool_name])
+                    except ValueError as e:
+                        raise ValueError(
+                            f"Invalid builtin_tools entry {builtin_tool_name!r} "
+                            f"in tool manifest for {item!r}: {e}"
+                        ) from e
+                    for toolspec in builtin_toolspecs:
+                        if toolspec.name not in seen:
+                            normalized.append(toolspec.name)
+                            seen.add(toolspec.name)
+                for manifest_tool_name in manifest.tool_names:
                     if manifest_tool_name not in seen:
                         normalized.append(manifest_tool_name)
                         seen.add(manifest_tool_name)
