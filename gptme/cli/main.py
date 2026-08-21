@@ -1683,6 +1683,7 @@ def main(
                 # (still containing manifest tool names) would cause a second
                 # ValueError crash inside chat() when the MCP server is still down.
                 config.chat.tools = fallback_tools
+                config.chat.save()
             except ValueError as e2:
                 raise click.UsageError(str(e2)) from e2
         else:
