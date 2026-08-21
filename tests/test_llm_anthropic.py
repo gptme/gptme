@@ -283,6 +283,8 @@ def test_message_conversion_with_tool_and_non_tool():
 
 
 def test_boundary_keeps_dynamic_context_out_of_static_system_prompt():
+    from gptme.logmanager.manager import prune_ephemeral_messages
+
     messages = [
         Message(role="system", content="Core prompt"),
         Message(role="system", content="Static workspace prompt"),
@@ -290,6 +292,7 @@ def test_boundary_keeps_dynamic_context_out_of_static_system_prompt():
         Message(role="system", content="Dynamic context"),
         Message(role="user", content="Actual user prompt"),
     ]
+    messages = prune_ephemeral_messages(messages)
 
     messages_dicts, system_messages, _ = _prepare_messages_for_api(messages, None)
 

@@ -114,7 +114,6 @@ def _build_core_prompt_sections(
     agent_name: str | None,
     tool_format: ToolFormat,
     tools: list[ToolSpec],
-    workspace: Path | None,
     include_tools: bool,
     include_examples: bool,
     is_selective: bool,
@@ -161,11 +160,6 @@ def _build_core_prompt_sections(
         if interactive:
             add("prompt_user", list(prompt_user(tool_format=tool_format)))
         add("prompt_project", list(prompt_project(tool_format=tool_format)))
-        add(
-            "prompt_systeminfo",
-            list(prompt_systeminfo(workspace, tool_format=tool_format)),
-        )
-        add("prompt_timeinfo", list(prompt_timeinfo(tool_format=tool_format)))
         if include_tools:
             add(
                 "prompt_skills_summary",
@@ -268,11 +262,22 @@ def _build_prompt_sections(
         agent_name=agent_name,
         tool_format=tool_format,
         tools=tools,
-        workspace=workspace,
         include_tools=include_tools,
         include_examples=include_examples,
         is_selective=is_selective,
     )
+
+    dynamic_sections: list[tuple[str, list[Message]]] = []
+    if prompt == "full" and not (is_selective and not include_tools):
+        dynamic_sections.extend(
+            [
+                (
+                    "prompt_systeminfo",
+                    list(prompt_systeminfo(workspace, tool_format=tool_format)),
+                ),
+                ("prompt_timeinfo", list(prompt_timeinfo(tool_format=tool_format))),
+            ]
+        )
 
     cacheable_sections: list[tuple[str, list[Message]]] = []
     if include_agent_config:
@@ -286,10 +291,22 @@ def _build_prompt_sections(
                         include_path=True,
                         include_context_cmd=False,
                         include_user_context=include_user_context,
+                        include_runtime_context=False,
                     )
                 ),
             )
         )
+        agent_runtime_msgs = list(
+            prompt_workspace_runtime(
+                agent_path,
+                title="Agent Config",
+                include_path=True,
+            )
+        )
+        if agent_runtime_msgs:
+            dynamic_sections.append(
+                ("prompt_agent_workspace_runtime", agent_runtime_msgs)
+            )
     if include_workspace and workspace and workspace != agent_path:
         cacheable_sections.append(
             (
@@ -299,12 +316,17 @@ def _build_prompt_sections(
                         workspace,
                         include_context_cmd=False,
                         include_user_context=include_user_context,
+                        include_runtime_context=False,
                     )
                 ),
             )
         )
+        workspace_runtime_msgs = list(prompt_workspace_runtime(workspace))
+        if workspace_runtime_msgs:
+            dynamic_sections.append(
+                ("prompt_workspace_runtime", workspace_runtime_msgs)
+            )
 
-    dynamic_sections: list[tuple[str, list[Message]]] = []
     if include_context_cmd:
         for ws, title, section_name in [
             (
@@ -473,7 +495,11 @@ from .templates import (
     prompt_tools,
     prompt_user,
 )
-from .workspace import find_agent_files_in_tree, prompt_workspace
+from .workspace import (
+    find_agent_files_in_tree,
+    prompt_workspace,
+    prompt_workspace_runtime,
+)
 
 
 def get_prompt(
@@ -574,7 +600,7 @@ def get_prompt(
     for _, msgs in cacheable_sections:
         result.extend(msgs)
 
-    # Insert an explicit static/dynamic boundary before context_cmd output.
+    # Insert an explicit static/dynamic boundary before runtime context.
     # This keeps the prompt structure stable and makes the cacheable prefix
     # visible to both humans and providers with block-level prompt caching.
     if dynamic_sections and result:
@@ -645,5 +671,6 @@ __all__ = [
     "prompt_tools",
     "prompt_user",
     "prompt_workspace",
+    "prompt_workspace_runtime",
     "use_chat_history_context",
 ]

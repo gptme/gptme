@@ -79,6 +79,7 @@ from ..logmanager import conversations as conversations_module
 from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
 from ..util.content import is_message_command
+from ..util.file_storage import get_stored_path
 from ..util.uri import URI, FilePath, is_uri, parse_file_reference
 from .api_v2_agents import agents_api
 from .api_v2_common import (
@@ -365,10 +366,11 @@ def _fork_message_file_reference(
 def _copy_messages_for_fork(
     messages: list[Message], source_logdir: Path, dest_logdir: Path
 ) -> list[Message]:
-    """Copy a message slice into a new conversation, preserving attachments."""
+    """Copy a message slice with its attachments and content-addressed files."""
     source_attachments = source_logdir / "attachments"
     dest_attachments = dest_logdir / "attachments"
     attachment_copies: set[tuple[Path, Path]] = set()
+    snapshot_copies: set[tuple[Path, Path]] = set()
     copied_messages: list[Message] = []
 
     for msg in messages:
@@ -388,6 +390,12 @@ def _copy_messages_for_fork(
         new_file_hashes = {
             path_map.get(path, path): digest for path, digest in msg.file_hashes.items()
         }
+        for path, digest in msg.file_hashes.items():
+            source_snapshot = get_stored_path(source_logdir, digest, Path(path).suffix)
+            if source_snapshot is not None:
+                snapshot_copies.add(
+                    (source_snapshot, dest_logdir / "files" / source_snapshot.name)
+                )
         copied_messages.append(
             replace(msg, files=new_files, file_hashes=new_file_hashes)
         )
@@ -400,6 +408,10 @@ def _copy_messages_for_fork(
         else:
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, dest_path)
+
+    for source_path, dest_path in snapshot_copies:
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, dest_path)
 
     return copied_messages
 
@@ -2862,7 +2874,9 @@ def api_conversation_config_patch(conversation_id: str):
             _append_conversation_system_prompt(
                 new_system_msgs, _resolve_conversation_system_prompt(chat_config)
             )
-            manager.log = Log(new_system_msgs + remaining_msgs)
+            manager.log = Log(
+                manager.snapshot_message_files(new_system_msgs) + remaining_msgs
+            )
         manager.write()
 
         _invalidate_conversations_cache()
