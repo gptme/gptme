@@ -1125,16 +1125,21 @@ def main(
             raise click.UsageError(
                 "--tool-manifest cannot be combined with a configured TOOL_ALLOWLIST"
             )
+        saved_chat = None
+        if conversation_logdir is not None:
+            from ..config import ChatConfig
+
+            saved_chat = ChatConfig.from_logdir(conversation_logdir)
+            if saved_chat.tools is not None:
+                raise click.UsageError(
+                    "--tool-manifest cannot be combined with saved conversation tools"
+                )
+
         if ctx.get_parameter_source("gear") not in {
             ParameterSource.COMMANDLINE,
             ParameterSource.ENVIRONMENT,
         }:
-            configured_gear: int | None = None
-            if conversation_logdir is not None:
-                from ..config import ChatConfig
-
-                saved_chat = ChatConfig.from_logdir(conversation_logdir)
-                configured_gear = saved_chat.gear
+            configured_gear = saved_chat.gear if saved_chat is not None else None
             if configured_gear is None:
                 configured_gear = (
                     manifest_config.project.settings.gear
@@ -1341,6 +1346,20 @@ def main(
         stats_setup_fallback_ran = False
         try:
             stats_logdir = stats_root / "log"
+            conversation_logdir: Path | None = None
+            if resume:
+                if workspace == "@log":
+                    stats_resume_workspace: Path | None = None
+                elif workspace is None:
+                    stats_resume_workspace = Path.cwd()
+                else:
+                    stats_resume_workspace = Path(workspace)
+                try:
+                    conversation_logdir = get_logdir_resume(
+                        name, workspace=stats_resume_workspace
+                    )
+                except ValueError as e:
+                    raise click.UsageError(str(e)) from e
             if workspace == "@log":
                 stats_workspace_path = stats_logdir / "workspace"
                 stats_workspace_path.mkdir(parents=True, exist_ok=True)
@@ -1353,7 +1372,9 @@ def main(
                 manifest_workspace = (
                     Path.cwd() if workspace == "@log" else stats_workspace_path
                 )
-                stats_tool_allowlist_str = apply_tool_manifest(manifest_workspace)
+                stats_tool_allowlist_str = apply_tool_manifest(
+                    manifest_workspace, conversation_logdir
+                )
                 config = setup_config_from_cli(
                     workspace=stats_workspace_path,
                     logdir=stats_logdir,
