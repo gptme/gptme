@@ -1596,10 +1596,12 @@ def main(
         workspace_path = Path(workspace) if workspace else Path.cwd()
 
     # Setup complete configuration from CLI arguments and workspace
-    # For @log, workspace_path is logdir/workspace — use cwd so manifest
-    # resolution finds state/task-manifests.jsonl in the real workspace
-    # (same logic as the stats path above at lines 1149-1152).
-    manifest_workspace = Path.cwd() if workspace == "@log" else workspace_path
+    # Use workspace_path directly for manifest resolution. For --workspace @log,
+    # workspace_path = logdir/workspace, which in resumed sessions is a symlink to
+    # the original project. Using Path.cwd() broke manifest resolution when the user
+    # resumed from a different directory (cwd != project root). The stats path keeps
+    # its cwd fallback because stats always creates a fresh temp workspace.
+    manifest_workspace = workspace_path
     pre_manifest_allowlist = (
         tool_allowlist_str  # save before apply_tool_manifest overwrites
     )
