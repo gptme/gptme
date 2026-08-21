@@ -75,6 +75,36 @@ def test_load_task_manifest_rejects_comma_in_tool_name(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
+    ("server_name", "tool_name"),
+    [
+        ("git*", "search_code"),
+        ("github", "search_*"),
+        ("github", "search_?ode"),
+        ("github", "search_[co]de"),
+    ],
+)
+def test_load_task_manifest_rejects_glob_metacharacters(
+    tmp_path: Path, server_name: str, tool_name: str
+):
+    """Manifest entries name exact tools and must not expand as allowlist globs."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "task_type": "research",
+                "tools": [{"server_name": server_name, "tool_name": tool_name}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="glob metacharacters"):
+        load_task_manifest("research", tmp_path)
+
+
+@pytest.mark.parametrize(
     ("server_name", "tool_name", "match"),
     [
         # Forward slash in server_name → "github/evil.search_code" has "/" → file path

@@ -78,6 +78,15 @@ def _tool_name_from_record(tool: Any, *, line_no: int, task_type: str) -> str:
             f"tool_name {tn!r} must not contain commas"
         )
 
+    # Manifest records select exact tools. Glob metacharacters would turn a
+    # single record into a pattern and silently broaden the tool allowlist.
+    for name, value in (("server_name", sn), ("tool_name", tn)):
+        if any(char in value for char in "*?["):
+            raise ValueError(
+                f"Invalid tool manifest entry for {task_type!r} on line {line_no}: "
+                f"{name} {value!r} must not contain glob metacharacters"
+            )
+
     # --- Path-injection / arbitrary-code-execution guards ---
     # init_tools() treats any allowlist item whose text contains "/" or "\" or
     # ends with ".py" as a *file path* and calls load_from_file() on it, which
