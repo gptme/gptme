@@ -2399,9 +2399,22 @@ def test_multiple_mcp_only_manifest_aliases_extend_configured_allowlist(
     ]
 
 
-def test_mcp_only_manifest_alias_keeps_explicit_additions(tmp_path: Path, monkeypatch):
-    """Explicit tools combined with an MCP-only alias are still additive."""
-    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read")
+@pytest.mark.parametrize(
+    ("configured_tools", "expected_tools"),
+    [
+        (None, ["search.query", "shell"]),
+        ("read", ["read", "search.query", "shell"]),
+    ],
+)
+def test_mcp_only_manifest_alias_keeps_explicit_additions(
+    tmp_path: Path,
+    monkeypatch,
+    configured_tools: str | None,
+    expected_tools: list[str],
+):
+    """A mixed explicit list only extends a configured tool policy when one exists."""
+    if configured_tools is not None:
+        monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", configured_tools)
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
@@ -2417,7 +2430,7 @@ def test_mcp_only_manifest_alias_keeps_explicit_additions(tmp_path: Path, monkey
     )
 
     assert config.chat is not None
-    assert config.chat.tools == ["read", "search.query", "shell"]
+    assert config.chat.tools == expected_tools
 
 
 @pytest.mark.parametrize("preset_source", ["cli", "resume"])
