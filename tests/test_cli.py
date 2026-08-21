@@ -1770,6 +1770,62 @@ def test_tool_manifest_log_workspace_resolves_manifest_from_cwd(
     assert captured_workspace[-1] == Path.cwd()
 
 
+def test_tools_manifest_alias_log_workspace_resolves_manifest_from_cwd(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """--tools aliases under @log use cwd's task manifest."""
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read", "github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_setup_config_from_cli(**kwargs):
+        captured.update(kwargs)
+        return fake_config
+
+    monkeypatch.setattr(
+        "gptme.config.setup_config_from_cli", fake_setup_config_from_cli
+    )
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            "@log",
+            "--tools",
+            "code_review",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 0
+    assert captured["tool_allowlist"] == "code_review"
+    assert captured["manifest_workspace"] == Path.cwd()
+    assert str(captured["workspace"]).endswith("workspace")
+
+
 def test_tool_manifest_unavailable_tool_falls_back_gracefully(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
