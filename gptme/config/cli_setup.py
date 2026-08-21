@@ -400,11 +400,13 @@ def setup_config_from_cli(
     # Keep the exclusive boundary when an MCP-only manifest alias extends a
     # preset. Alias resolution expands that combination into concrete tools, so
     # compare the resolved CLI value with the original request before inspecting
-    # the configured base preset. An ordinary explicit override such as
-    # ``--tools read`` must retain non-interactive completion semantics.
-    manifest_alias_resolved = (
-        requested_tool_allowlist is not None
-        and tool_allowlist != requested_tool_allowlist
+    # the configured base preset. Additive values are produced by both explicit
+    # ``+alias`` requests and ``--tool-manifest``; either form extends the base
+    # policy. An ordinary explicit override such as ``--tools read`` must retain
+    # non-interactive completion semantics.
+    manifest_alias_resolved = requested_tool_allowlist is not None and (
+        tool_allowlist != requested_tool_allowlist
+        or requested_tool_allowlist.startswith("+")
     )
     requested_tool_names = (
         [tool.strip() for tool in requested_tool_allowlist.split(",")]

@@ -2573,6 +2573,32 @@ def test_mcp_only_manifest_alias_extends_preset(
     assert "complete" not in config.chat.tools
 
 
+@pytest.mark.parametrize("additive_request", ["+research", "+search.query"])
+def test_additive_manifest_tools_preserve_configured_preset(
+    tmp_path: Path, monkeypatch, additive_request: str
+):
+    """Both additive alias forms retain the configured preset policy."""
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist=additive_request,
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read", "search.query"]
+    assert "complete" not in config.chat.tools
+
+
 def test_manifest_alias_cannot_shadow_preset(tmp_path: Path):
     """A workspace manifest cannot replace a built-in capability preset."""
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"
