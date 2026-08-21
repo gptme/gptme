@@ -283,14 +283,14 @@ def test_get_manifest_preset_tools_returns_tool_list(tmp_path: Path):
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"code_review",'
-        '"builtin_tools":["read","grep"],'
+        '"builtin_tools":["read","shell"],'
         '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
         encoding="utf-8",
     )
 
     tools = get_manifest_preset_tools("code_review", tmp_path)
 
-    assert tools == ["read", "grep", "github.search_code"]
+    assert tools == ["read", "shell", "github.search_code"]
 
 
 def test_get_manifest_preset_tools_returns_none_for_missing_file(tmp_path: Path):

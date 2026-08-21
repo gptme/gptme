@@ -2295,7 +2295,7 @@ def test_normalize_tool_allowlist_expands_manifest_alias(tmp_path: Path):
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"code_review",'
-        '"builtin_tools":["read","grep"],'
+        '"builtin_tools":["read","shell"],'
         '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
         encoding="utf-8",
     )
@@ -2304,7 +2304,7 @@ def test_normalize_tool_allowlist_expands_manifest_alias(tmp_path: Path):
 
     assert result is not None
     assert "read" in result
-    assert "grep" in result
+    assert "shell" in result
     assert "github.search_code" in result
     # The alias name itself should not appear in the result
     assert "code_review" not in result
@@ -2316,7 +2316,7 @@ def test_normalize_tool_allowlist_manifest_alias_with_extra_tool(tmp_path: Path)
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"code_review",'
-        '"builtin_tools":["read","grep"],'
+        '"builtin_tools":["read","shell"],'
         '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
         encoding="utf-8",
     )
@@ -2324,10 +2324,7 @@ def test_normalize_tool_allowlist_manifest_alias_with_extra_tool(tmp_path: Path)
     result = _normalize_tool_allowlist(["code_review", "shell"], workspace=tmp_path)
 
     assert result is not None
-    assert "read" in result
-    assert "grep" in result
-    assert "github.search_code" in result
-    assert "shell" in result
+    assert result == ["read", "shell", "github.search_code"]
 
 
 def test_normalize_tool_allowlist_unknown_name_without_workspace_raises():
@@ -2360,7 +2357,7 @@ def test_setup_config_from_cli_manifest_alias_via_tools(tmp_path: Path):
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"code_review",'
-        '"builtin_tools":["read","grep"],'
+        '"builtin_tools":["read","shell"],'
         '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
         encoding="utf-8",
     )
@@ -2379,7 +2376,7 @@ def test_setup_config_from_cli_manifest_alias_via_tools(tmp_path: Path):
     assert config.chat is not None
     tools = config.chat.tools or []
     assert "read" in tools
-    assert "grep" in tools
+    assert "shell" in tools
     assert "github.search_code" in tools
     # The alias name should not appear in the saved config
     assert "code_review" not in tools
@@ -2669,6 +2666,22 @@ def test_manifest_alias_cannot_shadow_preset_when_combined(tmp_path: Path):
 
     assert config.chat is not None
     assert config.chat.tools == ["read", "search.query"]
+
+
+def test_manifest_alias_rejects_unknown_builtin_tool(tmp_path: Path):
+    """Manifest builtin typos fail at alias expansion with manifest context."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"review","builtin_tools":["red"],"tools":['
+        '{"server_name":"github","tool_name":"get_issue"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError, match=r"Invalid builtin_tools entry 'red'.*manifest.*review"
+    ):
+        _normalize_tool_allowlist(["review"], tmp_path)
 
 
 def test_unreadable_manifest_falls_back_to_unknown_tool_error(
