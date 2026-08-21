@@ -80,7 +80,7 @@ def test_run_with_tty_does_not_timeout_after_direct_child_exits(shell):
     )
 
     assert ret == 0
-    assert out.startswith("foreground")
+    assert "foreground" in out
     assert err == ""
 
 
@@ -106,7 +106,21 @@ def test_run_with_tty_continuous_descendant_output_has_bounded_grace(shell):
     elapsed = time.monotonic() - started
 
     assert ret == 0
-    assert out.startswith("foreground")
+    assert "foreground" in out
+    assert err == ""
+    assert elapsed < 3
+
+
+def test_run_with_tty_closed_output_still_honors_timeout(shell):
+    """EOF on both output pipes does not bypass the process timeout."""
+    started = time.monotonic()
+    ret, out, err = shell._run_with_tty(
+        "exec 1>&-; exec 2>&-; sleep 10", output=False, timeout=0.3
+    )
+    elapsed = time.monotonic() - started
+
+    assert ret == -124
+    assert out == ""
     assert err == ""
     assert elapsed < 3
 

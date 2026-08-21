@@ -578,7 +578,7 @@ class ShellSession:
                     append_text(tag, decoder.decode(b"", final=True))
 
             try:
-                while sentinels < 2:
+                while sentinels < 2 or exit_code is None:
                     # The caller timeout applies while the direct child is running.
                     # Once it exits, use the separate post-exit grace below: a
                     # descendant retaining the pipes must not turn success into -124.
