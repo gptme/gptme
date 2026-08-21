@@ -2567,6 +2567,90 @@ def test_tool_manifest_builtin_tools_config_setup_failure_preserves_builtins(
     )
 
 
+def test_tool_manifest_all_builtins_unavailable_falls_back_to_defaults(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """When ALL entries in a non-additive (builtin_tools) manifest are unavailable,
+    _manifest_fallback_allowlist must return pre_manifest_allowlist (the user's configured
+    defaults) rather than "" (empty string), which would disable ALL tools.
+
+    Regression for fp 8c539e6c19c1 — empty ",".join([]) passed as tool_allowlist="" to
+    setup_config_from_cli, whose tool_allowlist=="" branch sets resolved_tool_allowlist=[].
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    # builtin_tools manifest — non-additive allowlist (no '+' prefix).
+    # MCP tool is listed but also unavailable so ALL entries end up stripped.
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":['
+        '{"server_name":"github","tool_name":"search_code"}],'
+        '"builtin_tools":["read","shell"]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read", "shell", "save"],  # default tools from config
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+            save=lambda: None,
+        ),
+        project=None,
+    )
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        return fake_config
+
+    # All manifest entries are unavailable: both builtins and the MCP tool
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda: [
+            SimpleNamespace(name="read", is_available=False),
+            SimpleNamespace(name="shell", is_available=False),
+            SimpleNamespace(name="github.search_code", is_available=False),
+        ],
+    )
+    monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Traceback" not in result.output
+    # setup_config_from_cli must be called with None (pre_manifest_allowlist = use defaults),
+    # NOT with "" (which would disable ALL tools).
+    assert len(setup_calls) == 1, f"Expected 1 setup call, got: {setup_calls}"
+    assert setup_calls[0] is None or setup_calls[0] != "", (
+        f"setup_config must not receive empty string allowlist; got: {setup_calls[0]!r}"
+    )
+
+
 def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):
     # --model "  " should also be caught at parse time, same as empty string.
     result = runner.invoke(
