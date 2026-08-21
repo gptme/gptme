@@ -1279,6 +1279,96 @@ def test_tool_manifest_cannot_combine_with_configured_gear_tools(
     assert "Traceback" not in result.output
 
 
+@pytest.mark.parametrize("saved_tools", ['["read-only"]', "[]"])
+def test_tool_manifest_cannot_combine_with_resumed_conversation_tools(
+    runner: CliRunner, tmp_path: Path, saved_tools: str
+):
+    """A saved conversation's explicit tool boundary must not be replaced."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":[],"builtin_tools":["read","grep"]}\n',
+        encoding="utf-8",
+    )
+
+    conversation_name = f"manifest-tools-{tmp_path.name}-{len(saved_tools)}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True, exist_ok=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{tmp_path.resolve()}"\ntools = {saved_tools}\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--resume",
+            "--name",
+            conversation_name,
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with saved conversation tools"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
+def test_show_prompt_stats_tool_manifest_checks_resumed_conversation_gear(
+    runner: CliRunner, tmp_path: Path
+):
+    """Prompt stats applies the same resumed-session conflict checks as chat."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text('{"task_type":"research","tools":[]}\n', encoding="utf-8")
+
+    conversation_name = f"manifest-stats-gear-{tmp_path.name}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True, exist_ok=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{tmp_path.resolve()}"\ngear = 2\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--resume",
+            "--name",
+            conversation_name,
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with a configured gear that sets tools"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
 def test_tool_manifest_cannot_combine_with_resumed_conversation_gear_tools(
     runner: CliRunner, tmp_path: Path
 ):
