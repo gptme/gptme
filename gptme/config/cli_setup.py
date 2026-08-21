@@ -65,13 +65,16 @@ def _is_mcp_tool_name(value: str) -> bool:
 
 def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
     """Resolve manifest aliases before applying CLI allowlist precedence."""
-    if tool_allowlist.startswith(("+", "-")):
+    if tool_allowlist.startswith("-"):
         return tool_allowlist
 
     from ..tool_manifests import load_task_manifest
 
+    additive = tool_allowlist.startswith("+")
     requested_tools = [
-        tool.strip() for tool in tool_allowlist.split(",") if tool.strip()
+        tool.strip()
+        for tool in tool_allowlist.removeprefix("+").split(",")
+        if tool.strip()
     ]
     manifest_aliases: list[str] = []
     explicit_manifest_tools: list[str] = []
@@ -113,7 +116,7 @@ def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
 
     presets = [tool for tool in non_alias_tools if tool in TOOL_PRESETS]
     if presets:
-        if len(non_alias_tools) != 1:
+        if additive or len(non_alias_tools) != 1:
             preset_list = ", ".join(presets)
             raise ValueError(
                 f"Tool preset(s) {preset_list} cannot be combined with other tools"
@@ -400,13 +403,11 @@ def setup_config_from_cli(
     # Keep the exclusive boundary when an MCP-only manifest alias extends a
     # preset. Alias resolution expands that combination into concrete tools, so
     # compare the resolved CLI value with the original request before inspecting
-    # the configured base preset. Additive values are produced by both explicit
-    # ``+alias`` requests and ``--tool-manifest``; either form extends the base
-    # policy. An ordinary explicit override such as ``--tools read`` must retain
-    # non-interactive completion semantics.
-    manifest_alias_resolved = requested_tool_allowlist is not None and (
-        tool_allowlist != requested_tool_allowlist
-        or requested_tool_allowlist.startswith("+")
+    # the configured base preset. An ordinary additive tool such as ``+shell``
+    # must retain non-interactive completion semantics.
+    manifest_alias_resolved = (
+        requested_tool_allowlist is not None
+        and tool_allowlist != requested_tool_allowlist
     )
     requested_tool_names = (
         [tool.strip() for tool in requested_tool_allowlist.split(",")]
