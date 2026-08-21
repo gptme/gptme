@@ -1824,10 +1824,15 @@ def test_tool_manifest_wires_allowlist_into_config(
     assert seen["tool_allowlist"] == "+github.search_code,time.get_current_time"
 
 
-def test_tool_manifest_log_workspace_resolves_manifest_from_cwd(
+def test_tool_manifest_log_workspace_resolves_manifest_from_logdir_workspace(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
-    """--workspace @log must resolve manifests from cwd, not logdir/workspace."""
+    """--workspace @log resolves manifests from logdir/workspace, not cwd.
+
+    Using cwd broke manifest resolution when the user resumed from a different
+    directory (cwd != project root). workspace_path = logdir/workspace is correct
+    because in resumed sessions it is a symlink to the original project directory.
+    """
     from gptme.tool_manifests import TaskToolManifest
 
     captured_workspace: list[Path] = []
@@ -1883,7 +1888,14 @@ def test_tool_manifest_log_workspace_resolves_manifest_from_cwd(
     )
 
     assert result.exit_code == 0
-    assert captured_workspace[-1] == Path.cwd()
+    # manifest_workspace must be logdir/workspace (name == "workspace"), not cwd.
+    # Using cwd broke manifest resolution when a user resumed from a different
+    # directory. workspace_path = logdir/workspace is correct because in resumed
+    # sessions it is a symlink to the original project directory.
+    assert captured_workspace, "load_task_manifest was never called"
+    assert captured_workspace[-1].name == "workspace", (
+        f"Expected manifest resolved from logdir/workspace, got {captured_workspace[-1]}"
+    )
 
 
 def test_tool_manifest_unavailable_tool_falls_back_gracefully(
