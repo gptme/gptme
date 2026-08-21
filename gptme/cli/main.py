@@ -1095,7 +1095,9 @@ def main(
             return "+" + ",".join(remaining) if remaining else pre_manifest_allowlist
         return ",".join(remaining)
 
-    def apply_tool_manifest(workspace_path: Path) -> str | None:
+    def apply_tool_manifest(
+        workspace_path: Path, conversation_logdir: Path | None = None
+    ) -> str | None:
         if not tool_manifest_type:
             return tool_allowlist_str
         if ctx.get_parameter_source("tool_allowlist") in {
@@ -1127,12 +1129,19 @@ def main(
             ParameterSource.COMMANDLINE,
             ParameterSource.ENVIRONMENT,
         }:
-            configured_gear = (
-                manifest_config.project.settings.gear
-                if manifest_config.project
-                and manifest_config.project.settings.gear is not None
-                else manifest_config.user.settings.gear
-            )
+            configured_gear: int | None = None
+            if conversation_logdir is not None:
+                from ..config import ChatConfig
+
+                saved_chat = ChatConfig.from_logdir(conversation_logdir)
+                configured_gear = saved_chat.gear
+            if configured_gear is None:
+                configured_gear = (
+                    manifest_config.project.settings.gear
+                    if manifest_config.project
+                    and manifest_config.project.settings.gear is not None
+                    else manifest_config.user.settings.gear
+                )
             if configured_gear is not None:
                 configured_gear_tools = resolve_gear(configured_gear).tool_allowlist
                 if configured_gear_tools is not None:
@@ -1561,7 +1570,7 @@ def main(
     # (it would retry with identical tools that already failed).
     setup_fallback_ran = False
     try:
-        tool_allowlist_str = apply_tool_manifest(manifest_workspace)
+        tool_allowlist_str = apply_tool_manifest(manifest_workspace, logdir)
         config = setup_config_from_cli(
             workspace=workspace_path,
             logdir=logdir,
