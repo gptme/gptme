@@ -1433,18 +1433,21 @@ def test_setup_config_from_cli_read_only_preset_does_not_add_complete(tmp_path):
     assert "complete" not in (config.chat.tools or [])
 
 
+@pytest.mark.parametrize("configured_base", ["environment", "resume"])
 def test_setup_config_from_cli_explicit_read_tool_adds_complete_noninteractive(
-    tmp_path,
+    tmp_path, monkeypatch, configured_base: str
 ):
-    """--tools read (explicit, not a preset) must still get 'complete' in non-interactive mode.
-
-    Greptile P1: expansion-based detection conflated an explicit ["read"] allowlist
-    with the read-only preset, incorrectly suppressing 'complete'.
-    """
+    """An explicit tool override must not inherit preset completion semantics."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     logdir = tmp_path / "logs"
-    logdir.mkdir()
+    if configured_base == "environment":
+        monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+    else:
+        logdir.mkdir()
+        (logdir / "config.toml").write_text(
+            '[chat]\ntools = ["read-only"]\n', encoding="utf-8"
+        )
 
     config = setup_config_from_cli(
         workspace=workspace,
@@ -1458,10 +1461,7 @@ def test_setup_config_from_cli_explicit_read_tool_adds_complete_noninteractive(
     )
 
     assert config.chat is not None
-    assert "complete" in (config.chat.tools or []), (
-        "Non-interactive session with explicit --tools read must include 'complete'; "
-        f"got tools={config.chat.tools}"
-    )
+    assert config.chat.tools == ["read", "complete"]
 
 
 def test_setup_config_from_cli_read_only_preset_survives_noninteractive_resume(
