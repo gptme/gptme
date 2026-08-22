@@ -69,7 +69,7 @@ def build_skill_prompt(
     """Materialize a skill and render it as a user prompt."""
     if skill.is_stub:
         skill = index.materialize_lesson(skill)
-    name = skill.metadata.name or skill.path.stem
+    name = (skill.metadata.name or skill.path.stem).strip()
     header = f"Skill invoked: /{SKILL_COMMAND_PREFIX}{name}"
     if full_args:
         header += f" {full_args}"
@@ -78,7 +78,7 @@ def build_skill_prompt(
 
 
 def _make_skill_handler(skill: Lesson, index: LessonIndex) -> CommandHandler:
-    name = skill.metadata.name or skill.path.stem
+    name = (skill.metadata.name or skill.path.stem).strip()
 
     def handler(ctx: CommandContext) -> Generator[Message, None, None]:
         from ..prompt_queue import queue_prompt  # fmt: skip
@@ -88,7 +88,12 @@ def _make_skill_handler(skill: Lesson, index: LessonIndex) -> CommandHandler:
         ctx.manager.undo(1, quiet=True)
         ctx.manager.write()
 
-        content = build_skill_prompt(skill, index, ctx.full_args.strip(), ctx.args)
+        try:
+            content = build_skill_prompt(skill, index, ctx.full_args.strip(), ctx.args)
+        except Exception as e:
+            logger.warning("Failed to build prompt for skill %r: %s", name, e)
+            yield from ()
+            return
         queue_prompt(ctx.manager.logdir, content)
         logger.debug("Queued skill prompt for /%s%s", SKILL_COMMAND_PREFIX, name)
         # Yield nothing: the chat loop drains the queue on its next iteration
@@ -101,14 +106,27 @@ def _make_skill_handler(skill: Lesson, index: LessonIndex) -> CommandHandler:
     return handler
 
 
-def _loaded_tool_names() -> set[str]:
+_TOOL_NAMES_UNAVAILABLE = object()  # sentinel: get_tools() failed
+
+
+def _loaded_tool_names() -> set[str] | object:
+    """Return the set of loaded tool names, or ``_TOOL_NAMES_UNAVAILABLE`` on error.
+
+    Callers must treat the sentinel as "all names are occupied" so a failing
+    get_tools() never accidentally grants a bare ``/<name>`` alias to a skill
+    that shares its name with a real tool.
+    """
     try:
         from ..tools import get_tools  # fmt: skip
 
         return {tool.name for tool in get_tools()}
     except Exception as e:  # pragma: no cover - defensive
-        logger.debug("Could not list loaded tools for skill alias check: %s", e)
-        return set()
+        logger.warning(
+            "Could not list loaded tools for skill alias check — "
+            "bare skill aliases suppressed: %s",
+            e,
+        )
+        return _TOOL_NAMES_UNAVAILABLE
 
 
 def register_skill_commands(index: LessonIndex | None = None) -> list[str]:
@@ -139,6 +157,9 @@ def register_skill_commands(index: LessonIndex | None = None) -> list[str]:
         if index is None:
             index = LessonIndex()
         tool_names = _loaded_tool_names()
+        # When tool enumeration failed, treat every name as occupied so no bare
+        # alias can accidentally shadow a real tool command.
+        tools_available = tool_names is not _TOOL_NAMES_UNAVAILABLE
 
         for skill in index.lessons:
             name = skill.metadata.name
@@ -172,9 +193,9 @@ def register_skill_commands(index: LessonIndex | None = None) -> list[str]:
                     name,
                     canonical,
                 )
-            elif name in tool_names:
+            elif not tools_available or name in tool_names:  # type: ignore[operator]
                 logger.debug(
-                    "Skill %r collides with loaded tool; only /%s registered",
+                    "Skill %r collides with loaded tool (or tool list unavailable); only /%s registered",
                     name,
                     canonical,
                 )
