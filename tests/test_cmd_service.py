@@ -650,7 +650,7 @@ def test_launchd_plist_strips_control_characters(tmp_path: Path) -> None:
     special_work.mkdir()
     out_dir = tmp_path / "launchd"
     runner = CliRunner()
-    # Inject control chars (\x01, \x0B) into the model string via _generate_launchd_plist directly
+    # Inject control chars (\x01, \x0B) and a lone surrogate (\uD800) into the model
     with patch(
         "gptme.cli.cmd_service._resolve_work_dir",
         return_value=special_work,
@@ -662,7 +662,7 @@ def test_launchd_plist_strips_control_characters(tmp_path: Path) -> None:
                 "--name",
                 "testagent",
                 "--model",
-                "gpt-4o\x01mini\x0b",
+                "gpt-4o\x01mini\x0b\ud800",
                 "--work-dir",
                 str(special_work),
                 "--output-dir",
@@ -677,9 +677,10 @@ def test_launchd_plist_strips_control_characters(tmp_path: Path) -> None:
     # Must parse as valid XML (control chars would cause a ParseError)
     tree = ET.fromstring(plist_text)
     assert tree.tag == "plist"
-    # Control chars must be gone from the output
+    # Control chars and lone surrogates must be gone from the output
     assert "\x01" not in plist_text
     assert "\x0b" not in plist_text
+    assert "\ud800" not in plist_text
 
 
 def test_macos_path_with_systemd_invalid_chars_accepted(tmp_path: Path) -> None:
