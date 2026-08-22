@@ -47,13 +47,17 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          if uv audit --preview-features audit-command \
+          uv audit --preview-features audit-command \
               --output-format sarif \
               --ignore PYSEC-2026-2151 \
               --ignore CVE-2025-69872 \
               --ignore PYSEC-2026-2447 \
               --ignore PYSEC-2026-3447 \
-              > /tmp/audit_tmp.sarif; then
+              > /tmp/audit_tmp.sarif
+          audit_exit=$?
+          # exit 0 = no advisories; exit 1 = advisories found — both produce valid SARIF.
+          # Any other exit code is a tooling failure (bad pyproject, network error, etc.).
+          if [ "$audit_exit" -eq 0 ] || [ "$audit_exit" -eq 1 ]; then
             if [ -s /tmp/audit_tmp.sarif ]; then
               mv /tmp/audit_tmp.sarif audit.sarif
               echo "SARIF report generated ($(wc -c < audit.sarif) bytes)."
@@ -61,7 +65,7 @@ jobs:
               echo "::warning::SARIF generation produced empty output (non-blocking)."
             fi
           else
-            echo "::warning::SARIF generation failed (non-blocking). See log above."
+            echo "::warning::SARIF generation failed with exit $audit_exit (non-blocking). See log above."
           fi
 
       - name: Upload SARIF to GitHub Security tab
