@@ -16,6 +16,7 @@ from .cli.setup import ask_for_api_key
 from .commands import init_commands
 from .config import Config, get_config
 from .hooks import init_hooks
+from .lessons.skill_commands import register_skill_commands
 from .llm import guess_provider_from_config, init_llm, is_custom_provider
 from .llm.llm_gptme import GptmeAuthError
 from .llm.models import (
@@ -82,6 +83,9 @@ def init(
             first_line,
         )
     init_tools(tool_allowlist)
+    # Expose skills as /skill:<name> commands (after tools so bare aliases can
+    # avoid shadowing loaded tool names). Never raises.
+    register_skill_commands()
     init_hooks(interactive=interactive, no_confirm=no_confirm, server=server)
 
     config = get_config()
