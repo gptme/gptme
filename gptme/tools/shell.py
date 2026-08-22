@@ -24,6 +24,7 @@ Configuration:
 """
 
 import atexit
+import codecs
 import logging
 import os
 import re
@@ -37,7 +38,7 @@ import time
 from collections.abc import Generator
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import IO, TYPE_CHECKING
 
 from ..message import Message
 from ..sandbox import (
@@ -449,8 +450,15 @@ class ShellSession:
         try:
             tty_stdin = open("/dev/tty", "rb")
         except OSError:
-            logger.warning("Could not open /dev/tty, falling back to normal run")
-            return self._run_pipe(command, output=output, timeout=timeout)
+            # /dev/tty is unavailable (CI, non-TTY container, etc.).  Don't fall
+            # back to _run_pipe: that uses the persistent bash session, so shell
+            # builtins like 'exit' would kill the session and deadlock the
+            # delimiter-read loop.  Instead keep spawning a fresh subprocess (which
+            # is what this method does) but with /dev/null as stdin — sudo won't
+            # be able to prompt for a password, but non-interactive commands work
+            # correctly and the pipe EOF is always clean.
+            logger.warning("Could not open /dev/tty, using /dev/null as stdin")
+            tty_stdin = open("/dev/null", "rb")
 
         try:
             # Inherit session env overrides so sudo commands behave consistently
@@ -480,33 +488,159 @@ class ShellSession:
                 cwd=self._cwd or os.getcwd(),
                 env=session_env,
             )
+            assert proc.stdout is not None and proc.stderr is not None
+
+            from queue import Empty, Queue
+
+            # Use threads to drain stdout and stderr concurrently — the same
+            # mechanism as communicate(), but with real-time printing as data
+            # arrives. select() alone is unreliable when /dev/tty is the child's
+            # stdin and the process produces no output before exiting.
+            data_q: Queue[tuple[str, bytes] | None] = Queue()
+
+            stop_readers = threading.Event()
+
+            def _reader(src: IO[bytes], tag: str) -> None:
+                fd = src.fileno()
+                try:
+                    while True:
+                        readable, _, _ = select.select([fd], [], [], 0.1)
+                        if not readable:
+                            if stop_readers.is_set():
+                                break
+                            continue
+                        chunk = os.read(fd, 2**16)
+                        if not chunk:
+                            break
+                        data_q.put((tag, chunk))
+                except OSError:
+                    if not stop_readers.is_set():
+                        raise
+                finally:
+                    data_q.put(None)  # one sentinel per thread
+
+            t_out = threading.Thread(
+                target=_reader, args=(proc.stdout, "out"), daemon=True
+            )
+            t_err = threading.Thread(
+                target=_reader, args=(proc.stderr, "err"), daemon=True
+            )
+            t_out.start()
+            t_err.start()
+
+            stdout_chunks: list[str] = []
+            stderr_chunks: list[str] = []
+            decoders = {
+                "out": codecs.getincrementaldecoder("utf-8")(errors="replace"),
+                "err": codecs.getincrementaldecoder("utf-8")(errors="replace"),
+            }
+            sentinels = 0
+            exited_at: float | None = None
+            exit_code: int | None = None
+            start_time = time.monotonic() if timeout is not None else None
+
+            def append_text(tag: str, text: str) -> None:
+                if not text:
+                    return
+                if tag == "out":
+                    stdout_chunks.append(text)
+                    if output:
+                        print(text, end="", file=sys.stdout)
+                else:
+                    stderr_chunks.append(text)
+                    if output:
+                        print(text, end="", file=sys.stderr)
+
+            def consume(item: tuple[str, bytes] | None) -> None:
+                nonlocal sentinels
+                if item is None:
+                    sentinels += 1
+                    return
+
+                tag, chunk = item
+                append_text(tag, decoders[tag].decode(chunk))
+
+            def finish_readers(*, stop: bool = False) -> None:
+                if stop:
+                    stop_readers.set()
+                    if proc.stdout is not None:
+                        proc.stdout.close()
+                    if proc.stderr is not None:
+                        proc.stderr.close()
+                t_out.join()
+                t_err.join()
+                while True:
+                    try:
+                        consume(data_q.get_nowait())
+                    except Empty:
+                        break
+                for tag, decoder in decoders.items():
+                    append_text(tag, decoder.decode(b"", final=True))
+
             try:
-                stdout_data, stderr_data = proc.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                stdout_data, stderr_data = proc.communicate()
-                stdout_str = trim_blank_lines(
-                    stdout_data.decode("utf-8", errors="replace")
-                )
-                stderr_str = trim_blank_lines(
-                    stderr_data.decode("utf-8", errors="replace")
-                )
-                return -124, stdout_str, stderr_str
+                while sentinels < 2 or exit_code is None:
+                    # The caller timeout applies while the direct child is running.
+                    # Once it exits, use the separate post-exit grace below: a
+                    # descendant retaining the pipes must not turn success into -124.
+                    if (
+                        exit_code is None
+                        and timeout is not None
+                        and start_time is not None
+                    ):
+                        elapsed = time.monotonic() - start_time
+                        if elapsed >= timeout:
+                            if proc.poll() is None:
+                                proc.kill()
+                            proc.wait()
+                            finish_readers(stop=True)
+                            return (
+                                -124,
+                                trim_blank_lines("".join(stdout_chunks)),
+                                trim_blank_lines("".join(stderr_chunks)),
+                            )
+                        get_timeout = min(0.05, timeout - elapsed)
+                    else:
+                        get_timeout = 0.05
+
+                    try:
+                        consume(data_q.get(timeout=get_timeout))
+                    except Empty:
+                        pass
+
+                    if exit_code is None:
+                        polled = proc.poll()
+                        if polled is not None:
+                            exit_code = polled
+                            exited_at = time.monotonic()
+                    elif exited_at is not None and time.monotonic() - exited_at >= 1.0:
+                        # Bound the total post-exit drain time: a background
+                        # descendant may retain and continuously write to a pipe.
+                        stop_readers.set()
+                        break
             except KeyboardInterrupt:
-                proc.kill()
-                proc.communicate()
-                raise
+                print()
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait()
+                finish_readers(stop=True)
+                partial_stdout = trim_blank_lines("".join(stdout_chunks))
+                partial_stderr = trim_blank_lines("".join(stderr_chunks))
+                raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
+
+            if exit_code is None:
+                exit_code = proc.wait()
+            # A background descendant may retain the pipes. Signal the readers
+            # after the grace; each reader still consumes one final readable
+            # chunk so data already buffered in the pipe is not discarded.
+            finish_readers(stop=sentinels < 2)
         finally:
             tty_stdin.close()
 
-        stdout_str = trim_blank_lines(stdout_data.decode("utf-8", errors="replace"))
-        stderr_str = trim_blank_lines(stderr_data.decode("utf-8", errors="replace"))
-        if output:
-            if stdout_str:
-                print(stdout_str, file=sys.stdout)
-            if stderr_str:
-                print(stderr_str, file=sys.stderr)
-        return proc.returncode, stdout_str, stderr_str
+        return (
+            exit_code,
+            trim_blank_lines("".join(stdout_chunks)),
+            trim_blank_lines("".join(stderr_chunks)),
+        )
 
     def _run(
         self, command: str, output=True, tries=0, timeout: float | None = None
