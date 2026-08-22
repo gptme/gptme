@@ -40,7 +40,7 @@ SKILL_COMMAND_PREFIX = "skill:"
 # aliases not count as collisions.
 _registered_skill_commands: dict[str, CommandHandler] = {}
 
-_ARG_PATTERN = re.compile(r"\$ARGUMENTS\[(\d+)\]|\$ARGUMENTS|\$(\d+)")
+_ARG_PATTERN = re.compile(r"\$ARGUMENTS\[(\d+)\]|\$ARGUMENTS\b|\$(\d+)")
 
 
 def substitute_arguments(body: str, full_args: str, args: list[str]) -> str:
@@ -156,6 +156,12 @@ def register_skill_commands(index: LessonIndex | None = None) -> list[str]:
                 continue
 
             canonical = f"{SKILL_COMMAND_PREFIX}{name}"
+            if canonical in _command_registry:
+                logger.debug(
+                    "Skill canonical %r already registered by another component; skipping",
+                    canonical,
+                )
+                continue
             register_command(canonical, handler)
             _registered_skill_commands[canonical] = handler
             registered.append(canonical)

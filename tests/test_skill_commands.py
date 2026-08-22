@@ -81,6 +81,13 @@ def test_substitute_arguments_preserves_dollar_amounts():
     assert out == "Set budget to $100 and limit to $ARGUMENTS[99]."
 
 
+def test_substitute_arguments_word_boundary():
+    # $ARGUMENTS adjacent to another word char must not partially match
+    body = "Use $ARGUMENTSvar and $ARGUMENTS normally"
+    out = substitute_arguments(body, "x", ["x"])
+    assert out == "Use $ARGUMENTSvar and x normally"
+
+
 def test_register_skill_commands_registers_canonical_and_alias(skills_root: Path):
     _write_skill(skills_root, "demo", "A demo skill", DEMO_BODY)
 
@@ -201,6 +208,22 @@ def test_reregistration_is_idempotent_and_drops_stale(skills_root: Path):
     assert third == []
     assert "skill:demo" not in _command_registry
     assert "demo" not in _command_registry
+
+
+def test_canonical_does_not_clobber_foreign_skill_prefix_command(skills_root: Path):
+    """A foreign command with 'skill:' prefix is not overwritten by our registration."""
+    _write_skill(skills_root, "demo", "A demo skill", DEMO_BODY)
+
+    def other(ctx):
+        yield from ()
+
+    register_command("skill:demo", other)
+    try:
+        registered = register_skill_commands()
+        assert "skill:demo" not in registered
+        assert _command_registry["skill:demo"] is other
+    finally:
+        unregister_command("skill:demo")
 
 
 def test_reregistration_does_not_clobber_foreign_command(skills_root: Path):
