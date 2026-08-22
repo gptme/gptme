@@ -5,6 +5,15 @@ process exits without binding port". The `serve` command was marked
 `# pragma: no cover`, so any startup regression (silent sys.exit, unhandled
 exception swallowed by click, port-bind failure) would go undetected.
 
+#3589 root cause: ``_install_sigterm_handler()`` was called just before
+``app.run()``, AFTER the slow initialisation phase (model init, telemetry).
+If SIGTERM arrived during that phase (e.g. from ``timeout 10 uv run ...``),
+Python's default SIGTERM handler terminated the process immediately with no
+diagnostic output — the user saw config logs then silence.
+
+Fix: install the SIGTERM handler right after ``init_logging()``, before the
+slow init work, so any SIGTERM during startup is caught and logged.
+
 This test spawns the real server as a subprocess and polls the port directly.
 """
 
@@ -106,6 +115,54 @@ def test_server_responds_to_api_root(server_process):
             assert resp.status == 200
     except urllib.error.URLError as exc:
         pytest.fail(f"HTTP request to {url} failed: {exc}")
+
+
+def test_sigterm_during_init_produces_output(tmp_path):
+    """SIGTERM during the slow init phase must produce diagnostic output.
+
+    Regression for gptme/gptme#3589: before the fix, SIGTERM arriving while
+    model/telemetry init was running used Python's default handler (immediate
+    silent termination). After the fix, the handler is installed early and
+    raises KeyboardInterrupt, which Click routes to an Aborted message.
+    """
+    env = os.environ.copy()
+    env["GPTME_DISABLE_AUTH"] = "1"
+    env["HOME"] = str(tmp_path)
+    for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"):
+        env.pop(key, None)
+    port = _find_free_port()
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "gptme.server.cli",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+    # Send SIGTERM almost immediately — before the server has had time to bind.
+    # Enough time for init_logging() to run (so the handler is installed) but
+    # before app.run().  0.5 s is generous; the handler is installed in the
+    # first few milliseconds of serve().
+    time.sleep(0.5)
+    proc.send_signal(__import__("signal").SIGTERM)
+    try:
+        stdout, stderr = proc.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, stderr = proc.communicate()
+    combined = (stdout + stderr).decode(errors="replace")
+    assert "SIGTERM" in combined or "gracefully" in combined or "Aborted" in combined, (
+        "Server received SIGTERM during init but produced NO diagnostic output — "
+        "silent startup failure regression (gptme/gptme#3589).\n"
+        f"stdout:\n{stdout.decode(errors='replace')}\n"
+        f"stderr:\n{stderr.decode(errors='replace')}"
+    )
 
 
 def test_server_exits_nonzero_on_bad_webui_dir(tmp_path):

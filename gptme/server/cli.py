@@ -117,8 +117,14 @@ def _install_sigterm_handler() -> None:
     (see `_start_parent_death_watcher`) actually shut the server down gracefully,
     as its comment already assumes.
 
+    This must be called early in the `serve` command — before any slow
+    initialisation (model init, telemetry) — so that a ``timeout``-imposed
+    SIGTERM during startup is caught here rather than using Python's default
+    handler (which terminates immediately with no diagnostic output, giving the
+    "silent startup failure" described in gptme/gptme#3589).
+
     Signal handlers can only be installed from the main thread; this is called
-    from the `serve` command before `app.run()`, which runs there.
+    from the `serve` command, which runs there.
     """
 
     def _handle_sigterm(signum, frame):
@@ -249,6 +255,10 @@ def serve(
 ):  # pragma: no cover
     """Starts a server and web UI for gptme."""
     init_logging(verbose, compact=False)
+    # Install SIGTERM handler early so a timeout-imposed SIGTERM during the
+    # (potentially slow) initialisation phase is caught and logged rather than
+    # silently terminating the process (gptme/gptme#3589).
+    _install_sigterm_handler()
     set_config_from_workspace(Path.cwd())
 
     if exit_on_parent_death or watch_pid is not None:
@@ -316,10 +326,6 @@ def serve(
         if allowed_hosts
         else None,
     )
-
-    # Route SIGTERM through the same clean-shutdown path as Ctrl+C so the
-    # `finally` block below runs on `systemctl stop` / container scale-down.
-    _install_sigterm_handler()
 
     try:
         app.run(debug=debug, host=host, port=port)
