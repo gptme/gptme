@@ -65,6 +65,7 @@ Here is an example:
     #TOOL_FORMAT = "markdown" # Select the tool format. One of `markdown`, `xml`, `tool` (see docs: Tool Formats)
     #TOOL_ALLOWLIST = "save,append,patch,ipython,shell,browser"  # Comma separated list of allowed tools
     #TOOL_MODULES = "gptme.tools,custom.tools" # List of python comma separated python module path
+    #AUTO_APPROVE_READ = "true" # Auto-approve read-only tools without prompting (opt-in)
 
     [models]
     # Optional: set a default model (formal alternative to the MODEL env var)
