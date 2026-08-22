@@ -369,7 +369,7 @@ gptme service init --name my-agent --model gpt-4o-mini --work-dir ~/my-agent
 systemctl --user daemon-reload
 systemctl --user enable --now my-agent.timer
 
-# Reinitialize with a different schedule (--force overwrites existing unit files)
+# Update the schedule (--force overwrites all generated files, including gptme.toml and startup script)
 gptme service init --name my-agent --work-dir ~/my-agent --timer-schedule hourly --force
 ```
 
