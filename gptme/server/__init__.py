@@ -2,17 +2,20 @@
 Server for gptme.
 """
 
-from .app import create_app
-
 __all__ = ["create_app"]
 
 
 def __getattr__(name: str):
-    # Lazy import of `main` so that ``import gptme.server`` does not eagerly
-    # load the CLI module and its heavyweight gptme/Flask dependencies.  The
-    # SIGTERM startup handler lives in cli.py and is only needed when the
-    # server CLI is actually invoked — not when another process uses the
-    # server's Python API (gptme/gptme#3589).
+    # Lazy import of `create_app` and `main` so that ``import gptme.server``
+    # does not eagerly load Flask and other heavyweight dependencies. The
+    # SIGTERM startup handler lives in cli.py and must be installed before
+    # the slow init phase (model loading, telemetry). Eager imports here would
+    # defer the handler installation, causing SIGTERM during init to fail
+    # silently (gptme/gptme#3589).
+    if name == "create_app":
+        from .app import create_app
+
+        return create_app
     if name == "main":
         from .cli import main
 
