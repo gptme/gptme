@@ -36,6 +36,16 @@ import subprocess
 from pathlib import Path
 from xml.sax.saxutils import escape as _xml_escape
 
+# XML 1.0 permits only #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF].
+# Strip everything else (control characters that survive saxutils.escape and corrupt plists).
+_XML10_FORBIDDEN = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]")
+
+
+def _xml_safe(value: str) -> str:
+    """Strip XML 1.0-forbidden control characters, then XML-escape special chars."""
+    return _xml_escape(_XML10_FORBIDDEN.sub("", value))
+
+
 import click
 
 # Allowed characters for the agent name: matches systemd/launchd unit-name conventions.
@@ -281,9 +291,9 @@ def _generate_launchd_plist(
     run_at_load = "false" if timer_schedule == "on-demand" else "true"
 
     return LAUNCHD_PLIST_TEMPLATE.format(
-        name=_xml_escape(name),
-        model=_xml_escape(model),
-        work_dir=_xml_escape(work_dir),
+        name=_xml_safe(name),
+        model=_xml_safe(model),
+        work_dir=_xml_safe(work_dir),
         schedule_section=schedule_section,
         run_at_load=run_at_load,
     )

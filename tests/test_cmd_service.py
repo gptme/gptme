@@ -641,6 +641,47 @@ def test_launchd_logs_directory_created(tmp_path: Path) -> None:
     assert logs_dir.exists() and logs_dir.is_dir(), "logs/ directory should be created"
 
 
+def test_launchd_plist_strips_control_characters(tmp_path: Path) -> None:
+    """XML 1.0-forbidden control characters in model/work-dir must be stripped, not escaped."""
+    import xml.etree.ElementTree as ET
+    from unittest.mock import patch
+
+    special_work = tmp_path / "work"
+    special_work.mkdir()
+    out_dir = tmp_path / "launchd"
+    runner = CliRunner()
+    # Inject control chars (\x01, \x0B) into the model string via _generate_launchd_plist directly
+    with patch(
+        "gptme.cli.cmd_service._resolve_work_dir",
+        return_value=special_work,
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--name",
+                "testagent",
+                "--model",
+                "gpt-4o\x01mini\x0b",
+                "--work-dir",
+                str(special_work),
+                "--output-dir",
+                str(out_dir),
+                "--platform",
+                "macos",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    plist_file = out_dir / "com.gptme.testagent.plist"
+    plist_text = plist_file.read_text()
+    # Must parse as valid XML (control chars would cause a ParseError)
+    tree = ET.fromstring(plist_text)
+    assert tree.tag == "plist"
+    # Control chars must be gone from the output
+    assert "\x01" not in plist_text
+    assert "\x0b" not in plist_text
+
+
 def test_macos_path_with_systemd_invalid_chars_accepted(tmp_path: Path) -> None:
     """Paths with apostrophes/backslashes are valid on macOS and must not be
     rejected by systemd-specific escaping when --platform macos is used."""
