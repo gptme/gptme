@@ -19,7 +19,7 @@ import gptme.constants
 import gptme.tools.browser
 from gptme.__version__ import __version__
 from gptme.message import Message
-from gptme.tools import ToolUse
+from gptme.tools import ToolAllowlistError, ToolSpec, ToolUse
 
 project_root = Path(__file__).parent.parent
 logo = project_root / "media" / "logo.png"
@@ -231,6 +231,295 @@ def test_show_prompt_stats_exits_before_chat(monkeypatch, tmp_path: Path, runner
     assert seen["kwargs"]["workspace"] is not None
     assert seen["kwargs"]["model"] == "local/test"
     assert seen["kwargs"]["initial_prompt"] == "query-dependent stats"
+
+
+def test_show_prompt_stats_manifest_fallback_passes_empty_allowlist(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Filtering the only manifest tool must not reload it through None."""
+    from gptme.tool_manifests import TaskToolManifest
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest",
+        lambda task_type, workspace: TaskToolManifest(
+            task_type=task_type,
+            tool_names=("github.search_code",),
+            path=workspace / "state" / "task-manifests.jsonl",
+        ),
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    init_calls: list[list[str] | None] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        if tools is None or "github.search_code" in tools:
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: [])
+    monkeypatch.setattr(
+        "gptme.prompts.get_prompt_stats",
+        lambda **_: SimpleNamespace(
+            sections=[],
+            total_messages=0,
+            total_chars=0,
+            total_tokens=0,
+            cacheable_tokens=0,
+            dynamic_tokens=0,
+        ),
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.format_prompt_stats", lambda *_, **__: "prompt-stats-output"
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "query",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert init_calls == [["github.search_code"], []]
+
+
+def test_show_prompt_stats_manifest_fallback_keeps_available_tools(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Prompt stats drops only the unavailable manifest entries."""
+    from gptme.tool_manifests import TaskToolManifest
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest",
+        lambda task_type, workspace: TaskToolManifest(
+            task_type=task_type,
+            tool_names=("github.search_code", "time.get_current_time"),
+            path=workspace / "state" / "task-manifests.jsonl",
+        ),
+    )
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read", "github.search_code", "time.get_current_time"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    init_calls: list[list[str] | None] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        if tools and "github.search_code" in tools:
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda: [
+            ToolSpec("github.search_code", "", available=False),
+            ToolSpec("time.get_current_time", "", available=True),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.get_prompt_stats",
+        lambda **_: SimpleNamespace(
+            sections=[],
+            total_messages=0,
+            total_chars=0,
+            total_tokens=0,
+            cacheable_tokens=0,
+            dynamic_tokens=0,
+        ),
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.format_prompt_stats", lambda *_, **__: "prompt-stats-output"
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "query",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert init_calls == [
+        ["read", "github.search_code", "time.get_current_time"],
+        ["read", "time.get_current_time"],
+    ]
+    assert fake_config.chat.tools == ["read", "time.get_current_time"]
+
+
+def test_show_prompt_stats_manifest_fallback_does_not_persist_temp_config(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Prompt stats uses a temporary log and must not persist its fallback config."""
+    from gptme.tool_manifests import TaskToolManifest
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest",
+        lambda task_type, workspace: TaskToolManifest(
+            task_type=task_type,
+            tool_names=("github.search_code",),
+            path=workspace / "state" / "task-manifests.jsonl",
+        ),
+    )
+    save_calls: list[None] = []
+    fake_chat = SimpleNamespace(
+        agent_config=None,
+        tools=["read", "github.search_code"],
+        interactive=False,
+        tool_format="markdown",
+        model="local/test",
+        workspace=tmp_path,
+        stream=False,
+        agent=None,
+        gear=None,
+        save=lambda: save_calls.append(None),
+    )
+    fake_config = SimpleNamespace(chat=fake_chat, project=None)
+
+    def fake_init_tools(tools):
+        if tools and "github.search_code" in tools:
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: [])
+    monkeypatch.setattr(
+        "gptme.prompts.get_prompt_stats",
+        lambda **_: SimpleNamespace(
+            sections=[],
+            total_messages=0,
+            total_chars=0,
+            total_tokens=0,
+            cacheable_tokens=0,
+            dynamic_tokens=0,
+        ),
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.format_prompt_stats", lambda *_, **__: "prompt-stats-output"
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "query",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert save_calls == []
+
+
+def test_show_prompt_stats_does_not_retry_after_config_fallback(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """An unrelated init failure after config fallback is reported without a retry."""
+    from gptme.tool_manifests import TaskToolManifest
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest",
+        lambda task_type, workspace: TaskToolManifest(
+            task_type=task_type,
+            tool_names=("github.search_code",),
+            path=workspace / "state" / "task-manifests.jsonl",
+        ),
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["shell"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    setup_calls: list[str | None] = []
+    init_calls: list[list[str] | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        if tool_allowlist and "github.search_code" in tool_allowlist:
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return fake_config
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        raise ValueError("Tool 'shell' not found")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "query",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert "Tool 'shell' not found" in result.output
+    assert len(setup_calls) == 2
+    assert init_calls == [["shell"]]
 
 
 def test_no_workspace_flag_wires_correctly(monkeypatch, tmp_path: Path, runner):
@@ -943,6 +1232,1435 @@ def test_empty_model_is_usage_error(runner: CliRunner, runid: int):
     assert result.exit_code == 2
     assert "Traceback" not in result.output
     assert "empty" in result.output.lower()
+
+
+def test_tool_manifest_missing_file_is_usage_error(runner: CliRunner, tmp_path: Path):
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert "Tool manifest file not found" in result.output
+    assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize(
+    ("tools_args", "env"),
+    [
+        (["--tools", "read"], None),
+        ([], {"GPTME_TOOL_ALLOWLIST": "read"}),
+    ],
+)
+def test_tool_manifest_cannot_combine_with_tools(
+    runner: CliRunner,
+    tmp_path: Path,
+    tools_args: list[str],
+    env: dict[str, str] | None,
+):
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            *tools_args,
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+        env=env,
+    )
+
+    assert result.exit_code == 2
+    assert "--tool-manifest cannot be combined with --tools" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_tool_manifest_cannot_combine_with_project_tool_allowlist(
+    runner: CliRunner, tmp_path: Path
+):
+    (tmp_path / "gptme.toml").write_text(
+        '[env]\nTOOL_ALLOWLIST = "read-only"\n', encoding="utf-8"
+    )
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":[],"builtin_tools":["read","shell"]}\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with a configured TOOL_ALLOWLIST"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
+def test_tool_manifest_cannot_combine_with_configured_gear_tools(
+    runner: CliRunner, tmp_path: Path
+):
+    (tmp_path / "gptme.toml").write_text("[settings]\ngear = 2\n", encoding="utf-8")
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text('{"task_type":"research","tools":[]}\n', encoding="utf-8")
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with a configured gear that sets tools"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize("saved_tools", ['["read-only"]', "[]"])
+def test_tool_manifest_cannot_combine_with_resumed_conversation_tools(
+    runner: CliRunner, tmp_path: Path, saved_tools: str
+):
+    """A saved conversation's explicit tool boundary must not be replaced."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":[],"builtin_tools":["read","grep"]}\n',
+        encoding="utf-8",
+    )
+
+    conversation_name = f"manifest-tools-{tmp_path.name}-{len(saved_tools)}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True, exist_ok=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{tmp_path.resolve()}"\ntools = {saved_tools}\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--resume",
+            "--name",
+            conversation_name,
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with saved conversation tools"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
+def test_show_prompt_stats_tool_manifest_checks_existing_named_conversation_tools(
+    runner: CliRunner, tmp_path: Path
+):
+    """Prompt stats preserves named conversations' saved tool boundaries."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    conversation_name = f"manifest-stats-tools-{tmp_path.name}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True, exist_ok=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{tmp_path.resolve()}"\ntools = ["read-only"]\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--name",
+            conversation_name,
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with saved conversation tools"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
+def test_show_prompt_stats_tool_manifest_checks_resumed_conversation_gear(
+    runner: CliRunner, tmp_path: Path
+):
+    """Prompt stats applies the same resumed-session conflict checks as chat."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text('{"task_type":"research","tools":[]}\n', encoding="utf-8")
+
+    conversation_name = f"manifest-stats-gear-{tmp_path.name}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True, exist_ok=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{tmp_path.resolve()}"\ngear = 2\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--resume",
+            "--name",
+            conversation_name,
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with a configured gear that sets tools"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
+def test_tool_manifest_cannot_combine_with_resumed_conversation_gear_tools(
+    runner: CliRunner, tmp_path: Path
+):
+    """A saved conversation's gear boundary must not be replaced by a manifest."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text('{"task_type":"research","tools":[]}\n', encoding="utf-8")
+
+    conversation_name = f"manifest-gear-{tmp_path.name}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{tmp_path.resolve()}"\ngear = 2\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--resume",
+            "--name",
+            conversation_name,
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with a configured gear that sets tools"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
+def test_tool_manifest_cli_gear_overrides_resumed_conversation_gear_tools(
+    monkeypatch: pytest.MonkeyPatch, runner: CliRunner, tmp_path: Path
+):
+    """An explicit gear without tools takes precedence over a saved gear."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    conversation_name = f"manifest-gear-override-{tmp_path.name}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{tmp_path.resolve()}"\ngear = 2\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=[],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=1,
+        ),
+        project=None,
+    )
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--resume",
+            "--name",
+            conversation_name,
+            "--workspace",
+            str(tmp_path),
+            "--gear",
+            "1",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "configured gear that sets tools" not in result.output
+
+
+def test_tool_manifest_cli_gear_overrides_configured_gear_tools(
+    monkeypatch: pytest.MonkeyPatch, runner: CliRunner, tmp_path: Path
+):
+    """An explicit gear without tools takes precedence over a configured gear."""
+    (tmp_path / "gptme.toml").write_text("[settings]\ngear = 2\n", encoding="utf-8")
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=[],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=1,
+        ),
+        project=None,
+    )
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--gear",
+            "1",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "configured gear that sets tools" not in result.output
+
+
+def test_tool_manifest_cannot_combine_with_profile_tools(
+    runner: CliRunner, tmp_path: Path
+):
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--agent-profile",
+            "explorer",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with agent profile tools" in result.output
+    )
+    assert "Traceback" not in result.output
+
+
+def test_tool_manifest_profile_and_explicit_tools_reports_tools_conflict(
+    runner: CliRunner, tmp_path: Path
+):
+    """An explicit --tools selection overrides profile tools before conflict checks."""
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--agent-profile",
+            "explorer",
+            "--tools",
+            "read",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert "--tool-manifest cannot be combined with --tools" in result.output
+    assert "agent profile tools" not in result.output
+    assert "Traceback" not in result.output
+
+
+def test_tool_manifest_cannot_combine_with_gear_tools(
+    runner: CliRunner, tmp_path: Path
+):
+    # Gear 2 has tool_allowlist set; combining with --tool-manifest must fail
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--gear",
+            "2",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with a gear that sets tools"
+        in result.output
+    )
+    assert "Traceback" not in result.output
+
+
+def test_tool_manifest_cannot_combine_with_gear_profile_tools(
+    runner: CliRunner, tmp_path: Path
+):
+    """A gear-provided profile's tool boundary must not be replaced."""
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--gear",
+            "0",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "--tool-manifest cannot be combined with agent profile tools" in result.output
+    )
+    assert "Traceback" not in result.output
+
+
+def test_tool_manifest_wires_allowlist_into_config(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"},'
+        '{"server_name":"time","tool_name":"get_current_time"}]}\n',
+        encoding="utf-8",
+    )
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["github.search_code", "time.get_current_time"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    seen: dict[str, Any] = {}
+
+    def fake_setup_config_from_cli(**kwargs):
+        seen.update(kwargs)
+        return fake_config
+
+    monkeypatch.setattr(
+        "gptme.config.setup_config_from_cli", fake_setup_config_from_cli
+    )
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    # gptme/__init__.py caches 'chat' as a function in globals via __getattr__,
+    # so `getattr(gptme, "chat")` returns the function, not the gptme.chat module.
+    # `import gptme.chat as X` uses IMPORT_FROM which calls getattr — same trap.
+    # Use importlib.import_module() to hit sys.modules['gptme.chat'] directly.
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 0
+    # Manifest tools are additive ('+' prefix) so built-in tools are preserved
+    assert seen["tool_allowlist"] == "+github.search_code,time.get_current_time"
+
+
+def test_tool_manifest_log_workspace_resolves_manifest_from_logdir_workspace(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """--workspace @log resolves manifests from logdir/workspace, not cwd.
+
+    Using cwd broke manifest resolution when the user resumed from a different
+    directory (cwd != project root). workspace_path = logdir/workspace is correct
+    because in resumed sessions it is a symlink to the original project directory.
+    """
+    from gptme.tool_manifests import TaskToolManifest
+
+    captured_workspace: list[Path] = []
+
+    def fake_load_task_manifest(task_type, workspace, manifest_path=None):
+        captured_workspace.append(workspace)
+        return TaskToolManifest(
+            task_type=task_type,
+            tool_names=("github.search_code",),
+            path=workspace / "state" / "task-manifests.jsonl",
+        )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest", fake_load_task_manifest
+    )
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            "@log",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 0
+    # manifest_workspace must be logdir/workspace (name == "workspace"), not cwd.
+    # Using cwd broke manifest resolution when a user resumed from a different
+    # directory. workspace_path = logdir/workspace is correct because in resumed
+    # sessions it is a symlink to the original project directory.
+    assert captured_workspace, "load_task_manifest was never called"
+    assert captured_workspace[-1].name == "workspace", (
+        f"Expected manifest resolved from logdir/workspace, got {captured_workspace[-1]}"
+    )
+
+
+def test_tool_manifest_unavailable_tool_falls_back_gracefully(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """When a manifest tool is unavailable, warn and start with only the working tools.
+
+    The fallback probes each manifest tool individually via get_available_tools()
+    so that a single downed MCP server does not drop the entire curated tool set.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            # Includes the manifest tool; init_tools will claim it's unavailable
+            tools=["read", "shell", "github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+            save=lambda: None,
+        ),
+        project=None,
+    )
+
+    init_calls: list[Any] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        if init_calls and any(
+            isinstance(t, str) and "github" in t for t in (tools or [])
+        ):
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    # Session must start despite the unavailable tool (no hard abort)
+    assert result.exit_code == 0
+    assert "Traceback" not in result.output
+    # init_tools called twice: first with manifest tools, then with fallback
+    assert len(init_calls) == 2
+    # Second call must NOT contain the manifest tool. It stays an explicit list
+    # even when filtering removes every tool; None would reload stale config.
+    second_call = init_calls[1]
+    assert isinstance(second_call, list)
+    assert not any("github" in t for t in second_call)
+    # config.chat.tools must be kept in sync with the fallback list so that
+    # chat() → init_tools() cannot crash on the still-unavailable manifest tool
+    assert not any("github" in t for t in (fake_config.chat.tools or []))
+
+
+def test_tool_manifest_unavailable_tool_persists_fallback_tools(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """A new conversation must not persist unavailable manifest tools for resume."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    saved_tools: list[list[str] | None] = []
+    fake_chat = SimpleNamespace(
+        agent_config=None,
+        tools=["read", "github.search_code"],
+        interactive=False,
+        tool_format="markdown",
+        model="local/test",
+        workspace=tmp_path,
+        stream=False,
+        no_confirm=True,
+        agent=None,
+        gear=None,
+    )
+    fake_chat.save = lambda: saved_tools.append(list(fake_chat.tools or []))
+    fake_config = SimpleNamespace(chat=fake_chat, project=None)
+
+    def fake_init_tools(tools):
+        if tools and "github.search_code" in tools:
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert saved_tools == [["read"]]
+
+
+def test_tool_manifest_unavailable_builtin_falls_back_gracefully(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """An unavailable built-in from an explicit manifest is removed on retry."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":['
+        '{"server_name":"github","tool_name":"search_code"}],'
+        '"builtin_tools":["read","ipython"]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read", "ipython", "github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+            save=lambda: None,
+        ),
+        project=None,
+    )
+    available_tools = [
+        SimpleNamespace(name="read", is_available=True),
+        SimpleNamespace(name="ipython", is_available=False),
+        SimpleNamespace(name="github.search_code", is_available=True),
+    ]
+    init_calls: list[Any] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        if tools and "ipython" in tools:
+            raise ToolAllowlistError("Tool 'ipython' is unavailable")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: available_tools)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert init_calls == [
+        ["read", "ipython", "github.search_code"],
+        ["read", "github.search_code"],
+    ]
+    assert fake_config.chat.tools == ["read", "github.search_code"]
+
+
+def test_tool_manifest_builtin_tools_unavailable_mcp_falls_back_gracefully(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Manifest with builtin_tools + an unavailable MCP tool still starts.
+
+    When a manifest declares builtin_tools, apply_tool_manifest returns an explicit
+    allowlist WITHOUT the '+' prefix (e.g. "read,grep,github.search_code").
+    The init_tools fallback must still identify the MCP-style tool names and strip
+    them, while keeping the built-in tools in the fallback session.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":['
+        '{"server_name":"github","tool_name":"search_code"}],'
+        '"builtin_tools":["read","grep"]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            # Explicit allowlist from builtin_tools manifest: builtins + MCP tool
+            tools=["read", "grep", "github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+            save=lambda: None,
+        ),
+        project=None,
+    )
+
+    init_calls: list[Any] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        if any(isinstance(t, str) and "github" in t for t in (tools or [])):
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return []
+
+    available_tools = [
+        SimpleNamespace(name="read", is_available=True),
+        SimpleNamespace(name="grep", is_available=True),
+        SimpleNamespace(name="github.search_code", is_available=False),
+    ]
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: available_tools)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    # Session must start despite the unavailable MCP tool
+    assert result.exit_code == 0
+    assert "Traceback" not in result.output
+    # init_tools called twice: first with manifest tools, then with fallback
+    assert len(init_calls) == 2
+    # Second call must strip the MCP tool but KEEP the built-in tools
+    second_call = init_calls[1]
+    assert isinstance(second_call, list)
+    assert not any("github" in t for t in second_call), (
+        "MCP tool should be removed in fallback"
+    )
+    assert "read" in second_call, "built-in tool should survive the fallback"
+    assert "grep" in second_call, "built-in tool should survive the fallback"
+    # config.chat.tools must be in sync with the fallback (no unavailable MCP tool)
+    assert not any("github" in t for t in (fake_config.chat.tools or []))
+
+
+def test_tool_manifest_unrelated_config_error_does_not_retry(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """A manifest must not turn an unrelated config error into a fallback retry."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ValueError("Invalid model configuration")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda: [SimpleNamespace(name="github.search_code", is_available=True)],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert "Invalid model configuration" in result.output
+    assert "Manifest" not in result.output
+    assert len(setup_calls) == 1
+
+
+def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """When setup_config_from_cli raises ValueError for an unavailable manifest tool,
+    the session retries config setup without manifest tools and still starts.
+
+    This covers the _normalize_tool_allowlist path inside setup_config_from_cli,
+    which calls get_toolchain([item]) with strict=True for each tool name and can
+    raise ValueError before init_tools is ever reached.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=[
+                "read",
+                "shell",
+            ],  # no manifest tools — fallback already excluded them
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+
+    setup_calls: list[Any] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        # First call has the manifest additive allowlist — simulate normalisation failure
+        if (
+            tool_allowlist
+            and tool_allowlist.startswith("+")
+            and "github" in tool_allowlist
+        ):
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return fake_config
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    # Session must start despite the config-normalisation failure
+    assert result.exit_code == 0, result.output
+    assert "Traceback" not in result.output
+    # setup_config_from_cli called twice: first with manifest allowlist, then as fallback
+    assert len(setup_calls) == 2, (
+        f"Expected 2 setup calls, got {len(setup_calls)}: {setup_calls}"
+    )
+    # First call had the manifest additive allowlist
+    assert setup_calls[0] and "+github.search_code" in setup_calls[0]
+    # Second (fallback) call does NOT include the manifest tool
+    assert not (setup_calls[1] and "github" in setup_calls[1])
+
+
+def test_tool_manifest_unavailable_builtin_falls_back_in_config_setup(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Config normalisation drops only unavailable tools from a manifest."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":['
+        '{"server_name":"github","tool_name":"search_code"}],'
+        '"builtin_tools":["read","ipython"]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read", "github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    available_tools = [
+        SimpleNamespace(name="read", is_available=True),
+        SimpleNamespace(name="ipython", is_available=False),
+        SimpleNamespace(name="github.search_code", is_available=True),
+    ]
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        if tool_allowlist and "ipython" in tool_allowlist:
+            raise ToolAllowlistError("Tool 'ipython' is unavailable")
+        return fake_config
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: available_tools)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert setup_calls == [
+        "read,ipython,github.search_code",
+        "read,github.search_code",
+    ]
+
+
+def test_tool_manifest_expands_builtin_preset_before_fallback(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Manifest presets retain their concrete tools when another tool is unavailable."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":['
+        '{"server_name":"github","tool_name":"search_code"}],'
+        '"builtin_tools":["read-only"]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        if tool_allowlist and "github.search_code" in tool_allowlist:
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return fake_config
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda: [
+            SimpleNamespace(name="read", is_available=True),
+            SimpleNamespace(name="github.search_code", is_available=False),
+        ],
+    )
+    monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert setup_calls == ["read,github.search_code", "read"]
+
+
+def test_tool_manifest_builtin_tools_config_setup_failure_preserves_builtins(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """When setup_config_from_cli raises ValueError for an unavailable MCP tool in a
+    builtin_tools manifest, the fallback retry must keep the builtin tools from the
+    manifest rather than discarding everything and using the pre-manifest allowlist.
+
+    This is the P1 defect reported against the setup_config path: apply_tool_manifest
+    returns "read,grep,github.search_code" (no '+') for a builtin_tools manifest.
+    When setup_config fails because github.search_code is unavailable, the session
+    should retry with "read,grep" — NOT with None (the pre-manifest default).
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":['
+        '{"server_name":"github","tool_name":"search_code"}],'
+        '"builtin_tools":["read","grep"]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=[
+                "read",
+                "grep",
+            ],  # builtins only — fallback already excluded MCP tool
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+
+    setup_calls: list[Any] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        # First call has the explicit manifest allowlist (no '+' prefix) which
+        # includes the MCP tool — simulate normalisation failure.
+        if tool_allowlist and "github" in tool_allowlist:
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return fake_config
+
+    available_tools = [
+        SimpleNamespace(name="read", is_available=True),
+        SimpleNamespace(name="grep", is_available=True),
+        SimpleNamespace(name="github.search_code", is_available=False),
+    ]
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: available_tools)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    # Session must start despite the config-normalisation failure
+    assert result.exit_code == 0, result.output
+    assert "Traceback" not in result.output
+    # setup_config_from_cli called twice
+    assert len(setup_calls) == 2, (
+        f"Expected 2 setup calls, got {len(setup_calls)}: {setup_calls}"
+    )
+    # First call had the full manifest allowlist (builtins + MCP)
+    assert setup_calls[0] and "github.search_code" in setup_calls[0]
+    assert setup_calls[0] and "read" in setup_calls[0]
+    # Second (fallback) call must NOT include the MCP tool
+    assert not (setup_calls[1] and "github" in setup_calls[1]), (
+        f"MCP tool should be stripped from fallback call, got: {setup_calls[1]}"
+    )
+    # Second (fallback) call MUST preserve the builtin tools from the manifest
+    assert setup_calls[1] and "read" in setup_calls[1], (
+        f"Builtin tools should be preserved in fallback call, got: {setup_calls[1]}"
+    )
+    assert setup_calls[1] and "grep" in setup_calls[1], (
+        f"Builtin tools should be preserved in fallback call, got: {setup_calls[1]}"
+    )
+
+
+def test_tool_manifest_all_builtins_unavailable_falls_back_to_defaults(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """When ALL entries in a non-additive (builtin_tools) manifest are unavailable,
+    _manifest_fallback_allowlist must return pre_manifest_allowlist (the user's configured
+    defaults) rather than "" (empty string), which would disable ALL tools.
+
+    Regression for fp 8c539e6c19c1 — empty ",".join([]) passed as tool_allowlist="" to
+    setup_config_from_cli, whose tool_allowlist=="" branch sets resolved_tool_allowlist=[].
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    # builtin_tools manifest — non-additive allowlist (no '+' prefix).
+    # MCP tool is listed but also unavailable so ALL entries end up stripped.
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":['
+        '{"server_name":"github","tool_name":"search_code"}],'
+        '"builtin_tools":["read","shell"]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read", "shell", "save"],  # default tools from config
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+            save=lambda: None,
+        ),
+        project=None,
+    )
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        return fake_config
+
+    # All manifest entries are unavailable: both builtins and the MCP tool
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda: [
+            SimpleNamespace(name="read", is_available=False),
+            SimpleNamespace(name="shell", is_available=False),
+            SimpleNamespace(name="github.search_code", is_available=False),
+        ],
+    )
+    monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Traceback" not in result.output
+    # setup_config_from_cli must be called with None (pre_manifest_allowlist = use defaults),
+    # NOT with "" (which would disable ALL tools).
+    assert len(setup_calls) == 1, f"Expected 1 setup call, got: {setup_calls}"
+    assert setup_calls[0] is None or setup_calls[0] != "", (
+        f"setup_config must not receive empty string allowlist; got: {setup_calls[0]!r}"
+    )
 
 
 def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):

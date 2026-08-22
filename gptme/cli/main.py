@@ -724,6 +724,17 @@ Run 'gptme-util --help' for all utility commands."""
     help="Write a JSON record before and after each tool call to this directory. "
     "Records can be committed alongside session artifacts for tool-call-level attribution.",
 )
+@click.option(
+    "--tool-manifest",
+    "tool_manifest_type",
+    default=None,
+    type=str,
+    envvar="GPTME_TOOL_MANIFEST",
+    help="Task-scoped tool preset loaded from a manifest file: code_review, "
+    "implementation, debugging, data_analysis, research, content_writing, planning, "
+    "project_ops. When the manifest specifies built-in tools, produces an explicit "
+    "allowlist; otherwise adds the manifest's tools to the session's defaults.",
+)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -758,6 +769,7 @@ def main(
     output_schema: str | None,
     injection_hygiene: str | None,
     manifest_dir: Path | None,
+    tool_manifest_type: str | None,
 ):
     """Main entrypoint for the CLI."""
     show_version = version or version_json
@@ -818,6 +830,7 @@ def main(
 
     # Apply gear defaults before explicit profile/tools/no-confirm flags.
     selected_gear = parse_gear(gear)
+    gear_has_tool_allowlist = False
     if selected_gear is not None:
         gear_resolution = resolve_gear(selected_gear)
         if agent_profile is None and gear_resolution.profile_name:
@@ -827,6 +840,7 @@ def main(
             and gear_resolution.tool_allowlist is not None
         ):
             tool_allowlist = gear_resolution.tool_allowlist
+            gear_has_tool_allowlist = True
         if (
             ctx.get_parameter_source("no_confirm") == ParameterSource.DEFAULT
             and gear_resolution.no_confirm
@@ -954,6 +968,136 @@ def main(
 
     _validate_custom_tool_paths(tool_allowlist_str)
 
+    def _manifest_tool_names(manifest_allowlist: str | None) -> set[str]:
+        """Return tool names contributed by a manifest."""
+        if not manifest_allowlist:
+            return set()
+        entries = manifest_allowlist.removeprefix("+").split(",")
+        return {entry.strip() for entry in entries if entry.strip()}
+
+    def _unavailable_manifest_tools(manifest_allowlist: str | None) -> set[str]:
+        """Return manifest tools that discovery reports as unavailable."""
+        from ..tools import get_available_tools, matching_allowlist_tools
+
+        available = get_available_tools()
+        unavailable: set[str] = set()
+        for tool_name in _manifest_tool_names(manifest_allowlist):
+            matched = matching_allowlist_tools(tool_name, available)
+            if not matched or not any(tool.is_available for tool in matched):
+                unavailable.add(tool_name)
+        return unavailable
+
+    def _manifest_fallback_allowlist(
+        manifest_allowlist: str | None, pre_manifest_allowlist: str | None
+    ) -> str | None:
+        """Remove unavailable manifest tools while preserving allowlist mode."""
+        if not manifest_allowlist:
+            return pre_manifest_allowlist
+        from ..tools import expand_tool_allowlist_presets
+
+        entries = [
+            entry.strip()
+            for entry in manifest_allowlist.removeprefix("+").split(",")
+            if entry.strip()
+        ]
+        if not manifest_allowlist.startswith("+"):
+            expanded_entries = expand_tool_allowlist_presets(entries)
+            assert expanded_entries is not None
+            entries = expanded_entries
+        concrete_allowlist = ",".join(entries)
+        unavailable = _unavailable_manifest_tools(concrete_allowlist)
+        remaining = [entry for entry in entries if entry not in unavailable]
+        if manifest_allowlist.startswith("+"):
+            return "+" + ",".join(remaining) if remaining else pre_manifest_allowlist
+        # Non-additive (builtin_tools): if every entry is unavailable, fall back to
+        # the user's configured defaults instead of returning "" (which disables ALL tools).
+        return ",".join(remaining) if remaining else pre_manifest_allowlist
+
+    def apply_tool_manifest(
+        workspace_path: Path, conversation_logdir: Path | None = None
+    ) -> str | None:
+        if not tool_manifest_type:
+            return tool_allowlist_str
+        if ctx.get_parameter_source("tool_allowlist") in {
+            ParameterSource.COMMANDLINE,
+            ParameterSource.ENVIRONMENT,
+        }:
+            raise click.UsageError("--tool-manifest cannot be combined with --tools")
+        if selected_profile and selected_profile.tools is not None:
+            raise click.UsageError(
+                "--tool-manifest cannot be combined with agent profile tools"
+            )
+        if gear_has_tool_allowlist:
+            raise click.UsageError(
+                "--tool-manifest cannot be combined with a gear that sets tools"
+            )
+
+        # setup_config_from_cli loads project/user config after this callback.
+        # Inspect the same effective settings here so a manifest cannot silently
+        # replace a configured capability boundary (especially an explicit
+        # builtin_tools manifest, which uses a non-additive allowlist).
+        from ..config import Config
+
+        manifest_config = Config.from_workspace(workspace_path)
+        if manifest_config.get_env("TOOL_ALLOWLIST"):
+            raise click.UsageError(
+                "--tool-manifest cannot be combined with a configured TOOL_ALLOWLIST"
+            )
+        saved_chat = None
+        if conversation_logdir is not None:
+            from ..config import ChatConfig
+
+            saved_chat = ChatConfig.from_logdir(conversation_logdir)
+            if saved_chat.tools is not None:
+                raise click.UsageError(
+                    "--tool-manifest cannot be combined with saved conversation tools"
+                )
+
+        if ctx.get_parameter_source("gear") not in {
+            ParameterSource.COMMANDLINE,
+            ParameterSource.ENVIRONMENT,
+        }:
+            configured_gear = saved_chat.gear if saved_chat is not None else None
+            if configured_gear is None:
+                configured_gear = (
+                    manifest_config.project.settings.gear
+                    if manifest_config.project
+                    and manifest_config.project.settings.gear is not None
+                    else manifest_config.user.settings.gear
+                )
+            if configured_gear is not None:
+                configured_gear_tools = resolve_gear(configured_gear).tool_allowlist
+                if configured_gear_tools is not None:
+                    raise click.UsageError(
+                        "--tool-manifest cannot be combined with a configured gear that sets tools"
+                    )
+
+        from ..tool_manifests import load_task_manifest
+
+        try:
+            manifest = load_task_manifest(tool_manifest_type, workspace_path)
+        except (OSError, ValueError) as e:
+            raise click.UsageError(str(e)) from e
+        logger.info(
+            "Using tool manifest %s from %s (%d MCP tools, %d built-in tools)",
+            manifest.task_type,
+            manifest.path,
+            len(manifest.tool_names),
+            len(manifest.builtin_tools),
+        )
+        if manifest.builtin_tools:
+            from ..tools import expand_tool_allowlist_presets
+
+            # Explicit allowlist: built-in tools + MCP tools (no additive prefix).
+            # Expand a named preset before adding MCP tools because presets are
+            # exclusive boundaries and cannot otherwise be mixed with tool names.
+            builtin_tools = expand_tool_allowlist_presets(list(manifest.builtin_tools))
+            assert builtin_tools is not None
+            return ",".join((*builtin_tools, *manifest.tool_names))
+        # Additive prefix: MCP tools are ADDED to the full default built-in set
+        # (a bare list would drop read/shell/save/etc. — the '+' preserves them)
+        return "+" + ",".join(manifest.tool_names)
+
     if profile and not show_version:
         import cProfile
         import pstats
@@ -1021,7 +1165,7 @@ def main(
         get_prompt_stats,
     )
     from ..telemetry import init_telemetry, shutdown_telemetry
-    from ..tools import init_tools
+    from ..tools import ToolAllowlistError, init_tools
     from ..util.context import md_codeblock
     from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
     from ..util.prompt import add_history
@@ -1120,8 +1264,27 @@ def main(
 
     if show_prompt_stats:
         stats_root = Path(tempfile.mkdtemp(prefix="gptme-prompt-stats-"))
+        stats_setup_fallback_ran = False
         try:
             stats_logdir = stats_root / "log"
+            conversation_logdir: Path | None = None
+            if resume:
+                if workspace == "@log":
+                    stats_resume_workspace: Path | None = None
+                elif workspace is None:
+                    stats_resume_workspace = Path.cwd()
+                else:
+                    stats_resume_workspace = Path(workspace)
+                try:
+                    conversation_logdir = get_logdir_resume(
+                        name, workspace=stats_resume_workspace
+                    )
+                except ValueError as e:
+                    raise click.UsageError(str(e)) from e
+            elif name != "random":
+                named_logdir = get_logs_dir() / name
+                if named_logdir.exists():
+                    conversation_logdir = named_logdir
             if workspace == "@log":
                 stats_workspace_path = stats_logdir / "workspace"
                 stats_workspace_path.mkdir(parents=True, exist_ok=True)
@@ -1129,11 +1292,19 @@ def main(
                 stats_workspace_path = Path(workspace) if workspace else Path.cwd()
 
             try:
+                # For @log, stats_workspace_path is a temp dir — use the real
+                # workspace (cwd) so manifest resolution finds state/task-manifests.jsonl
+                manifest_workspace = (
+                    Path.cwd() if workspace == "@log" else stats_workspace_path
+                )
+                stats_tool_allowlist_str = apply_tool_manifest(
+                    manifest_workspace, conversation_logdir
+                )
                 config = setup_config_from_cli(
                     workspace=stats_workspace_path,
                     logdir=stats_logdir,
                     model=model,
-                    tool_allowlist=tool_allowlist_str,
+                    tool_allowlist=stats_tool_allowlist_str,
                     tool_format=tool_format,
                     prune_tool_output=prune_tool_output,
                     gear=selected_gear,
@@ -1143,7 +1314,44 @@ def main(
                     agent_path=Path(agent_path) if agent_path else None,
                 )
             except ValueError as e:
-                raise click.UsageError(str(e)) from e
+                if tool_manifest_type and isinstance(e, ToolAllowlistError):
+                    # A manifest tool was unavailable during config normalisation —
+                    # retry without the manifest allowlist (same fallback as the
+                    # main path and the init_tools path below).
+                    # Same builtin-preservation logic as the main path below:
+                    # for explicit (builtin_tools) manifests, keep the non-MCP
+                    # entries rather than discarding all manifest selections.
+                    stats_tool_allowlist_str = _manifest_fallback_allowlist(
+                        stats_tool_allowlist_str, tool_allowlist_str
+                    )
+                    logger.warning(
+                        "Manifest %r tool unavailable during stats config setup: %s — "
+                        "running without unavailable manifest tools%s.",
+                        tool_manifest_type,
+                        e,
+                        f" (keeping built-ins: {stats_tool_allowlist_str})"
+                        if stats_tool_allowlist_str
+                        else "",
+                    )
+                    stats_setup_fallback_ran = True
+                    try:
+                        config = setup_config_from_cli(
+                            workspace=stats_workspace_path,
+                            logdir=stats_logdir,
+                            model=model,
+                            tool_allowlist=stats_tool_allowlist_str,
+                            tool_format=tool_format,
+                            prune_tool_output=prune_tool_output,
+                            gear=selected_gear,
+                            no_confirm=no_confirm or None,
+                            stream=stream,
+                            interactive=interactive,
+                            agent_path=Path(agent_path) if agent_path else None,
+                        )
+                    except ValueError as e2:
+                        raise click.UsageError(str(e2)) from e2
+                else:
+                    raise click.UsageError(str(e)) from e
             assert config.chat and config.chat.tool_format
             if selected_profile is None and config.chat.gear is not None:
                 gear_profile_name = resolve_gear(config.chat.gear).profile_name
@@ -1162,7 +1370,32 @@ def main(
             try:
                 tools = init_tools(config.chat.tools)
             except ValueError as e:
-                raise click.UsageError(str(e)) from e
+                if (
+                    tool_manifest_type
+                    and isinstance(e, ToolAllowlistError)
+                    and not stats_setup_fallback_ran
+                ):
+                    # Match normal startup: remove only unavailable manifest tools
+                    # so prompt statistics describe the real session's toolset.
+                    unavailable = _unavailable_manifest_tools(stats_tool_allowlist_str)
+                    for tool_name in unavailable:
+                        logger.warning(
+                            "Manifest tool %r is unavailable (MCP server may not be running),"
+                            " skipping for prompt stats.",
+                            tool_name,
+                        )
+                    fallback_stats_tools = [
+                        tool
+                        for tool in (config.chat.tools or [])
+                        if tool not in unavailable
+                    ]
+                    try:
+                        tools = init_tools(fallback_stats_tools)
+                        config.chat.tools = fallback_stats_tools
+                    except ValueError as e2:
+                        raise click.UsageError(str(e2)) from e2
+                else:
+                    raise click.UsageError(str(e)) from e
 
             stats_context_mode: ContextMode | None = (
                 "selective" if (context_include or no_workspace) else None
@@ -1270,7 +1503,22 @@ def main(
         workspace_path = Path(workspace) if workspace else Path.cwd()
 
     # Setup complete configuration from CLI arguments and workspace
+    # Use workspace_path directly for manifest resolution. For --workspace @log,
+    # workspace_path = logdir/workspace, which in resumed sessions is a symlink to
+    # the original project. Using Path.cwd() broke manifest resolution when the user
+    # resumed from a different directory (cwd != project root). The stats path keeps
+    # its cwd fallback because stats always creates a fresh temp workspace.
+    manifest_workspace = workspace_path
+    pre_manifest_allowlist = (
+        tool_allowlist_str  # save before apply_tool_manifest overwrites
+    )
+    # Track whether setup_config fell back to pre_manifest_allowlist.
+    # If it did, config.chat.tools already excludes manifest tools, so
+    # the init_tools fallback below must not attempt its own manifest strip
+    # (it would retry with identical tools that already failed).
+    setup_fallback_ran = False
     try:
+        tool_allowlist_str = apply_tool_manifest(manifest_workspace, logdir)
         config = setup_config_from_cli(
             workspace=workspace_path,
             logdir=logdir,
@@ -1285,7 +1533,41 @@ def main(
             agent_path=Path(agent_path) if agent_path else None,
         )
     except ValueError as e:
-        raise click.UsageError(str(e)) from e
+        if tool_manifest_type and isinstance(e, ToolAllowlistError):
+            # Retry after removing only unavailable manifest entries. This applies
+            # to built-ins as well as MCP tools and preserves the manifest's exact or
+            # additive allowlist mode.
+            tool_allowlist_str = _manifest_fallback_allowlist(
+                tool_allowlist_str, pre_manifest_allowlist
+            )
+            logger.warning(
+                "Manifest %r tool unavailable during config setup: %s — "
+                "running without unavailable manifest tools%s.",
+                tool_manifest_type,
+                e,
+                f" (keeping built-ins: {tool_allowlist_str})"
+                if tool_allowlist_str
+                else "",
+            )
+            setup_fallback_ran = True
+            try:
+                config = setup_config_from_cli(
+                    workspace=workspace_path,
+                    logdir=logdir,
+                    model=model,
+                    tool_allowlist=tool_allowlist_str,
+                    tool_format=tool_format,
+                    prune_tool_output=prune_tool_output,
+                    gear=selected_gear,
+                    no_confirm=no_confirm or None,
+                    stream=stream,
+                    interactive=interactive,
+                    agent_path=Path(agent_path) if agent_path else None,
+                )
+            except ValueError as e2:
+                raise click.UsageError(str(e2)) from e2
+        else:
+            raise click.UsageError(str(e)) from e
     assert config.chat and config.chat.tool_format
     if selected_profile is None and config.chat.gear is not None:
         gear_profile_name = resolve_gear(config.chat.gear).profile_name
@@ -1302,7 +1584,37 @@ def main(
     try:
         tools = init_tools(config.chat.tools)
     except ValueError as e:
-        raise click.UsageError(str(e)) from e
+        if (
+            tool_manifest_type
+            and isinstance(e, ToolAllowlistError)
+            and not setup_fallback_ran
+        ):
+            # Remove only unavailable manifest tools, keeping working MCP tools
+            # and any curated built-ins in the session.
+            unavailable_manifest_tools = _unavailable_manifest_tools(tool_allowlist_str)
+            for tool_name in unavailable_manifest_tools:
+                logger.warning(
+                    "Manifest tool %r is unavailable (MCP server may not be running),"
+                    " skipping for this session.",
+                    tool_name,
+                )
+            fallback_tools = [
+                tool
+                for tool in (config.chat.tools or [])
+                if tool not in unavailable_manifest_tools
+            ]
+            try:
+                tools = init_tools(fallback_tools)
+                # Keep config in sync so chat() → init() → init_tools() uses
+                # the same reduced list; without this the stale config.chat.tools
+                # (still containing manifest tool names) would cause a second
+                # ValueError crash inside chat() when the MCP server is still down.
+                config.chat.tools = fallback_tools
+                config.chat.save()
+            except ValueError as e2:
+                raise click.UsageError(str(e2)) from e2
+        else:
+            raise click.UsageError(str(e)) from e
 
     # init telemetry with agent name and interactive mode
     agent_config = config.chat.agent_config
