@@ -416,9 +416,6 @@ def init(
     work = _resolve_work_dir(work_dir)
     out_dir = Path(output_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    escaped_work_dir = _escape_systemd_value(str(work))
-    escaped_exec_work_dir = _escape_systemd_exec_value(str(work))
-    escaped_model = _escape_systemd_value(model)
 
     click.echo(f"Scaffolding headless agent '{name}' ({platform_choice})...")
 
@@ -441,6 +438,11 @@ def init(
         )
     else:
         # systemd: service unit + optional timer
+        # Apply systemd-specific escaping only in this branch — these chars
+        # are forbidden in systemd unit values but are valid in launchd plists.
+        escaped_work_dir = _escape_systemd_value(str(work))
+        escaped_exec_work_dir = _escape_systemd_exec_value(str(work))
+        escaped_model = _escape_systemd_value(model)
         _write_file(
             out_dir / f"{name}.service",
             SYSTEMD_SERVICE_TEMPLATE.format(

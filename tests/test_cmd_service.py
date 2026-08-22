@@ -639,3 +639,31 @@ def test_launchd_logs_directory_created(tmp_path: Path) -> None:
 
     logs_dir = tmp_path / "logs"
     assert logs_dir.exists() and logs_dir.is_dir(), "logs/ directory should be created"
+
+
+def test_macos_path_with_systemd_invalid_chars_accepted(tmp_path: Path) -> None:
+    """Paths with apostrophes/backslashes are valid on macOS and must not be
+    rejected by systemd-specific escaping when --platform macos is used."""
+    # Create a subdir whose name contains a character systemd forbids but
+    # launchd allows (apostrophe), then scaffold into it.
+    special_work = tmp_path / "user's workspace"
+    special_work.mkdir()
+    out_dir = tmp_path / "launchd"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            "--name",
+            "testagent",
+            "--work-dir",
+            str(special_work),
+            "--output-dir",
+            str(out_dir),
+            "--platform",
+            "macos",
+        ],
+    )
+    assert result.exit_code == 0, (
+        f"macOS scaffolding should accept apostrophes in work-dir; got: {result.output}"
+    )
