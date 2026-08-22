@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Literal
 
 from ..llm_anthropic_models_deprecated import ANTHROPIC_MODELS_DEPRECATED
 from ..llm_openai_models import OPENAI_MODELS, OPENAI_SUBSCRIPTION_MODELS
@@ -9,6 +10,18 @@ def _mark_subscription(models: dict[str, _ModelDictMeta]) -> dict[str, _ModelDic
     """Mark all models in a dict as subscription-priced (zero marginal USD cost)."""
     return {
         name: {**props, "pricing_type": "subscription"}
+        for name, props in models.items()
+    }
+
+
+def _set_tool_format(
+    models: dict[str, _ModelDictMeta], tool_format: Literal["markdown", "xml", "tool"]
+) -> dict[str, _ModelDictMeta]:
+    """Stamp a default_tool_format on all models that don't already have one."""
+    return {
+        name: props
+        if props.get("default_tool_format")
+        else {**props, "default_tool_format": tool_format}
         for name, props in models.items()
     }
 
@@ -573,3 +586,36 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
 
 # check that all providers have a MODELS entry
 assert set(PROVIDERS) == set(MODELS.keys())
+
+# Providers that route through the OpenAI-compatible function-calling API — stamp
+# default_tool_format="tool" on every model that doesn't already have one set.
+# Anthropic and mock are excluded: anthropic uses the Anthropic SDK (not OpenAI-compat),
+# and mock models are test-only stubs that don't need a tool format preference.
+# Exported (no leading underscore) so resolution.py can apply it to dynamic fallbacks.
+OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
+    {
+        "openai",
+        "openai-subscription",
+        "gemini",
+        "deepseek",
+        "groq",
+        "xai",
+        "grok-subscription",
+        "moonshot",
+        "requesty",
+        "openrouter",
+        "nvidia",
+        "azure",
+        "local",
+        # gptme.ai proxies to various backends, but the client itself talks to it
+        # via the OpenAI-compatible API (see llm_openai.py) — same fallback applies
+        # when dynamic fetch fails/misses and no static registry entry exists.
+        "gptme",
+    }
+)
+MODELS = {
+    provider: _set_tool_format(models, "tool")
+    if provider in OPENAI_COMPAT_PROVIDERS
+    else models
+    for provider, models in MODELS.items()
+}

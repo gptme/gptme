@@ -932,10 +932,36 @@ class TestGetModelIntegration:
         assert model.price_input > 0
 
     def test_azure_with_no_models_returns_fallback(self):
-        """Azure with no static models returns 128k fallback."""
+        """Azure with no static models returns 128k fallback with tool format."""
         model = get_model("azure/gpt-4-deployment")
         assert model.provider == "azure"
         assert model.context == 128_000
+        # Azure routes through OpenAI-compat API — dynamic fallbacks must also get tool format
+        assert model.default_tool_format == "tool"
+
+    def test_local_with_no_models_returns_tool_format(self):
+        """Local provider (OpenAI-compat) gets default_tool_format='tool' on fallback."""
+        model = get_model("local/llama-3")
+        assert model.provider == "local"
+        assert model.default_tool_format == "tool"
+
+    def test_nvidia_with_no_models_returns_tool_format(self):
+        """Nvidia provider (OpenAI-compat) gets default_tool_format='tool' on fallback."""
+        model = get_model("nvidia/llama-3.1-nemotron-ultra-253b-v1")
+        assert model.provider == "nvidia"
+        assert model.default_tool_format == "tool"
+
+    @patch("gptme.llm.models.listing._get_models_for_provider", return_value=[])
+    def test_gptme_with_no_dynamic_match_returns_tool_format(self, _mock_fetch):
+        """gptme provider falls back to tool format when dynamic fetch misses.
+
+        gptme.ai proxies to various backends, but the client itself talks to it
+        via the OpenAI-compatible API — same fallback as azure/local/nvidia.
+        Mock the dynamic fetch so this stays hermetic (no real network request).
+        """
+        model = get_model("gptme/totally-unknown-model-xyz")
+        assert model.provider == "gptme"
+        assert model.default_tool_format == "tool"
 
     def test_set_default_model_with_invalid_raises(self):
         """Setting default model with invalid name should still work (fallback)."""

@@ -5,7 +5,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import cast
 
-from .data import MODELS
+from .data import MODELS, OPENAI_COMPAT_PROVIDERS
 from .types import (
     _DATE_SUFFIX_PATTERN,
     _MODEL_FAMILY_PATTERN,
@@ -270,21 +270,14 @@ def get_model(model: str) -> ModelMeta:
                             model_meta.model == model_name
                             or model_meta.model == lookup_model_name
                         ):
-                            # Preserve the original model_name (with suffix) in the returned ModelMeta
-                            # Use the found model's metadata but with the requested name
-                            return ModelMeta(
-                                provider=model_meta.provider,
-                                model=model_name,  # Preserve original name with suffix
-                                context=model_meta.context,
-                                max_output=model_meta.max_output,
-                                supports_streaming=model_meta.supports_streaming,
-                                supports_vision=model_meta.supports_vision,
-                                supports_reasoning=model_meta.supports_reasoning,
-                                supports_responses_api=model_meta.supports_responses_api,
-                                supports_parallel_tool_calls=model_meta.supports_parallel_tool_calls,
-                                price_input=model_meta.price_input,
-                                price_output=model_meta.price_output,
-                                knowledge_cutoff=model_meta.knowledge_cutoff,
+                            # Preserve the original model_name (with suffix) in the returned
+                            # ModelMeta, carrying all other fields intact. Set
+                            # default_tool_format if the API didn't supply one.
+                            return replace(
+                                model_meta,
+                                model=model_name,
+                                default_tool_format=model_meta.default_tool_format
+                                or "tool",
                             )
 
                     # gptme cloud models carry their real backend as a prefix in
@@ -309,7 +302,11 @@ def get_model(model: str) -> ModelMeta:
                                     m.model,
                                 )
                             )
-                            return replace(suffix_matches[0])
+                            best = suffix_matches[0]
+                            return replace(
+                                best,
+                                default_tool_format=best.default_tool_format or "tool",
+                            )
                 except Exception as e:
                     # Fall back to unknown model metadata
                     logger.debug(
@@ -338,6 +335,14 @@ def get_model(model: str) -> ModelMeta:
             if provider not in ("openrouter", "local", "gptme"):
                 log_warn_once(
                     f"Unknown model: using generic fallback for {provider}/{model_name}"
+                )
+            # Apply tool format for OpenAI-compat providers even on dynamic fallbacks.
+            # _set_tool_format() stamped static MODELS entries but can't help empty
+            # registries (azure, local, nvidia); set it here so the resolution path
+            # gives the same default as the registry-based path.
+            if provider in OPENAI_COMPAT_PROVIDERS:
+                return ModelMeta(
+                    provider, model_name, context=128_000, default_tool_format="tool"
                 )
             return ModelMeta(provider, model_name, context=128_000)
         # Unknown provider
@@ -372,18 +377,10 @@ def get_model(model: str) -> ModelMeta:
             base_model = model.split("@")[0] if "@" in model else model
             for model_meta in openrouter_models:
                 if model_meta.model == model or model_meta.model == base_model:
-                    return ModelMeta(
-                        provider=model_meta.provider,
+                    return replace(
+                        model_meta,
                         model=model,  # Preserve original name with suffix
-                        context=model_meta.context,
-                        max_output=model_meta.max_output,
-                        supports_streaming=model_meta.supports_streaming,
-                        supports_vision=model_meta.supports_vision,
-                        supports_reasoning=model_meta.supports_reasoning,
-                        supports_responses_api=model_meta.supports_responses_api,
-                        price_input=model_meta.price_input,
-                        price_output=model_meta.price_output,
-                        knowledge_cutoff=model_meta.knowledge_cutoff,
+                        default_tool_format=model_meta.default_tool_format or "tool",
                     )
         except Exception as e:
             logger.debug("Failed to fetch OpenRouter models for %s: %s", model, e)
