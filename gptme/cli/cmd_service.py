@@ -432,6 +432,19 @@ def init(
 
     # Platform-specific service generation
     if platform_choice == "macos":
+        # Reject paths that contain XML 1.0-forbidden characters. Unlike model
+        # (an env-var string where silent stripping is harmless), the work-dir
+        # path must match the one written to disk — silently sanitizing it in
+        # the plist would cause launchd to reference a nonexistent directory.
+        resolved_work = str(work)
+        if _XML10_FORBIDDEN.search(resolved_work):
+            raise click.BadParameter(
+                f"Work directory {resolved_work!r} contains XML 1.0-forbidden "
+                "characters that cannot be represented in a launchd plist. "
+                "Use a path without control characters.",
+                param_hint="'--work-dir'",
+            )
+
         # launchd: create logs directory and plist
         logs_dir = work / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)

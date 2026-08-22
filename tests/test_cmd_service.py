@@ -683,6 +683,41 @@ def test_launchd_plist_strips_control_characters(tmp_path: Path) -> None:
     assert "\ud800" not in plist_text
 
 
+def test_launchd_work_dir_with_forbidden_chars_rejected(tmp_path: Path) -> None:
+    """Work-dir containing XML 1.0-forbidden chars must be rejected on macOS.
+
+    Silently sanitizing the path in the plist would cause launchd to look for a
+    nonexistent directory/script. Validation is the correct response.
+    """
+    from unittest.mock import patch
+
+    special_work = tmp_path / "work\x01dir"
+    special_work.mkdir()
+    out_dir = tmp_path / "launchd"
+    runner = CliRunner()
+    with patch(
+        "gptme.cli.cmd_service._resolve_work_dir",
+        return_value=special_work,
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--name",
+                "testagent",
+                "--work-dir",
+                str(special_work),
+                "--output-dir",
+                str(out_dir),
+                "--platform",
+                "macos",
+            ],
+        )
+    assert result.exit_code != 0, (
+        "macOS scaffolding must reject work-dir containing XML-forbidden control chars"
+    )
+
+
 def test_macos_path_with_systemd_invalid_chars_accepted(tmp_path: Path) -> None:
     """Paths with apostrophes/backslashes are valid on macOS and must not be
     rejected by systemd-specific escaping when --platform macos is used."""
