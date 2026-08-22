@@ -83,9 +83,6 @@ def init(
             first_line,
         )
     init_tools(tool_allowlist)
-    # Expose skills as /skill:<name> commands (after tools so bare aliases can
-    # avoid shadowing loaded tool names). Never raises.
-    register_skill_commands()
     init_hooks(interactive=interactive, no_confirm=no_confirm, server=server)
 
     config = get_config()
@@ -98,6 +95,9 @@ def init(
         register_script_hooks(script_hooks, workspace or Path.cwd())
 
     init_commands()
+    # Expose skills as /skill:<name> commands (after both tools and built-in
+    # commands so bare aliases see the full registry). Never raises.
+    register_skill_commands()
 
     set_tool_format(tool_format)
     # Mark initialization done at the end so callers can retry init()
