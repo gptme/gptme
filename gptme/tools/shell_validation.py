@@ -33,6 +33,26 @@ _SENSITIVE_PATH_PREFIXES = (
     "/boot/",
 )
 
+# Credential filenames/dirs under the user's home that reads must never
+# auto-approve. Deliberately bounded — a small known set, not all dotfiles and
+# not all of `~`. Phase 3 (gptme/gptme#3495) closed the absolute-prefix gap via
+# _has_sensitive_args(), but that helper never expands `~`, so home-relative
+# credential paths slipped straight through the allowlist (e.g. `cat ~/.netrc`).
+# Keys are matched against the *expanded* home path by suffix, so both the
+# `~`-relative form and the absolute `$HOME`/`/home/<user>/` form are covered.
+_HOME_CREDENTIAL_PATHS = (
+    ".netrc",
+    ".aws/credentials",
+    ".ssh/id_rsa",
+    ".ssh/id_ed25519",
+    ".ssh/id_ecdsa",
+    ".ssh/id_dsa",
+    ".git-credentials",
+    ".npmrc",
+    ".pypirc",
+    ".config/gptme/config.toml",  # may hold provider credentials
+)
+
 # Commands that are safe to auto-approve without user confirmation
 allowlist_commands = [
     "ls",
@@ -311,6 +331,22 @@ def _has_file_redirection(cmd: str) -> bool:
     return False
 
 
+def _expand_home(path: str) -> str:
+    """Expand a leading ``~`` or ``$HOME`` in a path to the user's home dir.
+
+    ``os.path.expanduser`` handles ``~`` (and ``~user``) but not ``$HOME``,
+    which bash expands separately. Resolving both keeps the home-relative
+    credential check uniform across the two common spelling forms. A path
+    without either marker is returned unchanged.
+    """
+    if path.startswith("~"):
+        return os.path.expanduser(path)
+    if path.startswith("$HOME"):
+        home = os.environ.get("HOME", os.path.expanduser("~"))
+        return home + path[len("$HOME") :]
+    return path
+
+
 def _has_sensitive_args(cmd: str) -> bool:
     """Check whether any argument in the command targets a sensitive system path.
 
@@ -356,6 +392,15 @@ def _has_sensitive_args(cmd: str) -> bool:
         # Sensitive directory prefixes
         if any(token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
             return True
+        # Home-relative credential paths (e.g. `cat ~/.netrc`). Expand a
+        # leading `~`/`$HOME` and match against the bounded credential set by
+        # suffix, so the `~` form and the absolute home form both trip.
+        expanded = _expand_home(token)
+        for cred in _HOME_CREDENTIAL_PATHS:
+            if expanded == os.path.expanduser("~/" + cred) or expanded.endswith(
+                "/" + cred
+            ):
+                return True
 
     return False
 

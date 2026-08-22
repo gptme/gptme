@@ -794,6 +794,60 @@ class TestSensitiveArgs:
         assert not is_allowlisted("find /")
 
 
+# ── Phase 4: Home-relative credential paths ─────────────────────────────────
+
+
+class TestHomeCredentialPaths:
+    """P4 fix: reads of credential files under `~` must require confirmation.
+
+    Phase 3 closed the absolute-prefix gap via _has_sensitive_args(), but it
+    never expanded `~`, so home-relative credential paths slipped through the
+    allowlist (e.g. `cat ~/.netrc`). The credential set is deliberately bounded
+    — reads of ordinary dotfiles and all of `~` stay auto-approvable.
+    """
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            # T5.5 — the audit case
+            "cat ~/.netrc",
+            "cat ~/.netrc | grep password",
+            "grep token ~/.netrc",
+            "head ~/.netrc",
+            "tail ~/.netrc",
+            # AWS / SSH / VCS / registry credential files
+            "cat ~/.aws/credentials",
+            "head ~/.aws/credentials",
+            "tail ~/.aws/credentials",
+            "cat ~/.ssh/id_rsa",
+            "tail ~/.ssh/id_rsa",
+            "cat ~/.ssh/id_ed25519",
+            "cat ~/.git-credentials",
+            "cat ~/.npmrc",
+            "cat ~/.pypirc",
+            "cat ~/.config/gptme/config.toml",
+        ],
+    )
+    def test_home_credential_path_not_allowlisted(self, cmd: str):
+        """Home-relative credential reads must NOT be auto-approved (P4)."""
+        assert not is_allowlisted(cmd)
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            # Safe controls — must stay AUTO
+            "ls ~/.ssh/",
+            "cat ~/.bashrc",
+            "cat ~/README.md",
+            "ls ~/",
+            "cat ~/notes.txt",
+        ],
+    )
+    def test_safe_home_reads_still_allowlisted(self, cmd: str):
+        """Ordinary `~` reads (non-credential dotfiles, dirs) stay auto-approved."""
+        assert is_allowlisted(cmd)
+
+
 # ── P2: Unquoted backtick detection ─────────────────────────────────────────
 
 
