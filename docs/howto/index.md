@@ -13,6 +13,7 @@ code-review
 debug-python
 automate-task
 refactor
+headless-agent
 computer-use
 tts-setup
 ```
@@ -37,6 +38,9 @@ tts-setup
 
 ## Refactor Code
 [Refactor across files](refactor.md) — rename, extract, and reshape code across a codebase.
+
+## Run gptme as a Headless Service
+[Run gptme as a headless agent](headless-agent.md) — scaffold an autonomous agent that starts on boot, runs on a schedule, and logs all activity to session files. Perfect for automation and periodic tasks.
 
 ## Automate GUIs (Computer Use)
 [Control desktop apps and automate web UIs](computer-use.md) — screenshots, mouse/keyboard, and structured browser interaction.
