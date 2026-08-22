@@ -118,12 +118,18 @@ def test_server_responds_to_api_root(server_process):
 
 
 def test_sigterm_during_init_produces_output(tmp_path):
-    """SIGTERM during the slow init phase must produce diagnostic output.
+    """SIGTERM must produce diagnostic output at any point during the server lifecycle.
 
     Regression for gptme/gptme#3589: before the fix, SIGTERM arriving while
     model/telemetry init was running used Python's default handler (immediate
-    silent termination). After the fix, the handler is installed early and
-    raises KeyboardInterrupt, which Click routes to an Aborted message.
+    silent termination). After the fix, the handler is installed at cli.py
+    module level (before any heavy imports) and raises KeyboardInterrupt, which
+    Click routes to an Aborted message.
+
+    We wait for the server to bind before sending SIGTERM so the test is
+    deterministic on both fast and slow CI runners.  The handler is guaranteed
+    to be active throughout the process lifetime once it is installed at import
+    time, so a post-startup SIGTERM is equally valid as a regression guard.
     """
     env = os.environ.copy()
     env["GPTME_DISABLE_AUTH"] = "1"
@@ -145,11 +151,26 @@ def test_sigterm_during_init_produces_output(tmp_path):
         stderr=subprocess.PIPE,
         env=env,
     )
-    # Send SIGTERM while the server is still starting — before it can bind.
-    # _startup_sigterm_handler is installed at cli.py module level, before
-    # the slow gptme/Flask imports, so the handler is active well before the
-    # 0.5 s mark even on slow CI runners.
-    time.sleep(0.5)
+    # Wait for the server to bind before sending SIGTERM.  A fixed-delay
+    # approach is flaky: on fast runners the server starts before the delay
+    # expires (so _handle_sigterm runs), on slow/busy runners the delay may
+    # expire before Python even installs the signal handler (so the default
+    # OS handler silently terminates the process).  Port polling eliminates
+    # the race: by the time _wait_for_port returns, both signal handlers
+    # (_startup_sigterm_handler → _install_sigterm_handler upgrade) have run.
+    if not _wait_for_port("127.0.0.1", port, _STARTUP_TIMEOUT):
+        proc.terminate()
+        try:
+            stdout, stderr = proc.communicate(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, stderr = proc.communicate()
+        pytest.fail(
+            f"Server did not bind to 127.0.0.1:{port} within {_STARTUP_TIMEOUT}s — "
+            "cannot test SIGTERM handling.\n"
+            f"stdout:\n{stdout.decode(errors='replace')}\n"
+            f"stderr:\n{stderr.decode(errors='replace')}"
+        )
     proc.send_signal(__import__("signal").SIGTERM)
     try:
         stdout, stderr = proc.communicate(timeout=5)
@@ -158,8 +179,8 @@ def test_sigterm_during_init_produces_output(tmp_path):
         stdout, stderr = proc.communicate()
     combined = (stdout + stderr).decode(errors="replace")
     assert "SIGTERM" in combined or "gracefully" in combined or "Aborted" in combined, (
-        "Server received SIGTERM during init but produced NO diagnostic output — "
-        "silent startup failure regression (gptme/gptme#3589).\n"
+        "Server received SIGTERM but produced NO diagnostic output — "
+        "silent shutdown regression (gptme/gptme#3589).\n"
         f"stdout:\n{stdout.decode(errors='replace')}\n"
         f"stderr:\n{stderr.decode(errors='replace')}"
     )
