@@ -1,0 +1,58 @@
+name: Security Advisories
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: '0 8 * * 1'  # Weekly, Monday 8am UTC
+  workflow_dispatch:
+
+jobs:
+  dependency-audit:
+    name: Dependency Advisory Scan
+    runs-on: ubuntu-latest
+    # Phase 1: continue-on-error so this never blocks CI
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v5
+
+      # gptme has no committed uv.lock (gitignored; project uses poetry), so
+      # --frozen would fail. `uv sync` generates the gitignored lockfile that
+      # `uv audit` reads.
+      - name: Install dependencies and resolve lockfile
+        run: uv sync --all-extras
+
+      - name: Run dependency audit
+        id: audit
+        run: |
+          # Phase 1: report-only. Remove `|| true` in Phase 2 to block on findings.
+          uv audit --preview-features audit-command \
+            --ignore PYSEC-2026-2151 \
+            --ignore CVE-2025-69872 \
+            --ignore PYSEC-2026-2447 \
+            --ignore PYSEC-2026-3447 \
+            || true
+
+      - name: Upload SARIF (optional — enables GitHub Security tab)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv audit --preview-features audit-command \
+            --output-format sarif \
+            --ignore PYSEC-2026-2151 \
+            --ignore CVE-2025-69872 \
+            --ignore PYSEC-2026-2447 \
+            --ignore PYSEC-2026-3447 \
+            > audit.sarif 2>/dev/null || true
+          echo "Generated audit.sarif"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: security-audit-sarif
+          path: audit.sarif
+          if-no-files-found: ignore
