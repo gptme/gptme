@@ -269,11 +269,21 @@ def _write_file(path: Path, content: str, force: bool = False) -> bool:
 
 
 def _detect_platform() -> str:
-    """Detect the current platform: 'macos' or 'linux'."""
-    system = platform.system().lower()
-    if system == "darwin":
+    """Detect the current platform: 'macos' or 'linux'.
+
+    Raises UsageError for platforms where neither systemd nor launchd applies
+    (e.g. Windows, FreeBSD). Use --platform explicitly on those systems.
+    """
+    system = platform.system()
+    if system == "Darwin":
         return "macos"
-    return "linux"
+    if system == "Linux":
+        return "linux"
+    raise click.UsageError(
+        f"Platform {system!r} is not supported by 'gptme service init'. "
+        "Use --platform linux or --platform macos to generate service files "
+        "for a supported platform."
+    )
 
 
 def _generate_launchd_plist(
@@ -416,6 +426,17 @@ def init(
     # Resolve platform (auto-detect if needed)
     if platform_choice == "auto":
         platform_choice = _detect_platform()
+        if platform_choice == "macos" and output_dir is None:
+            # Inform users explicitly: on macOS we now default to launchd
+            # instead of the old systemd default, so anyone with scripts
+            # expecting ~/.config/systemd/user gets a clear heads-up.
+            click.echo(
+                "Note: macOS detected — generating a launchd plist in "
+                "~/Library/LaunchAgents instead of a systemd unit. "
+                "Pass --platform linux to generate systemd units for a "
+                "Linux target.",
+                err=True,
+            )
 
     # Set default output directory based on platform
     if output_dir is None:
@@ -429,6 +450,21 @@ def init(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     click.echo(f"Scaffolding headless agent '{name}' ({platform_choice})...")
+
+    # Validate model consistently across platforms — systemd rejects
+    # newlines/quotes/backslashes; launchd must too (else the same input is
+    # silently truncated on macOS but rejected on Linux, which is confusing
+    # and allows injection attempts to go unnoticed on macOS).
+    if "\n" in model or "\r" in model:
+        raise click.BadParameter(
+            f"{model!r} must not contain newlines",
+            param_hint="'--model'",
+        )
+    if any(ch in model for ch in ("\\", '"', "'")):
+        raise click.BadParameter(
+            f"{model!r} must not contain quotes or backslashes",
+            param_hint="'--model'",
+        )
 
     # Platform-specific service generation
     if platform_choice == "macos":

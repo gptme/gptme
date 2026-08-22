@@ -455,6 +455,82 @@ def test_model_newline_rejected(tmp_path: Path) -> None:
     assert not (tmp_path / "systemd4" / "modelagent.service").exists()
 
 
+def test_model_newline_rejected_on_macos(tmp_path: Path) -> None:
+    """A model with a newline must be rejected on macOS just as on Linux."""
+    out_dir = tmp_path / "launchd"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            "--name",
+            "modelagent",
+            "--model",
+            "gpt-4o-mini\nEnvironment=GPTME_MALICIOUS=1",
+            "--work-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(out_dir),
+            "--platform",
+            "macos",
+        ],
+    )
+    assert result.exit_code != 0, "newline in model must be rejected on macOS too"
+    assert not (out_dir / "com.gptme.modelagent.plist").exists()
+
+
+def test_detect_platform_unsupported_raises(tmp_path: Path) -> None:
+    """Running with --platform auto on an unsupported OS must raise a usage error."""
+    from unittest.mock import patch
+
+    runner = CliRunner()
+    with patch("gptme.cli.cmd_service.platform.system", return_value="Windows"):
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--name",
+                "agent",
+                "--work-dir",
+                str(tmp_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--platform",
+                "auto",
+            ],
+        )
+    assert result.exit_code != 0, "unsupported platform must produce a non-zero exit"
+    assert "not supported" in (result.output + str(result.exception)).lower()
+
+
+def test_macos_autodetect_emits_warning(tmp_path: Path) -> None:
+    """Auto-detecting macOS should print a note about launchd vs systemd."""
+    from unittest.mock import patch
+
+    out_dir = tmp_path / "launchd"
+    runner = CliRunner()
+    with patch("gptme.cli.cmd_service.platform.system", return_value="Darwin"):
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--name",
+                "agent",
+                "--work-dir",
+                str(tmp_path),
+                "--output-dir",
+                str(out_dir),
+                "--platform",
+                "auto",
+            ],
+        )
+    assert result.exit_code == 0, f"should succeed; got: {result.output}"
+    # CliRunner mixes stderr into .output by default
+    assert "macos" in result.output.lower() or "launchd" in result.output.lower(), (
+        "expected a macOS/launchd note in output"
+    )
+
+
 def test_launchd_plist_generated_on_macos_platform(tmp_path: Path) -> None:
     """When --platform=macos, a launchd plist should be generated instead of systemd files."""
     out_dir = tmp_path / "launchd"
