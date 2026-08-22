@@ -2,23 +2,9 @@ import json
 import logging
 import os
 import signal
-import sys
 import threading
 import time
 from pathlib import Path
-
-
-# Install a minimal SIGTERM handler using only stdlib — before any slow gptme
-# imports — so a SIGTERM during the startup/import phase produces diagnostic
-# output rather than silently terminating the process (gptme/gptme#3589).
-# serve() replaces this with a logger-aware version after init_logging() runs.
-def _startup_sigterm_handler(signum: int, frame) -> None:
-    sys.stderr.write("Received SIGTERM during startup, shutting down gracefully\n")
-    sys.stderr.flush()
-    raise KeyboardInterrupt
-
-
-signal.signal(signal.SIGTERM, _startup_sigterm_handler)
 
 import click
 from click_default_group import DefaultGroup
