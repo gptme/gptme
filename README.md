@@ -365,18 +365,18 @@ For quick setup of a gptme agent as a persistent systemd service on any Linux ma
 # Generate a complete headless agent setup
 gptme service init --name my-agent --model gpt-4o-mini --work-dir ~/my-agent
 
-# Install and start it
-cd ~/my-agent
-systemctl --user enable --now my-agent.service
+# Install and start on a daily timer
+systemctl --user daemon-reload
+systemctl --user enable --now my-agent.timer
 
-# Optional: run on a timer (hourly/daily/weekly)
-gptme service init --name my-agent --timer-schedule daily --force
+# Optional: add/change the schedule without overwriting existing workspace files
+gptme service init --name my-agent --work-dir ~/my-agent --timer-schedule daily --force
 ```
 
 This command scaffolds:
 - **systemd service unit** — runs your agent in a user session
 - **Optional timer** — schedule autonomous runs (hourly, daily, weekly, or on-demand)
-- **Startup script** — invokes gptme with your chosen model and work directory
+- **Startup script** — placeholder run script ready to customize with your agent's work loop
 - **Skeleton config** — `gptme.toml` and `AGENTS.md` ready to customize
 
 The generated service is entirely self-contained and requires no additional setup beyond gptme being installed. Perfect for automation, monitoring, CI/CD orchestration, or running background agents on headless servers.
