@@ -30,7 +30,7 @@ jobs:
       # the Poetry-committed snapshot; Phase 2 can add `poetry export | pip-audit`
       # for exact parity with what Poetry installs.
       - name: Install dependencies and resolve lockfile
-        run: uv sync --all-extras
+        run: uv sync --all-extras || echo "::warning::Failed to resolve dependencies; audit will run against any existing lockfile or report a tooling error."
 
       - name: Run dependency audit
         id: audit
