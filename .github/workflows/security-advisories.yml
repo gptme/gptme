@@ -9,6 +9,10 @@ on:
     - cron: '0 8 * * 1'  # Weekly, Monday 8am UTC
   workflow_dispatch:
 
+permissions:
+  contents: read
+  security-events: write  # Required for SARIF upload to GitHub Security tab
+
 jobs:
   dependency-audit:
     name: Dependency Advisory Scan
@@ -21,23 +25,25 @@ jobs:
       - uses: astral-sh/setup-uv@v5
 
       # gptme has no committed uv.lock (gitignored; project uses poetry), so
-      # --frozen would fail. `uv sync` generates the gitignored lockfile that
-      # `uv audit` reads.
+      # --frozen would fail. `uv sync` resolves and generates the lockfile that
+      # `uv audit` reads. Note: this audits the uv-resolved graph rather than
+      # the Poetry-committed snapshot; Phase 2 can add `poetry export | pip-audit`
+      # for exact parity with what Poetry installs.
       - name: Install dependencies and resolve lockfile
         run: uv sync --all-extras
 
       - name: Run dependency audit
         id: audit
         run: |
-          # Phase 1: report-only. Remove `|| true` in Phase 2 to block on findings.
+          # Phase 1: report-only. Remove `|| echo` in Phase 2 to block on findings.
           uv audit --preview-features audit-command \
             --ignore PYSEC-2026-2151 \
             --ignore CVE-2025-69872 \
             --ignore PYSEC-2026-2447 \
             --ignore PYSEC-2026-3447 \
-            || true
+          || echo "::warning::Dependency advisories detected — see job log for details. Phase 1: non-blocking."
 
-      - name: Upload SARIF (optional — enables GitHub Security tab)
+      - name: Generate SARIF report
         if: always()
         continue-on-error: true
         run: |
@@ -50,9 +56,10 @@ jobs:
             > audit.sarif 2>/dev/null || true
           echo "Generated audit.sarif"
 
-      - uses: actions/upload-artifact@v7
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
         if: always()
+        continue-on-error: true
         with:
-          name: security-audit-sarif
-          path: audit.sarif
-          if-no-files-found: ignore
+          sarif_file: audit.sarif
+          category: dependency-audit
