@@ -137,6 +137,11 @@ def _install_sigterm_handler() -> None:
     """
 
     def _handle_sigterm(signum, frame):
+        # Write directly to stderr and flush before using the logger — Rich's
+        # Console buffers internally and may not flush before process exit,
+        # leaving the pipe empty on fast CI runners (gptme/gptme#3589).
+        _sys.stderr.write("Received SIGTERM, shutting down gracefully\n")
+        _sys.stderr.flush()
         logger.info("Received SIGTERM, shutting down gracefully")
         raise KeyboardInterrupt
 
