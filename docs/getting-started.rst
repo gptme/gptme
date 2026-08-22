@@ -95,6 +95,9 @@ To run gptme without an API key, use a local model via `Ollama <https://ollama.c
     ollama pull llama3.2:1b
     ollama serve  # run in background or separate terminal
 
+    # Check that gptme can see the local server (probes /v1/models)
+    gptme providers list
+
     # Use with gptme (OPENAI_BASE_URL is required by the local provider)
     export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
     gptme "hello" -m local/llama3.2:1b

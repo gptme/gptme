@@ -1,5 +1,6 @@
 """Tests for the providers-related gptme-util CLI commands."""
 
+import json
 from unittest.mock import Mock, patch
 
 import pytest
@@ -7,6 +8,16 @@ from click.testing import CliRunner
 
 from gptme.cli.util import main
 from gptme.config import ProviderConfig
+from gptme.llm.local_discovery import (
+    DiscoveryResult,
+    LocalProviderCandidate,
+)
+
+
+@pytest.fixture(autouse=True)
+def _disable_real_local_discovery(monkeypatch):
+    """Keep CLI tests hermetic: never probe the developer's real :11434/:1234."""
+    monkeypatch.setenv("GPTME_NO_LOCAL_DISCOVERY", "1")
 
 
 @pytest.fixture
@@ -356,3 +367,88 @@ class TestProvidersAdd:
         result = runner.invoke(main, ["providers", "list"])
         assert result.exit_code == 0
         assert "gptme providers add" in result.output
+
+
+def _ollama_up(*models: str) -> DiscoveryResult:
+    cand = LocalProviderCandidate(
+        name="ollama",
+        display_name="Ollama",
+        base_url="http://127.0.0.1:11434/v1",
+        hint="run ollama serve",
+    )
+    return DiscoveryResult(
+        candidate=cand,
+        status="up",
+        reason="ok",
+        models=models,
+    )
+
+
+def _lmstudio_down() -> DiscoveryResult:
+    cand = LocalProviderCandidate(
+        name="lmstudio",
+        display_name="LM Studio",
+        base_url="http://127.0.0.1:1234/v1",
+        hint="Open LM Studio → Local Server → Start",
+    )
+    return DiscoveryResult(
+        candidate=cand,
+        status="down",
+        reason="not running (connection refused)",
+    )
+
+
+class TestProvidersListDiscovery:
+    """Tests for auto-discovered local providers in 'providers list'."""
+
+    def test_shows_discovered_ollama(self, mock_config, monkeypatch, mocker):
+        monkeypatch.delenv("GPTME_NO_LOCAL_DISCOVERY", raising=False)
+        mocker.patch(
+            "gptme.llm.local_discovery.discover_local_providers",
+            return_value=[_ollama_up("llama3.2:3b"), _lmstudio_down()],
+        )
+        runner = CliRunner()
+        result = runner.invoke(main, ["providers", "list"])
+        assert result.exit_code == 0
+        assert "Local auto-discovery" in result.output
+        assert "Ollama" in result.output
+        assert "http://127.0.0.1:11434/v1" in result.output
+        assert "llama3.2:3b" in result.output
+        assert "/v1/models" in result.output
+        assert "LM Studio" in result.output
+        assert "connection refused" in result.output
+        assert "gptme providers add" in result.output
+
+    def test_json_includes_discovered(self, mock_config, monkeypatch, mocker):
+        monkeypatch.delenv("GPTME_NO_LOCAL_DISCOVERY", raising=False)
+        mocker.patch(
+            "gptme.llm.local_discovery.discover_local_providers",
+            return_value=[_ollama_up("llama3.2:3b"), _lmstudio_down()],
+        )
+        runner = CliRunner()
+        result = runner.invoke(main, ["providers", "list", "--json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["configured"] == []
+        names = [d["name"] for d in payload["discovered"]]
+        assert names == ["ollama", "lmstudio"]
+        ollama = payload["discovered"][0]
+        assert ollama["status"] == "up"
+        assert ollama["models"] == ["llama3.2:3b"]
+        assert ollama["models_url"] == "http://127.0.0.1:11434/v1/models"
+        assert payload["discovered"][1]["status"] == "down"
+        assert payload["discovered"][1]["reason"]
+
+    def test_no_discover_flag_skips_probe(self, mock_config, mocker):
+        spy = mocker.patch("gptme.llm.local_discovery.discover_local_providers")
+        runner = CliRunner()
+        result = runner.invoke(main, ["providers", "list", "--no-discover"])
+        assert result.exit_code == 0
+        spy.assert_not_called()
+        assert "Local auto-discovery" not in result.output
+
+    def test_env_disable_notes_disabled(self, mock_config):
+        runner = CliRunner()
+        result = runner.invoke(main, ["providers", "list"])
+        assert result.exit_code == 0
+        assert "GPTME_NO_LOCAL_DISCOVERY" in result.output
