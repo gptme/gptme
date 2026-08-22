@@ -16,6 +16,7 @@ from .cli.setup import ask_for_api_key
 from .commands import init_commands
 from .config import Config, get_config
 from .hooks import init_hooks
+from .lessons.skill_commands import register_skill_commands
 from .llm import guess_provider_from_config, init_llm, is_custom_provider
 from .llm.llm_gptme import GptmeAuthError
 from .llm.models import (
@@ -94,6 +95,9 @@ def init(
         register_script_hooks(script_hooks, workspace or Path.cwd())
 
     init_commands()
+    # Expose skills as /skill:<name> commands (after both tools and built-in
+    # commands so bare aliases see the full registry). Never raises.
+    register_skill_commands()
 
     set_tool_format(tool_format)
     # Mark initialization done at the end so callers can retry init()
