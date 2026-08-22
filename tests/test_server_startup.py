@@ -145,10 +145,11 @@ def test_sigterm_during_init_produces_output(tmp_path):
         stderr=subprocess.PIPE,
         env=env,
     )
-    # Send SIGTERM almost immediately — before the server has had time to bind.
-    # Enough time for init_logging() to run (so the handler is installed) but
-    # before app.run().  0.5 s is generous; the handler is installed in the
-    # first few milliseconds of serve().
+    # Send SIGTERM while the server is still starting — before it can bind.
+    # The module-level _startup_sigterm_handler is installed in the first
+    # milliseconds of the import phase (before any slow gptme imports), so
+    # 0.5 s is more than enough to guarantee the handler is active while the
+    # server is still in its slow init phase.
     time.sleep(0.5)
     proc.send_signal(__import__("signal").SIGTERM)
     try:

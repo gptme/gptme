@@ -2,9 +2,23 @@ import json
 import logging
 import os
 import signal
+import sys
 import threading
 import time
 from pathlib import Path
+
+
+# Install a minimal SIGTERM handler using only stdlib — before any slow gptme
+# imports — so a SIGTERM during the startup/import phase produces diagnostic
+# output rather than silently terminating the process (gptme/gptme#3589).
+# serve() replaces this with a logger-aware version after init_logging() runs.
+def _startup_sigterm_handler(signum: int, frame) -> None:
+    sys.stderr.write("Received SIGTERM during startup, shutting down gracefully\n")
+    sys.stderr.flush()
+    raise KeyboardInterrupt
+
+
+signal.signal(signal.SIGTERM, _startup_sigterm_handler)
 
 import click
 from click_default_group import DefaultGroup
@@ -102,29 +116,20 @@ def _start_parent_death_watcher(
 
 
 def _install_sigterm_handler() -> None:
-    """Make SIGTERM trigger the same graceful shutdown path as Ctrl+C (SIGINT).
+    """Upgrade the module-level SIGTERM handler to use the logger.
 
-    Werkzeug's dev server (`app.run()`) catches `KeyboardInterrupt` in its
-    serve loop and exits cleanly, which lets the `finally: shutdown_telemetry()`
-    block run. Python only raises `KeyboardInterrupt` for SIGINT, though — the
-    default SIGTERM handler terminates the process immediately without unwinding
-    the stack, so on `systemctl stop`, container scale-down, or a rolling
-    restart the cleanup block never runs and any in-flight SSE stream is cut
-    mid-token.
+    Called from ``serve()`` after ``init_logging()`` so the handler can emit
+    a structured log line rather than writing directly to stderr.  The module-
+    level ``_startup_sigterm_handler`` already handles any SIGTERM that arrives
+    during the import phase or before this upgrade runs.
 
-    Re-raising SIGTERM as `KeyboardInterrupt` routes it through the existing
-    clean-shutdown path. This also makes the parent-death watcher's self-SIGTERM
-    (see `_start_parent_death_watcher`) actually shut the server down gracefully,
-    as its comment already assumes.
-
-    This must be called early in the `serve` command — before any slow
-    initialisation (model init, telemetry) — so that a ``timeout``-imposed
-    SIGTERM during startup is caught here rather than using Python's default
-    handler (which terminates immediately with no diagnostic output, giving the
-    "silent startup failure" described in gptme/gptme#3589).
+    Both the early and the upgraded handlers re-raise SIGTERM as
+    ``KeyboardInterrupt``, routing it through Werkzeug's clean-shutdown path
+    so the ``finally: shutdown_telemetry()`` block runs on ``systemctl stop``,
+    container scale-down, or rolling restarts (gptme/gptme#3589).
 
     Signal handlers can only be installed from the main thread; this is called
-    from the `serve` command, which runs there.
+    from the ``serve`` command, which runs there.
     """
 
     def _handle_sigterm(signum, frame):
@@ -255,9 +260,8 @@ def serve(
 ):  # pragma: no cover
     """Starts a server and web UI for gptme."""
     init_logging(verbose, compact=False)
-    # Install SIGTERM handler early so a timeout-imposed SIGTERM during the
-    # (potentially slow) initialisation phase is caught and logged rather than
-    # silently terminating the process (gptme/gptme#3589).
+    # Upgrade the module-level startup SIGTERM handler (stderr-only) to the
+    # logger-aware version now that init_logging() has run.
     _install_sigterm_handler()
     set_config_from_workspace(Path.cwd())
 
