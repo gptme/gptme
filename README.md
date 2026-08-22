@@ -369,17 +369,17 @@ gptme service init --name my-agent --model gpt-4o-mini --work-dir ~/my-agent
 systemctl --user daemon-reload
 systemctl --user enable --now my-agent.timer
 
-# Optional: add/change the schedule without overwriting existing workspace files
-gptme service init --name my-agent --work-dir ~/my-agent --timer-schedule daily --force
+# Reinitialize with a different schedule (--force overwrites existing unit files)
+gptme service init --name my-agent --work-dir ~/my-agent --timer-schedule hourly --force
 ```
 
 This command scaffolds:
 - **systemd service unit** — runs your agent in a user session
 - **Optional timer** — schedule autonomous runs (hourly, daily, weekly, or on-demand)
-- **Startup script** — placeholder run script ready to customize with your agent's work loop
+- **Startup script** — placeholder run script; customize the loop body with your agent's real work
 - **Skeleton config** — `gptme.toml` and `AGENTS.md` ready to customize
 
-The generated service is entirely self-contained and requires no additional setup beyond gptme being installed. Perfect for automation, monitoring, CI/CD orchestration, or running background agents on headless servers.
+The scaffolded workspace is self-contained; after customizing the startup script with your agent's work loop, all you need is gptme installed. Perfect for automation, monitoring, CI/CD orchestration, or running background agents on headless servers.
 
 See the [Headless Agents guide](https://gptme.org/docs/agents/headless.html) for advanced configurations and troubleshooting.
 
