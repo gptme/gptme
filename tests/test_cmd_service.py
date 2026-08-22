@@ -504,10 +504,13 @@ def test_detect_platform_unsupported_raises(tmp_path: Path) -> None:
 
 
 def test_macos_autodetect_emits_warning(tmp_path: Path) -> None:
-    """Auto-detecting macOS should print a note about launchd vs systemd."""
+    """Auto-detecting macOS should print a note about launchd vs systemd.
+
+    The note is only emitted when --output-dir is NOT passed (output_dir is None),
+    so we must NOT pass --output-dir here or the note path is never reached.
+    """
     from unittest.mock import patch
 
-    out_dir = tmp_path / "launchd"
     runner = CliRunner()
     with patch("gptme.cli.cmd_service.platform.system", return_value="Darwin"):
         result = runner.invoke(
@@ -518,16 +521,17 @@ def test_macos_autodetect_emits_warning(tmp_path: Path) -> None:
                 "agent",
                 "--work-dir",
                 str(tmp_path),
-                "--output-dir",
-                str(out_dir),
+                # no --output-dir: note fires only when output_dir is None
                 "--platform",
                 "auto",
             ],
         )
     assert result.exit_code == 0, f"should succeed; got: {result.output}"
-    # CliRunner mixes stderr into .output by default
-    assert "macos" in result.output.lower() or "launchd" in result.output.lower(), (
-        "expected a macOS/launchd note in output"
+    # CliRunner mixes stderr into .output by default.
+    # The note specifically mentions "launchd plist" — check for that phrase
+    # to ensure the actual warning path was exercised (not just the scaffold line).
+    assert "launchd plist" in result.output.lower(), (
+        "expected the launchd-plist note in output (fires only when output_dir is None)"
     )
 
 

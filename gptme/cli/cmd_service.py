@@ -249,10 +249,8 @@ Never modify historical entries.
 
 
 def _resolve_work_dir(work_dir: str) -> Path:
-    """Resolve the agent work directory, creating it if needed."""
-    path = Path(work_dir).expanduser().resolve()
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    """Resolve the agent work directory path (does not create it)."""
+    return Path(work_dir).expanduser().resolve()
 
 
 def _write_file(path: Path, content: str, force: bool = False) -> bool:
@@ -445,15 +443,9 @@ def init(
         else:
             output_dir = "~/.config/systemd/user"
 
-    work = _resolve_work_dir(work_dir)
-    out_dir = Path(output_dir).expanduser().resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    click.echo(f"Scaffolding headless agent '{name}' ({platform_choice})...")
-
-    # Validate model consistently across platforms — systemd rejects
-    # newlines/quotes/backslashes; launchd must too (else the same input is
-    # silently truncated on macOS but rejected on Linux, which is confusing
+    # Validate model consistently across platforms BEFORE creating any directories.
+    # systemd rejects newlines/quotes/backslashes; launchd must too (else the same
+    # input is silently truncated on macOS but rejected on Linux, which is confusing
     # and allows injection attempts to go unnoticed on macOS).
     if "\n" in model or "\r" in model:
         raise click.BadParameter(
@@ -466,11 +458,15 @@ def init(
             param_hint="'--model'",
         )
 
+    # Resolve work dir path for validation (no mkdir yet — avoid leaving behind
+    # side-effect directories when subsequent validation raises BadParameter).
+    work = _resolve_work_dir(work_dir)
+
     # Platform-specific service generation
     if platform_choice == "macos":
-        # Reject paths that contain XML 1.0-forbidden characters. Unlike model
-        # (an env-var string where silent stripping is harmless), the work-dir
-        # path must match the one written to disk — silently sanitizing it in
+        # Reject paths that contain XML 1.0-forbidden characters BEFORE creating dirs.
+        # Unlike model (an env-var string where silent stripping is harmless), the
+        # work-dir path must match the one written to disk — silently sanitizing it in
         # the plist would cause launchd to reference a nonexistent directory.
         resolved_work = str(work)
         if _XML10_FORBIDDEN.search(resolved_work):
@@ -481,6 +477,14 @@ def init(
                 param_hint="'--work-dir'",
             )
 
+    # All validation passed — now create directories and generate files.
+    work.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(output_dir).expanduser().resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    click.echo(f"Scaffolding headless agent '{name}' ({platform_choice})...")
+
+    if platform_choice == "macos":
         # launchd: create logs directory and plist
         logs_dir = work / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
