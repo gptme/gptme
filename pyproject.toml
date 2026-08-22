@@ -57,6 +57,7 @@ include = [
     { path = "gptme/data/faq.yaml", format = ["sdist", "wheel"] },
     "gptme/eval/tbench/setup.sh",
     "media/*.png",
+    { path = "media/*.svg", format = ["sdist", "wheel"] },
     "media/*.wav",
 ]
 

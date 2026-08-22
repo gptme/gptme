@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="gptme">
+  <title>gptme</title>
+  <!-- Ear pods -->
+  <circle cx="3.0" cy="16.8" r="2.15" fill="#002938"/>
+  <circle cx="29.0" cy="16.8" r="2.15" fill="#002938"/>
+  <circle cx="3.0" cy="16.8" r="0.85" fill="#a9bdcd"/>
+  <circle cx="29.0" cy="16.8" r="0.85" fill="#a9bdcd"/>
+  <!-- Helmet -->
+  <circle cx="16" cy="16.6" r="11.0" fill="#002938"/>
+  <!-- Face plate: shallow twin-lobe top, as in the logo mascot -->
+  <path fill="#a9bdcd" d="
+    M7.2,17.2
+    C7.2,12.1 8.9,9.7 11.3,9.7
+    C13.3,9.7 15.0,10.6 16,11.5
+    C17.0,10.6 18.7,9.7 20.7,9.7
+    C23.1,9.7 24.8,12.1 24.8,17.2
+    C24.8,21.5 21.2,23.8 16,23.8
+    C10.8,23.8 7.2,21.5 7.2,17.2 Z"/>
+  <path fill="#ffffff" d="
+    M8.5,17.2
+    C8.5,13.0 9.8,11.0 11.6,11.0
+    C13.3,11.0 14.9,11.9 16,12.8
+    C17.1,11.9 18.7,11.0 20.4,11.0
+    C22.2,11.0 23.5,13.0 23.5,17.2
+    C23.5,20.6 20.5,22.5 16,22.5
+    C11.5,22.5 8.5,20.6 8.5,17.2 Z"/>
+  <!-- Eyes -->
+  <circle cx="12.1" cy="16.3" r="2.35" fill="#002938"/>
+  <circle cx="19.9" cy="16.3" r="2.35" fill="#002938"/>
+  <circle cx="12.85" cy="15.55" r="0.78" fill="#ffffff"/>
+  <circle cx="20.65" cy="15.55" r="0.78" fill="#ffffff"/>
+  <!-- Smile -->
+  <path d="M14.1,19.8 Q16,21.6 17.9,19.8" fill="none" stroke="#002938" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- Helmet highlight -->
+  <path d="M8.03,12.0 A9.2,9.2 0 0 1 14.4,7.54" fill="none" stroke="#ffffff" stroke-width="1.0" stroke-linecap="round"/>
+</svg>
