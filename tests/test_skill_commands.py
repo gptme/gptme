@@ -70,7 +70,15 @@ def _ctx(manager: MagicMock, full_args: str = "") -> CommandContext:
 def test_substitute_arguments():
     body = "all=$ARGUMENTS a0=$ARGUMENTS[0] a1=$1 missing=$5"
     out = substitute_arguments(body, "foo bar", ["foo", "bar"])
-    assert out == "all=foo bar a0=foo a1=bar missing="
+    # Out-of-range $N stays unchanged rather than becoming empty string
+    assert out == "all=foo bar a0=foo a1=bar missing=$5"
+
+
+def test_substitute_arguments_preserves_dollar_amounts():
+    # $N with a large index should not silently delete currency amounts in prose
+    body = "Set budget to $100 and limit to $ARGUMENTS[99]."
+    out = substitute_arguments(body, "", [])
+    assert out == "Set budget to $100 and limit to $ARGUMENTS[99]."
 
 
 def test_register_skill_commands_registers_canonical_and_alias(skills_root: Path):
@@ -112,8 +120,9 @@ def test_skill_handler_queues_substituted_prompt(skills_root: Path, manager):
     assert "Do the thing with: foo bar" in msg.content
     assert "First arg: foo" in msg.content
     assert "Second arg: bar" in msg.content
-    assert "Missing arg: \n" in msg.content or msg.content.endswith("Missing arg:")
-    assert "$ARGUMENTS" not in msg.content
+    # Out-of-range $ARGUMENTS[N] is preserved, not replaced with empty string
+    assert "Missing arg: $ARGUMENTS[9]" in msg.content
+    # (bare $ARGUMENTS was substituted — verified implicitly by line 120)
 
     # Queue is drained: nothing left
     assert drain_prompt_queue(manager.logdir) == []

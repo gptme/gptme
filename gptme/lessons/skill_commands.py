@@ -56,7 +56,9 @@ def substitute_arguments(body: str, full_args: str, args: list[str]) -> str:
         if idx_str is None:
             return full_args
         idx = int(idx_str)
-        return args[idx] if idx < len(args) else ""
+        # Return the original text unchanged when the index is out of range,
+        # so "$100" in skill prose (prices, currency) is never silently deleted.
+        return args[idx] if idx < len(args) else match.group(0)
 
     return _ARG_PATTERN.sub(_replace, body)
 
