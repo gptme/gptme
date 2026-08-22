@@ -39,7 +39,7 @@ from xml.sax.saxutils import escape as _xml_escape
 # XML 1.0 permits only #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF].
 # Strip control characters and lone UTF-16 surrogates — both survive saxutils.escape unchanged
 # and cause launchctl to reject the generated plist.
-_XML10_FORBIDDEN = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\uD800-\uDFFF￾￿]")
+_XML10_FORBIDDEN = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\uD800-\uDFFF\uFFFE\uFFFF]")
 
 
 def _xml_safe(value: str) -> str:
