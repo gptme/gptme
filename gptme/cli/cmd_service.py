@@ -179,6 +179,177 @@ Append-only logs in `journal/YYYY-MM-DD/`.
 Never modify historical entries.
 """
 
+HEALTH_CHECK_TEMPLATE = """\
+#!/usr/bin/env python3
+\"\"\"
+Health check endpoint for {name} agent.
+
+Checks systemd service status and returns JSON response.
+Can be run standalone or wrapped in an HTTP server.
+
+Usage:
+    python3 health-check.py
+    python3 health-check.py --json
+\"\"\"
+
+import json
+import subprocess
+from pathlib import Path
+from datetime import datetime
+
+
+def check_service_status(service_name: str) -> dict:
+    \"\"\"Check systemd service status and return health info.\"\"\"
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "show", service_name, "-p", "State,ActiveState"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        lines = result.stdout.strip().split("\\n")
+        state = next((l.split("=", 1)[1] for l in lines if l.startswith("State=")), "unknown")
+        active = next((l.split("=", 1)[1] for l in lines if l.startswith("ActiveState=")), "unknown")
+
+        return {{
+            "service": service_name,
+            "state": state,
+            "active": active,
+            "status": "healthy" if active == "active" else "unhealthy",
+            "timestamp": datetime.utcnow().isoformat(),
+        }}
+    except Exception as e:
+        return {{
+            "service": service_name,
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat(),
+        }}
+
+
+if __name__ == "__main__":
+    import sys
+    health = check_service_status("{name}")
+    if "--json" in sys.argv or len(sys.argv) > 1:
+        print(json.dumps(health, indent=2))
+    else:
+        print(f"Status: {{health['status']}} ({{health['active']}})")
+        sys.exit(0 if health["status"] == "healthy" else 1)
+"""
+
+README_TEMPLATE = """\
+# {name} Agent
+
+Persistent headless gptme agent running on systemd.
+
+## Starting the Service
+
+```bash
+# Reload systemd configuration
+systemctl --user daemon-reload
+
+# Enable and start (on-demand)
+systemctl --user enable --now {name}.service
+
+# Or if using a timer:
+systemctl --user enable --now {name}.timer
+
+# Follow logs in real-time
+journalctl --user -u {name}.service -f
+```
+
+## Configuration
+
+Edit `gptme.toml` to customize:
+- Agent name
+- Default model
+- Lesson directories
+- Prompt files
+
+See `AGENTS.md` for operational guidelines.
+
+## Health Check
+
+To monitor the agent status:
+
+```bash
+curl http://localhost:8080/health
+```
+
+Response:
+```json
+{{
+  "service": "{name}",
+  "status": "healthy",
+  "active": "active",
+  "timestamp": "2026-08-22T18:00:00.000000"
+}}
+```
+
+Or check via the health script:
+
+```bash
+python3 health-check.py
+python3 health-check.py --json
+```
+
+## Logs
+
+View service logs:
+
+```bash
+# Recent logs
+journalctl --user -u {name}.service -n 50
+
+# Follow logs in real-time
+journalctl --user -u {name}.service -f
+
+# Logs since a specific time
+journalctl --user -u {name}.service --since "1 hour ago"
+```
+
+## Troubleshooting
+
+### Service fails to start
+
+1. Check syntax:
+   ```bash
+   systemctl --user status {name}.service
+   ```
+
+2. View detailed error:
+   ```bash
+   journalctl --user -u {name}.service -xe
+   ```
+
+3. Verify work directory exists:
+   ```bash
+   ls -la {work_dir}
+   ```
+
+### Timer doesn't trigger
+
+1. Check timer is enabled:
+   ```bash
+   systemctl --user list-timers {name}.timer
+   ```
+
+2. Force a run:
+   ```bash
+   systemctl --user start {name}.service
+   ```
+
+## Stopping
+
+```bash
+# Stop the service
+systemctl --user stop {name}.service
+
+# Disable the timer
+systemctl --user disable {name}.timer
+```
+"""
+
 
 def _resolve_work_dir(work_dir: str) -> Path:
     """Resolve the agent work directory, creating it if needed."""
@@ -260,6 +431,11 @@ def cli() -> None:
     is_flag=True,
     help="Overwrite existing generated files.",
 )
+@click.option(
+    "--enable-health-check",
+    is_flag=True,
+    help="Generate health-check.py and README.md with health endpoint documentation.",
+)
 def init(
     name: str,
     model: str,
@@ -267,12 +443,14 @@ def init(
     output_dir: str,
     timer_schedule: str,
     force: bool,
+    enable_health_check: bool,
 ) -> None:
     """Scaffold a systemd user service for a headless gptme agent.
 
     Generates, in the agent work directory:
 
         gptme.toml, AGENTS.md, gptme-agent-run.sh
+        health-check.py, README.md          # if --enable-health-check
 
     and, in the systemd output directory:
 
@@ -283,6 +461,7 @@ def init(
 
         \b
         gptme service init --name myagent --model gpt-4o-mini --work-dir ~/gptme-agent
+        gptme service init --name myagent --enable-health-check
         systemctl --user daemon-reload
         systemctl --user enable --now myagent.timer
     """
@@ -391,6 +570,23 @@ def init(
         force=force,
     )
     startup.chmod(0o755)
+
+    # Health check (optional)
+    if enable_health_check:
+        health_script = work / "health-check.py"
+        _write_file(
+            health_script,
+            HEALTH_CHECK_TEMPLATE.format(name=name),
+            force=force,
+        )
+        health_script.chmod(0o755)
+
+        # README
+        _write_file(
+            work / "README.md",
+            README_TEMPLATE.format(name=name, work_dir=work),
+            force=force,
+        )
 
     click.echo()
     click.echo(f"✅ Initialized headless agent '{name}'")
