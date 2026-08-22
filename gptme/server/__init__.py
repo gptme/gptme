@@ -2,23 +2,19 @@
 Server for gptme.
 """
 
-import signal as _signal
-import sys as _sys
-
-
-# Install a minimal SIGTERM handler immediately — before the slow Flask/app
-# imports that follow — so SIGTERM during startup produces diagnostic output
-# rather than silently terminating the process (gptme/gptme#3589).
-# The cli module replaces this with a logger-aware version after init_logging().
-def _startup_sigterm_handler(signum: int, frame) -> None:
-    _sys.stderr.write("Received SIGTERM during startup, shutting down gracefully\n")
-    _sys.stderr.flush()
-    raise KeyboardInterrupt
-
-
-_signal.signal(_signal.SIGTERM, _startup_sigterm_handler)
-
 from .app import create_app
-from .cli import main
 
-__all__ = ["main", "create_app"]
+__all__ = ["create_app"]
+
+
+def __getattr__(name: str):
+    # Lazy import of `main` so that ``import gptme.server`` does not eagerly
+    # load the CLI module and its heavyweight gptme/Flask dependencies.  The
+    # SIGTERM startup handler lives in cli.py and is only needed when the
+    # server CLI is actually invoked — not when another process uses the
+    # server's Python API (gptme/gptme#3589).
+    if name == "main":
+        from .cli import main
+
+        return main
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

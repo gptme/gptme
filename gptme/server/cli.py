@@ -2,9 +2,27 @@ import json
 import logging
 import os
 import signal
+import sys as _sys
 import threading
 import time
 from pathlib import Path
+
+
+# Install a minimal SIGTERM handler at module level — before the slow
+# gptme/Flask imports that follow — so SIGTERM during startup produces
+# diagnostic output rather than silently terminating the process
+# (gptme/gptme#3589).  This handler is scoped to the CLI module: it only
+# activates when gptme.server.cli is imported (i.e. the server entrypoint
+# is being used), never when a caller only imports gptme.server.app.
+# _install_sigterm_handler() upgrades it to a logger-aware version once
+# init_logging() has run inside serve().
+def _startup_sigterm_handler(signum: int, frame: object) -> None:
+    _sys.stderr.write("Received SIGTERM during startup, shutting down gracefully\n")
+    _sys.stderr.flush()
+    raise KeyboardInterrupt
+
+
+signal.signal(signal.SIGTERM, _startup_sigterm_handler)
 
 import click
 from click_default_group import DefaultGroup
@@ -102,17 +120,17 @@ def _start_parent_death_watcher(
 
 
 def _install_sigterm_handler() -> None:
-    """Upgrade the module-level SIGTERM handler to use the logger.
+    """Upgrade the startup SIGTERM handler to use the logger.
 
-    Called from ``serve()`` after ``init_logging()`` so the handler can emit
-    a structured log line rather than writing directly to stderr.  The module-
-    level ``_startup_sigterm_handler`` already handles any SIGTERM that arrives
-    during the import phase or before this upgrade runs.
+    Called from ``serve()`` right after ``init_logging()`` so the handler can
+    emit a structured log line rather than writing directly to stderr.  The
+    module-level ``_startup_sigterm_handler`` already handles any SIGTERM that
+    arrives during the import phase (before this upgrade runs).
 
-    Both the early and the upgraded handlers re-raise SIGTERM as
-    ``KeyboardInterrupt``, routing it through Werkzeug's clean-shutdown path
-    so the ``finally: shutdown_telemetry()`` block runs on ``systemctl stop``,
-    container scale-down, or rolling restarts (gptme/gptme#3589).
+    Both handlers re-raise SIGTERM as ``KeyboardInterrupt``, routing it through
+    Werkzeug's clean-shutdown path so the ``finally: shutdown_telemetry()``
+    block runs on ``systemctl stop``, container scale-down, or rolling restarts
+    (gptme/gptme#3589).
 
     Signal handlers can only be installed from the main thread; this is called
     from the ``serve`` command, which runs there.
