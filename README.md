@@ -357,6 +357,32 @@ gptme-agent install   # runs on a schedule
 gptme-agent status    # check on it
 ```
 
+#### Headless Agents with systemd
+
+For quick setup of a gptme agent as a persistent systemd service on any Linux machine, use `gptme service init`:
+
+```sh
+# Generate a complete headless agent setup
+gptme service init --name my-agent --model gpt-4o-mini --work-dir ~/my-agent
+
+# Install and start it
+cd ~/my-agent
+systemctl --user enable --now my-agent.service
+
+# Optional: run on a timer (hourly/daily/weekly)
+gptme service init --name my-agent --timer-schedule daily --force
+```
+
+This command scaffolds:
+- **systemd service unit** — runs your agent in a user session
+- **Optional timer** — schedule autonomous runs (hourly, daily, weekly, or on-demand)
+- **Startup script** — invokes gptme with your chosen model and work directory
+- **Skeleton config** — `gptme.toml` and `AGENTS.md` ready to customize
+
+The generated service is entirely self-contained and requires no additional setup beyond gptme being installed. Perfect for automation, monitoring, CI/CD orchestration, or running background agents on headless servers.
+
+See the [Headless Agents guide](https://gptme.org/docs/agents/headless.html) for advanced configurations and troubleshooting.
+
 [**Bob**](https://github.com/TimeToBuildBob) is the reference implementation — a production autonomous agent that's been running continuously since late 2024. Bob opens PRs, reviews code, fixes CI, manages his own task queue, maintains a growing set of behavioral lessons, posts on [Twitter](https://twitter.com/TimeToBuildBob), responds on Discord, and writes [blog posts](https://timetobuildbob.github.io/).
 
 Multiple specialized agents can run in parallel — e.g. Bob (engineering) and [Alice](https://github.com/TimeToLearnAlice) (personal assistant & orchestration) — coordinating through shared infrastructure.
