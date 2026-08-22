@@ -47,14 +47,14 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
+          audit_exit=0
           uv audit --preview-features audit-command \
               --output-format sarif \
               --ignore PYSEC-2026-2151 \
               --ignore CVE-2025-69872 \
               --ignore PYSEC-2026-2447 \
               --ignore PYSEC-2026-3447 \
-              > /tmp/audit_tmp.sarif
-          audit_exit=$?
+              > /tmp/audit_tmp.sarif || audit_exit=$?
           # exit 0 = no advisories; exit 1 = advisories found — both produce valid SARIF.
           # Any other exit code is a tooling failure (bad pyproject, network error, etc.).
           if [ "$audit_exit" -eq 0 ] || [ "$audit_exit" -eq 1 ]; then
