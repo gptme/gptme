@@ -177,7 +177,7 @@ def setup_config_from_cli(
             # Add to the configured tool policy when one exists; otherwise use
             # the built-in defaults. Additive CLI features such as task manifests
             # must not silently replace a project's TOOL_ALLOWLIST configuration.
-            if existing_chat_config and existing_chat_config.tools:
+            if existing_chat_config and existing_chat_config.tools is not None:
                 base_tools = existing_chat_config.tools
             elif tools_env := config.get_env("TOOL_ALLOWLIST"):
                 base_tools = [tool.strip() for tool in tools_env.split(",")]
