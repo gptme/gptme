@@ -1,0 +1,12 @@
+
+--- Start of generation ---
+[02:49:13] Using model: openai/gpt-4o-mini                                      
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-08-22-gptme-evals-openai--gpt-4o-mini-
+           tool-b5d1f4ac                                                        
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-08-22-gptme-evals-openai--gpt-4o-mini-
+           tool-b5d1f4ac/workspace                                              
+Skipped 2 hidden system messages (/log --hidden to show)
+User: initialize a git repository, write a main.py file, and commit it
+Assistant: Thinking...
