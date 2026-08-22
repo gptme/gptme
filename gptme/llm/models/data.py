@@ -26,8 +26,35 @@ def _set_tool_format(
     }
 
 
+# Providers that route through the OpenAI-compatible function-calling API — stamp
+# default_tool_format="tool" on every model that doesn't already have one set.
+# Anthropic and mock are excluded: anthropic uses the Anthropic SDK (not OpenAI-compat),
+# and mock models are test-only stubs that don't need a tool format preference.
+# Exported (no leading underscore) so resolution.py can apply it to dynamic fallbacks.
+OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
+    {
+        "openai",
+        "openai-subscription",
+        "gemini",
+        "deepseek",
+        "groq",
+        "xai",
+        "grok-subscription",
+        "moonshot",
+        "requesty",
+        "openrouter",
+        "nvidia",
+        "azure",
+        "local",
+        # gptme.ai proxies to various backends, but the client itself talks to it
+        # via the OpenAI-compatible API (see llm_openai.py) — same fallback applies
+        # when dynamic fetch fails/misses and no static registry entry exists.
+        "gptme",
+    }
+)
+
 # TODO: can we get this from the API?
-MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
+_MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
     "openai": OPENAI_MODELS,
     # OpenAI Subscription (ChatGPT Plus/Pro via Codex backend)
     # Uses the Responses API (not Chat Completions). Per-model specs from
@@ -584,38 +611,16 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     },
 }
 
-# check that all providers have a MODELS entry
-assert set(PROVIDERS) == set(MODELS.keys())
+# check that all providers have a _MODELS_RAW entry
+assert set(PROVIDERS) == set(_MODELS_RAW.keys())
 
-# Providers that route through the OpenAI-compatible function-calling API — stamp
-# default_tool_format="tool" on every model that doesn't already have one set.
-# Anthropic and mock are excluded: anthropic uses the Anthropic SDK (not OpenAI-compat),
-# and mock models are test-only stubs that don't need a tool format preference.
-# Exported (no leading underscore) so resolution.py can apply it to dynamic fallbacks.
-OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
-    {
-        "openai",
-        "openai-subscription",
-        "gemini",
-        "deepseek",
-        "groq",
-        "xai",
-        "grok-subscription",
-        "moonshot",
-        "requesty",
-        "openrouter",
-        "nvidia",
-        "azure",
-        "local",
-        # gptme.ai proxies to various backends, but the client itself talks to it
-        # via the OpenAI-compatible API (see llm_openai.py) — same fallback applies
-        # when dynamic fetch fails/misses and no static registry entry exists.
-        "gptme",
-    }
-)
+# Stamp default_tool_format="tool" on all OpenAI-compatible providers at construction
+# time. Building MODELS in one step (rather than reassigning it) ensures that any
+# code reading the intermediate dicts (OPENAI_MODELS, etc.) and any code reading
+# MODELS see a consistent value with no ordering hazard.
 MODELS = {
     provider: _set_tool_format(models, "tool")
     if provider in OPENAI_COMPAT_PROVIDERS
     else models
-    for provider, models in MODELS.items()
+    for provider, models in _MODELS_RAW.items()
 }
