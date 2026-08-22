@@ -237,7 +237,11 @@ def _run_chat_loop(
                 # Process the message and get response
                 try:
                     _process_message_conversation(
-                        manager, stream, tool_format, model, output_schema
+                        manager,
+                        stream,
+                        tool_format,
+                        model,
+                        output_schema,
                     )
                 except SessionCompleteException:
                     # Write sentinel BEFORE draining so there is no window

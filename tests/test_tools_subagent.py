@@ -2303,21 +2303,28 @@ def test_role_implement_resolves_developer_profile(mock_create_thread: MagicMock
     assert call_kwargs["profile_name"] == "developer"
 
 
-@patch("gptme.tools.subagent.execution._run_subagent_subprocess")
-def test_role_verify_defaults_subprocess_and_isolated(
-    mock_run_subprocess: MagicMock,
-):
+def test_role_verify_defaults_subprocess_and_isolated():
     """Test that role='verify' defaults to subprocess mode with isolation and verifier profile."""
     _subagents.clear()
 
-    subagent(
-        agent_id="checker",
-        prompt="Verify the auth module",
-        role="verify",
-    )
+    # Also mock _monitor_subprocess: it spawns a daemon progress-polling thread
+    # that sleeps 0.5s/cycle and can outlive the 1s join timeout in
+    # _wait_for_new_subagent_threads, causing a flaky is_alive() assertion.
+    # Same fix as applied in #3196 for similar subprocess tests.
+    with (
+        patch(
+            "gptme.tools.subagent.execution._run_subagent_subprocess",
+        ) as mock_run_subprocess,
+        patch("gptme.tools.subagent.execution._monitor_subprocess"),
+    ):
+        subagent(
+            agent_id="checker",
+            prompt="Verify the auth module",
+            role="verify",
+        )
 
-    # Wait for launcher thread to execute (subprocess mode is now async)
-    _wait_for_new_subagent_threads(0)
+        # Wait for launcher thread inside the with-block so both mocks are active.
+        _wait_for_new_subagent_threads(0)
 
     assert len(_subagents) == 1
     sa = _subagents[-1]
