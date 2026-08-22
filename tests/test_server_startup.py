@@ -20,9 +20,15 @@ pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
 
-_TEST_PORT = 15705
 _STARTUP_TIMEOUT = 15.0
 _POLL_INTERVAL = 0.1
+
+
+def _find_free_port() -> int:
+    """Return an OS-assigned free TCP port on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
 def _port_open(host: str, port: int) -> bool:
@@ -47,7 +53,7 @@ def _wait_for_port(host: str, port: int, timeout: float) -> bool:
 @pytest.fixture
 def server_process(tmp_path):
     host = "127.0.0.1"
-    port = _TEST_PORT
+    port = _find_free_port()
     env = os.environ.copy()
     env["GPTME_DISABLE_AUTH"] = "1"
     env["HOME"] = str(tmp_path)
@@ -117,7 +123,7 @@ def test_server_exits_nonzero_on_bad_webui_dir(tmp_path):
             "--host",
             "127.0.0.1",
             "--port",
-            str(_TEST_PORT + 1),
+            str(_find_free_port()),
             "--webui-dir",
             bad_dir,
         ],
