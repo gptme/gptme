@@ -923,6 +923,39 @@ def test_additive_tools_extend_configured_allowlist(
     assert config.chat.tools == ["read", "shell", "save"]
 
 
+def test_additive_tools_with_empty_saved_policy(tmp_path: Path):
+    """Additive '+tool' on a resumed session with tools=[] uses [] as base, not defaults.
+
+    Regression guard for the truthiness-vs-is-not-None bug: tools=[] is falsy,
+    so `if existing_chat_config.tools:` silently fell through to the full default
+    toolchain, producing defaults+save instead of just [save].
+    """
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    # Simulate a session saved with no tools (all tools disabled).
+    (logdir / "config.toml").write_text("[chat]\ntools = []\n", encoding="utf-8")
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="+save",
+        tool_format=None,
+        prune_tool_output=None,
+        gear=None,
+        no_confirm=None,
+        stream=True,
+        interactive=True,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    # Only "save" — empty base must not be silently replaced by the full default toolchain.
+    assert config.chat.tools == ["save"]
+
+
 def test_resume_config_precedence():
     """Test that resume configuration respects saved config unless CLI overrides provided."""
     with tempfile.TemporaryDirectory() as tmpdir:
