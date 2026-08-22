@@ -136,6 +136,9 @@ def discover_local_providers(
     to_probe = (
         tuple(candidates) if candidates is not None else LOCAL_PROVIDER_CANDIDATES
     )
+    if not to_probe:
+        return []
+
     fetch_fn = fetch or _http_get
     configured_index = _index_configured(configured or ())
 
@@ -157,7 +160,7 @@ def _probe_one(
     candidate: LocalProviderCandidate,
     timeout: float,
     fetch: FetchFn,
-    configured_index: dict[tuple[str, int], str],
+    configured_index: dict[tuple[str, str, int, str], str],
 ) -> DiscoveryResult:
     url = candidate.models_url
     parsed = urlparse(url)
@@ -291,7 +294,9 @@ def _http_get(url: str, timeout: float) -> tuple[int, bytes]:
             },
         )
         resp = conn.getresponse()
-        body = resp.read(MAX_BODY_BYTES)
+        body = resp.read(MAX_BODY_BYTES + 1)
+        if len(body) > MAX_BODY_BYTES:
+            raise OSError(f"response body exceeds {MAX_BODY_BYTES} bytes")
         return resp.status, body
     finally:
         conn.close()
@@ -328,8 +333,10 @@ def _parse_openai_models(body: bytes) -> tuple[tuple[str, ...], str | None]:
     return tuple(ids), None
 
 
-def _index_configured(configured: Sequence[object]) -> dict[tuple[str, int], str]:
-    index: dict[tuple[str, int], str] = {}
+def _index_configured(
+    configured: Sequence[object],
+) -> dict[tuple[str, str, int, str], str]:
+    index: dict[tuple[str, str, int, str], str] = {}
     for item in configured:
         name = getattr(item, "name", None)
         base_url = getattr(item, "base_url", None)
@@ -342,7 +349,7 @@ def _index_configured(configured: Sequence[object]) -> dict[tuple[str, int], str
 
 
 def _match_configured(
-    candidate: LocalProviderCandidate, index: dict[tuple[str, int], str]
+    candidate: LocalProviderCandidate, index: dict[tuple[str, str, int, str], str]
 ) -> str | None:
     key = _endpoint_key(candidate.base_url)
     if key is None:
@@ -350,16 +357,19 @@ def _match_configured(
     return index.get(key)
 
 
-def _endpoint_key(url: str) -> tuple[str, int] | None:
+def _endpoint_key(url: str) -> tuple[str, str, int, str] | None:
+    """Return a canonical (scheme, host, port, path) key for endpoint identity matching."""
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
     if not host:
         return None
+    scheme = parsed.scheme.lower()
     port = parsed.port
     if port is None:
-        port = 443 if parsed.scheme == "https" else 80
+        port = 443 if scheme == "https" else 80
     canonical = "loopback" if _is_loopback_host(host) else host
-    return canonical, port
+    path = parsed.path.rstrip("/").lower() or "/"
+    return scheme, canonical, port, path
 
 
 def _is_loopback_host(host: str) -> bool:
