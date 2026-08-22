@@ -47,18 +47,24 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          uv audit --preview-features audit-command \
-            --output-format sarif \
-            --ignore PYSEC-2026-2151 \
-            --ignore CVE-2025-69872 \
-            --ignore PYSEC-2026-2447 \
-            --ignore PYSEC-2026-3447 \
-            > audit.sarif 2>/dev/null || true
-          echo "Generated audit.sarif"
+          if uv audit --preview-features audit-command \
+              --output-format sarif \
+              --ignore PYSEC-2026-2151 \
+              --ignore CVE-2025-69872 \
+              --ignore PYSEC-2026-2447 \
+              --ignore PYSEC-2026-3447 \
+              > audit.sarif; then
+            echo "SARIF report generated ($(wc -c < audit.sarif) bytes)."
+          else
+            echo "::warning::SARIF generation failed (non-blocking). See log above."
+          fi
+          if [ ! -s audit.sarif ]; then
+            echo "::warning::audit.sarif is empty — skipping Security tab upload."
+          fi
 
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('audit.sarif') != ''
         continue-on-error: true
         with:
           sarif_file: audit.sarif
