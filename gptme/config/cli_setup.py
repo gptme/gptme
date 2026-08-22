@@ -59,6 +59,8 @@ def _is_mcp_tool_name(value: str) -> bool:
     """
     if _is_tool_file_path(value):
         return False
+    if "/" in value:
+        return False
     dot_idx = value.find(".")
     return dot_idx > 0 and dot_idx < len(value) - 1
 
@@ -456,13 +458,15 @@ def setup_config_from_cli(
         and configured_base_tools[0] in TOOL_PRESETS
     )
     tool_preset_selected = (
-        (
-            resolved_tool_allowlist is not None
-            and len(resolved_tool_allowlist) == 1
-            and resolved_tool_allowlist[0] in TOOL_PRESETS
+        resolved_tool_allowlist is not None
+        and len(resolved_tool_allowlist) == 1
+        and resolved_tool_allowlist[0] in TOOL_PRESETS
+    ) or (
+        manifest_alias_resolved
+        and (
+            any(tool in TOOL_PRESETS for tool in requested_tool_names)
+            or configured_base_is_preset
         )
-        or any(tool in TOOL_PRESETS for tool in requested_tool_names)
-        or (manifest_alias_resolved and configured_base_is_preset)
     )
 
     # Automatically add 'complete' tool in non-interactive mode, except for
