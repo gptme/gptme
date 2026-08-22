@@ -589,7 +589,7 @@ def test_launchd_plist_daily_schedule(tmp_path: Path) -> None:
 
 
 def test_launchd_plist_on_demand_no_schedule(tmp_path: Path) -> None:
-    """launchd plist with on-demand should have RunAtLoad=true and no StartInterval."""
+    """launchd plist with on-demand should have RunAtLoad=false and no StartInterval."""
     out_dir = tmp_path / "launchd"
     runner = CliRunner()
     result = runner.invoke(
@@ -613,7 +613,7 @@ def test_launchd_plist_on_demand_no_schedule(tmp_path: Path) -> None:
     plist_file = out_dir / "com.gptme.testagent.plist"
     plist_text = plist_file.read_text()
 
-    assert "<true/>" in plist_text  # RunAtLoad=true for on-demand
+    assert "<false/>" in plist_text  # RunAtLoad=false for on-demand (manual start only)
     assert "StartInterval" not in plist_text  # no periodic schedule
 
 

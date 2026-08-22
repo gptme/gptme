@@ -34,6 +34,7 @@ import re
 import shlex
 import subprocess
 from pathlib import Path
+from xml.sax.saxutils import escape as _xml_escape
 
 import click
 
@@ -276,12 +277,13 @@ def _generate_launchd_plist(
         interval = LAUNCHD_SCHEDULE_INTERVALS.get(timer_schedule, 86400)
         schedule_section = LAUNCHD_SCHEDULE_SECTION.format(interval_seconds=interval)
 
-    run_at_load = "true" if timer_schedule == "on-demand" else "false"
+    # on-demand = manual start only (RunAtLoad=false); scheduled = start on load too
+    run_at_load = "false" if timer_schedule == "on-demand" else "true"
 
     return LAUNCHD_PLIST_TEMPLATE.format(
-        name=name,
-        model=model,
-        work_dir=work_dir,
+        name=_xml_escape(name),
+        model=_xml_escape(model),
+        work_dir=_xml_escape(work_dir),
         schedule_section=schedule_section,
         run_at_load=run_at_load,
     )
