@@ -476,6 +476,11 @@ def init(
                 "Use a path without control characters.",
                 param_hint="'--work-dir'",
             )
+    else:
+        # Validate the work-dir for systemd BEFORE creating dirs — _escape_systemd_value
+        # raises BadParameter for quotes/backslashes/newlines, and we must not leave
+        # a stray empty directory behind when that validation fires.
+        _escape_systemd_value(str(work))
 
     # All validation passed — now create directories and generate files.
     work.mkdir(parents=True, exist_ok=True)
@@ -609,7 +614,7 @@ def init(
 
     if platform_choice == "macos":
         plist_file = out_dir / f"com.gptme.{name}.plist"
-        click.echo(f"  launchctl load {plist_file}")
+        click.echo(f'  launchctl load "{plist_file}"')
         click.echo(f"  launchctl start com.gptme.{name}")
         click.echo(
             f"  log stream --predicate 'eventMessage contains[cd] \"{name}\"'  # follow logs"

@@ -525,6 +525,7 @@ def test_macos_autodetect_emits_warning(tmp_path: Path) -> None:
                 "--platform",
                 "auto",
             ],
+            env={"HOME": str(tmp_path)},  # redirect ~/Library/LaunchAgents to tmp
         )
     assert result.exit_code == 0, f"should succeed; got: {result.output}"
     # CliRunner mixes stderr into .output by default.
