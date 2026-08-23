@@ -213,7 +213,7 @@ class PDFToImageConverter(Converter):
                     )
             # Clean up any partial page files written before the failure
             for p in dest.parent.glob(f"{stem_esc}*"):
-                if p not in pre_existing:
+                if p not in pre_existing and p.is_file():
                     p.unlink(missing_ok=True)
             logger.warning("pdftoppm failed: %s", result.stderr.decode())
             warnings.append("pdftoppm failed; falling back to ImageMagick")
