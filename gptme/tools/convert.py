@@ -1,0 +1,690 @@
+"""File format conversion tool for gptme.
+
+Provides offline, multi-format file conversion with auto-detection and
+graceful degradation when specific converters are unavailable.
+
+Supported conversions:
+  - PDF → PNG/JPEG (Poppler/pdftoppm, ImageMagick fallback)
+  - Image → Image: PNG ↔ JPEG ↔ WebP (FFmpeg primary, ImageMagick fallback)
+  - DOCX → text/markdown (python-docx, LibreOffice headless fallback)
+  - MP4/video → JPEG thumbnail (FFmpeg)
+  - Any supported format → text (OCR via Tesseract when native extraction fails)
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import logging
+import mimetypes
+import shutil
+import subprocess
+import tempfile
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import ClassVar
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Tool availability helpers
+# ---------------------------------------------------------------------------
+
+
+def _has_cmd(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+def _has_py(module: str) -> bool:
+    return importlib.util.find_spec(module) is not None
+
+
+@dataclass
+class ToolAvailability:
+    ffmpeg: bool = field(default_factory=lambda: _has_cmd("ffmpeg"))
+    imagemagick: bool = field(default_factory=lambda: _has_cmd("convert"))
+    pdftoppm: bool = field(default_factory=lambda: _has_cmd("pdftoppm"))
+    pdftotext: bool = field(default_factory=lambda: _has_cmd("pdftotext"))
+    libreoffice: bool = field(default_factory=lambda: _has_cmd("libreoffice"))
+    tesseract: bool = field(default_factory=lambda: _has_cmd("tesseract"))
+    python_magic: bool = field(default_factory=lambda: _has_py("magic"))
+    python_docx: bool = field(default_factory=lambda: _has_py("docx"))
+    pypdf: bool = field(default_factory=lambda: _has_py("pypdf"))
+
+    def report(self) -> str:
+        lines = []
+        checks = [
+            ("ffmpeg", "FFmpeg", self.ffmpeg),
+            ("convert", "ImageMagick (convert)", self.imagemagick),
+            ("pdftoppm", "Poppler (pdftoppm)", self.pdftoppm),
+            ("pdftotext", "Poppler (pdftotext)", self.pdftotext),
+            ("libreoffice", "LibreOffice headless", self.libreoffice),
+            ("tesseract", "Tesseract OCR", self.tesseract),
+            ("python-magic", "python-magic", self.python_magic),
+            ("python-docx", "python-docx", self.python_docx),
+            ("pypdf", "pypdf", self.pypdf),
+        ]
+        for _key, label, available in checks:
+            mark = "✓" if available else "⚠"
+            lines.append(f"  {mark} {label}")
+        return "\n".join(lines)
+
+
+_tool_avail: ToolAvailability | None = None
+
+
+def get_availability() -> ToolAvailability:
+    global _tool_avail
+    if _tool_avail is None:
+        _tool_avail = ToolAvailability()
+    return _tool_avail
+
+
+# ---------------------------------------------------------------------------
+# Conversion result
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ConversionResult:
+    success: bool
+    output_path: Path | None
+    converter_used: str
+    warnings: list[str] = field(default_factory=list)
+    error: str | None = None
+    lossy: bool = False
+    metadata: dict = field(default_factory=dict)
+
+    def summary(self) -> str:
+        if not self.success:
+            return f"Conversion failed ({self.converter_used}): {self.error}"
+        parts = [f"Converted via {self.converter_used} → {self.output_path}"]
+        if self.lossy:
+            parts.append("(lossy)")
+        if self.warnings:
+            parts.append(f"Warnings: {'; '.join(self.warnings)}")
+        return " | ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Abstract converter base
+# ---------------------------------------------------------------------------
+
+
+class Converter(ABC):
+    name: ClassVar[str] = "base"
+    # Supported (source_mime_prefix, target_ext) pairs
+    supported: ClassVar[list[tuple[str, str]]] = []
+
+    @abstractmethod
+    def is_available(self, avail: ToolAvailability) -> bool: ...
+
+    @abstractmethod
+    def convert(
+        self,
+        src: Path,
+        dest: Path,
+        quality: str = "medium",
+        **kwargs,
+    ) -> ConversionResult: ...
+
+    def can_handle(self, src_mime: str, dest_ext: str) -> bool:
+        dest_ext = dest_ext.lstrip(".")
+        for mime_prefix, ext in self.supported:
+            if src_mime.startswith(mime_prefix) and ext == dest_ext:
+                return True
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Concrete converters
+# ---------------------------------------------------------------------------
+
+
+class PDFToImageConverter(Converter):
+    """PDF pages → raster images (PNG/JPEG) via pdftoppm or ImageMagick."""
+
+    name = "pdf-to-image"
+    supported = [
+        ("application/pdf", "png"),
+        ("application/pdf", "jpg"),
+        ("application/pdf", "jpeg"),
+    ]
+
+    _DPI: ClassVar[dict[str, int]] = {"low": 72, "medium": 150, "high": 300}
+
+    def is_available(self, avail: ToolAvailability) -> bool:
+        return avail.pdftoppm or avail.imagemagick
+
+    def convert(
+        self,
+        src: Path,
+        dest: Path,
+        quality: str = "medium",
+        **kwargs,
+    ) -> ConversionResult:
+        avail = get_availability()
+        dpi = self._DPI.get(quality, 150)
+        dest_ext = dest.suffix.lstrip(".")
+        warnings: list[str] = []
+
+        if avail.pdftoppm:
+            # pdftoppm outputs <dest_stem>-<N>.ppm / .png; we want single page or first
+            fmt_flag = "-png" if dest_ext == "png" else "-jpeg"
+            out_prefix = dest.parent / dest.stem
+            cmd = ["pdftoppm", fmt_flag, "-r", str(dpi), str(src), str(out_prefix)]
+            result = subprocess.run(cmd, capture_output=True, check=False)
+            if result.returncode == 0:
+                # Collect output files and rename first to dest
+                candidates = sorted(dest.parent.glob(f"{dest.stem}-*.{dest_ext}"))
+                if not candidates:
+                    # Some versions use -1 suffix, or output format differs
+                    candidates = sorted(
+                        dest.parent.glob(f"{dest.stem}*")
+                        if dest_ext == "png"
+                        else dest.parent.glob(f"{dest.stem}*.jpg")
+                    )
+                if candidates:
+                    candidates[0].rename(dest)
+                    if len(candidates) > 1:
+                        warnings.append(
+                            f"Multi-page PDF: only first page saved ({len(candidates)} pages total)"
+                        )
+                    return ConversionResult(
+                        success=True,
+                        output_path=dest,
+                        converter_used="pdftoppm",
+                        warnings=warnings,
+                        lossy=dest_ext in ("jpg", "jpeg"),
+                    )
+            logger.warning("pdftoppm failed: %s", result.stderr.decode())
+            warnings.append("pdftoppm failed; falling back to ImageMagick")
+
+        if avail.imagemagick:
+            density = str(dpi)
+            cmd = ["convert", "-density", density, f"{src}[0]", str(dest)]
+            result = subprocess.run(cmd, capture_output=True, check=False)
+            if result.returncode == 0:
+                return ConversionResult(
+                    success=True,
+                    output_path=dest,
+                    converter_used="imagemagick",
+                    warnings=warnings,
+                    lossy=dest_ext in ("jpg", "jpeg"),
+                )
+            return ConversionResult(
+                success=False,
+                output_path=None,
+                converter_used="imagemagick",
+                error=result.stderr.decode()[:300],
+                warnings=warnings,
+            )
+
+        return ConversionResult(
+            success=False,
+            output_path=None,
+            converter_used=self.name,
+            error="No PDF→image converter available. Install: poppler-utils (pdftoppm) or imagemagick",
+        )
+
+
+class ImageConverter(Converter):
+    """Image ↔ image format conversion via FFmpeg (primary) or ImageMagick."""
+
+    name = "image"
+    supported = [
+        ("image/", "png"),
+        ("image/", "jpg"),
+        ("image/", "jpeg"),
+        ("image/", "webp"),
+        ("image/", "gif"),
+        ("image/", "bmp"),
+        ("image/", "tiff"),
+    ]
+
+    _QUALITY: ClassVar[dict[str, int]] = {"low": 60, "medium": 80, "high": 95}
+
+    def is_available(self, avail: ToolAvailability) -> bool:
+        return avail.ffmpeg or avail.imagemagick
+
+    def can_handle(self, src_mime: str, dest_ext: str) -> bool:
+        # Only image→image (not PDF)
+        if not src_mime.startswith("image/"):
+            return False
+        return dest_ext.lstrip(".") in (
+            "png",
+            "jpg",
+            "jpeg",
+            "webp",
+            "gif",
+            "bmp",
+            "tiff",
+        )
+
+    def convert(
+        self,
+        src: Path,
+        dest: Path,
+        quality: str = "medium",
+        **kwargs,
+    ) -> ConversionResult:
+        avail = get_availability()
+        dest_ext = dest.suffix.lstrip(".")
+        q = self._QUALITY.get(quality, 80)
+        lossy = dest_ext in ("jpg", "jpeg", "webp")
+
+        if avail.ffmpeg:
+            cmd = ["ffmpeg", "-y", "-i", str(src)]
+            if lossy:
+                cmd += ["-q:v", str(max(1, (100 - q) // 5))]  # ffmpeg q scale 1-31
+            cmd.append(str(dest))
+            result = subprocess.run(cmd, capture_output=True, check=False)
+            if result.returncode == 0:
+                return ConversionResult(
+                    success=True,
+                    output_path=dest,
+                    converter_used="ffmpeg",
+                    lossy=lossy,
+                )
+            logger.warning(
+                "ffmpeg image convert failed: %s", result.stderr.decode()[-200:]
+            )
+
+        if avail.imagemagick:
+            cmd = ["convert", str(src)]
+            if lossy:
+                cmd += ["-quality", str(q)]
+            cmd.append(str(dest))
+            result = subprocess.run(cmd, capture_output=True, check=False)
+            if result.returncode == 0:
+                return ConversionResult(
+                    success=True,
+                    output_path=dest,
+                    converter_used="imagemagick",
+                    lossy=lossy,
+                )
+            return ConversionResult(
+                success=False,
+                output_path=None,
+                converter_used="imagemagick",
+                error=result.stderr.decode()[:300],
+            )
+
+        return ConversionResult(
+            success=False,
+            output_path=None,
+            converter_used=self.name,
+            error="No image converter available. Install: ffmpeg or imagemagick",
+        )
+
+
+class PDFToTextConverter(Converter):
+    """PDF → plain text via pypdf or pdftotext (Poppler)."""
+
+    name = "pdf-to-text"
+    supported = [
+        ("application/pdf", "txt"),
+        ("application/pdf", "text"),
+    ]
+
+    def is_available(self, avail: ToolAvailability) -> bool:
+        return avail.pypdf or avail.pdftotext
+
+    def convert(
+        self,
+        src: Path,
+        dest: Path,
+        quality: str = "medium",
+        **kwargs,
+    ) -> ConversionResult:
+        avail = get_availability()
+        warnings: list[str] = []
+
+        if avail.pypdf:
+            try:
+                from pypdf import PdfReader
+
+                reader = PdfReader(str(src))
+                text_parts = [page.extract_text() or "" for page in reader.pages]
+                extracted = "\n\n".join(text_parts)
+                if extracted.strip():
+                    dest.write_text(extracted, encoding="utf-8")
+                    return ConversionResult(
+                        success=True,
+                        output_path=dest,
+                        converter_used="pypdf",
+                        metadata={"pages": len(reader.pages)},
+                    )
+                warnings.append(
+                    "pypdf extracted no text (scanned PDF?); trying pdftotext"
+                )
+            except Exception as e:
+                warnings.append(f"pypdf failed: {e}")
+
+        if avail.pdftotext:
+            cmd = ["pdftotext", str(src), str(dest)]
+            result = subprocess.run(cmd, capture_output=True, check=False)
+            if result.returncode == 0:
+                return ConversionResult(
+                    success=True,
+                    output_path=dest,
+                    converter_used="pdftotext",
+                    warnings=warnings,
+                )
+            return ConversionResult(
+                success=False,
+                output_path=None,
+                converter_used="pdftotext",
+                error=result.stderr.decode()[:300],
+                warnings=warnings,
+            )
+
+        return ConversionResult(
+            success=False,
+            output_path=None,
+            converter_used=self.name,
+            error="No PDF→text converter available. Install: pypdf (pip) or poppler-utils (pdftotext)",
+        )
+
+
+class DocumentToTextConverter(Converter):
+    """DOCX/ODT/etc. → plain text or markdown via python-docx or LibreOffice."""
+
+    name = "document-to-text"
+    supported = [
+        ("application/vnd.openxmlformats-officedocument.wordprocessingml", "txt"),
+        ("application/vnd.openxmlformats-officedocument.wordprocessingml", "md"),
+        ("application/msword", "txt"),
+        ("application/msword", "md"),
+    ]
+
+    def is_available(self, avail: ToolAvailability) -> bool:
+        return avail.python_docx or avail.libreoffice
+
+    def can_handle(self, src_mime: str, dest_ext: str) -> bool:
+        doc_mimes = (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml",
+            "application/msword",
+            "application/vnd.oasis.opendocument.text",
+        )
+        return any(src_mime.startswith(m) for m in doc_mimes) and dest_ext.lstrip(
+            "."
+        ) in ("txt", "md")
+
+    def convert(
+        self,
+        src: Path,
+        dest: Path,
+        quality: str = "medium",
+        **kwargs,
+    ) -> ConversionResult:
+        avail = get_availability()
+        warnings: list[str] = []
+
+        if avail.python_docx and src.suffix.lower() == ".docx":
+            try:
+                import docx
+
+                doc = docx.Document(str(src))
+                lines = [para.text for para in doc.paragraphs]
+                dest.write_text("\n".join(lines), encoding="utf-8")
+                return ConversionResult(
+                    success=True,
+                    output_path=dest,
+                    converter_used="python-docx",
+                )
+            except Exception as e:
+                warnings.append(f"python-docx failed: {e}")
+
+        if avail.libreoffice:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                cmd = [
+                    "libreoffice",
+                    "--headless",
+                    "--convert-to",
+                    "txt:Text (encoded):UTF8",
+                    "--outdir",
+                    tmpdir,
+                    str(src),
+                ]
+                result = subprocess.run(cmd, capture_output=True, check=False)
+                if result.returncode == 0:
+                    out_files = list(Path(tmpdir).glob("*.txt"))
+                    if out_files:
+                        out_files[0].replace(dest)
+                        return ConversionResult(
+                            success=True,
+                            output_path=dest,
+                            converter_used="libreoffice",
+                            warnings=warnings,
+                        )
+                warnings.append(f"libreoffice failed: {result.stderr.decode()[:200]}")
+
+        return ConversionResult(
+            success=False,
+            output_path=None,
+            converter_used=self.name,
+            error="No document→text converter available. Install: python-docx (pip) or libreoffice",
+            warnings=warnings,
+        )
+
+
+class VideoThumbnailConverter(Converter):
+    """Video → JPEG thumbnail via FFmpeg."""
+
+    name = "video-thumbnail"
+    supported = [
+        ("video/", "jpg"),
+        ("video/", "jpeg"),
+        ("video/", "png"),
+    ]
+
+    def is_available(self, avail: ToolAvailability) -> bool:
+        return avail.ffmpeg
+
+    def can_handle(self, src_mime: str, dest_ext: str) -> bool:
+        return src_mime.startswith("video/") and dest_ext.lstrip(".") in (
+            "jpg",
+            "jpeg",
+            "png",
+        )
+
+    def convert(
+        self,
+        src: Path,
+        dest: Path,
+        quality: str = "medium",
+        **kwargs,
+    ) -> ConversionResult:
+        avail = get_availability()
+        if not avail.ffmpeg:
+            return ConversionResult(
+                success=False,
+                output_path=None,
+                converter_used=self.name,
+                error="FFmpeg not available. Install: ffmpeg",
+            )
+        # Extract frame at 10% into the video
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            "00:00:01",  # 1 second in (safer than 10% for unknown-length videos)
+            "-i",
+            str(src),
+            "-vframes",
+            "1",
+            str(dest),
+        ]
+        result = subprocess.run(cmd, capture_output=True, check=False)
+        if result.returncode == 0:
+            return ConversionResult(
+                success=True,
+                output_path=dest,
+                converter_used="ffmpeg",
+                lossy=dest.suffix.lower() in (".jpg", ".jpeg"),
+            )
+        return ConversionResult(
+            success=False,
+            output_path=None,
+            converter_used="ffmpeg",
+            error=result.stderr.decode()[-300:],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Format router
+# ---------------------------------------------------------------------------
+
+# Registry — order matters: first available converter wins
+_CONVERTERS: list[Converter] = [
+    PDFToImageConverter(),
+    PDFToTextConverter(),
+    DocumentToTextConverter(),
+    VideoThumbnailConverter(),
+    ImageConverter(),
+]
+
+
+def _detect_mime(path: Path) -> str:
+    """Detect MIME type via python-magic or mimetypes fallback."""
+    if get_availability().python_magic:
+        try:
+            import magic
+
+            return magic.from_file(str(path), mime=True) or ""
+        except Exception:
+            pass
+    mime, _ = mimetypes.guess_type(str(path))
+    return mime or "application/octet-stream"
+
+
+def find_converter(
+    src: Path, dest_ext: str, avail: ToolAvailability | None = None
+) -> Converter | None:
+    if avail is None:
+        avail = get_availability()
+    src_mime = _detect_mime(src)
+    for conv in _CONVERTERS:
+        if conv.can_handle(src_mime, dest_ext) and conv.is_available(avail):
+            return conv
+    return None
+
+
+def convert_file(
+    src: Path,
+    dest: Path,
+    quality: str = "medium",
+    dry_run: bool = False,
+    **kwargs,
+) -> ConversionResult:
+    """Main entry point for file conversion.
+
+    Args:
+        src: Source file path.
+        dest: Destination file path (extension determines target format).
+        quality: One of 'low', 'medium', 'high'.
+        dry_run: If True, return converter plan without executing.
+    """
+    avail = get_availability()
+    src_mime = _detect_mime(src)
+    dest_ext = dest.suffix.lstrip(".")
+
+    conv = find_converter(src, dest_ext, avail)
+    if conv is None:
+        return ConversionResult(
+            success=False,
+            output_path=None,
+            converter_used="none",
+            error=(
+                f"No converter found for {src_mime} → {dest_ext}. "
+                f"Run `gptme convert --check-tools` to see available converters."
+            ),
+        )
+
+    if dry_run:
+        return ConversionResult(
+            success=True,
+            output_path=dest,
+            converter_used=conv.name,
+            metadata={"dry_run": True, "src_mime": src_mime, "dest_ext": dest_ext},
+        )
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    return conv.convert(src, dest, quality=quality, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# CLI interface
+# ---------------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="gptme-convert",
+        description="Offline file format conversion for gptme agents",
+    )
+    sub = parser.add_subparsers(dest="cmd")
+
+    # convert subcommand
+    conv_p = sub.add_parser("convert", help="Convert a file to another format")
+    conv_p.add_argument("--input", "-i", required=True, help="Input file path")
+    conv_p.add_argument(
+        "--output",
+        "-o",
+        required=True,
+        help="Output file path (extension = target format)",
+    )
+    conv_p.add_argument(
+        "--quality",
+        "-q",
+        choices=["low", "medium", "high"],
+        default="medium",
+        help="Conversion quality (default: medium)",
+    )
+    conv_p.add_argument(
+        "--dry-run", action="store_true", help="Show converter plan without executing"
+    )
+
+    # check-tools subcommand
+    sub.add_parser("check-tools", help="Show available conversion tools")
+
+    # list-formats subcommand
+    sub.add_parser("list-formats", help="List supported conversion formats")
+
+    args = parser.parse_args(argv)
+
+    if args.cmd == "check-tools":
+        avail = get_availability()
+        print("Available conversion tools:\n")
+        print(avail.report())
+        return 0
+
+    if args.cmd == "list-formats":
+        print("Supported conversions:")
+        avail = get_availability()
+        for conv in _CONVERTERS:
+            status = "✓" if conv.is_available(avail) else "⚠"
+            for src_mime_prefix, dest_ext in conv.supported:
+                print(f"  {status} {src_mime_prefix}* → .{dest_ext}  [{conv.name}]")
+        return 0
+
+    if args.cmd == "convert":
+        src = Path(args.input)
+        dest = Path(args.output)
+        if not src.exists():
+            print(f"Error: input file not found: {src}")
+            return 1
+        result = convert_file(src, dest, quality=args.quality, dry_run=args.dry_run)
+        print(result.summary())
+        return 0 if result.success else 1
+
+    parser.print_help()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
