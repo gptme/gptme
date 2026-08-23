@@ -97,6 +97,32 @@ def test_load_tolerates_corrupt_utf8_bytes(isolated_kb):
     assert entries[0].id == "x"
 
 
+def test_load_skips_corrupt_utf8_mid_line(isolated_kb):
+    """Corrupt bytes in the middle of a JSON string are skipped, not loaded with altered data."""
+    isolated_kb.parent.mkdir(parents=True, exist_ok=True)
+    valid = json.dumps(
+        {
+            "id": "good",
+            "problem": "p",
+            "resolution": "r",
+            "problem_tags": [],
+            "keywords": [],
+            "context": "",
+            "verified_at": "",
+            "session_id": "",
+            "model": "",
+        }
+    ).encode("utf-8")
+    # \xe9 mid-string: first byte of a 2-byte sequence with no continuation.
+    # errors="replace" turns it into U+FFFD, keeping the JSON structurally valid.
+    # Without the U+FFFD guard this line would load with altered data.
+    corrupt = b'{"id": "bad", "problem": "abc\xe9 rest", "resolution": "r", "problem_tags": [], "keywords": [], "context": "", "verified_at": "", "session_id": "", "model": ""}\n'
+    isolated_kb.write_bytes(valid + b"\n" + corrupt)
+    entries = load_entries()
+    assert len(entries) == 1
+    assert entries[0].id == "good"
+
+
 def test_load_skips_valid_json_wrong_schema(isolated_kb):
     """Valid JSON that is not a dict (or has wrong-type list fields) is skipped."""
     isolated_kb.parent.mkdir(parents=True, exist_ok=True)

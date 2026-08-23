@@ -135,6 +135,11 @@ def load_entries() -> list[KnowledgeEntry]:
             line = line.strip()
             if not line:
                 continue
+            # U+FFFD marks a byte that errors="replace" could not decode — skip.
+            # Mid-line corrupt bytes produce valid-looking JSON with altered data;
+            # rejecting any line that contains the replacement character is safer.
+            if "�" in line:
+                continue
             try:
                 data = json.loads(line)
                 if not isinstance(data, dict):
