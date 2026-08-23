@@ -44,11 +44,14 @@ jobs:
           audit_exit=0
           uv audit --preview-features audit-command \
               --output-format sarif \
-              --ignore PYSEC-2026-2151 \
               --ignore CVE-2025-69872 \
               --ignore PYSEC-2026-2447 \
-              --ignore PYSEC-2026-3447 \
               > /tmp/audit_tmp.sarif || audit_exit=$?
+          # Accepted ignores (diskcache advisories, no fix available):
+          #   CVE-2025-69872, PYSEC-2026-2447 — diskcache; no upstream fix yet.
+          # NOT ignored (flask/setuptools advisories currently inactive in dep tree):
+          #   PYSEC-2026-2151, PYSEC-2026-3447 — unconditionally ignoring them
+          #   would mask real advisories if these packages re-enter the dep tree.
           if [ "$audit_exit" -eq 0 ]; then
             echo "No known advisories found."
           elif [ "$audit_exit" -eq 1 ]; then
