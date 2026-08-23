@@ -326,9 +326,18 @@ _WEBUI_HTML_HINT = (
 )
 
 
-def _append_webui_html_hint(messages: list[Message], *, prompt: str = "full") -> None:
-    """Append the web UI HTML hint when this conversation uses it."""
-    if os.environ.get("GPTME_SERVE_HTML_HINT", "true").lower() == "false":
+def _append_webui_html_hint(
+    messages: list[Message], *, prompt: str = "full", preserve: bool = False
+) -> None:
+    """Append the web UI HTML hint when this conversation uses it.
+
+    ``preserve=True`` skips the env-var check so an already-present hint is
+    kept across config PATCHes even when ``GPTME_SERVE_HTML_HINT=false``.
+    """
+    if (
+        not preserve
+        and os.environ.get("GPTME_SERVE_HTML_HINT", "true").lower() == "false"
+    ):
         return
     if prompt == "none":
         return
@@ -2869,7 +2878,7 @@ def api_conversation_config_patch(conversation_id: str):
                 )
             )
             if had_webui_html_hint:
-                _append_webui_html_hint(new_system_msgs)
+                _append_webui_html_hint(new_system_msgs, preserve=True)
             _append_conversation_system_prompt(
                 new_system_msgs, _resolve_conversation_system_prompt(chat_config)
             )
