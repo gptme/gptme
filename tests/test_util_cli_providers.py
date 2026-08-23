@@ -452,3 +452,39 @@ class TestProvidersListDiscovery:
         result = runner.invoke(main, ["providers", "list"])
         assert result.exit_code == 0
         assert "GPTME_NO_LOCAL_DISCOVERY" in result.output
+
+    def test_json_discovery_disabled_flag(self, mock_config, monkeypatch, mocker):
+        """--no-discover sets discovery_disabled=true in JSON output."""
+        monkeypatch.delenv("GPTME_NO_LOCAL_DISCOVERY", raising=False)
+        spy = mocker.patch("gptme.llm.local_discovery.discover_local_providers")
+        runner = CliRunner()
+        result = runner.invoke(main, ["providers", "list", "--json", "--no-discover"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["discovery_disabled"] is True
+        assert payload["discovered"] == []
+        spy.assert_not_called()
+
+    def test_json_discovery_disabled_env_var(self, mock_config, monkeypatch):
+        """GPTME_NO_LOCAL_DISCOVERY sets discovery_disabled=true in JSON output."""
+        # env var already set by the autouse fixture; ensure --discover flag is default (True)
+        runner = CliRunner()
+        result = runner.invoke(main, ["providers", "list", "--json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["discovery_disabled"] is True
+        assert payload["discovered"] == []
+
+    def test_json_discovery_enabled(self, mock_config, monkeypatch, mocker):
+        """When discovery runs and finds nothing, discovery_disabled=false."""
+        monkeypatch.delenv("GPTME_NO_LOCAL_DISCOVERY", raising=False)
+        mocker.patch(
+            "gptme.llm.local_discovery.discover_local_providers",
+            return_value=[],
+        )
+        runner = CliRunner()
+        result = runner.invoke(main, ["providers", "list", "--json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["discovery_disabled"] is False
+        assert payload["discovered"] == []

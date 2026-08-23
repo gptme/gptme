@@ -163,15 +163,19 @@ def providers_list(discover: bool = True, as_json: bool = False):
     config = get_config()
     discovered = []
     if discover:
-        from ..llm.local_discovery import discover_local_providers  # fmt: skip
+        from ..llm.local_discovery import (  # fmt: skip
+            discover_local_providers,
+            local_discovery_disabled,
+        )
 
         discovered = discover_local_providers(configured=config.user.providers)
 
     if as_json:
+        _env_disabled = discover and local_discovery_disabled()
         payload = {
             "configured": [_configured_provider_dict(p) for p in config.user.providers],
             "discovered": [r.to_dict() for r in discovered],
-            "discovery_disabled": not discover,
+            "discovery_disabled": not discover or _env_disabled,
         }
         click.echo(json.dumps(payload, indent=2))
         return
