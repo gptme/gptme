@@ -2414,12 +2414,15 @@ def test_normalize_tool_allowlist_unavailable_builtin_raises_not_shadowed(
     """An unavailable registered built-in must raise, not silently fall to a manifest alias.
 
     If a tool is registered in the toolchain but currently unavailable (e.g. an
-    optional dependency is missing), ``get_toolchain`` raises a ValueError whose
-    message contains "is unavailable".  The manifest lookup must NOT run in that
-    case — doing so would silently replace a known-but-unavailable built-in with
-    unrelated manifest tools, which is a confusing and unsafe behaviour.
+    optional dependency is missing), ``get_toolchain`` raises a ValueError.
+    The manifest lookup must NOT run in that case — doing so would silently
+    replace a known-but-unavailable built-in with unrelated manifest tools,
+    which is a confusing and unsafe behaviour.
+
+    The check uses tool-name membership in the discovered set, not the error
+    message wording, so it is robust to phrasing changes.
     """
-    from unittest.mock import patch
+    from unittest.mock import MagicMock, patch
 
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
@@ -2429,15 +2432,43 @@ def test_normalize_tool_allowlist_unavailable_builtin_raises_not_shadowed(
         encoding="utf-8",
     )
 
+    # Standard "is unavailable" wording: must re-raise
     def _raises_unavailable(allowlist, **kwargs):
         if allowlist and allowlist[0] == "read":
             raise ValueError("Tool 'read' is unavailable: optional dep missing")
-        # get_toolchain(None) for additive expansion — return empty list
         return []
+
+    read_spec = MagicMock()
+    read_spec.name = "read"
 
     with (
         patch("gptme.config.cli_setup.get_toolchain", side_effect=_raises_unavailable),
+        patch("gptme.config.cli_setup.get_available_tools", return_value=[read_spec]),
+        patch(
+            "gptme.config.cli_setup.matching_allowlist_tools",
+            side_effect=lambda pattern, tools: [t for t in tools if t.name == pattern],
+        ),
         pytest.raises(ValueError, match="is unavailable"),
+    ):
+        _normalize_tool_allowlist(["read"], workspace=tmp_path)
+
+    # Alternative phrasing: must still re-raise because "read" is registered
+    def _raises_differently_worded(allowlist, **kwargs):
+        if allowlist and allowlist[0] == "read":
+            raise ValueError("Required dependency missing for 'read'")
+        return []
+
+    with (
+        patch(
+            "gptme.config.cli_setup.get_toolchain",
+            side_effect=_raises_differently_worded,
+        ),
+        patch("gptme.config.cli_setup.get_available_tools", return_value=[read_spec]),
+        patch(
+            "gptme.config.cli_setup.matching_allowlist_tools",
+            side_effect=lambda pattern, tools: [t for t in tools if t.name == pattern],
+        ),
+        pytest.raises(ValueError, match="Required dependency missing"),
     ):
         _normalize_tool_allowlist(["read"], workspace=tmp_path)
 

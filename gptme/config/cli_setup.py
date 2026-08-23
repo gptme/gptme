@@ -10,10 +10,11 @@ from typing import TYPE_CHECKING, cast
 
 from ..gears import parse_gear, resolve_gear
 from ..profiles import get_profile
-from ..tools import get_toolchain
+from ..tools import get_available_tools, get_toolchain
 from ..tools._allowlist import (
     TOOL_PRESETS,
     expand_tool_allowlist_presets,
+    matching_allowlist_tools,
 )
 from .chat import ChatConfig
 from .core import Config, get_config, set_config, set_config_from_workspace
@@ -92,9 +93,10 @@ def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
 
         try:
             get_toolchain([requested_tool])
-        except ValueError as e:
-            if "is unavailable" in str(e):
-                raise
+        except ValueError:
+            # Use membership check, not message wording — wording can vary.
+            if matching_allowlist_tools(requested_tool, get_available_tools()):
+                raise  # registered but unavailable — don't shadow with manifest
             try:
                 manifest = load_task_manifest(requested_tool, workspace)
             except (OSError, ValueError):
@@ -201,12 +203,13 @@ def _normalize_tool_allowlist(
                 normalized.append(toolspec.name)
                 seen.add(toolspec.name)
             continue
-        except ValueError as e:
+        except ValueError:
             # Re-raise when the tool IS registered but unavailable: the name is
             # known to the toolchain, so the manifest must not silently shadow it.
             # Only fall through to the manifest lookup when the name is truly not
             # registered at all ("not found").
-            if "is unavailable" in str(e):
+            # Use membership check, not message wording — wording can vary.
+            if matching_allowlist_tools(item, get_available_tools()):
                 raise
             # name is completely unknown — check manifest next
 
