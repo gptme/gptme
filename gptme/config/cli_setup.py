@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, cast
 
 from ..gears import parse_gear, resolve_gear
 from ..profiles import get_profile
-from ..tools import get_available_tools, get_toolchain
+from ..tools import ToolAllowlistError, get_available_tools, get_toolchain
 from ..tools._allowlist import (
     TOOL_PRESETS,
     expand_tool_allowlist_presets,
@@ -111,6 +111,23 @@ def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
             non_alias_tools.append(requested_tool)
 
     if not has_mcp_only_alias:
+        if explicit_manifest_tools:
+            # Guard: a builtin_tools manifest alias replaces the tool allowlist
+            # non-additively (same as --tool-manifest builtin_tools behaviour).
+            # Raise when a configured TOOL_ALLOWLIST exists so the alias cannot
+            # silently override a user-configured capability boundary — matching
+            # the explicit check in apply_tool_manifest() for --tool-manifest.
+            from .core import get_config
+
+            config = get_config()
+            if config.get_env("TOOL_ALLOWLIST"):
+                aliases = [t for t in requested_tools if t not in non_alias_tools]
+                alias_name = aliases[0] if aliases else requested_tools[0]
+                raise ValueError(
+                    f"--tools {alias_name!r} expands via a workspace manifest and "
+                    f"cannot be combined with a configured TOOL_ALLOWLIST. "
+                    f"Use --tool-manifest {alias_name!r} instead."
+                )
         return tool_allowlist
     if explicit_manifest_tools:
         raise ValueError(
@@ -231,7 +248,7 @@ def _normalize_tool_allowlist(
                     try:
                         builtin_toolspecs = get_toolchain([builtin_tool_name])
                     except ValueError as e:
-                        raise ValueError(
+                        raise ToolAllowlistError(
                             f"Invalid builtin_tools entry {builtin_tool_name!r} "
                             f"in tool manifest for {item!r}: {e}"
                         ) from e

@@ -2809,3 +2809,49 @@ def test_comma_separated_choice_strict_rejects_unknown_by_default():
 
     with pytest.raises((click.exceptions.BadParameter, SystemExit)):
         csc.convert("code_review", None, None)
+
+
+def test_builtin_tools_manifest_alias_raises_with_configured_tool_allowlist(
+    tmp_path: Path, monkeypatch
+):
+    """--tools <alias> for a builtin_tools manifest raises when TOOL_ALLOWLIST is set.
+
+    Matches the behaviour of --tool-manifest (apply_tool_manifest raises UsageError
+    when TOOL_ALLOWLIST is configured), so a workspace manifest cannot silently
+    override a user's configured capability boundary.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","builtin_tools":["read"],"tools":['
+        '{"server_name":"github","tool_name":"get_pr"}]}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+
+    from gptme.config.cli_setup import _resolve_manifest_aliases
+
+    with pytest.raises(ValueError, match="TOOL_ALLOWLIST"):
+        _resolve_manifest_aliases("code_review", tmp_path)
+
+
+def test_manifest_unavailable_builtin_raises_toolallowlisterror(tmp_path: Path):
+    """_normalize_tool_allowlist preserves ToolAllowlistError type for CLI fallback.
+
+    The CLI's graceful fallback (cli/main.py) checks isinstance(e, ToolAllowlistError).
+    When a manifest's builtin_tools entry is unavailable (e.g. 'ipython' not installed),
+    the error must propagate as ToolAllowlistError, not a plain ValueError, so the
+    fallback path triggers correctly.
+    """
+    from gptme.tools import ToolAllowlistError
+
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"review","builtin_tools":["totally_unknown_xyz"],"tools":['
+        '{"server_name":"github","tool_name":"get_issue"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ToolAllowlistError, match="Invalid builtin_tools entry"):
+        _normalize_tool_allowlist(["review"], tmp_path)
