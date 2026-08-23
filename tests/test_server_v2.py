@@ -2533,6 +2533,7 @@ def test_v2_chat_config_patch_preserves_webui_html_hint(
 ):
     """Renaming via config PATCH must not strip the webui HTML hint."""
     monkeypatch.setenv("GPTME_SERVE_HTML_HINT", "true")
+    monkeypatch.setenv("GPTME_CHAT_HISTORY", "false")
 
     convname = f"test-server-v2-rename-{random.randint(0, 1000000)}"
     create_response = client.put(

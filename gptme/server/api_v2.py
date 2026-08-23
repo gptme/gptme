@@ -2864,7 +2864,7 @@ def api_conversation_config_patch(conversation_id: str):
             existing_system_msgs = manager.log.messages[:first_non_system]
             remaining_msgs = list(manager.log.messages[first_non_system:])
             had_webui_html_hint = any(
-                m.content == _WEBUI_HTML_HINT for m in existing_system_msgs
+                _WEBUI_HTML_HINT in m.content for m in existing_system_msgs
             )
 
             new_system_msgs = list(
