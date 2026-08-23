@@ -225,7 +225,9 @@ def _normalize_tool_allowlist(
                 manifest = None
 
             if manifest is not None:
-                for builtin_tool_name in manifest.builtin_tools:
+                for builtin_tool_name in (
+                    expand_tool_allowlist_presets(list(manifest.builtin_tools)) or []
+                ):
                     try:
                         builtin_toolspecs = get_toolchain([builtin_tool_name])
                     except ValueError as e:
@@ -338,7 +340,7 @@ def setup_config_from_cli(
                 tool.strip() for tool in tool_list_str.split(",") if tool.strip()
             ]
             configured_base_tools: list[str] | None = None
-            if existing_chat_config and existing_chat_config.tools:
+            if existing_chat_config and existing_chat_config.tools is not None:
                 configured_base_tools = existing_chat_config.tools
             elif tools_env := config.get_env("TOOL_ALLOWLIST"):
                 configured_base_tools = [
