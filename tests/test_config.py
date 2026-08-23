@@ -2657,6 +2657,39 @@ def test_additive_explicit_tool_keeps_noninteractive_completion(
     assert config.chat.tools == ["read", additive_tool, "complete"]
 
 
+def test_mixed_manifest_alias_and_explicit_builtin_adds_complete(
+    tmp_path: Path, monkeypatch
+):
+    """Explicit non-preset built-in alongside a manifest alias breaks the preset boundary.
+
+    When the user writes ``--tools alias,shell`` and the configured base is a
+    preset (``GPTME_TOOL_ALLOWLIST=read-only``), the explicit ``shell`` tool
+    extends beyond the preset boundary.  Non-interactive mode must add
+    ``complete`` in that case, just as it would for any explicit tool list.
+    """
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="research,shell",
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert "shell" in (config.chat.tools or [])
+    assert "complete" in (config.chat.tools or []), (
+        "complete must be appended when an explicit non-preset tool breaks the boundary"
+    )
+
+
 def test_manifest_alias_cannot_shadow_preset(tmp_path: Path):
     """A workspace manifest cannot replace a built-in capability preset."""
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"

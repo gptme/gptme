@@ -461,14 +461,31 @@ def setup_config_from_cli(
         and configured_base_tools[0] in TOOL_PRESETS
     )
     tool_preset_selected = (
-        resolved_tool_allowlist is not None
-        and len(resolved_tool_allowlist) == 1
-        and resolved_tool_allowlist[0] in TOOL_PRESETS
-    ) or (
-        manifest_alias_resolved
-        and (
-            any(tool in TOOL_PRESETS for tool in requested_tool_names)
-            or configured_base_is_preset
+        (
+            resolved_tool_allowlist is not None
+            and len(resolved_tool_allowlist) == 1
+            and resolved_tool_allowlist[0] in TOOL_PRESETS
+        )
+        or (
+            manifest_alias_resolved
+            and (
+                any(tool in TOOL_PRESETS for tool in requested_tool_names)
+                or (
+                    configured_base_is_preset
+                    # Only preserve the preset boundary when alias resolution produced
+                    # purely additive MCP tools. If the user also explicitly requested a
+                    # non-preset built-in (e.g. ``--tools alias,shell`` with
+                    # ``TOOL_ALLOWLIST=read-only``), that breaks the preset boundary and
+                    # 'complete' must be added normally in non-interactive mode.
+                    and tool_allowlist is not None
+                    and tool_allowlist.startswith("+")
+                    and all(
+                        _is_mcp_tool_name(t.strip())
+                        for t in tool_allowlist[1:].split(",")
+                        if t.strip()
+                    )
+                )
+            )
         )
     )
 
