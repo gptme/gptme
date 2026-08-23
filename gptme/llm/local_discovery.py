@@ -368,7 +368,10 @@ def _endpoint_key(url: str) -> tuple[str, str, int, str] | None:
     if not host:
         return None
     scheme = parsed.scheme.lower()
-    port = parsed.port
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
     if port is None:
         port = 443 if scheme == "https" else 80
     canonical = "loopback" if _is_loopback_host(host) else host

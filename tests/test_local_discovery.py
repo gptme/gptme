@@ -282,3 +282,10 @@ def test_case_distinct_paths_are_not_equal() -> None:
 def test_default_candidates_include_ollama_and_lmstudio() -> None:
     names = [c.name for c in LOCAL_PROVIDER_CANDIDATES]
     assert names == ["ollama", "lmstudio"]
+
+
+def test_endpoint_key_malformed_port_returns_none() -> None:
+    # A TOML config typo like base_url="http://localhost:abc/v1" must not crash
+    # _index_configured (and therefore gptme providers list) with a ValueError.
+    assert _endpoint_key("http://localhost:abc/v1") is None
+    assert _endpoint_key("http://127.0.0.1:notaport/v1") is None
