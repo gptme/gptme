@@ -635,7 +635,7 @@ class TestInterruptEndpoint:
         assert session.step_seq == initial_seq
 
     def test_continuation_reservation_not_cleared_by_originating_step(
-        self, conv, tmp_path
+        self, conv, tmp_path, monkeypatch
     ):
         """Race 5: step() finally must not clear generating when a continuation reserved it.
 
@@ -644,6 +644,9 @@ class TestInterruptEndpoint:
         captures step_seq at entry; a mismatch means the continuation took over
         and we must not clear its reservation.
         """
+        # step() calls os.chdir(workspace) when user_messages <= 1; use monkeypatch so
+        # the cwd change is scoped to this test and doesn't bleed into siblings.
+        monkeypatch.chdir(tmp_path)
 
         from gptme.message import Message
         from gptme.server.session_step import step
