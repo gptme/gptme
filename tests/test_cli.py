@@ -2102,6 +2102,97 @@ def test_tool_manifest_log_workspace_resolves_manifest_from_logdir_workspace(
     )
 
 
+def test_show_prompt_stats_log_workspace_resolves_manifest_from_conversation_logdir(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """--show-prompt-stats --workspace @log resolves manifests from conversation_logdir/workspace.
+
+    For resumed sessions the named conversation's logdir/workspace is a symlink to the
+    original project. Using Path.cwd() broke manifest resolution when the user ran from
+    a different directory. The stats path should mirror the main path's behaviour and use
+    conversation_logdir/workspace when it exists, falling back to cwd only for new sessions.
+    """
+    from gptme.tool_manifests import TaskToolManifest
+
+    captured_workspace: list[Path] = []
+
+    def fake_load_task_manifest(task_type, workspace, manifest_path=None):
+        captured_workspace.append(workspace)
+        return TaskToolManifest(
+            task_type=task_type,
+            tool_names=(),
+            path=workspace / "state" / "task-manifests.jsonl",
+        )
+
+    # Create a named conversation with a workspace subdir (simulating @log structure)
+    conversation_name = f"manifest-stats-log-ws-{tmp_path.name}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True, exist_ok=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    conversation_ws = conversation_dir / "workspace"
+    conversation_ws.mkdir()
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=[],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest", fake_load_task_manifest
+    )
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr(
+        "gptme.prompts.get_prompt_stats",
+        lambda **_: SimpleNamespace(
+            sections=[],
+            total_messages=0,
+            total_chars=0,
+            total_tokens=0,
+            cacheable_tokens=0,
+            dynamic_tokens=0,
+        ),
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.format_prompt_stats", lambda *_, **__: "prompt-stats-output"
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--workspace",
+            "@log",
+            "--name",
+            conversation_name,
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured_workspace, "load_task_manifest was never called"
+    # manifest_workspace must be conversation_logdir/workspace, not cwd.
+    assert captured_workspace[-1] == conversation_ws, (
+        f"Expected manifest resolved from {conversation_ws}, got {captured_workspace[-1]}"
+    )
+
+
 def test_tool_manifest_unavailable_tool_falls_back_gracefully(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):

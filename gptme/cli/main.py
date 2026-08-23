@@ -1385,11 +1385,23 @@ def main(
                 stats_workspace_path = Path(workspace) if workspace else Path.cwd()
 
             try:
-                # For @log, stats_workspace_path is a temp dir — use the real
-                # workspace (cwd) so manifest resolution finds state/task-manifests.jsonl
-                manifest_workspace = (
-                    Path.cwd() if workspace == "@log" else stats_workspace_path
-                )
+                # For @log, stats_workspace_path is a temp dir. For resumed sessions
+                # conversation_logdir/workspace is a symlink to the original project
+                # (same resolution as the main path uses workspace_path = logdir/workspace).
+                # Fall back to cwd only for brand-new @log sessions where no logdir exists yet.
+                if workspace == "@log":
+                    _cld_ws = (
+                        conversation_logdir / "workspace"
+                        if conversation_logdir is not None
+                        else None
+                    )
+                    manifest_workspace = (
+                        _cld_ws
+                        if _cld_ws is not None and _cld_ws.exists()
+                        else Path.cwd()
+                    )
+                else:
+                    manifest_workspace = stats_workspace_path
                 stats_tool_allowlist_str = apply_tool_manifest(
                     manifest_workspace, conversation_logdir
                 )
