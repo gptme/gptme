@@ -17,6 +17,7 @@ jobs:
   dependency-audit:
     name: Dependency Advisory Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Phase 1: continue-on-error so this never blocks CI
     continue-on-error: true
     steps:
