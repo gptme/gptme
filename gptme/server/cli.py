@@ -142,7 +142,14 @@ def _install_sigterm_handler() -> None:
 
     Signal handlers can only be installed from the main thread; this is called
     from the ``serve`` command, which runs there.
+
+    Only upgrades our own startup handler or the OS default — a custom handler
+    installed by an embedder before calling ``serve()`` is left intact.
     """
+    current = signal.getsignal(signal.SIGTERM)
+    if current not in (signal.SIG_DFL, signal.SIG_IGN, _startup_sigterm_handler):
+        # An embedder installed a custom handler; don't override it.
+        return
 
     def _handle_sigterm(signum, frame):
         # Write directly to stderr and flush before using the logger — Rich's
