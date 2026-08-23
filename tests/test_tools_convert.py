@@ -186,6 +186,18 @@ class TestPDFToImageConverter:
         assert result.converter_used == "imagemagick"
         assert call_count["n"] == 2
 
+    def test_rejects_existing_directory_as_dest(self, avail_all, tmp_path):
+        """shutil.move silently moves the file INTO a directory; guard must catch this."""
+        src = tmp_path / "doc.pdf"
+        src.write_bytes(b"%PDF-1.4")
+        dest_dir = tmp_path / "output_dir"
+        dest_dir.mkdir()
+        with patch("gptme.tools.convert.get_availability", return_value=avail_all):
+            result = self.conv.convert(src, dest_dir)
+        assert not result.success
+        assert result.error is not None
+        assert "directory" in result.error.lower()
+
 
 # ---------------------------------------------------------------------------
 # ImageConverter

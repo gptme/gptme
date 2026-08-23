@@ -170,6 +170,14 @@ class PDFToImageConverter(Converter):
         dest_ext = dest.suffix.lstrip(".")
         warnings: list[str] = []
 
+        if dest.is_dir():
+            return ConversionResult(
+                success=False,
+                output_path=dest,
+                converter_used="",
+                error=f"Destination is an existing directory: {dest}",
+            )
+
         if avail.pdftoppm:
             # pdftoppm outputs <dest_stem>-<N>.ppm / .png; we want single page or first
             fmt_flag = "-png" if dest_ext == "png" else "-jpeg"
