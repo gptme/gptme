@@ -220,7 +220,10 @@ def providers_list(discover: bool = True, as_json: bool = False):
 
     click.echo("🔍 Local auto-discovery")
     if not discovered:
-        click.echo("   (disabled via GPTME_NO_LOCAL_DISCOVERY)")
+        if local_discovery_disabled():
+            click.echo("   (disabled via GPTME_NO_LOCAL_DISCOVERY)")
+        else:
+            click.echo("   (no local providers found)")
         return
 
     for result in discovered:
@@ -274,9 +277,14 @@ def _print_discovery_result(result) -> None:
         if result.status == "down":
             click.echo(f"      hint: {cand.hint}")
         if result.configured_as:
-            click.echo(
-                f"      configured as '{result.configured_as}' but the endpoint is not reachable"
-            )
+            if result.status == "down":
+                click.echo(
+                    f"      configured as '{result.configured_as}' but the endpoint is not reachable"
+                )
+            else:
+                click.echo(
+                    f"      configured as '{result.configured_as}' but did not respond as expected"
+                )
 
 
 @providers.command("test")

@@ -330,6 +330,8 @@ def _parse_openai_models(body: bytes) -> tuple[tuple[str, ...], str | None]:
             model_id = item.get("id")
             if isinstance(model_id, str) and model_id:
                 ids.append(model_id)
+            else:
+                return (), f"data item missing valid 'id' field: {item!r}"
         else:
             return (), f"data item is not a model object: {type(item).__name__}"
     return tuple(ids), None

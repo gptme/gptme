@@ -116,19 +116,24 @@ def test_discovers_openai_compat_models(handler_cls) -> None:
 
 
 def test_reports_connection_refused_instead_of_dropping() -> None:
-    # Bind-and-close so the port is unused; probe must still return a result.
+    # Keep the socket bound-but-not-listening so the port stays reserved for
+    # the duration of the probe, preventing any other process from binding to
+    # it and causing spurious non-refused results.
     import socket
 
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
-    sock.close()
     base = f"http://127.0.0.1:{port}/v1"
 
-    results = discover_local_providers(
-        candidates=[_candidate(base, name="lmstudio")],
-        timeout=0.3,
-    )
+    try:
+        results = discover_local_providers(
+            candidates=[_candidate(base, name="lmstudio")],
+            timeout=0.3,
+        )
+    finally:
+        sock.close()
+
     assert len(results) == 1
     assert results[0].status == "down"
     assert (
