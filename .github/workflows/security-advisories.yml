@@ -21,7 +21,7 @@ jobs:
     # Phase 1: continue-on-error so this never blocks CI
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v5
 
