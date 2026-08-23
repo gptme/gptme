@@ -22,11 +22,14 @@ def _startup_sigterm_handler(signum: int, frame: object) -> None:
     raise KeyboardInterrupt
 
 
-# Guard against non-main-thread imports: signal.signal() raises ValueError
-# if called from a worker thread (e.g. a library that imports cli.py to
-# call main() programmatically).  The handler is only needed — and only
-# safe — on the main thread.
-if threading.current_thread() is threading.main_thread():
+# Guard against non-main-thread imports (signal.signal raises ValueError
+# from a worker thread) and against overriding a custom handler the host
+# process may have already installed (e.g. an embedder that imports
+# gptme.server.cli.main programmatically).  Only install when the handler
+# is still the OS default or explicitly ignored.
+if threading.current_thread() is threading.main_thread() and signal.getsignal(
+    signal.SIGTERM
+) in (signal.SIG_DFL, signal.SIG_IGN):
     signal.signal(signal.SIGTERM, _startup_sigterm_handler)
 
 import click

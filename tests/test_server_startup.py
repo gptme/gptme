@@ -117,8 +117,8 @@ def test_server_responds_to_api_root(server_process):
         pytest.fail(f"HTTP request to {url} failed: {exc}")
 
 
-def test_sigterm_during_init_produces_output(tmp_path):
-    """SIGTERM must produce diagnostic output at any point during the server lifecycle.
+def test_sigterm_produces_diagnostic_output(tmp_path):
+    """SIGTERM must produce diagnostic output — not silently terminate.
 
     Regression for gptme/gptme#3589: before the fix, SIGTERM arriving while
     model/telemetry init was running used Python's default handler (immediate
@@ -127,9 +127,9 @@ def test_sigterm_during_init_produces_output(tmp_path):
     Click routes to an Aborted message.
 
     We wait for the server to bind before sending SIGTERM so the test is
-    deterministic on both fast and slow CI runners.  The handler is guaranteed
-    to be active throughout the process lifetime once it is installed at import
-    time, so a post-startup SIGTERM is equally valid as a regression guard.
+    deterministic on both fast and slow CI runners.  The early-install property
+    (handler active before any heavy imports) is verified by the companion test
+    test_startup_sigterm_handler_installed_at_import.
     """
     env = os.environ.copy()
     env["GPTME_DISABLE_AUTH"] = "1"
