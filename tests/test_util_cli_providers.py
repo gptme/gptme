@@ -556,3 +556,18 @@ class TestEscapeInjectionInDiscovery:
         assert result.exit_code == 0
         assert "\x1b" not in result.output
         assert "failed" in result.output
+
+    def test_all_control_model_ids_fall_back_to_placeholder(
+        self, mock_config, monkeypatch, mocker
+    ):
+        """When every model ID is pure control chars, example falls back to <model>."""
+        monkeypatch.delenv("GPTME_NO_LOCAL_DISCOVERY", raising=False)
+        mocker.patch(
+            "gptme.llm.local_discovery.discover_local_providers",
+            return_value=[_ollama_up("\x1b\x00\x9f")],
+        )
+        runner = CliRunner()
+        result = runner.invoke(main, ["providers", "list"])
+        assert result.exit_code == 0
+        assert "\x1b" not in result.output
+        assert "local/<model>" in result.output

@@ -275,7 +275,9 @@ def _print_discovery_result(result) -> None:
         if result.configured_as:
             click.echo(f"      already configured as '{result.configured_as}'")
         else:
-            example = _strip_controls(result.models[0]) if result.models else "<model>"
+            example = next(
+                (s for m in result.models if (s := _strip_controls(m))), "<model>"
+            )
             click.echo("      not in config — persist with `gptme providers add`, or:")
             click.echo(
                 f"      OPENAI_BASE_URL={cand.base_url} gptme -m local/{example}"
