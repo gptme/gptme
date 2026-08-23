@@ -28,7 +28,7 @@ DEMO_BODY = """# Demo Skill
 Do the thing with: $ARGUMENTS
 
 First arg: $ARGUMENTS[0]
-Second arg: $1
+Second arg: ${1}
 Missing arg: $ARGUMENTS[9]
 """
 
@@ -68,17 +68,24 @@ def _ctx(manager: MagicMock, full_args: str = "") -> CommandContext:
 
 
 def test_substitute_arguments():
-    body = "all=$ARGUMENTS a0=$ARGUMENTS[0] a1=$1 missing=$5"
+    body = "all=$ARGUMENTS a0=$ARGUMENTS[0] a1=${1} missing=${5}"
     out = substitute_arguments(body, "foo bar", ["foo", "bar"])
-    # Out-of-range $N stays unchanged rather than becoming empty string
-    assert out == "all=foo bar a0=foo a1=bar missing=$5"
+    # Out-of-range ${N} stays unchanged rather than becoming empty string
+    assert out == "all=foo bar a0=foo a1=bar missing=${5}"
 
 
 def test_substitute_arguments_preserves_dollar_amounts():
-    # $N with a large index should not silently delete currency amounts in prose
+    # Plain $N without curly braces is never matched — dollar amounts are safe.
+    # ${N} is the placeholder syntax; $100 (no braces) is prose and untouched.
     body = "Set budget to $100 and limit to $ARGUMENTS[99]."
     out = substitute_arguments(body, "", [])
     assert out == "Set budget to $100 and limit to $ARGUMENTS[99]."
+
+    # Even with 101 args, $100 in prose is NOT substituted (no braces → no match).
+    # $ARGUMENTS[99] IS substituted correctly (index 99 is in range with 101 args).
+    many_args = [str(i) for i in range(101)]
+    out2 = substitute_arguments(body, " ".join(many_args), many_args)
+    assert out2 == "Set budget to $100 and limit to 99."
 
 
 def test_substitute_arguments_word_boundary():

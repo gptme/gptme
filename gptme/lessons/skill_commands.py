@@ -10,7 +10,7 @@ same behavior so skills can be shared across runtimes:
   execution for unknown names, so a skill named ``shell`` must never shadow
   the shell tool).
 
-The handler substitutes ``$ARGUMENTS`` (and ``$ARGUMENTS[N]`` / ``$N``
+The handler substitutes ``$ARGUMENTS`` (and ``$ARGUMENTS[N]`` / ``${N}``
 positional forms) in the skill body and queues the result via
 :func:`gptme.prompt_queue.queue_prompt`, so the main chat loop drains it as a
 normal user message on its next iteration and the assistant acts on it.
@@ -40,15 +40,18 @@ SKILL_COMMAND_PREFIX = "skill:"
 # aliases not count as collisions.
 _registered_skill_commands: dict[str, CommandHandler] = {}
 
-_ARG_PATTERN = re.compile(r"\$ARGUMENTS\[(\d+)\]|\$ARGUMENTS\b|\$(\d+)")
+_ARG_PATTERN = re.compile(r"\$ARGUMENTS\[(\d+)\]|\$ARGUMENTS\b|\$\{(\d+)\}")
 
 
 def substitute_arguments(body: str, full_args: str, args: list[str]) -> str:
-    """Substitute ``$ARGUMENTS``, ``$ARGUMENTS[N]`` and ``$N`` placeholders.
+    """Substitute ``$ARGUMENTS``, ``$ARGUMENTS[N]`` and ``${N}`` placeholders.
 
     ``$ARGUMENTS`` expands to the full argument string; ``$ARGUMENTS[N]`` and
-    ``$N`` expand to the N-th (0-based) whitespace-split argument, or the empty
-    string when out of range.
+    ``${N}`` expand to the N-th (0-based) whitespace-split argument.
+    Out-of-range references (e.g. ``${5}`` with fewer than 6 args) are left
+    unchanged so skill prose with ``${...}`` expressions is not corrupted.
+    The ``${N}`` curly-brace form is required for positional arguments to avoid
+    ambiguity with literal dollar amounts like ``$100`` in skill bodies.
     """
 
     def _replace(match: re.Match[str]) -> str:

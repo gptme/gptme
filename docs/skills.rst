@@ -197,8 +197,10 @@ header) so the assistant acts on it immediately:
     /skill:review src/app.py  # arguments are passed through
 
 In the skill body, ``$ARGUMENTS`` expands to the full argument string and
-``$ARGUMENTS[N]`` / ``$N`` to the N-th (0-based) whitespace-separated
-argument. Use ``/skills read <name>`` to view a skill without invoking it.
+``$ARGUMENTS[N]`` / ``${N}`` to the N-th (0-based) whitespace-separated
+argument (curly braces are required for positional references to avoid
+ambiguity with literal dollar amounts like ``$100`` in skill prose).
+Use ``/skills read <name>`` to view a skill without invoking it.
 
 Creating Skills
 ---------------
