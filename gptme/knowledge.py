@@ -147,15 +147,15 @@ def load_entries() -> list[KnowledgeEntry]:
                     keywords = []
                 entries.append(
                     KnowledgeEntry(
-                        id=data.get("id", ""),
-                        problem=data.get("problem", ""),
-                        resolution=data.get("resolution", ""),
-                        problem_tags=problem_tags,
-                        context=data.get("context", ""),
-                        verified_at=data.get("verified_at", ""),
-                        session_id=data.get("session_id", ""),
-                        model=data.get("model", ""),
-                        keywords=keywords,
+                        id=str(data.get("id") or ""),
+                        problem=str(data.get("problem") or ""),
+                        resolution=str(data.get("resolution") or ""),
+                        problem_tags=[str(t) for t in problem_tags],
+                        context=str(data.get("context") or ""),
+                        verified_at=str(data.get("verified_at") or ""),
+                        session_id=str(data.get("session_id") or ""),
+                        model=str(data.get("model") or ""),
+                        keywords=[str(k) for k in keywords],
                     )
                 )
             except (json.JSONDecodeError, TypeError, AttributeError):
@@ -165,7 +165,8 @@ def load_entries() -> list[KnowledgeEntry]:
 
 
 def _tokenize(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9_\-]+", text.lower())
+    # \w matches Unicode word chars (letters, digits, underscore) in Python 3.
+    return re.findall(r"\w+", text.lower())
 
 
 def search_entries(query: str, top_k: int = 5) -> list[KnowledgeEntry]:

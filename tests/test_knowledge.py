@@ -100,6 +100,28 @@ def test_load_skips_wrong_type_list_fields(isolated_kb):
     assert entries[0].keywords == []
 
 
+def test_load_coerces_non_string_scalar_fields(isolated_kb):
+    """Integer/None scalar fields are coerced to str instead of crashing."""
+    isolated_kb.parent.mkdir(parents=True, exist_ok=True)
+    bad: dict[str, object] = {
+        "id": 42,  # int, not str
+        "problem": None,  # None, not str
+        "resolution": 3.14,  # float, not str
+        "problem_tags": [],
+        "keywords": [],
+        "context": "",
+        "verified_at": "",
+        "session_id": "",
+        "model": "",
+    }
+    isolated_kb.write_text(json.dumps(bad) + "\n")
+    entries = load_entries()
+    assert len(entries) == 1
+    assert entries[0].id == "42"
+    assert entries[0].problem == ""  # None → ""
+    assert entries[0].resolution == "3.14"
+
+
 def test_save_utf8_accepted(isolated_kb):
     """Printable non-ASCII UTF-8 text must be accepted."""
     entry = save_entry(
@@ -109,6 +131,15 @@ def test_save_utf8_accepted(isolated_kb):
     assert entry.problem == "Résoudre l'erreur d'importation"
     entries = load_entries()
     assert entries[0].problem == "Résoudre l'erreur d'importation"
+
+
+def test_search_unicode_terms(isolated_kb):
+    """Non-ASCII search terms must match saved non-ASCII entries."""
+    save_entry(problem="Résoudre erreur importation", resolution="pip install pkg")
+    save_entry(problem="unrelated english", resolution="do nothing")
+    results = search_entries("Résoudre")
+    assert results
+    assert results[0].problem == "Résoudre erreur importation"
 
 
 def test_search_relevant_first(isolated_kb):
