@@ -171,6 +171,7 @@ def providers_list(discover: bool = True, as_json: bool = False):
         payload = {
             "configured": [_configured_provider_dict(p) for p in config.user.providers],
             "discovered": [r.to_dict() for r in discovered],
+            "discovery_disabled": not discover,
         }
         click.echo(json.dumps(payload, indent=2))
         return
