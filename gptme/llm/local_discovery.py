@@ -370,7 +370,7 @@ def _endpoint_key(url: str) -> tuple[str, str, int, str] | None:
     if port is None:
         port = 443 if scheme == "https" else 80
     canonical = "loopback" if _is_loopback_host(host) else host
-    path = parsed.path.rstrip("/").lower() or "/"
+    path = parsed.path.rstrip("/") or "/"
     return scheme, canonical, port, path
 
 

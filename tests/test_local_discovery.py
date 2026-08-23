@@ -16,6 +16,7 @@ from gptme.config.models import ProviderConfig
 from gptme.llm.local_discovery import (
     LOCAL_PROVIDER_CANDIDATES,
     LocalProviderCandidate,
+    _endpoint_key,
     discover_local_providers,
 )
 
@@ -262,6 +263,15 @@ def test_up_with_empty_model_list_still_counts(handler_cls) -> None:
         server.shutdown()
     assert results[0].status == "up"
     assert results[0].models == ()
+
+
+def test_case_distinct_paths_are_not_equal() -> None:
+    # HTTP paths are case-sensitive; /V1 and /v1 are different resources.
+    key_lower = _endpoint_key("http://localhost:11434/v1")
+    key_upper = _endpoint_key("http://localhost:11434/V1")
+    assert key_lower is not None
+    assert key_upper is not None
+    assert key_lower != key_upper
 
 
 def test_default_candidates_include_ollama_and_lmstudio() -> None:
