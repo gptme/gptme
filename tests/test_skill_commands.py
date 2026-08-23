@@ -267,3 +267,22 @@ def test_lessons_without_name_are_not_registered(skills_root: Path):
         "---\nmatch:\n  keywords: [foo]\n---\n\n# Plain Lesson\n\nBody\n"
     )
     assert register_skill_commands() == []
+
+
+def test_tool_list_unavailable_suppresses_all_bare_aliases(
+    skills_root: Path, monkeypatch
+):
+    """When _loaded_tool_names() returns the sentinel (get_tools raised), no bare aliases are registered."""
+    _write_skill(skills_root, "demo", "A demo skill", DEMO_BODY)
+
+    def raise_err():
+        raise RuntimeError("tools not initialised")
+
+    monkeypatch.setattr("gptme.tools.get_tools", lambda: raise_err())
+    registered = register_skill_commands()
+
+    # Canonical must still be registered (tool-list failure doesn't block it).
+    assert "skill:demo" in registered
+    # Bare alias must be suppressed: fail-safe means no alias when tool list is unavailable.
+    assert "demo" not in registered
+    assert "demo" not in _command_registry
