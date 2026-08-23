@@ -130,7 +130,7 @@ def load_entries() -> list[KnowledgeEntry]:
     if not path.exists():
         return []
     entries: list[KnowledgeEntry] = []
-    with path.open(encoding="utf-8") as f:
+    with path.open(encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
             if not line:

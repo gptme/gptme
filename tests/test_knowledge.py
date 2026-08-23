@@ -70,6 +70,33 @@ def test_load_skips_corrupt_lines(isolated_kb):
     assert load_entries() == []
 
 
+def test_load_tolerates_corrupt_utf8_bytes(isolated_kb):
+    """Torn multibyte sequences (interrupted append) must not abort loading."""
+    isolated_kb.parent.mkdir(parents=True, exist_ok=True)
+    # Write a valid entry then append an incomplete UTF-8 multibyte sequence.
+    valid = json.dumps(
+        {
+            "id": "x",
+            "problem": "p",
+            "resolution": "r",
+            "problem_tags": [],
+            "keywords": [],
+            "context": "",
+            "verified_at": "",
+            "session_id": "",
+            "model": "",
+        }
+    ).encode("utf-8")
+    corrupt = (
+        b'{"problem": "abc\xe9\n'  # \xe9 starts a 2-byte sequence; second byte missing
+    )
+    isolated_kb.write_bytes(valid + b"\n" + corrupt)
+    # Should not raise — valid entry is returned, corrupt line is skipped
+    entries = load_entries()
+    assert len(entries) == 1
+    assert entries[0].id == "x"
+
+
 def test_load_skips_valid_json_wrong_schema(isolated_kb):
     """Valid JSON that is not a dict (or has wrong-type list fields) is skipped."""
     isolated_kb.parent.mkdir(parents=True, exist_ok=True)
