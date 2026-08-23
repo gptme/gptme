@@ -6,6 +6,7 @@ const port = process.env.PORT || 5701;
 
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: ['**/helpers/**'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

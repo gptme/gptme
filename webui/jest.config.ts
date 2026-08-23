@@ -14,6 +14,7 @@ export default {
       },
     ],
   },
-  testPathIgnorePatterns: ['/node_modules/', '/e2e/'],
+  // Ignore Playwright specs under e2e/, but allow Jest tests in e2e/helpers/.
+  testPathIgnorePatterns: ['/node_modules/', '/e2e/(?!helpers/)'],
   transformIgnorePatterns: ['/node_modules/(?!(ansi-regex|pretty-format|@testing-library)/)'],
 };

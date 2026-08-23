@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { visionAssert } from './helpers/visionAssert';
 
 // Server-backed regression suite for gptme/gptme#3440.
 //
@@ -220,11 +221,18 @@ test.describe('Live generation: UI stability with mock/echo provider (gptme#3440
     // Scoped to the conversation pane: the sidebar renders the same text as the
     // conversation's last-message preview, which would otherwise make this a
     // strict-mode violation (two matches) rather than a clean assertion.
-    await expect(
-      page
-        .locator('[data-conversation-pane]')
-        .getByText(new RegExp(`Echo: ${testMessage}`))
-        .first()
-    ).toBeVisible({ timeout: GENERATION_TIMEOUT });
+    const pane = page.locator('[data-conversation-pane]');
+    await expect(pane.getByText(new RegExp(`Echo: ${testMessage}`)).first()).toBeVisible({
+      timeout: GENERATION_TIMEOUT,
+    });
+
+    // Opt-in vision assertion. No-op unless GPTME_VISION_ASSERT=1.
+    // Playwright toBeVisible() only proves the Echo text is in the DOM and not
+    // display:none — it does not prove the message is unclipped on screen.
+    await visionAssert(
+      page,
+      `The assistant message containing "Echo: ${testMessage}" is fully visible in the conversation pane: the text is complete, not clipped, not truncated, and not covered by another UI element.`,
+      { locator: pane, name: 'generation-echo-roundtrip' }
+    );
   });
 });
