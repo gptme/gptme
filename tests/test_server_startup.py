@@ -186,6 +186,36 @@ def test_sigterm_during_init_produces_output(tmp_path):
     )
 
 
+def test_startup_sigterm_handler_installed_at_import():
+    """The module-level SIGTERM handler is active the moment cli.py is imported.
+
+    Regression guard for gptme/gptme#3589: the fix installs the handler at
+    module level (before slow imports).  This test verifies that property
+    directly — in isolation from serve() — so the test would FAIL if the
+    handler were moved back inside serve() or _install_sigterm_handler().
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import signal, sys;"
+            "import gptme.server.cli as cli;"
+            "h = signal.getsignal(signal.SIGTERM);"
+            "name = getattr(h, '__name__', '');"
+            "sys.exit(0 if 'startup' in name else 1)",
+        ],
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        "Expected _startup_sigterm_handler to be installed at cli.py import time, "
+        "but a different handler was active — SIGTERM-during-init regression risk.\n"
+        f"stdout: {result.stdout.decode(errors='replace')}\n"
+        f"stderr: {result.stderr.decode(errors='replace')}"
+    )
+
+
 def test_server_exits_nonzero_on_bad_webui_dir(tmp_path):
     env = os.environ.copy()
     env["GPTME_DISABLE_AUTH"] = "1"

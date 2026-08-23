@@ -22,7 +22,12 @@ def _startup_sigterm_handler(signum: int, frame: object) -> None:
     raise KeyboardInterrupt
 
 
-signal.signal(signal.SIGTERM, _startup_sigterm_handler)
+# Guard against non-main-thread imports: signal.signal() raises ValueError
+# if called from a worker thread (e.g. a library that imports cli.py to
+# call main() programmatically).  The handler is only needed — and only
+# safe — on the main thread.
+if threading.current_thread() is threading.main_thread():
+    signal.signal(signal.SIGTERM, _startup_sigterm_handler)
 
 import click
 from click_default_group import DefaultGroup

@@ -2,7 +2,7 @@
 Server for gptme.
 """
 
-__all__ = ["create_app"]
+__all__ = ["create_app", "main"]
 
 
 def __getattr__(name: str):
