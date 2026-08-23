@@ -442,8 +442,10 @@ def test_pdftoppm_failure_cleans_partial_artifacts(avail_all, tmp_path):
     def fake_run(cmd, **kwargs):
         mock = MagicMock()
         if "pdftoppm" in cmd:
-            # Simulate pdftoppm writing a partial page file before failing
-            (tmp_path / "out-1.png").write_bytes(b"partial")
+            # Simulate pdftoppm writing a partial page file into the tmpdir before failing
+            # cmd[-1] is the output prefix (inside a TemporaryDirectory); artifact lives there
+            tmp_prefix = Path(cmd[-1])
+            (tmp_prefix.parent / f"{tmp_prefix.name}-1.png").write_bytes(b"partial")
             mock.returncode = 1
             mock.stderr = b"pdftoppm error"
         else:
