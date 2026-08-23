@@ -378,6 +378,10 @@ ignore_missing_imports = true
 module = "gptme_sessions.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["docx", "magic"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
