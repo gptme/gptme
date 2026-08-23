@@ -198,11 +198,13 @@ def test_startup_sigterm_handler_installed_at_import():
         [
             sys.executable,
             "-c",
-            "import signal, sys;"
-            "import gptme.server.cli as cli;"
-            "h = signal.getsignal(signal.SIGTERM);"
-            "name = getattr(h, '__name__', '');"
-            "sys.exit(0 if 'startup' in name else 1)",
+            (
+                "import signal, sys;"
+                "import gptme.server.cli as cli;"
+                "h = signal.getsignal(signal.SIGTERM);"
+                "name = getattr(h, '__name__', '');"
+                "sys.exit(0 if 'startup' in name else 1)"
+            ),
         ],
         capture_output=True,
         timeout=30,
