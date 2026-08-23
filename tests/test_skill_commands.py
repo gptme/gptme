@@ -269,6 +269,47 @@ def test_lessons_without_name_are_not_registered(skills_root: Path):
     assert register_skill_commands() == []
 
 
+def test_handler_undo_happens_after_build_on_success(skills_root: Path, manager):
+    """The command message is only removed from the log when build succeeds, not before."""
+    _write_skill(skills_root, "demo", "A demo skill", DEMO_BODY)
+    register_skill_commands()
+    list(_command_registry["skill:demo"](_ctx(manager, "hello world")))
+    # manager.undo must have been called (success path removes the command message)
+    manager.undo.assert_called_once_with(1, quiet=True)
+
+
+def test_handler_undo_not_called_when_build_fails(
+    skills_root: Path, manager, monkeypatch
+):
+    """When build_skill_prompt raises, the log is left intact (undo not called)."""
+    _write_skill(skills_root, "demo", "A demo skill", DEMO_BODY)
+    register_skill_commands()
+
+    import gptme.lessons.skill_commands as sc
+
+    monkeypatch.setattr(
+        sc,
+        "build_skill_prompt",
+        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    list(_command_registry["skill:demo"](_ctx(manager, "")))
+    # manager.undo must NOT have been called — the log stays intact so the user
+    # can see the failed invocation instead of a silent disappear.
+    manager.undo.assert_not_called()
+
+
+def test_two_pass_registration_skill_named_with_prefix(skills_root: Path):
+    """Skill 'X' gets a canonical even when another skill is named 'skill:X'."""
+    # Skill with a name that happens to start with the "skill:" prefix.
+    _write_skill(skills_root, "skill:demo", "Weird name", "Body")
+    # Skill whose canonical would be "skill:demo" — must not be blocked by the alias
+    # that the first skill registers for its bare name.
+    _write_skill(skills_root, "demo", "Normal skill", DEMO_BODY)
+    registered = register_skill_commands()
+    # "skill:demo" canonical must exist for the second skill.
+    assert "skill:demo" in registered
+
+
 def test_tool_list_unavailable_suppresses_all_bare_aliases(
     skills_root: Path, monkeypatch
 ):

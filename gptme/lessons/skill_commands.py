@@ -86,11 +86,8 @@ def _make_skill_handler(skill: Lesson, index: LessonIndex) -> CommandHandler:
     def handler(ctx: CommandContext) -> Generator[Message, None, None]:
         from ..prompt_queue import queue_prompt  # fmt: skip
 
-        # Remove the "/skill:<name>" command message from the log, like built-in
-        # commands do; the queued prompt carries its own "Skill invoked" header.
-        ctx.manager.undo(1, quiet=True)
-        ctx.manager.write()
-
+        # Build the prompt first; only undo the command message on success so a
+        # broken skill leaves the log intact instead of silently disappearing.
         try:
             content = build_skill_prompt(skill, index, ctx.full_args.strip(), ctx.args)
         except Exception as e:
@@ -98,6 +95,10 @@ def _make_skill_handler(skill: Lesson, index: LessonIndex) -> CommandHandler:
             yield from ()
             return
         queue_prompt(ctx.manager.logdir, content)
+        # Remove the "/skill:<name>" command message from the log after queuing,
+        # like built-in commands do; the queued prompt carries its own header.
+        ctx.manager.undo(1, quiet=True)
+        ctx.manager.write()
         logger.debug("Queued skill prompt for /%s%s", SKILL_COMMAND_PREFIX, name)
         # Yield nothing: the chat loop drains the queue on its next iteration
         # and the assistant responds to the skill body as a normal user turn.
@@ -164,6 +165,9 @@ def register_skill_commands(index: LessonIndex | None = None) -> list[str]:
         # alias can accidentally shadow a real tool command.
         tools_available = tool_names is not _TOOL_NAMES_UNAVAILABLE
 
+        # Two-pass registration so canonicals never collide with our own aliases.
+        # Pass 1: collect valid skills and register all canonicals.
+        skill_entries: list[tuple[str, str, CommandHandler]] = []
         for skill in index.lessons:
             name = skill.metadata.name
             if not name:
@@ -189,8 +193,13 @@ def register_skill_commands(index: LessonIndex | None = None) -> list[str]:
             register_command(canonical, handler)
             _registered_skill_commands[canonical] = handler
             registered.append(canonical)
+            skill_entries.append((name, canonical, handler))
 
-            if name in _command_registry:
+        # Pass 2: register bare aliases, checking against all canonicals we just
+        # registered so a skill named "skill:X" doesn't block bare alias for "X".
+        our_canonicals = {canonical for _, canonical, _ in skill_entries}
+        for name, canonical, handler in skill_entries:
+            if name in _command_registry and name not in our_canonicals:
                 logger.debug(
                     "Skill %r collides with existing command; only /%s registered",
                     name,
