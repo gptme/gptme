@@ -488,3 +488,52 @@ def test_pdftoppm_failure_cleans_partial_artifacts(avail_all, tmp_path):
         "Partial pdftoppm artifact was not cleaned up"
     )
     assert not result.success
+
+
+def test_can_handle_uppercase_extension(avail_all):
+    """can_handle must accept uppercase extensions like .JPG and .PNG."""
+    conv = ImageConverter()
+    assert conv.can_handle("image/png", "JPG")
+    assert conv.can_handle("image/jpeg", "PNG")
+    assert conv.can_handle("image/png", "WEBP")
+
+
+def test_convert_file_no_converter_error_message_is_correct(avail_none, tmp_path):
+    """Error message must name the real CLI subcommand, not a non-existent flag."""
+    src = tmp_path / "photo.heic"
+    src.write_bytes(b"HEIF")
+    dest = tmp_path / "out.png"
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_none),
+        patch("gptme.tools.convert._detect_mime", return_value="image/heic"),
+    ):
+        result = convert_file(src, dest)
+    assert not result.success
+    assert result.error is not None
+    # Must not reference the non-existent --check-tools flag
+    assert "--check-tools" not in result.error
+    assert "check-tools" in result.error
+
+
+def test_ffmpeg_webp_uses_quality_not_qv(avail_ffmpeg_only, tmp_path):
+    """For WebP, ffmpeg must receive -quality (0-100) not -q:v (inverted JPEG scale)."""
+    src = tmp_path / "img.png"
+    src.write_bytes(b"\x89PNG")
+    dest = tmp_path / "out.webp"
+
+    captured_cmd: list[str] = []
+
+    def fake_run(cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        dest.write_bytes(b"RIFF")
+        return MagicMock(returncode=0, stderr=b"")
+
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_ffmpeg_only),
+        patch("subprocess.run", side_effect=fake_run),
+    ):
+        result = ImageConverter().convert(src, dest, quality="high")
+
+    assert result.success
+    assert "-quality" in captured_cmd
+    assert "-q:v" not in captured_cmd

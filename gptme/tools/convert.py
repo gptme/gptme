@@ -131,7 +131,7 @@ class Converter(ABC):
     ) -> ConversionResult: ...
 
     def can_handle(self, src_mime: str, dest_ext: str) -> bool:
-        dest_ext = dest_ext.lstrip(".")
+        dest_ext = dest_ext.lstrip(".").lower()
         for mime_prefix, ext in self.supported:
             if src_mime.startswith(mime_prefix) and ext == dest_ext:
                 return True
@@ -167,7 +167,7 @@ class PDFToImageConverter(Converter):
     ) -> ConversionResult:
         avail = get_availability()
         dpi = self._DPI.get(quality, 150)
-        dest_ext = dest.suffix.lstrip(".")
+        dest_ext = dest.suffix.lstrip(".").lower()
         warnings: list[str] = []
 
         if dest.is_dir():
@@ -265,7 +265,7 @@ class ImageConverter(Converter):
         # Only image→image (not PDF)
         if not src_mime.startswith("image/"):
             return False
-        return dest_ext.lstrip(".") in (
+        return dest_ext.lstrip(".").lower() in (
             "png",
             "jpg",
             "jpeg",
@@ -283,14 +283,19 @@ class ImageConverter(Converter):
         **kwargs,
     ) -> ConversionResult:
         avail = get_availability()
-        dest_ext = dest.suffix.lstrip(".")
+        dest_ext = dest.suffix.lstrip(".").lower()
         q = self._QUALITY.get(quality, 80)
         lossy = dest_ext in ("jpg", "jpeg", "webp")
 
         if avail.ffmpeg:
             cmd = ["ffmpeg", "-y", "-i", str(src)]
             if lossy:
-                cmd += ["-q:v", str(max(1, (100 - q) // 5))]  # ffmpeg q scale 1-31
+                if dest_ext == "webp":
+                    # WebP uses -quality 0-100 (higher = better)
+                    cmd += ["-quality", str(q)]
+                else:
+                    # JPEG/other: ffmpeg q:v scale 1-31 (lower = better)
+                    cmd += ["-q:v", str(max(1, (100 - q) // 5))]
             cmd += ["--", str(dest)]
             result = subprocess.run(cmd, capture_output=True, check=False)
             if result.returncode == 0:
@@ -423,7 +428,7 @@ class DocumentToTextConverter(Converter):
         )
         return any(src_mime.startswith(m) for m in doc_mimes) and dest_ext.lstrip(
             "."
-        ) in ("txt", "md")
+        ).lower() in ("txt", "md")
 
     def convert(
         self,
@@ -497,7 +502,7 @@ class VideoThumbnailConverter(Converter):
         return avail.ffmpeg
 
     def can_handle(self, src_mime: str, dest_ext: str) -> bool:
-        return src_mime.startswith("video/") and dest_ext.lstrip(".") in (
+        return src_mime.startswith("video/") and dest_ext.lstrip(".").lower() in (
             "jpg",
             "jpeg",
             "png",
@@ -611,7 +616,7 @@ def convert_file(
             converter_used="none",
             error=(
                 f"No converter found for {src_mime} → {dest_ext}. "
-                f"Run `gptme convert --check-tools` to see available converters."
+                f"Run `python -m gptme.tools.convert check-tools` to see available converters."
             ),
         )
 
