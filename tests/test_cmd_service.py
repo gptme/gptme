@@ -722,9 +722,12 @@ def test_launchd_logs_directory_created(tmp_path: Path) -> None:
     assert logs_dir.exists() and logs_dir.is_dir(), "logs/ directory should be created"
 
 
-def test_launchd_plist_strips_control_characters(tmp_path: Path) -> None:
-    """XML 1.0-forbidden control characters in model/work-dir must be stripped, not escaped."""
-    import xml.etree.ElementTree as ET
+def test_launchd_model_with_forbidden_chars_rejected(tmp_path: Path) -> None:
+    """Model identifiers containing XML 1.0-forbidden chars must be rejected on macOS.
+
+    Silently stripping them would cause the agent to run with a different model
+    than the user requested. Validation is the correct response.
+    """
     from unittest.mock import patch
 
     special_work = tmp_path / "work"
@@ -752,16 +755,9 @@ def test_launchd_plist_strips_control_characters(tmp_path: Path) -> None:
                 "macos",
             ],
         )
-    assert result.exit_code == 0, result.output
-    plist_file = out_dir / "com.gptme.testagent.plist"
-    plist_text = plist_file.read_text()
-    # Must parse as valid XML (control chars would cause a ParseError)
-    tree = ET.fromstring(plist_text)
-    assert tree.tag == "plist"
-    # Control chars and lone surrogates must be gone from the output
-    assert "\x01" not in plist_text
-    assert "\x0b" not in plist_text
-    assert "\ud800" not in plist_text
+    assert result.exit_code != 0, (
+        "macOS scaffolding must reject model containing XML-forbidden control chars"
+    )
 
 
 def test_launchd_work_dir_with_forbidden_chars_rejected(tmp_path: Path) -> None:

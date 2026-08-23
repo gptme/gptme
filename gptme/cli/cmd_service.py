@@ -301,8 +301,8 @@ def _generate_launchd_plist(
 
     return LAUNCHD_PLIST_TEMPLATE.format(
         name=_xml_safe(name),
-        model=_xml_safe(model),
-        work_dir=_xml_safe(work_dir),
+        model=_xml_escape(model),
+        work_dir=_xml_escape(work_dir),
         schedule_section=schedule_section,
         run_at_load=run_at_load,
     )
@@ -464,10 +464,19 @@ def init(
 
     # Platform-specific service generation
     if platform_choice == "macos":
+        # Reject model identifiers that contain XML 1.0-forbidden characters.
+        # Silently stripping them would cause the agent to run with a different
+        # (or nonexistent) model than the user requested.
+        if _XML10_FORBIDDEN.search(model):
+            raise click.BadParameter(
+                f"Model {model!r} contains XML 1.0-forbidden characters "
+                "(control characters or lone surrogates) that cannot be "
+                "represented in a launchd plist. Use a valid model identifier.",
+                param_hint="'--model'",
+            )
         # Reject paths that contain XML 1.0-forbidden characters BEFORE creating dirs.
-        # Unlike model (an env-var string where silent stripping is harmless), the
-        # work-dir path must match the one written to disk — silently sanitizing it in
-        # the plist would cause launchd to reference a nonexistent directory.
+        # The work-dir path must match the one written to disk — silently sanitizing
+        # it in the plist would cause launchd to reference a nonexistent directory.
         resolved_work = str(work)
         if _XML10_FORBIDDEN.search(resolved_work):
             raise click.BadParameter(
