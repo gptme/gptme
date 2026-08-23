@@ -69,7 +69,7 @@ def get_knowledge_file() -> Path:
 def _validate_text(text: str, field_name: str, max_len: int, *, required: bool) -> None:
     if required and not text.strip():
         raise KnowledgeValidationError(f"{field_name} is required and cannot be empty.")
-    if not text.isprintable():
+    if any(not (c.isprintable() or c in "\n\r\t") for c in text):
         raise KnowledgeValidationError(f"{field_name} must be printable text.")
     if len(text) > max_len:
         raise KnowledgeValidationError(f"{field_name} exceeds {max_len} characters.")

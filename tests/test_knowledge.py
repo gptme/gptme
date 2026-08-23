@@ -186,6 +186,23 @@ def test_save_utf8_accepted(isolated_kb):
     assert entries[0].problem == "Résoudre l'erreur d'importation"
 
 
+def test_save_multiline_resolution_accepted(isolated_kb):
+    """Multi-line resolutions (with \\n) must be accepted — natural for step-by-step fixes."""
+    entry = save_entry(
+        problem="pydantic import fails",
+        resolution="Step 1: install pydantic-settings\nStep 2: restart the server\nStep 3: verify import",
+    )
+    assert "\n" in entry.resolution
+    entries = load_entries()
+    assert entries[0].resolution == entry.resolution
+
+
+def test_save_nul_byte_rejected(isolated_kb):
+    """Actual non-printable control characters (NUL, BEL, ESC) must still be rejected."""
+    with pytest.raises(KnowledgeValidationError):
+        save_entry(problem="test", resolution="bad\x00byte")
+
+
 def test_search_unicode_terms(isolated_kb):
     """Non-ASCII search terms must match saved non-ASCII entries."""
     save_entry(problem="Résoudre erreur importation", resolution="pip install pkg")
