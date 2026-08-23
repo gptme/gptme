@@ -2432,10 +2432,12 @@ def test_normalize_tool_allowlist_unavailable_builtin_raises_not_shadowed(
         encoding="utf-8",
     )
 
-    # Standard "is unavailable" wording: must re-raise
+    from gptme.tools import ToolAllowlistError
+
+    # Standard "is unavailable" wording: must re-raise as ToolAllowlistError
     def _raises_unavailable(allowlist, **kwargs):
         if allowlist and allowlist[0] == "read":
-            raise ValueError("Tool 'read' is unavailable: optional dep missing")
+            raise ToolAllowlistError("Tool 'read' is unavailable: optional dep missing")
         return []
 
     read_spec = MagicMock()
@@ -2448,14 +2450,14 @@ def test_normalize_tool_allowlist_unavailable_builtin_raises_not_shadowed(
             "gptme.config.cli_setup.matching_allowlist_tools",
             side_effect=lambda pattern, tools: [t for t in tools if t.name == pattern],
         ),
-        pytest.raises(ValueError, match="is unavailable"),
+        pytest.raises(ToolAllowlistError, match="is unavailable"),
     ):
         _normalize_tool_allowlist(["read"], workspace=tmp_path)
 
     # Alternative phrasing: must still re-raise because "read" is registered
     def _raises_differently_worded(allowlist, **kwargs):
         if allowlist and allowlist[0] == "read":
-            raise ValueError("Required dependency missing for 'read'")
+            raise ToolAllowlistError("Required dependency missing for 'read'")
         return []
 
     with (
@@ -2468,9 +2470,44 @@ def test_normalize_tool_allowlist_unavailable_builtin_raises_not_shadowed(
             "gptme.config.cli_setup.matching_allowlist_tools",
             side_effect=lambda pattern, tools: [t for t in tools if t.name == pattern],
         ),
-        pytest.raises(ValueError, match="Required dependency missing"),
+        pytest.raises(ToolAllowlistError, match="Required dependency missing"),
     ):
         _normalize_tool_allowlist(["read"], workspace=tmp_path)
+
+
+def test_normalize_tool_allowlist_builtin_tools_preset_preserved(tmp_path: Path):
+    """Preset names in manifest builtin_tools survive _normalize_tool_allowlist.
+
+    When a builtin_tools manifest declares a preset like 'read-only', the preset
+    name must be preserved verbatim in the normalized output so that on a
+    non-interactive resume the configured-base-is-preset check still fires and
+    the preset capability boundary is maintained (e.g. 'complete' must not be
+    injected into a read-only session).
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],'
+        '"tools":[{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    result = _normalize_tool_allowlist(["audit"], workspace=tmp_path)
+    assert result is not None
+
+    # Preset name must be preserved verbatim — not expanded to concrete tools.
+    assert "read-only" in result, f"expected 'read-only' in {result}"
+    # MCP tools from the manifest are appended (server.tool dot notation).
+    assert "analysis.run" in result, f"expected 'analysis.run' in {result}"
+    # The preset must NOT have been expanded into its concrete constituent tools
+    # in the stored list — that would lose the provenance.
+    from gptme.config.cli_setup import TOOL_PRESETS
+
+    for concrete in TOOL_PRESETS["read-only"]:
+        assert concrete not in result, (
+            f"preset constituent {concrete!r} must not appear in {result}; "
+            "preset name must be stored verbatim for resume provenance"
+        )
 
 
 @pytest.mark.parametrize("config_source", ["environment", "project", "resume"])

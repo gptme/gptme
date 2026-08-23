@@ -242,20 +242,28 @@ def _normalize_tool_allowlist(
                 manifest = None
 
             if manifest is not None:
-                for builtin_tool_name in (
-                    expand_tool_allowlist_presets(list(manifest.builtin_tools)) or []
-                ):
-                    try:
-                        builtin_toolspecs = get_toolchain([builtin_tool_name])
-                    except ValueError as e:
-                        raise ToolAllowlistError(
-                            f"Invalid builtin_tools entry {builtin_tool_name!r} "
-                            f"in tool manifest for {item!r}: {e}"
-                        ) from e
-                    for toolspec in builtin_toolspecs:
-                        if toolspec.name not in seen:
-                            normalized.append(toolspec.name)
-                            seen.add(toolspec.name)
+                for builtin_tool_name in manifest.builtin_tools:
+                    if builtin_tool_name in TOOL_PRESETS:
+                        # Preserve preset name verbatim so that on resume the
+                        # configured-base-is-preset detection still fires,
+                        # maintaining the exclusive capability boundary
+                        # (e.g. read-only must not gain 'complete' in
+                        # non-interactive mode on subsequent invocations).
+                        if builtin_tool_name not in seen:
+                            normalized.append(builtin_tool_name)
+                            seen.add(builtin_tool_name)
+                    else:
+                        try:
+                            builtin_toolspecs = get_toolchain([builtin_tool_name])
+                        except ValueError as e:
+                            raise ToolAllowlistError(
+                                f"Invalid builtin_tools entry {builtin_tool_name!r} "
+                                f"in tool manifest for {item!r}: {e}"
+                            ) from e
+                        for toolspec in builtin_toolspecs:
+                            if toolspec.name not in seen:
+                                normalized.append(toolspec.name)
+                                seen.add(toolspec.name)
                 for manifest_tool_name in manifest.tool_names:
                     if manifest_tool_name not in seen:
                         normalized.append(manifest_tool_name)
@@ -476,7 +484,7 @@ def setup_config_from_cli(
     )
     configured_base_is_preset = (
         configured_base_tools is not None
-        and len(configured_base_tools) == 1
+        and len(configured_base_tools) >= 1
         and configured_base_tools[0] in TOOL_PRESETS
     )
     tool_preset_selected = (
@@ -505,6 +513,12 @@ def setup_config_from_cli(
                     )
                 )
             )
+        )
+        or (
+            # Resume without CLI tool override: if the loaded base starts with a
+            # preset name (stored verbatim by _normalize_tool_allowlist), honour
+            # the preset boundary so non-interactive mode doesn't inject 'complete'.
+            configured_base_is_preset and tool_allowlist is None
         )
     )
 
