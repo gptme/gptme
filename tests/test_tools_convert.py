@@ -417,3 +417,60 @@ def test_conversion_result_summary_failure():
     summary = result.summary()
     assert "failed" in summary.lower()
     assert "Exit code 1" in summary
+
+
+def test_convert_file_same_path_rejected(avail_all, tmp_path):
+    """convert_file must reject src == dest to prevent data corruption."""
+    src = tmp_path / "photo.png"
+    src.write_bytes(b"\x89PNG")
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch("gptme.tools.convert._detect_mime", return_value="image/png"),
+    ):
+        result = convert_file(src, src)
+    assert not result.success
+    assert result.error is not None
+    assert "different" in result.error.lower()
+
+
+def test_pdftoppm_failure_cleans_partial_artifacts(avail_all, tmp_path):
+    """Partial page files from a failed pdftoppm run must be removed before ImageMagick fallback."""
+    src = tmp_path / "doc.pdf"
+    src.write_bytes(b"%PDF-1.4")
+    dest = tmp_path / "out.png"
+
+    def fake_run(cmd, **kwargs):
+        mock = MagicMock()
+        if "pdftoppm" in cmd:
+            # Simulate pdftoppm writing a partial page file before failing
+            (tmp_path / "out-1.png").write_bytes(b"partial")
+            mock.returncode = 1
+            mock.stderr = b"pdftoppm error"
+        else:
+            mock.returncode = 1
+            mock.stderr = b"imagemagick error"
+        return mock
+
+    conv = PDFToImageConverter()
+    avail_pdftoppm_only = ToolAvailability(
+        pdftoppm=True,
+        imagemagick=False,
+        ffmpeg=False,
+        pdftotext=False,
+        libreoffice=False,
+        tesseract=False,
+        python_magic=False,
+        python_docx=False,
+        pypdf=False,
+    )
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_pdftoppm_only),
+        patch("subprocess.run", side_effect=fake_run),
+    ):
+        result = conv.convert(src, dest)
+
+    # Partial artifact must be cleaned up
+    assert not (tmp_path / "out-1.png").exists(), (
+        "Partial pdftoppm artifact was not cleaned up"
+    )
+    assert not result.success
