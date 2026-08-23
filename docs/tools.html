@@ -551,6 +551,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#precommit">Precommit</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#autocommit">Autocommit</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vent">Vent</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#request-tool-change">Request tool change</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#complete">Complete</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#restart">Restart</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lessons">Lessons</a></li>
@@ -6520,6 +6521,31 @@ current taxonomy values (e.g. <code class="docutils literal notranslate"><span c
 </dd></dl>
 
 </section>
+<section id="request-tool-change">
+<h2>Request tool change<a class="headerlink" href="#request-tool-change" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">request_tool_change</span></code> is an opt-in, audit-only relief valve for assistants
+that need a different session tool configuration. It records a structured
+request in ordinary tool-call history; it does not enable, disable, or configure
+any tool. Enable it explicitly with <code class="docutils literal notranslate"><span class="pre">-t</span> <span class="pre">+request_tool_change</span></code>.</p>
+<p>This is separate from <code class="docutils literal notranslate"><span class="pre">vent</span></code>: <code class="docutils literal notranslate"><span class="pre">vent</span></code> records operational friction, while
+<code class="docutils literal notranslate"><span class="pre">request_tool_change</span></code> names a concrete tool-configuration request.</p>
+<p>Opt-in tool for assistants to request session tool configuration changes.</p>
+<p>The request is audit-only: calling this tool records structured intent in ordinary
+assistant tool-call and result-message history. It does not change the active tool
+configuration.</p>
+<p class="rubric">Instructions</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use this tool when the current tool configuration blocks or unnecessarily expands
+what you need to do. The request is recorded in ordinary tool-call history for an
+operator to inspect; it does not itself enable, disable, or configure any tool.
+</pre></div>
+</div>
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.request_tool_change.</span></span><span class="sig-name descname"><span class="pre">execute_request_tool_change</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a></span></span></dt>
+<dd><p>Validate and acknowledge an audit-only tool-change request.</p>
+</dd></dl>
+
+</section>
 <section id="complete">
 <h2>Complete<a class="headerlink" href="#complete" title="Link to this heading">#</a></h2>
 <p>Complete tool - signals that the autonomous session is finished.</p>
@@ -7093,6 +7119,7 @@ spawning subagents programmatically:</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#precommit">Precommit</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#autocommit">Autocommit</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vent">Vent</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#request-tool-change">Request tool change</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#complete">Complete</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#restart">Restart</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lessons">Lessons</a></li>
