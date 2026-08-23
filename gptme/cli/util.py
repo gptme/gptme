@@ -240,6 +240,13 @@ def _configured_provider_dict(provider) -> dict:
     }
 
 
+def _strip_controls(s: str) -> str:
+    """Strip C0/C1 terminal control characters from untrusted probe output."""
+    import re
+
+    return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", s)
+
+
 def _print_discovery_result(result) -> None:
     from ..llm.local_discovery import DiscoveryResult  # fmt: skip
 
@@ -257,7 +264,8 @@ def _print_discovery_result(result) -> None:
     click.echo(f"      probe: {cand.models_url}")
     if result.status == "up":
         if result.models:
-            shown = ", ".join(result.models[:8])
+            safe_models = [_strip_controls(m) for m in result.models]
+            shown = ", ".join(safe_models[:8])
             extra = (
                 f" (+{len(result.models) - 8} more)" if len(result.models) > 8 else ""
             )
@@ -267,13 +275,13 @@ def _print_discovery_result(result) -> None:
         if result.configured_as:
             click.echo(f"      already configured as '{result.configured_as}'")
         else:
-            example = result.models[0] if result.models else "<model>"
+            example = _strip_controls(result.models[0]) if result.models else "<model>"
             click.echo("      not in config — persist with `gptme providers add`, or:")
             click.echo(
                 f"      OPENAI_BASE_URL={cand.base_url} gptme -m local/{example}"
             )
     else:
-        click.echo(f"      {result.reason}")
+        click.echo(f"      {_strip_controls(result.reason)}")
         if result.status == "down":
             click.echo(f"      hint: {cand.hint}")
         if result.configured_as:

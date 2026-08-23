@@ -488,3 +488,71 @@ class TestProvidersListDiscovery:
         payload = json.loads(result.output)
         assert payload["discovery_disabled"] is False
         assert payload["discovered"] == []
+
+
+class TestStripControls:
+    """Unit tests for _strip_controls helper."""
+
+    def test_removes_c0_control_chars(self):
+        from gptme.cli.util import _strip_controls
+
+        # ESC byte is stripped; the printable bracket/letter tail is kept (harmless without ESC)
+        assert _strip_controls("\x1b[1mhello\x1b[0m") == "[1mhello[0m"
+        assert _strip_controls("clean") == "clean"
+        assert _strip_controls("\x00null\x01soh\x1f us") == "nullsoh us"
+
+    def test_removes_c1_control_chars(self):
+        from gptme.cli.util import _strip_controls
+
+        assert _strip_controls("\x80\x9f") == ""
+        assert _strip_controls("ok\x9bsequence") == "oksequence"
+
+    def test_preserves_printable_and_unicode(self):
+        from gptme.cli.util import _strip_controls
+
+        assert _strip_controls("llama3.2:3b") == "llama3.2:3b"
+        assert _strip_controls("model/name-v1") == "model/name-v1"
+        assert _strip_controls("Ångström") == "Ångström"
+
+
+class TestEscapeInjectionInDiscovery:
+    """Verify terminal escape sequences from probe responses are stripped at display time."""
+
+    def test_model_id_escape_stripped(self, mock_config, monkeypatch, mocker):
+        """Model IDs containing escape sequences must not reach the terminal raw."""
+        monkeypatch.delenv("GPTME_NO_LOCAL_DISCOVERY", raising=False)
+        evil_model_id = "\x1b]51;A\x07evil-model"
+        mocker.patch(
+            "gptme.llm.local_discovery.discover_local_providers",
+            return_value=[_ollama_up(evil_model_id)],
+        )
+        runner = CliRunner()
+        result = runner.invoke(main, ["providers", "list"])
+        assert result.exit_code == 0
+        assert "\x1b" not in result.output
+        assert "evil-model" in result.output
+
+    def test_reason_escape_stripped(self, mock_config, monkeypatch, mocker):
+        """Probe reason strings containing escape sequences must not reach the terminal raw."""
+        monkeypatch.delenv("GPTME_NO_LOCAL_DISCOVERY", raising=False)
+        cand = LocalProviderCandidate(
+            name="ollama",
+            display_name="Ollama",
+            base_url="http://127.0.0.1:11434/v1",
+            hint="run ollama serve",
+        )
+        evil_reason = "HTTP error: \x1b[31mfailed\x1b[0m"
+        evil_result = DiscoveryResult(
+            candidate=cand,
+            status="error",
+            reason=evil_reason,
+        )
+        mocker.patch(
+            "gptme.llm.local_discovery.discover_local_providers",
+            return_value=[evil_result],
+        )
+        runner = CliRunner()
+        result = runner.invoke(main, ["providers", "list"])
+        assert result.exit_code == 0
+        assert "\x1b" not in result.output
+        assert "failed" in result.output
