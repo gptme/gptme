@@ -70,6 +70,47 @@ def test_load_skips_corrupt_lines(isolated_kb):
     assert load_entries() == []
 
 
+def test_load_skips_valid_json_wrong_schema(isolated_kb):
+    """Valid JSON that is not a dict (or has wrong-type list fields) is skipped."""
+    isolated_kb.parent.mkdir(parents=True, exist_ok=True)
+    # JSON array at the top level — not a dict
+    isolated_kb.write_text('["not", "an", "entry"]\n')
+    assert load_entries() == []
+
+
+def test_load_skips_wrong_type_list_fields(isolated_kb):
+    """Records whose list fields are non-lists are skipped without crashing."""
+    isolated_kb.parent.mkdir(parents=True, exist_ok=True)
+    bad = {
+        "id": "abc",
+        "problem": "p",
+        "resolution": "r",
+        "problem_tags": "not-a-list",  # should be a list
+        "keywords": 42,  # should be a list
+        "context": "",
+        "verified_at": "",
+        "session_id": "",
+        "model": "",
+    }
+    isolated_kb.write_text(json.dumps(bad) + "\n")
+    # Should degrade gracefully — the record loads with empty lists, not a crash
+    entries = load_entries()
+    assert len(entries) == 1
+    assert entries[0].problem_tags == []
+    assert entries[0].keywords == []
+
+
+def test_save_utf8_accepted(isolated_kb):
+    """Printable non-ASCII UTF-8 text must be accepted."""
+    entry = save_entry(
+        problem="Résoudre l'erreur d'importation",
+        resolution="pip install pydantic-settings",
+    )
+    assert entry.problem == "Résoudre l'erreur d'importation"
+    entries = load_entries()
+    assert entries[0].problem == "Résoudre l'erreur d'importation"
+
+
 def test_search_relevant_first(isolated_kb):
     save_entry(problem="pydantic import error", resolution="install pydantic-settings")
     save_entry(problem="unrelated theme", resolution="nothing to do here")

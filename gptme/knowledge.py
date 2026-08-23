@@ -69,8 +69,8 @@ def get_knowledge_file() -> Path:
 def _validate_text(text: str, field_name: str, max_len: int, *, required: bool) -> None:
     if required and not text.strip():
         raise KnowledgeValidationError(f"{field_name} is required and cannot be empty.")
-    if not text.isascii() or not text.isprintable():
-        raise KnowledgeValidationError(f"{field_name} must be UTF-8 plain text.")
+    if not text.isprintable():
+        raise KnowledgeValidationError(f"{field_name} must be printable text.")
     if len(text) > max_len:
         raise KnowledgeValidationError(f"{field_name} exceeds {max_len} characters.")
     if _URL_RE.search(text):
@@ -137,22 +137,30 @@ def load_entries() -> list[KnowledgeEntry]:
                 continue
             try:
                 data = json.loads(line)
-            except (json.JSONDecodeError, TypeError):
+                if not isinstance(data, dict):
+                    continue
+                problem_tags = data.get("problem_tags", [])
+                if not isinstance(problem_tags, list):
+                    problem_tags = []
+                keywords = data.get("keywords", [])
+                if not isinstance(keywords, list):
+                    keywords = []
+                entries.append(
+                    KnowledgeEntry(
+                        id=data.get("id", ""),
+                        problem=data.get("problem", ""),
+                        resolution=data.get("resolution", ""),
+                        problem_tags=problem_tags,
+                        context=data.get("context", ""),
+                        verified_at=data.get("verified_at", ""),
+                        session_id=data.get("session_id", ""),
+                        model=data.get("model", ""),
+                        keywords=keywords,
+                    )
+                )
+            except (json.JSONDecodeError, TypeError, AttributeError):
                 # Skip corrupt lines; the KB degrades gracefully.
                 continue
-            entries.append(
-                KnowledgeEntry(
-                    id=data.get("id", ""),
-                    problem=data.get("problem", ""),
-                    resolution=data.get("resolution", ""),
-                    problem_tags=data.get("problem_tags", []),
-                    context=data.get("context", ""),
-                    verified_at=data.get("verified_at", ""),
-                    session_id=data.get("session_id", ""),
-                    model=data.get("model", ""),
-                    keywords=data.get("keywords", []),
-                )
-            )
     return entries
 
 
