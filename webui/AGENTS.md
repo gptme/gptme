@@ -72,7 +72,7 @@ If you add preprocessing (e.g. code block transformation), apply it in **both** 
 
 ## Code Block Nesting Convention
 
-gptme uses a convention where ` ```lang ` is always an **opener** and bare ` ``` ` is always a **closer**, allowing nesting. Neither parser understands this — `processNestedCodeBlocks()` widens outer fences before parsing. See its docstring in `markdownUtils.ts`.
+gptme uses a convention where `` ```lang `` is always an **opener** and bare `` ``` `` is always a **closer**, allowing nesting. Neither parser understands this — `processNestedCodeBlocks()` widens outer fences before parsing. See its docstring in `markdownUtils.ts`.
 
 ## Legend State + React
 
