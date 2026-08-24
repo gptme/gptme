@@ -453,4 +453,3 @@ def test_conversation_meta_models_usage_interleaved(logs_dir):
     assert claude["input_tokens"] == 1500  # (1000 + 0) + (450 + 50)
     assert claude["output_tokens"] == 300  # 200 + 100
     assert claude["cache_read_tokens"] == 50  # 0 + 50
-

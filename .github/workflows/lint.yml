@@ -26,6 +26,34 @@ jobs:
       run: |
         make lint
 
+  # Hook-install/config failures were silent when CI only ran `make lint`
+  # (gptme/gptme-contrib#1481). Run the configured .pre-commit-config.yaml
+  # hooks so that class of breakage cannot stay green.
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install poetry
+      run: pipx install poetry
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.10'
+    - name: Install pre-commit
+      run: pipx install pre-commit
+    - name: Cache pre-commit environments
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/pre-commit
+        key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+    - name: Run pre-commit hooks
+      env:
+        # The pre-commit mypy mirror fails on gptme/__init__.pyi vs
+        # gptme/__init__.py ("duplicate module named gptme"). The typecheck
+        # job already runs mypy via mypy.ini; skip the broken mirror here.
+        SKIP: mypy
+      run: pre-commit run --all-files
+
   typecheck:
     runs-on: ubuntu-latest
     steps:

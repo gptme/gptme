@@ -294,7 +294,9 @@ def test_cleanup_removes_branch_when_unchanged(git_repo: Path, tmp_path: Path):
         text=True,
         check=False,
     )
-    assert branch not in result.stdout, "Branch should be deleted when worktree is clean"
+    assert branch not in result.stdout, (
+        "Branch should be deleted when worktree is clean"
+    )
 
 
 def test_two_worktrees_are_isolated(git_repo: Path, tmp_path: Path):
