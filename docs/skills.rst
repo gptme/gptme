@@ -183,7 +183,8 @@ Use the utility CLI to see what the current workspace already knows about:
 
 ``skills list`` shows skill names and descriptions. ``--all`` includes regular
 lessons in the same discovery pass, and ``skills dirs`` shows exactly which
-directories are being scanned.
+directories are being scanned. For the full list of subcommands, run
+``gptme-util skills --help``.
 
 Install a skill from the default ``gptme-contrib`` registry into
 ``~/.config/gptme/skills/`` with:
