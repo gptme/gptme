@@ -186,9 +186,9 @@ Invoking Skills as Commands
 ---------------------------
 
 Every discovered skill is also registered as a slash command, matching how
-Claude Code and Codex expose skills. Inside a chat, ``/skill:<name> [args]``
-queues the skill body as your next user prompt (with a ``Skill invoked:``
-header) so the assistant acts on it immediately:
+Claude Code and Codex expose skills. Inside a chat (CLI, TUI, or server/WebUI),
+``/skill:<name> [args]`` queues the skill body as your next user prompt (with a
+``Skill invoked:`` header) so the assistant acts on it immediately:
 
 .. code-block:: text
 

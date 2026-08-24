@@ -1071,6 +1071,54 @@ def test_api_v2_conversation_command(conv, client: FlaskClient):
     assert data.get("command") is True
 
 
+def test_api_v2_skill_command_drains_prompt_queue(
+    conv, client: FlaskClient, tmp_path, monkeypatch
+):
+    """/skill:<name> should land as a user prompt, not sit in the durable queue."""
+    from gptme.dirs import get_logs_dir
+    from gptme.lessons.index import LessonIndex, clear_cache
+    from gptme.lessons.skill_commands import (
+        register_skill_commands,
+        unregister_skill_commands,
+    )
+    from gptme.prompt_queue import get_prompt_queue_path
+
+    skills_root = tmp_path / "skills"
+    skills_root.mkdir()
+    skill_dir = skills_root / "parity-demo"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: parity-demo\ndescription: A parity skill\n---\n\n"
+        "Do the parity thing.\n"
+    )
+    monkeypatch.setattr(
+        LessonIndex, "_default_dirs", staticmethod(lambda: [skills_root])
+    )
+    clear_cache()
+    register_skill_commands()
+    try:
+        response = client.post(
+            f"/api/v2/conversations/{conv}",
+            json={"role": "user", "content": "/skill:parity-demo"},
+        )
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data.get("command") is True
+        assert data.get("responses", 0) >= 1
+
+        log = client.get(f"/api/v2/conversations/{conv}").get_json()["log"]
+        user_contents = [m["content"] for m in log if m["role"] == "user"]
+        assert any(
+            "Skill invoked: /skill:parity-demo" in c and "Do the parity thing." in c
+            for c in user_contents
+        )
+        assert "/skill:parity-demo" not in user_contents
+        assert not get_prompt_queue_path(get_logs_dir() / conv).exists()
+    finally:
+        unregister_skill_commands()
+        clear_cache()
+
+
 def test_api_v2_conversation_command_undo(conv, client: FlaskClient):
     """Test /undo command removes the last message."""
     # First, add a message

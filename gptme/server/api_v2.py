@@ -77,6 +77,7 @@ from ..logmanager import (
 )
 from ..logmanager import conversations as conversations_module
 from ..message import Message
+from ..prompt_queue import drain_prompt_queue
 from ..tools import get_toolchain, get_tools, init_tools
 from ..util.content import is_message_command
 from ..util.uri import URI, FilePath, is_uri, parse_file_reference
@@ -1922,17 +1923,27 @@ def api_conversation_post(conversation_id: str):
                 "message": msg2dict(msg, log.workspace, log.logdir),
             },
         )
+
+        def _emit(m: Message) -> None:
+            log.append(m)
+            responses.append(m)
+            SessionManager.add_event(
+                conversation_id,
+                {
+                    "type": "message_added",
+                    "message": msg2dict(m, log.workspace, log.logdir),
+                },
+            )
+
         try:
             for resp in handle_cmd(msg.content, log):
-                log.append(resp)
-                responses.append(resp)
-                SessionManager.add_event(
-                    conversation_id,
-                    {
-                        "type": "message_added",
-                        "message": msg2dict(resp, log.workspace, log.logdir),
-                    },
-                )
+                _emit(resp)
+            # Skill commands (and any other handler using queue_prompt) write
+            # a follow-up user prompt to the durable queue instead of yielding.
+            # The CLI drains that queue at the top of its chat loop; drain
+            # here so the next /step sees the prompt as a normal user message.
+            for queued in drain_prompt_queue(log.logdir):
+                _emit(queued)
         except Exception as e:
             logger.exception("Error executing command: %s", msg.content)
             error_msg = Message("system", f"Command error: {e}")

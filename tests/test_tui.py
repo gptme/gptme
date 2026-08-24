@@ -196,6 +196,69 @@ async def test_slash_command_help(tmp_path):
         assert infos, "expected /help output to be shown"
 
 
+def _write_skill(root, name: str, description: str, body: str) -> None:
+    skill_dir = root / name
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n---\n\n{body}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_skill_command_drains_prompt_queue_and_starts_generation(
+    tmp_path, monkeypatch
+):
+    """/skill:<name> should become a user prompt and start a TUI turn."""
+    from gptme.lessons.index import LessonIndex, clear_cache
+    from gptme.lessons.skill_commands import (
+        register_skill_commands,
+        unregister_skill_commands,
+    )
+    from gptme.prompt_queue import get_prompt_queue_path
+
+    skills_root = tmp_path / "skills"
+    skills_root.mkdir()
+    _write_skill(skills_root, "parity-demo", "A parity skill", "Do the parity thing.")
+    monkeypatch.setattr(
+        LessonIndex, "_default_dirs", staticmethod(lambda: [skills_root])
+    )
+    clear_cache()
+    register_skill_commands()
+    try:
+        manager = make_manager(tmp_path)
+        app = GptmeApp(manager, workspace=tmp_path)
+        started: list[bool] = []
+
+        def _fake_start() -> None:
+            started.append(True)
+
+        monkeypatch.setattr(app, "_start_generation", _fake_start)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            inp = app.query_one("#input", ChatInput)
+            inp.text = "/skill:parity-demo"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            user_contents = [m.content for m in manager.log if m.role == "user"]
+            assert any(
+                "Skill invoked: /skill:parity-demo" in c and "Do the parity thing." in c
+                for c in user_contents
+            )
+            assert "/skill:parity-demo" not in user_contents
+            assert not get_prompt_queue_path(manager.logdir).exists()
+            assert started, (
+                "TUI should start generation after draining the skill prompt"
+            )
+            assert any(
+                "Do the parity thing." in w.content for w in app.query(UserMessage)
+            )
+    finally:
+        unregister_skill_commands()
+        clear_cache()
+
+
 @pytest.mark.asyncio
 async def test_experimental_jelly_errors_show_recovery_hints(tmp_path):
     app = GptmeApp(make_manager(tmp_path), experimental_jelly_errors=True)

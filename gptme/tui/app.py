@@ -56,6 +56,7 @@ from ..hooks.confirm import ConfirmationResult
 from ..llm.models import ModelMeta, get_default_model
 from ..logmanager import LogManager
 from ..message import Message
+from ..prompt_queue import drain_prompt_queue
 from ..tools import ToolFormat, ToolUse
 from ..tools.base import ToolUse as ToolUseType
 from ..tools.base import get_tool_format
@@ -1397,7 +1398,27 @@ class GptmeApp(App):
         if not handled:
             logger.warning("Command %r not handled by registry", text)
             self._show_info(f"Unknown command: /{cmd}")
+        else:
+            # Commands like /skill:<name> queue a follow-up user prompt.
+            # Drain it and start a turn, matching the CLI chat loop.
+            self._drain_command_queued_prompts()
         self._update_status()
+
+    def _drain_command_queued_prompts(self) -> None:
+        """Turn durable prompts queued by a command into a TUI user turn.
+
+        Skill commands write to the durable prompt queue instead of yielding a
+        message. The CLI drains that queue at the top of its chat loop; without
+        this, the prompt sits until a CLI session opens the same log.
+        """
+        drained = drain_prompt_queue(self.manager.logdir)
+        if not drained:
+            return
+        first, *rest = drained
+        self.manager.append(first)
+        self._show_message(first)
+        self.prompt_queue.extend(msg.content for msg in rest)
+        self._start_generation()
 
     def _rebuild_chat(self) -> None:
         if self.inline:

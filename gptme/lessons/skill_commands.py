@@ -12,8 +12,8 @@ same behavior so skills can be shared across runtimes:
 
 The handler substitutes ``$ARGUMENTS`` (and ``$ARGUMENTS[N]`` / ``${N}``
 positional forms) in the skill body and queues the result via
-:func:`gptme.prompt_queue.queue_prompt`, so the main chat loop drains it as a
-normal user message on its next iteration and the assistant acts on it.
+:func:`gptme.prompt_queue.queue_prompt`. The CLI chat loop, TUI, and server
+API drain that queue as a normal user message so the assistant acts on it.
 """
 
 from __future__ import annotations
