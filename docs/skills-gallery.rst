@@ -21,16 +21,12 @@ skill on this page — only the skill name changes:
 After install, skills auto-load when their name appears in a message — mention
 "home-assistant" and gptme pulls that skill into context.
 
-If you already have ``gptme-contrib`` cloned, symlink (or copy) a skill
-directory into that same loading path instead of adding a config key.
-Use ``gptme.dirs`` to resolve the path — this honours ``XDG_CONFIG_HOME``:
+If you already have ``gptme-contrib`` cloned, install from the local path directly — the
+same ``install`` command accepts a directory path:
 
 .. code-block:: bash
 
-   SKILLS_DIR=$(python3 -c "from gptme.dirs import get_config_dir; print(get_config_dir() / 'skills')")
-   mkdir -p "$SKILLS_DIR"
-   ln -s /absolute/path/to/gptme-contrib/skills/home-assistant \
-       "$SKILLS_DIR/home-assistant"
+   gptme-util skills install /absolute/path/to/gptme-contrib/skills/home-assistant
 
 Do not add a relative ``gptme-contrib/skills`` path to ``[lessons] dirs``.
 That option is for lesson trees, and a relative path there is resolved against
