@@ -7,6 +7,9 @@ Anthropic and adopted by 26+ tools (Claude Code, OpenAI Codex, Gemini CLI,
 GitHub Copilot, Cursor, and more). Skills authored for gptme work in those
 tools, and vice versa — the same interop play gptme makes for :doc:`MCP <mcp>`.
 
+Looking for something to install? See the :doc:`skills-gallery` — a curated
+selection of community skills from gptme-contrib.
+
 .. note::
 
    Skills are a **special case of lessons** using the Agent Skills open standard format.
@@ -364,6 +367,7 @@ Example:
 Related
 -------
 
+- :doc:`skills-gallery` - Curated community skills to install
 - :doc:`lessons` - Core knowledge system
 - :doc:`plugins` - For hooks, custom tools, and deep integration
 - :doc:`hooks` - Lifecycle callbacks (plugins only)

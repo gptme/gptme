@@ -1,0 +1,93 @@
+Skills Gallery
+==============
+
+A curated selection of community skills from the default
+`gptme-contrib <https://github.com/gptme/gptme-contrib>`_ registry. These are
+hand-picked, battle-tested workflows — several run in production agent ops —
+and each one installs with the same two-step flow below.
+
+Installing
+----------
+
+Skills from ``gptme-contrib`` install by cloning the repo and pointing gptme at
+its ``skills/`` directory. The command is identical for every skill on this
+page:
+
+.. code-block:: bash
+
+   git clone https://github.com/gptme/gptme-contrib
+
+Then add ``gptme-contrib/skills`` to the ``dirs`` array under ``[lessons]`` in
+your ``gptme.toml``:
+
+.. code-block:: toml
+
+   [lessons]
+   dirs = ["gptme-contrib/skills"]
+
+Skills auto-load when their name appears in a message — mention "home-assistant"
+and gptme pulls that skill into context. See :doc:`skills` for the full system.
+
+The curated list
+----------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 30 20 32
+
+   * - Skill
+     - What it does
+     - Social proof
+     - Source
+   * - **home-assistant**
+     - Query a Home Assistant instance for presence, sensor data, calendar
+       events, and cameras.
+     - Included in the default contrib registry; used in live agent ops.
+     - ``gptme-contrib/skills/home-assistant``
+   * - **gptme-wrapped**
+     - Analyze your gptme conversation history for insights like token usage,
+       costs, model preferences, and usage patterns.
+     - Community-facing showcase skill.
+     - ``gptme-contrib/skills/gptme-wrapped``
+   * - **code-review-helper**
+     - Systematic, multi-lens code review workflow with bundled utilities for
+       structured, pattern-aware feedback.
+     - Proven in production PR review loops.
+     - ``gptme-contrib/skills/code-review-helper``
+   * - **agentic-presentation**
+     - Generate an offline, single-file HTML presentation from structured
+       slide JSON.
+     - Clean, self-contained output artifact.
+     - ``gptme-contrib/skills/agentic-presentation``
+   * - **artifact-publishing**
+     - Publish any HTML artifact (demo, visualization, interactive content) to
+       a static host such as GitHub Pages.
+     - Used for real publishing in production agent stacks.
+     - ``gptme-contrib/skills/artifact-publishing``
+
+For the complete inventory of skills and lessons, see the
+`gptme-contrib skills directory <https://github.com/gptme/gptme-contrib/tree/master/skills>`_.
+
+Why curated?
+------------
+
+gptme skills are powerful but filesystem-scanned — discoverable only if you
+know where to look. This gallery is the human-facing discovery surface that
+points you at the right skill to reach for. It is intentionally small and
+hand-picked rather than an exhaustive registry, so each entry carries a clear
+pitch and social proof.
+
+Contributing
+------------
+
+Have a skill that should be here? Add it to `gptme-contrib
+<https://github.com/gptme/gptme-contrib>`_ and tag it with the ``gptme-skill``
+topic so it is discoverable; community skills with real star/fork counts can be
+added to this gallery alongside the curated defaults.
+
+Related
+-------
+
+- :doc:`skills` - the full skills system, formats, and loading paths
+- :doc:`lessons` - the knowledge system skills extend
+- `gptme-contrib README <https://github.com/gptme/gptme-contrib>`_ - the registry this gallery curates
