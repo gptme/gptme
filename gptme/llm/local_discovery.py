@@ -74,8 +74,13 @@ LOCAL_PROVIDER_CANDIDATES: tuple[LocalProviderCandidate, ...] = (
     ),
 )
 
-# Hostnames treated as the same loopback endpoint when matching config.
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0"})
+# Hosts we will actually probe. 0.0.0.0 is the unspecified/any address,
+# not loopback, so `_probe_one` refuses it.
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+# Extra names treated as the same endpoint when matching config. Users
+# often copy a bind address (`0.0.0.0`) into `base_url`.
+_LOOPBACK_CONFIG_ALIASES = _LOOPBACK_HOSTS | {"0.0.0.0"}
 
 
 @dataclass(frozen=True)
@@ -276,7 +281,12 @@ def _http_get(url: str, timeout: float) -> tuple[int, bytes]:
     host = parsed.hostname
     if not host:
         raise OSError("missing host")
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        port = parsed.port
+    except ValueError as e:
+        raise OSError(f"invalid port in {url}") from e
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
     if parsed.scheme != "http":
         raise OSError(f"unsupported scheme {parsed.scheme!r} (http only)")
     path = parsed.path or "/"
@@ -374,13 +384,17 @@ def _endpoint_key(url: str) -> tuple[str, str, int, str] | None:
         return None
     if port is None:
         port = 443 if scheme == "https" else 80
-    canonical = "loopback" if _is_loopback_host(host) else host
+    canonical = "loopback" if _is_loopback_alias(host) else host
     path = parsed.path.rstrip("/") or "/"
     return scheme, canonical, port, path
 
 
 def _is_loopback_host(host: str) -> bool:
     return host.lower() in _LOOPBACK_HOSTS
+
+
+def _is_loopback_alias(host: str) -> bool:
+    return host.lower() in _LOOPBACK_CONFIG_ALIASES
 
 
 def _looks_like_unreachable(exc: OSError) -> bool:

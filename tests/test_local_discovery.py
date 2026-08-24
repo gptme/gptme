@@ -289,3 +289,35 @@ def test_endpoint_key_malformed_port_returns_none() -> None:
     # _index_configured (and therefore gptme providers list) with a ValueError.
     assert _endpoint_key("http://localhost:abc/v1") is None
     assert _endpoint_key("http://127.0.0.1:notaport/v1") is None
+
+
+def test_refuses_unspecified_address() -> None:
+    # 0.0.0.0 is a bind address, not loopback. Probe must refuse it; config
+    # matching still treats it as the same endpoint as 127.0.0.1.
+    results = discover_local_providers(
+        candidates=[_candidate("http://0.0.0.0:11434/v1", name="wildcard")],
+        timeout=0.2,
+    )
+    assert results[0].status == "error"
+    assert "non-loopback" in results[0].reason
+    assert "0.0.0.0" in results[0].reason
+
+
+def test_zero_addr_config_matches_loopback() -> None:
+    key_loop = _endpoint_key("http://127.0.0.1:11434/v1")
+    key_zero = _endpoint_key("http://0.0.0.0:11434/v1")
+    key_local = _endpoint_key("http://localhost:11434/v1")
+    assert key_loop is not None
+    assert key_loop == key_zero == key_local
+
+
+def test_malformed_candidate_port_does_not_crash() -> None:
+    # Custom candidates are public API. A typo in the port must return an
+    # error result, not propagate ValueError out of gptme providers list.
+    results = discover_local_providers(
+        candidates=[_candidate("http://127.0.0.1:abc/v1", name="bad-port")],
+        timeout=0.2,
+    )
+    assert len(results) == 1
+    assert results[0].status == "error"
+    assert "invalid port" in results[0].reason.lower()
