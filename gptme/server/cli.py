@@ -6,6 +6,7 @@ import sys as _sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import quote as urlquote
 
 
 # Install a minimal SIGTERM handler at module level — before the slow
@@ -342,7 +343,9 @@ def serve(
         # IPv6 literals need square brackets in URLs (e.g. ::1 → [::1])
         if ":" in display_host:
             display_host = f"[{display_host}]"
-        click.echo(f"Open the UI: http://{display_host}:{port}/#userToken={token}")
+        click.echo(
+            f"Open the UI: http://{display_host}:{port}/#userToken={urlquote(token, safe='')}"
+        )
 
     app = create_app(
         cors_origin=cors_origin,
