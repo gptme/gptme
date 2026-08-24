@@ -175,26 +175,46 @@ function extractJsonObject(raw: string): string {
   const trimmed = raw.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   const candidate = (fenced ? fenced[1] : trimmed).trim();
+
+  // Fast path: candidate is already valid JSON (common when the model returns
+  // just the object with no surrounding prose).
+  try {
+    JSON.parse(candidate);
+    return candidate;
+  } catch {
+    // fall through to string-aware extraction
+  }
+
   const start = candidate.indexOf('{');
   if (start === -1) {
     throw new Error('vision_assert model response contains no JSON object');
   }
-  // Walk forward from the opening brace to find its matching closing brace.
-  // Using lastIndexOf('}') would pick up any '}' in trailing prose after the object.
+
+  // String-aware brace scanner so that '}' inside a string literal (e.g.
+  // {"pass": false, "reason": "clipped by }"}) does not prematurely close
+  // the depth counter.  Plain depth counting without quote tracking fires on
+  // exactly that case: depth hits 0 at the brace inside the string, returning
+  // an invalid slice.
   let depth = 0;
-  let end = -1;
-  for (let i = start; i < candidate.length; i++) {
-    if (candidate[i] === '{') depth++;
-    else if (candidate[i] === '}') {
-      depth--;
-      if (depth === 0) {
-        end = i;
-        break;
+  let inString = false;
+  let i = start;
+  while (i < candidate.length) {
+    const ch = candidate[i];
+    if (inString) {
+      if (ch === '\\') {
+        i += 2; // skip escaped character (e.g. \" \\ \n)
+        continue;
+      }
+      if (ch === '"') inString = false;
+    } else {
+      if (ch === '"') inString = true;
+      else if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return candidate.slice(start, i + 1);
       }
     }
+    i++;
   }
-  if (end === -1) {
-    throw new Error('vision_assert model response contains no JSON object');
-  }
-  return candidate.slice(start, end + 1);
+  throw new Error('vision_assert model response contains no JSON object');
 }
