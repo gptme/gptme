@@ -79,7 +79,7 @@ def _write_cancel_op(logdir: Path, agent_id: str) -> None:
 
 
 def _wait_for_cached_subagent_result(
-    agent_id: str, timeout: float = 0.05, poll_interval: float = 0.005
+    agent_id: str, timeout: float = 0.5, poll_interval: float = 0.005
 ) -> ReturnType | None:
     """Briefly wait for a concurrent watchdog/cancel result to hit the cache."""
     deadline = time.monotonic() + timeout
