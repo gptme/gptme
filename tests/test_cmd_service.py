@@ -636,7 +636,10 @@ def test_launchd_plist_contains_agent_variables(tmp_path: Path) -> None:
     assert "testagent" in plist_text
     assert "GPTME_AGENT_MODEL" in plist_text
     assert "gpt-4o-mini" in plist_text
-    assert "GPTME_NON_INTERACTIVE" in plist_text
+    # GPTME_NON_INTERACTIVE is deliberately absent: gptme never reads it (the
+    # startup script passes --non-interactive as a flag), so shipping it in the
+    # plist advertised a control that does nothing.
+    assert "GPTME_NON_INTERACTIVE" not in plist_text
 
 
 def test_launchd_plist_daily_schedule(tmp_path: Path) -> None:
@@ -941,3 +944,52 @@ def test_startup_script_mkdir_journal_dir_fails_loudly(tmp_path: Path) -> None:
     # The mkdir line must exit on failure with a diagnostic message.
     assert 'mkdir -p "$JOURNAL_DIR"' in startup
     assert "cannot create journal dir" in startup
+
+
+def test_service_unit_restart_backoff_is_actually_applied(tmp_path: Path) -> None:
+    """RestartMaxDelaySec is inert without RestartSteps.
+
+    Regression: the unit set `RestartSec=5` + `RestartMaxDelaySec=60` intending
+    exponential backoff, but systemd ignores RestartMaxDelaySec unless
+    RestartSteps is also set, logging "Service has RestartMaxDelaySec= but no
+    RestartSteps= setting. Ignoring." and retrying at a flat 5s forever.
+    Observed on a real `systemctl --user start` of a generated unit.
+    """
+    _run_init(tmp_path)
+    unit = (tmp_path / "systemd" / "testagent.service").read_text()
+
+    assert "RestartMaxDelaySec=" in unit
+    assert "RestartSteps=" in unit, (
+        "RestartMaxDelaySec is silently ignored by systemd without RestartSteps"
+    )
+
+
+def test_service_unit_gives_up_on_persistent_failure(tmp_path: Path) -> None:
+    """A one-shot session that keeps failing must not retry forever.
+
+    Regression: with `Restart=on-failure` and no start limit, a persistent
+    failure (invalid API key, exhausted quota, unusable prompt) restarted the
+    agent every 5 seconds indefinitely, hammering a paid API. Verified against a
+    real run: an invalid key produced exit 76 and an immediate auto-restart.
+    """
+    _run_init(tmp_path)
+    unit = (tmp_path / "systemd" / "testagent.service").read_text()
+
+    assert "StartLimitIntervalSec=" in unit
+    assert "StartLimitBurst=" in unit
+
+    # The start limit must be declared in [Unit]; systemd ignores it in [Service].
+    unit_section = unit.split("[Service]", 1)[0]
+    assert "StartLimitIntervalSec=" in unit_section
+    assert "StartLimitBurst=" in unit_section
+
+
+def test_generated_units_do_not_set_dead_non_interactive_env(tmp_path: Path) -> None:
+    """GPTME_NON_INTERACTIVE is never read by gptme; shipping it is misleading."""
+    _run_init(tmp_path)
+    unit = (tmp_path / "systemd" / "testagent.service").read_text()
+    assert "GPTME_NON_INTERACTIVE" not in unit
+
+    _run_init(tmp_path, "--platform", "macos")
+    plist = (tmp_path / "systemd" / "com.gptme.testagent.plist").read_text()
+    assert "GPTME_NON_INTERACTIVE" not in plist

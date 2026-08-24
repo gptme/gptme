@@ -88,18 +88,26 @@ SYSTEMD_SERVICE_TEMPLATE = """\
 Description=gptme Autonomous Agent: {name}
 Documentation=https://github.com/gptme/gptme#headless
 After=network-online.target
+# A session is one-shot, so a persistent failure (bad API key, exhausted quota,
+# unusable prompt) would otherwise retry forever against a paid API. Give up
+# after 3 failures in 10 minutes and let the timer try again on schedule.
+StartLimitIntervalSec=600
+StartLimitBurst=3
 
 [Service]
 Type=simple
 WorkingDirectory={work_dir}
 Environment=GPTME_AGENT_NAME={name}
 Environment="GPTME_AGENT_MODEL={model}"
-Environment=GPTME_NON_INTERACTIVE=1
 ExecStart=:"{exec_work_dir}/gptme-agent-run.sh"
 StandardOutput=journal
 StandardError=journal
 Restart=on-failure
+# RestartSteps is required for RestartMaxDelaySec to apply at all; without it
+# systemd logs "has RestartMaxDelaySec= but no RestartSteps=. Ignoring" and
+# retries at a flat RestartSec forever.
 RestartSec=5
+RestartSteps=5
 RestartMaxDelaySec=60
 
 [Install]
@@ -145,8 +153,6 @@ LAUNCHD_PLIST_TEMPLATE = """\
 		<string>{name}</string>
 		<key>GPTME_AGENT_MODEL</key>
 		<string>{model}</string>
-		<key>GPTME_NON_INTERACTIVE</key>
-		<string>1</string>
 	</dict>
 	<key>StandardOutPath</key>
 	<string>{work_dir}/logs/stdout.log</string>
