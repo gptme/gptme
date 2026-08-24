@@ -394,10 +394,11 @@ This is the right hook for deterministic, below-the-model guardrails.
 
    # Patterns to block regardless of prompt justification
    _DESTRUCTIVE = re.compile(
-       r"rm\s+-[a-z]*(?:rf|fr)[a-z]*|"  # rm -rf/-fr variants
+       r"rm\s+-[a-z]*(?:rf|fr)[a-z]*|"  # rm -rf/-fr/-Rf/-RF variants
        r"DROP\s+TABLE|"            # SQL destructive
        r"chmod\s+-R\s+0{3}|"      # remove all permissions
        r":\s*\(\s*\)\s*\{.*\}\s*;" # fork bomb
+       , re.IGNORECASE
    )
 
    def shell_guard(tool_use, preview=None, workspace=None):
