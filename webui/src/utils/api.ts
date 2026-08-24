@@ -602,6 +602,7 @@ export class ApiClient {
       if (authResponse.status === 401) {
         console.error('API accepted the root probe but rejected authenticated routes:', 401);
         this.isConnected$.set(false);
+        this.compatibilityWarning$.set(null);
         this.lastConnectionResult$.set({
           ok: false,
           url: authUrl,
@@ -615,6 +616,7 @@ export class ApiClient {
       if (!authResponse.ok) {
         console.error('Protected probe failed with status:', authResponse.status);
         this.isConnected$.set(false);
+        this.compatibilityWarning$.set(null);
         this.lastConnectionResult$.set({
           ok: false,
           url: authUrl,

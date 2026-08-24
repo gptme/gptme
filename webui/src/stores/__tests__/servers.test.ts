@@ -47,10 +47,13 @@ describe('getBundledLoopbackOrigin', () => {
     expect(getBundledLoopbackOrigin('http://localhost:5700')).toBe('http://localhost:5700');
   });
 
-  it('ignores hosted pages, default ports, and Vite/Playwright ports', () => {
+  it('returns the page origin for default-port loopback (gptme-server on port 80)', () => {
+    expect(getBundledLoopbackOrigin('http://localhost')).toBe('http://localhost');
+    expect(getBundledLoopbackOrigin('http://127.0.0.1')).toBe('http://127.0.0.1');
+  });
+
+  it('ignores hosted pages and Vite/Playwright dev-server ports', () => {
     expect(getBundledLoopbackOrigin('https://chat.gptme.org')).toBeNull();
-    expect(getBundledLoopbackOrigin('http://localhost')).toBeNull();
-    expect(getBundledLoopbackOrigin('http://127.0.0.1')).toBeNull();
     expect(getBundledLoopbackOrigin('http://127.0.0.1:5173')).toBeNull();
     expect(getBundledLoopbackOrigin('http://127.0.0.1:4173')).toBeNull();
     expect(getBundledLoopbackOrigin('http://127.0.0.1:5701')).toBeNull();

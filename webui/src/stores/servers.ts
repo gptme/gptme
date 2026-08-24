@@ -23,8 +23,8 @@ const DEV_SERVER_PORTS = new Set(['5173', '4173', '5701']);
  * in that case — the hardcoded 5700 preset otherwise CORS-retries the wrong
  * process and never recovers from the same-origin 401.
  *
- * Returns null for hosted pages (chat.gptme.org), Vite/Playwright, and
- * default-port origins so jsdom tests keep the 5700 preset.
+ * Returns null for hosted pages (chat.gptme.org), Vite/Playwright dev servers,
+ * and non-loopback origins.
  */
 export function getBundledLoopbackOrigin(
   pageOrigin: string = typeof window !== 'undefined' ? window.location.origin : ''
@@ -34,7 +34,6 @@ export function getBundledLoopbackOrigin(
     const parsed = new URL(pageOrigin);
     const isLoopback = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
     if (!isLoopback) return null;
-    if (!parsed.port || parsed.port === '80' || parsed.port === '443') return null;
     if (DEV_SERVER_PORTS.has(parsed.port)) return null;
     return parsed.origin;
   } catch {
