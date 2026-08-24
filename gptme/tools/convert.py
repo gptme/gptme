@@ -8,7 +8,7 @@ Supported conversions:
   - Image → Image: PNG ↔ JPEG ↔ WebP (FFmpeg primary, ImageMagick fallback)
   - DOCX → text/markdown (python-docx, LibreOffice headless fallback)
   - MP4/video → JPEG thumbnail (FFmpeg)
-  - Any supported format → text (OCR via Tesseract when native extraction fails)
+  - PDF → text (pypdf, Poppler/pdftotext fallback)
 """
 
 from __future__ import annotations
@@ -26,6 +26,17 @@ from pathlib import Path
 from typing import ClassVar
 
 logger = logging.getLogger(__name__)
+
+
+def _arg(path: Path) -> str:
+    """Render a path as a subprocess argument that cannot be read as an option.
+
+    A file named e.g. ``-o`` would otherwise be parsed as a flag by tools that
+    do not honour a ``--`` separator (pdftoppm, pdftotext). Prefixing ``./``
+    keeps the path relative and identical, but no longer option-shaped.
+    """
+    text = str(path)
+    return f"./{text}" if text.startswith("-") else text
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +194,14 @@ class PDFToImageConverter(Converter):
             fmt_flag = "-png" if dest_ext == "png" else "-jpeg"
             with tempfile.TemporaryDirectory() as _tmpdir:
                 tmp_prefix = Path(_tmpdir) / dest.stem
-                cmd = ["pdftoppm", fmt_flag, "-r", str(dpi), str(src), str(tmp_prefix)]
+                cmd = [
+                    "pdftoppm",
+                    fmt_flag,
+                    "-r",
+                    str(dpi),
+                    _arg(src),
+                    _arg(tmp_prefix),
+                ]
                 result = subprocess.run(cmd, capture_output=True, check=False)
                 if result.returncode == 0:
                     stem_esc = _glob.escape(dest.stem)
@@ -198,7 +216,16 @@ class PDFToImageConverter(Converter):
                             )
                         )
                     if candidates:
-                        shutil.move(str(candidates[0]), dest)
+                        try:
+                            shutil.move(str(candidates[0]), dest)
+                        except OSError as e:
+                            return ConversionResult(
+                                success=False,
+                                output_path=None,
+                                converter_used="pdftoppm",
+                                error=f"Could not write {dest}: {e}",
+                                warnings=warnings,
+                            )
                         if len(candidates) > 1:
                             warnings.append(
                                 f"Multi-page PDF: only first page saved ({len(candidates)} pages total)"
@@ -216,7 +243,7 @@ class PDFToImageConverter(Converter):
 
         if avail.imagemagick:
             density = str(dpi)
-            cmd = ["convert", "-density", density, f"{src}[0]", "--", str(dest)]
+            cmd = ["convert", "-density", density, f"{_arg(src)}[0]", "--", _arg(dest)]
             result = subprocess.run(cmd, capture_output=True, check=False)
             if result.returncode == 0:
                 return ConversionResult(
@@ -282,13 +309,21 @@ class ImageConverter(Converter):
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
+        if dest.is_dir():
+            return ConversionResult(
+                success=False,
+                output_path=dest,
+                converter_used="",
+                error=f"Destination is an existing directory: {dest}",
+            )
+
         avail = get_availability()
         dest_ext = dest.suffix.lstrip(".").lower()
         q = self._QUALITY.get(quality, 80)
         lossy = dest_ext in ("jpg", "jpeg", "webp")
 
         if avail.ffmpeg:
-            cmd = ["ffmpeg", "-y", "-i", str(src)]
+            cmd = ["ffmpeg", "-y", "-i", _arg(src)]
             if lossy:
                 if dest_ext == "webp":
                     # WebP uses -quality 0-100 (higher = better)
@@ -296,7 +331,7 @@ class ImageConverter(Converter):
                 else:
                     # JPEG/other: ffmpeg q:v scale 1-31 (lower = better)
                     cmd += ["-q:v", str(max(1, (100 - q) // 5))]
-            cmd += ["--", str(dest)]
+            cmd += ["--", _arg(dest)]
             result = subprocess.run(cmd, capture_output=True, check=False)
             if result.returncode == 0:
                 return ConversionResult(
@@ -310,10 +345,10 @@ class ImageConverter(Converter):
             )
 
         if avail.imagemagick:
-            cmd = ["convert", str(src)]
+            cmd = ["convert", _arg(src)]
             if lossy:
                 cmd += ["-quality", str(q)]
-            cmd += ["--", str(dest)]
+            cmd += ["--", _arg(dest)]
             result = subprocess.run(cmd, capture_output=True, check=False)
             if result.returncode == 0:
                 return ConversionResult(
@@ -375,7 +410,16 @@ class PDFToTextConverter(Converter):
                 text_parts = [page.extract_text() or "" for page in reader.pages]
                 extracted = "\n\n".join(text_parts)
                 if extracted.strip():
-                    dest.write_text(extracted, encoding="utf-8")
+                    try:
+                        dest.write_text(extracted, encoding="utf-8")
+                    except OSError as e:
+                        return ConversionResult(
+                            success=False,
+                            output_path=None,
+                            converter_used="pypdf",
+                            error=f"Could not write {dest}: {e}",
+                            warnings=warnings,
+                        )
                     return ConversionResult(
                         success=True,
                         output_path=dest,
@@ -389,7 +433,7 @@ class PDFToTextConverter(Converter):
                 warnings.append(f"pypdf failed: {e}")
 
         if avail.pdftotext:
-            cmd = ["pdftotext", str(src), str(dest)]
+            cmd = ["pdftotext", _arg(src), _arg(dest)]
             result = subprocess.run(cmd, capture_output=True, check=False)
             if result.returncode == 0:
                 return ConversionResult(
@@ -462,7 +506,16 @@ class DocumentToTextConverter(Converter):
 
                 doc = docx.Document(str(src))
                 lines = [para.text for para in doc.paragraphs]
-                dest.write_text("\n".join(lines), encoding="utf-8")
+                try:
+                    dest.write_text("\n".join(lines), encoding="utf-8")
+                except OSError as e:
+                    return ConversionResult(
+                        success=False,
+                        output_path=None,
+                        converter_used="python-docx",
+                        error=f"Could not write {dest}: {e}",
+                        warnings=warnings,
+                    )
                 return ConversionResult(
                     success=True,
                     output_path=dest,
@@ -480,13 +533,22 @@ class DocumentToTextConverter(Converter):
                     "txt:Text (encoded):UTF8",
                     "--outdir",
                     tmpdir,
-                    str(src),
+                    _arg(src),
                 ]
                 result = subprocess.run(cmd, capture_output=True, check=False)
                 if result.returncode == 0:
                     out_files = list(Path(tmpdir).glob("*.txt"))
                     if out_files:
-                        out_files[0].replace(dest)
+                        try:
+                            out_files[0].replace(dest)
+                        except OSError as e:
+                            return ConversionResult(
+                                success=False,
+                                output_path=None,
+                                converter_used="libreoffice",
+                                error=f"Could not write {dest}: {e}",
+                                warnings=warnings,
+                            )
                         return ConversionResult(
                             success=True,
                             output_path=dest,
@@ -531,6 +593,14 @@ class VideoThumbnailConverter(Converter):
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
+        if dest.is_dir():
+            return ConversionResult(
+                success=False,
+                output_path=dest,
+                converter_used="",
+                error=f"Destination is an existing directory: {dest}",
+            )
+
         avail = get_availability()
         if not avail.ffmpeg:
             return ConversionResult(
@@ -544,11 +614,11 @@ class VideoThumbnailConverter(Converter):
             "ffmpeg",
             "-y",
             "-i",
-            str(src),
+            _arg(src),
             "-vframes",
             "1",
             "--",
-            str(dest),
+            _arg(dest),
         ]
         result = subprocess.run(cmd, capture_output=True, check=False)
         if result.returncode == 0:
@@ -652,7 +722,15 @@ def convert_file(
             error="Source and destination paths must be different",
         )
 
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return ConversionResult(
+            success=False,
+            output_path=None,
+            converter_used="none",
+            error=f"Could not create output directory {dest.parent}: {e}",
+        )
     return conv.convert(src, dest, quality=quality, **kwargs)
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +16,7 @@ from gptme.tools.convert import (
     PDFToTextConverter,
     ToolAvailability,
     VideoThumbnailConverter,
+    _arg,
     convert_file,
     find_converter,
 )
@@ -572,3 +574,146 @@ def test_ffmpeg_webp_uses_quality_not_qv(avail_ffmpeg_only, tmp_path):
     assert "-q:v" not in captured_cmd
     # FFmpeg supports -- as an option terminator; keep it so dash-prefixed paths are safe.
     assert captured_cmd[-2:] == ["--", str(dest)]
+
+
+# ---------------------------------------------------------------------------
+# Option-shaped paths (argument injection)
+# ---------------------------------------------------------------------------
+
+
+def test_arg_prefixes_dash_leading_paths():
+    """A path starting with '-' must not reach a subprocess as an option."""
+    assert _arg(Path("-o")) == "./-o"
+    assert _arg(Path("-rf")) == "./-rf"
+    # Normal paths pass through untouched
+    assert _arg(Path("out.png")) == "out.png"
+    assert _arg(Path("/tmp/out.png")) == "/tmp/out.png"
+    assert _arg(Path("dir/-o.png")) == "dir/-o.png"
+
+
+def test_pdftotext_protects_dash_leading_source(avail_all, tmp_path, monkeypatch):
+    """pdftotext has no `--` terminator, so the path itself must be de-optioned."""
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "-o"
+    src.write_bytes(b"%PDF-1.4")
+    dest = tmp_path / "out.txt"
+    avail_all.pypdf = False
+
+    captured: list[str] = []
+
+    def fake_run(cmd, **kwargs):
+        captured.extend(cmd)
+        return MagicMock(returncode=0, stderr=b"")
+
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch("subprocess.run", side_effect=fake_run),
+    ):
+        result = PDFToTextConverter().convert(Path("-o"), dest)
+
+    assert result.success
+    assert "-o" not in captured
+    assert "./-o" in captured
+
+
+def test_pdftoppm_protects_dash_leading_source(avail_all, tmp_path, monkeypatch):
+    """pdftoppm parses a leading-dash filename as a flag unless de-optioned."""
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "-r"
+    src.write_bytes(b"%PDF-1.4")
+    dest = tmp_path / "out.png"
+
+    captured: list[str] = []
+
+    def fake_run(cmd, **kwargs):
+        captured.extend(cmd)
+        return MagicMock(returncode=1, stderr=b"boom")
+
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch("subprocess.run", side_effect=fake_run),
+    ):
+        PDFToImageConverter().convert(Path("-r"), dest)
+
+    # "-r" appears as the dpi flag, but never as the source argument
+    assert captured.count("-r") == 1
+    assert "./-r" in captured
+
+
+# ---------------------------------------------------------------------------
+# Directory destinations
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "converter", [ImageConverter, VideoThumbnailConverter], ids=["image", "video"]
+)
+def test_directory_destination_rejected(converter, avail_ffmpeg_only, tmp_path):
+    """Every converter must reject a directory destination, not hand it to a subprocess."""
+    src = tmp_path / "in.png"
+    src.write_bytes(b"\x89PNG")
+    dest = tmp_path / "outdir"
+    dest.mkdir()
+
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_ffmpeg_only),
+        patch("subprocess.run") as run,
+    ):
+        result = converter().convert(src, dest)
+
+    assert not result.success
+    assert "existing directory" in (result.error or "")
+    run.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Unwritable destinations return a result, never a traceback
+# ---------------------------------------------------------------------------
+
+
+def test_pdf_to_text_unwritable_dest_returns_failure(avail_all, tmp_path):
+    """An OSError on write must become ConversionResult(success=False), not crash."""
+    src = tmp_path / "in.pdf"
+    src.write_bytes(b"%PDF-1.4")
+    dest = tmp_path / "out.txt"
+
+    reader = MagicMock()
+    page = MagicMock()
+    page.extract_text.return_value = "hello"
+    reader.pages = [page]
+    fake_pypdf = MagicMock(PdfReader=MagicMock(return_value=reader))
+
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch.dict(sys.modules, {"pypdf": fake_pypdf}),
+        patch.object(Path, "write_text", side_effect=OSError("Read-only file system")),
+    ):
+        result = PDFToTextConverter().convert(src, dest)
+
+    assert not result.success
+    assert "Read-only file system" in (result.error or "")
+
+
+def test_convert_file_unwritable_parent_returns_failure(avail_all, tmp_path):
+    """mkdir failure on the output directory is a recoverable conversion error."""
+    src = tmp_path / "in.pdf"
+    src.write_bytes(b"%PDF-1.4")
+    dest = tmp_path / "nested" / "out.png"
+
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch("gptme.tools.convert._detect_mime", return_value="application/pdf"),
+        patch.object(Path, "mkdir", side_effect=OSError("Permission denied")),
+    ):
+        result = convert_file(src, dest)
+
+    assert not result.success
+    assert "Permission denied" in (result.error or "")
+
+
+def test_module_docstring_does_not_claim_ocr():
+    """The module advertised OCR via Tesseract, but no converter implements it."""
+    import gptme.tools.convert as convert_mod
+
+    assert convert_mod.__doc__ is not None
+    assert "OCR" not in convert_mod.__doc__
