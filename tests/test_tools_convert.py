@@ -287,6 +287,20 @@ class TestPDFToTextConverter:
             result = self.conv.convert(src, dest)
         assert not result.success
 
+    def test_rejects_existing_directory_as_dest(self, avail_all, tmp_path):
+        src = tmp_path / "doc.pdf"
+        src.write_bytes(b"%PDF-1.4")
+        dest = tmp_path / "output_dir"
+        dest.mkdir()
+
+        with patch("gptme.tools.convert.get_availability", return_value=avail_all):
+            result = self.conv.convert(src, dest)
+
+        assert not result.success
+        assert result.output_path == dest
+        assert result.error is not None
+        assert "directory" in result.error.lower()
+
 
 # ---------------------------------------------------------------------------
 # DocumentToTextConverter
@@ -304,6 +318,20 @@ class TestDocumentToTextConverter:
 
     def test_cannot_handle_pdf(self):
         assert not self.conv.can_handle("application/pdf", "txt")
+
+    def test_rejects_existing_directory_as_dest(self, avail_all, tmp_path):
+        src = tmp_path / "doc.docx"
+        src.write_bytes(b"PK")
+        dest = tmp_path / "output_dir"
+        dest.mkdir()
+
+        with patch("gptme.tools.convert.get_availability", return_value=avail_all):
+            result = self.conv.convert(src, dest)
+
+        assert not result.success
+        assert result.output_path == dest
+        assert result.error is not None
+        assert "directory" in result.error.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -451,13 +479,18 @@ def test_pdftoppm_failure_cleans_partial_artifacts(avail_all, tmp_path):
     src.write_bytes(b"%PDF-1.4")
     dest = tmp_path / "out.png"
 
+    partial_artifact: Path | None = None
+
     def fake_run(cmd, **kwargs):
+        nonlocal partial_artifact
         mock = MagicMock()
         if "pdftoppm" in cmd:
             # Simulate pdftoppm writing a partial page file into the tmpdir before failing
             # cmd[-1] is the output prefix (inside a TemporaryDirectory); artifact lives there
             tmp_prefix = Path(cmd[-1])
-            (tmp_prefix.parent / f"{tmp_prefix.name}-1.png").write_bytes(b"partial")
+            partial_artifact = tmp_prefix.parent / f"{tmp_prefix.name}-1.png"
+            partial_artifact.write_bytes(b"partial")
+            assert partial_artifact.exists()
             mock.returncode = 1
             mock.stderr = b"pdftoppm error"
         else:
@@ -483,9 +516,9 @@ def test_pdftoppm_failure_cleans_partial_artifacts(avail_all, tmp_path):
     ):
         result = conv.convert(src, dest)
 
-    # Partial artifact must be cleaned up
-    assert not (tmp_path / "out-1.png").exists(), (
-        "Partial pdftoppm artifact was not cleaned up"
+    assert partial_artifact is not None
+    assert not partial_artifact.exists(), (
+        "Temporary pdftoppm artifact was not cleaned up"
     )
     assert not result.success
 
@@ -537,3 +570,5 @@ def test_ffmpeg_webp_uses_quality_not_qv(avail_ffmpeg_only, tmp_path):
     assert result.success
     assert "-quality" in captured_cmd
     assert "-q:v" not in captured_cmd
+    # FFmpeg supports -- as an option terminator; keep it so dash-prefixed paths are safe.
+    assert captured_cmd[-2:] == ["--", str(dest)]

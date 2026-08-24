@@ -356,6 +356,14 @@ class PDFToTextConverter(Converter):
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
+        if dest.is_dir():
+            return ConversionResult(
+                success=False,
+                output_path=dest,
+                converter_used="",
+                error=f"Destination is an existing directory: {dest}",
+            )
+
         avail = get_availability()
         warnings: list[str] = []
 
@@ -437,6 +445,14 @@ class DocumentToTextConverter(Converter):
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
+        if dest.is_dir():
+            return ConversionResult(
+                success=False,
+                output_path=dest,
+                converter_used="",
+                error=f"Destination is an existing directory: {dest}",
+            )
+
         avail = get_availability()
         warnings: list[str] = []
 
