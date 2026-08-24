@@ -911,3 +911,33 @@ def test_startup_script_prompt_bypasses_command_routing(tmp_path: Path) -> None:
     # backslash is a literal \ in the file content, so Python sees it as \n.
     assert r"prompt_arg=$'\n'" in startup
     assert '"$prompt_arg"' in startup
+
+
+def test_startup_script_checks_prompt_readability(tmp_path: Path) -> None:
+    """A prompt file that exists but is unreadable must fail loudly (exit 66).
+
+    Regression: the original template only checked [ ! -f "$PROMPT_FILE" ] for
+    existence. An unreadable file passes that check, then `cat "$PROMPT_FILE"`
+    fails silently (or with a confusing cat error), causing gptme to run with an
+    empty prompt and exit 0 — appearing successful while doing nothing useful.
+    """
+    _run_init(tmp_path)
+    startup = (tmp_path / "gptme-agent-run.sh").read_text()
+
+    assert '[ ! -r "$PROMPT_FILE" ]' in startup
+
+
+def test_startup_script_mkdir_journal_dir_fails_loudly(tmp_path: Path) -> None:
+    """A journal directory that cannot be created must fail with an explicit error.
+
+    Regression: the original template called `mkdir -p "$JOURNAL_DIR"` without
+    checking its exit status. If the workspace lacks write permission, mkdir
+    fails, the subsequent `> "$SESSION_LOG"` redirection also fails, and the
+    script continues as if the journal exists, silently losing all session output.
+    """
+    _run_init(tmp_path)
+    startup = (tmp_path / "gptme-agent-run.sh").read_text()
+
+    # The mkdir line must exit on failure with a diagnostic message.
+    assert 'mkdir -p "$JOURNAL_DIR"' in startup
+    assert "cannot create journal dir" in startup

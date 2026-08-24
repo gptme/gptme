@@ -182,7 +182,7 @@ WORK_DIR={work_dir}
 JOURNAL_DIR="$WORK_DIR/journal/$(date +%Y-%m-%d)"
 PROMPT_FILE="$WORK_DIR/prompt.md"
 
-mkdir -p "$JOURNAL_DIR"
+mkdir -p "$JOURNAL_DIR" || {{ echo "gptme agent $AGENT_NAME: cannot create journal dir $JOURNAL_DIR" >&2; exit 1; }}
 SESSION_ID=$(date +%Y%m%d-%H%M%S)-$$
 SESSION_LOG="$JOURNAL_DIR/session-$SESSION_ID.md"
 
@@ -204,6 +204,11 @@ fi
 if [ ! -f "$PROMPT_FILE" ]; then
   echo "gptme agent $AGENT_NAME: missing prompt file $PROMPT_FILE" >&2
   echo "Missing prompt file $PROMPT_FILE." >> "$SESSION_LOG"
+  exit 66
+fi
+if [ ! -r "$PROMPT_FILE" ]; then
+  echo "gptme agent $AGENT_NAME: prompt file $PROMPT_FILE is not readable" >&2
+  echo "Prompt file not readable: $PROMPT_FILE (check permissions)." >> "$SESSION_LOG"
   exit 66
 fi
 
