@@ -23,13 +23,15 @@ def _startup_sigterm_handler(signum: int, frame: object) -> None:
 
 
 # Guard against non-main-thread imports (signal.signal raises ValueError
-# from a worker thread) and against overriding a custom handler the host
+# from a worker thread) and against overriding a custom disposition the host
 # process may have already installed (e.g. an embedder that imports
 # gptme.server.cli.main programmatically).  Only install when the handler
-# is still the OS default or explicitly ignored.
-if threading.current_thread() is threading.main_thread() and signal.getsignal(
-    signal.SIGTERM
-) in (signal.SIG_DFL, signal.SIG_IGN):
+# is still the OS default.  SIG_IGN is a deliberate custom disposition —
+# leave it intact (gptme/gptme#3597).
+if (
+    threading.current_thread() is threading.main_thread()
+    and signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+):
     signal.signal(signal.SIGTERM, _startup_sigterm_handler)
 
 import click
@@ -143,12 +145,13 @@ def _install_sigterm_handler() -> None:
     Signal handlers can only be installed from the main thread; this is called
     from the ``serve`` command, which runs there.
 
-    Only upgrades our own startup handler or the OS default — a custom handler
-    installed by an embedder before calling ``serve()`` is left intact.
+    Only upgrades our own startup handler or the OS default — a custom
+    disposition (callable handler *or* SIG_IGN) installed by an embedder
+    before calling ``serve()`` is left intact (gptme/gptme#3597).
     """
     current = signal.getsignal(signal.SIGTERM)
-    if current not in (signal.SIG_DFL, signal.SIG_IGN, _startup_sigterm_handler):
-        # An embedder installed a custom handler; don't override it.
+    if current not in (signal.SIG_DFL, _startup_sigterm_handler):
+        # An embedder installed a custom handler or SIG_IGN; don't override it.
         return
 
     def _handle_sigterm(signum, frame):

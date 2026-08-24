@@ -247,3 +247,42 @@ def test_server_exits_nonzero_on_bad_webui_dir(tmp_path):
     assert combined.strip(), (
         "Server exited non-zero but produced NO output — silent failure!"
     )
+
+
+def test_import_does_not_override_sig_ign():
+    """Importing gptme.server.cli must leave an inherited SIG_IGN intact.
+
+    SIG_IGN is a custom disposition: a parent or embedder that ignored
+    SIGTERM before the import must still have it ignored afterwards.
+    Regression for the gptme/gptme#3597 P2 (module-level guard treated
+    SIG_IGN as a vacancy and installed _startup_sigterm_handler).
+    """
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = os.environ.copy()
+    env["PYTHONPATH"] = repo_root + (
+        os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import signal, sys;"
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN);"
+                "import gptme.server.cli as cli;"
+                "h = signal.getsignal(signal.SIGTERM);"
+                "sys.exit(0 if h is signal.SIG_IGN else 1)"
+            ),
+        ],
+        capture_output=True,
+        timeout=30,
+        check=False,
+        cwd=repo_root,
+        env=env,
+    )
+    assert result.returncode == 0, (
+        "Expected SIG_IGN to survive gptme.server.cli import, but the "
+        "module-level install overrode it (gptme/gptme#3597 P2).\n"
+        f"stdout: {result.stdout.decode(errors='replace')}\n"
+        f"stderr: {result.stderr.decode(errors='replace')}"
+    )
