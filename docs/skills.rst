@@ -157,7 +157,7 @@ Skills are loaded from the following directories (if they exist):
 
 **User-level:**
 
-1. ``~/.config/gptme/skills/`` - gptme native skills
+1. ``~/.config/gptme/skills/`` - gptme native skills (or ``$XDG_CONFIG_HOME/gptme/skills/`` if ``XDG_CONFIG_HOME`` is set)
 2. ``~/.claude/skills/`` - Claude CLI compatibility (share skills with Claude CLI)
 3. ``~/.agents/skills/`` - Cross-platform standard
 
@@ -186,8 +186,8 @@ lessons in the same discovery pass, and ``skills dirs`` shows exactly which
 directories are being scanned. For the full list of subcommands, run
 ``gptme-util skills --help``.
 
-Install a skill from the default ``gptme-contrib`` registry into
-``~/.config/gptme/skills/`` with:
+Install a skill from the default ``gptme-contrib`` registry with
+(use ``gptme-util skills dirs`` to see exactly where it lands):
 
 .. code-block:: bash
 
