@@ -421,7 +421,7 @@ This is the right hook for deterministic, below-the-model guardrails.
            "my_guardrail.shell_guard",
            HookType.TOOL_CONFIRM,
            shell_guard,
-           priority=100,  # High priority runs before other confirm hooks
+           priority=200,  # Must be > 100 to run before server_confirm
        )
 
 ``TOOL_CONFIRM`` hooks receive ``(tool_use, preview, workspace)`` and should return
