@@ -42,16 +42,26 @@ export function getBundledLoopbackOrigin(
   }
 }
 
-/** Point the stock Local 5700 preset at the bundled UI origin when they differ. */
+/** Point the stock Local 5700 preset at the bundled UI origin when they differ.
+ *
+ * We match by isPreset + loopback host rather than exact default URL so that
+ * a preset that was previously retargeted and persisted (e.g. to :5799) can
+ * still be found and updated when the server restarts on a new port. */
 export function retargetPresetLocalToBundledOrigin(
   registry: ServerRegistry,
   pageOrigin?: string
 ): void {
   const origin = getBundledLoopbackOrigin(pageOrigin);
   if (!origin) return;
-  const preset = registry.servers.find(
-    (s) => s.isPreset && normalizeUrl(s.baseUrl) === normalizeUrl(DEFAULT_SERVER_CONFIG.baseUrl)
-  );
+  const preset = registry.servers.find((s) => {
+    if (!s.isPreset) return false;
+    try {
+      const hostname = new URL(s.baseUrl).hostname;
+      return ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
+    } catch {
+      return false;
+    }
+  });
   if (!preset) return;
   if (normalizeUrl(preset.baseUrl) === normalizeUrl(origin)) return;
   preset.baseUrl = origin;

@@ -612,6 +612,18 @@ export class ApiClient {
         });
         return false;
       }
+      if (!authResponse.ok) {
+        console.error('Protected probe failed with status:', authResponse.status);
+        this.isConnected$.set(false);
+        this.lastConnectionResult$.set({
+          ok: false,
+          url: authUrl,
+          reason: 'http_error',
+          status: authResponse.status,
+          message: `Server returned ${authResponse.status} on the authenticated probe.`,
+        });
+        return false;
+      }
 
       this.isConnected$.set(true);
       this.lastConnectionResult$.set({ ok: true, url });
