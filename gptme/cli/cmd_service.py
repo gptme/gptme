@@ -180,13 +180,12 @@ set -euo pipefail
 AGENT_NAME="{name}"
 WORK_DIR={work_dir}
 JOURNAL_DIR="$WORK_DIR/journal/$(date +%Y-%m-%d)"
+PROMPT_FILE="$WORK_DIR/prompt.md"
 
 mkdir -p "$JOURNAL_DIR"
 SESSION_ID=$(date +%Y%m%d-%H%M%S)
 SESSION_LOG="$JOURNAL_DIR/session-$SESSION_ID.md"
 
-# Durable session record placeholder. Replace the loop body with your
-# agent's real work loop (CASCADE selector + task executor, etc.).
 {{
   echo "# Session $SESSION_ID"
   echo
@@ -195,7 +194,57 @@ SESSION_LOG="$JOURNAL_DIR/session-$SESSION_ID.md"
   echo
 }} > "$SESSION_LOG"
 
-echo "gptme agent {name}: wrote session log $SESSION_LOG"
+if ! command -v gptme >/dev/null 2>&1; then
+  echo "gptme agent $AGENT_NAME: 'gptme' not found on PATH" >&2
+  echo "gptme not found on PATH; install gptme or set PATH in the service unit." \
+    >> "$SESSION_LOG"
+  exit 127
+fi
+
+if [ ! -f "$PROMPT_FILE" ]; then
+  echo "gptme agent $AGENT_NAME: missing prompt file $PROMPT_FILE" >&2
+  echo "Missing prompt file $PROMPT_FILE." >> "$SESSION_LOG"
+  exit 66
+fi
+
+# Run one non-interactive gptme session. --non-interactive is passed as a flag
+# because gptme reads the flag, not GPTME_NON_INTERACTIVE.
+gptme_args=(--non-interactive --no-confirm --workspace "$WORK_DIR")
+gptme_args+=(--name "$AGENT_NAME-$SESSION_ID")
+if [ -n "${{GPTME_AGENT_MODEL:-}}" ]; then
+  gptme_args+=(--model "$GPTME_AGENT_MODEL")
+fi
+
+echo "## Output" >> "$SESSION_LOG"
+echo >> "$SESSION_LOG"
+
+cd "$WORK_DIR"
+exit_code=0
+gptme "${{gptme_args[@]}}" "$(cat "$PROMPT_FILE")" >> "$SESSION_LOG" 2>&1 || exit_code=$?
+
+{{
+  echo
+  echo "Finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "Exit code: $exit_code"
+}} >> "$SESSION_LOG"
+
+echo "gptme agent {name}: session $SESSION_ID exited $exit_code (log: $SESSION_LOG)"
+exit "$exit_code"
+"""
+
+PROMPT_MD_TEMPLATE = """\
+# {name} — session prompt
+
+This is the instruction {name} receives at the start of every headless session.
+Edit it to describe the work the agent should do on each run.
+
+Keep it short and concrete. A headless session has no human to ask, so state the
+goal, where to look, and what "done" means.
+
+## Task
+
+Review the notes in this workspace and summarize anything that needs attention.
+Write findings to `journal/` and stop.
 """
 
 GPTME_TOML_TEMPLATE = """\
@@ -606,6 +655,11 @@ def init(
         AGENTS_MD_TEMPLATE.format(name=name),
         force=force,
     )
+    _write_file(
+        work / "prompt.md",
+        PROMPT_MD_TEMPLATE.format(name=name),
+        force=force,
+    )
 
     # Startup script
     startup = work / "gptme-agent-run.sh"
@@ -620,6 +674,7 @@ def init(
     click.echo(f"✅ Initialized headless agent '{name}'")
     click.echo()
     click.echo("Next steps:")
+    click.echo(f"  $EDITOR {work / 'prompt.md'}   # what the agent does each run")
 
     if platform_choice == "macos":
         plist_file = out_dir / f"com.gptme.{name}.plist"

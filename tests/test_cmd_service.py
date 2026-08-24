@@ -821,3 +821,58 @@ def test_macos_path_with_systemd_invalid_chars_accepted(tmp_path: Path) -> None:
     assert result.exit_code == 0, (
         f"macOS scaffolding should accept apostrophes in work-dir; got: {result.output}"
     )
+
+
+def test_startup_script_actually_invokes_gptme(tmp_path: Path) -> None:
+    """The scaffolded service must run a gptme session, not just write a log stub.
+
+    Regression: the original template wrote a session-log header and exited, so
+    `systemctl start <name>.service` produced an empty journal file and never
+    started an agent.
+    """
+    _run_init(tmp_path)
+    startup = (tmp_path / "gptme-agent-run.sh").read_text()
+
+    assert 'gptme "${gptme_args[@]}"' in startup
+    assert "--non-interactive" in startup
+    assert '--workspace "$WORK_DIR"' in startup
+    assert 'exit "$exit_code"' in startup
+
+
+def test_startup_script_passes_non_interactive_as_a_flag(tmp_path: Path) -> None:
+    """GPTME_NON_INTERACTIVE is not read by gptme; the flag must be explicit."""
+    _run_init(tmp_path)
+    startup = (tmp_path / "gptme-agent-run.sh").read_text()
+
+    # The env var alone must never be the only thing standing between a headless
+    # unit and an interactive prompt.
+    assert "gptme_args=(--non-interactive" in startup
+
+
+def test_startup_script_forwards_configured_model(tmp_path: Path) -> None:
+    """The model chosen at init time reaches gptme via GPTME_AGENT_MODEL."""
+    _run_init(tmp_path)
+    startup = (tmp_path / "gptme-agent-run.sh").read_text()
+
+    assert 'if [ -n "${GPTME_AGENT_MODEL:-}" ]; then' in startup
+    assert 'gptme_args+=(--model "$GPTME_AGENT_MODEL")' in startup
+
+
+def test_prompt_file_is_generated(tmp_path: Path) -> None:
+    """A prompt.md scaffold ships so the first run has something to execute."""
+    _run_init(tmp_path)
+    prompt = tmp_path / "prompt.md"
+
+    assert prompt.exists()
+    assert prompt.read_text().strip()
+
+
+def test_startup_script_fails_loudly_without_prompt(tmp_path: Path) -> None:
+    """A missing prompt file must fail the unit, not silently produce nothing."""
+    _run_init(tmp_path)
+    startup = (tmp_path / "gptme-agent-run.sh").read_text()
+
+    assert 'if [ ! -f "$PROMPT_FILE" ]; then' in startup
+    assert "exit 66" in startup
+    assert "command -v gptme" in startup
+    assert "exit 127" in startup

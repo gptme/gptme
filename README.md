@@ -376,10 +376,11 @@ gptme service init --name my-agent --work-dir ~/my-agent --timer-schedule hourly
 This command scaffolds:
 - **systemd service unit** — runs your agent in a user session
 - **Optional timer** — schedule autonomous runs (hourly, daily, weekly, or on-demand)
-- **Startup script** — placeholder run script; customize the loop body with your agent's real work
+- **Startup script** — runs one non-interactive gptme session per trigger and writes a durable journal entry
+- **Session prompt** — `prompt.md`, the instruction the agent executes on every run
 - **Skeleton config** — `gptme.toml` and `AGENTS.md` ready to customize
 
-The scaffolded workspace is self-contained; after customizing the startup script with your agent's work loop, all you need is gptme installed. Perfect for automation, monitoring, CI/CD orchestration, or running background agents on headless servers.
+The scaffolded workspace is self-contained and runs as generated — edit `prompt.md` to say what the agent should do each run; all you need is gptme installed. Perfect for automation, monitoring, CI/CD orchestration, or running background agents on headless servers.
 
 See the [Headless Agents guide](https://gptme.org/docs/agents/headless.html) for advanced configurations and troubleshooting.
 
