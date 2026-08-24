@@ -772,6 +772,30 @@ describe('SetupWizard', () => {
     warnSpy.mockRestore();
   });
 
+  it('sends the pasted local-server token on Connect', async () => {
+    mockConnect.mockResolvedValue(undefined);
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /local run gptme-server/i }));
+    fireEvent.change(screen.getByPlaceholderText('Server token from gptme-server logs'), {
+      target: { value: 'dogfood-65f3-token' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(mockConnect).toHaveBeenCalledWith({
+        authToken: 'dogfood-65f3-token',
+        useAuthToken: true,
+      });
+    });
+  });
+
   it('connects to a remote server during tauri mobile setup', async () => {
     mockIsTauriEnvironment.mockReturnValue(true);
     mockUseTauriServerStatus.mockReturnValue({

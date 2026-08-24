@@ -415,7 +415,11 @@ export function SetupWizard() {
     setIsConnecting(true);
     setConnectError(null);
     try {
-      await connect();
+      const trimmedAuthToken = remoteAuthToken.trim();
+      await connect({
+        authToken: trimmedAuthToken || null,
+        useAuthToken: Boolean(trimmedAuthToken),
+      });
       // The isConnected useEffect will fire and call checkProviderAndAdvance.
     } catch (err) {
       setConnectError(
@@ -749,6 +753,23 @@ export function SetupWizard() {
                   <p className="text-xs text-muted-foreground">
                     The <code className="rounded bg-muted px-1">--cors-origin</code> flag lets this
                     page connect to your local server.
+                  </p>
+                  <Input
+                    autoComplete="off"
+                    placeholder="Server token from gptme-server logs"
+                    type="password"
+                    value={remoteAuthToken}
+                    onChange={(event) => setRemoteAuthToken(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !isConnecting) {
+                        event.preventDefault();
+                        void handleLocalSetup();
+                      }
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    After gptme#3430 the local server requires the bearer token it prints on
+                    startup. Paste it here if the UI cannot connect.
                   </p>
                 </div>
               )}

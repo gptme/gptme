@@ -333,7 +333,13 @@ def serve(
     click.echo("Initialization complete, starting server")
 
     # Initialize authentication and display token
-    init_auth(host=host, display=True)
+    token = init_auth(host=host, display=True)
+    if token:
+        # Fragment (not query) so the token is not sent to the server or logged
+        # as a request URL. The bundled UI reads #userToken= and then strips it.
+        # Echo (not logger) so the URL is copyable on one line.
+        display_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+        click.echo(f"Open the UI: http://{display_host}:{port}/#userToken={token}")
 
     app = create_app(
         cors_origin=cors_origin,

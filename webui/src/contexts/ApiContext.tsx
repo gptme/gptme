@@ -316,6 +316,19 @@ export function ApiProvider({
         }
         return;
       }
+      // A 401 means the server is up and asking for a token. Retrying the same
+      // unauthenticated probe will never recover; the user has to paste it.
+      if (lastResult && !lastResult.ok && lastResult.status === 401) {
+        console.log('[ApiContext] 401 — stopping auto-connect (token required)');
+        stopAutoConnect();
+        if (!isInitialAttempt) {
+          toast.error(
+            lastResult.message ||
+              'Server is running but requires a bearer token. Paste it in settings.'
+          );
+        }
+        return;
+      }
 
       const delay = INITIAL_RETRY_DELAY * Math.pow(2, autoConnectAttempts - 1);
       const maxDelay = 30000;

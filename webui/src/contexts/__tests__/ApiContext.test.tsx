@@ -218,6 +218,32 @@ describe('ApiProvider mobile auto-connect', () => {
     // full reactive chain (update → registry change → component re-render) works.
   });
 
+  it('stops retrying after a 401 (token required, not transient)', async () => {
+    setActiveServerBaseUrl('http://127.0.0.1:5799');
+
+    mockCheckConnection.mockImplementation(async () => {
+      lastConnectionResult$.set({
+        ok: false,
+        url: 'http://127.0.0.1:5799/api/v2/conversations?limit=1',
+        reason: 'http_error',
+        status: 401,
+        message:
+          'Server is running but requires a bearer token. Paste the token printed by gptme-server.',
+      });
+      return false;
+    });
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(mockCheckConnection).toHaveBeenCalledTimes(1);
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    expect(mockCheckConnection).toHaveBeenCalledTimes(1);
+  });
+
   it('stops retrying after a CORS failure (permanent, not transient)', async () => {
     setActiveServerBaseUrl('https://bob.example.com');
 

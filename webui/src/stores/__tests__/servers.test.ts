@@ -1,6 +1,11 @@
 import { describe, it, expect } from '@jest/globals';
 import type { ServerRegistry } from '@/types/servers';
-import { deriveServerName, migrateCloudPreset } from '../servers';
+import {
+  deriveServerName,
+  getBundledLoopbackOrigin,
+  migrateCloudPreset,
+  retargetPresetLocalToBundledOrigin,
+} from '../servers';
 
 describe('deriveServerName', () => {
   it('returns "Local" for default-port localhost URLs', () => {
@@ -33,6 +38,67 @@ describe('deriveServerName', () => {
   it('returns "Server" for malformed URLs', () => {
     expect(deriveServerName('not-a-url')).toBe('Server');
     expect(deriveServerName('')).toBe('Server');
+  });
+});
+
+describe('getBundledLoopbackOrigin', () => {
+  it('returns the page origin for a bundled gptme-server loopback port', () => {
+    expect(getBundledLoopbackOrigin('http://127.0.0.1:5799')).toBe('http://127.0.0.1:5799');
+    expect(getBundledLoopbackOrigin('http://localhost:5700')).toBe('http://localhost:5700');
+  });
+
+  it('ignores hosted pages, default ports, and Vite/Playwright ports', () => {
+    expect(getBundledLoopbackOrigin('https://chat.gptme.org')).toBeNull();
+    expect(getBundledLoopbackOrigin('http://localhost')).toBeNull();
+    expect(getBundledLoopbackOrigin('http://127.0.0.1')).toBeNull();
+    expect(getBundledLoopbackOrigin('http://127.0.0.1:5173')).toBeNull();
+    expect(getBundledLoopbackOrigin('http://127.0.0.1:4173')).toBeNull();
+    expect(getBundledLoopbackOrigin('http://127.0.0.1:5701')).toBeNull();
+  });
+});
+
+describe('retargetPresetLocalToBundledOrigin', () => {
+  it('rewrites the stock 5700 Local preset to the bundled origin', () => {
+    const registry: ServerRegistry = {
+      activeServerId: 'local',
+      connectedServerIds: ['local'],
+      servers: [
+        {
+          id: 'local',
+          name: 'Local',
+          baseUrl: 'http://127.0.0.1:5700',
+          authToken: null,
+          useAuthToken: false,
+          isPreset: true,
+          createdAt: 1,
+          lastUsedAt: 1,
+        },
+      ],
+    };
+
+    retargetPresetLocalToBundledOrigin(registry, 'http://127.0.0.1:5799');
+    expect(registry.servers[0].baseUrl).toBe('http://127.0.0.1:5799');
+  });
+
+  it('leaves a non-preset or already-matching server alone', () => {
+    const registry: ServerRegistry = {
+      activeServerId: 'custom',
+      connectedServerIds: ['custom'],
+      servers: [
+        {
+          id: 'custom',
+          name: 'Local:5700',
+          baseUrl: 'http://127.0.0.1:5700',
+          authToken: null,
+          useAuthToken: false,
+          createdAt: 1,
+          lastUsedAt: 1,
+        },
+      ],
+    };
+
+    retargetPresetLocalToBundledOrigin(registry, 'http://127.0.0.1:5799');
+    expect(registry.servers[0].baseUrl).toBe('http://127.0.0.1:5700');
   });
 });
 
