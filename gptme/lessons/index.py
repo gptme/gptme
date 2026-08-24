@@ -131,8 +131,10 @@ class LessonIndex:
 
         # === User-level lessons directories ===
 
-        # gptme native config
-        config_dir = Path.home() / ".config" / "gptme" / "lessons"
+        # gptme native config (use get_config_dir to honour XDG_CONFIG_HOME)
+        from ..dirs import get_config_dir
+
+        config_dir = get_config_dir() / "lessons"
         if config_dir.exists():
             dirs.append(config_dir)
 
@@ -143,8 +145,8 @@ class LessonIndex:
 
         # === User-level skills directories ===
 
-        # gptme native skills
-        gptme_skills_dir = Path.home() / ".config" / "gptme" / "skills"
+        # gptme native skills (use get_config_dir to honour XDG_CONFIG_HOME)
+        gptme_skills_dir = get_config_dir() / "skills"
         if gptme_skills_dir.exists():
             dirs.append(gptme_skills_dir)
 
