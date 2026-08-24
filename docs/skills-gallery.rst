@@ -4,29 +4,35 @@ Skills Gallery
 A curated selection of community skills from the default
 `gptme-contrib <https://github.com/gptme/gptme-contrib>`_ registry. These are
 hand-picked, battle-tested workflows — several run in production agent ops —
-and each one installs with the same two-step flow below.
+and each one installs with the same ``gptme-util skills install`` command below.
 
 Installing
 ----------
 
-Skills from ``gptme-contrib`` install by cloning the repo and pointing gptme at
-its ``skills/`` directory. The command is identical for every skill on this
-page:
+Skills from ``gptme-contrib`` install with ``gptme-util skills install``. That
+copies the skill into ``~/.config/gptme/skills/``, one of the directories gptme
+already scans (see :doc:`skills`). The command is the same for every skill on
+this page — only the skill name changes:
 
 .. code-block:: bash
 
-   git clone https://github.com/gptme/gptme-contrib
+   gptme-util skills install home-assistant
 
-Then add ``gptme-contrib/skills`` to the ``dirs`` array under ``[lessons]`` in
-your ``gptme.toml``:
+After install, skills auto-load when their name appears in a message — mention
+"home-assistant" and gptme pulls that skill into context.
 
-.. code-block:: toml
+If you already have ``gptme-contrib`` cloned, symlink (or copy) a skill
+directory into that same loading path instead of adding a config key:
 
-   [lessons]
-   dirs = ["gptme-contrib/skills"]
+.. code-block:: bash
 
-Skills auto-load when their name appears in a message — mention "home-assistant"
-and gptme pulls that skill into context. See :doc:`skills` for the full system.
+   mkdir -p ~/.config/gptme/skills
+   ln -s /absolute/path/to/gptme-contrib/skills/home-assistant \
+       ~/.config/gptme/skills/home-assistant
+
+Do not add a relative ``gptme-contrib/skills`` path to ``[lessons] dirs``.
+That option is for lesson trees, and a relative path there is resolved against
+the current working directory, not the clone location.
 
 The curated list
 ----------------

@@ -185,6 +185,16 @@ Use the utility CLI to see what the current workspace already knows about:
 lessons in the same discovery pass, and ``skills dirs`` shows exactly which
 directories are being scanned.
 
+Install a skill from the default ``gptme-contrib`` registry into
+``~/.config/gptme/skills/`` with:
+
+.. code-block:: bash
+
+    gptme-util skills install home-assistant
+
+See the :doc:`skills-gallery` for a curated list of community skills and the
+same install command.
+
 Creating Skills
 ---------------
 
