@@ -403,7 +403,7 @@ This is the right hook for deterministic, below-the-model guardrails.
    def shell_guard(tool_use, preview=None, workspace=None):
        """Block destructive shell commands before execution."""
        if tool_use.tool != "shell":
-           return ConfirmationResult.confirm()
+           return None  # Not a shell tool — pass to next hook
 
        # Shell commands are passed as content, not args
        command = tool_use.content or ""
@@ -413,7 +413,7 @@ This is the right hook for deterministic, below-the-model guardrails.
                f"Blocked by guardrail: destructive pattern detected in: {command!r}"
            )
 
-       return ConfirmationResult.confirm()
+       return None  # Not blocked — pass to next hook (e.g. user confirmation)
 
    def register():
        register_hook(
@@ -423,10 +423,17 @@ This is the right hook for deterministic, below-the-model guardrails.
            priority=100,  # High priority runs before other confirm hooks
        )
 
-``TOOL_CONFIRM`` hooks receive ``(tool_use, preview, workspace)`` and must return a
-``ConfirmationResult``. Return ``ConfirmationResult.skip(reason)`` to deny execution,
-or ``ConfirmationResult.confirm()`` to allow it. The hook is **blocking** — gptme
-waits for the result before proceeding.
+``TOOL_CONFIRM`` hooks receive ``(tool_use, preview, workspace)`` and should return
+one of:
+
+- ``ConfirmationResult.skip(reason)`` — deny execution (blocks the tool call)
+- ``None`` — no opinion; pass to the next hook (e.g. the interactive user prompt)
+- ``ConfirmationResult.confirm()`` — explicitly auto-confirm without prompting
+
+A guardrail hook should return ``None`` for operations it does not want to block so
+that lower-priority hooks — including the normal user confirmation prompt — can still
+run. Returning ``confirm()`` from a high-priority hook bypasses those prompts
+entirely. The hook is **blocking** — gptme waits for the result before proceeding.
 
 Example: Weather Plugin
 -----------------------
