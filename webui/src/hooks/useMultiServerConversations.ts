@@ -21,7 +21,7 @@ export function useSecondaryServerConversations() {
     );
   }, [registry]);
 
-  const queries = useQueries({
+  const { secondaryConversations, isAnyLoading } = useQueries({
     queries: secondaryServers.map((server) => ({
       queryKey: ['secondary-conversations', server.id, server.baseUrl, server.authToken ?? ''],
       queryFn: async (): Promise<ConversationSummary[]> => {
@@ -46,13 +46,11 @@ export function useSecondaryServerConversations() {
       refetchOnWindowFocus: false,
       retry: 1,
     })),
+    combine: (results) => ({
+      secondaryConversations: results.flatMap((query) => query.data ?? []),
+      isAnyLoading: results.some((query) => query.isLoading),
+    }),
   });
-
-  const secondaryConversations = useMemo(() => {
-    return queries.flatMap((q) => q.data ?? []);
-  }, [queries]);
-
-  const isAnyLoading = queries.some((q) => q.isLoading);
 
   return {
     secondaryConversations,
