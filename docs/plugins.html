@@ -530,6 +530,7 @@ document.write(`
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-logging-plugin">Example: Logging Plugin</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-guardrail-plugin">Example: Guardrail Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-weather-plugin">Example: Weather Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#unified-plugin-system-entry-points">Unified Plugin System (Entry Points)</a></li>
@@ -779,7 +780,7 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Register hooks from this module.&quot;&quot;&quot;</span>
     <span class="n">register_hook</span><span class="p">(</span>
         <span class="s2">&quot;my_plugin.log_tool&quot;</span><span class="p">,</span>
-        <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_PRE_EXECUTE</span><span class="p">,</span>
+        <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_EXECUTE_PRE</span><span class="p">,</span>
         <span class="n">log_tool_execution</span><span class="p">,</span>
         <span class="n">priority</span><span class="o">=</span><span class="mi">0</span>
     <span class="p">)</span>
@@ -792,10 +793,11 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">SESSION_START</span></code> - Called at session start</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">SESSION_END</span></code> - Called at session end</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_PRE_EXECUTE</span></code> - Before tool execution</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_POST_EXECUTE</span></code> - After tool execution</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">FILE_PRE_SAVE</span></code> - Before saving a file</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">FILE_POST_SAVE</span></code> - After saving a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code> - Before tool execution</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_POST</span></code> - After tool execution</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> - Blocking confirmation/deny decision before execution</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_SAVE_PRE</span></code> - Before saving a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_SAVE_POST</span></code> - After saving a file</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_PRE</span></code> - Before generating response</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_POST</span></code> - After generating response</p></li>
 <li><p>And more (see <code class="docutils literal notranslate"><span class="pre">gptme.hooks.HookType</span></code>)</p></li>
@@ -899,10 +901,69 @@ Why<span class="w"> </span>did<span class="w"> </span>the<span class="w"> </span
     <span class="k">yield</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
-    <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;tool_logger.pre&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_PRE_EXECUTE</span><span class="p">,</span> <span class="n">log_tool_pre</span><span class="p">)</span>
-    <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;tool_logger.post&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_POST_EXECUTE</span><span class="p">,</span> <span class="n">log_tool_post</span><span class="p">)</span>
+    <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;tool_logger.pre&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_EXECUTE_PRE</span><span class="p">,</span> <span class="n">log_tool_pre</span><span class="p">)</span>
+    <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;tool_logger.post&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_EXECUTE_POST</span><span class="p">,</span> <span class="n">log_tool_post</span><span class="p">)</span>
 </pre></div>
 </div>
+</section>
+<section id="example-guardrail-plugin">
+<h2>Example: Guardrail Plugin<a class="headerlink" href="#example-guardrail-plugin" title="Link to this heading">#</a></h2>
+<p>A complete example of a plugin that blocks dangerous shell commands using the
+<code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> hook. <code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> is the canonical hook for deny decisions
+— returning <code class="docutils literal notranslate"><span class="pre">ConfirmationResult.skip()</span></code> prevents the tool from executing at all.
+This is the right hook for deterministic, below-the-model guardrails.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_guardrail/hooks/shell_guard.py</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks.confirm</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfirmationResult</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="c1"># Patterns to block regardless of prompt justification</span>
+<span class="n">_DESTRUCTIVE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
+    <span class="sa">r</span><span class="s2">&quot;rm\s+-[a-z]*(?:rf|fr)[a-z]*|&quot;</span>  <span class="c1"># rm -rf/-fr/-Rf/-RF variants</span>
+    <span class="sa">r</span><span class="s2">&quot;DROP\s+TABLE|&quot;</span>            <span class="c1"># SQL destructive</span>
+    <span class="sa">r</span><span class="s2">&quot;chmod\s+-R\s+0</span><span class="si">{3}</span><span class="s2">|&quot;</span>      <span class="c1"># remove all permissions</span>
+    <span class="sa">r</span><span class="s2">&quot;:\s*\(\s*\)\s*\{.*\}\s*;&quot;</span> <span class="c1"># fork bomb</span>
+    <span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span>
+<span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">shell_guard</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="n">preview</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workspace</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Block destructive shell commands before execution.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span> <span class="o">!=</span> <span class="s2">&quot;shell&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># Not a shell tool — pass to next hook</span>
+
+    <span class="c1"># Shell commands are passed as content, not args</span>
+    <span class="n">command</span> <span class="o">=</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">content</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">_DESTRUCTIVE</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">command</span><span class="p">):</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Guardrail blocked: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">command</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">skip</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Blocked by guardrail: destructive pattern detected in: </span><span class="si">{</span><span class="n">command</span><span class="si">!r}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># Not blocked — pass to next hook (e.g. user confirmation)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
+    <span class="n">register_hook</span><span class="p">(</span>
+        <span class="s2">&quot;my_guardrail.shell_guard&quot;</span><span class="p">,</span>
+        <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_CONFIRM</span><span class="p">,</span>
+        <span class="n">shell_guard</span><span class="p">,</span>
+        <span class="n">priority</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span>  <span class="c1"># Must be &gt; 100 to run before server_confirm</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> hooks receive <code class="docutils literal notranslate"><span class="pre">(tool_use,</span> <span class="pre">preview,</span> <span class="pre">workspace)</span></code> and should return
+one of:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ConfirmationResult.skip(reason)</span></code> — deny execution (blocks the tool call)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">None</span></code> — no opinion; pass to the next hook (e.g. the interactive user prompt)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ConfirmationResult.confirm()</span></code> — explicitly auto-confirm without prompting</p></li>
+</ul>
+<p>A guardrail hook should return <code class="docutils literal notranslate"><span class="pre">None</span></code> for operations it does not want to block so
+that lower-priority hooks — including the normal user confirmation prompt — can still
+run. Returning <code class="docutils literal notranslate"><span class="pre">confirm()</span></code> from a high-priority hook bypasses those prompts
+entirely. The hook is <strong>blocking</strong> — gptme waits for the result before proceeding.</p>
 </section>
 <section id="example-weather-plugin">
 <h2>Example: Weather Plugin<a class="headerlink" href="#example-weather-plugin" title="Link to this heading">#</a></h2>
@@ -1225,6 +1286,7 @@ gptme
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-logging-plugin">Example: Logging Plugin</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-guardrail-plugin">Example: Guardrail Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-weather-plugin">Example: Weather Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#unified-plugin-system-entry-points">Unified Plugin System (Entry Points)</a></li>

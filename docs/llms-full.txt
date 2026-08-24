@@ -11212,7 +11212,7 @@ Create individual hook modules without ``hooks/__init__.py``:
        """Register hooks from this module."""
        register_hook(
            "my_plugin.log_tool",
-           HookType.TOOL_PRE_EXECUTE,
+           HookType.TOOL_EXECUTE_PRE,
            log_tool_execution,
            priority=0
        )
@@ -11224,10 +11224,11 @@ Available hook types:
 
 - ``SESSION_START`` - Called at session start
 - ``SESSION_END`` - Called at session end
-- ``TOOL_PRE_EXECUTE`` - Before tool execution
-- ``TOOL_POST_EXECUTE`` - After tool execution
-- ``FILE_PRE_SAVE`` - Before saving a file
-- ``FILE_POST_SAVE`` - After saving a file
+- ``TOOL_EXECUTE_PRE`` - Before tool execution
+- ``TOOL_EXECUTE_POST`` - After tool execution
+- ``TOOL_CONFIRM`` - Blocking confirmation/deny decision before execution
+- ``FILE_SAVE_PRE`` - Before saving a file
+- ``FILE_SAVE_POST`` - After saving a file
 - ``GENERATION_PRE`` - Before generating response
 - ``GENERATION_POST`` - After generating response
 - And more (see ``gptme.hooks.HookType``)
@@ -11342,8 +11343,70 @@ A complete example of a plugin that logs tool executions:
        yield
 
    def register():
-       register_hook("tool_logger.pre", HookType.TOOL_PRE_EXECUTE, log_tool_pre)
-       register_hook("tool_logger.post", HookType.TOOL_POST_EXECUTE, log_tool_post)
+       register_hook("tool_logger.pre", HookType.TOOL_EXECUTE_PRE, log_tool_pre)
+       register_hook("tool_logger.post", HookType.TOOL_EXECUTE_POST, log_tool_post)
+
+Example: Guardrail Plugin
+-------------------------
+
+A complete example of a plugin that blocks dangerous shell commands using the
+``TOOL_CONFIRM`` hook. ``TOOL_CONFIRM`` is the canonical hook for deny decisions
+— returning ``ConfirmationResult.skip()`` prevents the tool from executing at all.
+This is the right hook for deterministic, below-the-model guardrails.
+
+.. code-block:: python
+
+   # my_guardrail/hooks/shell_guard.py
+   import re
+   from gptme.hooks import HookType, register_hook
+   from gptme.hooks.confirm import ConfirmationResult
+   import logging
+
+   logger = logging.getLogger(__name__)
+
+   # Patterns to block regardless of prompt justification
+   _DESTRUCTIVE = re.compile(
+       r"rm\s+-[a-z]*(?:rf|fr)[a-z]*|"  # rm -rf/-fr/-Rf/-RF variants
+       r"DROP\s+TABLE|"            # SQL destructive
+       r"chmod\s+-R\s+0{3}|"      # remove all permissions
+       r":\s*\(\s*\)\s*\{.*\}\s*;" # fork bomb
+       , re.IGNORECASE
+   )
+
+   def shell_guard(tool_use, preview=None, workspace=None):
+       """Block destructive shell commands before execution."""
+       if tool_use.tool != "shell":
+           return None  # Not a shell tool — pass to next hook
+
+       # Shell commands are passed as content, not args
+       command = tool_use.content or ""
+       if _DESTRUCTIVE.search(command):
+           logger.warning("Guardrail blocked: %s", command)
+           return ConfirmationResult.skip(
+               f"Blocked by guardrail: destructive pattern detected in: {command!r}"
+           )
+
+       return None  # Not blocked — pass to next hook (e.g. user confirmation)
+
+   def register():
+       register_hook(
+           "my_guardrail.shell_guard",
+           HookType.TOOL_CONFIRM,
+           shell_guard,
+           priority=200,  # Must be > 100 to run before server_confirm
+       )
+
+``TOOL_CONFIRM`` hooks receive ``(tool_use, preview, workspace)`` and should return
+one of:
+
+- ``ConfirmationResult.skip(reason)`` — deny execution (blocks the tool call)
+- ``None`` — no opinion; pass to the next hook (e.g. the interactive user prompt)
+- ``ConfirmationResult.confirm()`` — explicitly auto-confirm without prompting
+
+A guardrail hook should return ``None`` for operations it does not want to block so
+that lower-priority hooks — including the normal user confirmation prompt — can still
+run. Returning ``confirm()`` from a high-priority hook bypasses those prompts
+entirely. The hook is **blocking** — gptme waits for the result before proceeding.
 
 Example: Weather Plugin
 -----------------------
