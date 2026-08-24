@@ -195,11 +195,12 @@ def register_skill_commands(index: LessonIndex | None = None) -> list[str]:
             registered.append(canonical)
             skill_entries.append((name, canonical, handler))
 
-        # Pass 2: register bare aliases, checking against all canonicals we just
-        # registered so a skill named "skill:X" doesn't block bare alias for "X".
-        our_canonicals = {canonical for _, canonical, _ in skill_entries}
+        # Pass 2: register bare aliases. Any name already in the registry —
+        # including a canonical from pass 1 — is a collision and must not be
+        # overwritten. Without that, a skill named "skill:X" would register
+        # its bare alias as "skill:X" and clobber skill "X"'s canonical.
         for name, canonical, handler in skill_entries:
-            if name in _command_registry and name not in our_canonicals:
+            if name in _command_registry:
                 logger.debug(
                     "Skill %r collides with existing command; only /%s registered",
                     name,

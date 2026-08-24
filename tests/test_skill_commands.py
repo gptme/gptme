@@ -298,16 +298,38 @@ def test_handler_undo_not_called_when_build_fails(
     manager.undo.assert_not_called()
 
 
-def test_two_pass_registration_skill_named_with_prefix(skills_root: Path):
-    """Skill 'X' gets a canonical even when another skill is named 'skill:X'."""
-    # Skill with a name that happens to start with the "skill:" prefix.
-    _write_skill(skills_root, "skill:demo", "Weird name", "Body")
-    # Skill whose canonical would be "skill:demo" — must not be blocked by the alias
-    # that the first skill registers for its bare name.
-    _write_skill(skills_root, "demo", "Normal skill", DEMO_BODY)
+def test_two_pass_registration_skill_named_with_prefix(skills_root: Path, manager):
+    """Skill 'X' keeps its canonical when another skill is named 'skill:X'.
+
+    Pass 2 must not register the prefix-named skill's bare alias over
+    /skill:X — that name is already the canonical of skill X.
+    """
+    _write_skill(skills_root, "skill:demo", "Weird name", "Body of prefix skill")
+    _write_skill(skills_root, "demo", "Normal skill", "Body of demo skill")
     registered = register_skill_commands()
-    # "skill:demo" canonical must exist for the second skill.
+
     assert "skill:demo" in registered
+    assert "skill:skill:demo" in registered
+    assert "demo" in registered
+
+    # Handler identity: /skill:demo belongs to the 'demo' skill, not the
+    # prefix-named one. Membership alone would pass even if pass 2 clobbered
+    # the canonical with the wrong handler.
+    assert _command_registry["skill:demo"].__name__ == "skill_demo"
+    assert _command_registry["skill:skill:demo"].__name__ == "skill_skill:demo"
+    assert _command_registry["demo"] is _command_registry["skill:demo"]
+
+    list(_command_registry["skill:demo"](_ctx(manager, "")))
+    drained = drain_prompt_queue(manager.logdir)
+    assert len(drained) == 1
+    assert "Body of demo skill" in drained[0].content
+    assert drained[0].content.startswith("Skill invoked: /skill:demo")
+
+    list(_command_registry["skill:skill:demo"](_ctx(manager, "")))
+    drained = drain_prompt_queue(manager.logdir)
+    assert len(drained) == 1
+    assert "Body of prefix skill" in drained[0].content
+    assert drained[0].content.startswith("Skill invoked: /skill:skill:demo")
 
 
 def test_tool_list_unavailable_suppresses_all_bare_aliases(
