@@ -176,8 +176,24 @@ function extractJsonObject(raw: string): string {
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   const candidate = (fenced ? fenced[1] : trimmed).trim();
   const start = candidate.indexOf('{');
-  const end = candidate.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
+  if (start === -1) {
+    throw new Error('vision_assert model response contains no JSON object');
+  }
+  // Walk forward from the opening brace to find its matching closing brace.
+  // Using lastIndexOf('}') would pick up any '}' in trailing prose after the object.
+  let depth = 0;
+  let end = -1;
+  for (let i = start; i < candidate.length; i++) {
+    if (candidate[i] === '{') depth++;
+    else if (candidate[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+  if (end === -1) {
     throw new Error('vision_assert model response contains no JSON object');
   }
   return candidate.slice(start, end + 1);

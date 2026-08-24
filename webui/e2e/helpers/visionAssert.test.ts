@@ -60,6 +60,14 @@ describe('visionAssertCore', () => {
       });
     });
 
+    it('parses JSON followed by trailing prose containing a closing brace', () => {
+      const raw = 'The result is {"pass": true, "reason": "visible"} and that\'s all.}';
+      expect(parseVisionVerdict(raw)).toEqual({
+        pass: true,
+        reason: 'visible',
+      });
+    });
+
     it('rejects missing or non-boolean pass', () => {
       expect(() => parseVisionVerdict('{"reason": "ok"}')).toThrow(/pass/);
       expect(() => parseVisionVerdict('{"pass": "true", "reason": "ok"}')).toThrow(/pass/);
