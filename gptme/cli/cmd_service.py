@@ -183,7 +183,7 @@ JOURNAL_DIR="$WORK_DIR/journal/$(date +%Y-%m-%d)"
 PROMPT_FILE="$WORK_DIR/prompt.md"
 
 mkdir -p "$JOURNAL_DIR"
-SESSION_ID=$(date +%Y%m%d-%H%M%S)
+SESSION_ID=$(date +%Y%m%d-%H%M%S)-$$
 SESSION_LOG="$JOURNAL_DIR/session-$SESSION_ID.md"
 
 {{
@@ -219,8 +219,12 @@ echo "## Output" >> "$SESSION_LOG"
 echo >> "$SESSION_LOG"
 
 cd "$WORK_DIR"
+# Prefix a newline so the prompt string never exactly matches a gptme-util
+# subcommand or plugin name (which would trigger CLI dispatch instead of an
+# agent session). gptme strips leading whitespace before sending to the LLM.
+prompt_arg=$'\\n'"$(cat "$PROMPT_FILE")"
 exit_code=0
-gptme "${{gptme_args[@]}}" "$(cat "$PROMPT_FILE")" >> "$SESSION_LOG" 2>&1 || exit_code=$?
+gptme "${{gptme_args[@]}}" "$prompt_arg" >> "$SESSION_LOG" 2>&1 || exit_code=$?
 
 {{
   echo

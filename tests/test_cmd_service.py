@@ -876,3 +876,38 @@ def test_startup_script_fails_loudly_without_prompt(tmp_path: Path) -> None:
     assert "exit 66" in startup
     assert "command -v gptme" in startup
     assert "exit 127" in startup
+
+
+def test_startup_script_session_id_is_collision_resistant(tmp_path: Path) -> None:
+    """Session IDs must be unique even when two runs start within the same second.
+
+    Regression: the original template used date +%%Y%%m%%d-%%H%%M%%S alone, so
+    two service restarts within a second would produce identical SESSION_ID
+    values, causing the later run to truncate the earlier journal entry and
+    reuse the same gptme conversation.
+    """
+    _run_init(tmp_path)
+    startup = (tmp_path / "gptme-agent-run.sh").read_text()
+
+    # PID suffix ($$ in bash) is the only stdlib-portable disambiguation that
+    # is also second-collision-proof without external tools.
+    assert "SESSION_ID=$(date +%Y%m%d-%H%M%S)-$$" in startup
+
+
+def test_startup_script_prompt_bypasses_command_routing(tmp_path: Path) -> None:
+    """The prompt must not trigger gptme's subcommand dispatch.
+
+    Regression: passing "$(cat prompt.md)" as the first positional argument lets
+    gptme's dispatch logic (which checks prompts[0] for exact matches against
+    gptme-util subcommands and gptme-* plugins) route a single-word prompt like
+    'context', 'status', or 'tools' to a utility subcommand instead of starting
+    an agent session. A leading newline prevents the exact-match while
+    _group_prompt_args strips it before the LLM receives the message.
+    """
+    _run_init(tmp_path)
+    startup = (tmp_path / "gptme-agent-run.sh").read_text()
+
+    # In the generated bash file, $'\n' is ANSI-C quoting for a newline; the
+    # backslash is a literal \ in the file content, so Python sees it as \n.
+    assert r"prompt_arg=$'\n'" in startup
+    assert '"$prompt_arg"' in startup
