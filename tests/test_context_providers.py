@@ -59,19 +59,19 @@ class MockContextProvider(ContextProvider):
 @pytest.fixture
 def cleanup_registry():
     """Cleanup the provider registry after tests."""
-    original_registry = {}
     from gptme.providers import context as ctx_module
 
-    # Save original registry state
-    if hasattr(ctx_module, "_provider_registry"):
-        original_registry = ctx_module._provider_registry.copy()
+    # Save original registry state AND the initialized flag
+    original_registry = ctx_module._provider_registry.copy()
+    original_initialized = ctx_module._registry_initialized
 
     yield
 
-    # Restore original registry
-    if hasattr(ctx_module, "_provider_registry"):
-        ctx_module._provider_registry.clear()
-        ctx_module._provider_registry.update(original_registry)
+    # Restore both — leaving _registry_initialized=True with an empty registry
+    # causes get_context_provider() to skip re-initialization and see [] permanently.
+    ctx_module._provider_registry.clear()
+    ctx_module._provider_registry.update(original_registry)
+    ctx_module._registry_initialized = original_initialized
 
 
 @pytest.fixture
