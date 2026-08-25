@@ -1804,29 +1804,32 @@ def execute_shell(
         yield Message("system", f"Command denied: `{matched_cmd}`\n\n{deny_reason}")
         return
 
-    # Skip confirmation for allowlisted commands
-    if is_allowlisted(cmd):
-        logger.debug(f"Command allowlisted, skipping confirmation: {cmd[:80]}")
-        logdir = get_path_fn()
-        yield from execute_shell_impl(cmd, logdir, timeout=timeout)
-    else:
-        logger.debug(f"Command not allowlisted, requiring confirmation: {cmd[:80]}")
+    # All non-denied commands go through execute_with_confirmation so that
+    # TOOL_CONFIRM hooks (including third-party guardrail plugins) can intercept
+    # any command — including ones the built-in allowlist would auto-approve.
+    # The shell_allowlist_hook (TOOL_CONFIRM, priority=10) auto-confirms safe
+    # commands; a guardrail registered at priority > 10 runs first and can deny
+    # even "allowlisted" commands such as `cat ~/.ssh/id_rsa`.
+    logger.debug(
+        "Routing shell command through hook chain: %s",
+        cmd[:80],
+    )
 
-        # Create a wrapper function that passes timeout to execute_shell_impl
-        def execute_fn(cmd: str, path: Path | None) -> Generator[Message, None, None]:
-            return execute_shell_impl(cmd, path, timeout=timeout)
+    # Create a wrapper function that passes timeout to execute_shell_impl
+    def execute_fn(cmd: str, path: Path | None) -> Generator[Message, None, None]:
+        return execute_shell_impl(cmd, path, timeout=timeout)
 
-        yield from execute_with_confirmation(
-            cmd,
-            args,
-            kwargs,
-            execute_fn=execute_fn,
-            get_path_fn=get_path_fn,
-            preview_fn=preview_shell,
-            preview_lang="bash",
-            confirm_msg="Run command?",
-            allow_edit=True,
-        )
+    yield from execute_with_confirmation(
+        cmd,
+        args,
+        kwargs,
+        execute_fn=execute_fn,
+        get_path_fn=get_path_fn,
+        preview_fn=preview_shell,
+        preview_lang="bash",
+        confirm_msg="Run command?",
+        allow_edit=True,
+    )
 
 
 def _format_block_smart(header: str, cmd: str, lang="") -> str:

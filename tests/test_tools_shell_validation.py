@@ -793,6 +793,37 @@ class TestSensitiveArgs:
     def test_find_root_bare_not_allowlisted(self):
         assert not is_allowlisted("find /")
 
+    # Home-directory credential paths
+    def test_cat_ssh_private_key_not_allowlisted(self):
+        """`cat ~/.ssh/id_rsa` must NOT be auto-approved — it is a secret."""
+        assert not is_allowlisted("cat ~/.ssh/id_rsa")
+
+    def test_cat_ssh_authorized_keys_not_allowlisted(self):
+        assert not is_allowlisted("cat ~/.ssh/authorized_keys")
+
+    def test_cat_aws_credentials_not_allowlisted(self):
+        assert not is_allowlisted("cat ~/.aws/credentials")
+
+    def test_cat_kube_config_not_allowlisted(self):
+        assert not is_allowlisted("cat ~/.kube/config")
+
+    def test_cat_gnupg_key_not_allowlisted(self):
+        assert not is_allowlisted("cat ~/.gnupg/secring.gpg")
+
+    def test_cat_netrc_not_allowlisted(self):
+        assert not is_allowlisted("cat ~/.netrc")
+
+    def test_ls_ssh_dir_not_allowlisted(self):
+        """`ls ~/.ssh` must require confirmation — reveals key file names."""
+        assert not is_allowlisted("ls ~/.ssh")
+
+    def test_normal_home_file_still_allowlisted(self):
+        """`cat ~/README.md` should still be auto-approved (no false positive)."""
+        assert is_allowlisted("cat ~/README.md")
+
+    def test_normal_home_dir_listing_still_allowlisted(self):
+        assert is_allowlisted("ls ~/projects")
+
 
 # ── P2: Unquoted backtick detection ─────────────────────────────────────────
 

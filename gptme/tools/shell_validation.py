@@ -24,13 +24,30 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Sensitive path prefixes — commands reading these should require confirmation
-# even when the command itself is in the allowlist (e.g. `cat /etc/shadow`)
+# even when the command itself is in the allowlist (e.g. `cat /etc/shadow`).
+# Note: home-relative paths (~/.ssh etc.) are covered by _SENSITIVE_HOME_DIRS below.
 _SENSITIVE_PATH_PREFIXES = (
     "/etc/",
     "/root/",
     "/proc/",
     "/sys/",
     "/boot/",
+)
+
+# Home-relative directories that contain credentials/secrets.
+# Matched against tokens starting with "~/", e.g. "~/.ssh/id_rsa".
+_SENSITIVE_HOME_DIRS = (
+    "~/.ssh",
+    "~/.aws",
+    "~/.gnupg",
+    "~/.pgp",
+    "~/.kube",
+    "~/.docker",
+    "~/.config/gcloud",
+    "~/.azure",
+    "~/.netrc",
+    "~/.npmrc",
+    "~/.pypirc",
 )
 
 # Commands that are safe to auto-approve without user confirmation
@@ -353,8 +370,11 @@ def _has_sensitive_args(cmd: str) -> bool:
         # because they contain no path separator.
         if "/" in token and any(char in token for char in "*?[{"):
             return True
-        # Sensitive directory prefixes
+        # Sensitive directory prefixes (absolute paths)
         if any(token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
+            return True
+        # Sensitive home-relative credential directories (~/...)
+        if any(token.startswith(prefix) for prefix in _SENSITIVE_HOME_DIRS):
             return True
 
     return False
