@@ -224,26 +224,38 @@ behaviour silently:
 
 **How well populated is this?** Unevenly, and it is worth being explicit about:
 
-- ``default_tool_format`` is set for the ``openai-subscription`` models only
-  (they default to ``tool``). No other model in the bundled registry declares
-  one, so for almost every model step 4 above is a no-op and you land on
-  ``markdown``.
+- ``default_tool_format`` is set to ``tool`` on 92 of the 111 models in the
+  bundled registry. This is stamped **per provider**, not per model: every
+  provider that talks the OpenAI-compatible function-calling API gets it
+  (``openai``, ``openai-subscription``, ``gemini``, ``xai``, ``groq``,
+  ``deepseek``, ``moonshot``, ``openrouter``, ``requesty``, and the
+  subscription/proxy variants). ``anthropic`` is excluded because it uses the
+  Anthropic SDK rather than the OpenAI-compatible path, and ``mock`` is
+  test-only. An explicit per-model value always wins over the provider stamp.
 
-- ``supports_parallel_tool_calls`` is set on the Claude Opus/Sonnet 4.x families,
-  their OpenRouter aliases, Kimi K3, and the GPT-4.1/GPT-5 families — roughly 30
-  entries. Deliberate omissions are meaningful: Claude Haiku 4.5 carries an
+  Four OpenAI-compatible providers (``azure``, ``local``, ``nvidia``, ``gptme``)
+  ship no static registry entries at all, so there is nothing to stamp; they get
+  the same ``tool`` default applied at resolution time instead, including on
+  dynamic-fetch fallbacks.
+
+- ``supports_parallel_tool_calls`` is set on 29 entries: the Claude Opus/Sonnet
+  4.x families, their OpenRouter aliases, Kimi K3, and the GPT-4.1/GPT-5
+  families. Deliberate omissions are meaningful: Claude Haiku 4.5 carries an
   explicit comment that it does *not* emit multiple tool calls per response.
 
-- ``supports_strict_tools`` is set on the OpenAI models (GPT-4o/4.1/5 families,
-  o-series) and Kimi K3.
+- ``supports_strict_tools`` is set on 23 entries: the OpenAI models (GPT-4o/4.1/5
+  families, o-series) and Kimi K3.
 
 So this is not a complete capability matrix, and an absent flag means "not
 recorded", not "not supported". If a model you use is missing a flag it should
 have, that is a worthwhile contribution.
 
-The :doc:`evals` leaderboard is the natural source for populating
-``default_tool_format``: it already reports the best-performing format per model
-from measured runs.
+One caveat on ``default_tool_format``: the provider-level stamp above encodes
+"this provider can do native tool calls", not "``tool`` measurably beats
+``markdown`` for this model". Those are different claims. The :doc:`evals`
+leaderboard is the source that can settle the second one — it already reports the
+best-performing format per model from measured runs — and per-model values
+derived from it are the intended refinement over the current heuristic.
 
 Troubleshooting
 ---------------
