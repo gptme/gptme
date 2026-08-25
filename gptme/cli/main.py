@@ -1370,6 +1370,8 @@ def main(
                 Message(
                     "system",
                     f"# Agent Profile: {selected_profile.name}\n\n{selected_profile.system_prompt}",
+                    hide=True,
+                    pinned=True,
                 )
             ]
     else:
