@@ -274,12 +274,14 @@ def test_import_does_not_override_custom_callable_handler():
             (
                 "import signal, sys;"
                 # Simulate an embedder that installs a real callable handler.
-                "signal.signal(signal.SIGTERM, lambda s, f: None);"
+                "embedder_handler = lambda s, f: None;"
+                "signal.signal(signal.SIGTERM, embedder_handler);"
                 "import gptme.server.cli as cli;"
                 "h = signal.getsignal(signal.SIGTERM);"
-                # The lambda should still be active, not _startup_sigterm_handler.
-                "name = getattr(h, '__name__', repr(h));"
-                "sys.exit(0 if 'startup' not in name else 1)"
+                # The exact embedder callable must still be installed — not
+                # merely a callable whose name lacks 'startup' (that would
+                # pass vacuously for any replacement handler).
+                "sys.exit(0 if h is embedder_handler else 1)"
             ),
         ],
         capture_output=True,
