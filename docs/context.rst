@@ -328,9 +328,9 @@ Provider that uses redundancy detection:
 Related
 =======
 
-- :ref:`tools:autocompact` - Automatic compression tool
+- ``autocompact`` tool - Automatic compression tool (see :doc:`commands`)
 - ``gptme.providers.context`` - Provider interface module
-- :ref:`api:message` - Message class reference
+- :py:class:`gptme.message.Message` - Message class reference
 
 API Reference
 =============
