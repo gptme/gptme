@@ -852,6 +852,15 @@ class TestSensitiveArgs:
         """Exact `~/.ssh` must still be blocked (ls reveals key names)."""
         assert not is_allowlisted("ls ~/.ssh")
 
+    # Redundant separator normalization (Greptile P1 second-review fix)
+    def test_double_slash_home_var_ssh_not_allowlisted(self):
+        """`$HOME//.ssh/id_rsa` has a redundant separator — must still be blocked."""
+        assert not is_allowlisted("cat $HOME//.ssh/id_rsa")
+
+    def test_double_slash_tilde_ssh_not_allowlisted(self):
+        """`~//.ssh/id_rsa` has a redundant separator — must still be blocked."""
+        assert not is_allowlisted("cat ~//.ssh/id_rsa")
+
 
 # ── P2: Unquoted backtick detection ─────────────────────────────────────────
 

@@ -383,6 +383,10 @@ def _has_sensitive_args(cmd: str) -> bool:
             if token.startswith(sub):
                 normalized = "~/" + token[len(sub) :]
                 break
+        # Collapse redundant separators so that $HOME//.ssh/id_rsa (→ ~//.ssh/id_rsa)
+        # still matches the ~/ prefix boundary after double-slash removal.
+        while "//" in normalized:
+            normalized = normalized.replace("//", "/")
         if any(
             normalized == prefix or normalized.startswith(prefix + "/")
             for prefix in _SENSITIVE_HOME_DIRS
