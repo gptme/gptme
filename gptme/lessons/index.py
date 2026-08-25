@@ -100,11 +100,11 @@ class LessonIndex:
         Searches for lessons/skills in:
 
         User-level (lessons):
-        - ~/.config/gptme/lessons
+        - $XDG_CONFIG_HOME/gptme/lessons (i.e. get_config_dir()/lessons)
         - ~/.agents/lessons (cross-platform standard)
 
         User-level (skills, Anthropic SKILL.md format):
-        - ~/.config/gptme/skills
+        - $XDG_CONFIG_HOME/gptme/skills (i.e. get_config_dir()/skills)
         - ~/.claude/skills (Claude CLI compatibility)
         - ~/.agents/skills (cross-platform standard)
 
@@ -274,7 +274,7 @@ class LessonIndex:
         2. By relative filename — catches same-named lessons across directories
 
         Directory order determines precedence (first directory wins):
-        1. User config (~/.config/gptme/lessons)
+        1. User config (get_config_dir()/lessons, honouring XDG_CONFIG_HOME)
         2. Workspace (./lessons)
         3. Configured dirs (from gptme.toml)
         """
