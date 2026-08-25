@@ -14708,6 +14708,7 @@ Changes since v0.32.1:
 
 **Full Changelog**: https://github.com/gptme/gptme/compare/v0.32.1...v0.33.0
 
+
 # v0.32.1
 
 These are the release notes for gptme version v0.32.1.
@@ -14818,6 +14819,7 @@ Changes since v0.32.0:
 *(excluded 4 less relevant [commits](https://github.com/gptme/gptme/compare/v0.32.0...v0.32.1))*
 
 **Full Changelog**: https://github.com/gptme/gptme/compare/v0.32.0...v0.32.1
+
 
 # v0.32.0
 
