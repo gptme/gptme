@@ -304,6 +304,46 @@ def test_custom_default_provider_preserved_across_init(cleanup_registry):
     assert retrieved.__class__ is CustomDefault
 
 
+@patch("importlib.metadata.entry_points")
+def test_entry_point_does_not_clobber_preregistered_default(
+    mock_entry_points, cleanup_registry
+):
+    """An entry point named 'default' must not overwrite a pre-registered custom default.
+
+    Regression test for a Greptile P1: _load_entry_point_providers() called
+    register_provider() unconditionally, so a plugin entry point named "default"
+    could clobber a caller-selected custom default even after setdefault() in
+    _init_registry() preserved it.
+    """
+    from gptme.providers import context as ctx_module
+
+    class CustomDefault(MockContextProvider):
+        _provider_name = "default"
+
+    class EntryPointDefault(MockContextProvider):
+        _provider_name = "default"
+
+    # Pre-register the custom default
+    ctx_module._provider_registry.clear()
+    ctx_module._registry_initialized = False
+    register_provider("default", CustomDefault)
+
+    # Mock an entry point also named "default"
+    mock_ep = MagicMock()
+    mock_ep.name = "default"
+    mock_ep.load.return_value = EntryPointDefault
+    mock_entry_points.return_value = [mock_ep]
+
+    # Trigger init (which calls _load_entry_point_providers)
+    provider = get_context_provider("default")
+
+    # The pre-registered custom default must win over the entry point
+    assert provider.__class__ is CustomDefault, (
+        f"Expected CustomDefault but got {provider.__class__.__name__}; "
+        "entry point must not clobber a pre-registered provider"
+    )
+
+
 def test_register_provider_requires_subclass(cleanup_registry):
     """Only ContextProvider subclasses can be registered."""
 

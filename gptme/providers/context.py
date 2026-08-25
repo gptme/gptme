@@ -170,7 +170,11 @@ def _load_entry_point_providers() -> None:
     for ep in eps:
         try:
             provider_class = ep.load()
-            register_provider(ep.name, provider_class)
+            # setdefault semantics: a pre-registered provider (including one
+            # explicitly set under "default") must not be clobbered by an
+            # entry point of the same name.
+            if ep.name not in _provider_registry:
+                register_provider(ep.name, provider_class)
         except Exception as exc:
             logger.warning(
                 "Failed to load context provider entry point %r: %s", ep.name, exc
