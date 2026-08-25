@@ -38,6 +38,25 @@ class TestGetCcMemoryDir:
         # Both should resolve to the same hash
         assert cc_dir_real == cc_dir_link
 
+    def test_windows_backslashes_replaced(self):
+        """Windows-style backslashes in resolved path strings are normalised to dashes.
+
+        On Windows, str(Path.resolve()) returns backslash separators. The function
+        must replace them so the resulting hash component contains no backslashes.
+        """
+
+        class _WindowsPath:
+            def __str__(self):
+                return "C:\\Users\\user\\myproject"
+
+        workspace = Path("/irrelevant")
+        with patch.object(Path, "resolve", return_value=_WindowsPath()):
+            cc_dir = get_cc_memory_dir(workspace)
+
+        hash_part = cc_dir.parent.name  # the workspace_hash component
+        assert "\\" not in hash_part
+        assert hash_part == "C:-Users-user-myproject"
+
     def test_path_collision_documented(self):
         """Paths differing only by dash-vs-separator produce the same hash (CC's design).
 
@@ -199,6 +218,44 @@ class TestCcMemoryInWorkspacePrompt:
         contents = [m.content for m in messages]
         combined = "\n".join(contents)
         assert "Persistent Memory" not in combined
+
+    def test_non_utf8_memory_uses_replacement_chars(self, tmp_path):
+        """Non-UTF-8 bytes in MEMORY.md produce replacement chars (U+FFFD), not silent drops."""
+        from gptme.prompts.workspace import prompt_workspace
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        cc_memory_file = tmp_path / "MEMORY.md"
+        # Latin-1 encoded text: "café" — 0xe9 is invalid UTF-8 lead byte
+        cc_memory_file.write_bytes(b"# Memory\n\ncaf\xe9\n")
+
+        with (
+            patch(
+                "gptme.prompts.workspace.get_cc_memory_file",
+                return_value=cc_memory_file,
+            ),
+            patch("gptme.prompts.workspace.get_config") as mock_config,
+            patch("gptme.prompts.workspace.get_project_config", return_value=None),
+            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+            patch("gptme.prompts.workspace._get_git_status", return_value=None),
+            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+        ):
+            mock_config.return_value.user = None
+            messages = list(
+                prompt_workspace(
+                    workspace=workspace,
+                    include_user_context=True,
+                    include_context_cmd=False,
+                )
+            )
+
+        memory_msgs = [m for m in messages if "Persistent Memory" in m.content]
+        assert len(memory_msgs) == 1
+        content = memory_msgs[0].content
+        # The invalid byte is replaced with U+FFFD, not silently dropped
+        assert "�" in content or "caf" in content
+        # Confirm "caf" prefix survived (not silently swallowed)
+        assert "caf" in content
 
     def test_oversized_memory_is_truncated(self, tmp_path):
         """Memory files exceeding the size cap are truncated before injection.

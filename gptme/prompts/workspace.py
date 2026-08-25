@@ -406,7 +406,7 @@ def prompt_workspace(
                         f"CC memory file {cc_memory_file} exceeds "
                         f"{_CC_MEMORY_MAX_BYTES // 1024}KB; truncating"
                     )
-                memory_content = raw.decode("utf-8", errors="ignore").strip()
+                memory_content = raw.decode("utf-8", errors="replace").strip()
                 if memory_content:
                     yield Message(
                         "system",

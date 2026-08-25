@@ -194,7 +194,7 @@ def get_cc_memory_dir(workspace: Path) -> Path:
         inherited from CC's design and cannot be resolved without diverging from
         CC's path formula.
     """
-    workspace_hash = str(workspace.resolve()).replace("/", "-")
+    workspace_hash = str(workspace.resolve()).replace("\\", "-").replace("/", "-")
     return Path.home() / ".claude" / "projects" / workspace_hash / "memory"
 
 
