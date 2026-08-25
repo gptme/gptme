@@ -231,8 +231,7 @@ fi
 # dispatch: /shell, /python, /log, etc. as the first line would be dispatched
 # as a command rather than sent to the model. /path/to/file-style strings are
 # safe because their first word contains more than one slash.
-_prompt_fw=$(grep -m1 '[^[:space:]]' "$PROMPT_FILE" || true)
-_prompt_fw="${{_prompt_fw%% *}}"
+_prompt_fw=$(grep -m1 '[^[:space:]]' "$PROMPT_FILE" | awk '{{print $1}}' || true)
 if [ "${{_prompt_fw#/}}" != "$_prompt_fw" ] \
    && [ "$(printf '%s' "$_prompt_fw" | awk -F'/' '{{print NF-1}}')" -eq 1 ]; then
   echo "gptme agent $AGENT_NAME: prompt.md starts with '$_prompt_fw', a gptme in-chat command; it would be dispatched rather than sent to the model." >&2

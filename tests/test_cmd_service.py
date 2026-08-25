@@ -963,6 +963,35 @@ def test_startup_script_rejects_slash_command_prompt(tmp_path: Path) -> None:
     assert "in-chat command" in startup
 
 
+@pytest.mark.skipif(not shutil.which("bash"), reason="bash not available")
+def test_startup_script_rejects_slash_command_with_leading_whitespace(
+    tmp_path: Path,
+) -> None:
+    """A prompt.md whose first content line is TAB+/shell must be rejected (exit 66).
+
+    Regression: the original guard used `${_prompt_fw%% *}` to extract the first
+    word, which retains a leading tab — so `\\t/shell` passed the startswith-/
+    check unchanged and was not caught. _group_prompt_args would then strip the
+    tab and expose /shell to the in-chat dispatcher.
+    Using `awk '{print $1}'` strips leading whitespace before extracting the word.
+    """
+    _run_init(tmp_path)
+    startup = tmp_path / "gptme-agent-run.sh"
+    (tmp_path / "prompt.md").write_text("\t/shell echo pwned\n")
+
+    proc = subprocess.run(
+        ["bash", str(startup)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 66, (
+        f"Expected exit 66 for tab-prefixed slash command; got {proc.returncode}\n"
+        f"stderr: {proc.stderr}"
+    )
+    assert "in-chat command" in proc.stderr
+
+
 def test_startup_script_mkdir_journal_dir_fails_loudly(tmp_path: Path) -> None:
     """A journal directory that cannot be created must fail with an explicit error.
 
