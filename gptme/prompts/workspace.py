@@ -396,17 +396,18 @@ def prompt_workspace(
         cc_memory_file = get_cc_memory_file(workspace_resolved)
         if cc_memory_file.exists():
             try:
-                memory_content = cc_memory_file.read_text(encoding="utf-8").strip()
+                # Read at most MAX+1 bytes to detect oversized files without loading them fully
+                with open(cc_memory_file, "rb") as _f:
+                    raw = _f.read(_CC_MEMORY_MAX_BYTES + 1)
+                truncated = len(raw) > _CC_MEMORY_MAX_BYTES
+                if truncated:
+                    raw = raw[:_CC_MEMORY_MAX_BYTES]
+                    logger.warning(
+                        f"CC memory file {cc_memory_file} exceeds "
+                        f"{_CC_MEMORY_MAX_BYTES // 1024}KB; truncating"
+                    )
+                memory_content = raw.decode("utf-8", errors="ignore").strip()
                 if memory_content:
-                    encoded = memory_content.encode("utf-8")
-                    if len(encoded) > _CC_MEMORY_MAX_BYTES:
-                        logger.warning(
-                            f"CC memory file {cc_memory_file} is {len(encoded)} bytes; "
-                            f"truncating to {_CC_MEMORY_MAX_BYTES // 1024}KB"
-                        )
-                        memory_content = encoded[:_CC_MEMORY_MAX_BYTES].decode(
-                            "utf-8", errors="ignore"
-                        )
                     yield Message(
                         "system",
                         f"## Persistent Memory\n\n"

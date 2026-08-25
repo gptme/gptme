@@ -201,7 +201,12 @@ class TestCcMemoryInWorkspacePrompt:
         assert "Persistent Memory" not in combined
 
     def test_oversized_memory_is_truncated(self, tmp_path):
-        """Memory files exceeding the size cap are truncated before injection."""
+        """Memory files exceeding the size cap are truncated before injection.
+
+        Critically, the file must NOT be fully read — only _CC_MEMORY_MAX_BYTES+1
+        bytes should be consumed so that multi-MB MEMORY.md files cannot stall
+        prompt construction.
+        """
         from gptme.prompts.workspace import _CC_MEMORY_MAX_BYTES, prompt_workspace
 
         workspace = tmp_path / "myproject"
@@ -209,6 +214,23 @@ class TestCcMemoryInWorkspacePrompt:
         cc_memory_file = tmp_path / "MEMORY.md"
         big_content = "# Memory\n\n" + ("x" * (_CC_MEMORY_MAX_BYTES + 10_000))
         cc_memory_file.write_text(big_content, encoding="utf-8")
+
+        max_bytes_read = []
+
+        real_open = open
+
+        def tracking_open(path, mode="r", **kw):
+            fh = real_open(path, mode, **kw)
+            if str(path) == str(cc_memory_file) and "b" in mode:
+                real_read = fh.read
+
+                def bounded_read(n=-1):
+                    data = real_read(n)
+                    max_bytes_read.append(len(data))
+                    return data
+
+                fh.read = bounded_read
+            return fh
 
         with (
             patch(
@@ -220,6 +242,7 @@ class TestCcMemoryInWorkspacePrompt:
             patch("gptme.prompts.workspace.get_tree_output", return_value=None),
             patch("gptme.prompts.workspace._get_git_status", return_value=None),
             patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+            patch("builtins.open", side_effect=tracking_open),
         ):
             mock_config.return_value.user = None
             messages = list(
@@ -233,4 +256,8 @@ class TestCcMemoryInWorkspacePrompt:
         memory_msgs = [m for m in messages if "Persistent Memory" in m.content]
         assert len(memory_msgs) == 1
         injected = memory_msgs[0].content.encode("utf-8")
-        assert len(injected) < _CC_MEMORY_MAX_BYTES * 2
+        # Output is bounded
+        assert len(injected) <= _CC_MEMORY_MAX_BYTES * 2
+        # The file was read with a size bound, not in full
+        assert max_bytes_read, "open() was not called on the memory file in binary mode"
+        assert max(max_bytes_read) <= _CC_MEMORY_MAX_BYTES + 1
