@@ -165,7 +165,7 @@ describe('visionAssertCore', () => {
       expect(verdict.pass).toBe(false);
     });
 
-    it('fails closed on HTTP errors', async () => {
+    it('fails immediately on 4xx without retrying', async () => {
       const fetchImpl = jest.fn().mockResolvedValue({
         ok: false,
         status: 401,
@@ -180,6 +180,56 @@ describe('visionAssertCore', () => {
           fetchImpl: fetchImpl as unknown as typeof fetch,
         })
       ).rejects.toThrow(/HTTP 401/);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries once on 5xx server error', async () => {
+      const fetchImpl = jest
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          text: async () => 'Service Unavailable',
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: '{"pass": true, "reason": "visible"}' } }],
+          }),
+        });
+
+      const verdict = await requestVisionVerdict({
+        imagePng: Buffer.from('fake-png'),
+        claim: 'visible',
+        apiKey: 'test-key',
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(verdict.pass).toBe(true);
+    });
+
+    it('retries once on network-level failure', async () => {
+      const networkError = new Error('connection reset');
+      const fetchImpl = jest
+        .fn()
+        .mockRejectedValueOnce(networkError)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: '{"pass": true, "reason": "ok"}' } }],
+          }),
+        });
+
+      const verdict = await requestVisionVerdict({
+        imagePng: Buffer.from('fake-png'),
+        claim: 'visible',
+        apiKey: 'test-key',
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(verdict.pass).toBe(true);
     });
   });
 });

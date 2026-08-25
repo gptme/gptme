@@ -127,23 +127,37 @@ export async function requestVisionVerdict(opts: {
 
   let lastError: Error | undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetchImpl(OPENROUTER_CHAT_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${opts.apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://github.com/gptme/gptme',
-        'X-Title': 'gptme-webui-vision-assert',
-      },
-      body: JSON.stringify(payload),
-      // jsdom's AbortSignal has no .timeout(); Node 18+/Playwright CI does.
-      ...(typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
-        ? { signal: AbortSignal.timeout(VISION_ASSERT_TIMEOUT_MS) }
-        : {}),
-    });
+    let response: Response;
+    try {
+      response = await fetchImpl(OPENROUTER_CHAT_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${opts.apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://github.com/gptme/gptme',
+          'X-Title': 'gptme-webui-vision-assert',
+        },
+        body: JSON.stringify(payload),
+        // jsdom's AbortSignal has no .timeout(); Node 18+/Playwright CI does.
+        ...(typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+          ? { signal: AbortSignal.timeout(VISION_ASSERT_TIMEOUT_MS) }
+          : {}),
+      });
+    } catch (err) {
+      // Network-level failure (timeout, DNS, connection reset): retry once.
+      lastError = err as Error;
+      continue;
+    }
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      throw new Error(`vision_assert OpenRouter HTTP ${response.status}: ${body.slice(0, 500)}`);
+      const msg = `vision_assert OpenRouter HTTP ${response.status}: ${body.slice(0, 500)}`;
+      if (response.status >= 500) {
+        // Server error: retry once.
+        lastError = new Error(msg);
+        continue;
+      }
+      // Client error (4xx): fail immediately — retrying won't help.
+      throw new Error(msg);
     }
     try {
       const data: unknown = await response.json();
