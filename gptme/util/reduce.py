@@ -7,6 +7,7 @@ Typically used when the log exceeds a token limit and needs to be shortened.
 import hashlib
 import logging
 import re
+import threading
 from collections.abc import Generator
 from typing import Literal
 
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Message is a frozen dataclass so sharing the cached instance by reference is safe.
 _PROACTIVE_SUMMARIZE_CACHE_MAX = 256
 _proactive_summarize_cache: dict[str, "Message"] = {}
+_proactive_summarize_cache_lock = threading.Lock()
 
 
 def message_contains_tool_use(msg: Message) -> bool:
@@ -477,9 +479,10 @@ def proactive_summarize_log(
                 exc_info=True,
             )
             return log
-        if len(_proactive_summarize_cache) >= _PROACTIVE_SUMMARIZE_CACHE_MAX:
-            _proactive_summarize_cache.pop(next(iter(_proactive_summarize_cache)))
-        _proactive_summarize_cache[cache_key] = summary_msg
+        with _proactive_summarize_cache_lock:
+            if len(_proactive_summarize_cache) >= _PROACTIVE_SUMMARIZE_CACHE_MAX:
+                _proactive_summarize_cache.pop(next(iter(_proactive_summarize_cache)))
+            _proactive_summarize_cache[cache_key] = summary_msg
 
     result = initial_system + [summary_msg] + pinned_middle + recent
     new_tokens = len_tokens(result, model=model.model)
