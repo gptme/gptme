@@ -383,10 +383,19 @@ def _has_sensitive_args(cmd: str) -> bool:
             if token.startswith(sub):
                 normalized = "~/" + token[len(sub) :]
                 break
+        # ~username/... spellings (e.g. ~root/.ssh/id_rsa) name another user's
+        # home dir; strip the username component and treat the rest as ~/...
+        # so the sensitive-dir boundary check below fires for those too.
+        if re.match(r"^~[^/]+/", normalized) and not normalized.startswith("~/"):
+            normalized = "~/" + re.sub(r"^~[^/]+/", "", normalized)
         # Collapse redundant separators so that $HOME//.ssh/id_rsa (→ ~//.ssh/id_rsa)
         # still matches the ~/ prefix boundary after double-slash removal.
         while "//" in normalized:
             normalized = normalized.replace("//", "/")
+        # Remove no-op ./ segments (e.g. ~/./.ssh/id_rsa → ~/.ssh/id_rsa) that
+        # bash resolves at runtime but which bypass literal prefix matching.
+        while "/./" in normalized:
+            normalized = normalized.replace("/./", "/")
         if any(
             normalized == prefix or normalized.startswith(prefix + "/")
             for prefix in _SENSITIVE_HOME_DIRS

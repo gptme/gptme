@@ -861,6 +861,28 @@ class TestSensitiveArgs:
         """`~//.ssh/id_rsa` has a redundant separator — must still be blocked."""
         assert not is_allowlisted("cat ~//.ssh/id_rsa")
 
+    # Dot-segment normalization (Greptile P1 third-review fix)
+    def test_dot_segment_home_var_ssh_not_allowlisted(self):
+        """`$HOME/./.ssh/id_rsa` contains a no-op ./ segment — must still be blocked."""
+        assert not is_allowlisted("cat $HOME/./.ssh/id_rsa")
+
+    def test_dot_segment_tilde_ssh_not_allowlisted(self):
+        """`~/./.ssh/id_rsa` contains a no-op ./ segment — must still be blocked."""
+        assert not is_allowlisted("cat ~/./.ssh/id_rsa")
+
+    # ~username/ form normalization (bob-ai-review P1 fix)
+    def test_tilde_root_ssh_not_allowlisted(self):
+        """`~root/.ssh/id_rsa` uses another user's home spelling — must be blocked."""
+        assert not is_allowlisted("cat ~root/.ssh/id_rsa")
+
+    def test_tilde_username_aws_not_allowlisted(self):
+        """`~admin/.aws/credentials` uses another user's home spelling — must be blocked."""
+        assert not is_allowlisted("cat ~admin/.aws/credentials")
+
+    def test_tilde_username_benign_allowlisted(self):
+        """`~alice/repos/project/README.md` is not a sensitive path — should be auto-approved."""
+        assert is_allowlisted("cat ~alice/repos/project/README.md")
+
 
 # ── P2: Unquoted backtick detection ─────────────────────────────────────────
 

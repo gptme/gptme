@@ -142,8 +142,16 @@ class TestToolConfirmGuardrailDeny:
 
         --no-confirm / -y removes cli_confirm and server_confirm from the hook
         chain, but independently-registered guardrails are unaffected.
+
+        This test simulates headless mode by explicitly unregistering
+        cli_confirm and server_confirm before execution, so the guardrail is
+        the *only* hook in the chain — proving it fires independently.
         """
         sentinel = tmp_path / "headless_test.txt"
+
+        # Simulate --no-confirm: remove the built-in confirmation hooks.
+        unregister_hook("cli_confirm", HookType.TOOL_CONFIRM)
+        unregister_hook("server_confirm", HookType.TOOL_CONFIRM)
 
         register_hook(
             "test.guardrail",
