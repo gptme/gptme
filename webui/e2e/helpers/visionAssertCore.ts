@@ -145,9 +145,9 @@ export async function requestVisionVerdict(opts: {
       const body = await response.text().catch(() => '');
       throw new Error(`vision_assert OpenRouter HTTP ${response.status}: ${body.slice(0, 500)}`);
     }
-    const data: unknown = await response.json();
-    const content = extractChoiceContent(data);
     try {
+      const data: unknown = await response.json();
+      const content = extractChoiceContent(data);
       return parseVisionVerdict(content);
     } catch (err) {
       lastError = err as Error;

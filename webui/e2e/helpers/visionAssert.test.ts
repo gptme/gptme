@@ -69,9 +69,13 @@ describe('visionAssertCore', () => {
     });
 
     it('parses JSON whose reason string contains a closing brace', () => {
-      // A depth-only scanner without quote awareness would return 0 at the '}'
-      // inside the string, producing invalid JSON.
-      const raw = '{"pass": false, "reason": "text cut off by }"}';
+      // The input must NOT be valid JSON overall so the fast path (JSON.parse)
+      // fails and the string-aware brace scanner actually runs. A depth-only
+      // scanner without quote awareness would close depth at the '}' inside the
+      // string and return an invalid slice; the string-aware scanner must
+      // recognise it as an in-string character and continue to the real end.
+      const raw =
+        'Here is the result: {"pass": false, "reason": "text cut off by }"} as requested.';
       expect(parseVisionVerdict(raw)).toEqual({
         pass: false,
         reason: 'text cut off by }',
