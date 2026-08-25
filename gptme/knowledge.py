@@ -11,6 +11,7 @@ problem + resolution text.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -20,6 +21,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 from .dirs import get_data_dir
@@ -43,6 +45,29 @@ def _entries_file() -> Path:
     return _knowledge_dir() / "entries.jsonl"
 
 
+@contextlib.contextmanager
+def _exclusive_lock() -> Iterator[None]:
+    """Advisory exclusive lock protecting concurrent saves and deletes.
+
+    Uses fcntl.flock on Unix.  On Windows (no fcntl) the context manager is a
+    no-op — cross-process mutual exclusion is not enforced, which is acceptable
+    for a personal single-user tool on that platform.
+    """
+    lock_path = _knowledge_dir() / ".entries.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        import fcntl as _fcntl  # Unix only
+
+        with lock_path.open("w") as lf:
+            _fcntl.flock(lf, _fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                _fcntl.flock(lf, _fcntl.LOCK_UN)
+    except ImportError:
+        yield  # Windows: no cross-process locking
+
+
 def _load_entries() -> list[KnowledgeEntry]:
     path = _entries_file()
     if not path.exists():
@@ -61,7 +86,7 @@ def _load_entries() -> list[KnowledgeEntry]:
 def _append_entry(entry: KnowledgeEntry) -> None:
     path = _entries_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
+    with _exclusive_lock(), path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
 
 
@@ -186,27 +211,29 @@ def knowledge_list(
 def knowledge_delete(entry_id: str) -> bool:
     """Remove an entry by ID, rewriting the JSONL file atomically.
 
-    Uses a temp-file-and-rename pattern so a concurrent save cannot be
-    silently overwritten by a delete that started from an older snapshot.
+    Holds an exclusive advisory lock (Unix: fcntl.flock) for the entire
+    read-filter-write cycle so a concurrent save cannot append between the
+    snapshot read and the atomic replace.
 
     Returns True if the entry was found and deleted, False otherwise.
     """
-    entries = _load_entries()
-    kept = [e for e in entries if e.get("id") != entry_id]
-    if len(kept) == len(entries):
-        return False
+    with _exclusive_lock():
+        entries = _load_entries()
+        kept = [e for e in entries if e.get("id") != entry_id]
+        if len(kept) == len(entries):
+            return False
 
-    path = _entries_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=path.parent,
-        delete=False,
-        suffix=".tmp",
-    ) as tf:
-        for e in kept:
-            tf.write(json.dumps(e) + "\n")
-        tmp_path = tf.name
-    os.replace(tmp_path, path)
+        path = _entries_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            delete=False,
+            suffix=".tmp",
+        ) as tf:
+            for e in kept:
+                tf.write(json.dumps(e) + "\n")
+            tmp_path = tf.name
+        os.replace(tmp_path, path)
     return True

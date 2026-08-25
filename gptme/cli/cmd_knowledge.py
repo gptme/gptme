@@ -92,6 +92,11 @@ def _export_for_rag(kb_dir: Path) -> None:
     rag_dir = kb_dir / "rag"
     rag_dir.mkdir(parents=True, exist_ok=True)
     entries = _load_entries()
+    live_ids = {e["id"] for e in entries}
+    # Remove orphan mirror files left by prior deletions.
+    for existing in rag_dir.glob("*.md"):
+        if existing.stem not in live_ids:
+            existing.unlink()
     for entry in entries:
         eid = entry.get("id", "unknown")
         fpath = rag_dir / f"{eid}.md"
@@ -206,25 +211,28 @@ def knowledge_delete_cmd(entry_id: str):
     full_id = matches[0]["id"]
     if knowledge_delete(full_id):
         click.echo(f"Deleted entry {full_id[:8]}")
-        # Remove the RAG mirror file so semantic retrieval doesn't return stale results.
-        if shutil.which("gptme-rag"):
-            from ..knowledge import _knowledge_dir  # fmt: skip
+        from ..knowledge import _knowledge_dir  # fmt: skip
 
-            mirror = _knowledge_dir() / "rag" / f"{full_id}.md"
-            if mirror.exists():
-                mirror.unlink()
-                try:
-                    subprocess.run(
-                        ["gptme-rag", "index", str(_knowledge_dir() / "rag")],
-                        check=True,
-                        capture_output=True,
-                        timeout=30,
-                    )
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                    click.echo(
-                        f"Warning: gptme-rag re-index after delete failed: {e}",
-                        err=True,
-                    )
+        # Always remove the mirror file regardless of whether gptme-rag is
+        # installed — the file lives on disk independently and must be cleaned
+        # up so that a later install of gptme-rag does not index stale entries.
+        mirror = _knowledge_dir() / "rag" / f"{full_id}.md"
+        if mirror.exists():
+            mirror.unlink()
+        # Re-index only when gptme-rag is available.
+        if shutil.which("gptme-rag"):
+            try:
+                subprocess.run(
+                    ["gptme-rag", "index", str(_knowledge_dir() / "rag")],
+                    check=True,
+                    capture_output=True,
+                    timeout=30,
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                click.echo(
+                    f"Warning: gptme-rag re-index after delete failed: {e}",
+                    err=True,
+                )
     else:
         click.echo(f"Failed to delete entry {full_id[:8]}")
         sys.exit(1)
