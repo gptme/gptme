@@ -707,6 +707,81 @@ class TestInterruptEndpoint:
         )
         assert session.step_seq == 2
 
+    def test_step_seq_passed_by_caller_not_sampled_in_thread(
+        self, conv, tmp_path, monkeypatch
+    ):
+        """step() must use the caller-supplied step_seq, not sample session.step_seq.
+
+        Race: a thread delayed between spawn and step_seq snapshot can see the epoch
+        of a replacement step (if interrupt + /step ran while it was descheduled).
+        The fix passes the epoch from the caller (captured under step_lock before
+        dispatch) so the finally compare-and-clear uses the original epoch, not
+        the replacement's.
+
+        Scenario:
+        - Route handler increments step_seq to 1 and spawns step() with step_seq=1.
+        - Thread is delayed; interrupt fires (step_seq → 2), new /step starts (→ 3).
+        - Thread finally runs step() with the passed step_seq=1.
+        - session.step_seq is now 3; step() must NOT clear generating (3 != 1).
+        """
+        monkeypatch.chdir(tmp_path)
+
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+
+        # Simulate the state AFTER interrupt+replacement: step_seq advanced to 3,
+        # generating=True is held by the replacement step.
+        session.step_seq = 3
+        session.generating = True
+
+        with (
+            patch("gptme.server.session_step._stream", return_value=iter([])),
+            patch("gptme.server.session_step.require_workspace_exists"),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", return_value=[]),
+            patch(
+                "gptme.server.session_step.prepare_messages",
+                return_value=[Message("user", "test")],
+            ),
+            patch("gptme.server.session_step._try_auto_name_and_notify"),
+            patch("gptme.server.session_step.set_workspace_cwd"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=tmp_path,
+                    max_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                ),
+            ),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+        ):
+            # Pass step_seq=1: the original epoch captured under step_lock by the
+            # route handler. The thread sees session.step_seq=3 (replacement), but
+            # must use 1 as my_step_seq for the finally compare-and-clear.
+            step(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                model="mock/model",
+                workspace=tmp_path,
+                step_seq=1,
+            )
+
+        # finally: session.step_seq (3) != my_step_seq (1) → must NOT clear generating.
+        # Without the fix (step() sampled session.step_seq=3 inside the thread),
+        # my_step_seq would have been 3 and generating would be False here.
+        assert session.generating is True, (
+            "Delayed-thread race: step() finally must not clear the replacement "
+            "step's generating reservation when step_seq passed from caller != current"
+        )
+        assert session.step_seq == 3
+
 
 # --- Tool confirm endpoint tests ---
 

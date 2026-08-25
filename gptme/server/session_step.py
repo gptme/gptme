@@ -638,6 +638,7 @@ def step(
     branch: str = "main",
     auto_confirm: bool = False,
     stream: bool = True,
+    step_seq: int | None = None,
 ) -> None:
     """
     Generate a response and detect tools.
@@ -657,6 +658,9 @@ def step(
         branch: Branch to use (default: "main")
         auto_confirm: Whether to auto-confirm tools (default: False)
         stream: Whether to stream the response (default: True)
+        step_seq: The epoch this step owns, captured under step_lock by the caller.
+            Used in finally to detect whether the continuation has taken ownership.
+            If None, falls back to sampling session.step_seq at entry (racy on delay).
     """
 
     # Load chat config and prepare execution environment
@@ -791,7 +795,13 @@ def step(
     # step's unconditional `generating = False` would race and clear the
     # reservation the continuation just set (Race 5 — "originating step clears
     # continuation reservation").
-    my_step_seq = session.step_seq
+    #
+    # Use the epoch passed by the caller (captured under step_lock before thread
+    # spawn) rather than sampling session.step_seq here. A thread delayed before
+    # this line could see the epoch of a replacement step if interrupt + /step
+    # ran while the thread was descheduled, causing the finally block to
+    # incorrectly clear the replacement's reservation.
+    my_step_seq = step_seq if step_seq is not None else session.step_seq
 
     try:
         # Stream tokens from the model
@@ -1285,6 +1295,7 @@ def start_tool_execution(
                         chat_config.workspace,
                         branch=branch,
                         reserved=True,
+                        step_seq=continuation_seq,
                     )
                 except Exception:
                     # Dispatch failed after ownership transfer. Release that new
@@ -1331,8 +1342,16 @@ def _start_step_thread(
     stream: bool = True,
     *,
     reserved: bool = False,
+    step_seq: int | None = None,
 ) -> bool:
-    """Start a step unless another operation has already reserved it."""
+    """Start a step unless another operation has already reserved it.
+
+    ``step_seq`` should be the epoch captured under ``step_lock`` by the caller
+    (e.g. the value stored after incrementing ``session.step_seq`` in the /step
+    route). It is passed into ``step()`` so the finally block's compare-and-clear
+    uses the epoch sampled under the lock rather than inside the spawned thread
+    (where a delay could cause it to see a later epoch).
+    """
 
     # Direct callers (tool continuations and A2A) share /step's atomic
     # check-and-reserve protocol. The /step route reserves before setup and
@@ -1345,6 +1364,11 @@ def _start_step_thread(
                 return False
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
+            # Capture the epoch under the lock so step() doesn't need to sample
+            # session.step_seq inside the thread (where a delay could give it
+            # a stale or replacement epoch).
+            if step_seq is None:
+                step_seq = session.step_seq
     session.last_error = None
 
     def step_thread() -> None:
@@ -1363,6 +1387,7 @@ def _start_step_thread(
             branch=branch,
             auto_confirm=auto_confirm,
             stream=stream,
+            step_seq=step_seq,
         )
 
     # Propagate ContextVars (model, config) from the caller into the step thread.
