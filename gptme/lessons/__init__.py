@@ -19,7 +19,7 @@ from .commands import register_lesson_commands
 from .index import LessonIndex, clear_cache, get_cache_stats
 from .matcher import LessonMatcher, MatchContext, MatchResult
 from .parser import Lesson, LessonMetadata, parse_lesson
-from .skill_commands import register_skill_commands
+from .skill_commands import is_skill_command, register_skill_commands
 
 # Register commands
 register_lesson_commands()
@@ -33,6 +33,7 @@ __all__ = [
     # Functions
     "parse_lesson",
     "auto_include_lessons",
+    "is_skill_command",
     "register_skill_commands",
     "clear_cache",
     "get_cache_stats",

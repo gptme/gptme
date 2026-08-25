@@ -233,3 +233,8 @@ def unregister_skill_commands() -> None:
         if _command_registry.get(name) is handler:
             unregister_command(name)
     _registered_skill_commands.clear()
+
+
+def is_skill_command(name: str) -> bool:
+    """Return True if *name* (without leading ``/``) is a registered skill command."""
+    return name in _registered_skill_commands

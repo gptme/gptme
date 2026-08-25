@@ -17,6 +17,7 @@ from gptme.commands.base import (
 )
 from gptme.lessons.index import LessonIndex, clear_cache
 from gptme.lessons.skill_commands import (
+    is_skill_command,
     register_skill_commands,
     substitute_arguments,
     unregister_skill_commands,
@@ -372,3 +373,21 @@ def test_tool_list_unavailable_suppresses_all_bare_aliases(
     # Bare alias must be suppressed: fail-safe means no alias when tool list is unavailable.
     assert "demo" not in registered
     assert "demo" not in _command_registry
+
+
+def test_is_skill_command_returns_true_for_registered(skills_root: Path):
+    """is_skill_command returns True for both canonical and bare alias forms."""
+    _write_skill(skills_root, "sentinel", "A sentinel skill", DEMO_BODY)
+    register_skill_commands()
+    try:
+        # Canonical form
+        assert is_skill_command("skill:sentinel")
+        # Bare alias form (no collision with built-in commands or tools)
+        assert is_skill_command("sentinel")
+        # Non-registered names return False
+        assert not is_skill_command("help")
+        assert not is_skill_command("nonexistent")
+        assert not is_skill_command("")
+    finally:
+        unregister_skill_commands()
+        clear_cache()

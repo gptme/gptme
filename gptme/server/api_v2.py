@@ -1913,15 +1913,11 @@ def api_conversation_post(conversation_id: str):
 
     # Append and execute a command under its reservation, not the conversation lock.
     # The reservation is always cleared, including when handle_cmd raises.
+    from ..lessons.skill_commands import is_skill_command  # fmt: skip
+
     responses: list[Message] = []
     try:
         log.append(msg)
-        # Track log length before running the command. Skill command handlers
-        # call ctx.manager.undo(1) to remove the command message from the log
-        # (the skill prompt is the real user turn, not the /skill:<name> command).
-        # We defer emitting message_added for the command message and only emit
-        # it after handle_cmd finishes — skipping it when it was undone avoids
-        # sending a phantom message_added event that clients can't reconcile.
         _len_after_cmd_append = len(log.log.messages)
 
         def _emit(m: Message) -> None:
@@ -1935,14 +1931,29 @@ def api_conversation_post(conversation_id: str):
                 },
             )
 
+        # Determine whether the command is a skill command. Skill handlers call
+        # undo(1) to remove the /skill:<name> message from the log and replace
+        # it with the skill prompt, so we defer their message_added event until
+        # after handle_cmd to avoid emitting a phantom message the client can
+        # never reconcile. Regular commands yield responses, so the event must
+        # arrive FIRST (user message → response is the expected SSE order).
+        _cmd_name = msg.content.strip().split()[0].lstrip("/")
+        _is_skill = is_skill_command(_cmd_name)
+        if not _is_skill:
+            SessionManager.add_event(
+                conversation_id,
+                {
+                    "type": "message_added",
+                    "message": msg2dict(msg, log.workspace, log.logdir),
+                },
+            )
+
         try:
             for resp in handle_cmd(msg.content, log):
                 _emit(resp)
-            # Emit the command-message event only when the command did not undo
-            # it. Skill handlers undo the command message after queuing the
-            # skill prompt (handle_cmd yields nothing for them), which reduces
-            # log length below _len_after_cmd_append.
-            if len(log.log.messages) >= _len_after_cmd_append:
+            # For skill commands: emit only when the handler did not undo the
+            # message (log length stayed at or above the pre-responses baseline).
+            if _is_skill and len(log.log.messages) >= _len_after_cmd_append:
                 SessionManager.add_event(
                     conversation_id,
                     {
@@ -1958,6 +1969,12 @@ def api_conversation_post(conversation_id: str):
                 _emit(queued)
         except Exception as e:
             logger.exception("Error executing command: %s", msg.content)
+            # Discard any prompt queued by a handler that raised, so stale
+            # prompts don't leak into the next command's conversation turn.
+            try:
+                list(drain_prompt_queue(log.logdir))
+            except Exception:
+                pass
             error_msg = Message("system", f"Command error: {e}")
             log.append(error_msg)
             responses.append(error_msg)
