@@ -26,6 +26,20 @@ def _set_tool_format(
     }
 
 
+def _mark_parallel(models: dict[str, _ModelDictMeta]) -> dict[str, _ModelDictMeta]:
+    """Stamp supports_parallel_tool_calls=True unless the model already sets it.
+
+    An explicit per-model value still wins, so a later model that does *not*
+    support parallel can opt out by setting the key to False.
+    """
+    return {
+        name: props
+        if "supports_parallel_tool_calls" in props
+        else {**props, "supports_parallel_tool_calls": True}
+        for name, props in models.items()
+    }
+
+
 # Providers that route through the OpenAI-compatible function-calling API — stamp
 # default_tool_format="tool" on every model that doesn't already have one set.
 # Anthropic and mock are excluded: anthropic uses the Anthropic SDK (not OpenAI-compat),
@@ -50,6 +64,24 @@ OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
         # via the OpenAI-compatible API (see llm_openai.py) — same fallback applies
         # when dynamic fetch fails/misses and no static registry entry exists.
         "gptme",
+    }
+)
+
+# Providers whose official docs state that current models can emit multiple
+# tool calls in one response. Applied at MODELS construction so it cannot
+# drift from the static dicts. Mixed providers (openrouter, groq) are stamped
+# per-model instead: Groq's own table is model-specific (llama-3.3 Yes,
+# gpt-oss No), and OpenRouter aliases a mix of backends.
+# Docs:
+#   gemini: https://ai.google.dev/gemini-api/docs/function-calling#parallel_function_calling
+#   xai / grok-subscription: https://docs.x.ai/developers/tools/function-calling#parallel-function-calling
+#   deepseek: https://api-docs.deepseek.com/news/news0725/
+PARALLEL_TOOL_PROVIDERS: frozenset[str] = frozenset(
+    {
+        "gemini",
+        "deepseek",
+        "xai",
+        "grok-subscription",
     }
 )
 
@@ -313,6 +345,11 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         },
     },
     # https://api-docs.deepseek.com/quick_start/pricing
+    # Parallel: stamped via PARALLEL_TOOL_PROVIDERS.
+    # `strict` mode exists but requires base_url=.../beta, which gptme does not
+    # use — leave supports_strict_tools unset rather than send a flag the
+    # production endpoint may reject.
+    # https://api-docs.deepseek.com/guides/tool_calls/#strict-mode-beta
     "deepseek": {
         "deepseek-chat": {
             "context": 128_000,
@@ -332,6 +369,9 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         },
     },
     # https://groq.com/pricing/
+    # Parallel tool use is model-specific on Groq (llama-3.3-70b-versatile Yes,
+    # openai/gpt-oss-* No). Stamp per-model, not via PARALLEL_TOOL_PROVIDERS.
+    # https://console.groq.com/docs/tool-use/overview#supported-models
     "groq": {
         "llama-3.3-70b-versatile": {
             "context": 128_000,
@@ -339,6 +379,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.59,
             "price_output": 0.79,
             "preferred_edit_format": "diff",
+            "supports_parallel_tool_calls": True,
         },
     },
     # https://docs.x.ai/docs/models
@@ -346,6 +387,10 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
     # Uses OAuth tokens from the grok CLI (~/.grok/auth.json) — $0 marginal.
     # Prices reflect xAI API-equivalent cost for comparison purposes.
     # Auth: run `grok login` or `gptme auth grok-subscription`.
+    # Parallel: stamped via PARALLEL_TOOL_PROVIDERS (xAI default).
+    # Tool-arg schemas are implicitly strict; gptme's supports_strict_tools flag
+    # sends OpenAI `strict=True`, which xAI does not document as an accepted
+    # request field, so that flag stays unset.
     "grok-subscription": _mark_subscription(
         {
             # grok-4.6 — current frontier model on SuperGrok subscription and
@@ -502,6 +547,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 9,
             "supports_vision": True,
             "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,  # Gemini parallel function calling
             "preferred_edit_format": "diff",
         },
         "moonshotai/kimi-k2": {
@@ -528,6 +574,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.435,
             "price_output": 0.87,
             "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,  # DeepSeek API supports parallel tool calls
             "preferred_edit_format": "diff",
         },
         "deepseek/deepseek-v4-flash": {
@@ -536,6 +583,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.0983,
             "price_output": 0.1966,
             "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,  # DeepSeek API supports parallel tool calls
             "preferred_edit_format": "diff",
         },
     },
@@ -614,13 +662,24 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
 # check that all providers have a _MODELS_RAW entry
 assert set(PROVIDERS) == set(_MODELS_RAW.keys())
 
-# Stamp default_tool_format="tool" on all OpenAI-compatible providers at construction
+
+def _stamp_provider(
+    provider: str, models: dict[str, _ModelDictMeta]
+) -> dict[str, _ModelDictMeta]:
+    """Apply construction-time stamps so static dicts and MODELS stay consistent."""
+    if provider in PARALLEL_TOOL_PROVIDERS:
+        models = _mark_parallel(models)
+    if provider in OPENAI_COMPAT_PROVIDERS:
+        models = _set_tool_format(models, "tool")
+    return models
+
+
+# Stamp default_tool_format="tool" on all OpenAI-compatible providers, and
+# supports_parallel_tool_calls on PARALLEL_TOOL_PROVIDERS, at construction
 # time. Building MODELS in one step (rather than reassigning it) ensures that any
 # code reading the intermediate dicts (OPENAI_MODELS, etc.) and any code reading
 # MODELS see a consistent value with no ordering hazard.
 MODELS = {
-    provider: _set_tool_format(models, "tool")
-    if provider in OPENAI_COMPAT_PROVIDERS
-    else models
+    provider: _stamp_provider(provider, models)
     for provider, models in _MODELS_RAW.items()
 }
