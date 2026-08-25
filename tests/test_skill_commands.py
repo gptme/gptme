@@ -206,6 +206,21 @@ def test_collision_with_loaded_tool_skips_bare_alias(skills_root: Path, monkeypa
     assert "shell" not in _command_registry
 
 
+def test_collision_with_loaded_tool_is_case_insensitive(skills_root: Path, monkeypatch):
+    """A skill named 'Shell' (capital S) must not shadow the 'shell' tool."""
+    _write_skill(skills_root, "Shell", "Case-variant of shell tool", "Never shown")
+
+    fake_tool = MagicMock()
+    fake_tool.name = "shell"
+    monkeypatch.setattr("gptme.tools.get_tools", lambda: [fake_tool])
+
+    registered = register_skill_commands()
+
+    assert "skill:Shell" in registered
+    assert "Shell" not in registered
+    assert "Shell" not in _command_registry
+
+
 def test_reregistration_is_idempotent_and_drops_stale(skills_root: Path):
     skill_file = _write_skill(skills_root, "demo", "A demo skill", DEMO_BODY)
     first = register_skill_commands()

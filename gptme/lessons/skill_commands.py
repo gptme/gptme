@@ -206,7 +206,7 @@ def register_skill_commands(index: LessonIndex | None = None) -> list[str]:
                     name,
                     canonical,
                 )
-            elif not tools_available or name in tool_names:  # type: ignore[operator]
+            elif not tools_available or name.lower() in {t.lower() for t in tool_names}:  # type: ignore[attr-defined]
                 logger.debug(
                     "Skill %r collides with loaded tool (or tool list unavailable); only /%s registered",
                     name,

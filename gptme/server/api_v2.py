@@ -1916,13 +1916,13 @@ def api_conversation_post(conversation_id: str):
     responses: list[Message] = []
     try:
         log.append(msg)
-        SessionManager.add_event(
-            conversation_id,
-            {
-                "type": "message_added",
-                "message": msg2dict(msg, log.workspace, log.logdir),
-            },
-        )
+        # Track log length before running the command. Skill command handlers
+        # call ctx.manager.undo(1) to remove the command message from the log
+        # (the skill prompt is the real user turn, not the /skill:<name> command).
+        # We defer emitting message_added for the command message and only emit
+        # it after handle_cmd finishes — skipping it when it was undone avoids
+        # sending a phantom message_added event that clients can't reconcile.
+        _len_after_cmd_append = len(log.log.messages)
 
         def _emit(m: Message) -> None:
             log.append(m)
@@ -1938,6 +1938,18 @@ def api_conversation_post(conversation_id: str):
         try:
             for resp in handle_cmd(msg.content, log):
                 _emit(resp)
+            # Emit the command-message event only when the command did not undo
+            # it. Skill handlers undo the command message after queuing the
+            # skill prompt (handle_cmd yields nothing for them), which reduces
+            # log length below _len_after_cmd_append.
+            if len(log.log.messages) >= _len_after_cmd_append:
+                SessionManager.add_event(
+                    conversation_id,
+                    {
+                        "type": "message_added",
+                        "message": msg2dict(msg, log.workspace, log.logdir),
+                    },
+                )
             # Skill commands (and any other handler using queue_prompt) write
             # a follow-up user prompt to the durable queue instead of yielding.
             # The CLI drains that queue at the top of its chat loop; drain
