@@ -182,6 +182,26 @@ Use the utility CLI to see what the current workspace already knows about:
 lessons in the same discovery pass, and ``skills dirs`` shows exactly which
 directories are being scanned.
 
+Invoking Skills as Commands
+---------------------------
+
+Every discovered skill is also registered as a slash command, matching how
+Claude Code and Codex expose skills. Inside a chat (CLI, TUI, or server/WebUI),
+``/skill:<name> [args]`` queues the skill body as your next user prompt (with a
+``Skill invoked:`` header) so the assistant acts on it immediately:
+
+.. code-block:: text
+
+    /skill:end                # canonical form, never collides
+    /end                      # bare alias, only if no command/tool is named "end"
+    /skill:review src/app.py  # arguments are passed through
+
+In the skill body, ``$ARGUMENTS`` expands to the full argument string and
+``$ARGUMENTS[N]`` / ``${N}`` to the N-th (0-based) whitespace-separated
+argument (curly braces are required for positional references to avoid
+ambiguity with literal dollar amounts like ``$100`` in skill prose).
+Use ``/skills read <name>`` to view a skill without invoking it.
+
 Creating Skills
 ---------------
 
