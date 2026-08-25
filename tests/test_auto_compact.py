@@ -1132,8 +1132,8 @@ def test_compact_auto_handler_honors_env_keep_head(monkeypatch):
     """The /compact auto handler must use _get_keep_head(), not a hardcoded default.
 
     When GPTME_AUTOCOMPACT_KEEP_HEAD differs from the AutoCompactConfig default,
-    the handler must pass the env value — not the dataclass default — to
-    auto_compact_log.
+    the handler must pass the env value — not the dataclass default — to the
+    provider via CompressionConfig.keep_head.
     """
     from unittest.mock import MagicMock, patch
 
@@ -1152,9 +1152,13 @@ def test_compact_auto_handler_honors_env_keep_head(monkeypatch):
 
     captured_keep_head = {}
 
-    def fake_auto_compact_log(log, logdir=None, keep_head=0, **kw):
-        captured_keep_head["value"] = keep_head
-        yield from log
+    mock_provider = MagicMock()
+
+    def fake_compress(messages, config):
+        captured_keep_head["value"] = config.keep_head
+        return iter(messages)
+
+    mock_provider.compress.side_effect = fake_compress
 
     with (
         patch(
@@ -1162,8 +1166,8 @@ def test_compact_auto_handler_honors_env_keep_head(monkeypatch):
             return_value="rule_based",
         ),
         patch(
-            "gptme.tools.autocompact.handlers.auto_compact_log",
-            side_effect=fake_auto_compact_log,
+            "gptme.tools.autocompact.handlers.get_context_provider",
+            return_value=mock_provider,
         ),
         patch("gptme.tools.autocompact.handlers.get_default_model", return_value=None),
         patch("gptme.config.get_config") as mock_get_config,

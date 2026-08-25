@@ -10,7 +10,7 @@ import importlib.metadata
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -62,7 +62,7 @@ class ContextProvider(ABC):
 
 
 class DefaultContextProvider(ContextProvider):
-    """Default provider — delegates to :func:`gptme.tools.autocompact.engine.auto_compact_log`."""
+    """Default provider — delegates to ``gptme.tools.autocompact.engine.auto_compact_log``."""
 
     @property
     def name(self) -> str:
@@ -152,8 +152,10 @@ def _load_entry_point_providers() -> None:
     except TypeError:
         # Python 3.9 fallback: entry_points() returns a dict-like object
         try:
-            all_eps = importlib.metadata.entry_points()
-            eps = all_eps.get("gptme.context_providers", [])  # type: ignore[attr-defined]
+            all_eps: Any = importlib.metadata.entry_points()
+            eps = all_eps.get(
+                "gptme.context_providers", importlib.metadata.EntryPoints()
+            )
         except Exception:
             logger.warning("Failed to enumerate entry points for context providers")
             return
