@@ -4,6 +4,7 @@ Tools to reduce a log to a smaller size.
 Typically used when the log exceeds a token limit and needs to be shortened.
 """
 
+import hashlib
 import logging
 import re
 from collections.abc import Generator
@@ -15,6 +16,12 @@ from ..message import Message, len_tokens
 from . import console
 
 logger = logging.getLogger(__name__)
+
+# In-process cache for proactive_summarize_log summaries.
+# Key: SHA-256 of (model, role+content of each message to be summarized).
+# Prevents repeated LLM summarize calls when prepare_messages is invoked on the
+# same stored log across consecutive turns (which breaks prompt-cache stability).
+_proactive_summarize_cache: dict[str, "Message"] = {}
 
 
 def message_contains_tool_use(msg: Message) -> bool:
@@ -431,27 +438,41 @@ def proactive_summarize_log(
     # Lazy import avoids circular dependency at module load time.
     from ..llm import summarize as _llm_summarize  # fmt: skip
 
-    logger.info(
-        "Proactive summarize triggered: %dk tokens (threshold %d%% of %dk context)"
-        " — summarizing %d middle messages (%d pinned preserved)",
-        tokens // 1000,
-        int(threshold * 100),
-        model.context // 1000,
-        len(summarize_middle),
-        len(pinned_middle),
-    )
-    console.log(
-        f"[context] Approaching context limit ({tokens // 1000}k / {int(limit) // 1000}k),"
-        f" summarizing {len(summarize_middle)} older messages..."
-    )
+    # Build a cache key from the model name and the content of messages to summarize.
+    # An unchanged middle block on consecutive turns produces the same key, so the
+    # LLM call only fires once and prompt-cache stability is preserved.
+    key_parts = [model.model] + [f"{m.role}:{m.content}" for m in summarize_middle]
+    cache_key = hashlib.sha256("\0".join(key_parts).encode()).hexdigest()
 
-    try:
-        summary_msg = _llm_summarize(summarize_middle)
-    except Exception:
-        logger.warning(
-            "Proactive summarize failed; falling back to unreduced log", exc_info=True
+    if cache_key in _proactive_summarize_cache:
+        logger.debug(
+            "Proactive summarize cache hit: %d middle messages → reusing summary",
+            len(summarize_middle),
         )
-        return log
+        summary_msg = _proactive_summarize_cache[cache_key]
+    else:
+        logger.info(
+            "Proactive summarize triggered: %dk tokens (threshold %d%% of %dk context)"
+            " — summarizing %d middle messages (%d pinned preserved)",
+            tokens // 1000,
+            int(threshold * 100),
+            model.context // 1000,
+            len(summarize_middle),
+            len(pinned_middle),
+        )
+        console.log(
+            f"[context] Approaching context limit ({tokens // 1000}k / {int(limit) // 1000}k),"
+            f" summarizing {len(summarize_middle)} older messages..."
+        )
+        try:
+            summary_msg = _llm_summarize(summarize_middle)
+        except Exception:
+            logger.warning(
+                "Proactive summarize failed; falling back to unreduced log",
+                exc_info=True,
+            )
+            return log
+        _proactive_summarize_cache[cache_key] = summary_msg
 
     result = initial_system + [summary_msg] + pinned_middle + recent
     new_tokens = len_tokens(result, model=model.model)

@@ -1230,3 +1230,122 @@ def test_drop_orphaned_tool_pairs_preserves_pinned_tool_result():
     assert "fn result" in result_contents, (
         "Pinned tool result must survive _drop_orphaned_tool_pairs even when anchor is absent"
     )
+
+
+def test_proactive_summarize_cache_hit_skips_llm(monkeypatch):
+    """proactive_summarize_log reuses the cached summary on a second call with the same log.
+
+    Regression: without the cache, every prepare_messages call (once above the
+    threshold) fires a fresh LLM summarize.  That produces non-deterministic
+    summaries on consecutive turns and breaks prompt-cache stability.
+    """
+    import gptme.util.reduce as reduce_mod
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        call_count = 0
+
+        def counting_summarize(msgs):
+            nonlocal call_count
+            call_count += 1
+            return Message(
+                "system",
+                f"Summary (call {call_count}): user asked about X",
+            )
+
+        monkeypatch.setattr("gptme.llm.summarize", counting_summarize)
+
+        # Clear the module-level cache so this test is independent.
+        reduce_mod._proactive_summarize_cache.clear()
+
+        msgs = [
+            Message("system", "You are helpful."),  # initial system — kept
+            Message("user", "word " * 5),  # old — will be summarized
+            Message("assistant", "word " * 5),  # old — will be summarized
+            Message("user", "recent question one"),  # recent — kept
+            Message("assistant", "recent answer one"),  # recent — kept
+            Message("user", "recent question two"),  # recent — kept
+            Message("assistant", "recent answer two"),  # recent — kept
+        ]
+
+        # First call — LLM is invoked.
+        result1 = proactive_summarize_log(msgs, threshold=0.5, recent_keep=4)
+        assert call_count == 1, "LLM should be called exactly once on first invocation"
+
+        # Second call with the same log — should hit the cache, not the LLM.
+        result2 = proactive_summarize_log(msgs, threshold=0.5, recent_keep=4)
+        assert call_count == 1, (
+            "LLM must NOT be called again when the middle messages haven't changed"
+        )
+
+        # Both calls must produce identical summary content.
+        summary1 = next(m for m in result1 if "Summary" in m.content)
+        summary2 = next(m for m in result2 if "Summary" in m.content)
+        assert summary1.content == summary2.content, (
+            "Cached result must be identical to first-call result"
+        )
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+        reduce_mod._proactive_summarize_cache.clear()
+
+
+def test_proactive_summarize_cache_miss_on_changed_messages(monkeypatch):
+    """proactive_summarize_log calls the LLM again when the middle messages change."""
+    import gptme.util.reduce as reduce_mod
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        call_count = 0
+
+        def counting_summarize(msgs):
+            nonlocal call_count
+            call_count += 1
+            return Message("system", f"Summary {call_count}")
+
+        monkeypatch.setattr("gptme.llm.summarize", counting_summarize)
+
+        reduce_mod._proactive_summarize_cache.clear()
+
+        base = [
+            Message("system", "You are helpful."),
+            Message("user", "old turn A " * 5),
+            Message("assistant", "old reply A " * 5),
+            Message("user", "recent q1"),
+            Message("assistant", "recent a1"),
+            Message("user", "recent q2"),
+            Message("assistant", "recent a2"),
+        ]
+        changed = [
+            Message("system", "You are helpful."),
+            Message("user", "DIFFERENT old content " * 5),  # changed middle
+            Message("assistant", "old reply A " * 5),
+            Message("user", "recent q1"),
+            Message("assistant", "recent a1"),
+            Message("user", "recent q2"),
+            Message("assistant", "recent a2"),
+        ]
+
+        proactive_summarize_log(base, threshold=0.5, recent_keep=4)
+        assert call_count == 1
+
+        proactive_summarize_log(changed, threshold=0.5, recent_keep=4)
+        assert call_count == 2, (
+            "LLM must be called again when the middle messages differ"
+        )
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+        reduce_mod._proactive_summarize_cache.clear()
