@@ -40,14 +40,17 @@ Do **not** use screenshot for:
 def _is_available() -> bool:
     """Check if any screenshot tool is available on the system.
 
-    scrot talks to X11 and needs ``$DISPLAY``. A binary on PATH is not enough
-    on a headless host — claiming availability there makes the computer API
-    report ``screenshot_available: true`` and then 500 on the first capture.
+    Both scrot and gnome-screenshot talk to X11 and need ``$DISPLAY`` on
+    non-Wayland hosts. A binary on PATH is not enough on a headless host —
+    claiming availability there makes the computer API report
+    ``screenshot_available: true`` and then 500 on the first capture.
     """
     if IS_MACOS:
         return shutil.which("screencapture") is not None
     if os.name == "posix":
-        if shutil.which("gnome-screenshot"):
+        if shutil.which("gnome-screenshot") and (
+            IS_WAYLAND or os.environ.get("DISPLAY")
+        ):
             return True
         if not IS_WAYLAND and shutil.which("scrot"):
             return bool(os.environ.get("DISPLAY"))
