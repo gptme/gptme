@@ -86,30 +86,36 @@ def knowledge_save_cmd(
 
 
 def _export_for_rag(kb_dir: Path) -> None:
-    """Write entries as markdown files under kb_dir/rag/ for gptme-rag indexing."""
-    from ..knowledge import _load_entries  # fmt: skip
+    """Write entries as markdown files under kb_dir/rag/ for gptme-rag indexing.
+
+    Loads the entry snapshot under the exclusive lock so the orphan sweep and
+    mirror writes reflect the same consistent view of the JSONL file, preventing
+    a concurrent delete from being resurrected by a stale export snapshot.
+    """
+    from ..knowledge import _exclusive_lock, _load_entries  # fmt: skip
 
     rag_dir = kb_dir / "rag"
     rag_dir.mkdir(parents=True, exist_ok=True)
-    entries = _load_entries()
-    live_ids = {e["id"] for e in entries}
-    # Remove orphan mirror files left by prior deletions.
-    for existing in rag_dir.glob("*.md"):
-        if existing.stem not in live_ids:
-            existing.unlink()
-    for entry in entries:
-        eid = entry.get("id", "unknown")
-        fpath = rag_dir / f"{eid}.md"
-        tags_line = ""
-        if entry.get("tags"):
-            tags_line = f"\n**Tags**: {', '.join(entry['tags'])}\n"
-        content = (
-            f"# Knowledge Entry\n\n"
-            f"**Problem**: {entry.get('problem', '')}\n\n"
-            f"**Resolution**: {entry.get('resolution', '')}\n"
-            f"{tags_line}"
-        )
-        fpath.write_text(content, encoding="utf-8")
+    with _exclusive_lock():
+        entries = _load_entries()
+        live_ids = {e["id"] for e in entries}
+        # Remove orphan mirror files left by prior deletions.
+        for existing in rag_dir.glob("*.md"):
+            if existing.stem not in live_ids:
+                existing.unlink()
+        for entry in entries:
+            eid = entry.get("id", "unknown")
+            fpath = rag_dir / f"{eid}.md"
+            tags_line = ""
+            if entry.get("tags"):
+                tags_line = f"\n**Tags**: {', '.join(entry['tags'])}\n"
+            content = (
+                f"# Knowledge Entry\n\n"
+                f"**Problem**: {entry.get('problem', '')}\n\n"
+                f"**Resolution**: {entry.get('resolution', '')}\n"
+                f"{tags_line}"
+            )
+            fpath.write_text(content, encoding="utf-8")
 
 
 @knowledge.command("search")

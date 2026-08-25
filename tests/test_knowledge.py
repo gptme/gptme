@@ -159,7 +159,9 @@ def test_cli_save_with_tags():
     assert "Tags: git, pytest" in result.output
 
 
-def test_cli_save_json_output():
+def test_cli_save_json_output(monkeypatch):
+    # Suppress gptme-rag so its stderr warning doesn't mix into result.output.
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: None)
     runner = CliRunner()
     result = runner.invoke(
         main, ["knowledge", "save", "--json", "json problem", "json resolution"]

@@ -16,6 +16,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, TypedDict
@@ -45,27 +46,32 @@ def _entries_file() -> Path:
     return _knowledge_dir() / "entries.jsonl"
 
 
+_thread_lock = threading.Lock()
+
+
 @contextlib.contextmanager
 def _exclusive_lock() -> Iterator[None]:
     """Advisory exclusive lock protecting concurrent saves and deletes.
 
-    Uses fcntl.flock on Unix.  On Windows (no fcntl) the context manager is a
-    no-op — cross-process mutual exclusion is not enforced, which is acceptable
-    for a personal single-user tool on that platform.
+    Uses fcntl.flock on Unix for cross-process mutual exclusion.  On Windows
+    (no fcntl), falls back to a module-level threading.Lock which prevents
+    same-process thread races; cross-process races on Windows are accepted as
+    the tool is designed for single-user personal use.
     """
     lock_path = _knowledge_dir() / ".entries.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         import fcntl as _fcntl  # Unix only
 
-        with lock_path.open("w") as lf:
+        with _thread_lock, lock_path.open("w") as lf:
             _fcntl.flock(lf, _fcntl.LOCK_EX)
             try:
                 yield
             finally:
                 _fcntl.flock(lf, _fcntl.LOCK_UN)
     except ImportError:
-        yield  # Windows: no cross-process locking
+        with _thread_lock:
+            yield  # Windows: thread-safe, not cross-process-safe
 
 
 def _load_entries() -> list[KnowledgeEntry]:
@@ -91,8 +97,8 @@ def _append_entry(entry: KnowledgeEntry) -> None:
 
 
 def _extract_keywords(text: str) -> list[str]:
-    """Extract meaningful words (length ≥ 4) from text for fast filtering."""
-    words = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{3,}", text.lower())
+    """Extract meaningful words (length ≥ 2) from text for fast filtering."""
+    words = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", text.lower())
     seen: set[str] = set()
     result = []
     for w in words:
