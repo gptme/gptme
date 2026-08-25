@@ -6,9 +6,8 @@ from collections.abc import Generator
 from ...llm.models import get_default_model
 from ...logmanager import Log
 from ...message import Message, len_tokens
-from .config import _get_keep_head
+from ...providers.context import CompressionConfig, get_context_provider
 from .decision import should_auto_compact
-from .engine import auto_compact_log
 from .resume import _resume_via_llm
 
 logger = logging.getLogger(__name__)
@@ -77,10 +76,10 @@ def _compact_trim(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
             )
         return
 
-    # Apply auto-compacting
-    compacted_msgs = list(
-        auto_compact_log(msgs, logdir=ctx.manager.logdir, keep_head=_get_keep_head())
-    )
+    # Apply auto-compacting using the provider interface
+    provider = get_context_provider("default")
+    config = CompressionConfig(logdir=ctx.manager.logdir)
+    compacted_msgs = list(provider.compress(msgs, config))
 
     # Calculate reduction stats
     original_count = len(msgs)

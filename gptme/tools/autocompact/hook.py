@@ -14,10 +14,9 @@ from typing import TYPE_CHECKING
 from ...hooks import HookType, StopPropagation, trigger_hook
 from ...llm.models import get_default_model
 from ...message import Message, len_tokens
+from ...providers.context import CompressionConfig, get_context_provider
 from ..base import ToolSpec
-from .config import _get_keep_head
 from .decision import should_auto_compact
-from .engine import auto_compact_log
 from .handlers import cmd_compact_handler
 from .resume import _resume_via_llm
 
@@ -117,13 +116,13 @@ def autocompact_hook(
 
         # Apply auto-compacting to get compacted messages
         try:
-            compacted_msgs = list(
-                auto_compact_log(
-                    messages,
-                    logdir=manager.logdir,
-                    keep_head=_get_keep_head(),
-                )
+            provider = get_context_provider("default")
+            config = CompressionConfig(
+                logdir=manager.logdir,
+                # Note: keep_head is handled by the legacy auto_compact_log
+                # DefaultContextProvider uses reasoning_strip_age_threshold instead
             )
+            compacted_msgs = list(provider.compress(messages, config))
 
             # Calculate reduction stats
             m = get_default_model()
