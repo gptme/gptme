@@ -60,6 +60,13 @@ describe('visionAssertCore', () => {
       });
     });
 
+    it('parses JSON when prose before it contains a bare brace', () => {
+      // If the model writes "Some text { note } and then {...}", the first '{'
+      // starts a non-JSON fragment; the scanner must skip it and find the real object.
+      const raw = 'Some text { with a brace } and then {"pass": true, "reason": "ok"}';
+      expect(parseVisionVerdict(raw)).toEqual({ pass: true, reason: 'ok' });
+    });
+
     it('parses JSON followed by trailing prose containing a closing brace', () => {
       const raw = 'The result is {"pass": true, "reason": "visible"} and that\'s all.}';
       expect(parseVisionVerdict(raw)).toEqual({

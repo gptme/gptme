@@ -12,7 +12,11 @@ function readMessage(value: unknown): string | null {
   }
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
-    if (typeof obj.message === 'string' && obj.message.trim() && obj.message !== '[object Object]') {
+    if (
+      typeof obj.message === 'string' &&
+      obj.message.trim() &&
+      obj.message !== '[object Object]'
+    ) {
       return obj.message;
     }
     if ('error' in obj) {

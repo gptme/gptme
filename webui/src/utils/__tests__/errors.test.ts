@@ -2,7 +2,9 @@ import { formatUnknownError, messageFromApiErrorBody } from '../errors';
 
 describe('formatUnknownError', () => {
   it('prefers Error.message', () => {
-    expect(formatUnknownError(new Error('permission denied'), 'fallback')).toBe('permission denied');
+    expect(formatUnknownError(new Error('permission denied'), 'fallback')).toBe(
+      'permission denied'
+    );
   });
 
   it('accepts string errors', () => {
@@ -35,7 +37,10 @@ describe('messageFromApiErrorBody', () => {
 
   it('reads a nested error.message object used by some providers', () => {
     expect(
-      messageFromApiErrorBody({ error: { message: 'Cannot retrieve provider settings' } }, 'fallback')
+      messageFromApiErrorBody(
+        { error: { message: 'Cannot retrieve provider settings' } },
+        'fallback'
+      )
     ).toBe('Cannot retrieve provider settings');
   });
 });

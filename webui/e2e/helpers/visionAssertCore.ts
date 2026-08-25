@@ -185,36 +185,56 @@ function extractJsonObject(raw: string): string {
     // fall through to string-aware extraction
   }
 
-  const start = candidate.indexOf('{');
-  if (start === -1) {
-    throw new Error('vision_assert model response contains no JSON object');
-  }
+  // Try each '{' position in the candidate. If the model adds prose containing
+  // a '{' before the actual JSON object (e.g. "Some text { brace } then {...}"),
+  // the first match may produce invalid JSON — try successive positions until
+  // one yields a parseable object.
+  //
+  // The inner scanner is string-aware so that '}' inside a string literal (e.g.
+  // {"pass": false, "reason": "clipped by }"}) does not prematurely close the
+  // depth counter.
+  let searchFrom = 0;
+  while (true) {
+    const start = candidate.indexOf('{', searchFrom);
+    if (start === -1) break;
 
-  // String-aware brace scanner so that '}' inside a string literal (e.g.
-  // {"pass": false, "reason": "clipped by }"}) does not prematurely close
-  // the depth counter.  Plain depth counting without quote tracking fires on
-  // exactly that case: depth hits 0 at the brace inside the string, returning
-  // an invalid slice.
-  let depth = 0;
-  let inString = false;
-  let i = start;
-  while (i < candidate.length) {
-    const ch = candidate[i];
-    if (inString) {
-      if (ch === '\\') {
-        i += 2; // skip escaped character (e.g. \" \\ \n)
-        continue;
+    let depth = 0;
+    let inString = false;
+    let i = start;
+    let end = -1;
+    while (i < candidate.length) {
+      const ch = candidate[i];
+      if (inString) {
+        if (ch === '\\') {
+          i += 2; // skip escaped character (e.g. \" \\ \n)
+          continue;
+        }
+        if (ch === '"') inString = false;
+      } else {
+        if (ch === '"') inString = true;
+        else if (ch === '{') depth++;
+        else if (ch === '}') {
+          depth--;
+          if (depth === 0) {
+            end = i;
+            break;
+          }
+        }
       }
-      if (ch === '"') inString = false;
-    } else {
-      if (ch === '"') inString = true;
-      else if (ch === '{') depth++;
-      else if (ch === '}') {
-        depth--;
-        if (depth === 0) return candidate.slice(start, i + 1);
+      i++;
+    }
+
+    if (end !== -1) {
+      const slice = candidate.slice(start, end + 1);
+      try {
+        JSON.parse(slice);
+        return slice;
+      } catch {
+        // This '{...}' block was not valid JSON; try the next '{' in the candidate.
       }
     }
-    i++;
+
+    searchFrom = start + 1;
   }
   throw new Error('vision_assert model response contains no JSON object');
 }
