@@ -39,6 +39,8 @@ def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
         )
         return
 
+    msgs = ctx.manager.log.messages[:-1]  # Exclude the /compact command itself
+
     # Handle deprecated aliases with a warning
     if method in _DEPRECATED_MODES:
         canonical = _DEPRECATED_MODES[method]
@@ -50,8 +52,6 @@ def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
             f"⚠️  '/compact {method}' is deprecated. Use '/compact {canonical}' instead.",
         )
         method = canonical
-
-    msgs = ctx.manager.log.messages[:-1]  # Exclude the /compact command itself
 
     if method == "trim":
         yield from _compact_trim(ctx, msgs)
