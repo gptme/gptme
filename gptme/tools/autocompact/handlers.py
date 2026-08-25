@@ -62,7 +62,7 @@ def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
 def _compact_trim(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
     """Rule-based compaction: strips reasoning, truncates massive tool results, compresses old assistant messages."""
 
-    if should_auto_compact(msgs) != "rule_based":
+    if should_auto_compact(msgs) == "none":
         yield Message(
             "system",
             "Trim compaction not needed. Conversation doesn't contain massive tool results or isn't close to context limits.",
