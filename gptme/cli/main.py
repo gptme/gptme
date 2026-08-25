@@ -1362,6 +1362,16 @@ def main(
                 "the persisted system prompt is kept unchanged"
             )
         initial_msgs = []
+        # Re-inject profile system prompt on resume: the persisted log has no profile
+        # message when first created without a profile (or with an older version), so
+        # --agent-profile must still take effect even for existing conversations.
+        if selected_profile and selected_profile.system_prompt:
+            initial_msgs = [
+                Message(
+                    "system",
+                    f"# Agent Profile: {selected_profile.name}\n\n{selected_profile.system_prompt}",
+                )
+            ]
     else:
         # Infer context mode: --context-include / --no-workspace both imply selective mode
         effective_context_mode: ContextMode | None = (
