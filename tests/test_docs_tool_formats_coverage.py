@@ -76,3 +76,23 @@ def test_excluded_providers_really_are_excluded():
             f"{provider} models now carry default_tool_format ({stamped}), but "
             "docs/tool-formats.rst documents them as excluded"
         )
+
+
+def test_empty_registry_providers_have_no_static_entries():
+    """azure/local/nvidia/gptme are documented as having no static registry entries.
+
+    These are OpenAI-compat providers that inherit default_tool_format at
+    resolution time rather than from a per-model entry in the static registry.
+    If a static entry is added for any of them, the docs must be updated to
+    reflect it (the count and the explanation both change).
+    """
+    empty_registry: list[Provider] = ["azure", "local", "nvidia", "gptme"]
+    for provider in empty_registry:
+        if provider in MODELS:
+            entries = MODELS[provider]
+            assert not entries, (
+                f"'{provider}' is documented as having no static registry entries "
+                "(docs/tool-formats.rst), but now has "
+                f"{len(entries)} ({list(entries)}) — update the docs to reflect "
+                "the new entries, or keep the provider registry-free"
+            )
