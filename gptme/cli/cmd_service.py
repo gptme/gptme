@@ -257,9 +257,7 @@ cd "$WORK_DIR"
 # Prefix a newline so the raw CLI argument never matches a gptme-util subcommand
 # or plugin name (checked before _group_prompt_args runs). _group_prompt_args
 # strips leading whitespace, so the LLM receives the file content as-is.
-# Note: if prompt.md itself starts with a gptme slash command (/shell, /python,
-# etc.), gptme will execute it as a command — intentional: agents CAN start with
-# a command step. Natural-language task descriptions are never affected.
+# Single-slash commands (e.g. /shell) are rejected above before we reach here.
 prompt_arg=$'\\n'"$(cat "$PROMPT_FILE")"
 exit_code=0
 gptme "${{gptme_args[@]}}" "$prompt_arg" >> "$SESSION_LOG" 2>&1 || exit_code=$?
