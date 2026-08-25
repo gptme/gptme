@@ -742,7 +742,14 @@ def test_profile_system_prompt_before_cache_boundary():
 
     Phase 3.2 verification: Profiles are placed in static (cacheable) sections,
     not dynamic sections, so they remain consistent across session starts.
+
+    The boundary is only inserted when dynamic_sections exist. We mock
+    prompt_chat_history to provide a non-empty dynamic section so the boundary
+    appears, then verify the profile precedes it.
     """
+    from unittest.mock import patch
+
+    from gptme.message import Message
     from gptme.profiles import Profile
 
     # Create a test profile
@@ -752,12 +759,15 @@ def test_profile_system_prompt_before_cache_boundary():
         system_prompt="# Test Profile Instructions\nBe creative and concise.",
     )
 
-    # Get prompt with the profile
-    prompt_msgs = get_prompt(
-        get_tools(),
-        prompt="full",
-        profile=profile,
-    )
+    # Inject a fake dynamic section (chat history) so the boundary is inserted.
+    # Without dynamic_sections, get_prompt() omits the boundary entirely.
+    fake_history = [Message("user", "Dynamic history message to trigger boundary")]
+    with patch("gptme.prompts.prompt_chat_history", return_value=fake_history):
+        prompt_msgs = get_prompt(
+            get_tools(),
+            prompt="full",
+            profile=profile,
+        )
 
     # Find the profile in the combined content
     combined_content = "\n\n".join(msg.content for msg in prompt_msgs)
@@ -770,12 +780,18 @@ def test_profile_system_prompt_before_cache_boundary():
         "Profile system prompt should be included"
     )
 
-    # Profile should appear at the end of static sections (after all core prompt sections)
-    # The key is that it appears in the static/cacheable portion, not after the dynamic boundary
+    # Profile must appear BEFORE the cache boundary — the whole point of the Phase 3.1 fix
     profile_idx = combined_content.find("# Agent Profile: test_profile")
+    boundary_idx = combined_content.find("# System Prompt Cache Boundary")
 
-    # Verify profile is present (already checked above, but included for clarity)
     assert profile_idx >= 0, "Profile should be present in prompt"
+    assert boundary_idx >= 0, (
+        "Cache boundary marker should be present (triggered by injected dynamic section)"
+    )
+    assert profile_idx < boundary_idx, (
+        f"Profile (at index {profile_idx}) must appear before cache boundary "
+        f"(at index {boundary_idx}), not after it"
+    )
 
 
 def test_unchanged_history_produces_identical_provider_request():
