@@ -599,15 +599,21 @@ class ShellSession:
                     ):
                         elapsed = time.monotonic() - start_time
                         if elapsed >= timeout:
-                            if proc.poll() is None:
+                            polled = proc.poll()
+                            if polled is None:
                                 proc.kill()
-                            proc.wait()
-                            finish_readers(stop=True)
-                            return (
-                                -124,
-                                trim_blank_lines("".join(stdout_chunks)),
-                                trim_blank_lines("".join(stderr_chunks)),
-                            )
+                                proc.wait()
+                                finish_readers(stop=True)
+                                return (
+                                    -124,
+                                    trim_blank_lines("".join(stdout_chunks)),
+                                    trim_blank_lines("".join(stderr_chunks)),
+                                )
+                            # Child exited just before the deadline; honour
+                            # the real exit code rather than returning -124.
+                            exit_code = polled
+                            exited_at = time.monotonic()
+                            continue
                         get_timeout = min(0.05, timeout - elapsed)
                     else:
                         get_timeout = 0.05

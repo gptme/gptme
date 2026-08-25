@@ -111,6 +111,35 @@ def test_run_with_tty_continuous_descendant_output_has_bounded_grace(shell):
     assert elapsed < 3
 
 
+def test_run_with_tty_grace_drains_chunk_read_after_stop(shell, monkeypatch):
+    """Grace shutdown preserves a chunk already readable in a retained pipe."""
+    real_read = os.read
+    release_read = threading.Event()
+    stdout_read_started = threading.Event()
+
+    def delayed_read(fd, size):
+        if not stdout_read_started.is_set():
+            stdout_read_started.set()
+            assert release_read.wait(timeout=3)
+        return real_read(fd, size)
+
+    monkeypatch.setattr(os, "read", delayed_read)
+    timer = threading.Timer(1.1, release_read.set)
+    timer.start()
+    try:
+        ret, out, err = shell._run_with_tty(
+            "sleep 10 & printf buffered-tail", output=False
+        )
+    finally:
+        release_read.set()
+        timer.join()
+
+    assert stdout_read_started.is_set()
+    assert ret == 0
+    assert out == "buffered-tail"
+    assert err == ""
+
+
 def test_run_with_tty_closed_output_still_honors_timeout(shell):
     """EOF on both output pipes does not bypass the process timeout."""
     started = time.monotonic()
@@ -191,6 +220,46 @@ def test_run_with_tty_timeout_no_output_still_returns_minus_124(shell):
     assert ret == -124
     assert isinstance(out, str)
     assert isinstance(err, str)
+
+
+def test_run_with_tty_child_exits_at_timeout_boundary_returns_real_code(
+    shell, monkeypatch
+):
+    """Child that exits exactly when the timeout check fires returns the real exit code.
+
+    Reproduces the race: elapsed >= timeout is True AND proc.poll() returns
+    non-None (child already exited). Pre-fix code unconditionally returned -124;
+    the fix honours the real exit code instead.
+
+    The fake clock sleeps on the second call (first elapsed check) to let the
+    subprocess exit, then returns a time well past the deadline. This makes the
+    race deterministic: proc.poll() sees the child already gone.
+    """
+    import time as time_module
+
+    import gptme.tools.shell as shell_mod
+
+    real_monotonic = time_module.monotonic
+    call_count = [0]
+
+    def fake_monotonic() -> float:
+        call_count[0] += 1
+        if call_count[0] == 1:
+            # start_time assignment — return real time
+            return real_monotonic()
+        if call_count[0] == 2:
+            # First elapsed check — sleep so 'true' has time to exit, then
+            # report a time well past the deadline.
+            time_module.sleep(0.1)
+        return real_monotonic() + 1000.0
+
+    monkeypatch.setattr(shell_mod.time, "monotonic", fake_monotonic)
+
+    # 'true' exits with code 0 almost instantly. After the 0.1s sleep inside
+    # fake_monotonic the child is dead. Pre-fix: kills child (no-op) and
+    # returns -124. Post-fix: proc.poll() → 0 → returns 0.
+    ret, out, err = shell._run_with_tty("true", output=False, timeout=0.1)
+    assert ret == 0, f"Expected real exit code 0 (child already exited), got {ret}"
 
 
 def test_run_with_tty_timeout_does_not_wait_for_background_descendant(shell):
