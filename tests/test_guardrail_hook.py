@@ -171,3 +171,33 @@ class TestToolConfirmGuardrailDeny:
             "Guardrail must block execution even without cli_confirm registered; "
             f"messages: {[m.content for m in msgs]}"
         )
+
+    def test_bg_prefix_routes_through_hook_chain(self, tmp_path):
+        """A `bg` prefix must not bypass the TOOL_CONFIRM hook chain.
+
+        Before #3598, `bg cat ~/.ssh/id_rsa` returned before the hook chain,
+        so a guardrail registered at high priority could never intercept it.
+        """
+        sentinel = tmp_path / "bg_hook_test.txt"
+
+        register_hook(
+            "test.guardrail",
+            HookType.TOOL_CONFIRM,
+            self._make_guardrail("bg_hook_test"),
+            priority=200,
+        )
+
+        tool_use = ToolUse(
+            tool="shell",
+            args=[],
+            content=f"bg touch {sentinel}",
+        )
+        msgs = list(tool_use.execute())
+
+        assert not sentinel.exists(), (
+            "Guardrail must intercept bg-prefixed commands via TOOL_CONFIRM hook chain; "
+            f"messages: {[m.content for m in msgs]}"
+        )
+        assert any(
+            m.role == "system" and "Blocked by guardrail" in m.content for m in msgs
+        ), f"Expected guardrail block message; got: {[m.content for m in msgs]}"

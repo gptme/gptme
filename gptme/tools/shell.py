@@ -1734,39 +1734,54 @@ def execute_shell(
             break
 
     if bg_line_idx is not None:
-        # Found a bg command
+        # Found a bg command - extract bg_cmd and any surrounding commands
         _bg_memory_limit = _get_memory_limit()
+        preceding_cmds = ""
+        remaining_cmds = ""
+
         if bg_line_idx == 0 and len(lines) == 1:
             # Simple case: bg is the only command
             bg_cmd = cmd_stripped[3:].strip()
-            yield from execute_bg_command(bg_cmd, memory_limit=_bg_memory_limit)
-            return
         elif bg_line_idx > 0:
-            # bg is on a later line - execute preceding commands first (Issue #992)
+            # bg is on a later line - preceding commands modify shell state (Issue #992)
             preceding_cmds = "\n".join(lines[:bg_line_idx])
-            if preceding_cmds.strip():
-                # Execute preceding commands (they modify shell state like cd)
-                yield from _execute_preceding_commands(preceding_cmds)
-            # Now execute the bg command
-            bg_line = lines[bg_line_idx].strip()
-            bg_cmd = bg_line[3:].strip()  # Remove "bg " prefix
-            yield from execute_bg_command(bg_cmd, memory_limit=_bg_memory_limit)
-            # Execute any remaining commands after bg (unlikely but handle it)
+            bg_cmd = lines[bg_line_idx].strip()[3:].strip()  # Remove "bg " prefix
             if bg_line_idx < len(lines) - 1:
                 remaining_cmds = "\n".join(lines[bg_line_idx + 1 :])
-                if remaining_cmds.strip():
-                    yield from execute_shell(remaining_cmds, None, None)
-            return
         else:
             # bg is first line but there are more lines after it
-            # Start bg job, then execute remaining commands
-            bg_line = lines[0].strip()
-            bg_cmd = bg_line[3:].strip()
-            yield from execute_bg_command(bg_cmd, memory_limit=_bg_memory_limit)
+            bg_cmd = lines[0].strip()[3:].strip()
             remaining_cmds = "\n".join(lines[1:])
+
+        # Route bg payload through denylist + TOOL_CONFIRM hook chain before
+        # starting background execution so guardrails can intercept commands
+        # like `bg cat ~/.ssh/id_rsa` (Issue #3598).
+        is_bg_denied, bg_deny_reason, bg_matched_cmd = is_denylisted(bg_cmd)
+        if is_bg_denied:
+            yield Message(
+                "system", f"Command denied: `{bg_matched_cmd}`\n\n{bg_deny_reason}"
+            )
+            return
+
+        def _bg_execute_fn(c: str, p: Path | None) -> Generator[Message, None, None]:
+            if preceding_cmds.strip():
+                yield from _execute_preceding_commands(preceding_cmds)
+            yield from execute_bg_command(c, memory_limit=_bg_memory_limit)
             if remaining_cmds.strip():
                 yield from execute_shell(remaining_cmds, None, None)
-            return
+
+        yield from execute_with_confirmation(
+            bg_cmd,
+            args,
+            kwargs,
+            execute_fn=_bg_execute_fn,
+            get_path_fn=get_path_fn,
+            preview_fn=preview_shell,
+            preview_lang="bash",
+            confirm_msg="Run command in background?",
+            allow_edit=True,
+        )
+        return
 
     if cmd_lower == "jobs":
         # List background jobs
