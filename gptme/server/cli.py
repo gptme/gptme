@@ -146,11 +146,13 @@ def _install_sigterm_handler() -> None:
     Signal handlers can only be installed from the main thread; this is called
     from the ``serve`` command, which runs there.
 
-    Only upgrades our own startup handler, the OS default, or an inherited
-    SIG_IGN — a *callable* handler installed by an embedder before calling
-    ``serve()`` is left intact (gptme/gptme#3597).  SIG_IGN can be inherited
-    from a parent process (daemon supervisor, test runner) and is not treated
-    as a deliberate embedder choice.
+    Only upgrades our own startup handler, the OS default (SIG_DFL), or an
+    inherited SIG_IGN.  A *callable* handler installed by an embedder before
+    calling ``serve()`` is left intact (gptme/gptme#3597).  SIG_IGN is treated
+    like SIG_DFL because it can be inherited from a parent process (daemon
+    supervisor, test runner) and does not indicate a deliberate embedder choice
+    — refusing to upgrade it would silently disable graceful shutdown for servers
+    started under such supervisors.
     """
     current = signal.getsignal(signal.SIGTERM)
     if callable(current) and current is not _startup_sigterm_handler:
