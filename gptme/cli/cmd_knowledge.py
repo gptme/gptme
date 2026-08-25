@@ -61,13 +61,13 @@ def knowledge_save_cmd(
 
     if as_json:
         click.echo(json.dumps(entry, indent=2))
-        # Suppress gptme-rag reindex noise when caller expects pure JSON on stdout.
-        return
-    click.echo(f"Saved knowledge entry {entry['id'][:8]}")
-    if entry["tags"]:
-        click.echo(f"  Tags: {', '.join(entry['tags'])}")
+    else:
+        click.echo(f"Saved knowledge entry {entry['id'][:8]}")
+        if entry["tags"]:
+            click.echo(f"  Tags: {', '.join(entry['tags'])}")
 
-    # Optionally re-index with gptme-rag so semantic search stays current.
+    # Re-index with gptme-rag regardless of output mode so the mirror stays
+    # in sync whether the caller asked for JSON or human-readable output.
     if shutil.which("gptme-rag"):
         from ..knowledge import _knowledge_dir  # fmt: skip
 
@@ -110,7 +110,11 @@ def _export_for_rag(kb_dir: Path) -> None:
 @knowledge.command("search")
 @click.argument("query")
 @click.option(
-    "--top-k", default=5, show_default=True, type=int, help="Number of results."
+    "--top-k",
+    default=5,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Number of results.",
 )
 @click.option("--tag", "-t", "tags", multiple=True, help="Filter by tag (repeatable).")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
@@ -151,7 +155,11 @@ def knowledge_search_cmd(query: str, top_k: int, tags: tuple[str, ...], as_json:
 @knowledge.command("list")
 @click.option("--tag", "-t", "tags", multiple=True, help="Filter by tag (repeatable).")
 @click.option(
-    "--limit", default=20, show_default=True, type=int, help="Maximum entries."
+    "--limit",
+    default=20,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Maximum entries.",
 )
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 def knowledge_list_cmd(tags: tuple[str, ...], limit: int, as_json: bool):
@@ -198,6 +206,25 @@ def knowledge_delete_cmd(entry_id: str):
     full_id = matches[0]["id"]
     if knowledge_delete(full_id):
         click.echo(f"Deleted entry {full_id[:8]}")
+        # Remove the RAG mirror file so semantic retrieval doesn't return stale results.
+        if shutil.which("gptme-rag"):
+            from ..knowledge import _knowledge_dir  # fmt: skip
+
+            mirror = _knowledge_dir() / "rag" / f"{full_id}.md"
+            if mirror.exists():
+                mirror.unlink()
+                try:
+                    subprocess.run(
+                        ["gptme-rag", "index", str(_knowledge_dir() / "rag")],
+                        check=True,
+                        capture_output=True,
+                        timeout=30,
+                    )
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                    click.echo(
+                        f"Warning: gptme-rag re-index after delete failed: {e}",
+                        err=True,
+                    )
     else:
         click.echo(f"Failed to delete entry {full_id[:8]}")
         sys.exit(1)

@@ -12,7 +12,9 @@ problem + resolution text.
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, TypedDict
@@ -182,7 +184,10 @@ def knowledge_list(
 
 
 def knowledge_delete(entry_id: str) -> bool:
-    """Remove an entry by ID, rewriting the JSONL file.
+    """Remove an entry by ID, rewriting the JSONL file atomically.
+
+    Uses a temp-file-and-rename pattern so a concurrent save cannot be
+    silently overwritten by a delete that started from an older snapshot.
 
     Returns True if the entry was found and deleted, False otherwise.
     """
@@ -193,7 +198,15 @@ def knowledge_delete(entry_id: str) -> bool:
 
     path = _entries_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        delete=False,
+        suffix=".tmp",
+    ) as tf:
         for e in kept:
-            f.write(json.dumps(e) + "\n")
+            tf.write(json.dumps(e) + "\n")
+        tmp_path = tf.name
+    os.replace(tmp_path, path)
     return True
