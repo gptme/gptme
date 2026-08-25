@@ -24,7 +24,7 @@ def _counts() -> dict[str, int]:
     for models in MODELS.values():
         for props in models.values():
             total += 1
-            tool_format += bool(props.get("default_tool_format"))
+            tool_format += props.get("default_tool_format") == "tool"
             parallel += bool(props.get("supports_parallel_tool_calls"))
             strict += bool(props.get("supports_strict_tools"))
     return {
