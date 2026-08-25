@@ -185,6 +185,14 @@ def get_cc_memory_dir(workspace: Path) -> Path:
 
     Returns:
         Path to the CC memory directory (may not exist)
+
+    Note:
+        The slash-to-dash encoding is non-injective: paths that differ only by a
+        dash versus a path separator (e.g. ``/a/b`` and ``/a-b``) map to the
+        same identifier. This is CC's own encoding scheme; gptme replicates it
+        faithfully so it reads the correct memory directory. The collision risk is
+        inherited from CC's design and cannot be resolved without diverging from
+        CC's path formula.
     """
     workspace_hash = str(workspace.resolve()).replace("/", "-")
     return Path.home() / ".claude" / "projects" / workspace_hash / "memory"

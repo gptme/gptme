@@ -38,6 +38,16 @@ class TestGetCcMemoryDir:
         # Both should resolve to the same hash
         assert cc_dir_real == cc_dir_link
 
+    def test_path_collision_documented(self):
+        """Paths differing only by dash-vs-separator produce the same hash (CC's design).
+
+        e.g. /a/b and /a-b both map to '-a-b'. This is an inherent property of
+        CC's own slash-to-dash encoding; gptme replicates it faithfully.
+        """
+        ws_slash = Path("/home/user/a/b")
+        ws_dash = Path("/home/user/a-b")
+        assert get_cc_memory_dir(ws_slash) == get_cc_memory_dir(ws_dash)
+
 
 class TestGetCcMemoryFile:
     """Tests for get_cc_memory_file."""
@@ -189,3 +199,38 @@ class TestCcMemoryInWorkspacePrompt:
         contents = [m.content for m in messages]
         combined = "\n".join(contents)
         assert "Persistent Memory" not in combined
+
+    def test_oversized_memory_is_truncated(self, tmp_path):
+        """Memory files exceeding the size cap are truncated before injection."""
+        from gptme.prompts.workspace import _CC_MEMORY_MAX_BYTES, prompt_workspace
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        cc_memory_file = tmp_path / "MEMORY.md"
+        big_content = "# Memory\n\n" + ("x" * (_CC_MEMORY_MAX_BYTES + 10_000))
+        cc_memory_file.write_text(big_content, encoding="utf-8")
+
+        with (
+            patch(
+                "gptme.prompts.workspace.get_cc_memory_file",
+                return_value=cc_memory_file,
+            ),
+            patch("gptme.prompts.workspace.get_config") as mock_config,
+            patch("gptme.prompts.workspace.get_project_config", return_value=None),
+            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+            patch("gptme.prompts.workspace._get_git_status", return_value=None),
+            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+        ):
+            mock_config.return_value.user = None
+            messages = list(
+                prompt_workspace(
+                    workspace=workspace,
+                    include_user_context=True,
+                    include_context_cmd=False,
+                )
+            )
+
+        memory_msgs = [m for m in messages if "Persistent Memory" in m.content]
+        assert len(memory_msgs) == 1
+        injected = memory_msgs[0].content.encode("utf-8")
+        assert len(injected) < _CC_MEMORY_MAX_BYTES * 2

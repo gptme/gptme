@@ -16,6 +16,7 @@ from . import AGENT_FILES, DEFAULT_CONTEXT_FILES, _loaded_agent_files_var
 from .context_cmd import get_project_context_cmd_output
 
 _HASH_PREFIX = "ch:"
+_CC_MEMORY_MAX_BYTES = 64 * 1024  # 64 KB cap to avoid consuming excessive prompt budget
 
 if TYPE_CHECKING:
     from ..util.uri import FilePath
@@ -397,6 +398,15 @@ def prompt_workspace(
             try:
                 memory_content = cc_memory_file.read_text(encoding="utf-8").strip()
                 if memory_content:
+                    encoded = memory_content.encode("utf-8")
+                    if len(encoded) > _CC_MEMORY_MAX_BYTES:
+                        logger.warning(
+                            f"CC memory file {cc_memory_file} is {len(encoded)} bytes; "
+                            f"truncating to {_CC_MEMORY_MAX_BYTES // 1024}KB"
+                        )
+                        memory_content = encoded[:_CC_MEMORY_MAX_BYTES].decode(
+                            "utf-8", errors="ignore"
+                        )
                     yield Message(
                         "system",
                         f"## Persistent Memory\n\n"
