@@ -12,7 +12,12 @@ from .decision import (
     should_auto_compact,
 )
 from .engine import auto_compact_log
-from .handlers import _compact_resume, cmd_compact_handler
+from .handlers import (
+    _compact_resume,
+    _compact_summarize,
+    _compact_trim,
+    cmd_compact_handler,
+)
 from .hook import _get_compacted_name, autocompact_hook, tool
 from .resume import _load_context_files, _parse_context_files, _resume_via_llm
 from .scoring import (
@@ -45,7 +50,9 @@ __all__ = [
     "_resume_via_llm",
     # Handlers
     "cmd_compact_handler",
-    "_compact_resume",
+    "_compact_trim",
+    "_compact_summarize",
+    "_compact_resume",  # deprecated alias for _compact_summarize
     # Hook
     "autocompact_hook",
     "_get_compacted_name",

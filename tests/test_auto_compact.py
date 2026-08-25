@@ -1243,3 +1243,195 @@ def test_keep_head_success_path_pins_head_messages():
     # Non-head messages must NOT be pinned
     for m in compacted[2:]:
         assert not m.pinned, f"non-head message should not be pinned: {m.content[:30]}"
+
+
+# Tests for improved mode naming (issue #3618)
+
+
+def test_cmd_compact_default_mode_is_trim():
+    """Default /compact with no args uses 'trim' mode, not the old 'auto'."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact.handlers import cmd_compact_handler
+
+    mock_ctx = MagicMock()
+    mock_ctx.args = []  # No mode arg — should default to 'trim'
+    mock_ctx.manager.log.messages = [
+        Message("user", "hi"),
+        Message("assistant", "hello"),
+        Message("user", "/compact"),  # the command itself
+    ]
+
+    with (
+        patch(
+            "gptme.tools.autocompact.handlers.should_auto_compact",
+            return_value="none",
+        ),
+    ):
+        results = list(cmd_compact_handler(mock_ctx))
+
+    # With should_auto_compact returning 'none', trim path gives "not needed" message
+    assert any("Trim compaction not needed" in msg.content for msg in results), (
+        f"Expected trim-mode message, got: {[m.content for m in results]}"
+    )
+
+
+def test_cmd_compact_trim_mode_explicit():
+    """Explicit /compact trim dispatches to trim path."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact.handlers import cmd_compact_handler
+
+    mock_ctx = MagicMock()
+    mock_ctx.args = ["trim"]
+    mock_ctx.manager.log.messages = [
+        Message("user", "hi"),
+        Message("user", "/compact trim"),
+    ]
+
+    with patch(
+        "gptme.tools.autocompact.handlers.should_auto_compact",
+        return_value="none",
+    ):
+        results = list(cmd_compact_handler(mock_ctx))
+
+    assert any("Trim compaction not needed" in msg.content for msg in results)
+
+
+def test_cmd_compact_summarize_mode():
+    """Explicit /compact summarize dispatches to LLM summarize path."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact.handlers import cmd_compact_handler
+
+    mock_ctx = MagicMock()
+    mock_ctx.args = ["summarize"]
+    mock_ctx.manager.log.messages = [
+        Message("user", "hi"),
+        Message("user", "/compact summarize"),
+    ]
+
+    with patch("gptme.tools.autocompact.handlers._compact_summarize") as mock_summarize:
+        mock_summarize.return_value = iter([Message("system", "summarized")])
+        list(cmd_compact_handler(mock_ctx))
+
+    mock_summarize.assert_called_once()
+
+
+def test_cmd_compact_deprecated_auto_emits_warning():
+    """Deprecated /compact auto emits a deprecation warning message."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact.handlers import cmd_compact_handler
+
+    mock_ctx = MagicMock()
+    mock_ctx.args = ["auto"]
+    mock_ctx.manager.log.messages = [
+        Message("user", "hi"),
+        Message("user", "/compact auto"),
+    ]
+
+    with patch(
+        "gptme.tools.autocompact.handlers.should_auto_compact",
+        return_value="none",
+    ):
+        results = list(cmd_compact_handler(mock_ctx))
+
+    # First message must be the deprecation warning
+    assert len(results) >= 1
+    assert "deprecated" in results[0].content.lower()
+    assert "trim" in results[0].content
+
+
+def test_cmd_compact_deprecated_resume_emits_warning():
+    """Deprecated /compact resume emits a deprecation warning message."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact.handlers import cmd_compact_handler
+
+    mock_ctx = MagicMock()
+    mock_ctx.args = ["resume"]
+    mock_ctx.manager.log.messages = [
+        Message("user", "hi"),
+        Message("user", "/compact resume"),
+    ]
+
+    with patch("gptme.tools.autocompact.handlers._compact_summarize") as mock_s:
+        mock_s.return_value = iter([Message("system", "done")])
+        results = list(cmd_compact_handler(mock_ctx))
+
+    assert len(results) >= 1
+    assert "deprecated" in results[0].content.lower()
+    assert "summarize" in results[0].content
+    mock_s.assert_called_once()
+
+
+def test_cmd_compact_invalid_mode_error():
+    """Unknown mode name yields a clear error with new mode names."""
+    from unittest.mock import MagicMock
+
+    from gptme.tools.autocompact.handlers import cmd_compact_handler
+
+    mock_ctx = MagicMock()
+    mock_ctx.args = ["bogus"]
+    mock_ctx.manager.log.messages = [
+        Message("user", "/compact bogus"),
+    ]
+
+    results = list(cmd_compact_handler(mock_ctx))
+
+    assert len(results) == 1
+    assert "Invalid compact method" in results[0].content
+    assert "trim" in results[0].content
+    assert "summarize" in results[0].content
+
+
+def test_compact_trim_handler_honors_env_keep_head(monkeypatch):
+    """The /compact trim handler must use _get_keep_head(), not a hardcoded default.
+
+    When GPTME_AUTOCOMPACT_KEEP_HEAD differs from the AutoCompactConfig default,
+    the handler must pass the env value — not the dataclass default — to
+    auto_compact_log.  This is the equivalent of test_compact_auto_handler_honors_env_keep_head
+    but using the new canonical name _compact_trim.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact.handlers import _compact_trim
+
+    mock_logdir = MagicMock()
+    mock_ctx = MagicMock()
+    mock_ctx.manager.logdir = mock_logdir
+
+    msgs = [
+        Message("system", "System prompt"),
+        Message("user", "word " * 200),
+        Message("system", "tool result " * 200),
+    ]
+
+    captured_keep_head = {}
+
+    def fake_auto_compact_log(log, logdir=None, keep_head=0, **kw):
+        captured_keep_head["value"] = keep_head
+        yield from log
+
+    with (
+        patch(
+            "gptme.tools.autocompact.handlers.should_auto_compact",
+            return_value="rule_based",
+        ),
+        patch(
+            "gptme.tools.autocompact.handlers.auto_compact_log",
+            side_effect=fake_auto_compact_log,
+        ),
+        patch("gptme.tools.autocompact.handlers.get_default_model", return_value=None),
+        patch("gptme.config.get_config") as mock_get_config,
+    ):
+        mock_cfg = MagicMock()
+        mock_cfg.get_env.return_value = "7"
+        mock_get_config.return_value = mock_cfg
+
+        list(_compact_trim(mock_ctx, msgs))
+
+    assert captured_keep_head.get("value") == 7, (
+        f"Expected keep_head=7 from env override, got {captured_keep_head.get('value')}"
+    )
