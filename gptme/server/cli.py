@@ -23,14 +23,15 @@ def _startup_sigterm_handler(signum: int, frame: object) -> None:
 
 
 # Guard against non-main-thread imports (signal.signal raises ValueError
-# from a worker thread) and against overriding a custom disposition the host
-# process may have already installed (e.g. an embedder that imports
-# gptme.server.cli.main programmatically).  Only install when the handler
-# is still the OS default.  SIG_IGN is a deliberate custom disposition —
-# leave it intact (gptme/gptme#3597).
-if (
-    threading.current_thread() is threading.main_thread()
-    and signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+# from a worker thread) and against overriding a *callable* handler the host
+# process may have installed (e.g. an embedder that sets its own graceful
+# shutdown handler before importing gptme.server.cli).  We install over
+# SIG_DFL (the OS default) and SIG_IGN — the latter may be inherited from a
+# parent process (e.g. a test runner or daemon supervisor) and does not
+# indicate a deliberate embedder choice.  Only an explicit callable handler
+# from the current process is left intact (gptme/gptme#3597).
+if threading.current_thread() is threading.main_thread() and not callable(
+    signal.getsignal(signal.SIGTERM)
 ):
     signal.signal(signal.SIGTERM, _startup_sigterm_handler)
 
@@ -145,13 +146,15 @@ def _install_sigterm_handler() -> None:
     Signal handlers can only be installed from the main thread; this is called
     from the ``serve`` command, which runs there.
 
-    Only upgrades our own startup handler or the OS default — a custom
-    disposition (callable handler *or* SIG_IGN) installed by an embedder
-    before calling ``serve()`` is left intact (gptme/gptme#3597).
+    Only upgrades our own startup handler, the OS default, or an inherited
+    SIG_IGN — a *callable* handler installed by an embedder before calling
+    ``serve()`` is left intact (gptme/gptme#3597).  SIG_IGN can be inherited
+    from a parent process (daemon supervisor, test runner) and is not treated
+    as a deliberate embedder choice.
     """
     current = signal.getsignal(signal.SIGTERM)
-    if current not in (signal.SIG_DFL, _startup_sigterm_handler):
-        # An embedder installed a custom handler or SIG_IGN; don't override it.
+    if callable(current) and current is not _startup_sigterm_handler:
+        # An embedder installed a custom callable handler; don't override it.
         return
 
     def _handle_sigterm(signum, frame):
