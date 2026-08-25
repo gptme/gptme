@@ -306,12 +306,7 @@ def test_multi_tool_per_message(
         ]
     )
 
-    with (
-        unittest.mock.patch("gptme.server.session_step._stream", mock_stream),
-        unittest.mock.patch(
-            "gptme.server.session_step._try_auto_name_and_notify", return_value=None
-        ),
-    ):
+    with unittest.mock.patch("gptme.server.session_step._stream", mock_stream):
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
             json={
