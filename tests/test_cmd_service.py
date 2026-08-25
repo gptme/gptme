@@ -6,6 +6,7 @@ parse), and the on-demand (no-timer) path.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from typing import TYPE_CHECKING
@@ -1018,6 +1019,42 @@ def test_startup_script_rejects_slash_command_with_unicode_whitespace(
         f"stderr: {proc.stderr}"
     )
     assert "in-chat command" in proc.stderr
+
+
+def test_startup_script_prompt_guard_fails_loud_without_python3(
+    tmp_path: Path,
+) -> None:
+    """Prompt guard must fail loudly if python3 is absent from PATH.
+
+    Regression: the guard used `| python3 -c ... || true`, so a missing python3
+    set _prompt_fw to '' and silently let the slash-command check pass even for
+    a prompt starting with /shell.
+    """
+    _run_init(tmp_path)
+    startup = tmp_path / "gptme-agent-run.sh"
+    (tmp_path / "prompt.md").write_text("/shell echo pwned\n")
+
+    # Run with a PATH that has the system tools (bash, grep, awk, …) but no python3.
+    # We create a fake python3 shim that exits 127 to simulate a missing interpreter.
+    fake_bin = tmp_path / "fake_bin"
+    fake_bin.mkdir()
+    fake_python3 = fake_bin / "python3"
+    fake_python3.write_text("#!/bin/sh\nexit 127\n")
+    fake_python3.chmod(0o755)
+    # Prepend our fake_bin so it shadows any real python3, but keep system PATH
+    # for bash, grep, mkdir, etc.
+    new_path = f"{fake_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+    proc = subprocess.run(
+        ["bash", str(startup)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PATH": new_path},
+    )
+    # Must not exit 0 — failing open would allow /shell to reach the model dispatcher.
+    assert proc.returncode != 0, (
+        "Expected non-zero exit when python3 is absent; guard silently failed open"
+    )
 
 
 def test_startup_script_mkdir_journal_dir_fails_loudly(tmp_path: Path) -> None:
