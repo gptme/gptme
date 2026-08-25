@@ -6120,26 +6120,52 @@ behaviour silently:
 
 **How well populated is this?** Unevenly, and it is worth being explicit about:
 
-- ``default_tool_format`` is set for the ``openai-subscription`` models only
-  (they default to ``tool``). No other model in the bundled registry declares
-  one, so for almost every model step 4 above is a no-op and you land on
-  ``markdown``.
+- ``default_tool_format`` is set to ``tool`` on 92 of the 111 models in the
+  bundled registry. This is stamped **per provider**, not per model: every
+  provider that talks the OpenAI-compatible function-calling API gets it
+  (``openai``, ``openai-subscription``, ``gemini``, ``xai``, ``groq``,
+  ``deepseek``, ``moonshot``, ``openrouter``, ``requesty``, and the
+  subscription/proxy variants). ``anthropic`` is excluded because it uses the
+  Anthropic SDK rather than the OpenAI-compatible path, and ``mock`` is
+  test-only. An explicit per-model value always wins over the provider stamp.
 
-- ``supports_parallel_tool_calls`` is set on the Claude Opus/Sonnet 4.x families,
-  their OpenRouter aliases, Kimi K3, and the GPT-4.1/GPT-5 families — roughly 30
-  entries. Deliberate omissions are meaningful: Claude Haiku 4.5 carries an
-  explicit comment that it does *not* emit multiple tool calls per response.
+  Four OpenAI-compatible providers (``azure``, ``local``, ``nvidia``, ``gptme``)
+  ship no static registry entries at all, so there is nothing to stamp; they get
+  the same ``tool`` default applied at resolution time instead, including on
+  dynamic-fetch fallbacks.
 
-- ``supports_strict_tools`` is set on the OpenAI models (GPT-4o/4.1/5 families,
-  o-series) and Kimi K3.
+- ``supports_parallel_tool_calls`` is set on 56 entries: the Claude Opus/Sonnet
+  4.x families and their OpenRouter aliases, Kimi K3, the GPT-4.1/GPT-5
+  families, all bundled Gemini models (and the OpenRouter Gemini 3.5 Flash
+  alias), xAI Grok (including ``grok-subscription``), Groq's
+  ``llama-3.3-70b-versatile``, DeepSeek chat/reasoner, and the OpenRouter
+  DeepSeek V4 aliases. Deliberate omissions are meaningful: Claude Haiku 4.5
+  carries an explicit comment that it does *not* emit multiple tool calls per
+  response. Moonshot Kimi K2/K2.6, OpenRouter Qwen/Llama/Kimi K2, and Groq's
+  gpt-oss models (not in this registry) stay unset because provider docs do not
+  clearly document parallel tool calls for those IDs.
+
+- ``supports_strict_tools`` is set on 23 entries: the OpenAI models (GPT-4o/4.1/5
+  families, o-series) and Kimi K3. DeepSeek documents a ``strict`` mode, but it
+  requires ``base_url=https://api.deepseek.com/beta``, which gptme does not use,
+  so the flag stays unset rather than sending ``strict=True`` on the production
+  endpoint. xAI tool arguments are implicitly schema-strict; that is not the
+  OpenAI ``strict=True`` request field, so it is also left unset.
 
 So this is not a complete capability matrix, and an absent flag means "not
 recorded", not "not supported". If a model you use is missing a flag it should
 have, that is a worthwhile contribution.
 
-The :doc:`evals` leaderboard is the natural source for populating
-``default_tool_format``: it already reports the best-performing format per model
-from measured runs.
+One caveat on ``default_tool_format``: the provider-level stamp above encodes
+"this provider can do native tool calls", not "``tool`` measurably beats
+``markdown`` for this model". Those are different claims. The :doc:`evals`
+leaderboard is the source that can settle the second one — it already reports the
+best-performing format per model from measured runs. Consulted 2026-08-25: no
+registry model had a trustworthy disagreement with the provider heuristic
+(override bar: both the candidate format and the heuristic tested on ≥10 unique
+tests, a strict Wilson-score win, and a valid ``markdown``/``xml``/``tool``
+value), so no per-model overrides were added. The leaderboard's display cutoff
+of 4 tests is too weak to change a production default.
 
 Troubleshooting
 ---------------

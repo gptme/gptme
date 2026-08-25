@@ -738,24 +738,50 @@ format; listed here because it is adjacent and equally undocumented.</p></td>
 </table>
 </div>
 <p><strong>How well populated is this?</strong> Unevenly, and it is worth being explicit about:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">default_tool_format</span></code> is set for the <code class="docutils literal notranslate"><span class="pre">openai-subscription</span></code> models only
-(they default to <code class="docutils literal notranslate"><span class="pre">tool</span></code>). No other model in the bundled registry declares
-one, so for almost every model step 4 above is a no-op and you land on
-<code class="docutils literal notranslate"><span class="pre">markdown</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">supports_parallel_tool_calls</span></code> is set on the Claude Opus/Sonnet 4.x families,
-their OpenRouter aliases, Kimi K3, and the GPT-4.1/GPT-5 families — roughly 30
-entries. Deliberate omissions are meaningful: Claude Haiku 4.5 carries an
-explicit comment that it does <em>not</em> emit multiple tool calls per response.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">supports_strict_tools</span></code> is set on the OpenAI models (GPT-4o/4.1/5 families,
-o-series) and Kimi K3.</p></li>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">default_tool_format</span></code> is set to <code class="docutils literal notranslate"><span class="pre">tool</span></code> on 92 of the 111 models in the
+bundled registry. This is stamped <strong>per provider</strong>, not per model: every
+provider that talks the OpenAI-compatible function-calling API gets it
+(<code class="docutils literal notranslate"><span class="pre">openai</span></code>, <code class="docutils literal notranslate"><span class="pre">openai-subscription</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini</span></code>, <code class="docutils literal notranslate"><span class="pre">xai</span></code>, <code class="docutils literal notranslate"><span class="pre">groq</span></code>,
+<code class="docutils literal notranslate"><span class="pre">deepseek</span></code>, <code class="docutils literal notranslate"><span class="pre">moonshot</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter</span></code>, <code class="docutils literal notranslate"><span class="pre">requesty</span></code>, and the
+subscription/proxy variants). <code class="docutils literal notranslate"><span class="pre">anthropic</span></code> is excluded because it uses the
+Anthropic SDK rather than the OpenAI-compatible path, and <code class="docutils literal notranslate"><span class="pre">mock</span></code> is
+test-only. An explicit per-model value always wins over the provider stamp.</p>
+<p>Four OpenAI-compatible providers (<code class="docutils literal notranslate"><span class="pre">azure</span></code>, <code class="docutils literal notranslate"><span class="pre">local</span></code>, <code class="docutils literal notranslate"><span class="pre">nvidia</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme</span></code>)
+ship no static registry entries at all, so there is nothing to stamp; they get
+the same <code class="docutils literal notranslate"><span class="pre">tool</span></code> default applied at resolution time instead, including on
+dynamic-fetch fallbacks.</p>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">supports_parallel_tool_calls</span></code> is set on 56 entries: the Claude Opus/Sonnet
+4.x families and their OpenRouter aliases, Kimi K3, the GPT-4.1/GPT-5
+families, all bundled Gemini models (and the OpenRouter Gemini 3.5 Flash
+alias), xAI Grok (including <code class="docutils literal notranslate"><span class="pre">grok-subscription</span></code>), Groq’s
+<code class="docutils literal notranslate"><span class="pre">llama-3.3-70b-versatile</span></code>, DeepSeek chat/reasoner, and the OpenRouter
+DeepSeek V4 aliases. Deliberate omissions are meaningful: Claude Haiku 4.5
+carries an explicit comment that it does <em>not</em> emit multiple tool calls per
+response. Moonshot Kimi K2/K2.6, OpenRouter Qwen/Llama/Kimi K2, and Groq’s
+gpt-oss models (not in this registry) stay unset because provider docs do not
+clearly document parallel tool calls for those IDs.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">supports_strict_tools</span></code> is set on 23 entries: the OpenAI models (GPT-4o/4.1/5
+families, o-series) and Kimi K3. DeepSeek documents a <code class="docutils literal notranslate"><span class="pre">strict</span></code> mode, but it
+requires <code class="docutils literal notranslate"><span class="pre">base_url=https://api.deepseek.com/beta</span></code>, which gptme does not use,
+so the flag stays unset rather than sending <code class="docutils literal notranslate"><span class="pre">strict=True</span></code> on the production
+endpoint. xAI tool arguments are implicitly schema-strict; that is not the
+OpenAI <code class="docutils literal notranslate"><span class="pre">strict=True</span></code> request field, so it is also left unset.</p></li>
 </ul>
 <p>So this is not a complete capability matrix, and an absent flag means “not
 recorded”, not “not supported”. If a model you use is missing a flag it should
 have, that is a worthwhile contribution.</p>
-<p>The <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a> leaderboard is the natural source for populating
-<code class="docutils literal notranslate"><span class="pre">default_tool_format</span></code>: it already reports the best-performing format per model
-from measured runs.</p>
+<p>One caveat on <code class="docutils literal notranslate"><span class="pre">default_tool_format</span></code>: the provider-level stamp above encodes
+“this provider can do native tool calls”, not “<code class="docutils literal notranslate"><span class="pre">tool</span></code> measurably beats
+<code class="docutils literal notranslate"><span class="pre">markdown</span></code> for this model”. Those are different claims. The <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a>
+leaderboard is the source that can settle the second one — it already reports the
+best-performing format per model from measured runs. Consulted 2026-08-25: no
+registry model had a trustworthy disagreement with the provider heuristic
+(override bar: both the candidate format and the heuristic tested on ≥10 unique
+tests, a strict Wilson-score win, and a valid <code class="docutils literal notranslate"><span class="pre">markdown</span></code>/<code class="docutils literal notranslate"><span class="pre">xml</span></code>/<code class="docutils literal notranslate"><span class="pre">tool</span></code>
+value), so no per-model overrides were added. The leaderboard’s display cutoff
+of 4 tests is too weak to change a production default.</p>
 </section>
 <section id="troubleshooting">
 <h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
