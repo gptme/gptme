@@ -502,6 +502,7 @@ document.write(`
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ollama-local">Ollama (local)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lm-studio-local">LM Studio (local)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#auto-discovery">Auto-discovery</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vllm-and-openai-compatible-servers">vLLM and OpenAI-compatible servers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#setting-a-default-model">Setting a default model</a></li>
@@ -638,6 +639,26 @@ Studio ignores the model name in requests (and echoes it back in responses).</p>
 <strong>Fix:</strong> Use a 7B+ instruction-tuned model; or try a different tool format (<code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--tool-format</span> <span class="pre">xml</span></code>)</p>
 </dd>
 </dl>
+</section>
+<section id="auto-discovery">
+<h2>Auto-discovery<a class="headerlink" href="#auto-discovery" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">providers</span> <span class="pre">list</span></code> probes well-known local OpenAI-compatible endpoints and
+reports what it finds — including candidates that are not running:</p>
+<ul class="simple">
+<li><p>Ollama: <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">http://127.0.0.1:11434/v1/models</span></code></p></li>
+<li><p>LM Studio: <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">http://127.0.0.1:1234/v1/models</span></code></p></li>
+</ul>
+<p>Detection is an HTTP GET of the real <code class="docutils literal notranslate"><span class="pre">/v1/models</span></code> path (the OpenAI models
+list), not a port-open check and not Ollama’s native <code class="docutils literal notranslate"><span class="pre">/api/tags</span></code>. A process
+listening on the port that is not OpenAI-compatible is listed with a reason
+rather than silently skipped.</p>
+<p>Auto-discovery never writes config. Use <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">providers</span> <span class="pre">add</span></code> (or a
+<code class="docutils literal notranslate"><span class="pre">[[providers]]</span></code> block) to persist a provider. Disable probes with
+<code class="docutils literal notranslate"><span class="pre">GPTME_NO_LOCAL_DISCOVERY=1</span></code> or <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">providers</span> <span class="pre">list</span> <span class="pre">--no-discover</span></code>.</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>providers<span class="w"> </span>list
+gptme<span class="w"> </span>providers<span class="w"> </span>list<span class="w"> </span>--json
+</pre></div>
+</div>
 </section>
 <section id="vllm-and-openai-compatible-servers">
 <h2>vLLM and OpenAI-compatible servers<a class="headerlink" href="#vllm-and-openai-compatible-servers" title="Link to this heading">#</a></h2>
@@ -822,6 +843,7 @@ existing configurations.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ollama-local">Ollama (local)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lm-studio-local">LM Studio (local)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#auto-discovery">Auto-discovery</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vllm-and-openai-compatible-servers">vLLM and OpenAI-compatible servers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#setting-a-default-model">Setting a default model</a></li>

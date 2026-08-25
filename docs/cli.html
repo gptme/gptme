@@ -1713,11 +1713,29 @@ writes the configuration to gptme.toml.</p>
 </section>
 <section id="gptme-util-providers-list">
 <h4>list<a class="headerlink" href="#gptme-util-providers-list" title="Link to this heading">#</a></h4>
-<p>List configured custom OpenAI-compatible providers.</p>
+<p>List configured and auto-discovered local OpenAI-compatible providers.</p>
+<p>Configured <code class="docutils literal notranslate"><span class="pre">[[providers]]</span></code> entries are listed first. Then gptme probes
+Ollama (<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:11434/v1/models</span></code>) and LM Studio
+(<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:1234/v1/models</span></code>) and reports each candidate — live
+servers and the reason a probe did not count as available. Discovery never
+writes config; use <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">providers</span> <span class="pre">add</span></code> to persist a provider.</p>
 <p class="rubric">Usage</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>providers<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </pre></div>
 </div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-providers-list-discover">
+<span id="cmdoption-gptme-util-providers-list-no-discover"></span><span class="sig-name descname"><span class="pre">--discover</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--no-discover</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-providers-list-discover" title="Link to this definition">#</a></dt>
+<dd><p>Probe well-known local OpenAI-compatible endpoints (Ollama :11434, LM Studio :1234).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-providers-list-json">
+<span class="sig-name descname"><span class="pre">--json</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-providers-list-json" title="Link to this definition">#</a></dt>
+<dd><p>Output as JSON.</p>
+</dd></dl>
+
 </section>
 <section id="gptme-util-providers-test">
 <h4>test<a class="headerlink" href="#gptme-util-providers-test" title="Link to this heading">#</a></h4>

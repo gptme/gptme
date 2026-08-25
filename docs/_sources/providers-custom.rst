@@ -133,6 +133,29 @@ Tool use fails or loops
   **Cause:** Model too small for tool format
   **Fix:** Use a 7B+ instruction-tuned model; or try a different tool format (``gptme --tool-format xml``)
 
+Auto-discovery
+---------------
+
+``gptme providers list`` probes well-known local OpenAI-compatible endpoints and
+reports what it finds — including candidates that are not running:
+
+- Ollama: ``GET http://127.0.0.1:11434/v1/models``
+- LM Studio: ``GET http://127.0.0.1:1234/v1/models``
+
+Detection is an HTTP GET of the real ``/v1/models`` path (the OpenAI models
+list), not a port-open check and not Ollama's native ``/api/tags``. A process
+listening on the port that is not OpenAI-compatible is listed with a reason
+rather than silently skipped.
+
+Auto-discovery never writes config. Use ``gptme providers add`` (or a
+``[[providers]]`` block) to persist a provider. Disable probes with
+``GPTME_NO_LOCAL_DISCOVERY=1`` or ``gptme providers list --no-discover``.
+
+.. code-block:: sh
+
+    gptme providers list
+    gptme providers list --json
+
 vLLM and OpenAI-compatible servers
 -----------------------------------
 
