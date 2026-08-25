@@ -1336,7 +1336,7 @@ def main(
             )
         )
 
-        # get initial system prompt
+        # get initial system prompt (includes profile if specified)
         initial_msgs = get_prompt(
             tools=tools,
             prompt=prompt_system,
@@ -1348,15 +1348,8 @@ def main(
             context_mode=effective_context_mode,
             context_include=effective_context_include,
             initial_prompt=prompt_msgs[0].content if prompt_msgs else None,
+            profile=selected_profile,
         )
-
-    # Append profile system prompt if using a profile
-    if selected_profile and selected_profile.system_prompt:
-        profile_msg = Message(
-            "system",
-            f"# Agent Profile: {selected_profile.name}\n\n{selected_profile.system_prompt}",
-        )
-        initial_msgs.append(profile_msg)
 
     # register a handler for Ctrl-C
     set_interruptible()  # prepare, user should be able to Ctrl+C until user prompt ready

@@ -654,3 +654,89 @@ def test_prompt_workspace_skip_home_agents_md(tmp_path, monkeypatch):
     assert str(home_agents.resolve()) not in files_without_user, (
         "~/AGENTS.md must not appear in eval runs (include_user_context=False)"
     )
+
+
+def test_profile_included_in_cacheable_sections():
+    """Test that profile system prompt is included in cacheable sections (Phase 3.1).
+
+    Profile should be part of the static prompt that precedes the cache boundary,
+    not appended dynamically afterward.
+    """
+    from gptme.profiles import Profile
+    from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
+
+    # Create a test profile
+    test_profile = Profile(
+        name="test-profile",
+        description="Test profile",
+        system_prompt="This is a test profile prompt.",
+    )
+
+    # Get prompt with profile
+    msgs = get_prompt(
+        get_tools(),
+        prompt="full",
+        profile=test_profile,
+    )
+
+    # Find the cache boundary message
+    boundary_idx = None
+    for i, msg in enumerate(msgs):
+        if msg.content == SYSTEM_PROMPT_CACHE_BOUNDARY:
+            boundary_idx = i
+            break
+
+    assert boundary_idx is not None, "Cache boundary should be present in prompt"
+
+    # Profile should appear before the boundary
+    profile_found_before_boundary = False
+    for msg in msgs[:boundary_idx]:
+        if "test-profile" in msg.content and "test profile prompt" in msg.content:
+            profile_found_before_boundary = True
+            break
+
+    assert profile_found_before_boundary, (
+        "Profile system prompt must appear in cacheable sections (before boundary)"
+    )
+
+    # Ensure profile is not after the boundary
+    profile_found_after_boundary = False
+    for msg in msgs[boundary_idx + 1 :]:
+        if "test-profile" in msg.content and "test profile prompt" in msg.content:
+            profile_found_after_boundary = True
+            break
+
+    assert not profile_found_after_boundary, (
+        "Profile must not appear in dynamic sections (after boundary)"
+    )
+
+
+def test_profile_stats_included():
+    """Test that profile is included in prompt statistics."""
+    from gptme.profiles import Profile
+
+    test_profile = Profile(
+        name="test-profile",
+        description="Test profile",
+        system_prompt="Test profile system prompt for stats.",
+    )
+
+    stats = get_prompt_stats(
+        get_tools(),
+        prompt="full",
+        profile=test_profile,
+    )
+
+    # Check that a profile section exists in the stats
+    section_names = [section.name for section in stats.sections]
+    assert "prompt_profile" in section_names, (
+        "prompt_profile section should be in stats"
+    )
+
+    # Profile should be in cacheable tokens (not dynamic)
+    profile_section = next(
+        (s for s in stats.sections if s.name == "prompt_profile"),
+        None,
+    )
+    assert profile_section is not None, "prompt_profile section should exist"
+    assert profile_section.tokens > 0, "profile section should have tokens"
