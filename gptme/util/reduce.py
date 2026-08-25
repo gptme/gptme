@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 # Prevents repeated LLM summarize calls when prepare_messages is invoked on the
 # same stored log across consecutive turns (which breaks prompt-cache stability).
 # Capped to avoid unbounded growth in long-lived processes (servers, daemons).
+# Message is a frozen dataclass so sharing the cached instance by reference is safe.
 _PROACTIVE_SUMMARIZE_CACHE_MAX = 256
 _proactive_summarize_cache: dict[str, "Message"] = {}
 
@@ -446,12 +447,14 @@ def proactive_summarize_log(
     key_parts = [model.model] + [f"{m.role}:{m.content}" for m in summarize_middle]
     cache_key = hashlib.sha256("\0".join(key_parts).encode()).hexdigest()
 
-    if cache_key in _proactive_summarize_cache:
+    # Use .get() instead of `in` + `[]` to avoid a TOCTOU race: under concurrent
+    # callers another thread can evict the entry between membership test and lookup.
+    summary_msg = _proactive_summarize_cache.get(cache_key)
+    if summary_msg is not None:
         logger.debug(
             "Proactive summarize cache hit: %d middle messages → reusing summary",
             len(summarize_middle),
         )
-        summary_msg = _proactive_summarize_cache[cache_key]
     else:
         logger.info(
             "Proactive summarize triggered: %dk tokens (threshold %d%% of %dk context)"
