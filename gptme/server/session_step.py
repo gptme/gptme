@@ -1409,9 +1409,14 @@ def _start_step_thread(
     except Exception:
         # A reserved caller owns this slot; release it if dispatch itself fails.
         # Non-reserved callers reserved above and need the same rollback.
+        # Compare-and-clear: only release if no newer step has taken ownership.
+        # An interrupt + replacement /step increments step_seq under step_lock
+        # before setting generating=True; if our epoch is stale we must not
+        # clear the replacement's reservation.
         with session.step_lock:
-            session.generating = False
-            session.generating_since = None
+            if step_seq is None or session.step_seq == step_seq:
+                session.generating = False
+                session.generating_since = None
         raise
     return True
 
