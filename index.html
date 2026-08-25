@@ -650,15 +650,18 @@ any Linux machine, use <code>gptme service init</code>:</p>
 session</li>
 <li><strong>Optional timer</strong> — schedule autonomous runs (hourly,
 daily, weekly, or on-demand)</li>
-<li><strong>Startup script</strong> — placeholder run script; customize
-the loop body with your agent's real work</li>
+<li><strong>Startup script</strong> — runs one non-interactive gptme
+session per trigger and writes a durable journal entry</li>
+<li><strong>Session prompt</strong> — <code>prompt.md</code>, the
+instruction the agent executes on every run</li>
 <li><strong>Skeleton config</strong> — <code>gptme.toml</code> and
 <code>AGENTS.md</code> ready to customize</li>
 </ul>
-<p>The scaffolded workspace is self-contained; after customizing the
-startup script with your agent's work loop, all you need is gptme
-installed. Perfect for automation, monitoring, CI/CD orchestration, or
-running background agents on headless servers.</p>
+<p>The scaffolded workspace is self-contained and runs as generated —
+edit <code>prompt.md</code> to say what the agent should do each run;
+all you need is gptme installed. Perfect for automation, monitoring,
+CI/CD orchestration, or running background agents on headless
+servers.</p>
 <p>See the <a
 href="https://gptme.org/docs/agents/headless.html">Headless Agents
 guide</a> for advanced configurations and troubleshooting.</p>
