@@ -9,16 +9,16 @@
  *
  * Cost / latency / secrets (recorded 2026-08-23, before any always-on workflow):
  *   - Secret: OPENROUTER_API_KEY, or GPTME_VISION_API_KEY to override.
- *   - Default model: google/gemini-2.5-flash via OpenRouter.
- *   - Measured 2026-08-23 on google/gemini-2.5-flash: a 220x30 cropped PNG
- *     used 2492 prompt tokens / $0.00087 / 5.6s; a 1000x80 PNG used 3524
- *     prompt tokens / $0.00116 / 1.0s. Budget about $0.001–$0.01 and 1–6s
- *     per assertion (timeout 30s).
+ *   - Default model: openrouter/deepseek/deepseek-v4-flash-vision-exp@deepseek via OpenRouter.
+ *   - ~1/5th the price of gemini-2.5-flash and slightly faster (Erik 2026-08-25).
+ *   - Measured 2026-08-23 on google/gemini-2.5-flash (old default): a 220x30
+ *     cropped PNG used ~$0.00087 / 5.6s; a 1000x80 PNG used ~$0.00116 / 1.0s.
+ *     Budget about $0.0002–$0.002 and ~1–4s per assertion (timeout 30s).
  *   - Failure mode: the model can hallucinate "pass" or "fail"; treat this as a
  *     second opinion on top of Playwright/DOM assertions, not a replacement.
  */
 
-export const DEFAULT_VISION_MODEL = 'google/gemini-2.5-flash';
+export const DEFAULT_VISION_MODEL = 'openrouter/deepseek/deepseek-v4-flash-vision-exp@deepseek';
 export const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
 export const VISION_ASSERT_TIMEOUT_MS = 30_000;
 
