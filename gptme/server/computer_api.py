@@ -43,14 +43,25 @@ _DISPLAY_UNAVAILABLE_MARKERS = (
     "can't open x display",
     "cannot open display",
     "unable to open display",
+    "failed to open display",
+    "could not open display",
     "no display",
 )
 
 
 def _is_display_unavailable_error(exc: BaseException) -> bool:
     """Return True when a screenshot failure is 'no usable display', not a 500."""
-    msg = str(exc).lower()
-    return any(marker in msg for marker in _DISPLAY_UNAVAILABLE_MARKERS)
+    import subprocess
+
+    texts = [str(exc).lower()]
+    if isinstance(exc, subprocess.CalledProcessError) and exc.stderr:
+        stderr = exc.stderr
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode(errors="replace")
+        texts.append(stderr.lower())
+    return any(
+        marker in text for text in texts for marker in _DISPLAY_UNAVAILABLE_MARKERS
+    )
 
 
 def _native_screenshot_available() -> bool:
@@ -65,8 +76,9 @@ def _native_screenshot_available() -> bool:
     if system == "Linux":
         is_wayland = os.environ.get("XDG_SESSION_TYPE") == "wayland"
         has_display = bool(os.environ.get("DISPLAY"))
+        has_wayland_display = bool(os.environ.get("WAYLAND_DISPLAY"))
         has_gnome = bool(shutil.which("gnome-screenshot")) and (
-            is_wayland or has_display
+            (is_wayland and has_wayland_display) or has_display
         )
         has_scrot = bool(shutil.which("scrot")) and not is_wayland and has_display
         return has_gnome or has_scrot

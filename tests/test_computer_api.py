@@ -418,10 +418,12 @@ class TestScreenshotAvailable:
     def test_linux_wayland_gnome_screenshot_without_display_returns_true(
         self, monkeypatch
     ):
+        """gnome-screenshot on a live Wayland session (WAYLAND_DISPLAY set) is available."""
         if platform.system() != "Linux":
             pytest.skip("Linux-only test")
         monkeypatch.delenv("DISPLAY", raising=False)
         monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+        monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
 
         with patch(
             "shutil.which",
@@ -429,9 +431,27 @@ class TestScreenshotAvailable:
                 "/usr/bin/gnome-screenshot" if cmd == "gnome-screenshot" else None
             ),
         ):
-            from gptme.server.computer_api import _screenshot_available
+            from gptme.server.computer_api import _native_screenshot_available
 
-            assert _screenshot_available() is True
+            assert _native_screenshot_available() is True
+
+    def test_linux_headless_wayland_gnome_screenshot_returns_false(self, monkeypatch):
+        """gnome-screenshot on headless Wayland (no WAYLAND_DISPLAY) reports unavailable."""
+        if platform.system() != "Linux":
+            pytest.skip("Linux-only test")
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+        with patch(
+            "shutil.which",
+            side_effect=lambda cmd: (
+                "/usr/bin/gnome-screenshot" if cmd == "gnome-screenshot" else None
+            ),
+        ):
+            from gptme.server.computer_api import _native_screenshot_available
+
+            assert _native_screenshot_available() is False
 
     def test_linux_x11_gnome_screenshot_without_display_returns_false(
         self, monkeypatch

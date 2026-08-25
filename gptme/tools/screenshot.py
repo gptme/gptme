@@ -49,7 +49,8 @@ def _is_available() -> bool:
         return shutil.which("screencapture") is not None
     if os.name == "posix":
         if shutil.which("gnome-screenshot") and (
-            IS_WAYLAND or os.environ.get("DISPLAY")
+            (IS_WAYLAND and os.environ.get("WAYLAND_DISPLAY"))
+            or os.environ.get("DISPLAY")
         ):
             return True
         if not IS_WAYLAND and shutil.which("scrot"):
