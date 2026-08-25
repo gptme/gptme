@@ -824,6 +824,34 @@ class TestSensitiveArgs:
     def test_normal_home_dir_listing_still_allowlisted(self):
         assert is_allowlisted("ls ~/projects")
 
+    # $HOME variable spellings (Greptile P1 fix)
+    def test_cat_home_var_ssh_not_allowlisted(self):
+        """`cat $HOME/.ssh/id_rsa` must be blocked — $HOME is not expanded by shlex."""
+        assert not is_allowlisted('cat "$HOME/.ssh/id_rsa"')
+
+    def test_cat_brace_home_var_ssh_not_allowlisted(self):
+        assert not is_allowlisted("cat ${HOME}/.ssh/id_rsa")
+
+    def test_cat_home_var_aws_not_allowlisted(self):
+        assert not is_allowlisted("cat $HOME/.aws/credentials")
+
+    # Prefix boundary checks (Greptile P2 fix)
+    def test_ssh_sibling_dir_allowlisted(self):
+        """`~/.sshrc` is not a credential dir — should not trip the sensitive check."""
+        assert is_allowlisted("cat ~/.sshrc")
+
+    def test_npmrc_sibling_allowlisted(self):
+        """`~/.npmrc-public` shares the ~/.npmrc prefix but is not sensitive."""
+        assert is_allowlisted("cat ~/.npmrc-public")
+
+    def test_npmrc_exact_still_blocked(self):
+        """Exact `~/.npmrc` match must still be blocked."""
+        assert not is_allowlisted("cat ~/.npmrc")
+
+    def test_ssh_dir_exact_still_blocked(self):
+        """Exact `~/.ssh` must still be blocked (ls reveals key names)."""
+        assert not is_allowlisted("ls ~/.ssh")
+
 
 # ── P2: Unquoted backtick detection ─────────────────────────────────────────
 

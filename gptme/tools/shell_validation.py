@@ -373,8 +373,20 @@ def _has_sensitive_args(cmd: str) -> bool:
         # Sensitive directory prefixes (absolute paths)
         if any(token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
             return True
-        # Sensitive home-relative credential directories (~/...)
-        if any(token.startswith(prefix) for prefix in _SENSITIVE_HOME_DIRS):
+        # Sensitive home-relative credential directories.
+        # Normalize $HOME/... and ${HOME}/... to ~/... before matching so that
+        # shell-variable spellings (cat "$HOME/.ssh/id_rsa") are caught too.
+        # Use a boundary check (exact match or followed by "/") to avoid
+        # false-positives on sibling paths like ~/.sshrc or ~/.npmrc-public.
+        normalized = token
+        for sub in ("${HOME}/", "$HOME/"):
+            if token.startswith(sub):
+                normalized = "~/" + token[len(sub) :]
+                break
+        if any(
+            normalized == prefix or normalized.startswith(prefix + "/")
+            for prefix in _SENSITIVE_HOME_DIRS
+        ):
             return True
 
     return False
