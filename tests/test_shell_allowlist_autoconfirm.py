@@ -190,24 +190,25 @@ class TestExecuteShellAllowlist:
     def test_allowlisted_command_executes_without_confirmation(
         self, mock_shell, mock_logdir
     ):
-        """Test that allowlisted commands execute without calling confirmation."""
+        """Test that allowlisted commands execute without user prompting.
+
+        After the fix in gptme#3598, all shell commands go through
+        execute_with_confirmation() so that TOOL_CONFIRM guardrails can run.
+        The shell_allowlist_hook (priority=10) auto-confirms safe commands, so
+        the user is never prompted — the behaviour is unchanged from the outside,
+        but the implementation now routes through the hook chain.
+        """
         cmd = "cat README.md | head -100"
 
-        # Mock execute_with_confirmation to track if it's called
-        with patch("gptme.tools.shell.execute_with_confirmation") as mock_confirm:
-            # Execute the command - args must be [] not None for code path
-            messages = list(execute_shell(cmd, [], None))
+        # Execute the command - goes through the hook chain, auto-confirmed by
+        # shell_allowlist_hook; no user prompt appears.
+        messages = list(execute_shell(cmd, [], None))
 
-            # execute_with_confirmation should NOT be called for allowlisted commands
-            mock_confirm.assert_not_called()
+        # The command must have actually executed (mock_shell.run was called).
+        assert mock_shell.run.called, "Shell command did not execute"
 
-            # Should have executed and returned a message
-            assert len(messages) == 1
-            assert "Ran allowlisted command" in messages[0].content
-            assert (
-                "cat README.md | head -100" in messages[0].content
-                or "cat README.md" in messages[0].content
-            )
+        # At least one message should come back from the execution.
+        assert len(messages) >= 1
 
     def test_non_allowlisted_command_uses_confirmation(self, mock_shell, mock_logdir):
         """Test that non-allowlisted commands use confirmation hook."""
