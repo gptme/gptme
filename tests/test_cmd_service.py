@@ -892,9 +892,9 @@ def test_startup_script_session_id_is_collision_resistant(tmp_path: Path) -> Non
     _run_init(tmp_path)
     startup = (tmp_path / "gptme-agent-run.sh").read_text()
 
-    # PID suffix ($$ in bash) is the only stdlib-portable disambiguation that
-    # is also second-collision-proof without external tools.
-    assert "SESSION_ID=$(date +%Y%m%d-%H%M%S)-$$" in startup
+    # PID suffix ($$ in bash) + $RANDOM guards against PID reuse within the
+    # same second on rapid restarts.
+    assert "SESSION_ID=$(date +%Y%m%d-%H%M%S)-$$-$RANDOM" in startup
 
 
 def test_startup_script_prompt_bypasses_command_routing(tmp_path: Path) -> None:

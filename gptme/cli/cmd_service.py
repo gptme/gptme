@@ -189,7 +189,7 @@ JOURNAL_DIR="$WORK_DIR/journal/$(date +%Y-%m-%d)"
 PROMPT_FILE="$WORK_DIR/prompt.md"
 
 mkdir -p "$JOURNAL_DIR" || {{ echo "gptme agent $AGENT_NAME: cannot create journal dir $JOURNAL_DIR" >&2; exit 1; }}
-SESSION_ID=$(date +%Y%m%d-%H%M%S)-$$
+SESSION_ID=$(date +%Y%m%d-%H%M%S)-$$-$RANDOM
 SESSION_LOG="$JOURNAL_DIR/session-$SESSION_ID.md"
 
 {{
