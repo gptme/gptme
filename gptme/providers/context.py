@@ -9,7 +9,7 @@ from __future__ import annotations
 import importlib.metadata
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -30,6 +30,7 @@ class CompressionConfig:
     logdir: Path | None = None
     reasoning_strip_age_threshold: int = 5
     keep_head: int = 0
+    extra_config: dict = field(default_factory=dict)
 
 
 class ContextProvider(ABC):

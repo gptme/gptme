@@ -13,6 +13,8 @@ from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from gptme.message import Message
 from gptme.providers.context import (
     CompressionConfig,
     ContextProvider,
@@ -21,8 +23,6 @@ from gptme.providers.context import (
     list_providers,
     register_provider,
 )
-
-from gptme.message import Message
 
 # =============================================================================
 # Fixtures and Test Providers
@@ -99,7 +99,7 @@ def compression_config():
 def test_context_provider_is_abstract():
     """ContextProvider cannot be instantiated directly."""
     with pytest.raises(TypeError):
-        ContextProvider()
+        ContextProvider()  # type: ignore[abstract]
 
 
 def test_context_provider_requires_name():
@@ -117,7 +117,7 @@ def test_context_provider_requires_name():
             yield from messages
 
     with pytest.raises(TypeError):
-        BadProvider()
+        BadProvider()  # type: ignore[abstract]
 
 
 def test_context_provider_requires_should_compress():
@@ -134,7 +134,7 @@ def test_context_provider_requires_should_compress():
             yield from messages
 
     with pytest.raises(TypeError):
-        BadProvider()
+        BadProvider()  # type: ignore[abstract]
 
 
 def test_context_provider_requires_compress():
@@ -151,7 +151,7 @@ def test_context_provider_requires_compress():
             return True
 
     with pytest.raises(TypeError):
-        BadProvider()
+        BadProvider()  # type: ignore[abstract]
 
 
 def test_mock_provider_implements_interface(sample_messages, compression_config):
