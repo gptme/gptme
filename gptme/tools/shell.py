@@ -563,6 +563,16 @@ class ShellSession:
             def finish_readers(*, stop: bool = False) -> None:
                 if stop:
                     stop_readers.set()
+                    t_out.join(timeout=0.2)
+                    t_err.join(timeout=0.2)
+                    # Drain data already enqueued by the threads before closing
+                    # pipes, so we don't discard output they buffered during the
+                    # grace window.
+                    while True:
+                        try:
+                            consume(data_q.get_nowait())
+                        except Empty:
+                            break
                     if proc.stdout is not None:
                         proc.stdout.close()
                     if proc.stderr is not None:
