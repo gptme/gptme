@@ -107,11 +107,15 @@ class DefaultContextProvider(ContextProvider):
 # ---------------------------------------------------------------------------
 
 _provider_registry: dict[str, type[ContextProvider]] = {}
+_registry_initialized = False
 
 
 def _init_registry() -> None:
-    if "default" not in _provider_registry:
+    global _registry_initialized
+    if not _registry_initialized:
+        _registry_initialized = True
         _provider_registry["default"] = DefaultContextProvider
+        _load_entry_point_providers()
 
 
 def register_provider(name: str, provider_class: type) -> None:
