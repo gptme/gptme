@@ -433,6 +433,47 @@ class TestScreenshotAvailable:
 
             assert _screenshot_available() is True
 
+    def test_linux_x11_gnome_screenshot_without_display_returns_false(
+        self, monkeypatch
+    ):
+        if platform.system() != "Linux":
+            pytest.skip("Linux-only test")
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.delenv("XDG_SESSION_TYPE", raising=False)
+
+        with patch(
+            "shutil.which",
+            side_effect=lambda cmd: (
+                "/usr/bin/gnome-screenshot" if cmd == "gnome-screenshot" else None
+            ),
+        ):
+            from gptme.server.computer_api import _native_screenshot_available
+
+            assert _native_screenshot_available() is False
+
+    def test_linux_x11_gnome_screenshot_without_display_hint_mentions_gnome(
+        self, client, monkeypatch
+    ):
+        """Hint body should call out gnome-screenshot, not say 'install gnome-screenshot'."""
+        if platform.system() != "Linux":
+            pytest.skip("Linux-only test")
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.delenv("XDG_SESSION_TYPE", raising=False)
+
+        with patch(
+            "shutil.which",
+            side_effect=lambda cmd: (
+                "/usr/bin/gnome-screenshot" if cmd == "gnome-screenshot" else None
+            ),
+        ):
+            resp = client.get("/api/v2/computer/screenshot")
+
+        assert resp.status_code == 503
+        data = resp.get_json()
+        error = data["error"].lower()
+        assert "display" in error
+        assert "gnome-screenshot" in error
+
     def test_linux_with_display_and_scrot_returns_true(self, monkeypatch):
         if platform.system() != "Linux":
             pytest.skip("Linux-only test")

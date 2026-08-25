@@ -63,13 +63,12 @@ def _native_screenshot_available() -> bool:
     """
     system = platform.system()
     if system == "Linux":
-        has_gnome = bool(shutil.which("gnome-screenshot"))
         is_wayland = os.environ.get("XDG_SESSION_TYPE") == "wayland"
-        has_scrot = (
-            bool(shutil.which("scrot"))
-            and not is_wayland
-            and bool(os.environ.get("DISPLAY"))
+        has_display = bool(os.environ.get("DISPLAY"))
+        has_gnome = bool(shutil.which("gnome-screenshot")) and (
+            is_wayland or has_display
         )
+        has_scrot = bool(shutil.which("scrot")) and not is_wayland and has_display
         return has_gnome or has_scrot
     if system == "Darwin":
         return bool(shutil.which("screencapture"))
@@ -79,13 +78,17 @@ def _native_screenshot_available() -> bool:
 def _linux_unavailable_hint() -> str:
     """Actionable 503 body when Linux cannot actually take a screenshot."""
     has_scrot = bool(shutil.which("scrot"))
+    has_gnome = bool(shutil.which("gnome-screenshot"))
     is_wayland = os.environ.get("XDG_SESSION_TYPE") == "wayland"
-    if has_scrot and not is_wayland and not os.environ.get("DISPLAY"):
-        return (
-            "scrot is installed but $DISPLAY is unset, so screenshots cannot "
-            "be taken. Set DISPLAY to a running X11 server (or start Xvfb), "
-            "or install gnome-screenshot for a Wayland session."
-        )
+    has_display = bool(os.environ.get("DISPLAY"))
+    if not is_wayland and not has_display:
+        if has_gnome or has_scrot:
+            installed = "gnome-screenshot" if has_gnome else "scrot"
+            return (
+                f"{installed} is installed but $DISPLAY is unset, so screenshots "
+                "cannot be taken. Set DISPLAY to a running X11 server (or start "
+                "Xvfb), or use a Wayland session with gnome-screenshot."
+            )
     return (
         "No supported Linux screenshot backend available. "
         "Install gnome-screenshot, or install scrot and run under X11/Xvfb."
