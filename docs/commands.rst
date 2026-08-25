@@ -471,6 +471,9 @@ Two strategies are available:
 
 - **trim** (default) — rule-based: strips old reasoning blocks, truncates massive tool
   results, and compresses long assistant messages. Fast and deterministic; no LLM call.
+  Trim only runs when the rule-based heuristic determines it is worthwhile; if the
+  conversation is over the context limit but savings would be low, it will suggest
+  ``/compact summarize`` instead.
 
 - **summarize** — LLM-powered: asks the model to produce a ``RESUME.md`` capturing
   key decisions, open tasks, and relevant file paths, then starts a fresh context
