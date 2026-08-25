@@ -218,7 +218,7 @@ Once registered, use your provider by name:
         compacted = list(provider.compress(messages, config))
 
 Discovering Available Providers
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-------------------------------
 
 List all registered providers:
 
