@@ -1310,7 +1310,17 @@ def start_tool_execution(
             )
             if reserved:
                 with session.step_lock:
-                    if session.step_seq == my_seq:
+                    # If the election block advanced step_seq (setting
+                    # continuation_seq) but an exception prevented
+                    # start_continuation from being set to True, the
+                    # reservation is at continuation_seq, not my_seq.
+                    # Release whichever epoch we actually own.
+                    release_seq = (
+                        continuation_seq
+                        if continuation_seq is not None and not start_continuation
+                        else my_seq
+                    )
+                    if session.step_seq == release_seq:
                         session.generating = False
                         session.generating_since = None
             raise
