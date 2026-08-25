@@ -944,6 +944,25 @@ def test_startup_script_checks_prompt_nonempty(tmp_path: Path) -> None:
     assert '[ ! -s "$PROMPT_FILE" ]' in startup
 
 
+def test_startup_script_rejects_slash_command_prompt(tmp_path: Path) -> None:
+    """A prompt.md starting with a gptme in-chat command must be rejected (exit 66).
+
+    Regression: the leading-newline guard ($'\\n') prevents CLI-level subcommand
+    dispatch, but gptme's _group_prompt_args strips the newline before the chat
+    loop dispatch. A first line like /shell or /python would be executed as an
+    in-chat command rather than sent to the model. /path/to/file-style strings
+    are safe because their first word has more than one slash.
+    """
+    _run_init(tmp_path)
+    startup = (tmp_path / "gptme-agent-run.sh").read_text()
+
+    # The check must extract the first word and count its slashes.
+    assert "_prompt_fw" in startup
+    # Single-slash first words that match gptme's in-chat command pattern must
+    # be rejected before gptme is invoked.
+    assert "in-chat command" in startup
+
+
 def test_startup_script_mkdir_journal_dir_fails_loudly(tmp_path: Path) -> None:
     """A journal directory that cannot be created must fail with an explicit error.
 
