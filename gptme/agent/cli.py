@@ -118,7 +118,15 @@ def main(verbose: bool = False):
     help="Output as JSON.",
 )
 def scan_cmd(workspace: Path | None, show_all: bool, as_json: bool):
-    """List live agent processes (gptme, claude-code, codex, aider, …)."""
+    """Scan for live agent processes (gptme, claude-code, codex, aider, …).
+
+    Inspects currently running processes on this host. This is about live
+    sessions and processes — NOT about persistent agents, brain-workspaces,
+    or agent identities. A result here means a process is actively running
+    right now; it says nothing about that agent's workspace or identity files.
+
+    To create or manage a persistent agent workspace, see: gptme-agent create
+    """
     sys.exit(run_scan(workspace=workspace, show_all=show_all, as_json=as_json))
 
 
@@ -256,25 +264,28 @@ def create_cmd(
     template_branch: str,
     init_conversation: bool,
 ):
-    """Create a new agent workspace.
+    """Create a new persistent agent workspace.
 
     PATH is the directory where the agent workspace will be created.
-
-    By default, this clones from gptme-agent-template and runs its fork.sh script
-    to create a fully-featured agent workspace. Use --no-template for a minimal
-    workspace without the template.
+    A persistent agent workspace contains identity files (SOUL.md, GOALS.md, …),
+    knowledge, lessons, and automation scaffolding — not just a service runner.
 
     \b
-    Template-based (default):
-    - Clones gptme-agent-template repository
-    - Runs fork.sh to customize for your agent
-    - Includes lessons, knowledge structure, and automation
+    Template-based (default, recommended):
+    - Clones gptme-agent-template (https://github.com/gptme/gptme-agent-template)
+    - Runs fork.sh to customize for your agent name
+    - Includes identity files, lessons, knowledge structure, and automation
 
     \b
     Minimal (--no-template):
-    - Creates basic directory structure
-    - Generates minimal gptme.toml
-    - Creates autonomous run script
+    - Creates basic directory structure (journal/, tasks/, knowledge/, lessons/)
+    - Generates minimal gptme.toml and autonomous run script
+    - Use when you want to supply your own identity/config files
+
+    \b
+    Related:
+      gptme service init  # Lightweight alternative: just systemd service files,
+                          # no persistent workspace or identity files
 
     \b
     Example:
