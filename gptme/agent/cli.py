@@ -284,8 +284,8 @@ def create_cmd(
 
     \b
     Related:
-      gptme service init  # Lightweight alternative: just systemd service files,
-                          # no persistent workspace or identity files
+      gptme service init  # Lightweight alternative: minimal service scaffold
+                          # (systemd/launchd) + basic config; no full identity files
 
     \b
     Example:
