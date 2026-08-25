@@ -226,6 +226,17 @@ class PDFToImageConverter(Converter):
                                 error=f"Could not write {dest}: {e}",
                                 warnings=warnings,
                             )
+                        # Guard against TOCTOU: if dest became a directory between
+                        # the is_dir() check and shutil.move, the file lands inside
+                        # it and dest.is_file() returns False.
+                        if not dest.is_file():
+                            return ConversionResult(
+                                success=False,
+                                output_path=None,
+                                converter_used="pdftoppm",
+                                error=f"Destination {dest} was replaced by a directory during conversion",
+                                warnings=warnings,
+                            )
                         if len(candidates) > 1:
                             warnings.append(
                                 f"Multi-page PDF: only first page saved ({len(candidates)} pages total)"

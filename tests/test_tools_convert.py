@@ -711,6 +711,64 @@ def test_convert_file_unwritable_parent_returns_failure(avail_all, tmp_path):
     assert "Permission denied" in (result.error or "")
 
 
+def test_pdftoppm_toctou_dest_becomes_directory(tmp_path):
+    """shutil.move into a directory-at-dest must return failure, not success with a wrong path.
+
+    TOCTOU scenario: dest passes the is_dir() check, pdftoppm runs, then a
+    concurrent process creates a directory at dest before shutil.move runs.
+    shutil.move then places the file *inside* dest (not at dest), and
+    dest.is_file() returns False — the converter must detect this and fail.
+    """
+    import shutil as _shutil
+
+    real_move = _shutil.move  # capture before patch replaces the attribute
+
+    src = tmp_path / "doc.pdf"
+    src.write_bytes(b"%PDF-1.4")
+    dest = tmp_path / "out.png"
+
+    avail_pdftoppm_only = ToolAvailability(
+        pdftoppm=True,
+        imagemagick=False,
+        ffmpeg=False,
+        pdftotext=False,
+        libreoffice=False,
+        tesseract=False,
+        python_magic=False,
+        python_docx=False,
+        pypdf=False,
+    )
+
+    def fake_run(cmd, **kwargs):
+        mock = MagicMock()
+        if "pdftoppm" in cmd:
+            # Write a real output file into the temp prefix dir
+            tmp_prefix = Path(cmd[-1])
+            out_file = tmp_prefix.parent / f"{tmp_prefix.name}-1.png"
+            out_file.write_bytes(b"\x89PNG\r\n")
+            mock.returncode = 0
+            mock.stderr = b""
+        return mock
+
+    def move_via_dir(src_str, dst, **kwargs):
+        # Simulate another process creating dest as a directory just before the move
+        dst_path = Path(dst)
+        dst_path.mkdir(exist_ok=True)
+        return real_move(src_str, dst_path)
+
+    conv = PDFToImageConverter()
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_pdftoppm_only),
+        patch("subprocess.run", side_effect=fake_run),
+        patch("gptme.tools.convert.shutil.move", side_effect=move_via_dir),
+    ):
+        result = conv.convert(src, dest)
+
+    assert not result.success
+    assert result.output_path is None
+    assert "directory" in (result.error or "").lower()
+
+
 def test_module_docstring_does_not_claim_ocr():
     """The module advertised OCR via Tesseract, but no converter implements it."""
     import gptme.tools.convert as convert_mod
