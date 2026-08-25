@@ -168,6 +168,40 @@ def get_profile_memory_dir(profile_name: str) -> Path:
     return path
 
 
+def get_cc_memory_dir(workspace: Path) -> Path:
+    """Get the Claude Code memory directory for a given workspace.
+
+    Claude Code stores per-project memories at:
+        ~/.claude/projects/<workspace-hash>/memory/
+
+    where the hash is the absolute workspace path with slashes replaced by dashes,
+    e.g. ``/home/user/myproject`` → ``-home-user-myproject``.
+
+    This allows gptme sessions to read memories written by CC sessions (and vice
+    versa when the memory tool writes to this location).
+
+    Args:
+        workspace: Absolute path to the workspace root
+
+    Returns:
+        Path to the CC memory directory (may not exist)
+    """
+    workspace_hash = str(workspace.resolve()).replace("/", "-")
+    return Path.home() / ".claude" / "projects" / workspace_hash / "memory"
+
+
+def get_cc_memory_file(workspace: Path) -> Path:
+    """Get the Claude Code MEMORY.md file path for a given workspace.
+
+    Args:
+        workspace: Absolute path to the workspace root
+
+    Returns:
+        Path to MEMORY.md inside the CC memory directory (may not exist)
+    """
+    return get_cc_memory_dir(workspace) / "MEMORY.md"
+
+
 def _migrate_readline_history():
     """Migrate readline history from config dir to data dir."""
     old_path = get_config_dir() / "history"

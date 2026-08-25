@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..config import config_path, get_config, get_project_config
+from ..dirs import get_cc_memory_file
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.context_dedup import _content_hash
@@ -388,6 +389,23 @@ def prompt_workspace(
             f"## Selected files\n\nRead more with `cat`.\n\n{context_file_list}",
             files=valid_context_files,
         )
+
+    # Load Claude Code memory if present — makes CC-written memories accessible in gptme
+    if include_user_context:
+        cc_memory_file = get_cc_memory_file(workspace_resolved)
+        if cc_memory_file.exists():
+            try:
+                memory_content = cc_memory_file.read_text(encoding="utf-8").strip()
+                if memory_content:
+                    yield Message(
+                        "system",
+                        f"## Persistent Memory\n\n"
+                        f"The following memory was saved across sessions "
+                        f"(from `{cc_memory_file}`):\n\n{memory_content}",
+                    )
+                    logger.debug(f"Loaded CC memory from {cc_memory_file}")
+            except OSError as e:
+                logger.debug(f"Failed to read CC memory file {cc_memory_file}: {e}")
 
     # Computed context last (changes most often, least cacheable)
     if (
