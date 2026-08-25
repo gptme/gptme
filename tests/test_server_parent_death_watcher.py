@@ -72,6 +72,9 @@ def test_install_sigterm_handler_raises_keyboardinterrupt():
     fires on `systemctl stop` / container scale-down, not just on Ctrl+C."""
     original = signal.getsignal(signal.SIGTERM)
     try:
+        # Reset to SIG_DFL so the callable-preservation guard doesn't skip
+        # installation if a previous test left a callable handler in place.
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
         _install_sigterm_handler()
         handler = signal.getsignal(signal.SIGTERM)
         assert callable(handler)
