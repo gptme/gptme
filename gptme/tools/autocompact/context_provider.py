@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from ..message import Message
+    from ...message import Message
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ class DefaultContextProvider(ContextProvider):
     def compress(
         self, messages: list[Message], config: CompressionConfig
     ) -> Generator[Message, None, None]:
-        from ..tools.autocompact.engine import auto_compact_log
+        from .engine import auto_compact_log
 
         yield from auto_compact_log(
             messages,
@@ -91,11 +91,11 @@ class DefaultContextProvider(ContextProvider):
 
     def estimate_tokens(self, messages: list[Message]) -> int:
         """Estimate total token count for a message list."""
-        from ..llm.models import get_default_model
+        from ...llm.models import get_default_model
 
         m = get_default_model()
         if m:
-            from ..util.tokens import len_tokens
+            from ...util.tokens import len_tokens
 
             return len_tokens(messages, f"{m.provider}/{m.model}")
         # Fallback: ~4 chars per token

@@ -6,8 +6,8 @@ from collections.abc import Generator
 from ...llm.models import get_default_model
 from ...logmanager import Log
 from ...message import Message, len_tokens
-from ...providers.context import CompressionConfig, get_context_provider
 from .config import _get_keep_head
+from .context_provider import CompressionConfig, get_context_provider
 from .decision import should_auto_compact
 from .resume import _resume_via_llm
 

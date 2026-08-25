@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gptme.message import Message
-from gptme.providers.context import (
+from gptme.tools.autocompact.context_provider import (
     CompressionConfig,
     ContextProvider,
     DefaultContextProvider,
@@ -59,7 +59,7 @@ class MockContextProvider(ContextProvider):
 @pytest.fixture
 def cleanup_registry():
     """Cleanup the provider registry after tests."""
-    from gptme.providers import context as ctx_module
+    from gptme.tools.autocompact import context_provider as ctx_module
 
     # Save original registry state AND the initialized flag
     original_registry = ctx_module._provider_registry.copy()
@@ -288,7 +288,7 @@ def test_custom_default_provider_preserved_across_init(cleanup_registry):
     provider under "default" before the first lookup lost it. The init must use
     setdefault so the custom default survives.
     """
-    from gptme.providers import context as ctx_module
+    from gptme.tools.autocompact import context_provider as ctx_module
 
     # Ensure registry is uninitialized so the lookup path runs _init_registry()
     ctx_module._registry_initialized = False
@@ -315,7 +315,7 @@ def test_entry_point_does_not_clobber_preregistered_default(
     could clobber a caller-selected custom default even after setdefault() in
     _init_registry() preserved it.
     """
-    from gptme.providers import context as ctx_module
+    from gptme.tools.autocompact import context_provider as ctx_module
 
     class CustomDefault(MockContextProvider):
         _provider_name = "default"
@@ -353,8 +353,8 @@ def test_entry_point_default_provider_is_reachable(mock_entry_points, cleanup_re
     "default" was silently skipped and the built-in default was always used.
     Fix: load entry points first, then setdefault as the fallback.
     """
-    from gptme.providers import context as ctx_module
-    from gptme.providers.context import get_context_provider
+    from gptme.tools.autocompact import context_provider as ctx_module
+    from gptme.tools.autocompact.context_provider import get_context_provider
 
     class EntryPointDefault(MockContextProvider):
         _provider_name = "default"
@@ -455,7 +455,7 @@ def test_list_providers():
 @patch("importlib.metadata.entry_points")
 def test_load_entry_point_providers_python310(mock_entry_points):
     """Entry-point loading works with Python 3.10+ API."""
-    from gptme.providers.context import _load_entry_point_providers
+    from gptme.tools.autocompact.context_provider import _load_entry_point_providers
 
     # Mock Python 3.10+ API (group parameter)
     mock_ep = MagicMock()
@@ -473,7 +473,7 @@ def test_load_entry_point_providers_python310(mock_entry_points):
 @patch("importlib.metadata.entry_points")
 def test_load_entry_point_providers_python39_fallback(mock_entry_points):
     """Entry-point loading falls back to Python 3.9 API on TypeError."""
-    from gptme.providers.context import _load_entry_point_providers
+    from gptme.tools.autocompact.context_provider import _load_entry_point_providers
 
     # First call (Python 3.10+ API) raises TypeError, triggering fallback
     mock_ep = MagicMock()
@@ -494,7 +494,7 @@ def test_load_entry_point_providers_python39_fallback(mock_entry_points):
 @patch("importlib.metadata.entry_points")
 def test_load_entry_point_providers_handles_load_error(mock_entry_points, caplog):
     """Entry-point loading logs warnings but doesn't crash on load errors."""
-    from gptme.providers.context import _load_entry_point_providers
+    from gptme.tools.autocompact.context_provider import _load_entry_point_providers
 
     mock_ep = MagicMock()
     mock_ep.name = "broken-provider"

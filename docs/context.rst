@@ -60,7 +60,7 @@ Create a class that implements the ``ContextProvider`` abstract base class:
 
 .. code-block:: python
 
-    from gptme.providers.context import ContextProvider, CompressionConfig
+    from gptme.tools.autocompact.context_provider import ContextProvider, CompressionConfig
     from collections.abc import Generator
     from gptme.message import Message
 
@@ -92,7 +92,7 @@ Provider Interface
 ContextProvider ABC
 -------------------
 
-All custom providers must inherit from ``gptme.providers.context.ContextProvider`` and implement:
+All custom providers must inherit from ``gptme.tools.autocompact.context_provider.ContextProvider`` and implement:
 
 ``name`` property
 ~~~~~~~~~~~~~~~~~
@@ -196,7 +196,7 @@ You can also register providers at runtime:
 
 .. code-block:: python
 
-    from gptme.providers.context import register_provider
+    from gptme.tools.autocompact.context_provider import register_provider
     from my_package.providers import MyContextProvider
 
     register_provider("my-compressor", MyContextProvider)
@@ -208,7 +208,7 @@ Once registered, use your provider by name:
 
 .. code-block:: python
 
-    from gptme.providers.context import get_context_provider
+    from gptme.tools.autocompact.context_provider import get_context_provider
 
     provider = get_context_provider("my-compressor")
     config = CompressionConfig(limit=4000)
@@ -224,7 +224,7 @@ List all registered providers:
 
 .. code-block:: python
 
-    from gptme.providers.context import list_providers
+    from gptme.tools.autocompact.context_provider import list_providers
 
     providers = list_providers()
     # Returns: ['default', 'my-compressor', ...]
@@ -329,26 +329,26 @@ Related
 =======
 
 - ``autocompact`` tool - Automatic compression tool (see :doc:`commands`)
-- ``gptme.providers.context`` - Provider interface module
+- ``gptme.tools.autocompact.context_provider`` - Provider interface module
 - :py:class:`gptme.message.Message` - Message class reference
 
 API Reference
 =============
 
-.. autoclass:: gptme.providers.context.ContextProvider
+.. autoclass:: gptme.tools.autocompact.context_provider.ContextProvider
    :members:
    :undoc-members:
 
-.. autoclass:: gptme.providers.context.DefaultContextProvider
+.. autoclass:: gptme.tools.autocompact.context_provider.DefaultContextProvider
    :members:
    :undoc-members:
 
-.. autoclass:: gptme.providers.context.CompressionConfig
+.. autoclass:: gptme.tools.autocompact.context_provider.CompressionConfig
    :members:
    :undoc-members:
 
-.. autofunction:: gptme.providers.context.get_context_provider
+.. autofunction:: gptme.tools.autocompact.context_provider.get_context_provider
 
-.. autofunction:: gptme.providers.context.register_provider
+.. autofunction:: gptme.tools.autocompact.context_provider.register_provider
 
-.. autofunction:: gptme.providers.context.list_providers
+.. autofunction:: gptme.tools.autocompact.context_provider.list_providers
