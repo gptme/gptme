@@ -218,6 +218,72 @@ def test_startup_sigterm_handler_installed_at_import():
     )
 
 
+def test_sigterm_handler_survives_rapid_double_signal(tmp_path):
+    """Rapid duplicate SIGTERM must not crash with RuntimeError (reentrant BufferedWriter).
+
+    Regression for gptme/gptme#3589: _handle_sigterm() used _sys.stderr.write()
+    which is NOT async-signal-safe.  When a second SIGTERM arrived while the
+    first invocation was still inside stderr.write(), Python's BufferedWriter
+    raised ``RuntimeError: reentrant call inside <_io.BufferedWriter ...>``
+    instead of shutting down cleanly.
+
+    Fix: the handler now uses os.write(2, ...) (POSIX async-signal-safe, no
+    buffering) and guards against re-entrance with a module-level flag.  Two
+    SIGTERM signals in rapid succession must not crash the process.
+    """
+    import signal
+
+    env = os.environ.copy()
+    env["GPTME_DISABLE_AUTH"] = "1"
+    env["HOME"] = str(tmp_path)
+    for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"):
+        env.pop(key, None)
+    port = _find_free_port()
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "gptme.server.cli",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+    if not _wait_for_port("127.0.0.1", port, _STARTUP_TIMEOUT):
+        proc.terminate()
+        try:
+            stdout, stderr = proc.communicate(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, stderr = proc.communicate()
+        pytest.fail(
+            f"Server did not bind to 127.0.0.1:{port} within {_STARTUP_TIMEOUT}s.\n"
+            f"stdout:\n{stdout.decode(errors='replace')}\n"
+            f"stderr:\n{stderr.decode(errors='replace')}"
+        )
+    # Send two SIGTERM signals with minimal delay to trigger the reentrant path
+    proc.send_signal(signal.SIGTERM)
+    time.sleep(0.02)
+    proc.send_signal(signal.SIGTERM)
+    try:
+        stdout, stderr = proc.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, stderr = proc.communicate()
+    combined = (stdout + stderr).decode(errors="replace")
+    assert "RuntimeError" not in combined, (
+        "Server crashed with RuntimeError on double SIGTERM — reentrant signal handler bug "
+        "(gptme/gptme#3589).\n"
+        f"stderr:\n{stderr.decode(errors='replace')}"
+    )
+    # The process must have exited — not still running
+    assert proc.returncode is not None, "Server did not exit after two SIGTERM signals"
+
+
 def test_server_exits_nonzero_on_bad_webui_dir(tmp_path):
     env = os.environ.copy()
     env["GPTME_DISABLE_AUTH"] = "1"

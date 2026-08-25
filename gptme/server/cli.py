@@ -2,10 +2,15 @@ import json
 import logging
 import os
 import signal
-import sys as _sys
 import threading
 import time
 from pathlib import Path
+
+# Re-entrance guard: SIGTERM can fire while a previous invocation is still
+# running (e.g. during a buffered write).  A module-level flag lets the
+# second invocation exit immediately rather than crashing with
+# "RuntimeError: reentrant call inside <_io.BufferedWriter name='<stderr>'>".
+_sigterm_received = False
 
 
 # Install a minimal SIGTERM handler at module level — before the slow
@@ -17,8 +22,13 @@ from pathlib import Path
 # _install_sigterm_handler() upgrades it to a logger-aware version once
 # init_logging() has run inside serve().
 def _startup_sigterm_handler(signum: int, frame: object) -> None:
-    _sys.stderr.write("Received SIGTERM during startup, shutting down gracefully\n")
-    _sys.stderr.flush()
+    global _sigterm_received
+    if _sigterm_received:
+        return
+    _sigterm_received = True
+    # os.write() goes directly to the fd without Python's BufferedWriter, so
+    # it is safe to call from a signal handler (POSIX async-signal-safe).
+    os.write(2, b"Received SIGTERM during startup, shutting down gracefully\n")
     raise KeyboardInterrupt
 
 
@@ -142,12 +152,15 @@ def _install_sigterm_handler() -> None:
     """
 
     def _handle_sigterm(signum, frame):
-        # Write directly to stderr and flush before using the logger — Rich's
-        # Console buffers internally and may not flush before process exit,
-        # leaving the pipe empty on fast CI runners (gptme/gptme#3589).
-        _sys.stderr.write("Received SIGTERM, shutting down gracefully\n")
-        _sys.stderr.flush()
-        logger.info("Received SIGTERM, shutting down gracefully")
+        global _sigterm_received
+        if _sigterm_received:
+            return
+        _sigterm_received = True
+        # os.write() is POSIX async-signal-safe: it bypasses Python's
+        # BufferedWriter, which raises RuntimeError on reentrant calls
+        # (gptme/gptme#3589).  logger.info() is NOT safe in signal handlers
+        # (acquires locks, uses buffered I/O) so we omit it here.
+        os.write(2, b"Received SIGTERM, shutting down gracefully\n")
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, _handle_sigterm)
