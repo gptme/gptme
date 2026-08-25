@@ -51,6 +51,19 @@ def test_generates_service_and_timer(tmp_path: Path) -> None:
     assert (work / "gptme-agent-run.sh").exists()
 
 
+def test_agents_md_references_template_and_multiple_service_managers(
+    tmp_path: Path,
+) -> None:
+    """Generated agent instructions should not imply systemd is the only runtime."""
+    _run_init(tmp_path)
+    agents_md = (tmp_path / "AGENTS.md").read_text()
+
+    assert "Linux systemd user unit or a macOS launchd agent" in agents_md
+    assert "gptme-agent-template" in agents_md
+    assert "batteries-included workspace" in agents_md
+    assert "It runs on a systemd timer" not in agents_md
+
+
 def test_startup_script_is_executable_and_valid_bash(tmp_path: Path) -> None:
     _run_init(tmp_path)
     startup = tmp_path / "gptme-agent-run.sh"
@@ -536,6 +549,18 @@ def test_macos_autodetect_emits_warning(tmp_path: Path) -> None:
     )
 
 
+def test_help_references_launchd_and_full_template() -> None:
+    """CLI help should name the minimal/full-template boundary."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["init", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "systemd on" in result.output
+    assert "Linux, launchd on macOS" in result.output
+    assert "gptme/gptme-" in result.output
+    assert "agent-template" in result.output
+
+
 def test_launchd_plist_generated_on_macos_platform(tmp_path: Path) -> None:
     """When --platform=macos, a launchd plist should be generated instead of systemd files."""
     out_dir = tmp_path / "launchd"
@@ -570,6 +595,10 @@ def test_launchd_plist_generated_on_macos_platform(tmp_path: Path) -> None:
     assert (work / "gptme.toml").exists()
     assert (work / "AGENTS.md").exists()
     assert (work / "gptme-agent-run.sh").exists()
+
+    agents_md = (work / "AGENTS.md").read_text()
+    assert "macOS launchd agent" in agents_md
+    assert "gptme-agent-template" in agents_md
 
 
 def test_launchd_plist_is_valid_xml(tmp_path: Path) -> None:

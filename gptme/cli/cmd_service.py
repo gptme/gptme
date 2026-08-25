@@ -37,15 +37,8 @@ from pathlib import Path
 from xml.sax.saxutils import escape as _xml_escape
 
 # XML 1.0 permits only #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF].
-# Strip control characters and lone UTF-16 surrogates — both survive saxutils.escape unchanged
-# and cause launchctl to reject the generated plist.
+# Reject control characters and lone UTF-16 surrogates before generating launchd plists.
 _XML10_FORBIDDEN = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\uD800-\uDFFF\uFFFE\uFFFF]")
-
-
-def _xml_safe(value: str) -> str:
-    """Strip XML 1.0-forbidden control characters, then XML-escape special chars."""
-    return _xml_escape(_XML10_FORBIDDEN.sub("", value))
-
 
 import click
 
@@ -219,8 +212,13 @@ This file is auto-loaded by gptme and other agent runtimes.
 
 ## Role
 
-{name} is a persistent headless gptme agent. It runs on a systemd timer and
-executes its work loop non-interactively.
+{name} is a persistent headless gptme agent. It runs non-interactively from a
+Linux systemd user unit or a macOS launchd agent.
+
+`gptme service init` intentionally creates a minimal scaffold. For the full
+batteries-included workspace (richer task loop, production run scripts,
+monitoring, and service examples), use gptme-agent-template:
+https://github.com/gptme/gptme-agent-template
 
 ## Core Rules
 
@@ -300,7 +298,7 @@ def _generate_launchd_plist(
     run_at_load = "false" if timer_schedule == "on-demand" else "true"
 
     return LAUNCHD_PLIST_TEMPLATE.format(
-        name=_xml_safe(name),
+        name=_xml_escape(name),
         model=_xml_escape(model),
         work_dir=_xml_escape(work_dir),
         schedule_section=schedule_section,
@@ -323,7 +321,11 @@ def cli() -> None:
 
 @cli.command(
     name="init",
-    help="Scaffold a persistent service for a headless gptme agent.",
+    help=(
+        "Scaffold a minimal persistent service for a headless gptme agent "
+        "(systemd on Linux, launchd on macOS). For the full workspace template, "
+        "see gptme/gptme-agent-template."
+    ),
 )
 @click.option(
     "--name",
@@ -411,7 +413,8 @@ def init(
         gptme service init --name myagent --platform macos --work-dir ~/gptme-agent
         launchctl load ~/Library/LaunchAgents/com.gptme.myagent.plist
 
-    For the full agent workspace template, see:
+    This command intentionally creates a minimal scaffold. For the full
+    batteries-included agent workspace template, see:
     https://github.com/gptme/gptme-agent-template
     """
     if not _NAME_RE.match(name):
@@ -636,7 +639,7 @@ def init(
         click.echo(f"  journalctl --user -u {name}.service -f  # follow logs")
 
     click.echo()
-    click.echo("For the full agent workspace template with examples, see:")
+    click.echo("For the full batteries-included agent workspace template, see:")
     click.echo("  https://github.com/gptme/gptme-agent-template")
 
 
