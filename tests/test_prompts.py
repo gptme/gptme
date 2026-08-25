@@ -736,4 +736,74 @@ def test_prompt_workspace_path_included_without_runtime_context(tmp_path):
     combined = "\n".join(msg.content for msg in msgs)
     assert str(workspace.resolve()) in combined, (
         "Path must be present when include_path=True even if include_runtime_context=False"
+
+def test_profile_system_prompt_before_cache_boundary():
+    """Test that profile system prompts are included before the cache boundary."""
+    from gptme.profiles import Profile
+    from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
+
+    # Create a test profile
+    profile = Profile(
+        name="test_profile",
+        description="Test profile",
+        system_prompt="# Test Profile Instructions\nBe creative and concise.",
+    )
+
+    # Get prompt with the profile
+    prompt_msgs = get_prompt(
+        get_tools(),
+        prompt="full",
+        profile=profile,
+    )
+
+    # Find the cache boundary message
+    combined_content = "\n\n".join(msg.content for msg in prompt_msgs)
+    assert SYSTEM_PROMPT_CACHE_BOUNDARY in combined_content, (
+        "Cache boundary should be present in the prompt"
+    )
+
+    # Find where the profile appears relative to the boundary
+    profile_idx = combined_content.find("# Agent Profile: test_profile")
+    boundary_idx = combined_content.find(SYSTEM_PROMPT_CACHE_BOUNDARY)
+
+    assert profile_idx > 0, "Profile system prompt should be present"
+    assert profile_idx < boundary_idx, (
+        "Profile system prompt should appear BEFORE the cache boundary"
+    )
+
+
+def test_profile_system_prompt_included_in_stats():
+    """Test that profile system prompts are counted in prompt stats."""
+    from gptme.profiles import Profile
+
+    profile = Profile(
+        name="test_profile",
+        description="Test profile",
+        system_prompt="# Test Profile Instructions",
+    )
+
+    # Get stats without profile
+    stats_no_profile = get_prompt_stats(
+        get_tools(),
+        prompt="full",
+    )
+
+    # Get stats with profile
+    stats_with_profile = get_prompt_stats(
+        get_tools(),
+        prompt="full",
+        profile=profile,
+    )
+
+    # With profile should have more tokens
+    assert stats_with_profile.total_tokens > stats_no_profile.total_tokens, (
+        "Adding a profile should increase total tokens"
+    )
+
+    # Profile tokens should be in cacheable (before boundary)
+    cacheable_diff = (
+        stats_with_profile.cacheable_tokens - stats_no_profile.cacheable_tokens
+    )
+    assert cacheable_diff > 0, (
+        "Profile system prompt should be counted in cacheable_tokens"
     )

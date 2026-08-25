@@ -9,7 +9,7 @@ import logging
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from ..config import get_project_config
 from ..llm.models import get_recommended_model
@@ -17,6 +17,9 @@ from ..message import Message
 from ..tools import ToolFormat, ToolSpec, get_available_tools
 from ..util import document_prompt_function
 from ..util.tokens import len_tokens
+
+if TYPE_CHECKING:
+    from ..profiles import Profile
 
 # Agent instruction files — always loaded (layered: user-level + project-level)
 # These are the standard filenames used across different AI coding tools.
@@ -117,6 +120,7 @@ def _build_core_prompt_sections(
     include_tools: bool,
     include_examples: bool,
     is_selective: bool,
+    profile: "Profile | None" = None,
 ) -> list[tuple[str, list[Message]]]:
     """Build named core prompt sections in display order."""
     sections: list[tuple[str, list[Message]]] = []
@@ -134,6 +138,16 @@ def _build_core_prompt_sections(
                 )
             ),
         )
+        if profile and profile.system_prompt:
+            add(
+                "prompt_profile",
+                [
+                    Message(
+                        "system",
+                        f"# Agent Profile: {profile.name}\n\n{profile.system_prompt}",
+                    )
+                ],
+            )
         return sections
 
     if prompt == "full":
@@ -164,6 +178,16 @@ def _build_core_prompt_sections(
             add(
                 "prompt_skills_summary",
                 list(prompt_skills_summary(tool_format=tool_format)),
+            )
+        if profile and profile.system_prompt:
+            add(
+                "prompt_profile",
+                [
+                    Message(
+                        "system",
+                        f"# Agent Profile: {profile.name}\n\n{profile.system_prompt}",
+                    )
+                ],
             )
         return sections
 
@@ -196,6 +220,16 @@ def _build_core_prompt_sections(
             if interactive:
                 add("prompt_user", list(prompt_user(tool_format=tool_format)))
             add("prompt_project", list(prompt_project(tool_format=tool_format)))
+        if profile and profile.system_prompt:
+            add(
+                "prompt_profile",
+                [
+                    Message(
+                        "system",
+                        f"# Agent Profile: {profile.name}\n\n{profile.system_prompt}",
+                    )
+                ],
+            )
         return sections
 
     add("custom_prompt", [Message("system", prompt)])
@@ -210,6 +244,16 @@ def _build_core_prompt_sections(
                     examples=include_examples,
                 )
             ),
+        )
+    if profile and profile.system_prompt:
+        add(
+            "prompt_profile",
+            [
+                Message(
+                    "system",
+                    f"# Agent Profile: {profile.name}\n\n{profile.system_prompt}",
+                )
+            ],
         )
     return sections
 
@@ -228,6 +272,7 @@ def _build_prompt_sections(
     include_user_context: bool,
     include_examples: bool,
     initial_prompt: str | None,
+    profile: "Profile | None" = None,
 ) -> tuple[
     list[tuple[str, list[Message]]],
     list[tuple[str, list[Message]]],
@@ -265,6 +310,7 @@ def _build_prompt_sections(
         include_tools=include_tools,
         include_examples=include_examples,
         is_selective=is_selective,
+        profile=profile,
     )
 
     dynamic_sections: list[tuple[str, list[Message]]] = []
@@ -395,6 +441,7 @@ def get_prompt_stats(
     include_user_context: bool = True,
     include_examples: bool = True,
     initial_prompt: str | None = None,
+    profile: "Profile | None" = None,
 ) -> PromptStats:
     """Return token statistics for each startup prompt section."""
     if prompt == "full-noexamples":
@@ -413,6 +460,7 @@ def get_prompt_stats(
         include_user_context=include_user_context,
         include_examples=include_examples,
         initial_prompt=initial_prompt,
+        profile=profile,
     )
 
     stats = tuple(
@@ -515,6 +563,7 @@ def get_prompt(
     include_examples: bool = True,
     initial_prompt: str | None = None,
     prompt_generation: str | None = None,
+    profile: "Profile | None" = None,
 ) -> list[Message]:
     """
     Get the initial system prompt.
@@ -569,6 +618,9 @@ def get_prompt(
         prompt_generation: Optional unique marker for generated prompt messages.
             Provider context can omit superseded generations without rewriting
             the append-only log.
+        profile: Optional agent profile providing system prompt, tools, and behavior
+            rules. The profile system_prompt is added to core sections (before the
+            cache boundary) so it does not invalidate prompt caching.
 
     Returns a list of messages: [core_system_prompt, workspace_prompt, ...].
     """
@@ -588,6 +640,7 @@ def get_prompt(
         include_user_context=include_user_context,
         include_examples=include_examples,
         initial_prompt=initial_prompt,
+        profile=profile,
     )
 
     core_msgs = [msg for _, msgs in core_sections for msg in msgs]
