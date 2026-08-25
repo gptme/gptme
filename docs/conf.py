@@ -175,6 +175,8 @@ nitpick_ignore = [
     ("py:class", "InitFunc"),
     ("py:class", "ExecuteFunc"),
     ("py:class", "HookFunc"),
+    # Profile is TYPE_CHECKING-only in prompts/__init__.py; not visible to autodoc
+    ("py:class", "Profile"),
 ]
 
 # -- Options for HTML output -------------------------------------------------
