@@ -254,9 +254,12 @@ echo "## Output" >> "$SESSION_LOG"
 echo >> "$SESSION_LOG"
 
 cd "$WORK_DIR"
-# Prefix a newline so the prompt string never exactly matches a gptme-util
-# subcommand or plugin name (which would trigger CLI dispatch instead of an
-# agent session). gptme strips leading whitespace before sending to the LLM.
+# Prefix a newline so the raw CLI argument never matches a gptme-util subcommand
+# or plugin name (checked before _group_prompt_args runs). _group_prompt_args
+# strips leading whitespace, so the LLM receives the file content as-is.
+# Note: if prompt.md itself starts with a gptme slash command (/shell, /python,
+# etc.), gptme will execute it as a command — intentional: agents CAN start with
+# a command step. Natural-language task descriptions are never affected.
 prompt_arg=$'\\n'"$(cat "$PROMPT_FILE")"
 exit_code=0
 gptme "${{gptme_args[@]}}" "$prompt_arg" >> "$SESSION_LOG" 2>&1 || exit_code=$?
