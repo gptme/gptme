@@ -992,6 +992,34 @@ def test_startup_script_rejects_slash_command_with_leading_whitespace(
     assert "in-chat command" in proc.stderr
 
 
+def test_startup_script_rejects_slash_command_with_unicode_whitespace(
+    tmp_path: Path,
+) -> None:
+    """A prompt.md whose first content line starts with unicode whitespace then /shell
+    must be rejected (exit 66).
+
+    Regression: awk '{print $1}' only splits on ASCII whitespace. A non-breaking
+    space (U+00A0) before /shell keeps it as the first awk token, bypassing the guard.
+    Python's str.split() strips all Unicode whitespace, so \\u00a0/shell → /shell.
+    """
+    _run_init(tmp_path)
+    startup = tmp_path / "gptme-agent-run.sh"
+    # Write non-breaking space (U+00A0) followed by /shell
+    (tmp_path / "prompt.md").write_bytes("\u00a0/shell echo pwned\n".encode())
+
+    proc = subprocess.run(
+        ["bash", str(startup)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 66, (
+        f"Expected exit 66 for unicode-whitespace-prefixed slash command; got {proc.returncode}\n"
+        f"stderr: {proc.stderr}"
+    )
+    assert "in-chat command" in proc.stderr
+
+
 def test_startup_script_mkdir_journal_dir_fails_loudly(tmp_path: Path) -> None:
     """A journal directory that cannot be created must fail with an explicit error.
 
