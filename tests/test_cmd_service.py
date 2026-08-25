@@ -930,6 +930,20 @@ def test_startup_script_checks_prompt_readability(tmp_path: Path) -> None:
     assert '[ ! -r "$PROMPT_FILE" ]' in startup
 
 
+def test_startup_script_checks_prompt_nonempty(tmp_path: Path) -> None:
+    """An empty prompt file must fail loudly (exit 66), not run gptme silently.
+
+    Regression: the original template only checked existence and readability.
+    An empty prompt.md passes both checks, but `cat prompt.md` yields nothing,
+    so gptme runs with an effective empty prompt, wastes an API call, and exits 0
+    — appearing successful while doing nothing useful.
+    """
+    _run_init(tmp_path)
+    startup = (tmp_path / "gptme-agent-run.sh").read_text()
+
+    assert '[ ! -s "$PROMPT_FILE" ]' in startup
+
+
 def test_startup_script_mkdir_journal_dir_fails_loudly(tmp_path: Path) -> None:
     """A journal directory that cannot be created must fail with an explicit error.
 
@@ -993,3 +1007,20 @@ def test_generated_units_do_not_set_dead_non_interactive_env(tmp_path: Path) -> 
     _run_init(tmp_path, "--platform", "macos")
     plist = (tmp_path / "systemd" / "com.gptme.testagent.plist").read_text()
     assert "GPTME_NON_INTERACTIVE" not in plist
+
+
+def test_service_unit_has_runtime_max_sec(tmp_path: Path) -> None:
+    """A hung LLM connection must not keep the unit active forever.
+
+    Without RuntimeMaxSec the unit stays in active (running) state indefinitely
+    when the gptme process hangs (endpoint unresponsive, infinite stream, etc.).
+    Restart=on-failure never fires because the process has not exited, and timer
+    triggers queue behind the still-active unit. RuntimeMaxSec kills the process
+    after a deadline, moving the unit to failed and allowing restart + timer to
+    proceed normally.
+    """
+    _run_init(tmp_path)
+    unit = (tmp_path / "systemd" / "testagent.service").read_text()
+    assert "RuntimeMaxSec=" in unit, (
+        "Without RuntimeMaxSec a hung gptme process keeps the unit active forever"
+    )

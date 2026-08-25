@@ -109,6 +109,10 @@ Restart=on-failure
 RestartSec=5
 RestartSteps=5
 RestartMaxDelaySec=60
+# Kill the service if it runs longer than this. Prevents a hung LLM connection
+# from keeping the unit active forever (blocking timer-triggered reruns).
+# Adjust to your expected maximum session length.
+RuntimeMaxSec=3600
 
 [Install]
 WantedBy=default.target
@@ -215,6 +219,11 @@ fi
 if [ ! -r "$PROMPT_FILE" ]; then
   echo "gptme agent $AGENT_NAME: prompt file $PROMPT_FILE is not readable" >&2
   echo "Prompt file not readable: $PROMPT_FILE (check permissions)." >> "$SESSION_LOG"
+  exit 66
+fi
+if [ ! -s "$PROMPT_FILE" ]; then
+  echo "gptme agent $AGENT_NAME: prompt file $PROMPT_FILE is empty" >&2
+  echo "Prompt file is empty: $PROMPT_FILE (add your agent instructions)." >> "$SESSION_LOG"
   exit 66
 fi
 
