@@ -48,7 +48,7 @@
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Contributing" href="contributing.html" />
+    <link rel="next" title="Skills Gallery" href="skills-gallery.html" />
     <link rel="prev" title="Lessons" href="lessons.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -213,7 +213,10 @@
 <li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
 <li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Skills</a></li>
+<li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Skills</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="skills-gallery.html">Skills Gallery</a></li>
+</ul>
+</details></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
 <ul class="nav bd-sidenav">
@@ -542,6 +545,8 @@ document.write(`
 Anthropic and adopted by 26+ tools (Claude Code, OpenAI Codex, Gemini CLI,
 GitHub Copilot, Cursor, and more). Skills authored for gptme work in those
 tools, and vice versa — the same interop play gptme makes for <a class="reference internal" href="mcp.html"><span class="doc">MCP</span></a>.</p>
+<p>Looking for something to install? See the <a class="reference internal" href="skills-gallery.html"><span class="doc">Skills Gallery</span></a> — a curated
+selection of community skills from gptme-contrib.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Skills are a <strong>special case of lessons</strong> using the Agent Skills open standard format.
@@ -704,7 +709,7 @@ hooks, or script execution orchestration, use <a class="reference internal" href
 <p>Skills are loaded from the following directories (if they exist):</p>
 <p><strong>User-level:</strong></p>
 <ol class="arabic simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">~/.config/gptme/skills/</span></code> - gptme native skills</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">~/.config/gptme/skills/</span></code> - gptme native skills (or <code class="docutils literal notranslate"><span class="pre">$XDG_CONFIG_HOME/gptme/skills/</span></code> if <code class="docutils literal notranslate"><span class="pre">XDG_CONFIG_HOME</span></code> is set)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">~/.claude/skills/</span></code> - Claude CLI compatibility (share skills with Claude CLI)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">~/.agents/skills/</span></code> - Cross-platform standard</p></li>
 </ol>
@@ -727,7 +732,15 @@ gptme-util<span class="w"> </span>skills<span class="w"> </span><span class="nb"
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">skills</span> <span class="pre">list</span></code> shows skill names and descriptions. <code class="docutils literal notranslate"><span class="pre">--all</span></code> includes regular
 lessons in the same discovery pass, and <code class="docutils literal notranslate"><span class="pre">skills</span> <span class="pre">dirs</span></code> shows exactly which
-directories are being scanned.</p>
+directories are being scanned. For the full list of subcommands, run
+<code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">skills</span> <span class="pre">--help</span></code>.</p>
+<p>Install a skill from the default <code class="docutils literal notranslate"><span class="pre">gptme-contrib</span></code> registry with
+(use <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">skills</span> <span class="pre">dirs</span></code> to see exactly where it lands):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>home-assistant
+</pre></div>
+</div>
+<p>See the <a class="reference internal" href="skills-gallery.html"><span class="doc">Skills Gallery</span></a> for a curated list of community skills and the
+same install command.</p>
 </section>
 <section id="invoking-skills-as-commands">
 <h2>Invoking Skills as Commands<a class="headerlink" href="#invoking-skills-as-commands" title="Link to this heading">#</a></h2>
@@ -911,10 +924,16 @@ For bundled utilities, mention &quot;python-repl&quot; to load helper functions.
 <li><p>Lesson: <code class="docutils literal notranslate"><span class="pre">lessons/patterns/testing.md</span></code> - Testing best practices</p></li>
 <li><p>Skill: <code class="docutils literal notranslate"><span class="pre">skills/testing-skill.md</span></code> - Bundled pytest utilities</p></li>
 </ul>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="skills-gallery.html">Skills Gallery</a></li>
+</ul>
+</div>
 </section>
 <section id="related">
 <h2>Related<a class="headerlink" href="#related" title="Link to this heading">#</a></h2>
 <ul class="simple">
+<li><p><a class="reference internal" href="skills-gallery.html"><span class="doc">Skills Gallery</span></a> - Curated community skills to install</p></li>
 <li><p><a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a> - Core knowledge system</p></li>
 <li><p><a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a> - For hooks, custom tools, and deep integration</p></li>
 <li><p><a class="reference internal" href="hooks.html"><span class="doc">Hooks</span></a> - Lifecycle callbacks (plugins only)</p></li>
@@ -946,11 +965,11 @@ For bundled utilities, mention &quot;python-repl&quot; to load helper functions.
       </div>
     </a>
     <a class="right-next"
-       href="contributing.html"
+       href="skills-gallery.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Contributing</p>
+        <p class="prev-next-title">Skills Gallery</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

@@ -43,6 +43,7 @@
 - [ACP (Agent Client Protocol)](https://gptme.org/docs/_sources/acp.rst)
 - [Lessons](https://gptme.org/docs/_sources/lessons.rst)
 - [Skills](https://gptme.org/docs/_sources/skills.rst)
+- [Skills Gallery](https://gptme.org/docs/_sources/skills-gallery.rst)
 - [Contributing](https://gptme.org/docs/_sources/contributing.rst)
 - [PR lifecycle](https://gptme.org/docs/_sources/pr-lifecycle.rst)
 - [Building Executables](https://gptme.org/docs/_sources/building.rst)
