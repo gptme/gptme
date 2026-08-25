@@ -162,9 +162,7 @@ def _load_entry_point_providers() -> None:
         # Python 3.9 fallback: entry_points() returns a dict-like object
         try:
             all_eps: Any = importlib.metadata.entry_points()
-            eps = all_eps.get(
-                "gptme.context_providers", importlib.metadata.EntryPoints()
-            )
+            eps = all_eps.get("gptme.context_providers", [])
         except Exception:
             logger.warning("Failed to enumerate entry points for context providers")
             return

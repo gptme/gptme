@@ -243,9 +243,15 @@ def test_default_provider_parity_with_auto_compact(sample_messages, compression_
 
     provider = DefaultContextProvider()
 
-    # Get results from both paths
+    # Get results from both paths using identical parameters
     provider_result = list(provider.compress(sample_messages, compression_config))
-    autocompact_result = list(auto_compact_log(sample_messages))
+    autocompact_result = list(
+        auto_compact_log(
+            sample_messages,
+            limit=compression_config.limit,
+            max_tool_result_tokens=compression_config.max_tool_result_tokens,
+        )
+    )
 
     # Both should produce a list of messages
     assert len(provider_result) > 0
@@ -453,7 +459,7 @@ def test_list_providers():
 
 
 @patch("importlib.metadata.entry_points")
-def test_load_entry_point_providers_python310(mock_entry_points):
+def test_load_entry_point_providers_python310(mock_entry_points, cleanup_registry):
     """Entry-point loading works with Python 3.10+ API."""
     from gptme.tools.autocompact.context_provider import _load_entry_point_providers
 
@@ -471,7 +477,9 @@ def test_load_entry_point_providers_python310(mock_entry_points):
 
 
 @patch("importlib.metadata.entry_points")
-def test_load_entry_point_providers_python39_fallback(mock_entry_points):
+def test_load_entry_point_providers_python39_fallback(
+    mock_entry_points, cleanup_registry
+):
     """Entry-point loading falls back to Python 3.9 API on TypeError."""
     from gptme.tools.autocompact.context_provider import _load_entry_point_providers
 
