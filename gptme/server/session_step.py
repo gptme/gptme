@@ -702,9 +702,10 @@ def step(
         _persist_generation_error(manager, session, str(e))
         SessionManager.add_event(conversation_id, ws_error_event)
         session.last_error = str(e)
-        if session.step_seq == my_step_seq:
-            session.generating = False
-            session.generating_since = None
+        with session.step_lock:
+            if session.step_seq == my_step_seq:
+                session.generating = False
+                session.generating_since = None
         return
 
     # Set the model as default before triggering hooks
@@ -787,9 +788,10 @@ def step(
             "error": "No messages to process",
         }
         SessionManager.add_event(conversation_id, error_event)
-        if session.step_seq == my_step_seq:
-            session.generating = False
-            session.generating_since = None
+        with session.step_lock:
+            if session.step_seq == my_step_seq:
+                session.generating = False
+                session.generating_since = None
         return
 
     # Notify clients about generation status

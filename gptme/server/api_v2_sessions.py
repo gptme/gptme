@@ -727,6 +727,11 @@ def api_conversation_tool_confirm(conversation_id: str):
 
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
+            # Advance step_seq before capturing the epoch so that any
+            # concurrent tool worker whose my_seq equals the pre-skip value
+            # sees a mismatch and stands down (same protocol as /step and
+            # /interrupt + rerun).
+            session.step_seq += 1
             skip_step_seq = session.step_seq
             try:
                 current_tool.status = ToolStatus.SKIPPED

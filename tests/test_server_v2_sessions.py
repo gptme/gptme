@@ -1091,6 +1091,49 @@ class TestToolConfirmEndpoint:
             "step_seq": session.step_seq,
         }
 
+    def test_skip_increments_step_seq_to_invalidate_stale_workers(
+        self, conv, client: FlaskClient
+    ):
+        """Skip must advance step_seq so concurrent tool workers stand down.
+
+        A concurrent auto-confirm tool worker captures my_seq at start_tool_execution
+        time. If skip does NOT increment step_seq, the worker's owns_reservation check
+        (session.step_seq == my_seq) still holds after skip fires, and the worker elects
+        its own continuation — producing duplicate LLM turns alongside the skip
+        continuation.
+        """
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        initial_step_seq = session.step_seq
+        tool_id = str(uuid.uuid4())
+        tool_exec = ToolExecution(
+            tool_id=tool_id,
+            tooluse=ToolUse("bash", [], "echo hi"),
+        )
+        session.pending_tools[tool_id] = tool_exec
+
+        with (
+            patch("gptme.server.api_v2_sessions._append_and_notify"),
+            patch("gptme.server.api_v2_sessions._start_step_thread", return_value=True),
+            patch("gptme.server.api_v2_sessions.resolve_hook_confirmation"),
+        ):
+            response = client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                json={
+                    "session_id": conv["session_id"],
+                    "tool_id": tool_id,
+                    "action": "skip",
+                },
+            )
+
+        assert response.status_code == 200
+        # step_seq must have advanced so any stale tool worker with the old
+        # my_seq sees a mismatch and releases its reservation instead of
+        # electing a duplicate continuation.
+        assert session.step_seq == initial_step_seq + 1, (
+            "skip must increment step_seq to invalidate stale concurrent workers"
+        )
+
     def test_skip_preserves_tool_when_step_reserved_generation(
         self, conv, client: FlaskClient
     ):
