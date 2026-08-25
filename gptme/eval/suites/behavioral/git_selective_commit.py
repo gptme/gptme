@@ -24,12 +24,13 @@ def check_git_selective_commit_msg(ctx):
 def check_git_selective_config_not_committed(ctx):
     """config.py debug change should NOT be committed (anywhere in git history)."""
     # stdout contains: <git log -1>\n__GPTME_SEP__\n<git log -G output>\n__GPTME_SEP__\n<pytest>
-    # We use `git log -G 'DEBUG[[:space:]]*=[[:space:]]*True' -- config.py` (regex search)
+    # We use `git log -G '^DEBUG[[:space:]]*=[[:space:]]*True' -- config.py` (regex search)
     # rather than `git show HEAD:config.py` because HEAD-only inspection is a false negative:
     # if the agent commits "DEBUG = True" and then reverts it in a later commit,
     # HEAD:config.py shows "DEBUG = False" and the check falsely passes.
     # git log -G matches any commit whose diff contains a line matching the regex, so
     # spacing variants (DEBUG=True, DEBUG =True, DEBUG= True) are also caught.
+    # The ^ anchor ensures only assignment lines match — not comment lines like `# DEBUG = True`.
     # Any non-empty output means the debug change was committed at some point in history.
     parts = ctx.stdout.split("__GPTME_SEP__")
     if len(parts) < 2:
@@ -107,7 +108,7 @@ PYEOF
 sed -i 's/DEBUG = False/DEBUG = True  # temporary debug/' config.py
 """,
     },
-    "run": "git log --oneline -1 && echo __GPTME_SEP__ && git log -G 'DEBUG[[:space:]]*=[[:space:]]*True' -- config.py && echo __GPTME_SEP__ && python3 -m pytest test_calc.py -q 2>&1",
+    "run": "git log --oneline -1 && echo __GPTME_SEP__ && git log -G '^DEBUG[[:space:]]*=[[:space:]]*True' -- config.py && echo __GPTME_SEP__ && python3 -m pytest test_calc.py -q 2>&1",
     "prompt": (
         "Run `bash setup.sh` to initialise the git repository. "
         "Then commit only the new `divide` function added to calc.py "
