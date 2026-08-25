@@ -132,12 +132,25 @@ class TestIsAvailable:
     @patch("gptme.tools.screenshot.IS_WAYLAND", False)
     @patch("os.name", "posix")
     @patch("shutil.which")
-    def test_linux_with_scrot_x11(self, mock_which):
-        """Available on Linux/X11 with scrot."""
+    def test_linux_with_scrot_x11(self, mock_which, monkeypatch):
+        """Available on Linux/X11 with scrot when $DISPLAY is set."""
+        monkeypatch.setenv("DISPLAY", ":1")
         mock_which.side_effect = lambda cmd: (
             "/usr/bin/scrot" if cmd == "scrot" else None
         )
         assert _is_available() is True
+
+    @patch("gptme.tools.screenshot.IS_MACOS", False)
+    @patch("gptme.tools.screenshot.IS_WAYLAND", False)
+    @patch("os.name", "posix")
+    @patch("shutil.which")
+    def test_linux_scrot_without_display(self, mock_which, monkeypatch):
+        """scrot without $DISPLAY is not available (headless host)."""
+        monkeypatch.delenv("DISPLAY", raising=False)
+        mock_which.side_effect = lambda cmd: (
+            "/usr/bin/scrot" if cmd == "scrot" else None
+        )
+        assert _is_available() is False
 
     @patch("gptme.tools.screenshot.IS_MACOS", False)
     @patch("gptme.tools.screenshot.IS_WAYLAND", True)
