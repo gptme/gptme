@@ -483,9 +483,16 @@ def proactive_summarize_log(
             )
             return log
         with _proactive_summarize_cache_lock:
-            if len(_proactive_summarize_cache) >= _PROACTIVE_SUMMARIZE_CACHE_MAX:
-                _proactive_summarize_cache.pop(next(iter(_proactive_summarize_cache)))
-            _proactive_summarize_cache[cache_key] = summary_msg
+            if cache_key in _proactive_summarize_cache:
+                # A concurrent thread also computed a summary for the same content;
+                # use the cached winner's result so both callers stay consistent.
+                summary_msg = _proactive_summarize_cache[cache_key]
+            else:
+                if len(_proactive_summarize_cache) >= _PROACTIVE_SUMMARIZE_CACHE_MAX:
+                    _proactive_summarize_cache.pop(
+                        next(iter(_proactive_summarize_cache))
+                    )
+                _proactive_summarize_cache[cache_key] = summary_msg
 
     result = initial_system + [summary_msg] + pinned_middle + recent
     new_tokens = len_tokens(result, model=model.model)
