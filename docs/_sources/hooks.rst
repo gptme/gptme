@@ -30,6 +30,7 @@ Tool Lifecycle Hooks
 - ``TOOL_EXECUTE_POST``: After executing any tool
 - ``TOOL_TRANSFORM``: Transform tool execution
 - ``TOOL_CONFIRM``: Blocking confirmation/deny decision before execution
+  (see :ref:`confirmation-hooks-and-deny-decisions`)
 
 File Operation Hooks
 ~~~~~~~~~~~~~~~~~~~~~
@@ -138,16 +139,83 @@ Hook functions receive different arguments depending on the hook type:
    def session_hook(logdir, workspace, initial_msgs):
        pass
 
-   # Confirmation hooks
+   # Confirmation hooks (see "Confirmation Hooks and Deny Decisions" below)
    def confirm_hook(tool_use, preview=None, workspace=None):
-       return ConfirmationResult.confirm()
+       if is_dangerous(tool_use):
+           return ConfirmationResult.skip("Blocked: destructive path")
+       return None  # fall through to the next confirmation hook
 
-Hook functions can:
+Most hook functions can:
 
 - Return ``None`` (no action)
 - Return a single ``Message`` object
 - Return a generator that yields ``Message`` objects
 - Raise exceptions (which are caught and logged)
+
+``TOOL_CONFIRM`` hooks are the exception: they *return* a
+``ConfirmationResult`` rather than yielding messages. See below.
+
+.. _confirmation-hooks-and-deny-decisions:
+
+Confirmation Hooks and Deny Decisions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``TOOL_CONFIRM`` is the hook for deterministic, below-the-model guardrails: it
+runs before a tool executes and can **deny** execution outright.
+
+.. code-block:: python
+
+   from gptme.hooks import HookType, register_hook
+   from gptme.hooks.confirm import ConfirmationResult
+
+   def block_secret_reads(tool_use, preview=None, workspace=None):
+       """Deny any shell command that reads private keys."""
+       if tool_use.tool == "shell" and "id_rsa" in (tool_use.content or ""):
+           return ConfirmationResult.skip("Blocked: secret file access")
+       return None  # not our decision — fall through
+
+   def register():
+       register_hook(
+           "guardrail.secrets",
+           HookType.TOOL_CONFIRM,
+           block_secret_reads,
+           priority=1000,  # must exceed every built-in confirmation hook
+       )
+
+The three results a confirmation hook can return:
+
+- ``ConfirmationResult.skip(message)`` — **deny**; the tool does not execute, and ``message`` is surfaced as the reason.
+- ``ConfirmationResult.confirm()`` — approve without prompting the user.
+- ``ConfirmationResult.edit(content)`` — execute with modified content.
+
+Returning ``None`` falls through to the next ``TOOL_CONFIRM`` hook in priority
+order; the first non-``None`` result wins. If no hook is registered at all,
+execution is auto-confirmed (autonomous mode).
+
+.. warning::
+
+   A guardrail must out-rank **every** built-in confirmation hook, or it can be
+   pre-empted before it ever runs. The built-ins register at:
+
+   - ``server_confirm`` — priority **100**
+   - ``cli_confirm`` — priority **0**
+   - ``auto_confirm`` — priority **0**
+
+   Hooks sort by ``(priority, name)`` **descending**, so equal priority is broken
+   by name in *reverse* alphabetical order — not by registration order. A
+   guardrail named ``guardrail.secrets`` registered at priority ``100`` therefore
+   loses to ``server_confirm`` (``"s" > "g"``), which returns a non-``None``
+   result and prevents the guardrail from running at all. Pick a priority
+   strictly greater than 100 (the example uses ``1000``) rather than relying on
+   the name tie-break.
+
+.. note::
+
+   ``--no-confirm``/``-y`` only stops gptme from registering its *interactive*
+   confirmation hooks (``cli_confirm``/``server_confirm``). A plugin-registered
+   ``TOOL_CONFIRM`` hook is still called, so a ``skip`` result keeps blocking
+   execution in autonomous runs. This is what makes the hook usable as a real
+   guardrail rather than a prompt.
 
 Managing Hooks
 --------------

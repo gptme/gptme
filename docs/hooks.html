@@ -512,6 +512,7 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-from-tools">Registering Hooks from Tools</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-programmatically">Registering Hooks Programmatically</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-function-signatures">Hook Function Signatures</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#confirmation-hooks-and-deny-decisions">Confirmation Hooks and Deny Decisions</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-hooks">Managing Hooks</a><ul class="nav section-nav flex-column">
@@ -581,7 +582,8 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code>: Before executing any tool</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_POST</span></code>: After executing any tool</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">TOOL_TRANSFORM</span></code>: Transform tool execution</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code>: Blocking confirmation/deny decision before execution</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code>: Blocking confirmation/deny decision before execution
+(see <a class="reference internal" href="#confirmation-hooks-and-deny-decisions"><span class="std std-ref">Confirmation Hooks and Deny Decisions</span></a>)</p></li>
 </ul>
 </section>
 <section id="file-operation-hooks">
@@ -685,18 +687,79 @@ semantics and are not exposed through the shell adapter.</p>
 <span class="k">def</span><span class="w"> </span><span class="nf">session_hook</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
     <span class="k">pass</span>
 
-<span class="c1"># Confirmation hooks</span>
+<span class="c1"># Confirmation hooks (see &quot;Confirmation Hooks and Deny Decisions&quot; below)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">confirm_hook</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="n">preview</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workspace</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-    <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">confirm</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">is_dangerous</span><span class="p">(</span><span class="n">tool_use</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">skip</span><span class="p">(</span><span class="s2">&quot;Blocked: destructive path&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># fall through to the next confirmation hook</span>
 </pre></div>
 </div>
-<p>Hook functions can:</p>
+<p>Most hook functions can:</p>
 <ul class="simple">
 <li><p>Return <code class="docutils literal notranslate"><span class="pre">None</span></code> (no action)</p></li>
 <li><p>Return a single <code class="docutils literal notranslate"><span class="pre">Message</span></code> object</p></li>
 <li><p>Return a generator that yields <code class="docutils literal notranslate"><span class="pre">Message</span></code> objects</p></li>
 <li><p>Raise exceptions (which are caught and logged)</p></li>
 </ul>
+<p><code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> hooks are the exception: they <em>return</em> a
+<code class="docutils literal notranslate"><span class="pre">ConfirmationResult</span></code> rather than yielding messages. See below.</p>
+</section>
+<section id="confirmation-hooks-and-deny-decisions">
+<span id="id1"></span><h3>Confirmation Hooks and Deny Decisions<a class="headerlink" href="#confirmation-hooks-and-deny-decisions" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> is the hook for deterministic, below-the-model guardrails: it
+runs before a tool executes and can <strong>deny</strong> execution outright.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks.confirm</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfirmationResult</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">block_secret_reads</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="n">preview</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workspace</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Deny any shell command that reads private keys.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span> <span class="o">==</span> <span class="s2">&quot;shell&quot;</span> <span class="ow">and</span> <span class="s2">&quot;id_rsa&quot;</span> <span class="ow">in</span> <span class="p">(</span><span class="n">tool_use</span><span class="o">.</span><span class="n">content</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">skip</span><span class="p">(</span><span class="s2">&quot;Blocked: secret file access&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># not our decision — fall through</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
+    <span class="n">register_hook</span><span class="p">(</span>
+        <span class="s2">&quot;guardrail.secrets&quot;</span><span class="p">,</span>
+        <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_CONFIRM</span><span class="p">,</span>
+        <span class="n">block_secret_reads</span><span class="p">,</span>
+        <span class="n">priority</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span>  <span class="c1"># must exceed every built-in confirmation hook</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+<p>The three results a confirmation hook can return:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ConfirmationResult.skip(message)</span></code> — <strong>deny</strong>; the tool does not execute, and <code class="docutils literal notranslate"><span class="pre">message</span></code> is surfaced as the reason.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ConfirmationResult.confirm()</span></code> — approve without prompting the user.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ConfirmationResult.edit(content)</span></code> — execute with modified content.</p></li>
+</ul>
+<p>Returning <code class="docutils literal notranslate"><span class="pre">None</span></code> falls through to the next <code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> hook in priority
+order; the first non-<code class="docutils literal notranslate"><span class="pre">None</span></code> result wins. If no hook is registered at all,
+execution is auto-confirmed (autonomous mode).</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>A guardrail must out-rank <strong>every</strong> built-in confirmation hook, or it can be
+pre-empted before it ever runs. The built-ins register at:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">server_confirm</span></code> — priority <strong>100</strong></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cli_confirm</span></code> — priority <strong>0</strong></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">auto_confirm</span></code> — priority <strong>0</strong></p></li>
+</ul>
+<p>Hooks sort by <code class="docutils literal notranslate"><span class="pre">(priority,</span> <span class="pre">name)</span></code> <strong>descending</strong>, so equal priority is broken
+by name in <em>reverse</em> alphabetical order — not by registration order. A
+guardrail named <code class="docutils literal notranslate"><span class="pre">guardrail.secrets</span></code> registered at priority <code class="docutils literal notranslate"><span class="pre">100</span></code> therefore
+loses to <code class="docutils literal notranslate"><span class="pre">server_confirm</span></code> (<code class="docutils literal notranslate"><span class="pre">&quot;s&quot;</span> <span class="pre">&gt;</span> <span class="pre">&quot;g&quot;</span></code>), which returns a non-<code class="docutils literal notranslate"><span class="pre">None</span></code>
+result and prevents the guardrail from running at all. Pick a priority
+strictly greater than 100 (the example uses <code class="docutils literal notranslate"><span class="pre">1000</span></code>) rather than relying on
+the name tie-break.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">--no-confirm</span></code>/<code class="docutils literal notranslate"><span class="pre">-y</span></code> only stops gptme from registering its <em>interactive</em>
+confirmation hooks (<code class="docutils literal notranslate"><span class="pre">cli_confirm</span></code>/<code class="docutils literal notranslate"><span class="pre">server_confirm</span></code>). A plugin-registered
+<code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> hook is still called, so a <code class="docutils literal notranslate"><span class="pre">skip</span></code> result keeps blocking
+execution in autonomous runs. This is what makes the hook usable as a real
+guardrail rather than a prompt.</p>
+</div>
 </section>
 </section>
 <section id="managing-hooks">
@@ -1032,6 +1095,7 @@ If not provided, defaults will be loaded from env/config.</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-from-tools">Registering Hooks from Tools</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-programmatically">Registering Hooks Programmatically</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-function-signatures">Hook Function Signatures</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#confirmation-hooks-and-deny-decisions">Confirmation Hooks and Deny Decisions</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-hooks">Managing Hooks</a><ul class="nav section-nav flex-column">
