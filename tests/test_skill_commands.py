@@ -95,6 +95,14 @@ def test_substitute_arguments_word_boundary():
     assert out == "Use $ARGUMENTSvar and x normally"
 
 
+def test_substitute_arguments_non_numeric_bracket_not_matched():
+    # $ARGUMENTS[name] (non-numeric bracket) must NOT be matched by the bare
+    # $ARGUMENTS alternative — the '[' lookahead prevents this.
+    body = "Use $ARGUMENTS[name] as a label"
+    out = substitute_arguments(body, "hello", ["hello"])
+    assert out == "Use $ARGUMENTS[name] as a label"
+
+
 def test_register_skill_commands_registers_canonical_and_alias(skills_root: Path):
     _write_skill(skills_root, "demo", "A demo skill", DEMO_BODY)
 

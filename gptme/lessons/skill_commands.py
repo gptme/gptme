@@ -40,7 +40,7 @@ SKILL_COMMAND_PREFIX = "skill:"
 # aliases not count as collisions.
 _registered_skill_commands: dict[str, CommandHandler] = {}
 
-_ARG_PATTERN = re.compile(r"\$ARGUMENTS\[(\d+)\]|\$ARGUMENTS\b|\$\{(\d+)\}")
+_ARG_PATTERN = re.compile(r"\$ARGUMENTS\[(\d+)\]|\$ARGUMENTS(?!\[)\b|\$\{(\d+)\}")
 
 
 def substitute_arguments(body: str, full_args: str, args: list[str]) -> str:
