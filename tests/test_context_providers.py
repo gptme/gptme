@@ -280,6 +280,30 @@ def test_register_provider(cleanup_registry):
     assert retrieved.name == "test-provider"
 
 
+def test_custom_default_provider_preserved_across_init(cleanup_registry):
+    """Registering a custom 'default' before first lookup is not clobbered.
+
+    Regression test for a Greptile finding: _init_registry() used direct
+    assignment for the built-in default, so a caller that registered a custom
+    provider under "default" before the first lookup lost it. The init must use
+    setdefault so the custom default survives.
+    """
+    from gptme.providers import context as ctx_module
+
+    # Ensure registry is uninitialized so the lookup path runs _init_registry()
+    ctx_module._registry_initialized = False
+    ctx_module._provider_registry.clear()
+
+    class CustomDefault(MockContextProvider):
+        _provider_name = "default"
+
+    register_provider("default", CustomDefault)
+
+    # First lookup triggers _init_registry(); custom default must survive
+    retrieved = get_context_provider("default")
+    assert retrieved.__class__ is CustomDefault
+
+
 def test_register_provider_requires_subclass(cleanup_registry):
     """Only ContextProvider subclasses can be registered."""
 

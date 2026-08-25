@@ -114,7 +114,10 @@ def _init_registry() -> None:
     global _registry_initialized
     if not _registry_initialized:
         _registry_initialized = True
-        _provider_registry["default"] = DefaultContextProvider
+        # setdefault (not assignment): a caller may register a custom
+        # "default" provider before the first lookup, and must not be
+        # silently clobbered by the built-in default.
+        _provider_registry.setdefault("default", DefaultContextProvider)
         _load_entry_point_providers()
 
 
