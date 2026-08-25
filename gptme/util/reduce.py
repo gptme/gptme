@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 # Key: SHA-256 of (model, role+content of each message to be summarized).
 # Prevents repeated LLM summarize calls when prepare_messages is invoked on the
 # same stored log across consecutive turns (which breaks prompt-cache stability).
+# Capped to avoid unbounded growth in long-lived processes (servers, daemons).
+_PROACTIVE_SUMMARIZE_CACHE_MAX = 256
 _proactive_summarize_cache: dict[str, "Message"] = {}
 
 
@@ -472,6 +474,8 @@ def proactive_summarize_log(
                 exc_info=True,
             )
             return log
+        if len(_proactive_summarize_cache) >= _PROACTIVE_SUMMARIZE_CACHE_MAX:
+            _proactive_summarize_cache.pop(next(iter(_proactive_summarize_cache)))
         _proactive_summarize_cache[cache_key] = summary_msg
 
     result = initial_system + [summary_msg] + pinned_middle + recent
