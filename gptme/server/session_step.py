@@ -679,6 +679,17 @@ def step(
         lock=False,
     )
 
+    # Snapshot the step sequence at the earliest possible point — before any
+    # early-exit path that might clear `generating`. All generating=False clears
+    # below (workspace missing, no messages, and the main finally block) use
+    # compare-and-clear against this value so that a descheduled thread waking
+    # up in the setup phase cannot erase a newer step's reservation.
+    # Use the epoch passed by the caller (captured under step_lock before thread
+    # spawn) rather than sampling session.step_seq here. A thread delayed before
+    # this line could see the epoch of a replacement step if interrupt + /step
+    # ran while the thread was descheduled.
+    my_step_seq = step_seq if step_seq is not None else session.step_seq
+
     # Fail cleanly if the configured workspace is missing (e.g. an external
     # symlinked workspace that was moved/deleted). step() runs in a daemon
     # thread, so an uncaught error here would silently leave the session stuck
@@ -691,8 +702,9 @@ def step(
         _persist_generation_error(manager, session, str(e))
         SessionManager.add_event(conversation_id, ws_error_event)
         session.last_error = str(e)
-        session.generating = False
-        session.generating_since = None
+        if session.step_seq == my_step_seq:
+            session.generating = False
+            session.generating_since = None
         return
 
     # Set the model as default before triggering hooks
@@ -775,8 +787,9 @@ def step(
             "error": "No messages to process",
         }
         SessionManager.add_event(conversation_id, error_event)
-        session.generating = False
-        session.generating_since = None
+        if session.step_seq == my_step_seq:
+            session.generating = False
+            session.generating_since = None
         return
 
     # Notify clients about generation status
@@ -786,22 +799,6 @@ def step(
     tools = None
     if tool_format == "tool":
         tools = [t for t in get_tools() if t.is_runnable]
-
-    # Snapshot the step sequence at entry. The finally block uses this to detect
-    # whether the tool-continuation path has taken ownership of `generating`:
-    # if a fast tool completes and the tool worker increments step_seq (inside
-    # step_lock) before our finally runs, we skip the clear and leave the
-    # continuation's reservation intact. Without this guard the originating
-    # step's unconditional `generating = False` would race and clear the
-    # reservation the continuation just set (Race 5 — "originating step clears
-    # continuation reservation").
-    #
-    # Use the epoch passed by the caller (captured under step_lock before thread
-    # spawn) rather than sampling session.step_seq here. A thread delayed before
-    # this line could see the epoch of a replacement step if interrupt + /step
-    # ran while the thread was descheduled, causing the finally block to
-    # incorrectly clear the replacement's reservation.
-    my_step_seq = step_seq if step_seq is not None else session.step_seq
 
     try:
         # Stream tokens from the model

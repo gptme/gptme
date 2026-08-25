@@ -782,6 +782,53 @@ class TestInterruptEndpoint:
         )
         assert session.step_seq == 3
 
+    def test_setup_exit_does_not_clear_newer_reservation(
+        self, conv, tmp_path, monkeypatch
+    ):
+        """Early-exit paths (workspace missing, no messages) must not clear a newer step's reservation.
+
+        Race: step A is spawned (step_seq=1), descheduled during setup,
+        step B interrupts + starts (step_seq=3, generating=True). When step A's
+        thread wakes up and hits an early exit (e.g. workspace missing), it must
+        compare step_seq before clearing generating, so it does not erase B's
+        reservation.
+        """
+        monkeypatch.chdir(tmp_path)
+
+        from gptme.server.session_step import step
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+
+        # Simulate: replacement step B has taken over (step_seq=3, generating=True).
+        session.step_seq = 3
+        session.generating = True
+
+        with (
+            patch(
+                "gptme.server.session_step.require_workspace_exists",
+                side_effect=FileNotFoundError("workspace missing"),
+            ),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step._persist_generation_error"),
+            patch("gptme.server.session_step.SessionManager.add_event"),
+        ):
+            # Old step A calls step() with its original epoch (1).
+            step(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                model="mock/model",
+                workspace=tmp_path,
+                step_seq=1,
+            )
+
+        # step_seq (3) != my_step_seq (1) → early exit must NOT have cleared generating.
+        assert session.generating is True, (
+            "Setup exit: step() workspace-missing early exit must not clear "
+            "a newer step's generating reservation when step_seq advanced"
+        )
+        assert session.step_seq == 3
+
 
 # --- Tool confirm endpoint tests ---
 
