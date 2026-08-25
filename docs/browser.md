@@ -118,21 +118,30 @@ For sites that block local headless Chromium, create a managed Browser Use
 Cloud browser and give its CDP URL to gptme:
 
 ```bash
-session=$(curl -sS https://api.browser-use.com/api/v4/browsers \
+session=$(curl -fsS https://api.browser-use.com/api/v4/browsers \
   -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"proxyCountryCode":"us"}')
 
-export BROWSER_SESSION_ID=$(echo "$session" | jq -r .id)
-export GPTME_BROWSER_CDP_URL=$(echo "$session" | jq -r .cdpUrl)
+BROWSER_SESSION_ID=$(echo "$session" | jq -er .id)
+GPTME_BROWSER_CDP_URL=$(echo "$session" | jq -er .cdpUrl)
+export BROWSER_SESSION_ID GPTME_BROWSER_CDP_URL
+
+cleanup_browser() {
+  [ -z "${BROWSER_SESSION_ID:-}" ] && return
+  curl -fsS -X PATCH \
+    "https://api.browser-use.com/api/v4/browsers/$BROWSER_SESSION_ID" \
+    -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"action":"stop"}' >/dev/null || true
+  BROWSER_SESSION_ID=
+}
+trap cleanup_browser EXIT INT TERM
+
 gptme "read https://example.com"
 
-# Stop the managed browser when finished.
-curl -X PATCH \
-  "https://api.browser-use.com/api/v4/browsers/$BROWSER_SESSION_ID" \
-  -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"action":"stop"}'
+cleanup_browser
+trap - EXIT INT TERM
 ```
 
 Create an API key in the [Browser Use Cloud
