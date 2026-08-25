@@ -102,8 +102,11 @@ def _run_sigterm_probe(setup: str, check: str) -> subprocess.CompletedProcess:
             "-c",
             (
                 "import signal, sys;"
-                f"{setup}"
+                # Import FIRST: the module-level guard also installs a handler,
+                # so applying `setup` before it would test that guard instead
+                # of _install_sigterm_handler() (which is what this file owns).
                 "from gptme.server.cli import _install_sigterm_handler;"
+                f"{setup}"
                 "_install_sigterm_handler();"
                 "h = signal.getsignal(signal.SIGTERM);"
                 f"sys.exit(0 if {check} else 1)"
