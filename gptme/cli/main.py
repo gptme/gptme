@@ -1384,6 +1384,7 @@ def main(
             else:
                 stats_workspace_path = Path(workspace) if workspace else Path.cwd()
 
+            stats_tool_allowlist_str: str | None = None
             try:
                 # For @log, stats_workspace_path is a temp dir. For resumed sessions
                 # conversation_logdir/workspace is a symlink to the original project
