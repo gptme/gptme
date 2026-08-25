@@ -1349,3 +1349,59 @@ def test_proactive_summarize_cache_miss_on_changed_messages(monkeypatch):
             None
         )
         reduce_mod._proactive_summarize_cache.clear()
+
+
+def test_proactive_summarize_cache_isolated_by_provider(monkeypatch):
+    """proactive_summarize_log does NOT reuse a cached summary across different providers.
+
+    Regression: if two providers expose a model with the same name (e.g. a local
+    proxy and OpenAI both calling it "gpt-4"), the cache key must not collide.
+    Without provider in the key, the first provider's summary is silently returned
+    for the second, even though the providers may return different summaries due to
+    different endpoints or parameter defaults.
+    """
+    import gptme.util.reduce as reduce_mod
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        call_count = 0
+
+        def counting_summarize(msgs):
+            nonlocal call_count
+            call_count += 1
+            return Message("system", f"Summary (call {call_count})")
+
+        monkeypatch.setattr("gptme.llm.summarize", counting_summarize)
+        reduce_mod._proactive_summarize_cache.clear()
+
+        msgs = [
+            Message("system", "You are helpful."),
+            Message("user", "old content " * 5),
+            Message("assistant", "old reply " * 5),
+            Message("user", "recent q1"),
+            Message("assistant", "recent a1"),
+            Message("user", "recent q2"),
+            Message("assistant", "recent a2"),
+        ]
+
+        # First call with provider "openai".
+        provider_a = ModelMeta(provider="openai", model="gpt-4", context=10)
+        set_default_model(provider_a)
+        proactive_summarize_log(msgs, threshold=0.5, recent_keep=4)
+        assert call_count == 1
+
+        # Second call with provider "local" — same model name, same content.
+        # The LLM must be invoked again; providers must not share a cache entry.
+        provider_b = ModelMeta(provider="local", model="gpt-4", context=10)
+        set_default_model(provider_b)
+        proactive_summarize_log(msgs, threshold=0.5, recent_keep=4)
+        assert call_count == 2, (
+            "LLM must be called again for a different provider even with the same model name"
+        )
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+        reduce_mod._proactive_summarize_cache.clear()

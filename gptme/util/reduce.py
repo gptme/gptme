@@ -443,10 +443,13 @@ def proactive_summarize_log(
     # Lazy import avoids circular dependency at module load time.
     from ..llm import summarize as _llm_summarize  # fmt: skip
 
-    # Build a cache key from the model name and the content of messages to summarize.
-    # An unchanged middle block on consecutive turns produces the same key, so the
-    # LLM call only fires once and prompt-cache stability is preserved.
-    key_parts = [model.model] + [f"{m.role}:{m.content}" for m in summarize_middle]
+    # Build a cache key from the model identity (name + provider) and the content
+    # of messages to summarize. Including provider prevents cross-provider cache
+    # collisions when two providers expose a model with the same name but produce
+    # different summaries (different endpoints, defaults, or prompting behaviour).
+    key_parts = [model.model, model.provider] + [
+        f"{m.role}:{m.content}" for m in summarize_middle
+    ]
     cache_key = hashlib.sha256("\0".join(key_parts).encode()).hexdigest()
 
     # Use .get() instead of `in` + `[]` to avoid a TOCTOU race: under concurrent
