@@ -1184,6 +1184,65 @@ def test_compact_auto_handler_honors_env_keep_head(monkeypatch):
     )
 
 
+def test_autocompact_hook_honors_keep_head(monkeypatch):
+    """The automatic compaction hook must pass keep_head via CompressionConfig.
+
+    Regression test: hook.py constructed CompressionConfig without keep_head,
+    so it defaulted to 0 while the manual /compact auto handler used
+    _get_keep_head(). This caused automatic and manual compaction to behave
+    inconsistently, with automatic compaction failing to preserve head messages.
+    """
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.hook import autocompact_hook
+
+    msgs = [
+        Message("system", "System prompt"),
+        Message("user", "word " * 200),
+        Message("system", "tool result " * 200),
+    ]
+
+    mock_manager = MagicMock()
+    mock_manager.logdir = MagicMock()
+    mock_manager.log.messages = msgs
+    # Reset rate-limiting timer so the hook doesn't short-circuit
+    hook_module._last_autocompact_time = 0
+
+    captured_keep_head: dict = {}
+    mock_provider = MagicMock()
+
+    def fake_compress(messages, config):
+        captured_keep_head["value"] = config.keep_head
+        return iter(messages)
+
+    mock_provider.compress.side_effect = fake_compress
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="rule_based",
+        ),
+        patch(
+            "gptme.tools.autocompact.hook.get_context_provider",
+            return_value=mock_provider,
+        ),
+        patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
+        patch("gptme.config.get_config") as mock_get_config,
+        patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
+    ):
+        mock_cfg = MagicMock()
+        mock_cfg.get_env.return_value = "3"
+        mock_get_config.return_value = mock_cfg
+
+        list(autocompact_hook(mock_manager))
+
+    assert captured_keep_head.get("value") == 3, (
+        f"Expected keep_head=3 from env override, got {captured_keep_head.get('value')}; "
+        "hook.py must call _get_keep_head() and pass it as CompressionConfig.keep_head"
+    )
+
+
 def test_get_keep_head_negative_falls_back_to_default(monkeypatch):
     """_get_keep_head must treat negative env values as invalid and return the configured default.
 

@@ -344,6 +344,37 @@ def test_entry_point_does_not_clobber_preregistered_default(
     )
 
 
+@patch("importlib.metadata.entry_points")
+def test_entry_point_default_provider_is_reachable(mock_entry_points, cleanup_registry):
+    """An entry-point provider named 'default' must win over the built-in default.
+
+    Regression test for Greptile P1: _init_registry() ran setdefault("default", ...)
+    before calling _load_entry_point_providers(), so a plugin entry point named
+    "default" was silently skipped and the built-in default was always used.
+    Fix: load entry points first, then setdefault as the fallback.
+    """
+    from gptme.providers import context as ctx_module
+    from gptme.providers.context import get_context_provider
+
+    class EntryPointDefault(MockContextProvider):
+        _provider_name = "default"
+
+    ctx_module._provider_registry.clear()
+    ctx_module._registry_initialized = False
+
+    mock_ep = MagicMock()
+    mock_ep.name = "default"
+    mock_ep.load.return_value = EntryPointDefault
+    mock_entry_points.return_value = [mock_ep]
+
+    provider = get_context_provider("default")
+
+    assert provider.__class__ is EntryPointDefault, (
+        f"Expected EntryPointDefault but got {provider.__class__.__name__}; "
+        "an entry-point 'default' provider must take priority over the built-in"
+    )
+
+
 def test_register_provider_requires_subclass(cleanup_registry):
     """Only ContextProvider subclasses can be registered."""
 

@@ -114,11 +114,13 @@ def _init_registry() -> None:
     global _registry_initialized
     if not _registry_initialized:
         _registry_initialized = True
-        # setdefault (not assignment): a caller may register a custom
-        # "default" provider before the first lookup, and must not be
-        # silently clobbered by the built-in default.
-        _provider_registry.setdefault("default", DefaultContextProvider)
+        # Load entry-point plugins first so a plugin named "default" takes
+        # precedence over the built-in.  setdefault below only fills the gap
+        # when no plugin (and no pre-registered provider) claimed "default".
         _load_entry_point_providers()
+        # setdefault (not assignment): respect both pre-registered providers
+        # (registered before the first lookup) and entry-point "default" plugins.
+        _provider_registry.setdefault("default", DefaultContextProvider)
 
 
 def register_provider(name: str, provider_class: type) -> None:
