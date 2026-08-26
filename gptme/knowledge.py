@@ -245,3 +245,46 @@ def knowledge_delete(entry_id: str) -> bool:
             tmp_path = tf.name
         os.replace(tmp_path, path)
     return True
+
+
+def knowledge_delete_by_prefix(
+    prefix: str,
+) -> tuple[str | None, str, list[KnowledgeEntry]]:
+    """Delete an entry by ID prefix, atomically under the exclusive lock.
+
+    Holds the exclusive lock for the entire prefix-resolve + delete cycle so
+    that a concurrent save or delete cannot change the entry set between the
+    prefix lookup and the actual write.
+
+    Returns:
+        (deleted_id, status, matches) where status is one of:
+        - ``'deleted'``: entry found and removed; ``deleted_id`` is the full ID.
+        - ``'ambiguous'``: prefix matched more than one entry; ``matches``
+          contains all candidates so the caller can list them.
+        - ``'not_found'``: no entry matched the prefix.
+    """
+    with _exclusive_lock():
+        entries = _load_entries()
+        matches = [e for e in entries if e.get("id", "").startswith(prefix)]
+        if len(matches) > 1:
+            return None, "ambiguous", matches
+        if not matches:
+            return None, "not_found", []
+
+        full_id = matches[0]["id"]
+        kept = [e for e in entries if e.get("id") != full_id]
+
+        path = _entries_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            delete=False,
+            suffix=".tmp",
+        ) as tf:
+            for e in kept:
+                tf.write(json.dumps(e) + "\n")
+            tmp_path = tf.name
+        os.replace(tmp_path, path)
+    return full_id, "deleted", []

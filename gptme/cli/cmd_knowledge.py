@@ -205,55 +205,54 @@ def knowledge_list_cmd(tags: tuple[str, ...], limit: int, as_json: bool):
 @click.argument("entry_id")
 def knowledge_delete_cmd(entry_id: str):
     """Delete a knowledge entry by ID (or ID prefix)."""
-    from ..knowledge import _load_entries, knowledge_delete  # fmt: skip
+    from ..knowledge import knowledge_delete_by_prefix  # fmt: skip
 
-    # Support prefix matching
+    # Prefix resolution and delete are done atomically under the exclusive lock
+    # so a concurrent save or delete cannot change the entry set between the
+    # prefix lookup and the actual write.
     try:
-        entries = _load_entries()
+        full_id, status, matches = knowledge_delete_by_prefix(entry_id)
     except OSError as e:
         click.echo(f"Error reading knowledge base: {e}", err=True)
         sys.exit(1)
-    matches = [e for e in entries if e.get("id", "").startswith(entry_id)]
-    if len(matches) > 1:
+
+    if status == "ambiguous":
         click.echo(f"Ambiguous prefix '{entry_id}' — matches {len(matches)} entries:")
         for m in matches:
             click.echo(f"  {m['id']}")
         sys.exit(1)
-    if not matches:
+    if status == "not_found":
         click.echo(f"No entry found with ID or prefix '{entry_id}'")
         sys.exit(1)
 
-    full_id = matches[0]["id"]
-    if knowledge_delete(full_id):
-        click.echo(f"Deleted entry {full_id[:8]}")
-        from ..knowledge import _knowledge_dir  # fmt: skip
+    # status == 'deleted'
+    assert full_id is not None
+    click.echo(f"Deleted entry {full_id[:8]}")
+    from ..knowledge import _knowledge_dir  # fmt: skip
 
-        # Always remove the mirror file regardless of whether gptme-rag is
-        # installed — the file lives on disk independently and must be cleaned
-        # up so that a later install of gptme-rag does not index stale entries.
-        # Use missing_ok=True to avoid a TOCTOU race: _export_for_rag's orphan
-        # sweep (inside the exclusive lock) can unlink the same file concurrently.
-        # Catch OSError: the entry is already deleted; a permission or I/O error
-        # on the mirror should warn, not crash and confuse the user about success.
-        mirror = _knowledge_dir() / "rag" / f"{full_id}.md"
+    # Always remove the mirror file regardless of whether gptme-rag is
+    # installed — the file lives on disk independently and must be cleaned
+    # up so that a later install of gptme-rag does not index stale entries.
+    # Use missing_ok=True to avoid a TOCTOU race: _export_for_rag's orphan
+    # sweep (inside the exclusive lock) can unlink the same file concurrently.
+    # Catch OSError: the entry is already deleted; a permission or I/O error
+    # on the mirror should warn, not crash and confuse the user about success.
+    mirror = _knowledge_dir() / "rag" / f"{full_id}.md"
+    try:
+        mirror.unlink(missing_ok=True)
+    except OSError as e:
+        click.echo(f"Warning: could not remove mirror file {mirror}: {e}", err=True)
+    # Re-index only when gptme-rag is available.
+    if shutil.which("gptme-rag"):
         try:
-            mirror.unlink(missing_ok=True)
-        except OSError as e:
-            click.echo(f"Warning: could not remove mirror file {mirror}: {e}", err=True)
-        # Re-index only when gptme-rag is available.
-        if shutil.which("gptme-rag"):
-            try:
-                subprocess.run(
-                    ["gptme-rag", "index", str(_knowledge_dir() / "rag")],
-                    check=True,
-                    capture_output=True,
-                    timeout=30,
-                )
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                click.echo(
-                    f"Warning: gptme-rag re-index after delete failed: {e}",
-                    err=True,
-                )
-    else:
-        click.echo(f"Failed to delete entry {full_id[:8]}")
-        sys.exit(1)
+            subprocess.run(
+                ["gptme-rag", "index", str(_knowledge_dir() / "rag")],
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            click.echo(
+                f"Warning: gptme-rag re-index after delete failed: {e}",
+                err=True,
+            )
