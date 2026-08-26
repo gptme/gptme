@@ -342,7 +342,7 @@ class ImageConverter(Converter):
                 else:
                     # JPEG/other: ffmpeg q:v scale 1-31 (lower = better)
                     cmd += ["-q:v", str(max(1, (100 - q) // 5))]
-            cmd += ["--", _arg(dest)]
+            cmd += [_arg(dest)]
             result = subprocess.run(cmd, capture_output=True, check=False)
             if result.returncode == 0:
                 return ConversionResult(
@@ -568,6 +568,18 @@ class DocumentToTextConverter(Converter):
                         )
                 warnings.append(f"libreoffice failed: {result.stderr.decode()[:200]}")
 
+        if (
+            avail.python_docx
+            and not avail.libreoffice
+            and src.suffix.lower() != ".docx"
+        ):
+            return ConversionResult(
+                success=False,
+                output_path=None,
+                converter_used="python-docx",
+                error=f"python-docx only supports .docx files; {src.suffix!r} requires LibreOffice (not installed)",
+                warnings=warnings,
+            )
         return ConversionResult(
             success=False,
             output_path=None,
@@ -628,7 +640,6 @@ class VideoThumbnailConverter(Converter):
             _arg(src),
             "-vframes",
             "1",
-            "--",
             _arg(dest),
         ]
         result = subprocess.run(cmd, capture_output=True, check=False)

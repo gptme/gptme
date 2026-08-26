@@ -572,8 +572,9 @@ def test_ffmpeg_webp_uses_quality_not_qv(avail_ffmpeg_only, tmp_path):
     assert result.success
     assert "-quality" in captured_cmd
     assert "-q:v" not in captured_cmd
-    # FFmpeg supports -- as an option terminator; keep it so dash-prefixed paths are safe.
-    assert captured_cmd[-2:] == ["--", str(dest)]
+    # _arg() already handles dash-prefixed paths via "./" prefix; "--" is not needed.
+    assert "--" not in captured_cmd
+    assert captured_cmd[-1] == str(dest)
 
 
 # ---------------------------------------------------------------------------
@@ -775,3 +776,77 @@ def test_module_docstring_does_not_claim_ocr():
 
     assert convert_mod.__doc__ is not None
     assert "OCR" not in convert_mod.__doc__
+
+
+def test_ffmpeg_image_command_has_no_double_dash(avail_ffmpeg_only, tmp_path):
+    """FFmpeg does not use POSIX -- option terminator; _arg() handles dash paths instead."""
+    src = tmp_path / "img.png"
+    src.write_bytes(b"\x89PNG")
+    dest = tmp_path / "out.jpg"
+
+    captured_cmd: list[str] = []
+
+    def fake_run(cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        dest.write_bytes(b"\xff\xd8\xff")
+        return MagicMock(returncode=0, stderr=b"")
+
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_ffmpeg_only),
+        patch("subprocess.run", side_effect=fake_run),
+    ):
+        ImageConverter().convert(src, dest)
+
+    assert "--" not in captured_cmd
+    assert captured_cmd[-1] == str(dest)
+
+
+def test_ffmpeg_thumbnail_command_has_no_double_dash(avail_ffmpeg_only, tmp_path):
+    """VideoThumbnailConverter ffmpeg command must not include -- before the dest."""
+    src = tmp_path / "clip.mp4"
+    src.write_bytes(b"\x00\x00\x00\x18ftyp")
+    dest = tmp_path / "thumb.jpg"
+
+    captured_cmd: list[str] = []
+
+    def fake_run(cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        dest.write_bytes(b"\xff\xd8\xff")
+        return MagicMock(returncode=0, stderr=b"")
+
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_ffmpeg_only),
+        patch("subprocess.run", side_effect=fake_run),
+    ):
+        VideoThumbnailConverter().convert(src, dest)
+
+    assert "--" not in captured_cmd
+    assert captured_cmd[-1] == str(dest)
+
+
+def test_doc_to_text_specific_error_when_only_python_docx_installed(tmp_path):
+    """When only python-docx is installed, .doc files get a clear error (not a generic one)."""
+    avail = ToolAvailability(
+        ffmpeg=False,
+        imagemagick=False,
+        pdftoppm=False,
+        pdftotext=False,
+        libreoffice=False,
+        tesseract=False,
+        python_magic=False,
+        python_docx=True,
+        pypdf=False,
+    )
+    src = tmp_path / "old.doc"
+    src.write_bytes(b"\xd0\xcf\x11\xe0")  # OLE compound header
+    dest = tmp_path / "out.txt"
+
+    with patch("gptme.tools.convert.get_availability", return_value=avail):
+        result = DocumentToTextConverter().convert(src, dest)
+
+    assert not result.success
+    assert result.error is not None
+    assert "python-docx" in result.error
+    assert "libreoffice" in result.error.lower() or "LibreOffice" in result.error
+    # Must NOT say the generic "nothing available" message — python-docx IS there
+    assert "No document" not in result.error
