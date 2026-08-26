@@ -100,8 +100,35 @@ class _DynamicHelpCommand(click.Command):
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         """Keep arguments after a mirrored utility command opaque to Click."""
-        # Scan past any leading top-level flags to find the first positional.
-        first_positional = next((a for a in args if not a.startswith("-")), None)
+        # Build the set of option names that consume a following value token
+        # (non-flag options).  These must be skipped over when scanning for
+        # the first true positional so that option *values* are not mistaken
+        # for subcommands (e.g. `--model gpt-4` must not yield 'gpt-4').
+        value_opts: set[str] = set()
+        for param in self.params:
+            if (
+                isinstance(param, click.Option)
+                and not param.is_flag
+                and param.nargs != 0
+            ):
+                value_opts.update(param.opts)
+
+        # Scan past leading option/value pairs to find the first positional.
+        skip_next = False
+        first_positional: str | None = None
+        for a in args:
+            if skip_next:
+                skip_next = False
+                continue
+            if a.startswith("-"):
+                # --opt=val form carries its value inline; bare --opt consumes next token.
+                opt_name = a.split("=")[0] if "=" in a else a
+                if "=" not in a and opt_name in value_opts:
+                    skip_next = True
+                continue
+            first_positional = a
+            break
+
         if first_positional is not None:
             from .util import UTIL_SUBCOMMANDS
 
