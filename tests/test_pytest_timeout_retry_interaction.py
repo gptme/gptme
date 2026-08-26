@@ -11,6 +11,7 @@ other test passed.
 to the test function, so retry delays fall outside the armed window.
 """
 
+import os
 import subprocess
 import sys
 import textwrap
@@ -59,6 +60,10 @@ def test_retry_delay_does_not_internalerror_with_func_only_timeout(tmp_path):
 
 
 @pytest.mark.slow
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="SIGALRM-based xdist crash is POSIX-only; thread timer on Windows behaves differently",
+)
 def test_protocol_scoped_timeout_still_reproduces_the_crash(tmp_path):
     """Falsifies the guard above: without func_only the crash still happens.
 
