@@ -15,7 +15,7 @@ from gptme.llm.models import (
     get_recommended_model,
     list_models,
 )
-from gptme.llm.models.data import _mark_parallel
+from gptme.llm.models.data import PARALLEL_TOOL_CALL_EXCEPTIONS, _mark_parallel
 
 
 def test_get_static_model():
@@ -541,6 +541,67 @@ class TestSupportsParallelToolCalls:
         )
         assert stamped["a"]["supports_parallel_tool_calls"] is False
         assert stamped["b"]["supports_parallel_tool_calls"] is True
+
+    def test_mark_parallel_skips_exceptions(self):
+        """Models in the exceptions set are not stamped True."""
+        stamped = _mark_parallel(
+            {
+                "a": {"context": 1},
+                "b": {"context": 1},
+            },
+            exceptions=frozenset({"a"}),
+        )
+        assert "supports_parallel_tool_calls" not in stamped["a"]
+        assert stamped["b"]["supports_parallel_tool_calls"] is True
+
+    def test_mark_parallel_exception_does_not_override_explicit_true(self):
+        """An explicit True in a model dict wins over being in the exceptions set."""
+        stamped = _mark_parallel(
+            {"a": {"context": 1, "supports_parallel_tool_calls": True}},
+            exceptions=frozenset({"a"}),
+        )
+        assert stamped["a"]["supports_parallel_tool_calls"] is True
+
+    # --- Per-model exception spot checks ---
+
+    def test_gemini_1_5_flash_latest_not_stamped_parallel(self):
+        """gemini-1.5-flash-latest is in PARALLEL_TOOL_CALL_EXCEPTIONS — not stamped."""
+        model = get_model("gemini/gemini-1.5-flash-latest")
+        assert model.supports_parallel_tool_calls is False
+
+    def test_gemini_2_0_flash_lite_not_stamped_parallel(self):
+        """gemini-2.0-flash-lite is in PARALLEL_TOOL_CALL_EXCEPTIONS — not stamped."""
+        model = get_model("gemini/gemini-2.0-flash-lite")
+        assert model.supports_parallel_tool_calls is False
+
+    def test_gemini_2_0_flash_thinking_exp_not_stamped_parallel(self):
+        """gemini-2.0-flash-thinking-exp is in exceptions — not stamped."""
+        model = get_model("gemini/gemini-2.0-flash-thinking-exp-01-21")
+        assert model.supports_parallel_tool_calls is False
+
+    def test_gemini_2_5_flash_lite_not_stamped_parallel(self):
+        """gemini-2.5-flash-lite is in PARALLEL_TOOL_CALL_EXCEPTIONS — not stamped."""
+        model = get_model("gemini/gemini-2.5-flash-lite")
+        assert model.supports_parallel_tool_calls is False
+
+    def test_grok_2_vision_not_stamped_parallel(self):
+        """grok-2-vision-1212 is in PARALLEL_TOOL_CALL_EXCEPTIONS — not stamped."""
+        model = get_model("xai/grok-2-vision-1212")
+        assert model.supports_parallel_tool_calls is False
+
+    def test_exceptions_set_is_subset_of_provider_models(self):
+        """Every name in PARALLEL_TOOL_CALL_EXCEPTIONS must exist in a stamped provider."""
+        from gptme.llm.models.data import PARALLEL_TOOL_PROVIDERS
+
+        all_provider_model_names: set[str] = set()
+        for provider_str in PARALLEL_TOOL_PROVIDERS:
+            models_for_provider = MODELS.get(provider_str)  # type: ignore[call-overload]
+            if models_for_provider:
+                all_provider_model_names.update(models_for_provider.keys())
+        unknown = PARALLEL_TOOL_CALL_EXCEPTIONS - all_provider_model_names
+        assert not unknown, (
+            f"PARALLEL_TOOL_CALL_EXCEPTIONS contains names not in any stamped provider: {unknown}"
+        )
 
 
 class TestSupportsResponsesAPI:

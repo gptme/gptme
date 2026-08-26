@@ -26,19 +26,44 @@ def _set_tool_format(
     }
 
 
-def _mark_parallel(models: dict[str, _ModelDictMeta]) -> dict[str, _ModelDictMeta]:
-    """Stamp supports_parallel_tool_calls=True unless the model already sets it.
+def _mark_parallel(
+    models: dict[str, _ModelDictMeta],
+    exceptions: frozenset[str] = frozenset(),
+) -> dict[str, _ModelDictMeta]:
+    """Stamp supports_parallel_tool_calls=True unless the model already sets it
+    or its name is in the exceptions set.
 
     An explicit per-model value still wins, so a later model that does *not*
     support parallel can opt out by setting the key to False.
+    The exceptions set lets a provider-wide stamp skip models that are not
+    individually verified (e.g. older or lite variants).
     """
     return {
         name: props
-        if "supports_parallel_tool_calls" in props
+        if "supports_parallel_tool_calls" in props or name in exceptions
         else {**props, "supports_parallel_tool_calls": True}
         for name, props in models.items()
     }
 
+
+# Models within PARALLEL_TOOL_PROVIDERS that are NOT individually verified to
+# support parallel tool calls. Provider-wide stamping is skipped for these.
+# Keys match the model name as it appears in _MODELS_RAW (no provider prefix).
+# Docs audited 2026-08:
+#   gemini lite/experimental: not listed at
+#     https://ai.google.dev/gemini-api/docs/function-calling#parallel_function_calling
+#   grok-2-vision-1212: older vision model predating xAI's parallel tool-call support
+PARALLEL_TOOL_CALL_EXCEPTIONS: frozenset[str] = frozenset(
+    {
+        # Gemini — older / lite / experimental variants not individually verified
+        "gemini-1.5-flash-latest",
+        "gemini-2.0-flash-lite",
+        "gemini-2.0-flash-thinking-exp-01-21",
+        "gemini-2.5-flash-lite",
+        # xAI — grok-2 vision is an older model predating parallel tool-call docs
+        "grok-2-vision-1212",
+    }
+)
 
 # Providers that route through the OpenAI-compatible function-calling API — stamp
 # default_tool_format="tool" on every model that doesn't already have one set.
@@ -668,7 +693,7 @@ def _stamp_provider(
 ) -> dict[str, _ModelDictMeta]:
     """Apply construction-time stamps so static dicts and MODELS stay consistent."""
     if provider in PARALLEL_TOOL_PROVIDERS:
-        models = _mark_parallel(models)
+        models = _mark_parallel(models, exceptions=PARALLEL_TOOL_CALL_EXCEPTIONS)
     if provider in OPENAI_COMPAT_PROVIDERS:
         models = _set_tool_format(models, "tool")
     return models
