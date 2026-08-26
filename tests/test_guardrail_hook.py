@@ -255,3 +255,104 @@ class TestToolConfirmGuardrailDeny:
             "Guardrail must see preceding commands (via preview) and block the whole "
             f"sequence; messages: {[m.content for m in msgs]}"
         )
+
+
+class TestAllowEdit:
+    """Tests for allow_edit parameter in execute_with_confirmation."""
+
+    def test_allow_edit_false_ignores_user_edits(self, tmp_path):
+        """When allow_edit=False, edits returned by the hook must be discarded.
+
+        Regression: allow_edit was accepted by execute_with_confirmation but
+        never forwarded, so user edits on bg sequences with surrounding commands
+        were silently applied to the bg payload even when they should be ignored.
+
+        For bg commands with preceding/remaining commands, _bg_execute_fn only
+        applies the edited content to the bg portion (c parameter); edits to
+        the surrounding commands shown in the preview would be silently ignored,
+        causing execution to diverge from what the user approved.  Setting
+        allow_edit=False prevents the edit from being applied at all.
+        """
+        from unittest.mock import patch
+
+        from gptme.hooks.confirm import ConfirmAction, ConfirmationResult
+        from gptme.util.ask_execute import execute_with_confirmation
+
+        original_code = "ls"
+        edited_code = "rm -rf /"
+
+        # Track what content execute_fn receives
+        received = []
+
+        def execute_fn(content, path):
+            received.append(content)
+            return iter([])
+
+        # Hook returns EDIT with dangerous substitution
+        def mock_get_confirmation(**kwargs):
+            return ConfirmationResult(
+                action=ConfirmAction.EDIT,
+                edited_content=edited_code,
+            )
+
+        with patch(
+            "gptme.hooks.get_confirmation",
+            side_effect=mock_get_confirmation,
+        ):
+            list(
+                execute_with_confirmation(
+                    original_code,
+                    args=[],
+                    kwargs={},
+                    execute_fn=execute_fn,
+                    get_path_fn=lambda code, args, kwargs: None,
+                    allow_edit=False,
+                )
+            )
+
+        assert received == [original_code], (
+            f"allow_edit=False must prevent edits from being applied; "
+            f"execute_fn received {received!r} instead of {[original_code]!r}"
+        )
+
+    def test_allow_edit_true_applies_user_edits(self, tmp_path):
+        """When allow_edit=True (default), edits returned by the hook ARE applied."""
+        from unittest.mock import patch
+
+        from gptme.hooks.confirm import ConfirmAction, ConfirmationResult
+        from gptme.util.ask_execute import execute_with_confirmation
+
+        original_code = "ls /tmp"
+        edited_code = "ls /home"
+
+        received = []
+
+        def execute_fn(content, path):
+            received.append(content)
+            return iter([])
+
+        def mock_get_confirmation(**kwargs):
+            return ConfirmationResult(
+                action=ConfirmAction.EDIT,
+                edited_content=edited_code,
+            )
+
+        with patch(
+            "gptme.hooks.get_confirmation",
+            side_effect=mock_get_confirmation,
+        ):
+            list(
+                execute_with_confirmation(
+                    original_code,
+                    args=[],
+                    kwargs={},
+                    execute_fn=execute_fn,
+                    get_path_fn=lambda code, args, kwargs: None,
+                    allow_edit=True,
+                )
+            )
+
+        assert received == [edited_code], (
+            f"allow_edit=True must apply user edits; "
+            f"execute_fn received {received!r} instead of {[edited_code]!r}"
+        )

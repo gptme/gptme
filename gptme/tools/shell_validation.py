@@ -643,8 +643,21 @@ def shell_allowlist_hook(
     if not cmd:
         return None
 
+    # For a simple bg invocation ("bg <cmd>" with no surrounding commands),
+    # check the underlying command — not the "bg <cmd>" string — against the
+    # allowlist.  "bg" itself is not a shell command, so is_allowlisted("bg ls")
+    # returns False even though "ls" is allowlisted, which would cause a
+    # behavior regression: previously-silent bg-wrapped allowlisted commands
+    # would suddenly prompt the user.
+    # Only do this for single-line "bg ..." previews: if there are multiple lines
+    # the preview may include preceding/remaining commands that must be checked
+    # in full, so fall through to the normal is_allowlisted path below.
+    check_cmd = cmd
+    if "\n" not in cmd and cmd.startswith("bg "):
+        check_cmd = cmd[3:].strip()
+
     # Check if command is allowlisted
-    if is_allowlisted(cmd):
+    if is_allowlisted(check_cmd):
         logger.debug(f"Shell command allowlisted, auto-confirming: {cmd[:50]}...")
         return ConfirmationResult.confirm()
 

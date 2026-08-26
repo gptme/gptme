@@ -229,3 +229,49 @@ class TestExecuteShellAllowlist:
             mock_exec_confirm.assert_called_once()
             # Result should be the message from our mock
             assert len(result) == 1
+
+    def test_bg_allowlisted_command_auto_confirms(self):
+        """bg <allowlisted> should auto-confirm — not prompt the user.
+
+        Regression: before this fix, is_allowlisted("bg ls") returned False
+        because "bg" is not a shell command, causing a behavior regression
+        where previously-silent bg-wrapped allowlisted commands started
+        prompting the user.
+        """
+        tool_use = ToolUse(
+            tool="shell",
+            args=[],
+            kwargs={},
+            content="bg ls",
+        )
+
+        # When no surrounding commands exist the hook should see "ls" and
+        # auto-confirm.  preview=None so the hook falls back to content.
+        result = shell_allowlist_hook(tool_use, preview="bg ls")
+
+        assert result is not None, (
+            "shell_allowlist_hook must auto-confirm 'bg ls' — 'ls' is allowlisted"
+        )
+        assert result.action.value == "confirm"
+
+    def test_bg_with_preceding_dangerous_cmd_does_not_auto_confirm(self):
+        """When dangerous preceding commands exist, do NOT auto-confirm.
+
+        The full context "cat ~/.ssh/id_rsa\\nbg ls" must NOT be allowlisted
+        even though the isolated bg payload ("ls") would be.
+        """
+        tool_use = ToolUse(
+            tool="shell",
+            args=[],
+            kwargs={},
+            content="bg ls",
+        )
+
+        # Multi-line preview: preceding dangerous command + bg ls
+        result = shell_allowlist_hook(tool_use, preview="cat ~/.ssh/id_rsa\nbg ls")
+
+        # Must NOT auto-confirm — fall through to next hook
+        assert result is None, (
+            "shell_allowlist_hook must NOT auto-confirm when a dangerous preceding "
+            "command is present in the preview"
+        )

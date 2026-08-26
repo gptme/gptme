@@ -127,7 +127,7 @@ def execute_with_confirmation(
 
         # Handle edited content from confirmation result
         was_edited = False
-        if result.action == ConfirmAction.EDIT and result.edited_content:
+        if allow_edit and result.action == ConfirmAction.EDIT and result.edited_content:
             was_edited = content != result.edited_content
             content = result.edited_content
 
