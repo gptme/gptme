@@ -393,6 +393,24 @@ markers = [
 ]
 asyncio_default_fixture_loop_scope = "function"
 
+# Scope --timeout to the test function only, NOT the whole runtest protocol.
+#
+# With the default (protocol-wide) scoping, pytest-timeout's SIGALRM stays armed
+# across pytest-retry's retry loop -- which sleeps `--retry-delay` between
+# attempts inside pytest_runtest_makereport. When a retried test's cumulative
+# sleep+rerun time crosses the item's timeout, the alarm fires *inside a report
+# hook*, raising Failed where nothing catches it. That crashes the xdist worker
+# and INTERNALERRORs the entire session: every other test passes and the job
+# still exits non-zero.
+#
+# CI runs `--timeout 60 --retries 2 --retry-delay 5` while several modules set a
+# much tighter per-module timeout (tests/test_server_v2.py uses 10s), so 10s of
+# retry sleep alone exceeded the budget -- any single flaky test there took down
+# the whole run. Scoping to the function makes each attempt get its own fresh
+# timeout and keeps the retry delay outside the armed window, while still
+# catching a hanging test body.
+timeout_func_only = true
+
 [tool.coverage.run]
 # Needed to get playwright to play nice with coverage
 # https://stackoverflow.com/a/28589618/965332
