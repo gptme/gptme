@@ -226,9 +226,10 @@ def knowledge_delete_cmd(entry_id: str):
         # Always remove the mirror file regardless of whether gptme-rag is
         # installed — the file lives on disk independently and must be cleaned
         # up so that a later install of gptme-rag does not index stale entries.
+        # Use missing_ok=True to avoid a TOCTOU race: _export_for_rag's orphan
+        # sweep (inside the exclusive lock) can unlink the same file concurrently.
         mirror = _knowledge_dir() / "rag" / f"{full_id}.md"
-        if mirror.exists():
-            mirror.unlink()
+        mirror.unlink(missing_ok=True)
         # Re-index only when gptme-rag is available.
         if shutil.which("gptme-rag"):
             try:
