@@ -109,8 +109,9 @@ def _update_memory_index(
             else:
                 pattern = rf"^- \[{re.escape(slug)}\]\({re.escape(filename)}\).*$"
                 if re.search(pattern, content, re.MULTILINE):
+                    replacement = entry.rstrip()
                     new_content = re.sub(
-                        pattern, entry.rstrip(), content, flags=re.MULTILINE
+                        pattern, lambda _: replacement, content, flags=re.MULTILINE
                     )
                 else:
                     if not content.endswith("\n"):
@@ -148,7 +149,8 @@ def save_memory(name: str, content: str, workspace: Path | None = None) -> str:
     description = lines[0].strip() if lines else name
     body = "\n".join(lines[1:]).strip() if len(lines) > 1 else content.strip()
 
-    frontmatter = f"---\nname: {slug}\ndescription: {description}\nmetadata:\n  type: general\n---\n\n"
+    safe_desc = description.replace("\\", "\\\\").replace('"', '\\"')
+    frontmatter = f'---\nname: {slug}\ndescription: "{safe_desc}"\nmetadata:\n  type: general\n---\n\n'
     file_path.write_text(frontmatter + body + "\n", encoding="utf-8")
 
     # Use slug as the index key so colliding names update the same entry.

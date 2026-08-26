@@ -94,7 +94,7 @@ class TestSaveMemory:
         )
         memory_dir = get_cc_memory_dir(workspace)
         content = (memory_dir / "pref.md").read_text()
-        assert "description: User prefers short answers." in content
+        assert 'description: "User prefers short answers."' in content
         assert "More detail here." in content
 
     def test_single_line_content(self, tmp_path):
