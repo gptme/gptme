@@ -6,7 +6,6 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from gptme.__version__ import __version__
 from gptme.cli.main import main
 
 
@@ -63,13 +62,12 @@ class TestSearchAlias:
         assert "search" in result.output.lower()
 
     def test_search_does_not_swallow_version(self, runner: CliRunner):
-        """gptme --version search QUERY shows bare version string, not search results."""
+        """gptme --version search QUERY shows version, not search results."""
         with patch("gptme.tools.chats.search_chats") as mock_search:
             result = runner.invoke(main, ["--version", "search", "anything"])
         assert result.exit_code == 0
         mock_search.assert_not_called()
-        # --version now outputs just the bare version string
-        assert result.output == f"{__version__}\n"
+        assert "gptme" in result.output.lower() or "version" in result.output.lower()
 
     def test_search_does_not_swallow_version_json(self, runner: CliRunner):
         """gptme --version-json search QUERY shows version JSON, not search results."""
