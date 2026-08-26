@@ -10,12 +10,22 @@ TOOL_PRESETS: dict[str, tuple[str, ...]] = {
 TOOL_PRESET_NAMES = tuple(TOOL_PRESETS)
 
 
+def _is_mcp_tool_name(name: str) -> bool:
+    """Return True if the name looks like an MCP dotted tool (``server.tool``)."""
+    return "." in name and not name.startswith(".")
+
+
 def expand_tool_allowlist_presets(allowlist: list[str] | None) -> list[str] | None:
     """Expand named tool presets into concrete tool names.
 
     Presets are exclusive capability boundaries, not shortcuts that can be mixed
-    with arbitrary tools. Use hint-based allowlists for intentionally broad
-    category matching.
+    with arbitrary builtin tools.  However, MCP dotted names (``server.tool``)
+    are additive—they extend a session with external-server capabilities and
+    do not dilute the preset's builtin boundary.  A stored allowlist of
+    ``["read-only", "search.query"]`` is therefore valid and is expanded to
+    ``["read", "search.query"]``.
+
+    Use hint-based allowlists for intentionally broad category matching.
     """
     if allowlist is None:
         return None
@@ -24,10 +34,21 @@ def expand_tool_allowlist_presets(allowlist: list[str] | None) -> list[str] | No
     if not presets:
         return allowlist
     if len(allowlist) != 1:
-        preset_list = ", ".join(presets)
-        raise ValueError(
-            f"Tool preset(s) {preset_list} cannot be combined with other tools"
-        )
+        # MCP dotted names may accompany a preset: they are purely additive and
+        # do not widen the builtin capability boundary.
+        non_preset_non_mcp = [
+            item
+            for item in allowlist
+            if item not in TOOL_PRESETS and not _is_mcp_tool_name(item)
+        ]
+        if non_preset_non_mcp:
+            preset_list = ", ".join(presets)
+            raise ValueError(
+                f"Tool preset(s) {preset_list} cannot be combined with other tools"
+            )
+        # Expand the preset and keep the MCP tools verbatim.
+        mcp_tools = [item for item in allowlist if _is_mcp_tool_name(item)]
+        return [*TOOL_PRESETS[presets[0]], *mcp_tools]
     return list(TOOL_PRESETS[presets[0]])
 
 
