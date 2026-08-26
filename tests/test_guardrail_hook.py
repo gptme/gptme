@@ -261,7 +261,7 @@ class TestAllowEdit:
     """Tests for allow_edit parameter in execute_with_confirmation."""
 
     def test_allow_edit_false_ignores_user_edits(self, tmp_path):
-        """When allow_edit=False, edits returned by the hook must be discarded.
+        """When allow_edit=False, an EDIT result aborts execution entirely.
 
         Regression: allow_edit was accepted by execute_with_confirmation but
         never forwarded, so user edits on bg sequences with surrounding commands
@@ -271,7 +271,9 @@ class TestAllowEdit:
         applies the edited content to the bg portion (c parameter); edits to
         the surrounding commands shown in the preview would be silently ignored,
         causing execution to diverge from what the user approved.  Setting
-        allow_edit=False prevents the edit from being applied at all.
+        allow_edit=False causes execute_with_confirmation to abort execution
+        (rather than run either the original or the edited content) when the
+        user attempts an edit.
         """
         from unittest.mock import patch
 
@@ -299,7 +301,7 @@ class TestAllowEdit:
             "gptme.hooks.get_confirmation",
             side_effect=mock_get_confirmation,
         ):
-            list(
+            messages = list(
                 execute_with_confirmation(
                     original_code,
                     args=[],
@@ -310,10 +312,17 @@ class TestAllowEdit:
                 )
             )
 
-        assert received == [original_code], (
-            f"allow_edit=False must prevent edits from being applied; "
-            f"execute_fn received {received!r} instead of {[original_code]!r}"
+        # Execution must be aborted — execute_fn must not be called at all
+        assert received == [], (
+            f"allow_edit=False must abort execution when an EDIT is returned; "
+            f"execute_fn received {received!r} but should have received nothing"
         )
+        # The abort must surface as a system message, not silent failure
+        assert any(
+            "not supported" in (getattr(m, "content", "") or "").lower()
+            or "aborted" in (getattr(m, "content", "") or "").lower()
+            for m in messages
+        ), f"Expected an abort system message but got: {messages!r}"
 
     def test_allow_edit_true_applies_user_edits(self, tmp_path):
         """When allow_edit=True (default), edits returned by the hook ARE applied."""
