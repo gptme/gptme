@@ -1501,7 +1501,7 @@ def test_compact_trim_handler_honors_env_keep_head(monkeypatch):
             return_value="rule_based",
         ),
         patch(
-            "gptme.tools.autocompact.handlers.auto_compact_log",
+            "gptme.tools.autocompact.engine.auto_compact_log",
             side_effect=fake_auto_compact_log,
         ),
         patch("gptme.tools.autocompact.handlers.get_default_model", return_value=None),
