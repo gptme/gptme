@@ -7,7 +7,7 @@ otherwise auto-approve — and that the block is returned as a system message.
 
 import pytest
 
-from gptme.hooks import HookType, register_hook, unregister_hook
+from gptme.hooks import HookType, get_hooks, register_hook, unregister_hook
 from gptme.hooks.confirm import ConfirmationResult
 from gptme.tools.base import ToolUse
 
@@ -27,7 +27,9 @@ class TestToolConfirmGuardrailDeny:
         def _hook(tool_use, preview=None, workspace=None):
             if tool_use.tool != "shell":
                 return None
-            cmd = tool_use.content or ""
+            # Check preview first: for bg sequences it contains the full command
+            # context including preceding lines; tool_use.content only holds bg_cmd.
+            cmd = preview or tool_use.content or ""
             if blocked_pattern in cmd:
                 return ConfirmationResult.skip(
                     f"Blocked by guardrail: {blocked_pattern!r} detected"
@@ -148,8 +150,13 @@ class TestToolConfirmGuardrailDeny:
         and proving the guardrail still fires despite cli_confirm being absent.
         """
         from gptme.hooks.cli_confirm import register as register_cli_confirm
+        from gptme.hooks.server_confirm import register as register_server_confirm
 
         sentinel = tmp_path / "headless_test.txt"
+
+        # Save whether server_confirm was registered before this test mutates it.
+        _pre_test_hooks = {h.name for h in get_hooks(HookType.TOOL_CONFIRM)}
+        server_confirm_was_registered = "server_confirm" in _pre_test_hooks
 
         # Simulate normal interactive mode: register the built-in confirm hook.
         register_cli_confirm()
@@ -178,8 +185,10 @@ class TestToolConfirmGuardrailDeny:
                 f"messages: {[m.content for m in msgs]}"
             )
         finally:
-            # Restore cli_confirm for subsequent tests.
+            # Restore both hooks to their pre-test state.
             register_cli_confirm()
+            if server_confirm_was_registered:
+                register_server_confirm()
 
     def test_bg_prefix_routes_through_hook_chain(self, tmp_path):
         """A `bg` prefix must not bypass the TOOL_CONFIRM hook chain.
@@ -229,15 +238,18 @@ class TestToolConfirmGuardrailDeny:
         )
 
         # The dangerous command precedes an innocent bg payload.
-        # Without the fix, hooks only saw "ls" and approved.
+        # Without the fix, hooks only saw the bg_cmd ("touch ...") and approved;
+        # "secret_file" only appears in the preceding line which was invisible.
+        # Use `touch` (not `ls`) as the bg payload so an unblocked run creates the
+        # sentinel, making the assertion non-vacuous.
         tool_use = ToolUse(
             tool="shell",
             args=[],
-            content=f"cat secret_file\nbg ls {sentinel}",
+            content=f"cat secret_file\nbg touch {sentinel}",
         )
         msgs = list(tool_use.execute())
 
         assert not sentinel.exists(), (
-            "Guardrail must see preceding commands and block the whole sequence; "
-            f"messages: {[m.content for m in msgs]}"
+            "Guardrail must see preceding commands (via preview) and block the whole "
+            f"sequence; messages: {[m.content for m in msgs]}"
         )
