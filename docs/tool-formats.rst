@@ -238,10 +238,12 @@ behaviour silently:
   the same ``tool`` default applied at resolution time instead, including on
   dynamic-fetch fallbacks.
 
-- ``supports_parallel_tool_calls`` is set on 56 entries: the Claude Opus/Sonnet
+- ``supports_parallel_tool_calls`` is set on 51 entries: the Claude Opus/Sonnet
   4.x families and their OpenRouter aliases, Kimi K3, the GPT-4.1/GPT-5
-  families, all bundled Gemini models (and the OpenRouter Gemini 3.5 Flash
-  alias), xAI Grok (including ``grok-subscription``), Groq's
+  families, verified Gemini models (and the OpenRouter Gemini 3.5 Flash alias;
+  lite and experimental Gemini variants are excluded via
+  ``PARALLEL_TOOL_CALL_EXCEPTIONS``), xAI Grok (excluding the older
+  ``grok-2-vision-1212``; including ``grok-subscription``), Groq's
   ``llama-3.3-70b-versatile``, DeepSeek chat/reasoner, and the OpenRouter
   DeepSeek V4 aliases. Deliberate omissions are meaningful: Claude Haiku 4.5
   carries an explicit comment that it does *not* emit multiple tool calls per
