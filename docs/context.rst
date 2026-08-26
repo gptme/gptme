@@ -343,6 +343,10 @@ API Reference
    :members:
    :undoc-members:
 
+.. autoclass:: gptme.tools.autocompact.context_provider.CompactionResult
+   :members:
+   :undoc-members:
+
 .. autoclass:: gptme.tools.autocompact.context_provider.CompressionConfig
    :members:
    :undoc-members:
