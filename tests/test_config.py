@@ -2892,3 +2892,41 @@ def test_manifest_unavailable_builtin_raises_toolallowlisterror(tmp_path: Path):
 
     with pytest.raises(ToolAllowlistError, match="Invalid builtin_tools entry"):
         _normalize_tool_allowlist(["review"], tmp_path)
+
+
+def test_manifest_alias_fallback_preserves_remaining_tools(tmp_path: Path):
+    """get_manifest_preset_tools supplies the full tool list for the --tools alias fallback.
+
+    When the CLI's ToolAllowlistError handler fires on the --tools alias path
+    (cli/main.py), it calls get_manifest_preset_tools to reconstruct the expanded
+    tool list and then uses _manifest_fallback_allowlist to strip only the unavailable
+    entry while preserving the rest of the manifest's tool selection.
+
+    This test verifies that get_manifest_preset_tools returns the full list —
+    including both the valid and unavailable builtin entries — so the fallback can
+    selectively remove only the unavailable entry.  Regression guard against the P0
+    bug where the fallback set tool_allowlist_str = None (all defaults) instead of
+    preserving the manifest's remaining tools.
+    """
+    from gptme.tool_manifests import get_manifest_preset_tools
+
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    # Manifest with one valid builtin ("read") and one unavailable builtin
+    # ("totally_unknown_xyz"), plus one MCP tool.
+    manifest_path.write_text(
+        '{"task_type":"review","builtin_tools":["read","totally_unknown_xyz"],"tools":['
+        '{"server_name":"github","tool_name":"get_issue"}]}\n',
+        encoding="utf-8",
+    )
+
+    result = get_manifest_preset_tools("review", tmp_path)
+    assert result is not None, "manifest must be found"
+    # Both builtins (available and unavailable) plus MCP tools must appear.
+    # The fallback strips the unavailable entry from this list; without the full
+    # list, "read" would be lost along with "totally_unknown_xyz".
+    assert "read" in result, "valid builtin must be in list for fallback to preserve it"
+    assert "totally_unknown_xyz" in result, (
+        "unavailable builtin must be in list for selective removal"
+    )
+    assert "github.get_issue" in result, "MCP tool must be in list"

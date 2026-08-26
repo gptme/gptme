@@ -1763,13 +1763,45 @@ def main(
                 )
             else:
                 # --tools manifest alias path: a builtin_tools entry in the alias's
-                # manifest is unavailable; fall back to default tools so the session
-                # can still start (parity with --tool-manifest graceful degradation).
-                tool_allowlist_str = None
+                # manifest is unavailable.  Preserve parity with --tool-manifest:
+                # strip only the unavailable entry and keep the remaining manifest
+                # tools, rather than silently collapsing to all defaults (which
+                # would violate a restrictive capability boundary in the manifest).
+                from ..tool_manifests import get_manifest_preset_tools
+
+                # tool_allowlist_str still holds the raw CLI alias (e.g. "code_review").
+                # Reconstruct the manifest's full expanded tool list so that
+                # _manifest_fallback_allowlist can strip just the unavailable entry.
+                alias_expanded: str | None = None
+                for alias_candidate in (
+                    (tool_allowlist_str or "").lstrip("+").split(",")
+                ):
+                    alias_candidate = alias_candidate.strip()
+                    if alias_candidate:
+                        tools_for_alias = get_manifest_preset_tools(
+                            alias_candidate, manifest_workspace
+                        )
+                        if tools_for_alias:
+                            alias_expanded = ",".join(tools_for_alias)
+                            break
+
+                if alias_expanded is not None:
+                    # Reuse the same helper as --tool-manifest: remove only the
+                    # unavailable entries, fall back to None (defaults) only when
+                    # every manifest tool is unavailable.
+                    tool_allowlist_str = _manifest_fallback_allowlist(
+                        alias_expanded, None
+                    )
+                else:
+                    tool_allowlist_str = None
+
                 logger.warning(
                     "Tool alias manifest entry unavailable during config setup: %s — "
-                    "falling back to default tools.",
+                    "%s.",
                     e,
+                    f"running without unavailable manifest tools (keeping: {tool_allowlist_str})"
+                    if tool_allowlist_str
+                    else "falling back to default tools",
                 )
             setup_fallback_ran = True
             try:
