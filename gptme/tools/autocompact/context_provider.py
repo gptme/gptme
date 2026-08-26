@@ -40,11 +40,12 @@ class CompactionResult:
     Invalidated when the source log is mutated after compaction.
     """
 
-    covered_through: int
+    covered_through: int = -1
     """0-based index of the last source message covered by this result.
 
-    ``-1`` when no source messages were processed (empty input).
-    For providers that compact the full input, this equals ``len(source) - 1``.
+    ``-1`` when no source messages were processed (empty input) or when the
+    provider does not track partial coverage.
+    For providers that compact the full input, set this to ``len(source) - 1``.
     """
 
     limitations: list[str] = field(default_factory=list)
