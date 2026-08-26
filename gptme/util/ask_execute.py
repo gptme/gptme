@@ -127,9 +127,18 @@ def execute_with_confirmation(
 
         # Handle edited content from confirmation result
         was_edited = False
-        if allow_edit and result.action == ConfirmAction.EDIT and result.edited_content:
-            was_edited = content != result.edited_content
-            content = result.edited_content
+        if result.action == ConfirmAction.EDIT:
+            if allow_edit and result.edited_content:
+                was_edited = content != result.edited_content
+                content = result.edited_content
+            elif not allow_edit:
+                # Editing is not supported for this command type (e.g. bg with surrounding
+                # commands). Abort rather than execute unedited content the user tried to modify.
+                yield Message(
+                    "system",
+                    "Editing is not supported for this command; execution aborted.",
+                )
+                return
 
         # Execute
         try:
