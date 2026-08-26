@@ -1763,6 +1763,31 @@ def execute_shell(
             )
             return
 
+        # Denylist-check preceding commands too — they run inside execute_fn
+        # and would otherwise bypass this gate even though hooks only see bg_cmd.
+        if preceding_cmds.strip():
+            is_pre_denied, pre_deny_reason, pre_matched_cmd = is_denylisted(
+                preceding_cmds
+            )
+            if is_pre_denied:
+                yield Message(
+                    "system",
+                    f"Command denied (preceding): `{pre_matched_cmd}`\n\n{pre_deny_reason}",
+                )
+                return
+
+        # Build full command context so TOOL_CONFIRM hooks see the complete
+        # sequence — not just bg_cmd — when deciding whether to approve.
+        # A hook that should block `cat ~/.ssh/id_rsa` must see it even when
+        # it precedes an innocuous `bg ls`.
+        _full_cmd_parts: list[str] = []
+        if preceding_cmds.strip():
+            _full_cmd_parts.append(preceding_cmds.strip())
+        _full_cmd_parts.append(f"bg {bg_cmd}")
+        if remaining_cmds.strip():
+            _full_cmd_parts.append(remaining_cmds.strip())
+        _full_cmd_context = "\n".join(_full_cmd_parts)
+
         def _bg_execute_fn(c: str, p: Path | None) -> Generator[Message, None, None]:
             if preceding_cmds.strip():
                 yield from _execute_preceding_commands(preceding_cmds)
@@ -1770,13 +1795,16 @@ def execute_shell(
             if remaining_cmds.strip():
                 yield from execute_shell(remaining_cmds, None, None)
 
+        def _bg_preview_fn(content: str, path: Path | None) -> str | None:
+            return _full_cmd_context
+
         yield from execute_with_confirmation(
             bg_cmd,
             args,
             kwargs,
             execute_fn=_bg_execute_fn,
             get_path_fn=get_path_fn,
-            preview_fn=preview_shell,
+            preview_fn=_bg_preview_fn,
             preview_lang="bash",
             confirm_msg="Run command in background?",
             allow_edit=True,
