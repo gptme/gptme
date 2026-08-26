@@ -154,8 +154,9 @@ class TestToolConfirmGuardrailDeny:
 
         sentinel = tmp_path / "headless_test.txt"
 
-        # Save whether server_confirm was registered before this test mutates it.
+        # Save the pre-test hook set so the finally block can restore exactly it.
         _pre_test_hooks = {h.name for h in get_hooks(HookType.TOOL_CONFIRM)}
+        cli_confirm_was_registered = "cli_confirm" in _pre_test_hooks
         server_confirm_was_registered = "server_confirm" in _pre_test_hooks
 
         # Simulate normal interactive mode: register the built-in confirm hook.
@@ -185,8 +186,9 @@ class TestToolConfirmGuardrailDeny:
                 f"messages: {[m.content for m in msgs]}"
             )
         finally:
-            # Restore both hooks to their pre-test state.
-            register_cli_confirm()
+            # Restore hooks to exactly their pre-test state.
+            if cli_confirm_was_registered:
+                register_cli_confirm()
             if server_confirm_was_registered:
                 register_server_confirm()
 
