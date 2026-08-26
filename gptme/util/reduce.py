@@ -519,18 +519,26 @@ def proactive_summarize_log(
                     "Proactive summarize failed; falling back to unreduced log",
                     exc_info=True,
                 )
+                summary_msg = None
+            finally:
+                # Release the claim in `finally` so a BaseException (KeyboardInterrupt
+                # from a Ctrl+C mid-generation, SystemExit) also clears it. Otherwise
+                # the pending entry outlives this thread and every waiter loops on
+                # `wait(timeout=120)` forever, never seeing the key released.
                 with _proactive_summarize_cache_lock:
+                    if summary_msg is not None:
+                        if (
+                            len(_proactive_summarize_cache)
+                            >= _PROACTIVE_SUMMARIZE_CACHE_MAX
+                        ):
+                            _proactive_summarize_cache.pop(
+                                next(iter(_proactive_summarize_cache))
+                            )
+                        _proactive_summarize_cache[cache_key] = summary_msg
                     _proactive_summarize_cache_pending.pop(cache_key, None)
                     compute_event.set()
+            if summary_msg is None:
                 return log
-            with _proactive_summarize_cache_lock:
-                if len(_proactive_summarize_cache) >= _PROACTIVE_SUMMARIZE_CACHE_MAX:
-                    _proactive_summarize_cache.pop(
-                        next(iter(_proactive_summarize_cache))
-                    )
-                _proactive_summarize_cache[cache_key] = summary_msg
-                _proactive_summarize_cache_pending.pop(cache_key, None)
-                compute_event.set()
 
     result = initial_system + [summary_msg] + pinned_middle + recent
     new_tokens = len_tokens(result, model=model.model)

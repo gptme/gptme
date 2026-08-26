@@ -1481,3 +1481,48 @@ def test_proactive_summarize_cache_isolated_by_provider(monkeypatch):
             None
         )
         reduce_mod._proactive_summarize_cache.clear()
+
+
+def test_proactive_summarize_baseexception_releases_pending(monkeypatch):
+    """A BaseException mid-summarize must still release the pending claim.
+
+    Regression: the release used to live only in the `except Exception` and
+    success paths, so a KeyboardInterrupt (Ctrl+C during generation) left the
+    cache key claimed forever. Concurrent callers then looped on
+    `wait(timeout=120)` indefinitely, never seeing the key released.
+    """
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        def interrupted_summarize(_msgs):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("gptme.llm.summarize", interrupted_summarize)
+
+        msgs = [
+            Message("system", "System."),
+            Message("user", "word " * 5),
+            Message("assistant", "word " * 5),
+            Message("user", "recent q"),
+            Message("assistant", "recent a"),
+        ]
+
+        with pytest.raises(KeyboardInterrupt):
+            proactive_summarize_log(msgs, threshold=0.5, recent_keep=2)
+
+        # The claim must be gone, otherwise every waiter hangs forever.
+        assert not reduce_mod._proactive_summarize_cache_pending, (
+            "pending claim must be released on BaseException, "
+            f"still holding {list(reduce_mod._proactive_summarize_cache_pending)}"
+        )
+        # And nothing bogus cached.
+        assert not reduce_mod._proactive_summarize_cache
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
