@@ -174,8 +174,9 @@ def get_cc_memory_dir(workspace: Path) -> Path:
     Claude Code stores per-project memories at:
         ~/.claude/projects/<workspace-hash>/memory/
 
-    where the hash is the absolute workspace path with slashes replaced by dashes,
-    e.g. ``/home/user/myproject`` → ``-home-user-myproject``.
+    where the hash is the absolute workspace path with slashes, backslashes, and
+    colons replaced by dashes, e.g. ``/home/user/myproject`` → ``-home-user-myproject``
+    and ``C:\\Users\\user\\project`` → ``C--Users-user-project``.
 
     This allows gptme sessions to read memories written by CC sessions (and vice
     versa when the memory tool writes to this location).
@@ -194,7 +195,9 @@ def get_cc_memory_dir(workspace: Path) -> Path:
         inherited from CC's design and cannot be resolved without diverging from
         CC's path formula.
     """
-    workspace_hash = str(workspace.resolve()).replace("\\", "-").replace("/", "-")
+    workspace_hash = (
+        str(workspace.resolve()).replace("\\", "-").replace("/", "-").replace(":", "-")
+    )
     return Path.home() / ".claude" / "projects" / workspace_hash / "memory"
 
 

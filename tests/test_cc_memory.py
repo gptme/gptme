@@ -55,7 +55,8 @@ class TestGetCcMemoryDir:
 
         hash_part = cc_dir.parent.name  # the workspace_hash component
         assert "\\" not in hash_part
-        assert hash_part == "C:-Users-user-myproject"
+        assert ":" not in hash_part
+        assert hash_part == "C--Users-user-myproject"
 
     def test_path_collision_documented(self):
         """Paths differing only by dash-vs-separator produce the same hash (CC's design).
