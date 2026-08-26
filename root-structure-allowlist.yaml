@@ -1,0 +1,34 @@
+---
+# Allowed top-level entries in the gptme repository.
+# Update this list deliberately when adding a new root file or directory.
+
+allowed_entries:
+  # Files and configuration
+  - .dockerignore
+  - .env.example
+  - .github
+  - .gitignore
+  - .pre-commit-config.yaml
+  - AGENTS.md
+  - LICENSE
+  - Makefile
+  - README.md
+  - SECURITY.md
+  - docker-compose.yml
+  - gptme.toml
+  - mypy.ini
+  - poetry.lock
+  - pyproject.toml
+  - root-structure-allowlist.yaml
+
+  # Directories
+  - docs
+  - gptme
+  - gptme-extension
+  - media
+  - packages
+  - scripts
+  - site
+  - tauri
+  - tests
+  - webui
