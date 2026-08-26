@@ -39,6 +39,57 @@ def _arg(path: Path) -> str:
     return f"./{text}" if text.startswith("-") else text
 
 
+def _im_src(path: Path) -> str:
+    """Render a path safe for ImageMagick ``src[N]`` frame-selector syntax.
+
+    ImageMagick interprets ``[`` and ``]`` in an input path as frame selectors,
+    so a file named ``foo[0].pdf`` would silently match a different file. Escape
+    any brackets in the path component before appending the ``[0]`` selector.
+    """
+    return _arg(path).replace("[", "\\[").replace("]", "\\]")
+
+
+def _para_to_md(para: object) -> str:
+    """Convert a python-docx paragraph to a Markdown line.
+
+    Respects Heading 1/2/3 styles (→ ``#``/``##``/``###``) and list
+    paragraphs (→ ``-``).  Inline bold and italic are rendered as
+    ``**text**`` and ``*text*`` respectively via the paragraph's runs.
+    Paragraphs with no text become empty lines (blank-line separators).
+    """
+    style_name: str = getattr(getattr(para, "style", None), "name", "") or ""
+    runs = getattr(para, "runs", [])
+
+    # Build inline text with bold/italic from runs; fall back to para.text.
+    if runs:
+        parts: list[str] = []
+        for run in runs:
+            text = run.text
+            if not text:
+                continue
+            if getattr(run, "bold", False):
+                text = f"**{text}**"
+            elif getattr(run, "italic", False):
+                text = f"*{text}*"
+            parts.append(text)
+        inline = "".join(parts)
+    else:
+        inline = getattr(para, "text", "")
+
+    if not inline.strip():
+        return ""
+
+    if style_name.startswith("Heading 1"):
+        return f"# {inline}"
+    if style_name.startswith("Heading 2"):
+        return f"## {inline}"
+    if style_name.startswith("Heading 3"):
+        return f"### {inline}"
+    if "List" in style_name:
+        return f"- {inline}"
+    return inline
+
+
 # ---------------------------------------------------------------------------
 # Tool availability helpers
 # ---------------------------------------------------------------------------
@@ -254,7 +305,14 @@ class PDFToImageConverter(Converter):
 
         if avail.imagemagick:
             density = str(dpi)
-            cmd = ["convert", "-density", density, f"{_arg(src)}[0]", "--", _arg(dest)]
+            cmd = [
+                "convert",
+                "-density",
+                density,
+                f"{_im_src(src)}[0]",
+                "--",
+                _arg(dest),
+            ]
             result = subprocess.run(cmd, capture_output=True, check=False)
             if result.returncode == 0:
                 return ConversionResult(
@@ -516,7 +574,13 @@ class DocumentToTextConverter(Converter):
                 import docx
 
                 doc = docx.Document(str(src))
-                lines = [para.text for para in doc.paragraphs]
+                dest_ext = dest.suffix.lower().lstrip(".")
+
+                if dest_ext == "md":
+                    lines = [_para_to_md(para) for para in doc.paragraphs]
+                else:
+                    lines = [para.text for para in doc.paragraphs]
+
                 try:
                     dest.write_text("\n".join(lines), encoding="utf-8")
                 except OSError as e:

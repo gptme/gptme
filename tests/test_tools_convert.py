@@ -17,6 +17,8 @@ from gptme.tools.convert import (
     ToolAvailability,
     VideoThumbnailConverter,
     _arg,
+    _im_src,
+    _para_to_md,
     convert_file,
     find_converter,
 )
@@ -86,6 +88,89 @@ def avail_imagemagick_only():
         python_docx=False,
         pypdf=False,
     )
+
+
+# ---------------------------------------------------------------------------
+# Utility helpers (_arg, _im_src, _para_to_md)
+# ---------------------------------------------------------------------------
+
+
+def test_im_src_escapes_brackets(tmp_path):
+    """Brackets in a filename must be escaped so ImageMagick does not treat them
+    as frame selectors — a file named ``foo[0].pdf`` must not match ``foo.pdf``."""
+    p = tmp_path / "foo[0].pdf"
+    result = _im_src(p)
+    # The path component must contain escaped brackets; no bare [ or ] before the
+    # appended [0] selector.
+    assert "\\[" in result
+    assert "\\]" in result
+    # The escape must not touch the trailing frame selector that the caller appends.
+    assert not result.endswith("[0]"), "caller appends [0]; _im_src must not"
+
+
+def test_im_src_plain_path_unchanged(tmp_path):
+    """A path with no brackets is returned as-is (modulo dash prefix guard)."""
+    p = tmp_path / "plain.pdf"
+    assert _im_src(p) == _arg(p)
+
+
+class _MockRun:
+    """Minimal stand-in for a python-docx paragraph run."""
+
+    def __init__(self, text: str, bold: bool = False, italic: bool = False):
+        self.text = text
+        self.bold = bold
+        self.italic = italic
+
+
+class _MockStyle:
+    def __init__(self, name: str):
+        self.name = name
+
+
+class _MockPara:
+    """Minimal stand-in for a python-docx Paragraph."""
+
+    def __init__(self, text: str, style_name: str = "Normal", runs=None):
+        self.text = text
+        self.style = _MockStyle(style_name)
+        self.runs = runs if runs is not None else [_MockRun(text)]
+
+
+def test_para_to_md_heading1():
+    assert _para_to_md(_MockPara("Title", "Heading 1")) == "# Title"
+
+
+def test_para_to_md_heading2():
+    assert _para_to_md(_MockPara("Sub", "Heading 2")) == "## Sub"
+
+
+def test_para_to_md_heading3():
+    assert _para_to_md(_MockPara("Sub-sub", "Heading 3")) == "### Sub-sub"
+
+
+def test_para_to_md_list():
+    assert _para_to_md(_MockPara("Item", "List Bullet")) == "- Item"
+
+
+def test_para_to_md_bold_run():
+    para = _MockPara("", runs=[_MockRun("bold text", bold=True)])
+    para.text = "bold text"
+    assert _para_to_md(para) == "**bold text**"
+
+
+def test_para_to_md_italic_run():
+    para = _MockPara("", runs=[_MockRun("italic text", italic=True)])
+    para.text = "italic text"
+    assert _para_to_md(para) == "*italic text*"
+
+
+def test_para_to_md_empty_para():
+    assert _para_to_md(_MockPara("", "Normal")) == ""
+
+
+def test_para_to_md_normal_plain():
+    assert _para_to_md(_MockPara("Just text", "Normal")) == "Just text"
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +419,43 @@ class TestDocumentToTextConverter:
         assert result.output_path == dest
         assert result.error is not None
         assert "directory" in result.error.lower()
+
+    def test_md_dest_produces_markdown_headings(self, avail_all, tmp_path):
+        """When dest is .md, python-docx paragraphs with Heading styles must
+        produce ``#``/``##`` lines, not bare text."""
+        src = tmp_path / "doc.docx"
+        src.write_bytes(b"PK")
+        dest = tmp_path / "out.md"
+
+        mock_para_h1 = _MockPara("Introduction", "Heading 1")
+        mock_para_body = _MockPara("Body text.", "Normal")
+
+        mock_doc = MagicMock()
+        mock_doc.paragraphs = [mock_para_h1, mock_para_body]
+
+        mock_docx_module = MagicMock()
+        mock_docx_module.Document.return_value = mock_doc
+
+        avail_docx_only = ToolAvailability(
+            ffmpeg=False,
+            imagemagick=False,
+            pdftoppm=False,
+            pdftotext=False,
+            libreoffice=False,
+            python_docx=True,
+            python_magic=False,
+        )
+
+        with (
+            patch("gptme.tools.convert.get_availability", return_value=avail_docx_only),
+            patch.dict(sys.modules, {"docx": mock_docx_module}),
+        ):
+            result = self.conv.convert(src, dest)
+
+        assert result.success, result.error
+        content = dest.read_text()
+        assert content.startswith("# Introduction"), repr(content)
+        assert "Body text." in content
 
 
 # ---------------------------------------------------------------------------
