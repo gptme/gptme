@@ -796,7 +796,7 @@ def test_profile_system_prompt_before_cache_boundary():
     )
 
 
-def test_unchanged_history_produces_identical_provider_request():
+def test_unchanged_history_produces_identical_provider_request(monkeypatch):
     """Phase 3.2: Verify profile-enabled sessions produce identical static prefixes.
 
     This is the core verification for Phase 3.2: when a profile is enabled and
@@ -804,8 +804,22 @@ def test_unchanged_history_produces_identical_provider_request():
     byte-identical results. This confirms that profiles are consistently placed
     in static (cacheable) sections, not dynamic sections that would invalidate
     caches.
+
+    Dynamic sections (time, workspace tree, git status) are mocked to fixed
+    values so the test is deterministic even if the two calls straddle a
+    second boundary in CI.
     """
+    from gptme.message import Message
     from gptme.profiles import Profile, ProfileBehavior
+
+    # Pin volatile dynamic sections to fixed values so two back-to-back calls
+    # can never diverge on time or filesystem state.
+    monkeypatch.setattr(
+        "gptme.prompts.prompt_timeinfo",
+        lambda tool_format="markdown": [
+            Message("system", "## Current Date\n\n2026-01-01 00:00:00")
+        ],
+    )
 
     # Create a test profile
     profile = Profile(
