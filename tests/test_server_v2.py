@@ -3438,6 +3438,32 @@ def test_copy_messages_for_fork_copies_referenced_file_snapshots(tmp_path: Path)
     )
 
 
+def test_copy_messages_for_fork_tolerates_missing_snapshot(tmp_path: Path):
+    """A fork must not raise FileNotFoundError when a snapshot file is absent."""
+    from gptme.message import Message  # fmt: skip
+    from gptme.server.api_v2 import _copy_messages_for_fork  # fmt: skip
+
+    source_logdir = tmp_path / "source"
+    dest_logdir = tmp_path / "fork"
+    live_file = tmp_path / "workspace" / "bootstrap.md"
+    live_file.parent.mkdir()
+    live_file.write_text("content", encoding="utf-8")
+
+    # The snapshot file referenced by file_hashes does NOT exist on disk.
+    source_logdir.mkdir(parents=True)
+    message = Message(
+        "system",
+        "bootstrap",
+        files=[live_file],
+        file_hashes={str(live_file): "deadbeef"},
+    )
+
+    # Should not raise FileNotFoundError even though files/deadbeef.md is absent.
+    copied = _copy_messages_for_fork([message], source_logdir, dest_logdir)
+    assert copied[0].file_hashes == {str(live_file): "deadbeef"}
+    assert not (dest_logdir / "files" / "deadbeef.md").exists()
+
+
 def test_v2_edit_message_rejects_non_string_content(client: FlaskClient):
     """Test that edit rejects non-string content with a 400."""
     conversation_id = create_conversation(client)["conversation_id"]

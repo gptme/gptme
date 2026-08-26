@@ -410,6 +410,8 @@ def _copy_messages_for_fork(
             shutil.copy2(source_path, dest_path)
 
     for source_path, dest_path in snapshot_copies:
+        if not source_path.exists():
+            continue
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, dest_path)
 
