@@ -870,6 +870,30 @@ class TestSensitiveArgs:
         """`~/./.ssh/id_rsa` contains a no-op ./ segment — must still be blocked."""
         assert not is_allowlisted("cat ~/./.ssh/id_rsa")
 
+    # Parent-directory (..) normalization — regression for Greptile P1 finding
+    def test_parent_segment_tilde_ssh_not_allowlisted(self):
+        """`~/tmp/../.ssh/id_rsa` resolves to ~/.ssh/id_rsa — must be blocked.
+
+        The `..` segment causes the path-traversal guard to fire (line 363 in
+        shell_validation.py) well before the home-dir normalization check, so
+        this path can never be auto-confirmed.  This test documents that
+        contract explicitly.
+        """
+        assert not is_allowlisted("cat ~/tmp/../.ssh/id_rsa")
+
+    def test_parent_segment_tilde_aws_not_allowlisted(self):
+        """`~/projects/../.aws/credentials` resolves to ~/.aws/credentials — blocked."""
+        assert not is_allowlisted("cat ~/projects/../.aws/credentials")
+
+    def test_parent_segment_benign_still_blocked(self):
+        """`~/docs/../README.md` contains `..` so requires confirmation.
+
+        Even though it resolves to a non-sensitive path, the path-traversal
+        guard conservatively requires confirmation for any argument with `..`
+        because the effective target cannot be predicted at validation time.
+        """
+        assert not is_allowlisted("cat ~/docs/../README.md")
+
     # ~username/ form normalization (bob-ai-review P1 fix)
     def test_tilde_root_ssh_not_allowlisted(self):
         """`~root/.ssh/id_rsa` uses another user's home spelling — must be blocked."""

@@ -396,6 +396,12 @@ def _has_sensitive_args(cmd: str) -> bool:
         # bash resolves at runtime but which bypass literal prefix matching.
         while "/./" in normalized:
             normalized = normalized.replace("/./", "/")
+        # Resolve parent-directory (..) segments within the home-relative path
+        # (e.g. ~/tmp/../.ssh/id_rsa → ~/.ssh/id_rsa).  Tokens with ".." are
+        # already caught by the path-traversal check above; this normpath pass
+        # ensures the prefix check below is also correct as belt-and-suspenders.
+        if ".." in normalized:
+            normalized = os.path.normpath(normalized)
         if any(
             normalized == prefix or normalized.startswith(prefix + "/")
             for prefix in _SENSITIVE_HOME_DIRS

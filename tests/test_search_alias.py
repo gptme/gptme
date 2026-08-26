@@ -68,8 +68,8 @@ class TestSearchAlias:
             result = runner.invoke(main, ["--version", "search", "anything"])
         assert result.exit_code == 0
         mock_search.assert_not_called()
-        assert re.search(r"\d+\.\d+", result.output), (
-            f"Expected version output, got: {result.output!r}"
+        assert re.search(r"\d+\.\d+\.\d+", result.output), (
+            f"Expected version output (X.Y.Z), got: {result.output!r}"
         )
 
     def test_search_does_not_swallow_version_json(self, runner: CliRunner):

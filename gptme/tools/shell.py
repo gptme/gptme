@@ -1798,6 +1798,13 @@ def execute_shell(
         def _bg_preview_fn(content: str, path: Path | None) -> str | None:
             return _full_cmd_context
 
+        # Disable editing when surrounding commands exist: _bg_execute_fn only
+        # applies edits to the bg_cmd portion (passed as `c`), not to the
+        # preceding/remaining commands that are captured in the closure.  If the
+        # user edited the full preview sequence those edits to the surrounding
+        # parts would be silently ignored, causing execution to diverge from the
+        # approved content.  Editing is safe only when bg_cmd is the sole command.
+        _has_surrounding = bool(preceding_cmds.strip() or remaining_cmds.strip())
         yield from execute_with_confirmation(
             bg_cmd,
             args,
@@ -1807,7 +1814,7 @@ def execute_shell(
             preview_fn=_bg_preview_fn,
             preview_lang="bash",
             confirm_msg="Run command in background?",
-            allow_edit=True,
+            allow_edit=not _has_surrounding,
         )
         return
 
