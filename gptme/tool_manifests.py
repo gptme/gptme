@@ -217,18 +217,18 @@ def load_task_manifest(
             if record_task_type != task_type:
                 continue
 
-            # --- MCP tools (required) ---
+            # --- MCP tools (may be empty when builtin_tools is present) ---
             tools = record.get("tools")
-            if not isinstance(tools, list) or not tools:
+            if tools is not None and not isinstance(tools, list):
                 raise ValueError(
                     f"Invalid tool manifest for {task_type!r} on line {line_no}: "
-                    "tools must be a non-empty list"
+                    "tools must be a list"
                 )
 
             tool_names = tuple(
                 dict.fromkeys(
                     _tool_name_from_record(tool, line_no=line_no, task_type=task_type)
-                    for tool in tools
+                    for tool in (tools or [])
                 )
             )
 
@@ -250,6 +250,15 @@ def load_task_manifest(
                 )
             else:
                 builtin_tools = ()
+
+            # At least one of tools or builtin_tools must be non-empty.
+            # A builtin_tools-only manifest (no MCP tools) is valid and
+            # produces an explicit allowlist with only built-in tools.
+            if not tool_names and not builtin_tools:
+                raise ValueError(
+                    f"Invalid tool manifest for {task_type!r} on line {line_no}: "
+                    "at least one of 'tools' or 'builtin_tools' must be non-empty"
+                )
 
             return TaskToolManifest(
                 task_type=task_type,
