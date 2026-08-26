@@ -2552,10 +2552,14 @@ def test_v2_chat_config_patch_preserves_webui_html_hint(
     assert create_response.status_code == 200
     conversation_id = create_response.get_json()["conversation_id"]
 
+    hint = "Output format: you are in a web interface."
+
     before = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
     before_system_msgs = [m["content"] for m in before["log"] if m["role"] == "system"]
-    assert len(before_system_msgs) == 2
-    assert "Output format: you are in a web interface." in before_system_msgs[1]
+    # Locate the hint by content, not by index: the system prompt is split into
+    # several messages (cache boundary, system info, date, ...) and that layout
+    # is free to change without affecting the invariant this test guards.
+    assert sum(hint in m for m in before_system_msgs) == 1
 
     config_payload = client.get(
         f"/api/v2/conversations/{conversation_id}/config"
@@ -2571,7 +2575,7 @@ def test_v2_chat_config_patch_preserves_webui_html_hint(
     after_system_msgs = [m["content"] for m in after["log"] if m["role"] == "system"]
     assert after["name"] == "after rename"
     assert len(after_system_msgs) == len(before_system_msgs)
-    assert "Output format: you are in a web interface." in after_system_msgs[1]
+    assert sum(hint in m for m in after_system_msgs) == 1
     assert [m["role"] for m in after["log"]] == [m["role"] for m in before["log"]]
     assert after["log"][-1]["content"] == "Rename/config patch sweep"
 
