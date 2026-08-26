@@ -240,6 +240,28 @@ class TestUtilSubcommandMirroring:
             ["/usr/local/bin/gptme-util", "chats", "list", "--help"]
         )
 
+    def test_util_subcmd_forwards_nested_help_with_inline_value_short_option(
+        self, runner: CliRunner
+    ):
+        """gptme -mgpt-4 chats list --help forwards --help to gptme-util.
+
+        '-mgpt-4' is a short option with the value attached inline (no space).
+        The scanner must not skip the next token ('chats') — the value is already
+        embedded in the token, so 'chats' is the first true positional.
+        """
+        with (
+            patch(
+                "gptme.cli.main.shutil.which",
+                return_value="/usr/local/bin/gptme-util",
+            ),
+            patch("gptme.cli.main.subprocess.call", return_value=0) as mock_call,
+        ):
+            result = runner.invoke(main, ["-mgpt-4", "chats", "list", "--help"])
+        assert result.exit_code == 0
+        mock_call.assert_called_once_with(
+            ["/usr/local/bin/gptme-util", "chats", "list", "--help"]
+        )
+
     def test_util_subcmd_after_double_dash_forwards_help(self, runner: CliRunner):
         """gptme -- chats list --help still forwards --help to gptme-util.
 
