@@ -164,6 +164,21 @@ class TestUtilSubcommandMirroring:
             ["/usr/local/bin/gptme-util", "chats", "list"]
         )
 
+    def test_util_subcmd_forwards_nested_help(self, runner: CliRunner):
+        """gptme chats list --help shows the mirrored command's help."""
+        with (
+            patch(
+                "gptme.cli.main.shutil.which",
+                return_value="/usr/local/bin/gptme-util",
+            ),
+            patch("gptme.cli.main.subprocess.call", return_value=0) as mock_call,
+        ):
+            result = runner.invoke(main, ["chats", "list", "--help"])
+        assert result.exit_code == 0
+        mock_call.assert_called_once_with(
+            ["/usr/local/bin/gptme-util", "chats", "list", "--help"]
+        )
+
     def test_util_subcmd_skipped_for_version_flag(self, runner: CliRunner):
         """gptme --version chats does not trigger gptme-util dispatch."""
         with patch("gptme.cli.main.subprocess.call") as mock_call:
