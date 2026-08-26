@@ -1,4 +1,8 @@
+from pathlib import Path
+
 from gptme.codeblock import Codeblock, _extract_codeblocks
+
+EXAMPLES_DIR = Path(__file__).parent / "data"
 
 
 def test_extract_codeblocks_basic():
@@ -174,10 +178,7 @@ def test_extract_codeblocks_streaming_interrupted():
     Reproduces issue where bare ``` after descriptive text was incorrectly
     treated as closing delimiter instead of opening a nested code block.
     """
-    # Read the actual interrupted example relative to this test file
-    script_dir = __file__.rsplit("/", 1)[0]
-    with open(f"{script_dir}/data/example-interrupted.txt") as f:
-        content = f.read()
+    content = (EXAMPLES_DIR / "example-interrupted.txt").read_text(encoding="utf-8")
 
     # Extract just the markdown part (after "create a journal entry")
     # This should parse as a single append block with nested code blocks inside
@@ -377,10 +378,7 @@ def test_extract_patch_codeblock_with_nested_backticks():
     This reproduces an issue where patch blocks with code examples
     inside them (using ```) were incorrectly parsed during streaming.
     """
-    # Read the actual example that failed
-    script_dir = __file__.rsplit("/", 1)[0]
-    with open(f"{script_dir}/data/example-patch-codeblock.txt") as f:
-        content = f.read()
+    content = (EXAMPLES_DIR / "example-patch-codeblock.txt").read_text(encoding="utf-8")
 
     # Add a blank line after the closing ``` to confirm block closure in streaming mode.
     # (end-of-file-fixer strips trailing blank lines from the file, so we add it here)
