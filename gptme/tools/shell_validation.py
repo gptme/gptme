@@ -628,8 +628,12 @@ def shell_allowlist_hook(
     if tool_use.tool != "shell":
         return None
 
-    # Get the command from the tool use
-    cmd = tool_use.content.strip() if tool_use.content else ""
+    # Get the command to check.  For bg sequences the preview contains the full
+    # command context (preceding + bg + remaining) while tool_use.content is
+    # only the bg_cmd fragment.  Always prefer preview when present so that a
+    # dangerous preceding command (e.g. "cat ~/.ssh/id_rsa\nbg ls") is not
+    # silently approved because the isolated bg fragment ("ls") is allowlisted.
+    cmd = (preview or tool_use.content or "").strip()
     if not cmd:
         return None
 
