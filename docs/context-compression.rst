@@ -40,8 +40,23 @@ You can also manually compact a conversation:
 
 .. code-block:: text
 
-    /compact auto      # Rule-based compaction
-    /compact resume    # LLM-powered resume generation
+    /compact           # Rule-based trim (default)
+    /compact trim      # Same as above
+    /compact summarize # LLM-powered summarization
+
+Two strategies are available:
+
+- **trim** (default) — rule-based: strips old reasoning blocks, truncates massive tool
+  results, and compresses long assistant messages. Fast and deterministic; no LLM call.
+  If savings would be low, gptme will suggest ``/compact summarize`` instead.
+
+- **summarize** — LLM-powered: asks the model to produce a ``RESUME.md`` capturing
+  key decisions, open tasks, and relevant file paths, then starts a fresh context
+  from that summary. More thorough but requires a model call and restarts context.
+
+.. deprecated::
+   ``/compact auto`` and ``/compact resume`` are deprecated aliases for ``trim`` and
+   ``summarize`` respectively. They still work but emit a deprecation warning.
 
 Custom Compression Providers (Plugin Interface)
 ===============================================
