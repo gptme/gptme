@@ -121,8 +121,11 @@ class _DynamicHelpCommand(click.Command):
                 skip_next = False
                 continue
             if a == "--":
-                # End-of-options delimiter: don't intercept positionals after it.
-                # `gptme -- chats list` must NOT dispatch to gptme-util.
+                # End-of-options delimiter: stop scanning for a subcommand name.
+                # With allow_interspersed_args still True, Click treats everything
+                # after '--' as positionals.  main() will still see the first
+                # positional as prompts[0] and forward to gptme-util, so dispatch
+                # does occur for `gptme -- chats list --help`.
                 break
             if a.startswith("-"):
                 # --opt=val form carries its value inline; bare --opt consumes next token.
