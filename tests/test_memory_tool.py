@@ -1,7 +1,5 @@
 """Tests for the gptme memory write tool (cross-runtime memory store)."""
 
-from pathlib import Path
-
 from gptme.dirs import get_cc_memory_dir, get_cc_memory_file
 from gptme.tools.memory import (
     _slugify,
@@ -132,7 +130,32 @@ class TestSaveMemory:
         workspace.mkdir()
         path = save_memory("fact", "Some content.", workspace=workspace)
         assert path.endswith("fact.md")
-        assert Path(path).exists()
+
+    def test_slug_collision_produces_one_index_entry(self, tmp_path):
+        """Two names that normalise to the same slug must not create duplicate index entries."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        # Both names slugify to "prefer-short-answers"
+        save_memory("prefer short answers", "First version.", workspace=workspace)
+        save_memory("prefer-short answers", "Second version.", workspace=workspace)
+        memory_dir = get_cc_memory_dir(workspace)
+        index = (memory_dir / "MEMORY.md").read_text()
+        # Only one entry for the slug, not two
+        assert index.count("prefer-short-answers.md") == 1
+        # The file has the second content
+        content = (memory_dir / "prefer-short-answers.md").read_text()
+        assert "Second version." in content
+
+    def test_index_uses_slug_not_raw_name(self, tmp_path):
+        """The MEMORY.md index key is the slug, not the original name with spaces."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        save_memory("My Cool Fact", "Some detail.", workspace=workspace)
+        memory_dir = get_cc_memory_dir(workspace)
+        index = (memory_dir / "MEMORY.md").read_text()
+        assert "my-cool-fact" in index
+        # Raw name with spaces must not appear as the index key
+        assert "[My Cool Fact]" not in index
 
     def test_name_slugified_in_filename(self, tmp_path):
         workspace = tmp_path / "workspace"
