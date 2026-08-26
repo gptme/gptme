@@ -143,34 +143,43 @@ class TestToolConfirmGuardrailDeny:
         --no-confirm / -y removes cli_confirm and server_confirm from the hook
         chain, but independently-registered guardrails are unaffected.
 
-        This test simulates headless mode by explicitly unregistering
-        cli_confirm and server_confirm before execution, so the guardrail is
-        the *only* hook in the chain — proving it fires independently.
+        This test simulates headless mode by first registering cli_confirm
+        (normal interactive mode), then removing it to simulate --no-confirm,
+        and proving the guardrail still fires despite cli_confirm being absent.
         """
+        from gptme.hooks.cli_confirm import register as register_cli_confirm
+
         sentinel = tmp_path / "headless_test.txt"
 
-        # Simulate --no-confirm: remove the built-in confirmation hooks.
-        unregister_hook("cli_confirm", HookType.TOOL_CONFIRM)
-        unregister_hook("server_confirm", HookType.TOOL_CONFIRM)
+        # Simulate normal interactive mode: register the built-in confirm hook.
+        register_cli_confirm()
 
-        register_hook(
-            "test.guardrail",
-            HookType.TOOL_CONFIRM,
-            self._make_guardrail("headless_test"),
-            priority=200,
-        )
+        try:
+            # Simulate --no-confirm: remove the built-in confirmation hooks.
+            unregister_hook("cli_confirm", HookType.TOOL_CONFIRM)
+            unregister_hook("server_confirm", HookType.TOOL_CONFIRM)
 
-        tool_use = ToolUse(
-            tool="shell",
-            args=[],
-            content=f"touch {sentinel}",
-        )
-        msgs = list(tool_use.execute())
+            register_hook(
+                "test.guardrail",
+                HookType.TOOL_CONFIRM,
+                self._make_guardrail("headless_test"),
+                priority=200,
+            )
 
-        assert not sentinel.exists(), (
-            "Guardrail must block execution even without cli_confirm registered; "
-            f"messages: {[m.content for m in msgs]}"
-        )
+            tool_use = ToolUse(
+                tool="shell",
+                args=[],
+                content=f"touch {sentinel}",
+            )
+            msgs = list(tool_use.execute())
+
+            assert not sentinel.exists(), (
+                "Guardrail must block execution even without cli_confirm registered; "
+                f"messages: {[m.content for m in msgs]}"
+            )
+        finally:
+            # Restore cli_confirm for subsequent tests.
+            register_cli_confirm()
 
     def test_bg_prefix_routes_through_hook_chain(self, tmp_path):
         """A `bg` prefix must not bypass the TOOL_CONFIRM hook chain.
@@ -201,3 +210,34 @@ class TestToolConfirmGuardrailDeny:
         assert any(
             m.role == "system" and "Blocked by guardrail" in m.content for m in msgs
         ), f"Expected guardrail block message; got: {[m.content for m in msgs]}"
+
+    def test_preceding_cmds_visible_to_hook_chain(self, tmp_path):
+        """Hooks see preceding commands in a multi-line bg sequence.
+
+        A guardrail that blocks `secret_file` must fire even when that command
+        precedes an innocuous `bg ls` — previously the hook only saw `ls` and
+        would approve the full sequence, letting the preceding command run.
+        """
+        sentinel = tmp_path / "preceded_bg_test.txt"
+
+        # Guardrail that blocks any command containing "secret_file"
+        register_hook(
+            "test.guardrail",
+            HookType.TOOL_CONFIRM,
+            self._make_guardrail("secret_file"),
+            priority=200,
+        )
+
+        # The dangerous command precedes an innocent bg payload.
+        # Without the fix, hooks only saw "ls" and approved.
+        tool_use = ToolUse(
+            tool="shell",
+            args=[],
+            content=f"cat secret_file\nbg ls {sentinel}",
+        )
+        msgs = list(tool_use.execute())
+
+        assert not sentinel.exists(), (
+            "Guardrail must see preceding commands and block the whole sequence; "
+            f"messages: {[m.content for m in msgs]}"
+        )
