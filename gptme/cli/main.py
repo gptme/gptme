@@ -100,10 +100,12 @@ class _DynamicHelpCommand(click.Command):
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         """Keep arguments after a mirrored utility command opaque to Click."""
-        if args and not args[0].startswith("-"):
+        # Scan past any leading top-level flags to find the first positional.
+        first_positional = next((a for a in args if not a.startswith("-")), None)
+        if first_positional is not None:
             from .util import UTIL_SUBCOMMANDS
 
-            if args[0] in UTIL_SUBCOMMANDS:
+            if first_positional in UTIL_SUBCOMMANDS:
                 # Otherwise eager or recognized top-level options such as --help
                 # are consumed before main() can forward them to gptme-util.
                 ctx.allow_interspersed_args = False
