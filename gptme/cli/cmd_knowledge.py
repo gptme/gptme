@@ -73,7 +73,12 @@ def knowledge_save_cmd(
 
         kb_dir = _knowledge_dir()
         # Export entries as markdown files that gptme-rag can index.
-        _export_for_rag(kb_dir)
+        # Wrap in OSError handler: the entry is already persisted; a non-writable
+        # rag directory should warn, not crash and mislead the user.
+        try:
+            _export_for_rag(kb_dir)
+        except OSError as e:
+            click.echo(f"Warning: gptme-rag mirror export failed: {e}", err=True)
         try:
             subprocess.run(
                 ["gptme-rag", "index", str(kb_dir / "rag")],
@@ -228,8 +233,13 @@ def knowledge_delete_cmd(entry_id: str):
         # up so that a later install of gptme-rag does not index stale entries.
         # Use missing_ok=True to avoid a TOCTOU race: _export_for_rag's orphan
         # sweep (inside the exclusive lock) can unlink the same file concurrently.
+        # Catch OSError: the entry is already deleted; a permission or I/O error
+        # on the mirror should warn, not crash and confuse the user about success.
         mirror = _knowledge_dir() / "rag" / f"{full_id}.md"
-        mirror.unlink(missing_ok=True)
+        try:
+            mirror.unlink(missing_ok=True)
+        except OSError as e:
+            click.echo(f"Warning: could not remove mirror file {mirror}: {e}", err=True)
         # Re-index only when gptme-rag is available.
         if shutil.which("gptme-rag"):
             try:
