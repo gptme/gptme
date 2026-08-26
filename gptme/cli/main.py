@@ -127,11 +127,25 @@ class _DynamicHelpCommand(click.Command):
                 # positional as prompts[0] and forward to gptme-util, so dispatch
                 # does occur for `gptme -- chats list --help`.
                 break
+            if a == "-":
+                # '-' is gptme's MULTIPROMPT_SEPARATOR, not an option prefix.
+                # Treat as a positional; it is never a UTIL_SUBCOMMAND so the
+                # scan stops here without enabling the gptme-util forward path.
+                first_positional = a
+                break
             if a.startswith("-"):
-                # --opt=val form carries its value inline; bare --opt consumes next token.
-                opt_name = a.split("=")[0] if "=" in a else a
-                if "=" not in a and opt_name in value_opts:
-                    skip_next = True
+                if a.startswith("--"):
+                    # Long option: --opt=val (inline) or --opt val (next token).
+                    opt_name = a.split("=")[0]
+                    if "=" not in a and opt_name in value_opts:
+                        skip_next = True
+                else:
+                    # Short option, possibly grouped (e.g. -vm where -m takes a value).
+                    # If any char in the group is a value consumer, skip the next token.
+                    for ch in a[1:]:
+                        if f"-{ch}" in value_opts:
+                            skip_next = True
+                            break
                 continue
             first_positional = a
             break
