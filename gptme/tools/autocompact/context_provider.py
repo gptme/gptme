@@ -79,7 +79,8 @@ class ContextProvider(ABC):
     """Abstract base class for context compression providers.
 
     Implementations must provide a ``name`` property, a ``should_compress``
-    predicate, and a ``compress`` method returning a :class:`CompactionResult`.
+    predicate, and a ``compress`` method returning a
+    :class:`~gptme.tools.autocompact.context_provider.CompactionResult`.
     """
 
     @property
@@ -99,7 +100,7 @@ class ContextProvider(ABC):
     def compress(
         self, messages: list[Message], config: CompressionConfig
     ) -> CompactionResult:
-        """Compress *messages* and return a :class:`CompactionResult`.
+        """Compress *messages* and return a :class:`~gptme.tools.autocompact.context_provider.CompactionResult`.
 
         The result carries the projected message stream alongside coverage
         metadata (source digest, covered-through index, limitations).
