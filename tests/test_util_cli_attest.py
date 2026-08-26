@@ -332,5 +332,6 @@ def test_get_agent_id_falls_back_to_uid_when_username_lookup_fails(monkeypatch):
 
     agent_id = attestation_module.get_agent_id()
 
-    expected_user = f"uid{os.getuid()}" if hasattr(os, "getuid") else "unknown"
+    getuid = getattr(os, "getuid", None)
+    expected_user = f"uid{getuid()}" if callable(getuid) else "unknown"
     assert agent_id == f"{expected_user}@{socket.gethostname()}"

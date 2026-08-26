@@ -1679,6 +1679,32 @@ def test_chat_config_save_transition_empty_dir_to_symlink(tmp_path, requires_sym
     assert (logdir / "workspace").resolve() == custom_workspace
 
 
+def test_logmanager_workspace_fallback_when_symlink_absent(tmp_path):
+    """Test that LogManager.workspace falls back to ChatConfig if symlink is missing."""
+    from gptme.logmanager import LogManager
+
+    logdir = tmp_path / "conversation-fallback"
+    logdir.mkdir()
+    custom_workspace = tmp_path / "custom-workspace"
+    custom_workspace.mkdir()
+
+    # Save config with custom workspace
+    config = ChatConfig(_logdir=logdir, workspace=custom_workspace)
+    config.save()
+
+    # If workspace symlink was created, remove it to simulate environments without symlinks
+    ws_symlink = logdir / "workspace"
+    if ws_symlink.is_symlink() or ws_symlink.is_file():
+        ws_symlink.unlink()
+    elif ws_symlink.is_dir():
+        ws_symlink.rmdir()
+
+    assert not ws_symlink.exists()
+
+    manager = LogManager.load(logdir, create=True)
+    assert manager.workspace == custom_workspace
+
+
 def test_get_env_required_checks_gptme_prefix(monkeypatch):
     """Test that get_env_required checks GPTME_ prefixed env vars like get_env does."""
     from gptme.config.models import UserConfig

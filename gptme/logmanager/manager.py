@@ -346,7 +346,17 @@ class LogManager:
     @property
     def workspace(self) -> Path:
         """Path to workspace directory (resolves symlink if exists)."""
-        return (self.logdir / "workspace").resolve()
+        ws = self.logdir / "workspace"
+        if ws.is_symlink() or ws.exists():
+            return ws.resolve()
+        # Fallback: if symlink creation failed (e.g. Windows without symlink privileges),
+        # retrieve the canonical workspace from the saved chat config.
+        try:
+            from ..config.chat import ChatConfig
+
+            return ChatConfig.from_logdir(self.logdir).workspace
+        except Exception:
+            return ws.resolve()
 
     @property
     def log(self) -> Log:

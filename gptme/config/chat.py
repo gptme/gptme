@@ -343,12 +343,18 @@ class ChatConfig:
             try:
                 workspace_path.symlink_to(self.workspace)
             except OSError as err:
-                # On Windows without Developer Mode or admin privileges, symlink creation
-                # fails with WinError 1314. The canonical workspace path is already saved
-                # in config.toml above, so we log and continue.
-                logger.warning(
-                    f"Could not create workspace symlink '{workspace_path}' -> '{self.workspace}': {err}"
-                )
+                # Only suppress the specific Windows privilege error (WinError 1314:
+                # ERROR_PRIVILEGE_NOT_HELD) where non-admin users cannot create symlinks
+                # without Developer Mode enabled. The canonical workspace path is safely
+                # preserved in config.toml, which LogManager falls back to.
+                if getattr(err, "winerror", None) == 1314 or (
+                    sys.platform == "win32" and isinstance(err, PermissionError)
+                ):
+                    logger.warning(
+                        f"Could not create workspace symlink '{workspace_path}' -> '{self.workspace}': {err}"
+                    )
+                else:
+                    raise
         else:
             # Workspace IS the log workspace — ensure the directory exists
             # (from_logdir creates it for new conversations, but callers
