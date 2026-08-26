@@ -447,6 +447,10 @@ def proactive_summarize_log(
     # of messages to summarize. Including provider prevents cross-provider cache
     # collisions when two providers expose a model with the same name but produce
     # different summaries (different endpoints, defaults, or prompting behaviour).
+    # model.context (context-window size) is intentionally excluded: it controls
+    # when summarization fires, not what summary the model produces, so two calls
+    # with the same model+provider+messages but different context windows are safe
+    # to share a cached summary.
     key_parts = [model.model, model.provider] + [
         f"{m.role}:{m.content}" for m in summarize_middle
     ]
