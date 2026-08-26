@@ -143,21 +143,21 @@ class _DynamicHelpCommand(click.Command):
                         break
                     if "=" not in a and opt_name in value_opts:
                         skip_next = True
-                else:
-                    # Short option, possibly grouped (e.g. -vm where -m takes a value).
-                    # Two forms have the value embedded in the token and do NOT consume
-                    # the next token:
-                    #   -t=read-only  → '=' separates the inline value
-                    #   -mgpt-4       → value is embedded directly after the option char
-                    # Only skip the next token when the value-taker is the last char
-                    # in the cluster (e.g. -vm where -m needs the next token).
-                    if "=" not in a:
-                        chars = a[1:]
-                        for idx, ch in enumerate(chars):
-                            if f"-{ch}" in value_opts:
-                                if idx == len(chars) - 1:
-                                    skip_next = True
-                                break
+                    continue
+                # Short option, possibly grouped (e.g. -vm where -m takes a value).
+                # Two forms have the value embedded in the token and do NOT consume
+                # the next token:
+                #   -t=read-only  → '=' separates the inline value
+                #   -mgpt-4       → value is embedded directly after the option char
+                # Only skip the next token when the value-taker is the last char
+                # in the cluster (e.g. -vm where -m needs the next token).
+                if "=" not in a:
+                    chars = a[1:]
+                    for idx, ch in enumerate(chars):
+                        if f"-{ch}" in value_opts:
+                            if idx == len(chars) - 1:
+                                skip_next = True
+                            break
                 continue
             first_positional = a
             break
