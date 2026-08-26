@@ -142,6 +142,43 @@ def test_load_task_manifest_rejects_path_injection(
         load_task_manifest("research", tmp_path)
 
 
+@pytest.mark.parametrize(
+    ("server_name", "tool_name"),
+    [
+        # Leading '-' in server_name: combined "-github.search_code" would confuse
+        # the allowlist parser — init_tools treats leading '-' as exclusion syntax,
+        # so the tool name is never matched and the session fails with a UsageError.
+        ("-github", "search_code"),
+        # Leading '+' in server_name: the additive-prefix stripping in
+        # _manifest_fallback_allowlist would silently strip the '+', substituting
+        # "github.search_code" for "+github.search_code".
+        ("+github", "search_code"),
+        # Same for tool_name
+        ("github", "-search_code"),
+        ("github", "+search_code"),
+    ],
+)
+def test_load_task_manifest_rejects_leading_sign_in_tool_names(
+    tmp_path: Path, server_name: str, tool_name: str
+):
+    """Leading '+' or '-' in server_name/tool_name corrupt the allowlist string.
+
+    The additive allowlist uses '+' as a prefix and '-' as an exclusion marker.
+    A tool name containing these as leading characters is almost certainly a
+    manifest authoring error and would cause unpredictable behaviour at startup.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    record = {
+        "task_type": "research",
+        "tools": [{"server_name": server_name, "tool_name": tool_name}],
+    }
+    manifest_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"must not start with '\+' or '-'"):
+        load_task_manifest("research", tmp_path)
+
+
 def test_load_task_manifest_with_builtin_tools(tmp_path: Path):
     """builtin_tools field produces an explicit allowlist (non-additive)."""
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"

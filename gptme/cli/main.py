@@ -1101,9 +1101,20 @@ def main(
         remaining = [entry for entry in entries if entry not in unavailable]
         if manifest_allowlist.startswith("+"):
             return "+" + ",".join(remaining) if remaining else pre_manifest_allowlist
-        # Non-additive (builtin_tools): if every entry is unavailable, fall back to
-        # the user's configured defaults instead of returning "" (which disables ALL tools).
-        return ",".join(remaining) if remaining else pre_manifest_allowlist
+        # Non-additive (builtin_tools): fail closed when every entry is unavailable.
+        # Silently falling back to None (full default toolchain) would defeat the
+        # manifest's purpose of restricting the session to a curated subset — the
+        # session would launch with unrestricted shell/save/patch access even though
+        # the user explicitly configured a capability boundary via the manifest.
+        if not remaining:
+            from ..tools import ToolAllowlistError
+
+            raise ToolAllowlistError(
+                f"All manifest tools are unavailable: {', '.join(sorted(unavailable))}. "
+                "Check that the required MCP servers are running and that built-in tools "
+                "are enabled in your configuration."
+            )
+        return ",".join(remaining)
 
     def apply_tool_manifest(
         workspace_path: Path, conversation_logdir: Path | None = None
@@ -1427,9 +1438,14 @@ def main(
                     # Same builtin-preservation logic as the main path below:
                     # for explicit (builtin_tools) manifests, keep the non-MCP
                     # entries rather than discarding all manifest selections.
-                    stats_tool_allowlist_str = _manifest_fallback_allowlist(
-                        stats_tool_allowlist_str, tool_allowlist_str
-                    )
+                    try:
+                        stats_tool_allowlist_str = _manifest_fallback_allowlist(
+                            stats_tool_allowlist_str, tool_allowlist_str
+                        )
+                    except ToolAllowlistError as fallback_e:
+                        # All manifest entries unavailable — fail closed rather
+                        # than silently expanding to the full default toolchain.
+                        raise click.UsageError(str(fallback_e)) from fallback_e
                     logger.warning(
                         "Manifest %r tool unavailable during stats config setup: %s — "
                         "running without unavailable manifest tools%s.",
@@ -1642,9 +1658,14 @@ def main(
             # Retry after removing only unavailable manifest entries. This applies
             # to built-ins as well as MCP tools and preserves the manifest's exact or
             # additive allowlist mode.
-            tool_allowlist_str = _manifest_fallback_allowlist(
-                tool_allowlist_str, pre_manifest_allowlist
-            )
+            try:
+                tool_allowlist_str = _manifest_fallback_allowlist(
+                    tool_allowlist_str, pre_manifest_allowlist
+                )
+            except ToolAllowlistError as fallback_e:
+                # All manifest entries unavailable — fail closed rather than
+                # silently expanding to the full default toolchain.
+                raise click.UsageError(str(fallback_e)) from fallback_e
             logger.warning(
                 "Manifest %r tool unavailable during config setup: %s — "
                 "running without unavailable manifest tools%s.",

@@ -87,6 +87,19 @@ def _tool_name_from_record(tool: Any, *, line_no: int, task_type: str) -> str:
                 f"{name} {value!r} must not contain glob metacharacters"
             )
 
+    # Leading '+' or '-' corrupt the allowlist string.  apply_tool_manifest builds
+    # an additive allowlist "+sn1.tn1,sn2.tn2,..."; a leading '-' in sn makes the
+    # entry "-sn.tn" which init_tools would try to interpret as a literal tool name
+    # (not an exclusion), raising ToolAllowlistError at startup.  A leading '+'
+    # would be silently stripped by the additive-prefix logic, substituting an
+    # unintended tool name.  Both are almost certainly manifest authoring errors.
+    for name, value in (("server_name", sn), ("tool_name", tn)):
+        if value.startswith(("+", "-")):
+            raise ValueError(
+                f"Invalid tool manifest entry for {task_type!r} on line {line_no}: "
+                f"{name} {value!r} must not start with '+' or '-'"
+            )
+
     # --- Path-injection / arbitrary-code-execution guards ---
     # init_tools() treats any allowlist item whose text contains "/" or "\" or
     # ends with ".py" as a *file path* and calls load_from_file() on it, which

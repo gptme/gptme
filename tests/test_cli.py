@@ -2880,15 +2880,22 @@ def test_tool_manifest_builtin_tools_config_setup_failure_preserves_builtins(
     )
 
 
-def test_tool_manifest_all_builtins_unavailable_falls_back_to_defaults(
+def test_tool_manifest_all_builtins_unavailable_errors_closed(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
     """When ALL entries in a non-additive (builtin_tools) manifest are unavailable,
-    _manifest_fallback_allowlist must return pre_manifest_allowlist (the user's configured
-    defaults) rather than "" (empty string), which would disable ALL tools.
+    the CLI must fail with a UsageError rather than silently expanding to the full
+    default toolchain.
 
-    Regression for fp 8c539e6c19c1 — empty ",".join([]) passed as tool_allowlist="" to
-    setup_config_from_cli, whose tool_allowlist=="" branch sets resolved_tool_allowlist=[].
+    Before the fix: _manifest_fallback_allowlist returned None when all entries were
+    stripped, causing setup_config_from_cli(tool_allowlist=None) to load the full default
+    toolchain — defeating the manifest's purpose of restricting the session to a curated
+    subset and potentially granting unrestricted shell/save/patch access.
+
+    This test exercises the fallback path: fake_setup_config raises ToolAllowlistError on
+    the first call (simulating an unavailable manifest tool), which triggers
+    _manifest_fallback_allowlist. With all tools unavailable, the fallback now raises
+    ToolAllowlistError (fail closed) instead of returning None.
     """
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
@@ -2901,27 +2908,22 @@ def test_tool_manifest_all_builtins_unavailable_falls_back_to_defaults(
         encoding="utf-8",
     )
 
-    fake_config = SimpleNamespace(
-        chat=SimpleNamespace(
-            agent_config=None,
-            tools=["read", "shell", "save"],  # default tools from config
-            interactive=False,
-            tool_format="markdown",
-            model="local/test",
-            workspace=tmp_path,
-            stream=False,
-            no_confirm=True,
-            agent=None,
-            gear=None,
-            save=lambda: None,
-        ),
-        project=None,
-    )
     setup_calls: list[str | None] = []
 
     def fake_setup_config(*, tool_allowlist=None, **_kwargs):
         setup_calls.append(tool_allowlist)
-        return fake_config
+        # Simulate setup_config_from_cli raising because a manifest tool is unavailable.
+        # This exercises the fallback path in main() that calls _manifest_fallback_allowlist.
+        if tool_allowlist is not None:
+            raise ToolAllowlistError(
+                f"Tool 'read' not found in allowed tools: {tool_allowlist!r}"
+            )
+        # Should never reach here — all-unavailable fallback now raises instead of
+        # returning None, so this second call (tool_allowlist=None) should not happen.
+        raise AssertionError(
+            "setup_config_from_cli must not be called with None when all manifest "
+            "entries are unavailable; the fail-closed path must raise UsageError instead."
+        )
 
     # All manifest entries are unavailable: both builtins and the MCP tool
     monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
@@ -2932,6 +2934,10 @@ def test_tool_manifest_all_builtins_unavailable_falls_back_to_defaults(
             SimpleNamespace(name="shell", is_available=False),
             SimpleNamespace(name="github.search_code", is_available=False),
         ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [t for t in tools if t.name == name],
     )
     monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
     monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
@@ -2951,16 +2957,27 @@ def test_tool_manifest_all_builtins_unavailable_falls_back_to_defaults(
             "hello",
         ],
         input="",
-        catch_exceptions=False,
+        catch_exceptions=True,
     )
 
-    assert result.exit_code == 0, result.output
+    # Fail closed: when all manifest tools are unavailable, report a clear error
+    # rather than silently expanding to unrestricted default tools.
+    assert result.exit_code == 2, (
+        f"Expected exit code 2 (UsageError) when all manifest tools are unavailable, "
+        f"got {result.exit_code}. Output: {result.output}"
+    )
     assert "Traceback" not in result.output
-    # setup_config_from_cli must be called with None (pre_manifest_allowlist = use defaults),
-    # NOT with "" (which would disable ALL tools).
-    assert len(setup_calls) == 1, f"Expected 1 setup call, got: {setup_calls}"
-    assert setup_calls[0] is None or setup_calls[0] != "", (
-        f"setup_config must not receive empty string allowlist; got: {setup_calls[0]!r}"
+    assert (
+        "unavailable" in result.output.lower() or "not found" in result.output.lower()
+    ), f"Expected an informative error about unavailable tools; got: {result.output!r}"
+    # The first setup call must have been with the manifest allowlist (not None).
+    # The second call should NOT happen — fail closed means no retry with defaults.
+    assert len(setup_calls) == 1, (
+        f"Expected exactly 1 setup_config call (with manifest allowlist), "
+        f"but got {len(setup_calls)}: {setup_calls}"
+    )
+    assert setup_calls[0] is not None and setup_calls[0] != "", (
+        f"First setup call must be with the manifest allowlist string, got: {setup_calls[0]!r}"
     )
 
 
