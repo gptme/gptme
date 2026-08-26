@@ -122,7 +122,7 @@ def autocompact_hook(
                 logdir=manager.logdir,
                 keep_head=_get_keep_head(),
             )
-            compacted_msgs = list(provider.compress(messages, config))
+            compacted_msgs = provider.compress(messages, config).messages
 
             # Calculate reduction stats
             m = get_default_model()

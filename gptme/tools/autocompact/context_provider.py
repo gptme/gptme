@@ -6,6 +6,7 @@ plus the registry used to look up providers by name.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.metadata
 import logging
 from abc import ABC, abstractmethod
@@ -13,12 +14,53 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
     from pathlib import Path
 
     from ...message import Message
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CompactionResult:
+    """Result of a context compression operation.
+
+    Carries the projected message stream alongside coverage metadata so callers
+    can validate or invalidate a summary against the log it was derived from.
+    Inspired by apache/maka's ``HistoryCompactCheckpoint`` (idea #1143).
+    """
+
+    messages: list[Message]
+    """The projected (compacted) message stream."""
+
+    source_digest: str
+    """SHA-256 hex digest of the source messages used to produce this result.
+
+    Computed from concatenated role+content for each source message.
+    Invalidated when the source log is mutated after compaction.
+    """
+
+    covered_through: int
+    """0-based index of the last source message covered by this result.
+
+    ``-1`` when no source messages were processed (empty input).
+    For providers that compact the full input, this equals ``len(source) - 1``.
+    """
+
+    limitations: list[str] = field(default_factory=list)
+    """Human-readable notes about coverage gaps or lossy operations."""
+
+
+def _compute_source_digest(messages: list[Message]) -> str:
+    """Stable SHA-256 digest over a message list (role + content)."""
+    h = hashlib.sha256()
+    for msg in messages:
+        h.update(msg.role.encode())
+        h.update(b"\x00")
+        content = msg.content if isinstance(msg.content, str) else str(msg.content)
+        h.update(content.encode())
+        h.update(b"\x00")
+    return h.hexdigest()
 
 
 @dataclass
@@ -37,7 +79,7 @@ class ContextProvider(ABC):
     """Abstract base class for context compression providers.
 
     Implementations must provide a ``name`` property, a ``should_compress``
-    predicate, and a ``compress`` generator.
+    predicate, and a ``compress`` method returning a :class:`CompactionResult`.
     """
 
     @property
@@ -56,8 +98,12 @@ class ContextProvider(ABC):
     @abstractmethod
     def compress(
         self, messages: list[Message], config: CompressionConfig
-    ) -> Generator[Message, None, None]:
-        """Compress messages and yield the result."""
+    ) -> CompactionResult:
+        """Compress *messages* and return a :class:`CompactionResult`.
+
+        The result carries the projected message stream alongside coverage
+        metadata (source digest, covered-through index, limitations).
+        """
         ...
 
 
@@ -77,16 +123,25 @@ class DefaultContextProvider(ContextProvider):
 
     def compress(
         self, messages: list[Message], config: CompressionConfig
-    ) -> Generator[Message, None, None]:
+    ) -> CompactionResult:
         from .engine import auto_compact_log
 
-        yield from auto_compact_log(
-            messages,
-            limit=config.limit,
-            max_tool_result_tokens=config.max_tool_result_tokens,
-            logdir=config.logdir,
-            reasoning_strip_age_threshold=config.reasoning_strip_age_threshold,
-            keep_head=config.keep_head,
+        source_digest = _compute_source_digest(messages)
+        projected = list(
+            auto_compact_log(
+                messages,
+                limit=config.limit,
+                max_tool_result_tokens=config.max_tool_result_tokens,
+                logdir=config.logdir,
+                reasoning_strip_age_threshold=config.reasoning_strip_age_threshold,
+                keep_head=config.keep_head,
+            )
+        )
+        return CompactionResult(
+            messages=projected,
+            source_digest=source_digest,
+            covered_through=len(messages) - 1 if messages else -1,
+            limitations=["rule-based truncation of tool results"],
         )
 
     def estimate_tokens(self, messages: list[Message]) -> int:

@@ -9,16 +9,17 @@ Covers:
 
 from __future__ import annotations
 
-from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gptme.message import Message
 from gptme.tools.autocompact.context_provider import (
+    CompactionResult,
     CompressionConfig,
     ContextProvider,
     DefaultContextProvider,
+    _compute_source_digest,
     get_context_provider,
     list_providers,
     register_provider,
@@ -51,9 +52,13 @@ class MockContextProvider(ContextProvider):
 
     def compress(
         self, messages: list[Message], config: CompressionConfig
-    ) -> Generator[Message, None, None]:
+    ) -> CompactionResult:
         self.compress_called = True
-        yield from messages
+        return CompactionResult(
+            messages=list(messages),
+            source_digest=_compute_source_digest(messages),
+            covered_through=len(messages) - 1 if messages else -1,
+        )
 
 
 @pytest.fixture
@@ -113,8 +118,10 @@ def test_context_provider_requires_name():
 
         def compress(
             self, messages: list[Message], config: CompressionConfig
-        ) -> Generator[Message, None, None]:
-            yield from messages
+        ) -> CompactionResult:
+            return CompactionResult(
+                messages=list(messages), source_digest="", covered_through=-1
+            )
 
     with pytest.raises(TypeError):
         BadProvider()  # type: ignore[abstract]
@@ -130,8 +137,10 @@ def test_context_provider_requires_should_compress():
 
         def compress(
             self, messages: list[Message], config: CompressionConfig
-        ) -> Generator[Message, None, None]:
-            yield from messages
+        ) -> CompactionResult:
+            return CompactionResult(
+                messages=list(messages), source_digest="", covered_through=-1
+            )
 
     with pytest.raises(TypeError):
         BadProvider()  # type: ignore[abstract]
@@ -162,9 +171,11 @@ def test_mock_provider_implements_interface(sample_messages, compression_config)
     assert provider.should_compress(sample_messages, compression_config)
     assert provider.should_compress_called
 
-    compressed = list(provider.compress(sample_messages, compression_config))
+    result = provider.compress(sample_messages, compression_config)
     assert provider.compress_called
-    assert compressed == sample_messages
+    assert isinstance(result, CompactionResult)
+    assert result.messages == sample_messages
+    assert result.covered_through == len(sample_messages) - 1
 
 
 # =============================================================================
@@ -198,19 +209,19 @@ def test_default_provider_should_compress_false_under_limit(sample_messages):
     assert isinstance(result, bool)
 
 
-def test_default_provider_compress_returns_generator(
+def test_default_provider_compress_returns_compaction_result(
     sample_messages, compression_config
 ):
-    """DefaultContextProvider.compress() returns a generator."""
+    """DefaultContextProvider.compress() returns a CompactionResult."""
     provider = DefaultContextProvider()
     result = provider.compress(sample_messages, compression_config)
 
-    assert isinstance(result, Generator)
-
-    # Should be able to iterate over the result
-    compressed = list(result)
-    assert len(compressed) > 0
-    assert all(isinstance(msg, Message) for msg in compressed)
+    assert isinstance(result, CompactionResult)
+    assert len(result.messages) > 0
+    assert all(isinstance(msg, Message) for msg in result.messages)
+    assert isinstance(result.source_digest, str) and len(result.source_digest) == 64
+    assert result.covered_through == len(sample_messages) - 1
+    assert isinstance(result.limitations, list)
 
 
 def test_default_provider_compress_preserves_message_structure(
@@ -218,11 +229,11 @@ def test_default_provider_compress_preserves_message_structure(
 ):
     """DefaultContextProvider preserves message role and order."""
     provider = DefaultContextProvider()
-    compressed = list(provider.compress(sample_messages, compression_config))
+    result = provider.compress(sample_messages, compression_config)
 
     # Check that roles are preserved
     original_roles = [msg.role for msg in sample_messages]
-    compressed_roles = [msg.role for msg in compressed]
+    compressed_roles = [msg.role for msg in result.messages]
 
     # Order should be preserved
     assert compressed_roles == original_roles
@@ -244,7 +255,7 @@ def test_default_provider_parity_with_auto_compact(sample_messages, compression_
     provider = DefaultContextProvider()
 
     # Get results from both paths using identical parameters
-    provider_result = list(provider.compress(sample_messages, compression_config))
+    result = provider.compress(sample_messages, compression_config)
     autocompact_result = list(
         auto_compact_log(
             sample_messages,
@@ -254,15 +265,15 @@ def test_default_provider_parity_with_auto_compact(sample_messages, compression_
     )
 
     # Both should produce a list of messages
-    assert len(provider_result) > 0
+    assert len(result.messages) > 0
     assert len(autocompact_result) > 0
 
     # For the default provider, results should be identical
     # (same algorithm, same inputs)
-    assert len(provider_result) == len(autocompact_result)
+    assert len(result.messages) == len(autocompact_result)
 
     # Verify message integrity
-    for msg in provider_result:
+    for msg in result.messages:
         assert isinstance(msg, Message)
         assert msg.role in ("user", "assistant", "system")
 
@@ -409,8 +420,10 @@ def test_register_provider_duplicate_overrides(cleanup_registry):
 
         def compress(
             self, messages: list[Message], config: CompressionConfig
-        ) -> Generator[Message, None, None]:
-            yield from messages
+        ) -> CompactionResult:
+            return CompactionResult(
+                messages=list(messages), source_digest="", covered_through=-1
+            )
 
     register_provider("test", OtherProvider)
     second = get_context_provider("test")
@@ -530,9 +543,10 @@ def test_full_workflow_with_default_provider(sample_messages, compression_config
 
     # Apply compression if needed
     if should_compress:
-        compressed = list(provider.compress(sample_messages, compression_config))
-        assert len(compressed) > 0
-        assert all(isinstance(msg, Message) for msg in compressed)
+        result = provider.compress(sample_messages, compression_config)
+        assert isinstance(result, CompactionResult)
+        assert len(result.messages) > 0
+        assert all(isinstance(msg, Message) for msg in result.messages)
 
 
 def test_provider_config_custom_settings(sample_messages):
@@ -555,10 +569,10 @@ def test_provider_with_logdir(sample_messages, tmp_path):
     config = CompressionConfig(limit=1000, logdir=tmp_path)
 
     provider = DefaultContextProvider()
-    compressed = list(provider.compress(sample_messages, config))
+    result = provider.compress(sample_messages, config)
 
     # Should be able to handle logdir without errors
-    assert len(compressed) > 0
+    assert len(result.messages) > 0
 
 
 def test_multiple_providers_coexist(cleanup_registry, sample_messages):
@@ -573,6 +587,73 @@ def test_multiple_providers_coexist(cleanup_registry, sample_messages):
     assert provider1 is not provider2
     # But same type
     assert provider1.__class__ is provider2.__class__
+
+
+# =============================================================================
+# Tests for CompactionResult
+# =============================================================================
+
+
+def test_compaction_result_fields(sample_messages, compression_config):
+    """CompactionResult exposes messages, source_digest, covered_through, limitations."""
+    provider = DefaultContextProvider()
+    result = provider.compress(sample_messages, compression_config)
+
+    assert hasattr(result, "messages")
+    assert hasattr(result, "source_digest")
+    assert hasattr(result, "covered_through")
+    assert hasattr(result, "limitations")
+
+
+def test_source_digest_is_stable(sample_messages):
+    """Same input produces the same source_digest."""
+    d1 = _compute_source_digest(sample_messages)
+    d2 = _compute_source_digest(sample_messages)
+    assert d1 == d2
+
+
+def test_source_digest_changes_on_mutation(sample_messages):
+    """A different message list produces a different source_digest."""
+    d_original = _compute_source_digest(sample_messages)
+    mutated = sample_messages + [Message("user", "extra message")]
+    d_mutated = _compute_source_digest(mutated)
+    assert d_original != d_mutated
+
+
+def test_source_digest_empty_input():
+    """Empty input produces a deterministic digest without error."""
+    d = _compute_source_digest([])
+    assert isinstance(d, str) and len(d) == 64
+
+
+def test_covered_through_empty_input():
+    """compress() on empty input returns covered_through=-1."""
+    provider = DefaultContextProvider()
+    config = CompressionConfig()
+    result = provider.compress([], config)
+    assert result.covered_through == -1
+
+
+def test_covered_through_full_input(sample_messages, compression_config):
+    """DefaultContextProvider covers the full input (covered_through = last index)."""
+    provider = DefaultContextProvider()
+    result = provider.compress(sample_messages, compression_config)
+    assert result.covered_through == len(sample_messages) - 1
+
+
+def test_default_provider_digest_matches_source(sample_messages, compression_config):
+    """source_digest in result matches _compute_source_digest of the input."""
+    provider = DefaultContextProvider()
+    result = provider.compress(sample_messages, compression_config)
+    expected_digest = _compute_source_digest(sample_messages)
+    assert result.source_digest == expected_digest
+
+
+def test_limitations_is_list(sample_messages, compression_config):
+    """limitations is always a list (may be empty for third-party providers)."""
+    provider = DefaultContextProvider()
+    result = provider.compress(sample_messages, compression_config)
+    assert isinstance(result.limitations, list)
 
 
 if __name__ == "__main__":
