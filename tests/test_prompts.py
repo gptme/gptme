@@ -736,6 +736,8 @@ def test_prompt_workspace_path_included_without_runtime_context(tmp_path):
     combined = "\n".join(msg.content for msg in msgs)
     assert str(workspace.resolve()) in combined, (
         "Path must be present when include_path=True even if include_runtime_context=False"
+    )
+
 
 def test_profile_system_prompt_before_cache_boundary():
     """Test that profile system prompts are included before cache boundary content.
