@@ -2,6 +2,7 @@
 
 import os
 import stat
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -455,7 +456,9 @@ def test_read_root_confines_absolute_paths(tmp_path: Path, monkeypatch):
     assert "configured read root" in outside[0].content
 
 
-def test_read_root_blocks_symlink_escape(tmp_path: Path, monkeypatch):
+def test_read_root_blocks_symlink_escape(
+    tmp_path: Path, monkeypatch, requires_symlinks
+):
     """Resolving before containment prevents an in-root symlink escaping."""
     root = tmp_path / "checkout"
     root.mkdir()
@@ -482,7 +485,13 @@ def test_invalid_read_root_fails_closed(tmp_path: Path, monkeypatch):
     assert "do not disclose" not in messages[0].content
 
 
-@pytest.mark.skipif(os.getuid() == 0, reason="root bypasses permissions")
+skip_if_no_chmod_perms = pytest.mark.skipif(
+    sys.platform == "win32" or getattr(os, "getuid", lambda: -1)() == 0,
+    reason="chmod cannot deny read permissions on Windows or when running as root",
+)
+
+
+@skip_if_no_chmod_perms
 def test_read_permission_denied_file(tmp_path: Path):
     """Test that a file with no read permission returns Permission denied."""
     path = tmp_path / "secret.txt"
@@ -497,7 +506,7 @@ def test_read_permission_denied_file(tmp_path: Path):
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
-@pytest.mark.skipif(os.getuid() == 0, reason="root bypasses permissions")
+@skip_if_no_chmod_perms
 def test_read_permission_denied_directory(tmp_path: Path):
     """Test that a directory with no read permission returns Permission denied."""
     subdir = tmp_path / "locked"
@@ -523,6 +532,7 @@ def test_read_directory_truncated(tmp_path: Path):
     assert "more entries" in messages[0].content
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs not supported on Windows")
 def test_read_not_a_file(tmp_path: Path):
     """Test that a named pipe (non-file, non-dir) returns 'Not a file'."""
     fifo = tmp_path / "myfifo"

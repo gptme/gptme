@@ -572,7 +572,7 @@ def test_chat_config_to_dict():
     assert config_dict["chat"]["tool_format"] == "markdown"
     assert config_dict["chat"]["stream"] is True
     assert config_dict["chat"]["interactive"] is True
-    assert config_dict["chat"]["workspace"] == "~/workspace"
+    assert Path(config_dict["chat"]["workspace"]).as_posix() == "~/workspace"
     assert config_dict["env"] == {"API_KEY": "your-key"}
     assert config_dict["mcp"] == {
         "enabled": True,
@@ -836,7 +836,7 @@ tool_format = "xml"
 tools = ["shell", "python"]
 stream = true
 interactive = true
-workspace = "{workspace!s}"
+workspace = "{workspace.as_posix()}"
 
 [env]
 """
@@ -960,18 +960,17 @@ myproject = "A cool project."
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write(config_toml)
-        f.flush()
-        try:
-            config = load_user_config(f.name)
-            assert config.user.name == "Erik"
-            assert config.user.about == "I am a curious human programmer."
-            assert (
-                config.user.response_preference
-                == "Basic concepts don't need to be explained."
-            )
-            assert config.prompt.project == {"myproject": "A cool project."}
-        finally:
-            os.remove(f.name)
+    try:
+        config = load_user_config(f.name)
+        assert config.user.name == "Erik"
+        assert config.user.about == "I am a curious human programmer."
+        assert (
+            config.user.response_preference
+            == "Basic concepts don't need to be explained."
+        )
+        assert config.prompt.project == {"myproject": "A cool project."}
+    finally:
+        os.remove(f.name)
 
 
 def test_user_identity_config_backward_compat():
@@ -985,15 +984,14 @@ response_preference = "Keep it short."
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write(config_toml)
-        f.flush()
-        try:
-            config = load_user_config(f.name)
-            # Should fall back to [prompt] values
-            assert config.user.name == "User"
-            assert config.user.about == "I am a legacy user."
-            assert config.user.response_preference == "Keep it short."
-        finally:
-            os.remove(f.name)
+    try:
+        config = load_user_config(f.name)
+        # Should fall back to [prompt] values
+        assert config.user.name == "User"
+        assert config.user.about == "I am a legacy user."
+        assert config.user.response_preference == "Keep it short."
+    finally:
+        os.remove(f.name)
 
 
 def test_user_identity_config_new_overrides_old():
@@ -1012,15 +1010,14 @@ response_preference = "Old preference."
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write(config_toml)
-        f.flush()
-        try:
-            config = load_user_config(f.name)
-            # [user] should take priority
-            assert config.user.name == "Erik"
-            assert config.user.about == "New about text."
-            assert config.user.response_preference == "New preference."
-        finally:
-            os.remove(f.name)
+    try:
+        config = load_user_config(f.name)
+        # [user] should take priority
+        assert config.user.name == "Erik"
+        assert config.user.about == "New about text."
+        assert config.user.response_preference == "New preference."
+    finally:
+        os.remove(f.name)
 
 
 def test_user_identity_config_defaults():
@@ -1051,13 +1048,12 @@ some_future_user_key = 42
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write(config_toml)
-        f.flush()
-        try:
-            config = load_user_config(f.name)
-            assert config.user.name == "Erik"
-            assert config.user.about == "Hi"
-        finally:
-            os.remove(f.name)
+    try:
+        config = load_user_config(f.name)
+        assert config.user.name == "Erik"
+        assert config.user.about == "Hi"
+    finally:
+        os.remove(f.name)
 
 
 def test_user_identity_config_partial_fallback():
@@ -1074,14 +1070,13 @@ response_preference = "Fallback preference."
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write(config_toml)
-        f.flush()
-        try:
-            config = load_user_config(f.name)
-            assert config.user.name == "Erik"
-            assert config.user.about == "Custom about."
-            assert config.user.response_preference == "Fallback preference."
-        finally:
-            os.remove(f.name)
+    try:
+        config = load_user_config(f.name)
+        assert config.user.name == "Erik"
+        assert config.user.about == "Custom about."
+        assert config.user.response_preference == "Fallback preference."
+    finally:
+        os.remove(f.name)
 
 
 def test_user_config_local_toml(tmp_path):
@@ -1226,7 +1221,7 @@ def test_setup_config_from_cli_merges_prune_tool_output_override(tmp_path):
     logdir.mkdir()
     (logdir / "config.toml").write_text(
         f"""[chat]
-workspace = "{workspace!s}"
+workspace = "{workspace.as_posix()}"
 
 [env]
 EXISTING = "1"
@@ -1664,7 +1659,7 @@ def test_save_provider_config_upserts_existing_provider(tmp_path, monkeypatch):
     }
 
 
-def test_chat_config_save_transition_empty_dir_to_symlink(tmp_path):
+def test_chat_config_save_transition_empty_dir_to_symlink(tmp_path, requires_symlinks):
     """Test that save() replaces an empty from_logdir workspace directory with a symlink."""
     logdir = tmp_path / "conversation-save-transition"
 
@@ -1790,11 +1785,13 @@ def test_get_plugin_config_layers_user_and_project(tmp_path):
     temp_user_config = str(tmp_path / "config.toml")
     with open(temp_user_config, "w") as f:
         f.write(default_user_config)
-        f.write(f'\n[plugins]\npaths = ["{user_plugins}"]\nenabled = ["user-plugin"]\n')
+        f.write(
+            f'\n[plugins]\npaths = ["{user_plugins.as_posix()}"]\nenabled = ["user-plugin"]\n'
+        )
 
     with open(tmp_path / "gptme.toml", "w") as f:
         f.write(
-            f'[plugins]\npaths = ["{project_plugins}"]\nenabled = ["project-plugin"]\n'
+            f'[plugins]\npaths = ["{project_plugins.as_posix()}"]\nenabled = ["project-plugin"]\n'
         )
 
     config = Config.from_workspace(tmp_path)

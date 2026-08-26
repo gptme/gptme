@@ -121,7 +121,7 @@ def test_save_tool_path_traversal_relative(tmp_path: Path):
         os.chdir(original_cwd)
 
 
-def test_save_tool_path_traversal_symlink(tmp_path: Path):
+def test_save_tool_path_traversal_symlink(tmp_path: Path, requires_symlinks):
     """Test that symlink-based path traversal is blocked."""
     import os
 
@@ -171,7 +171,7 @@ def test_append_tool_path_traversal_relative(tmp_path: Path):
         os.chdir(original_cwd)
 
 
-def test_append_tool_path_traversal_symlink(tmp_path: Path):
+def test_append_tool_path_traversal_symlink(tmp_path: Path, requires_symlinks):
     """Test that symlink-based path traversal is blocked for append."""
     import os
 

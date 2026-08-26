@@ -17,9 +17,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # File permission tests are meaningless when running as root (root bypasses chmod)
+# or on Windows (where chmod cannot revoke read permissions).
 skip_if_root = pytest.mark.skipif(
-    sys.platform != "win32" and os.getuid() == 0,
-    reason="File permission tests are not meaningful when running as root",
+    sys.platform == "win32"
+    or (getattr(os, "getuid", None) is not None and os.getuid() == 0),
+    reason="File permission tests are not meaningful on Windows or when running as root",
 )
 
 from gptme.message import Message

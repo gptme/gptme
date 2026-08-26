@@ -302,6 +302,7 @@ class ChatConfig:
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
+            newline="",
             dir=self._logdir,
             suffix=".toml.tmp",
             delete=False,
@@ -339,7 +340,15 @@ class ChatConfig:
                 else:
                     # It's a file or symlink, safe to remove
                     workspace_path.unlink()
-            workspace_path.symlink_to(self.workspace)
+            try:
+                workspace_path.symlink_to(self.workspace)
+            except OSError as err:
+                # On Windows without Developer Mode or admin privileges, symlink creation
+                # fails with WinError 1314. The canonical workspace path is already saved
+                # in config.toml above, so we log and continue.
+                logger.warning(
+                    f"Could not create workspace symlink '{workspace_path}' -> '{self.workspace}': {err}"
+                )
         else:
             # Workspace IS the log workspace — ensure the directory exists
             # (from_logdir creates it for new conversations, but callers

@@ -12,6 +12,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 import requests
@@ -59,6 +60,29 @@ _QUOTA_ERROR_PATTERNS = [
     "authentication_error",
     "invalid x-api-key",
 ]
+
+
+def _check_supports_symlinks() -> bool:
+    """Check if the filesystem and environment support creating symlinks."""
+    with tempfile.TemporaryDirectory() as td:
+        target = Path(td) / "target"
+        target.touch()
+        link = Path(td) / "link"
+        try:
+            link.symlink_to(target)
+            return True
+        except (OSError, NotImplementedError):
+            return False
+
+
+SUPPORTS_SYMLINKS = _check_supports_symlinks()
+
+
+@pytest.fixture
+def requires_symlinks():
+    """Fixture that skips a test if symlinks are not supported or permitted in this environment."""
+    if not SUPPORTS_SYMLINKS:
+        pytest.skip("Symlinks not supported or permitted in this environment")
 
 
 def has_api_key() -> bool:

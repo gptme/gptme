@@ -321,7 +321,7 @@ modified lines
         os.chdir(original_cwd)
 
 
-def test_patch_path_traversal_symlink(tmp_path):
+def test_patch_path_traversal_symlink(tmp_path, requires_symlinks):
     """Test that symlink-based path traversal is blocked for patch."""
     import os
 

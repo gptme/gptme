@@ -125,9 +125,10 @@ def test_attest_verify_rejects_missing_workspace_commit(tmp_path, monkeypatch):
     )
 
 
-def test_attest_sign_requires_git_repo(tmp_path):
+def test_attest_sign_requires_git_repo(tmp_path, monkeypatch):
     target = tmp_path / "output.txt"
     target.write_text("signed content\n")
+    monkeypatch.setattr("gptme.attestation.get_git_root", lambda path=None: None)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -278,7 +279,7 @@ def test_attestation_id_is_fixed_width_when_digest_has_leading_zeros(monkeypatch
 
 
 def test_create_file_attestation_resolves_symlinked_workspace_root(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, requires_symlinks
 ):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -302,7 +303,7 @@ def test_create_file_attestation_resolves_symlinked_workspace_root(
 
 
 def test_create_text_attestation_resolves_symlinked_workspace_root(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, requires_symlinks
 ):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -331,4 +332,5 @@ def test_get_agent_id_falls_back_to_uid_when_username_lookup_fails(monkeypatch):
 
     agent_id = attestation_module.get_agent_id()
 
-    assert agent_id == f"uid{os.getuid()}@{socket.gethostname()}"
+    expected_user = f"uid{os.getuid()}" if hasattr(os, "getuid") else "unknown"
+    assert agent_id == f"{expected_user}@{socket.gethostname()}"

@@ -174,7 +174,7 @@ def execute_save_impl(
         missing_parent_created = True
 
     # Save the file
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(content)
 
     # Trigger post-save hooks (file.save.post)
@@ -269,7 +269,7 @@ def execute_append_impl(
     if before and not before.endswith("\n"):
         content = "\n" + content
 
-    with open(path, "a", encoding="utf-8") as f:
+    with open(path, "a", encoding="utf-8", newline="") as f:
         f.write(content)
     yield Message("system", f"Appended to {path_display}")
 

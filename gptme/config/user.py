@@ -241,7 +241,7 @@ def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
             # and nothing else -- but the reason is worth naming, because the same
             # exception aborting a real save is deliberate.
             _back_up_before_reencoding(path)
-            with open(path, "w", encoding="utf-8") as f:
+            with open(path, "w", encoding="utf-8", newline="") as f:
                 tomlkit.dump(doc, f)
         except OSError as e:
             logger.warning(f"Could not strip unknown config keys from {path}: {e}")
@@ -604,7 +604,7 @@ def set_config_value(
     if local:
         os.makedirs(os.path.dirname(write_path), exist_ok=True)
     _back_up_before_reencoding(write_path)
-    with open(write_path, "w", encoding="utf-8") as config_file:
+    with open(write_path, "w", encoding="utf-8", newline="") as config_file:
         tomlkit.dump(doc, config_file)
 
     if reload:
@@ -662,7 +662,7 @@ def save_provider_config(
     if local:
         os.makedirs(os.path.dirname(write_path), exist_ok=True)
     _back_up_before_reencoding(write_path)
-    with open(write_path, "w", encoding="utf-8") as config_file:
+    with open(write_path, "w", encoding="utf-8", newline="") as config_file:
         tomlkit.dump(doc, config_file)
 
     if reload:
