@@ -1155,8 +1155,17 @@ def test_compact_auto_handler_honors_env_keep_head(monkeypatch):
     mock_provider = MagicMock()
 
     def fake_compress(messages, config):
+        import hashlib
+
+        from gptme.tools.autocompact.context_provider import CompactionResult
+
         captured_keep_head["value"] = config.keep_head
-        return iter(messages)
+        msgs = list(messages)
+        return CompactionResult(
+            messages=msgs,
+            source_digest=hashlib.sha256(b"test").hexdigest(),
+            covered_through=len(msgs) - 1,
+        )
 
     mock_provider.compress.side_effect = fake_compress
 
@@ -1213,8 +1222,17 @@ def test_autocompact_hook_honors_keep_head(monkeypatch):
     mock_provider = MagicMock()
 
     def fake_compress(messages, config):
+        import hashlib
+
+        from gptme.tools.autocompact.context_provider import CompactionResult
+
         captured_keep_head["value"] = config.keep_head
-        return iter(messages)
+        msgs = list(messages)
+        return CompactionResult(
+            messages=msgs,
+            source_digest=hashlib.sha256(b"test").hexdigest(),
+            covered_through=len(msgs) - 1,
+        )
 
     mock_provider.compress.side_effect = fake_compress
 
