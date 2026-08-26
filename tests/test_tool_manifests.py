@@ -212,6 +212,35 @@ def test_load_task_manifest_without_builtin_tools(tmp_path: Path):
     assert manifest.all_tool_names == ("github.search_code",)
 
 
+def test_load_task_manifest_builtin_tools_only(tmp_path: Path):
+    """A manifest with only builtin_tools and no MCP tools is valid."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","builtin_tools":["read","grep"]}\n',
+        encoding="utf-8",
+    )
+
+    manifest = load_task_manifest("code_review", tmp_path)
+
+    assert manifest.builtin_tools == ("read", "grep")
+    assert manifest.tool_names == ()
+    assert manifest.all_tool_names == ("read", "grep")
+
+
+def test_load_task_manifest_rejects_empty_tools_and_no_builtin(tmp_path: Path):
+    """A record with empty tools and no builtin_tools must be rejected."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":[]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="at least one of"):
+        load_task_manifest("research", tmp_path)
+
+
 def test_load_task_manifest_rejects_invalid_builtin_tool_name(tmp_path: Path):
     """builtin_tools entries must be simple identifier-like names."""
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"
