@@ -1778,6 +1778,7 @@ def main(
                 # preserve non-alias tools so they are not silently dropped.
                 all_alias_tools: list[str] = []  # tools from expanded manifest aliases
                 non_alias_parts: list[str] = []  # explicit tool names to keep as-is
+                _was_additive = (tool_allowlist_str or "").startswith("+")
                 for alias_candidate in (
                     (tool_allowlist_str or "").lstrip("+").split(",")
                 ):
@@ -1812,6 +1813,11 @@ def main(
                     tool_allowlist_str = ",".join(combined) if combined else None
                 else:
                     tool_allowlist_str = fallback_str
+                # Restore additive semantics: ``--tools +alias`` must remain
+                # additive after fallback expansion so it appends to the
+                # configured TOOL_ALLOWLIST rather than replacing it.
+                if _was_additive and tool_allowlist_str:
+                    tool_allowlist_str = "+" + tool_allowlist_str
 
                 logger.warning(
                     "Tool alias manifest entry unavailable during config setup: %s — "

@@ -95,7 +95,11 @@ def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
             get_toolchain([requested_tool])
         except ValueError:
             # Use membership check, not message wording — wording can vary.
-            if matching_allowlist_tools(requested_tool, get_available_tools()):
+            # Glob-like patterns (e.g. ``read*``) are not tool names; skip
+            # the availability check so they fall through to manifest lookup.
+            if not any(c in requested_tool for c in "*?[") and matching_allowlist_tools(
+                requested_tool, get_available_tools()
+            ):
                 raise  # registered but unavailable — don't shadow with manifest
             try:
                 manifest = load_task_manifest(requested_tool, workspace)
