@@ -1767,33 +1767,51 @@ def main(
                 # strip only the unavailable entry and keep the remaining manifest
                 # tools, rather than silently collapsing to all defaults (which
                 # would violate a restrictive capability boundary in the manifest).
+                #
+                # If the allowlist contains NO manifest aliases at all (plain
+                # --tools with a normal tool name), this is not a manifest alias
+                # fallback situation — re-raise so the user sees the real error.
                 from ..tool_manifests import get_manifest_preset_tools
 
-                # tool_allowlist_str still holds the raw CLI alias (e.g. "code_review").
-                # Reconstruct the manifest's full expanded tool list so that
-                # _manifest_fallback_allowlist can strip just the unavailable entry.
-                alias_expanded: str | None = None
+                # tool_allowlist_str still holds the raw CLI value (e.g. "code_review"
+                # or "code_review,extra_tool").  Expand every alias-shaped item and
+                # preserve non-alias tools so they are not silently dropped.
+                all_alias_tools: list[str] = []  # tools from expanded manifest aliases
+                non_alias_parts: list[str] = []  # explicit tool names to keep as-is
                 for alias_candidate in (
                     (tool_allowlist_str or "").lstrip("+").split(",")
                 ):
                     alias_candidate = alias_candidate.strip()
-                    if alias_candidate:
-                        tools_for_alias = get_manifest_preset_tools(
-                            alias_candidate, manifest_workspace
-                        )
-                        if tools_for_alias:
-                            alias_expanded = ",".join(tools_for_alias)
-                            break
-
-                if alias_expanded is not None:
-                    # Reuse the same helper as --tool-manifest: remove only the
-                    # unavailable entries, fall back to None (defaults) only when
-                    # every manifest tool is unavailable.
-                    tool_allowlist_str = _manifest_fallback_allowlist(
-                        alias_expanded, None
+                    if not alias_candidate:
+                        continue
+                    tools_for_alias = get_manifest_preset_tools(
+                        alias_candidate, manifest_workspace
                     )
+                    if tools_for_alias:
+                        all_alias_tools.extend(tools_for_alias)
+                    else:
+                        non_alias_parts.append(alias_candidate)
+
+                if not all_alias_tools:
+                    # No manifest aliases in the allowlist — this is a regular
+                    # --tools error (e.g. a typo or unavailable built-in tool).
+                    # Re-raise so callers see the original ToolAllowlistError.
+                    raise
+
+                # Reuse the same helper as --tool-manifest: remove only the
+                # unavailable entries, fall back to None (defaults) only when
+                # every manifest tool is unavailable.
+                expanded_str = ",".join(all_alias_tools)
+                fallback_str = _manifest_fallback_allowlist(expanded_str, None)
+
+                if non_alias_parts:
+                    # Re-join non-alias tools (e.g. "+extra_tool") alongside the
+                    # stripped manifest tools so they are not silently lost.
+                    fallback_parts = [p for p in (fallback_str or "").split(",") if p]
+                    combined = fallback_parts + non_alias_parts
+                    tool_allowlist_str = ",".join(combined) if combined else None
                 else:
-                    tool_allowlist_str = None
+                    tool_allowlist_str = fallback_str
 
                 logger.warning(
                     "Tool alias manifest entry unavailable during config setup: %s — "

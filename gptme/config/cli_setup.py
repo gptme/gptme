@@ -142,8 +142,14 @@ def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
             raise ValueError(
                 f"Tool preset(s) {preset_list} cannot be combined with other tools"
             )
-        preset_tools = list(TOOL_PRESETS[presets[0]])
-        return ",".join([*preset_tools, *manifest_aliases])
+        # Keep the preset NAME (not its expanded tools) so that
+        # config.chat.tools preserves provenance on save.  On resume,
+        # configured_base_is_preset checks configured_base_tools[0] against
+        # TOOL_PRESETS — if we stored expanded concrete names, that check
+        # would silently add 'complete' to the allowlist (F2 security fix).
+        # Expansion to concrete tools happens later in get_toolchain() via
+        # expand_tool_allowlist_presets(), same as the non-MCP path.
+        return ",".join([presets[0], *manifest_aliases])
 
     return "+" + ",".join([*manifest_aliases, *non_alias_tools])
 
@@ -174,11 +180,15 @@ def _normalize_tool_allowlist(
     if allowlist is None:
         return None
 
-    # If the allowlist is a single named preset, preserve it as-is so that
-    # resumed sessions can still detect it as a preset (not just a tool list
-    # that happens to match the preset's expansion).
-    if len(allowlist) == 1 and allowlist[0] in TOOL_PRESETS:
-        return list(allowlist)
+    # If the allowlist is a named preset optionally accompanied by MCP dotted
+    # tool names, preserve the preset name verbatim so that on resume
+    # configured_base_is_preset can detect it.  MCP tools are additive — they
+    # do not dilute the preset's builtin boundary — so we keep them as-is too.
+    # Expansion to concrete tool names happens at toolchain init time.
+    non_mcp_items = [t for t in allowlist if not _is_mcp_tool_name(t)]
+    mcp_items = [t for t in allowlist if _is_mcp_tool_name(t)]
+    if len(non_mcp_items) == 1 and non_mcp_items[0] in TOOL_PRESETS:
+        return [non_mcp_items[0], *mcp_items]
 
     allowlist = expand_tool_allowlist_presets(allowlist)
     assert allowlist is not None
@@ -388,11 +398,34 @@ def setup_config_from_cli(
                 base_tools = configured_base_tools
             else:
                 base_tools = [tool.name for tool in get_toolchain(None)]
-            # A persisted/configured preset is valid by itself but cannot be
-            # combined with additional names. Expand it before applying the
-            # additive override so ``read-only`` + ``save`` becomes the concrete
-            # allowlist ``read,save`` rather than an invalid mixed preset list.
-            resolved_tool_allowlist = expand_tool_allowlist_presets(base_tools.copy())
+            # When all additional tools are MCP dotted names (server.tool),
+            # preserve any preset name in base_tools so that config.chat.tools
+            # stores ``["read-only", "search.query"]`` rather than the expanded
+            # ``["read", "search.query"]``.  The preset name is required for
+            # configured_base_is_preset to fire correctly on resume and prevent
+            # 'complete' from being added to a read-only session (F2 security fix).
+            # For non-MCP additional tools (e.g. ``+save``), expand the preset
+            # first so ``read-only`` + ``save`` becomes the concrete list
+            # ``read,save`` rather than an invalid mixed preset list.
+            all_additional_are_mcp = all(_is_mcp_tool_name(t) for t in additional_tools)
+            preset_in_base = any(t in TOOL_PRESETS for t in base_tools)
+            # Only preserve the preset name verbatim when the MCP tools came via a
+            # manifest alias resolution (e.g. ``+research`` → ``+search.query``).
+            # Explicit MCP dotted names typed directly (e.g. ``+search.query``) must
+            # still expand the preset so that non-interactive mode can add 'complete'
+            # without hitting the preset+tool combination guard.
+            alias_was_resolved = tool_allowlist != requested_tool_allowlist
+            if all_additional_are_mcp and preset_in_base and alias_was_resolved:
+                # Keep preset name verbatim; expand_tool_allowlist_presets (called
+                # at toolchain init time) will handle the expansion later.
+                resolved_tool_allowlist = base_tools.copy()
+            else:
+                # A persisted/configured preset cannot be combined with non-MCP
+                # names; expand it first so ``read-only`` + ``save`` becomes
+                # ``read,save`` rather than an invalid mixed preset list.
+                resolved_tool_allowlist = expand_tool_allowlist_presets(
+                    base_tools.copy()
+                )
             assert resolved_tool_allowlist is not None
             for tool in additional_tools:
                 if tool not in resolved_tool_allowlist:

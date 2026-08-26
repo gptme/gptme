@@ -2647,8 +2647,53 @@ def test_mcp_only_manifest_alias_extends_preset(
     )
 
     assert config.chat is not None
-    assert config.chat.tools == ["read", "search.query"]
+    # Preset name must be preserved verbatim so that configured_base_is_preset
+    # works correctly on a subsequent resume (F2 security fix).
+    if preset_source == "cli":
+        # read-only preset name preserved alongside MCP alias
+        assert config.chat.tools == ["read-only", "search.query"]
+    else:
+        # resume: configured_base_tools was ["read-only"]; alias adds search.query
+        assert config.chat.tools == ["read-only", "search.query"]
     assert "complete" not in config.chat.tools
+
+
+def test_mcp_only_manifest_alias_preset_preserved_on_resume(tmp_path: Path):
+    """Preset name stored after first run so resume keeps the capability boundary.
+
+    Regression test for F2: previously _resolve_manifest_aliases expanded the preset
+    to concrete tool names, losing 'read-only' from config.chat.tools.  On resume,
+    configured_base_is_preset would then be False and 'complete' would be added to the
+    allowlist, silently violating the read-only boundary.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+    # Simulate what config.chat.tools contains after the FIRST run with the fix:
+    # preset name kept verbatim alongside the MCP alias.
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    (logdir / "config.toml").write_text(
+        '[chat]\ntools = ["read-only", "search.query"]\n', encoding="utf-8"
+    )
+
+    # Resume: user passes only the MCP alias; preset comes from the saved config.
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=logdir,
+        tool_allowlist="research",
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools is not None
+    assert "complete" not in config.chat.tools, (
+        "Resume must preserve the read-only boundary; 'complete' must not be added"
+    )
 
 
 def test_additive_manifest_alias_preserves_configured_preset(
@@ -2672,7 +2717,9 @@ def test_additive_manifest_alias_preserves_configured_preset(
     )
 
     assert config.chat is not None
-    assert config.chat.tools == ["read", "search.query"]
+    # Preset name preserved verbatim (F2 security fix): configured_base_is_preset
+    # must fire on resume so that 'complete' is not added to a read-only session.
+    assert config.chat.tools == ["read-only", "search.query"]
     assert "complete" not in config.chat.tools
 
 
@@ -2766,7 +2813,8 @@ def test_manifest_alias_cannot_shadow_preset_when_combined(tmp_path: Path):
     )
 
     assert config.chat is not None
-    assert config.chat.tools == ["read", "search.query"]
+    # Preset name preserved verbatim (F2 security fix) — evil.exec never appears.
+    assert config.chat.tools == ["read-only", "search.query"]
 
 
 def test_manifest_alias_rejects_unknown_builtin_tool(tmp_path: Path):
