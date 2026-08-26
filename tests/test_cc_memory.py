@@ -220,8 +220,13 @@ class TestCcMemoryInWorkspacePrompt:
         combined = "\n".join(contents)
         assert "Persistent Memory" not in combined
 
-    def test_non_utf8_memory_uses_replacement_chars(self, tmp_path):
-        """Non-UTF-8 bytes in MEMORY.md produce replacement chars (U+FFFD), not silent drops."""
+    def test_non_utf8_memory_drops_invalid_bytes(self, tmp_path):
+        """Non-UTF-8 bytes in MEMORY.md are silently dropped (errors='ignore').
+
+        Using errors='replace' would expand each invalid byte to 3-byte U+FFFD,
+        allowing 64KB of input to produce ~192KB of decoded text — exceeding the
+        intended size cap. errors='ignore' keeps the decoded size bounded.
+        """
         from gptme.prompts.workspace import prompt_workspace
 
         workspace = tmp_path / "myproject"
@@ -253,10 +258,10 @@ class TestCcMemoryInWorkspacePrompt:
         memory_msgs = [m for m in messages if "Persistent Memory" in m.content]
         assert len(memory_msgs) == 1
         content = memory_msgs[0].content
-        # The invalid byte is replaced with U+FFFD, not silently dropped
-        assert "�" in content or "caf" in content
-        # Confirm "caf" prefix survived (not silently swallowed)
+        # The invalid byte is dropped; valid prefix survives
         assert "caf" in content
+        # No U+FFFD replacement chars (that would indicate errors='replace')
+        assert "�" not in content
 
     def test_oversized_memory_is_truncated(self, tmp_path):
         """Memory files exceeding the size cap are truncated before injection.
