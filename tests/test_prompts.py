@@ -716,3 +716,24 @@ def test_prompt_workspace_skip_home_agents_md(tmp_path, monkeypatch):
     assert str(home_agents.resolve()) not in files_without_user, (
         "~/AGENTS.md must not appear in eval runs (include_user_context=False)"
     )
+
+
+def test_prompt_workspace_path_included_without_runtime_context(tmp_path):
+    """Path must appear when include_path=True regardless of include_runtime_context."""
+    from gptme.prompts import prompt_workspace
+
+    workspace = tmp_path / "myproject"
+    workspace.mkdir()
+
+    msgs = list(
+        prompt_workspace(
+            workspace,
+            include_path=True,
+            include_runtime_context=False,
+            include_user_context=False,
+        )
+    )
+    combined = "\n".join(msg.content for msg in msgs)
+    assert str(workspace.resolve()) in combined, (
+        "Path must be present when include_path=True even if include_runtime_context=False"
+    )

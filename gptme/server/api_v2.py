@@ -390,6 +390,7 @@ def _copy_messages_for_fork(
         new_file_hashes = {
             path_map.get(path, path): digest for path, digest in msg.file_hashes.items()
         }
+        dead_refs: set[str] = set()
         for path, digest in msg.file_hashes.items():
             source_snapshot = get_stored_path(source_logdir, digest, Path(path).suffix)
             if source_snapshot is not None:
@@ -401,9 +402,16 @@ def _copy_messages_for_fork(
                 # fork's LogManager.snapshot_message_files re-stores from the
                 # live file with a fresh consistent hash, rather than silently
                 # overwriting the stale hash with a potentially different one.
-                new_file_hashes.pop(path_map.get(path, path), None)
+                new_path = path_map.get(path, path)
+                new_file_hashes.pop(new_path, None)
+                # If the live file is also gone, drop the dangling file
+                # reference so the fork's LogManager never sees a reference it
+                # cannot snapshot or resolve for the provider.
+                if not Path(path).is_file():
+                    dead_refs.add(new_path)
+        filtered_files = [f for f in new_files if str(f) not in dead_refs]
         copied_messages.append(
-            replace(msg, files=new_files, file_hashes=new_file_hashes)
+            replace(msg, files=filtered_files, file_hashes=new_file_hashes)
         )
 
     for source_path, dest_path in attachment_copies:

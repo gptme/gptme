@@ -217,7 +217,9 @@ def prompt_workspace(
 
     # Keep the path at the top for direct callers, matching the historical
     # prompt_workspace() ordering. The tree and git status stay at the end.
-    if include_runtime_context and include_path:
+    # Path is static/deterministic, so include_path controls it independently
+    # of include_runtime_context (which gates the volatile tree/git sections).
+    if include_path:
         sections.append(f"**Path:** {workspace.resolve()}")
 
     project = get_project_config(workspace)

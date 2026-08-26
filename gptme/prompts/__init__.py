@@ -300,7 +300,6 @@ def _build_prompt_sections(
             prompt_workspace_runtime(
                 agent_path,
                 title="Agent Config",
-                include_path=True,
             )
         )
         if agent_runtime_msgs:

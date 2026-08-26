@@ -3466,6 +3466,33 @@ def test_copy_messages_for_fork_tolerates_missing_snapshot(tmp_path: Path):
     assert not (dest_logdir / "files" / "deadbeef.md").exists()
 
 
+def test_copy_messages_for_fork_drops_reference_when_snapshot_and_live_file_missing(
+    tmp_path: Path,
+):
+    """When both snapshot and live file are gone, the file reference must be dropped."""
+    from gptme.message import Message  # fmt: skip
+    from gptme.server.api_v2 import _copy_messages_for_fork  # fmt: skip
+
+    source_logdir = tmp_path / "source"
+    dest_logdir = tmp_path / "fork"
+    gone_file = tmp_path / "workspace" / "deleted.md"
+    # Deliberately do NOT create gone_file — it is missing from disk.
+
+    source_logdir.mkdir(parents=True)
+    message = Message(
+        "system",
+        "ref to deleted file",
+        files=[gone_file],
+        file_hashes={str(gone_file): "deadbeef"},
+    )
+
+    copied = _copy_messages_for_fork([message], source_logdir, dest_logdir)
+    # Both hash and file reference must be dropped — live file doesn't exist,
+    # so the fork's LogManager cannot snapshot it and must not keep a dangling ref.
+    assert copied[0].file_hashes == {}
+    assert copied[0].files == []
+
+
 def test_v2_edit_message_rejects_non_string_content(client: FlaskClient):
     """Test that edit rejects non-string content with a 400."""
     conversation_id = create_conversation(client)["conversation_id"]
