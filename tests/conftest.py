@@ -837,5 +837,7 @@ def _clear_proactive_summarize_cache():
     import gptme.util.reduce as reduce_mod
 
     reduce_mod._proactive_summarize_cache.clear()
+    reduce_mod._proactive_summarize_cache_pending.clear()
     yield
     reduce_mod._proactive_summarize_cache.clear()
+    reduce_mod._proactive_summarize_cache_pending.clear()

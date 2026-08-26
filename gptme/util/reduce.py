@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 _PROACTIVE_SUMMARIZE_CACHE_MAX = 256
 _proactive_summarize_cache: dict[str, "Message"] = {}
 _proactive_summarize_cache_lock = threading.Lock()
+# Per-key coordination: at most one thread calls the LLM for a given key;
+# concurrent callers block on the in-flight Event and adopt the stored result.
+_proactive_summarize_cache_pending: dict[str, threading.Event] = {}
 
 
 def message_contains_tool_use(msg: Message) -> bool:
@@ -461,8 +464,7 @@ def proactive_summarize_log(
         json.dumps(key_parts, ensure_ascii=False).encode()
     ).hexdigest()
 
-    # Use .get() instead of `in` + `[]` to avoid a TOCTOU race: under concurrent
-    # callers another thread can evict the entry between membership test and lookup.
+    # Optimistic lock-free read (CPython dict.get is GIL-atomic).
     summary_msg = _proactive_summarize_cache.get(cache_key)
     if summary_msg is not None:
         logger.debug(
@@ -470,38 +472,65 @@ def proactive_summarize_log(
             len(summarize_middle),
         )
     else:
-        logger.info(
-            "Proactive summarize triggered: %dk tokens (threshold %d%% of %dk context)"
-            " — summarizing %d middle messages (%d pinned preserved)",
-            tokens // 1000,
-            int(threshold * 100),
-            model.context // 1000,
-            len(summarize_middle),
-            len(pinned_middle),
-        )
-        console.log(
-            f"[context] Approaching context limit ({tokens // 1000}k / {int(limit) // 1000}k),"
-            f" summarizing {len(summarize_middle)} older messages..."
-        )
-        try:
-            summary_msg = _llm_summarize(summarize_middle)
-        except Exception:
-            logger.warning(
-                "Proactive summarize failed; falling back to unreduced log",
-                exc_info=True,
+        # Coordinate concurrent identical requests: only one thread calls the LLM;
+        # all others wait and adopt the stored result.  This eliminates the eviction
+        # race in the old winner-adoption pattern: the result is in the cache and
+        # the Event is set atomically under the lock, so waiters always find it.
+        compute_event = None
+        while summary_msg is None and compute_event is None:
+            with _proactive_summarize_cache_lock:
+                summary_msg = _proactive_summarize_cache.get(cache_key)
+                if summary_msg is not None:
+                    break
+                in_progress = _proactive_summarize_cache_pending.get(cache_key)
+                if in_progress is None:
+                    # Claim this key; we will compute and store the result.
+                    compute_event = threading.Event()
+                    _proactive_summarize_cache_pending[cache_key] = compute_event
+                    break
+            # Another thread claimed the key; wait outside the lock.
+            in_progress.wait(timeout=120)
+            # After the Event fires, loop back to read the result from the cache.
+
+        if summary_msg is not None:
+            logger.debug(
+                "Proactive summarize cache hit: %d middle messages → reusing summary",
+                len(summarize_middle),
             )
-            return log
-        with _proactive_summarize_cache_lock:
-            if cache_key in _proactive_summarize_cache:
-                # A concurrent thread also computed a summary for the same content;
-                # use the cached winner's result so both callers stay consistent.
-                summary_msg = _proactive_summarize_cache[cache_key]
-            else:
+        else:
+            assert compute_event is not None
+            logger.info(
+                "Proactive summarize triggered: %dk tokens (threshold %d%% of %dk context)"
+                " — summarizing %d middle messages (%d pinned preserved)",
+                tokens // 1000,
+                int(threshold * 100),
+                model.context // 1000,
+                len(summarize_middle),
+                len(pinned_middle),
+            )
+            console.log(
+                f"[context] Approaching context limit ({tokens // 1000}k / {int(limit) // 1000}k),"
+                f" summarizing {len(summarize_middle)} older messages..."
+            )
+            try:
+                summary_msg = _llm_summarize(summarize_middle)
+            except Exception:
+                logger.warning(
+                    "Proactive summarize failed; falling back to unreduced log",
+                    exc_info=True,
+                )
+                with _proactive_summarize_cache_lock:
+                    _proactive_summarize_cache_pending.pop(cache_key, None)
+                    compute_event.set()
+                return log
+            with _proactive_summarize_cache_lock:
                 if len(_proactive_summarize_cache) >= _PROACTIVE_SUMMARIZE_CACHE_MAX:
                     _proactive_summarize_cache.pop(
                         next(iter(_proactive_summarize_cache))
                     )
                 _proactive_summarize_cache[cache_key] = summary_msg
+                _proactive_summarize_cache_pending.pop(cache_key, None)
+                compute_event.set()
 
     result = initial_system + [summary_msg] + pinned_middle + recent
     new_tokens = len_tokens(result, model=model.model)

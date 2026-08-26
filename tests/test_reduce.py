@@ -1351,6 +1351,82 @@ def test_proactive_summarize_cache_miss_on_changed_messages(monkeypatch):
         reduce_mod._proactive_summarize_cache.clear()
 
 
+def test_proactive_summarize_concurrent_same_key(monkeypatch):
+    """Concurrent callers with identical input: only one LLM call, both get the same result.
+
+    Regression for the eviction race in the old winner-adoption pattern: a slow
+    second caller could store a different summary if the first caller's entry was
+    evicted from the cache before the second caller checked.  The Event-coordination
+    pattern fixes this: the second thread waits on the first thread's Event and
+    adopts the cached result after the Event fires.
+    """
+    import threading
+
+    import gptme.util.reduce as reduce_mod
+    from gptme.util.reduce import proactive_summarize_log
+
+    tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+    # Patch at the use-site in reduce.py so threads see the same tiny model
+    # regardless of ContextVar inheritance behaviour across threads.
+    monkeypatch.setattr("gptme.util.reduce.get_default_model", lambda: tiny_model)
+
+    call_count = 0
+    llm_started = threading.Event()
+    release_llm = threading.Event()
+
+    def slow_summarize(msgs):
+        nonlocal call_count
+        call_count += 1
+        llm_started.set()
+        release_llm.wait(timeout=5)
+        return Message("system", "The only summary")
+
+    monkeypatch.setattr("gptme.llm.summarize", slow_summarize)
+    reduce_mod._proactive_summarize_cache.clear()
+    reduce_mod._proactive_summarize_cache_pending.clear()
+
+    msgs = [
+        Message("system", "You are helpful."),
+        Message("user", "old content " * 5),
+        Message("assistant", "old reply " * 5),
+        Message("user", "recent q1"),
+        Message("assistant", "recent a1"),
+        Message("user", "recent q2"),
+        Message("assistant", "recent a2"),
+    ]
+
+    results: list = [None, None]
+    errors: list = []
+
+    def call_summarize(idx: int) -> None:
+        try:
+            results[idx] = proactive_summarize_log(msgs, threshold=0.5, recent_keep=4)
+        except Exception as e:
+            errors.append(e)
+
+    t1 = threading.Thread(target=call_summarize, args=(0,))
+    t2 = threading.Thread(target=call_summarize, args=(1,))
+    t1.start()
+    # Wait until the compute thread has claimed the key and started the LLM call.
+    llm_started.wait(timeout=5)
+    # Thread 2 starts after thread 1 has registered its pending Event, so thread
+    # 2 will wait on that Event rather than making its own LLM call.
+    t2.start()
+    release_llm.set()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+
+    assert not errors, f"Thread errors: {errors}"
+    assert results[0] is not None
+    assert results[1] is not None
+    assert results[0] == results[1], "Concurrent callers must return identical results"
+    assert call_count == 1, (
+        "Only one LLM call should occur for concurrent identical requests"
+    )
+    reduce_mod._proactive_summarize_cache.clear()
+    reduce_mod._proactive_summarize_cache_pending.clear()
+
+
 def test_proactive_summarize_cache_isolated_by_provider(monkeypatch):
     """proactive_summarize_log does NOT reuse a cached summary across different providers.
 
