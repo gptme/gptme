@@ -1012,10 +1012,25 @@ files.</p>
 <section id="compact-autocompact">
 <h3>/compact (autocompact)<a class="headerlink" href="#compact-autocompact" title="Link to this heading">#</a></h3>
 <p>Manually trigger conversation compaction to reduce context size.</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/compact           # Auto-compact using summarization
-/compact auto      # Same as above
-/compact resume    # Generate an LLM-powered resume/summary
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/compact             # Rule-based trim (strips reasoning, truncates large tool outputs)
+/compact trim        # Same as above
+/compact summarize   # LLM-powered summarization (creates a RESUME.md and restarts context)
 </pre></div>
+</div>
+<p>Two strategies are available:</p>
+<ul class="simple">
+<li><p><strong>trim</strong> (default) — rule-based: strips old reasoning blocks, truncates massive tool
+results, and compresses long assistant messages. Fast and deterministic; no LLM call.
+Trim only runs when the rule-based heuristic determines it is worthwhile; if the
+conversation is over the context limit but savings would be low, it will suggest
+<code class="docutils literal notranslate"><span class="pre">/compact</span> <span class="pre">summarize</span></code> instead.</p></li>
+<li><p><strong>summarize</strong> — LLM-powered: asks the model to produce a <code class="docutils literal notranslate"><span class="pre">RESUME.md</span></code> capturing
+key decisions, open tasks, and relevant file paths, then starts a fresh context
+from that summary. More thorough but requires a model call.</p></li>
+</ul>
+<div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version ``/compact: </span>auto`` and <code class="docutils literal notranslate"><span class="pre">/compact</span> <span class="pre">resume</span></code> are deprecated aliases for <code class="docutils literal notranslate"><span class="pre">trim</span></code>
+and <code class="docutils literal notranslate"><span class="pre">summarize</span></code> respectively. They still work but will emit a warning.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
