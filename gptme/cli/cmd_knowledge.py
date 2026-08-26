@@ -55,7 +55,7 @@ def knowledge_save_cmd(
 
     try:
         entry = knowledge_save(problem, resolution, list(tags))
-    except ValueError as e:
+    except (ValueError, OSError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -143,7 +143,7 @@ def knowledge_search_cmd(query: str, top_k: int, tags: tuple[str, ...], as_json:
         results = knowledge_search(
             query, top_k=top_k, tags=list(tags) if tags else None
         )
-    except ValueError as e:
+    except (ValueError, OSError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -203,7 +203,11 @@ def knowledge_delete_cmd(entry_id: str):
     from ..knowledge import _load_entries, knowledge_delete  # fmt: skip
 
     # Support prefix matching
-    entries = _load_entries()
+    try:
+        entries = _load_entries()
+    except OSError as e:
+        click.echo(f"Error reading knowledge base: {e}", err=True)
+        sys.exit(1)
     matches = [e for e in entries if e.get("id", "").startswith(entry_id)]
     if len(matches) > 1:
         click.echo(f"Ambiguous prefix '{entry_id}' — matches {len(matches)} entries:")

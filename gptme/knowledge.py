@@ -181,7 +181,9 @@ def knowledge_search(
             [entry.get("problem", ""), entry.get("resolution", "")]
             + entry.get("tags", [])
         ).lower()
-        score = sum(1 for w in query_words if w in haystack)
+        score = sum(
+            1 for w in query_words if re.search(rf"\b{re.escape(w)}\b", haystack)
+        )
         if score > 0:
             scored.append((score, entry))
 
