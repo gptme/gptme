@@ -5,6 +5,7 @@ Typically used when the log exceeds a token limit and needs to be shortened.
 """
 
 import hashlib
+import json
 import logging
 import re
 import threading
@@ -454,7 +455,11 @@ def proactive_summarize_log(
     key_parts = [model.model, model.provider] + [
         f"{m.role}:{m.content}" for m in summarize_middle
     ]
-    cache_key = hashlib.sha256("\0".join(key_parts).encode()).hexdigest()
+    # Use json.dumps for unambiguous serialization: a NUL-delimited join would
+    # map distinct message sequences containing NUL to the same byte string.
+    cache_key = hashlib.sha256(
+        json.dumps(key_parts, ensure_ascii=False).encode()
+    ).hexdigest()
 
     # Use .get() instead of `in` + `[]` to avoid a TOCTOU race: under concurrent
     # callers another thread can evict the entry between membership test and lookup.
