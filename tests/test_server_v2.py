@@ -3439,7 +3439,7 @@ def test_copy_messages_for_fork_copies_referenced_file_snapshots(tmp_path: Path)
 
 
 def test_copy_messages_for_fork_tolerates_missing_snapshot(tmp_path: Path):
-    """A fork must not raise FileNotFoundError when a snapshot file is absent."""
+    """A fork drops stale hash entries whose snapshot is absent in the source."""
     from gptme.message import Message  # fmt: skip
     from gptme.server.api_v2 import _copy_messages_for_fork  # fmt: skip
 
@@ -3449,7 +3449,7 @@ def test_copy_messages_for_fork_tolerates_missing_snapshot(tmp_path: Path):
     live_file.parent.mkdir()
     live_file.write_text("content", encoding="utf-8")
 
-    # The snapshot file referenced by file_hashes does NOT exist on disk.
+    # file_hashes contains "deadbeef" but no matching snapshot exists in source.
     source_logdir.mkdir(parents=True)
     message = Message(
         "system",
@@ -3458,9 +3458,11 @@ def test_copy_messages_for_fork_tolerates_missing_snapshot(tmp_path: Path):
         file_hashes={str(live_file): "deadbeef"},
     )
 
-    # Should not raise FileNotFoundError even though files/deadbeef.md is absent.
+    # Stale hash must be dropped so LogManager.snapshot_message_files can
+    # re-store the live file with a fresh consistent hash instead of silently
+    # overwriting the stale one.
     copied = _copy_messages_for_fork([message], source_logdir, dest_logdir)
-    assert copied[0].file_hashes == {str(live_file): "deadbeef"}
+    assert copied[0].file_hashes == {}
     assert not (dest_logdir / "files" / "deadbeef.md").exists()
 
 

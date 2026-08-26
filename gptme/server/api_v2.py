@@ -396,6 +396,12 @@ def _copy_messages_for_fork(
                 snapshot_copies.add(
                     (source_snapshot, dest_logdir / "files" / source_snapshot.name)
                 )
+            else:
+                # Snapshot not found in source: drop the stale hash so the
+                # fork's LogManager.snapshot_message_files re-stores from the
+                # live file with a fresh consistent hash, rather than silently
+                # overwriting the stale hash with a potentially different one.
+                new_file_hashes.pop(path_map.get(path, path), None)
         copied_messages.append(
             replace(msg, files=new_files, file_hashes=new_file_hashes)
         )
