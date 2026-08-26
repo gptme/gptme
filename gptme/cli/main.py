@@ -120,6 +120,10 @@ class _DynamicHelpCommand(click.Command):
             if skip_next:
                 skip_next = False
                 continue
+            if a == "--":
+                # End-of-options delimiter: don't intercept positionals after it.
+                # `gptme -- chats list` must NOT dispatch to gptme-util.
+                break
             if a.startswith("-"):
                 # --opt=val form carries its value inline; bare --opt consumes next token.
                 opt_name = a.split("=")[0] if "=" in a else a

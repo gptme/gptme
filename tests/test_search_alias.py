@@ -218,6 +218,28 @@ class TestUtilSubcommandMirroring:
             ["/usr/local/bin/gptme-util", "chats", "list", "--help"]
         )
 
+    def test_util_subcmd_after_double_dash_forwards_help(self, runner: CliRunner):
+        """gptme -- chats list --help still forwards --help to gptme-util.
+
+        '--' ends option processing: Click treats 'chats', 'list', and '--help' all
+        as positionals.  The parse_args fix ensures '--' is recognised as the
+        end-of-options delimiter (not mis-classified as a bare option flag), so
+        allow_interspersed_args is never incorrectly set to False.  The observable
+        result is unchanged: gptme-util still receives chats list --help.
+        """
+        with (
+            patch(
+                "gptme.cli.main.shutil.which",
+                return_value="/usr/local/bin/gptme-util",
+            ),
+            patch("gptme.cli.main.subprocess.call", return_value=0) as mock_call,
+        ):
+            result = runner.invoke(main, ["--", "chats", "list", "--help"])
+        assert result.exit_code == 0
+        mock_call.assert_called_once_with(
+            ["/usr/local/bin/gptme-util", "chats", "list", "--help"]
+        )
+
     def test_util_subcmd_skipped_for_version_flag(self, runner: CliRunner):
         """gptme --version chats does not trigger gptme-util dispatch."""
         with patch("gptme.cli.main.subprocess.call") as mock_call:
