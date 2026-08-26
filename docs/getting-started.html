@@ -507,6 +507,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-examples">Quick Examples</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-models-no-api-key-required">Local Models (No API Key Required)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#free-cloud-providers-no-credit-card-required">Free Cloud Providers (No Credit Card Required)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#support">Support</a></li>
 </ul>
@@ -589,7 +590,7 @@ gptme<span class="w"> </span>-r
 </div>
 </section>
 <section id="local-models-no-api-key-required">
-<h2>Local Models (No API Key Required)<a class="headerlink" href="#local-models-no-api-key-required" title="Link to this heading">#</a></h2>
+<span id="local-models"></span><h2>Local Models (No API Key Required)<a class="headerlink" href="#local-models-no-api-key-required" title="Link to this heading">#</a></h2>
 <p>To run gptme without an API key, use a local model via <a class="reference external" href="https://ollama.com">Ollama</a>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install Ollama (see https://ollama.com), then pull a model</span>
 ollama<span class="w"> </span>pull<span class="w"> </span>llama3.2:1b
@@ -619,6 +620,42 @@ same model for both chat and summaries.</p>
 </div>
 <p>See <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> for Groq and all other built-in provider options, or <a class="reference internal" href="providers-custom.html"><span class="doc">Custom and Local Providers</span></a>
 for Ollama, vLLM, and custom server setup.</p>
+</section>
+<section id="free-cloud-providers-no-credit-card-required">
+<h2>Free Cloud Providers (No Credit Card Required)<a class="headerlink" href="#free-cloud-providers-no-credit-card-required" title="Link to this heading">#</a></h2>
+<p>Several cloud providers offer free tiers that work with gptme out of the box:</p>
+<p><strong>OpenRouter</strong> (recommended: largest free model catalog)</p>
+<p>OpenRouter aggregates free model tiers from Google, Meta, Mistral, and others behind one API key:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Sign in with browser — no credit card required</span>
+gptme<span class="w"> </span><span class="s1">&#39;/account setup openrouter&#39;</span>
+
+<span class="c1"># Then use any :free-tagged model</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/google/gemini-2.5-flash:free
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/meta-llama/llama-3.3-70b-instruct:free
+</pre></div>
+</div>
+<p>Free OpenRouter models are rate-limited but sufficient for personal use. The <code class="docutils literal notranslate"><span class="pre">:free</span></code> suffix selects
+the free tier; omitting it routes to paid inference.</p>
+<p><strong>Google Gemini</strong> (generous free quota, 1 M token context)</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get a free API key at https://aistudio.google.com/apikey (no credit card)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GEMINI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-key&quot;</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gemini/gemini-2.5-flash
+</pre></div>
+</div>
+<p><strong>Groq</strong> (fast inference, free tier)</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get a free API key at https://console.groq.com (no credit card)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GROQ_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-key&quot;</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
+</pre></div>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>Free cloud tiers give better results than local small models for most tasks, while still
+requiring zero spend. OpenRouter’s <code class="docutils literal notranslate"><span class="pre">/account</span> <span class="pre">setup</span></code> is the fastest path — one browser
+sign-in configures everything.</p>
+<p>For truly private workflows, prefer <a class="reference internal" href="#local-models"><span class="std std-ref">local models</span></a> or a self-hosted
+server. Cloud providers receive your prompts on their infrastructure.</p>
+</div>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
@@ -686,6 +723,7 @@ for Ollama, vLLM, and custom server setup.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-examples">Quick Examples</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-models-no-api-key-required">Local Models (No API Key Required)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#free-cloud-providers-no-credit-card-required">Free Cloud Providers (No Credit Card Required)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#support">Support</a></li>
 </ul>

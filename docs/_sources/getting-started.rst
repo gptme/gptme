@@ -84,6 +84,8 @@ Here are some compelling examples to get you started:
     # Resume conversations
     gptme -r
 
+.. _local-models:
+
 Local Models (No API Key Required)
 -----------------------------------
 
@@ -121,6 +123,52 @@ For better results on coding tasks, use a larger model:
 
 See :doc:`providers` for Groq and all other built-in provider options, or :doc:`providers-custom`
 for Ollama, vLLM, and custom server setup.
+
+Free Cloud Providers (No Credit Card Required)
+----------------------------------------------
+
+Several cloud providers offer free tiers that work with gptme out of the box:
+
+**OpenRouter** (recommended: largest free model catalog)
+
+OpenRouter aggregates free model tiers from Google, Meta, Mistral, and others behind one API key:
+
+.. code-block:: bash
+
+    # Sign in with browser — no credit card required
+    gptme '/account setup openrouter'
+
+    # Then use any :free-tagged model
+    gptme "hello" -m openrouter/google/gemini-2.5-flash:free
+    gptme "hello" -m openrouter/meta-llama/llama-3.3-70b-instruct:free
+
+Free OpenRouter models are rate-limited but sufficient for personal use. The ``:free`` suffix selects
+the free tier; omitting it routes to paid inference.
+
+**Google Gemini** (generous free quota, 1 M token context)
+
+.. code-block:: bash
+
+    # Get a free API key at https://aistudio.google.com/apikey (no credit card)
+    export GEMINI_API_KEY="your-key"
+    gptme "hello" -m gemini/gemini-2.5-flash
+
+**Groq** (fast inference, free tier)
+
+.. code-block:: bash
+
+    # Get a free API key at https://console.groq.com (no credit card)
+    export GROQ_API_KEY="your-key"
+    gptme "hello" -m groq/llama-3.3-70b-versatile
+
+.. tip::
+
+   Free cloud tiers give better results than local small models for most tasks, while still
+   requiring zero spend. OpenRouter's ``/account setup`` is the fastest path — one browser
+   sign-in configures everything.
+
+   For truly private workflows, prefer :ref:`local models <local-models>` or a self-hosted
+   server. Cloud providers receive your prompts on their infrastructure.
 
 
 Next Steps
