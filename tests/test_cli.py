@@ -2100,6 +2100,12 @@ def test_tool_manifest_log_workspace_resolves_manifest_from_logdir_workspace(
     assert captured_workspace[-1].name == "workspace", (
         f"Expected manifest resolved from logdir/workspace, got {captured_workspace[-1]}"
     )
+    # Negative check: must not be the cwd — even if cwd happens to be named
+    # "workspace" the above assertion alone would not distinguish logdir/workspace
+    # from cwd.
+    assert captured_workspace[-1] != Path.cwd(), (
+        f"Manifest workspace must not be cwd; got {captured_workspace[-1]}"
+    )
 
 
 def test_show_prompt_stats_log_workspace_resolves_manifest_from_conversation_logdir(
