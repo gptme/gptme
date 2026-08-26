@@ -144,8 +144,8 @@ cleanup_browser
 trap - EXIT INT TERM
 ```
 
-Create an API key in the [Browser Use Cloud
-dashboard](https://cloud.browser-use.com) and export it as
+Create an API key on the [Browser Use Cloud API key
+page](https://cloud.browser-use.com/settings?tab=api-keys&new=1) and export it as
 `BROWSER_USE_API_KEY` first. The managed browser includes a hardened Chromium
 build and residential proxy; gptme keeps using its existing Playwright tools.
 
