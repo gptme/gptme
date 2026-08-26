@@ -453,7 +453,7 @@ def proactive_summarize_log(
     # with the same model+provider+messages but different context windows are safe
     # to share a cached summary.
     key_parts = [model.model, model.provider] + [
-        f"{m.role}:{m.content}" for m in summarize_middle
+        [m.role, m.content] for m in summarize_middle
     ]
     # Use json.dumps for unambiguous serialization: a NUL-delimited join would
     # map distinct message sequences containing NUL to the same byte string.
