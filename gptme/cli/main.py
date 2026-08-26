@@ -1010,8 +1010,9 @@ def main(
     from ..chat import chat
     from ..config import ensure_workspace_dir, get_config, setup_config_from_cli
     from ..init import init_logging
-    from ..llm import get_provider_from_model
+    from ..llm import get_provider_from_model, is_custom_provider
     from ..llm import reply as llm_reply
+    from ..llm.models import PROVIDERS, get_model
     from ..message import Message
     from ..profiles import get_profile
     from ..prompts import (
@@ -1342,11 +1343,27 @@ def main(
         sys.exit(1)
 
     # Validate model early to fail fast before the expensive get_prompt() call.
-    # Only check models with a provider/ prefix; bare provider names (e.g. "anthropic")
-    # and model aliases (e.g. "gpt-4o") are left for init_model() to resolve.
-    if config.chat.model and "/" in config.chat.model:
+    # Slash-prefixed names are checked via provider lookup. Bare provider names
+    # (e.g. "anthropic") and resolvable aliases (e.g. "gpt-4o") still pass
+    # through to init_model(); unresolvable bare names used to skip this block
+    # and pay get_prompt() (workspace context_cmd, 10s+) before init_model()
+    # rejected them.
+    if config.chat.model:
         try:
-            get_provider_from_model(config.chat.model)
+            if "/" in config.chat.model:
+                get_provider_from_model(config.chat.model)
+            elif config.chat.model not in PROVIDERS and not is_custom_provider(
+                config.chat.model
+            ):
+                resolved = get_model(config.chat.model)
+                if resolved.provider == "unknown":
+                    raise ValueError(
+                        f"Unknown model {config.chat.model!r}. Use 'provider/model' "
+                        "with a known provider "
+                        f"(e.g. 'openai/{config.chat.model}'), or configure a "
+                        "custom provider. Run 'gptme-util models list' to see "
+                        "available models."
+                    )
         except ValueError as e:
             _cleanup_aborted_new_logdir(logdir, preexisting=logdir_preexisting)
             raise click.UsageError(f"--model: {e}") from e

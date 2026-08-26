@@ -551,6 +551,66 @@ def test_model_rejects_unknown_provider_before_context_cmd(
     assert "Traceback" not in result.output
 
 
+def test_model_rejects_unknown_bare_name_before_context_cmd(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """--model with an unresolvable bare name should fail fast before get_prompt().
+
+    Regression: the early check only ran for slash-prefixed provider/model
+    strings, so `gptme --model nosuch` paid the full workspace context_cmd
+    cost (often looking like a hang) before init_model() rejected it.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(
+        "gptme.prompts.get_prompt",
+        lambda **kwargs: pytest.fail("get_prompt was called before model validation"),
+    )
+    monkeypatch.setattr(
+        importlib.import_module("gptme.chat"),
+        "chat",
+        lambda *args, **kwargs: pytest.fail("chat ran"),
+    )
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
+
+    result = runner.invoke(
+        cli.main,
+        ["--model", "definitely-not-a-model-7f83", "--non-interactive", "hello"],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "Unknown model 'definitely-not-a-model-7f83'" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_model_allows_bare_alias_through_validation_block(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """A resolvable bare alias (gpt-4o) should still reach get_prompt()."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+
+    called: dict[str, bool] = {"get_prompt": False}
+
+    def _fake_get_prompt(**kwargs):
+        called["get_prompt"] = True
+        return []
+
+    monkeypatch.setattr("gptme.prompts.get_prompt", _fake_get_prompt)
+    monkeypatch.setattr(
+        importlib.import_module("gptme.chat"), "chat", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
+
+    result = runner.invoke(
+        cli.main,
+        ["--model", "gpt-4o", "--non-interactive", "hello"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert called["get_prompt"], "resolvable aliases must still reach get_prompt"
+
+
 @pytest.mark.parametrize(
     ("bad_name", "expected_message"),
     [
