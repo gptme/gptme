@@ -457,9 +457,10 @@ def cleanup_subagents_after():
     # globals dirty for the next test.  Shorter timeouts give headroom.
     try:
         for subagent in subagents_copy:
-            # Clean up threads (2s cap — well under the 10s teardown limit)
+            # Clean up threads (5s cap — well under the 10s teardown limit)
+            # Increased from 2s to handle longer exponential backoff in retry decorators
             if subagent.thread is not None and subagent.thread.is_alive():
-                subagent.thread.join(timeout=2.0)
+                subagent.thread.join(timeout=5.0)
             # Clean up subprocesses (subprocess mode)
             if subagent.process is not None and subagent.process.poll() is None:
                 subagent.process.terminate()
