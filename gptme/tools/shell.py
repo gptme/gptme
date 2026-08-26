@@ -1791,10 +1791,15 @@ def execute_shell(
         def _bg_execute_fn(c: str, p: Path | None) -> Generator[Message, None, None]:
             if preceding_cmds.strip():
                 yield from _execute_preceding_commands(preceding_cmds)
-            # Strip 'bg ' prefix: the confirmation preview shows the full 'bg <cmd>'
-            # string, so an edited value may still carry the prefix.
-            # execute_bg_command expects the payload only (without 'bg ').
-            actual_cmd = c.removeprefix("bg ") if c.startswith("bg ") else c
+            # When surrounding commands exist, allow_edit=False so c is the full
+            # command context (_full_cmd_context), not just bg_cmd. Use the
+            # captured bg_cmd from the closure directly in that case.
+            # When no surrounding commands, c is the (possibly edited) bg_cmd with
+            # optional 'bg ' prefix that must be stripped before execution.
+            if _has_surrounding:
+                actual_cmd = bg_cmd
+            else:
+                actual_cmd = c.removeprefix("bg ") if c.startswith("bg ") else c
             yield from execute_bg_command(actual_cmd, memory_limit=_bg_memory_limit)
             if remaining_cmds.strip():
                 yield from execute_shell(remaining_cmds, None, None)
@@ -1809,8 +1814,16 @@ def execute_shell(
         # parts would be silently ignored, causing execution to diverge from the
         # approved content.  Editing is safe only when bg_cmd is the sole command.
         _has_surrounding = bool(preceding_cmds.strip() or remaining_cmds.strip())
+        # When surrounding commands exist, pass the full context so that
+        # TOOL_CONFIRM hooks (including third-party guardrails) see the complete
+        # command sequence via tool_use.content, not just the isolated bg_cmd.
+        # This ensures hooks checking tool_use.content can block dangerous
+        # preceding commands (e.g. "cat ~/.ssh/id_rsa") even when the bg payload
+        # itself ("ls") is innocuous.  When no surrounding commands exist, pass
+        # bg_cmd directly so the user can edit it cleanly.
+        _confirm_content = _full_cmd_context if _has_surrounding else bg_cmd
         yield from execute_with_confirmation(
-            bg_cmd,
+            _confirm_content,
             args,
             kwargs,
             execute_fn=_bg_execute_fn,
