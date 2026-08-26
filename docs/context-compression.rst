@@ -75,8 +75,9 @@ Create a class that implements the ``ContextProvider`` abstract base class:
 
 .. code-block:: python
 
-    from gptme.tools.autocompact.context_provider import ContextProvider, CompressionConfig
-    from collections.abc import Generator
+    from gptme.tools.autocompact.context_provider import (
+        ContextProvider, CompressionConfig, CompactionResult,
+    )
     from gptme.message import Message
 
     class MyContextProvider(ContextProvider):
@@ -96,10 +97,15 @@ Create a class that implements the ``ContextProvider`` abstract base class:
 
         def compress(
             self, messages: list[Message], config: CompressionConfig
-        ) -> Generator[Message, None, None]:
-            """Apply compression and yield compacted messages."""
-            # Your compression logic here
-            yield from messages
+        ) -> CompactionResult:
+            """Apply compression and return a CompactionResult."""
+            # Your compression logic here — return a CompactionResult, not a generator
+            source_digest = self._compute_digest(messages)
+            compacted = messages[-50:]  # keep last 50 messages
+            return CompactionResult(
+                messages=compacted,
+                source_digest=source_digest,
+            )
 
 Provider Interface
 ==================
@@ -144,25 +150,26 @@ This allows intelligent decisions: some providers might always compress when clo
 ``compress()`` method
 ~~~~~~~~~~~~~~~~~~~~~
 
-Applies compression and yields reduced messages.
+Applies compression and returns a :class:`~gptme.tools.autocompact.context_provider.CompactionResult`.
 
 .. code-block:: python
 
     def compress(
         self, messages: list[Message], config: CompressionConfig
-    ) -> Generator[Message, None, None]:
+    ) -> CompactionResult:
         """
         Args:
             messages: List of messages to compress
             config: Compression configuration
 
-        Yields:
-            Message: Compacted messages in original order
+        Returns:
+            CompactionResult: Contains the compacted message list and
+                metadata (source_digest) for cache invalidation.
 
         Note:
             - Preserve message structure (role, timestamp, tool_calls, etc.)
-            - Log summary statistics about compression
-            - May optionally add references to master context for recovery
+            - Do NOT return a generator — the caller accesses .messages directly
+            - May optionally set covered_through for partial-context tracking
         """
 
 CompressionConfig Dataclass
@@ -175,7 +182,9 @@ Configuration passed to compression methods:
     @dataclass
     class CompressionConfig:
         limit: int | None = None
-            # Target token limit (None = use model default)
+            # Target token limit. None disables automatic should_compress()
+            # checks (DefaultContextProvider.should_compress returns False).
+            # Custom providers may handle None differently.
 
         max_tool_result_tokens: int = 2000
             # Maximum tokens allowed in a tool result before removal
@@ -230,7 +239,8 @@ Once registered, use your provider by name:
 
     # Check if compression is needed
     if provider.should_compress(messages, config):
-        compacted = list(provider.compress(messages, config))
+        result = provider.compress(messages, config)
+        compacted = result.messages  # CompactionResult.messages is a list[Message]
 
 Discovering Available Providers
 -------------------------------
@@ -276,19 +286,19 @@ This allows recovery of the full context if needed later.
 Performance
 -----------
 
-Generators are preferred over returning full lists:
+The ``compress`` method must return a :class:`~gptme.tools.autocompact.context_provider.CompactionResult`
+(not a generator or a bare list). When building the result, process messages
+lazily to avoid allocating unnecessary copies:
 
 .. code-block:: python
 
-    # ✅ Preferred: streaming processing
-    def compress(self, messages, config) -> Generator[Message, None, None]:
-        yield from messages
-
-    # ❌ Avoid: allocating full list
-    def compress(self, messages, config) -> list[Message]:
-        return messages
-
-Streaming allows processing large conversations without allocating full lists.
+    def compress(self, messages, config) -> CompactionResult:
+        # Build compacted list efficiently with a comprehension or generator expression
+        compacted = [self._maybe_trim(m) for m in messages]
+        return CompactionResult(
+            messages=compacted,
+            source_digest=self._compute_digest(messages),
+        )
 
 Examples
 ========
@@ -299,6 +309,10 @@ Code-Aware Compression
 Example provider that's more aggressive with code comments:
 
 .. code-block:: python
+
+    from gptme.tools.autocompact.context_provider import (
+        ContextProvider, CompressionConfig, CompactionResult,
+    )
 
     class CodeAwareProvider(ContextProvider):
         @property
@@ -311,13 +325,17 @@ Example provider that's more aggressive with code comments:
             limit = config.limit or 4000
             return tokens > int(0.9 * limit)
 
-        def compress(self, messages, config):
-            for msg in messages:
-                if msg.role == "assistant" and "```" in msg.content:
-                    # Truncate code comments more aggressively
-                    yield self._compress_code_message(msg, config)
-                else:
-                    yield msg
+        def compress(self, messages, config) -> CompactionResult:
+            compacted = [
+                self._compress_code_message(msg, config)
+                if msg.role == "assistant" and "```" in msg.content
+                else msg
+                for msg in messages
+            ]
+            return CompactionResult(
+                messages=compacted,
+                source_digest=self._compute_digest(messages),
+            )
 
 Statistical Compression
 -----------------------
@@ -336,9 +354,13 @@ Provider that uses redundancy detection:
             redundancy = self._compute_redundancy_score(messages)
             return redundancy > 0.3  # 30% redundant content
 
-        def compress(self, messages, config):
+        def compress(self, messages, config) -> CompactionResult:
             # Remove duplicate patterns, extract key information
-            yield from self._extract_unique_content(messages)
+            compacted = list(self._extract_unique_content(messages))
+            return CompactionResult(
+                messages=compacted,
+                source_digest=self._compute_digest(messages),
+            )
 
 Related
 =======
