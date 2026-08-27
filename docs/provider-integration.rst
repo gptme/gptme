@@ -378,8 +378,5 @@ Related Documentation
 - :doc:`providers-custom` — custom Ollama/vLLM config reference
 - :doc:`plugins` — unified plugin system (tools + hooks + provider in one package)
 - :doc:`contributing` — general contribution guide
-- `Provider Plugin tests <https://github.com/gptme/gptme/blob/master/tests/test_provider_plugins.py>`_
-  — reference test suite for the plugin system
-
-- `gptme-provider-template <https://github.com/gptme/gptme-provider-template>`_
-  — minimal starter template with OpenAI-compatible and OAuth examples
+- `Provider Plugin tests <https://github.com/gptme/gptme/blob/master/tests/test_provider_plugins.py>`_ — reference test suite for the plugin system
+- `gptme-provider-template <https://github.com/gptme/gptme-provider-template>`_ — minimal starter template with OpenAI-compatible and OAuth examples
