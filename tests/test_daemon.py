@@ -183,20 +183,54 @@ class TestSessionDaemonState:
         finally:
             _dm.get_daemon_dir = orig
 
-    def test_is_running_true_with_own_pid(self, tmp_path):
+    def test_is_running_false_when_stale_pid_was_reused(self, tmp_path):
         from gptme.server import daemon as _dm
 
         orig = _dm.get_daemon_dir
         _dm.get_daemon_dir = lambda: tmp_path
-        server = _ReadyDaemonThread(tmp_path / "live.socket")
-        server.start()
-        server.ready.wait(timeout=1)
+        try:
+            d = SessionDaemon("reused")
+            d.pid_path.write_text(str(os.getpid()))
+            d.socket_path.touch()
+
+            # A live PID and stale socket do not prove that process owns the daemon.
+            assert not d.is_running()
+        finally:
+            _dm.get_daemon_dir = orig
+
+    def test_stop_does_not_signal_reused_pid(self, tmp_path, monkeypatch):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        d = SessionDaemon("reused")
+        d.pid_path.write_text(str(os.getpid()))
+        d.socket_path.touch()
+        signals: list[int] = []
+        real_kill = os.kill
+
+        def record_kill(pid: int, signum: int) -> None:
+            if signum == 0:
+                real_kill(pid, signum)
+            else:
+                signals.append(signum)
+
+        monkeypatch.setattr(os, "kill", record_kill)
+        d.stop()
+
+        assert signals == []
+
+    def test_is_running_true_with_owned_pid_file(self, tmp_path):
+        from gptme.server import daemon as _dm
+
+        orig = _dm.get_daemon_dir
+        _dm.get_daemon_dir = lambda: tmp_path
         try:
             d = SessionDaemon("live")
-            (tmp_path / "live.pid").write_text(str(os.getpid()))
+            d._acquire_pid_file()
+            d.socket_path.touch()
             assert d.is_running()
         finally:
-            server.join(timeout=1)
+            d._cleanup()
             _dm.get_daemon_dir = orig
 
 
@@ -500,12 +534,14 @@ class TestListDaemons:
 
         monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
         daemon = SessionDaemon("occupied")
-        daemon.pid_path.write_text(str(os.getpid()))
+        daemon._acquire_pid_file()
         daemon.socket_path.touch()
-
-        # The single-client MVP cannot accept a status probe while occupied, so
-        # liveness relies on the daemon-owned PID and socket lifecycle markers.
-        assert daemon.is_running()
+        try:
+            # The advisory lock remains held while any client occupies the single
+            # connection slot, so liveness does not depend on a status handshake.
+            assert daemon.is_running()
+        finally:
+            daemon._cleanup()
 
     def test_list_empty(self, tmp_path):
         from gptme.server import daemon as _dm
@@ -536,16 +572,15 @@ class TestListDaemons:
 
         orig = _dm.get_daemon_dir
         _dm.get_daemon_dir = lambda: tmp_path
-        server = _ReadyDaemonThread(tmp_path / "live.socket")
-        server.start()
-        server.ready.wait(timeout=1)
         try:
-            (tmp_path / "live.pid").write_text(str(os.getpid()))
+            daemon = SessionDaemon("live")
+            daemon._acquire_pid_file()
+            daemon.socket_path.touch()
             daemons = list_daemons()
             assert len(daemons) == 1
             assert daemons[0]["running"] is True
         finally:
-            server.join(timeout=1)
+            daemon._cleanup()
             _dm.get_daemon_dir = orig
 
 

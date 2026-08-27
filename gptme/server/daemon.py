@@ -19,6 +19,7 @@ later attachments continue the conversation after earlier turns have exited.
 from __future__ import annotations
 
 import codecs
+import fcntl
 import logging
 import os
 import queue
@@ -33,7 +34,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pathlib import Path
-    from typing import Protocol
+    from typing import IO, Protocol
 
     class _ReadableFD(Protocol):
         def fileno(self) -> int: ...
@@ -86,6 +87,7 @@ class SessionDaemon:
         self._stop_event = threading.Event()
         self._proc_lock = threading.Lock()
         self._proc: subprocess.Popen[bytes] | None = None
+        self._pid_file: IO[str] | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -114,28 +116,48 @@ class SessionDaemon:
         try:
             pid = int(self.pid_path.read_text())
             os.kill(pid, 0)
+            pid_file = self.pid_path.open()
         except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError):
             return False
-        # The MVP intentionally serves one attached client at a time. A handshake
-        # probe would therefore time out while that client is attached even though
-        # the daemon is healthy. The PID and bound socket are the daemon-owned
-        # lifecycle markers; cleanup removes both when the process exits.
-        return True
+        try:
+            fcntl.flock(pid_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        else:
+            fcntl.flock(pid_file, fcntl.LOCK_UN)
+            return False
+        finally:
+            pid_file.close()
 
     def stop(self) -> None:
-        """Send SIGTERM to the daemon process."""
+        """Send SIGTERM only to the process that owns the daemon PID file."""
+        if not self.is_running():
+            return
         try:
             pid = int(self.pid_path.read_text())
             os.kill(pid, signal.SIGTERM)
-        except (FileNotFoundError, ProcessLookupError, ValueError):
+        except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError):
             pass
 
     # ------------------------------------------------------------------
     # Internal — runs in the daemon process
     # ------------------------------------------------------------------
 
+    def _acquire_pid_file(self) -> None:
+        pid_file = self.pid_path.open("a+")
+        try:
+            fcntl.flock(pid_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            pid_file.close()
+            raise
+        pid_file.seek(0)
+        pid_file.truncate()
+        pid_file.write(str(os.getpid()))
+        pid_file.flush()
+        self._pid_file = pid_file
+
     def _run(self, gptme_args: list[str], prompts: list[str]) -> None:
-        self.pid_path.write_text(str(os.getpid()))
+        self._acquire_pid_file()
 
         server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -336,8 +358,11 @@ class SessionDaemon:
                     self._client = None
 
     def _cleanup(self) -> None:
-        for path in (self.socket_path, self.pid_path):
-            path.unlink(missing_ok=True)
+        self.socket_path.unlink(missing_ok=True)
+        if self._pid_file is not None:
+            self._pid_file.close()
+            self._pid_file = None
+            self.pid_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -439,12 +464,12 @@ def list_daemons() -> list[dict]:
     for pid_file in daemon_dir.glob("*.pid"):
         name = pid_file.stem
         sock = daemon_dir / f"{name}.socket"
+        daemon = SessionDaemon(name)
+        running = daemon.is_running()
         try:
             pid = int(pid_file.read_text())
-            os.kill(pid, 0)
-            running = sock.exists()
-        except (ValueError, ProcessLookupError, PermissionError):
-            running = False
+        except ValueError:
+            pid = 0
         result.append(
             {
                 "session": name,
