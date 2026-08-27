@@ -90,7 +90,7 @@ def _is_valid_entry(parsed: object) -> bool:
             ("tags", list),
             ("created_at", str),
         )
-    )
+    ) and all(isinstance(tag, str) for tag in parsed["tags"])
 
 
 def _load_entries() -> list[KnowledgeEntry]:
@@ -183,6 +183,8 @@ def knowledge_search(
     """
     if not query.strip():
         raise ValueError("query cannot be empty")
+    if top_k < 1:
+        raise ValueError("top_k must be at least 1")
 
     query_words = set(_extract_keywords(query))
     with _exclusive_lock():

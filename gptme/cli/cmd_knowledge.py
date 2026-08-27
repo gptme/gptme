@@ -11,6 +11,7 @@ after each ``save`` so semantic search stays current.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,14 @@ import click
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _strip_controls(value: str) -> str:
+    """Strip terminal control characters from human-readable output."""
+    return _CONTROL_CHARS_RE.sub("", value)
 
 
 @click.group("knowledge")
@@ -86,7 +95,7 @@ def knowledge_save_cmd(
                 capture_output=True,
                 timeout=30,
             )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             click.echo(f"Warning: gptme-rag index failed: {e}", err=True)
 
 
@@ -163,9 +172,9 @@ def knowledge_search_cmd(query: str, top_k: int, tags: tuple[str, ...], as_json:
     for i, entry in enumerate(results, 1):
         click.echo(f"\n[{i}] {entry['id'][:8]}  {entry.get('created_at', '')[:10]}")
         if entry.get("tags"):
-            click.echo(f"    Tags: {', '.join(entry['tags'])}")
-        click.echo(f"    Problem:    {entry['problem']}")
-        click.echo(f"    Resolution: {entry['resolution']}")
+            click.echo(f"    Tags: {_strip_controls(', '.join(entry['tags']))}")
+        click.echo(f"    Problem:    {_strip_controls(entry['problem'])}")
+        click.echo(f"    Resolution: {_strip_controls(entry['resolution'])}")
 
 
 @knowledge.command("list")
@@ -200,9 +209,13 @@ def knowledge_list_cmd(tags: tuple[str, ...], limit: int, as_json: bool):
     for entry in entries:
         eid = entry.get("id", "")[:8]
         date = entry.get("created_at", "")[:10]
-        tags_str = f"  [{', '.join(entry['tags'])}]" if entry.get("tags") else ""
+        tags_str = (
+            f"  [{_strip_controls(', '.join(entry['tags']))}]"
+            if entry.get("tags")
+            else ""
+        )
         click.echo(f"  {eid}  {date}{tags_str}")
-        click.echo(f"    {entry['problem'][:80]}")
+        click.echo(f"    {_strip_controls(entry['problem'][:80])}")
 
 
 @knowledge.command("delete")
@@ -255,7 +268,7 @@ def knowledge_delete_cmd(entry_id: str):
                 capture_output=True,
                 timeout=30,
             )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             click.echo(
                 f"Warning: gptme-rag re-index after delete failed: {e}",
                 err=True,
