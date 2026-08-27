@@ -659,8 +659,23 @@ def shell_allowlist_hook(
     # before checking the complete sequence.  A bg command may follow a shell
     # separator on the same line as well as start a line. Keep every separator
     # and surrounding command in place so is_allowlisted() still validates the
-    # complete sequence.
-    check_cmd = re.sub(r"(^|(?<=[;&|]))(\s*)bg\s+", r"\1\2", cmd, flags=re.MULTILINE)
+    # complete sequence. Only remove prefixes outside quoted regions; text such
+    # as ``echo "hi; bg ls"`` is ordinary shell content, not gptme syntax.
+    quote_regions = _find_quotes(cmd)
+
+    def _strip_bg_prefix(match: re.Match[str]) -> str:
+        return (
+            match.group(0)
+            if _is_in_quoted_region(match.start(), quote_regions)
+            else match.group(1) + match.group(2)
+        )
+
+    check_cmd = re.sub(
+        r"(^|(?<=[;&|]))(\s*)bg\s+",
+        _strip_bg_prefix,
+        cmd,
+        flags=re.MULTILINE,
+    )
 
     # Check if command is allowlisted
     if is_allowlisted(check_cmd):

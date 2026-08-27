@@ -277,6 +277,24 @@ class TestExecuteShellAllowlist:
         assert result is not None
         assert result.action.value == "confirm"
 
+    @pytest.mark.parametrize(
+        "preview",
+        [
+            'echo "hi; bg ls"',
+            "echo 'hi; bg ls'",
+        ],
+    )
+    def test_quoted_bg_text_is_not_treated_as_control_syntax(self, preview):
+        """A quoted ``bg`` substring is shell data, not a control prefix."""
+        tool_use = ToolUse(
+            tool="shell",
+            args=[],
+            kwargs={},
+            content=preview,
+        )
+
+        assert shell_allowlist_hook(tool_use, preview=preview) is None
+
     def test_bg_with_preceding_dangerous_cmd_does_not_auto_confirm(self):
         """When dangerous preceding commands exist, do NOT auto-confirm.
 

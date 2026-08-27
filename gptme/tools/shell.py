@@ -1825,7 +1825,7 @@ def execute_shell(
                 yield from _execute_preceding_commands(preceding_cmds)
             yield from execute_bg_command(actual_cmd, memory_limit=_bg_memory_limit)
             if remaining_cmds.strip():
-                yield from execute_shell(remaining_cmds, None, None)
+                yield from execute_shell(remaining_cmds, [], None)
 
         def _bg_preview_fn(content: str, path: Path | None) -> str | None:
             if _has_surrounding:

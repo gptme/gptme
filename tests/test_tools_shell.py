@@ -1728,6 +1728,27 @@ def test_list_background_jobs():
     reset_background_jobs()
 
 
+def test_bg_command_executes_remaining_commands():
+    """Commands after a bg line are passed back to execute_shell correctly."""
+    from unittest.mock import patch
+
+    from gptme.hooks.confirm import ConfirmationResult
+    from gptme.tools.shell import execute_shell
+
+    with (
+        patch(
+            "gptme.hooks.get_confirmation",
+            return_value=ConfirmationResult.confirm(),
+        ),
+        patch("gptme.tools.shell.execute_bg_command", return_value=iter([])),
+        patch("gptme.tools.shell.execute_shell_impl", return_value=iter([])) as execute,
+    ):
+        list(execute_shell("bg sleep 1\nprintf remaining", [], None))
+
+    execute.assert_called_once()
+    assert execute.call_args.args[0] == "printf remaining"
+
+
 def test_execute_bg_command():
     """Test the bg command handler."""
     from gptme.tools.shell import execute_bg_command, reset_background_jobs

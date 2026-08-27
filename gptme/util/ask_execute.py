@@ -138,7 +138,7 @@ def execute_with_confirmation(
                     "Editing is not supported for this command; execution aborted.",
                 )
                 return
-            if result.edited_content is None:
+            if not result.edited_content:
                 yield Message(
                     "system", "Editing returned no content; execution aborted."
                 )
