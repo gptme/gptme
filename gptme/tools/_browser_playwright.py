@@ -33,6 +33,7 @@ from ._computer_gate import sensitive_action_gate
 
 _browser: BrowserThread | None = None
 _last_logs: dict = {"logs": [], "errors": [], "url": None}
+_last_response_content_type: str = ""
 # Persistent page state for interactive browsing (open_page/click/fill/scroll)
 _current_page: Page | None = None
 _current_context: BrowserContext | None = None
@@ -158,8 +159,8 @@ def _execute_with_retry(
 
 
 def _load_page(browser: Browser, url: str) -> str:
-    """Load a page and return its body HTML, always capturing logs"""
-    global _last_logs
+    """Load a page and return its body HTML (or markdown text), always capturing logs"""
+    global _last_logs, _last_response_content_type
 
     managed = _create_page(
         browser,
@@ -196,21 +197,29 @@ def _load_page(browser: Browser, url: str) -> str:
     page.on("pageerror", on_page_error)
 
     # Navigate to the page
+    nav_response = None
     try:
-        page.goto(url)
+        nav_response = page.goto(url)
         # Wait for page to be fully loaded (includes network idle)
         page.wait_for_load_state("networkidle")
     except Exception as e:
         page_errors.append(f"Navigation error: {e}")
         # Don't re-raise, just capture the error
 
+    # Track content type so read_url can skip html→markdown when not needed
+    _last_response_content_type = (
+        nav_response.headers.get("content-type", "") if nav_response else ""
+    )
+
     # Store logs globally
     _last_logs = {"logs": logs, "errors": page_errors, "url": url}
 
     try:
-        # Try to extract main content area first, falling back to body
-        html = _extract_main_content(page)
-        return html
+        # Server returned markdown directly — use plain text, skip HTML extraction
+        if "text/markdown" in _last_response_content_type:
+            return page.inner_text("body")
+        # Otherwise extract main content HTML for html_to_markdown conversion
+        return _extract_main_content(page)
     finally:
         managed.close()
 
@@ -330,8 +339,11 @@ def _extract_main_content(page: Page) -> str:
 
 def read_url(url: str) -> str:
     """Read the text of a webpage and return the text in Markdown format."""
-    body_html = _execute_with_retry(_load_page, url)
-    return html_to_markdown(body_html)
+    body_content = _execute_with_retry(_load_page, url)
+    # Server responded with markdown directly — return as-is (skip html→markdown)
+    if "text/markdown" in _last_response_content_type:
+        return body_content
+    return html_to_markdown(body_content)
 
 
 def read_logs() -> str:
