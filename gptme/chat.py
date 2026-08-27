@@ -1,8 +1,10 @@
 import copy
 import logging
 import os
+import sys
 import threading
 from collections.abc import Callable, Generator
+from contextvars import ContextVar
 from pathlib import Path
 
 from .commands import execute_cmd
@@ -52,29 +54,42 @@ from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_ti
 
 logger = logging.getLogger(__name__)
 
-# Session-scoped token accumulator for --track-tokens.
-# Sums (input + output) tokens across all LLM calls in a session.
-_session_tokens: int = 0
+# A mutable value in a ContextVar keeps each chat isolated while allowing all
+# step() calls in that chat to contribute to one running total.
+_session_tokens: ContextVar[list[int] | None] = ContextVar(
+    "session_tokens", default=None
+)
 
 
 def _reset_token_accumulator() -> None:
-    global _session_tokens
-    _session_tokens = 0
+    _session_tokens.set([0])
+
+
+def _get_session_tokens() -> int:
+    """Return the running total for the current chat context."""
+    session_tokens = _session_tokens.get()
+    return session_tokens[0] if session_tokens is not None else 0
 
 
 def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> None:
     """Print running token totals after each LLM call (enabled by --track-tokens)."""
-    global _session_tokens
+    session_tokens = _session_tokens.get()
+    if session_tokens is None:
+        session_tokens = [0]
+        _session_tokens.set(session_tokens)
+
     n_in = len_tokens(msgs, model)
     n_out = len_tokens(msg_response, model)
-    _session_tokens += n_in + n_out
+    session_tokens[0] += n_in + n_out
 
-    model_meta = get_model(model)
-    context_limit = model_meta.context
-    pct = 100.0 * n_in / context_limit if context_limit else 0.0
-    console.log(
-        f"[track-tokens] context: {n_in:,} / {context_limit:,} ({pct:.1f}%) | "
-        f"+{n_out:,} out | session total: {_session_tokens:,}"
+    context_limit = get_model(model).context
+    context_display = f"{context_limit:,}" if context_limit else "unknown"
+    pct_display = f" ({100.0 * n_in / context_limit:.1f}%)" if context_limit else ""
+    print(
+        f"[track-tokens] context: {n_in:,} / {context_display}{pct_display} | "
+        f"+{n_out:,} out | session total: {session_tokens[0]:,}",
+        file=sys.stderr,
+        flush=True,
     )
 
 
