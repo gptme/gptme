@@ -1,10 +1,11 @@
 """Tests for --track-tokens / GPTME_TRACK_TOKENS token-accumulation logic."""
 
+import importlib
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-import gptme.chat as chat_module
+chat_module = importlib.import_module("gptme.chat")
 from gptme.chat import _log_token_usage, _reset_token_accumulator
 from gptme.message import Message
 
@@ -31,8 +32,8 @@ def test_accumulator_sums_across_turns(capsys):
     meta = _make_model_meta(context=10_000)
 
     with (
-        patch("gptme.chat.get_model", return_value=meta),
-        patch("gptme.chat.len_tokens", side_effect=[100, 20, 200, 30]),
+        patch.object(chat_module, "get_model", return_value=meta),
+        patch.object(chat_module, "len_tokens", side_effect=[100, 20, 200, 30]),
     ):
         msgs1 = [Message("user", "hello")]
         resp1 = Message("assistant", "world")
@@ -63,8 +64,10 @@ def test_accumulator_includes_tool_result_content(capsys):
     resp = Message("assistant", "done")
 
     with (
-        patch("gptme.chat.get_model", return_value=meta),
-        patch("gptme.chat.len_tokens", side_effect=[150, 10]) as mock_len_tokens,
+        patch.object(chat_module, "get_model", return_value=meta),
+        patch.object(
+            chat_module, "len_tokens", side_effect=[150, 10]
+        ) as mock_len_tokens,
     ):
         _log_token_usage(msgs, resp, "mock/gpt-mock")
 
@@ -79,8 +82,8 @@ def test_output_shows_context_percentage(capsys):
     meta = _make_model_meta(context=10_000)
 
     with (
-        patch("gptme.chat.get_model", return_value=meta),
-        patch("gptme.chat.len_tokens", side_effect=[1000, 50]),
+        patch.object(chat_module, "get_model", return_value=meta),
+        patch.object(chat_module, "len_tokens", side_effect=[1000, 50]),
     ):
         _log_token_usage(
             [Message("user", "hi")], Message("assistant", "ok"), "mock/gpt-mock"
@@ -96,8 +99,8 @@ def test_reset_clears_accumulator():
     meta = _make_model_meta(context=10_000)
 
     with (
-        patch("gptme.chat.get_model", return_value=meta),
-        patch("gptme.chat.len_tokens", side_effect=[50, 10]),
+        patch.object(chat_module, "get_model", return_value=meta),
+        patch.object(chat_module, "len_tokens", side_effect=[50, 10]),
     ):
         _log_token_usage(
             [Message("user", "hi")], Message("assistant", "ok"), "mock/gpt-mock"
