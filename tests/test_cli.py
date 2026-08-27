@@ -586,9 +586,13 @@ def test_model_rejects_unknown_bare_name_before_context_cmd(
 def test_model_allows_bare_alias_through_validation_block(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
-    """A resolvable bare alias (gpt-4o) should still reach get_prompt()."""
+    """A resolvable bare alias should still reach get_prompt()."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(
+        "gptme.llm.models.get_model",
+        lambda model: SimpleNamespace(provider="openai", model=model),
+    )
 
     called: dict[str, bool] = {"get_prompt": False}
 
@@ -604,7 +608,7 @@ def test_model_allows_bare_alias_through_validation_block(
 
     result = runner.invoke(
         cli.main,
-        ["--model", "gpt-4o", "--non-interactive", "hello"],
+        ["--model", "known-alias", "--non-interactive", "hello"],
     )
 
     assert result.exit_code == 0, result.output
