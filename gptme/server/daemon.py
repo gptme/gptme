@@ -9,13 +9,21 @@ Design decisions (resolved 2026-08-27):
 - Auto-start on attach: yes (Option A — better UX, matches tmux)
 - Socket location: ~/.config/gptme/daemon/<name>.socket (survives /tmp cleanup)
 - Multi-client: single-client for MVP (Phase 3 for observe-only fan-out)
+
+Each submitted prompt runs as a non-interactive turn against the same named
+conversation.  The daemon, rather than an individual gptme subprocess, owns the
+persistent lifecycle.  This lets an idle daemon accept a first prompt and lets
+later attachments continue the conversation after earlier turns have exited.
 """
 
 from __future__ import annotations
 
+import codecs
 import logging
 import os
+import queue
 import select
+import signal
 import socket
 import subprocess
 import sys
@@ -25,8 +33,13 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pathlib import Path
-    from typing import IO
+    from typing import Protocol
 
+    class _ReadableFD(Protocol):
+        def fileno(self) -> int: ...
+
+
+from ..util.conversation_ids import validate_conversation_id
 from .ipc_protocol import IPCMessage, recv_msg, send_msg
 
 logger = logging.getLogger(__name__)
@@ -44,11 +57,11 @@ def get_daemon_dir() -> Path:
 
 
 def get_socket_path(session_name: str) -> Path:
-    return get_daemon_dir() / f"{session_name}.socket"
+    return get_daemon_dir() / f"{validate_conversation_id(session_name)}.socket"
 
 
 def get_pid_path(session_name: str) -> Path:
-    return get_daemon_dir() / f"{session_name}.pid"
+    return get_daemon_dir() / f"{validate_conversation_id(session_name)}.pid"
 
 
 # ---------------------------------------------------------------------------
@@ -60,26 +73,36 @@ class SessionDaemon:
     """Background daemon that owns one gptme session and accepts socket clients."""
 
     def __init__(self, session_name: str) -> None:
-        self.session_name = session_name
+        self.session_name = validate_conversation_id(session_name)
         self.socket_path = get_socket_path(session_name)
         self.pid_path = get_pid_path(session_name)
-        self._output_buf: deque[bytes] = deque()
+        self._output_buf: deque[str] = deque()
         self._output_buf_size = 0
-        self._buf_lock = threading.Lock()
-        self._client_lock = threading.Lock()
+        # Serializes history replay, client publication, and all framed writes.
+        # A single lock prevents live output from interleaving with history frames.
+        self._output_lock = threading.Lock()
         self._client: socket.socket | None = None
+        self._turn_queue: queue.Queue[list[str]] = queue.Queue()
+        self._stop_event = threading.Event()
+        self._proc_lock = threading.Lock()
+        self._proc: subprocess.Popen[bytes] | None = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def start(self, gptme_args: list[str], daemonize: bool = True) -> None:
-        """Daemonize and run; returns immediately in the parent."""
-        if daemonize:
-            _daemonize()
-        # Now we are the daemon process
+    def start(
+        self,
+        gptme_args: list[str],
+        prompts: list[str] | None = None,
+        daemonize: bool = True,
+    ) -> None:
+        """Daemonize and run; return immediately in the original parent."""
+        if daemonize and _daemonize():
+            return
+
         try:
-            self._run(gptme_args)
+            self._run(gptme_args, prompts or [])
         except Exception:
             logger.exception("Daemon crashed")
         finally:
@@ -90,16 +113,16 @@ class SessionDaemon:
             return False
         try:
             pid = int(self.pid_path.read_text())
-            os.kill(pid, 0)  # check existence
-            return True
+            os.kill(pid, 0)
         except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError):
             return False
+        return _socket_is_accepting(self.socket_path)
 
     def stop(self) -> None:
         """Send SIGTERM to the daemon process."""
         try:
             pid = int(self.pid_path.read_text())
-            os.kill(pid, 15)  # SIGTERM
+            os.kill(pid, signal.SIGTERM)
         except (FileNotFoundError, ProcessLookupError, ValueError):
             pass
 
@@ -107,10 +130,9 @@ class SessionDaemon:
     # Internal — runs in the daemon process
     # ------------------------------------------------------------------
 
-    def _run(self, gptme_args: list[str]) -> None:
+    def _run(self, gptme_args: list[str], prompts: list[str]) -> None:
         self.pid_path.write_text(str(os.getpid()))
 
-        # Set up Unix socket
         server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         if self.socket_path.exists():
@@ -120,63 +142,109 @@ class SessionDaemon:
         server_sock.listen(1)
         server_sock.setblocking(False)
 
-        # Start gptme subprocess (non-interactive, stdin/stdout piped)
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "gptme", "--non-interactive"] + gptme_args,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
+        def request_stop(_signum: int, _frame: object) -> None:
+            self._stop_event.set()
 
-        assert proc.stdout is not None
-        assert proc.stdin is not None
-
-        # Thread: read subprocess output → buffer + forward to client
-        output_thread = threading.Thread(
-            target=self._pump_output,
-            args=(proc.stdout,),
+        old_sigterm = signal.signal(signal.SIGTERM, request_stop)
+        old_sigint = signal.signal(signal.SIGINT, request_stop)
+        worker = threading.Thread(
+            target=self._worker_loop,
+            args=(gptme_args,),
+            name=f"gptme-daemon-{self.session_name}",
             daemon=True,
         )
-        output_thread.start()
+        worker.start()
+        if prompts:
+            self._turn_queue.put(prompts)
 
-        # Main loop: accept connections and forward client input to subprocess
         try:
-            self._accept_loop(server_sock, proc)
+            self._accept_loop(server_sock)
         finally:
-            proc.terminate()
-            proc.wait()
+            self._stop_event.set()
+            self._terminate_process()
+            worker.join(timeout=5)
+            server_sock.close()
+            signal.signal(signal.SIGTERM, old_sigterm)
+            signal.signal(signal.SIGINT, old_sigint)
 
-    def _pump_output(self, stdout: IO[bytes]) -> None:
-        """Read subprocess stdout, buffer it, and forward to connected client."""
-        for chunk in iter(lambda: stdout.read(4096), b""):
-            with self._buf_lock:
-                self._output_buf.append(chunk)
-                self._output_buf_size += len(chunk)
-                # Trim ring buffer
+    def _terminate_process(self) -> None:
+        with self._proc_lock:
+            proc = self._proc
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+
+    def _worker_loop(self, gptme_args: list[str]) -> None:
+        """Run queued prompts as sequential turns in the named conversation."""
+        while not self._stop_event.is_set():
+            try:
+                prompts = self._turn_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            try:
+                self._run_turn(gptme_args, prompts)
+            finally:
+                self._turn_queue.task_done()
+
+    def _run_turn(self, gptme_args: list[str], prompts: list[str]) -> None:
+        # stdin must be DEVNULL.  A PIPE is non-TTY input, so gptme would wait for
+        # EOF while trying to consume piped input before processing CLI prompts.
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "gptme", "--non-interactive"] + gptme_args + prompts,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=0,
+        )
+        with self._proc_lock:
+            self._proc = proc
+        try:
+            assert proc.stdout is not None
+            self._pump_output(proc.stdout)
+            proc.wait()
+        finally:
+            with self._proc_lock:
+                if self._proc is proc:
+                    self._proc = None
+
+    def _pump_output(self, stdout: _ReadableFD) -> None:
+        """Read available subprocess output without waiting for a 4 KiB buffer."""
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        while True:
+            try:
+                chunk = os.read(stdout.fileno(), 4096)
+            except OSError:
+                break
+            if not chunk:
+                break
+            self._publish_output(chunk, decoder.decode(chunk))
+        if tail := decoder.decode(b"", final=True):
+            self._publish_output(b"", tail)
+
+    def _publish_output(self, chunk: bytes, text: str | None = None) -> None:
+        if text is None:
+            text = chunk.decode("utf-8", errors="replace")
+        with self._output_lock:
+            if text:
+                self._output_buf.append(text)
+                self._output_buf_size += len(text.encode())
                 while self._output_buf_size > _OUTPUT_HISTORY_BYTES:
                     dropped = self._output_buf.popleft()
-                    self._output_buf_size -= len(dropped)
+                    self._output_buf_size -= len(dropped.encode())
 
-            # Forward to client if connected
-            with self._client_lock:
-                client = self._client
-            if client is not None:
+            if self._client is not None and text:
                 try:
                     send_msg(
-                        client,
-                        IPCMessage(
-                            type="output", data=chunk.decode("utf-8", errors="replace")
-                        ),
+                        self._client,
+                        IPCMessage(type="output", data=text),
                     )
                 except OSError:
-                    with self._client_lock:
-                        self._client = None
+                    self._client = None
 
-    def _accept_loop(self, server_sock: socket.socket, proc: subprocess.Popen) -> None:
-        """Accept one client at a time and forward their input to the subprocess."""
-        while proc.poll() is None:
+    def _accept_loop(self, server_sock: socket.socket) -> None:
+        """Accept one client at a time while the daemon remains alive."""
+        while not self._stop_event.is_set():
             try:
-                rlist, _, _ = select.select([server_sock], [], [], 1.0)
+                rlist, _, _ = select.select([server_sock], [], [], 0.2)
             except OSError:
                 break
             if not rlist:
@@ -184,67 +252,80 @@ class SessionDaemon:
 
             client, _ = server_sock.accept()
             client.setblocking(True)
-            with self._client_lock:
-                self._client = client
-
             try:
-                self._serve_client(client, proc)
+                self._serve_client(client)
             finally:
-                with self._client_lock:
-                    self._client = None
+                with self._output_lock:
+                    if self._client is client:
+                        self._client = None
                 client.close()
 
-    def _serve_client(self, client: socket.socket, proc: subprocess.Popen) -> None:
-        """Send output history then relay client input → subprocess stdin."""
-        # Send buffered output history to the new client
-        with self._buf_lock:
-            history = b"".join(self._output_buf)
-        if history:
+    def _serve_client(self, client: socket.socket) -> None:
+        """Replay output history, then queue prompts received from the client."""
+        # Publish the client only after history is fully sent.  Holding the same
+        # lock used by _publish_output makes history-before-live ordering atomic.
+        with self._output_lock:
+            history = "".join(self._output_buf)
             try:
                 send_msg(
                     client,
-                    IPCMessage(
-                        type="output", data=history.decode("utf-8", errors="replace")
-                    ),
+                    IPCMessage(type="status", data={"ready": True}),
                 )
-            except OSError:
-                return
-
-        # Relay client input to subprocess stdin
-        while proc.poll() is None:
-            msg = recv_msg(client)
-            if msg is None:
-                break  # client disconnected
-            if msg.type == "input":
-                data = msg.data if isinstance(msg.data, str) else str(msg.data)
-                try:
-                    assert proc.stdin is not None
-                    proc.stdin.write(data.encode())
-                    proc.stdin.flush()
-                except OSError:
-                    break
-            elif msg.type == "status":
-                try:
+                if history:
                     send_msg(
                         client,
-                        IPCMessage(
-                            type="status",
-                            data={
-                                "session": self.session_name,
-                                "pid": os.getpid(),
-                                "running": proc.poll() is None,
-                            },
-                        ),
+                        IPCMessage(type="output", data=history),
                     )
-                except OSError:
-                    break
+            except OSError:
+                return
+            self._client = client
+
+        client.settimeout(0.2)
+        while not self._stop_event.is_set():
+            try:
+                msg = recv_msg(client)
+            except TimeoutError:
+                continue
+            except (OSError, ValueError):
+                break
+            if msg is None:
+                break
+            if msg.type == "input":
+                data = msg.data if isinstance(msg.data, str) else str(msg.data)
+                if data.strip():
+                    self._turn_queue.put([data.strip()])
+            elif msg.type == "status":
+                with self._proc_lock:
+                    proc = self._proc
+                self._send_to_client(
+                    client,
+                    IPCMessage(
+                        type="status",
+                        data={
+                            "session": self.session_name,
+                            "pid": os.getpid(),
+                            "running": True,
+                            "busy": proc is not None and proc.poll() is None,
+                            "queued": self._turn_queue.qsize(),
+                        },
+                    ),
+                )
             elif (
                 msg.type == "signal"
                 and isinstance(msg.data, dict)
                 and msg.data.get("signal") == "SIGTERM"
             ):
-                proc.terminate()
+                self._stop_event.set()
+                self._terminate_process()
                 break
+
+    def _send_to_client(self, client: socket.socket, msg: IPCMessage) -> None:
+        with self._output_lock:
+            if self._client is client:
+                try:
+                    send_msg(client, msg)
+                except OSError:
+                    self._client = None
 
     def _cleanup(self) -> None:
         for path in (self.socket_path, self.pid_path):
@@ -256,23 +337,28 @@ class SessionDaemon:
 # ---------------------------------------------------------------------------
 
 
-def _daemonize() -> None:
-    """Double-fork to create a proper daemon process."""
-    if os.fork() > 0:
-        # Parent exits — child continues
+def _fork() -> int:
+    try:
+        return os.fork()
+    except OSError as exc:
+        raise RuntimeError("failed to fork daemon process") from exc
+
+
+def _daemonize() -> bool:
+    """Double-fork; return True only in the original parent process."""
+    if _fork() > 0:
+        return True
+
+    os.setsid()
+
+    if _fork() > 0:
         os._exit(0)
 
-    os.setsid()  # new session leader
-
-    if os.fork() > 0:
-        # Second parent exits — grandchild is fully detached
-        os._exit(0)
-
-    # Redirect stdin/stdout/stderr to /dev/null
     devnull = os.open(os.devnull, os.O_RDWR)
     for fd in (0, 1, 2):
         os.dup2(devnull, fd)
     os.close(devnull)
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -288,8 +374,16 @@ def attach(session_name: str) -> None:
 
     conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     conn.connect(str(sock_path))
+    ready = recv_msg(conn)
+    if (
+        ready is None
+        or ready.type != "status"
+        or not isinstance(ready.data, dict)
+        or not ready.data.get("ready")
+    ):
+        conn.close()
+        raise ConnectionResetError(f"Daemon '{session_name}' closed during attach")
 
-    # Thread: receive daemon output → print to stdout
     stop_event = threading.Event()
 
     def _receive() -> None:
@@ -311,7 +405,6 @@ def attach(session_name: str) -> None:
     recv_thread = threading.Thread(target=_receive, daemon=True)
     recv_thread.start()
 
-    # Main thread: read stdin → send to daemon
     seq = 0
     try:
         for line in sys.stdin:
@@ -331,19 +424,37 @@ def attach(session_name: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _socket_is_accepting(path: Path) -> bool:
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    probe.settimeout(0.5)
+    try:
+        probe.connect(str(path))
+        ready = recv_msg(probe)
+        return (
+            ready is not None
+            and ready.type == "status"
+            and isinstance(ready.data, dict)
+            and bool(ready.data.get("ready"))
+        )
+    except (OSError, ValueError):
+        return False
+    finally:
+        probe.close()
+
+
 def list_daemons() -> list[dict]:
-    """Return info dicts for running daemons."""
+    """Return info dicts for known daemons."""
     daemon_dir = get_daemon_dir()
     result = []
     for pid_file in daemon_dir.glob("*.pid"):
         name = pid_file.stem
+        sock = daemon_dir / f"{name}.socket"
         try:
             pid = int(pid_file.read_text())
             os.kill(pid, 0)
-            running = True
+            running = _socket_is_accepting(sock)
         except (ValueError, ProcessLookupError, PermissionError):
             running = False
-        sock = daemon_dir / f"{name}.socket"
         result.append(
             {
                 "session": name,

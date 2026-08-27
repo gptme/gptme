@@ -71,19 +71,19 @@ def start(
             )
             raise SystemExit(1)
 
-    # Build gptme args
+    # Build the stable arguments reused for each queued turn. Prompts are kept
+    # separate so later attached input can run as another turn in this session.
     gptme_args: list[str] = ["--name", session]
     if model:
         gptme_args += ["--model", model]
     if workspace:
         gptme_args += ["--workspace", workspace]
-    gptme_args += list(prompts)
 
     daemon = SessionDaemon(session)
     click.echo(f"Starting daemon '{session}'...")
 
     # daemonize=True → double-fork; parent returns here, child runs the daemon
-    daemon.start(gptme_args, daemonize=True)
+    daemon.start(gptme_args, prompts=list(prompts), daemonize=True)
 
     # Parent continues here
     click.echo(f"Daemon started. Attach with: gptme daemon attach {session}")
@@ -118,17 +118,18 @@ def attach_cmd(session: str, start_if_missing: bool) -> None:
 
         click.echo(f"Session '{session}' not running — starting it now...", err=True)
         daemon = SessionDaemon(session)
-        daemon.start(["--name", session], daemonize=True)
+        daemon.start(["--name", session], prompts=[], daemonize=True)
 
-        # Wait briefly for the socket to appear
+        # Wait briefly for the daemon to start accepting connections. Checking
+        # only path existence races with bind/listen and stale socket files.
         import time
 
         for _ in range(20):
-            if sock_path.exists():
+            if daemon.is_running():
                 break
             time.sleep(0.2)
         else:
-            click.echo("Daemon did not start in time (socket not found).", err=True)
+            click.echo("Daemon did not start in time.", err=True)
             raise SystemExit(1)
 
     try:
@@ -136,7 +137,7 @@ def attach_cmd(session: str, start_if_missing: bool) -> None:
     except FileNotFoundError as e:
         click.echo(str(e), err=True)
         raise SystemExit(1) from e
-    except ConnectionRefusedError as e:
+    except (ConnectionRefusedError, ConnectionResetError) as e:
         click.echo(
             f"Could not connect to daemon '{session}'. It may have exited.", err=True
         )
