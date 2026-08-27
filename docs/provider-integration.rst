@@ -58,6 +58,12 @@ Option 2: Provider Plugin Package
 A provider plugin is a Python package you publish to PyPI.  Once installed,
 users can use your provider without any config file changes.
 
+.. note::
+
+   The `gptme-provider-template <https://github.com/gptme/gptme-provider-template>`_
+   repository provides a ready-to-fork starting point with a minimal OpenAI-compatible
+   example and an OAuth flow example.  Clone it instead of starting from scratch.
+
 Minimum working example
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -374,3 +380,6 @@ Related Documentation
 - :doc:`contributing` — general contribution guide
 - `Provider Plugin tests <https://github.com/gptme/gptme/blob/master/tests/test_provider_plugins.py>`_
   — reference test suite for the plugin system
+
+- `gptme-provider-template <https://github.com/gptme/gptme-provider-template>`_
+  — minimal starter template with OpenAI-compatible and OAuth examples
