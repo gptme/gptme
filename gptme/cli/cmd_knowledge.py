@@ -73,7 +73,9 @@ def knowledge_save_cmd(
     else:
         click.echo(f"Saved knowledge entry {entry['id'][:8]}")
         if entry["tags"]:
-            click.echo(f"  Tags: {', '.join(entry['tags'])}")
+            click.echo(
+                f"  Tags: {', '.join(_strip_controls(t) for t in entry['tags'])}"
+            )
 
     # Re-index with gptme-rag regardless of output mode so the mirror stays
     # in sync whether the caller asked for JSON or human-readable output.
@@ -116,7 +118,7 @@ def _export_for_rag(kb_dir: Path) -> None:
         # Remove orphan mirror files left by prior deletions.
         for existing in rag_dir.glob("*.md"):
             if existing.stem not in live_ids:
-                existing.unlink()
+                existing.unlink(missing_ok=True)
         for entry in entries:
             eid = entry.get("id", "unknown")
             fpath = rag_dir / f"{eid}.md"
@@ -255,12 +257,15 @@ def knowledge_delete_cmd(entry_id: str):
     # Catch OSError: the entry is already deleted; a permission or I/O error
     # on the mirror should warn, not crash and confuse the user about success.
     mirror = _knowledge_dir() / "rag" / f"{full_id}.md"
+    mirror_removed = True
     try:
         mirror.unlink(missing_ok=True)
     except OSError as e:
+        mirror_removed = False
         click.echo(f"Warning: could not remove mirror file {mirror}: {e}", err=True)
-    # Re-index only when gptme-rag is available.
-    if shutil.which("gptme-rag"):
+    # Re-index only when the mirror is clean; otherwise indexing would preserve
+    # the deleted entry in semantic search.
+    if mirror_removed and shutil.which("gptme-rag"):
         try:
             subprocess.run(
                 ["gptme-rag", "index", str(_knowledge_dir() / "rag")],

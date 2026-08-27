@@ -81,6 +81,14 @@ def test_search_matches_single_character_term():
     assert knowledge_search("x") == [entry]
 
 
+def test_search_matches_numeric_identifier():
+    from gptme.knowledge import knowledge_save, knowledge_search
+
+    entry = knowledge_save("request failed", "server returned 404")
+
+    assert knowledge_search("404") == [entry]
+
+
 def test_search_tag_filter():
     from gptme.knowledge import knowledge_save, knowledge_search
 
@@ -250,7 +258,7 @@ def test_cli_search_json():
 
 def test_cli_human_output_strips_control_characters():
     runner = CliRunner()
-    runner.invoke(
+    save_result = runner.invoke(
         main,
         [
             "knowledge",
@@ -265,8 +273,10 @@ def test_cli_human_output_strips_control_characters():
     search_result = runner.invoke(main, ["knowledge", "search", "unsafe"])
     list_result = runner.invoke(main, ["knowledge", "list"])
 
+    assert save_result.exit_code == 0, save_result.output
     assert search_result.exit_code == 0, search_result.output
     assert list_result.exit_code == 0, list_result.output
+    assert "\x1b" not in save_result.output
     assert "\x1b" not in search_result.output
     assert "\x07" not in search_result.output
     assert "\x1b" not in list_result.output
@@ -327,6 +337,32 @@ def test_cli_delete():
     # Confirm it's gone
     result = runner.invoke(main, ["knowledge", "list"])
     assert "No entries" in result.output
+
+
+def test_cli_delete_skips_reindex_when_mirror_removal_fails(monkeypatch):
+    from gptme.knowledge import _knowledge_dir, knowledge_save
+
+    entry = knowledge_save("delete me", "resolution")
+    mirror = _knowledge_dir() / "rag" / f"{entry['id']}.md"
+    mirror.parent.mkdir(parents=True)
+    mirror.write_text("stale", encoding="utf-8")
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+
+    def fail_unlink(*args, **kwargs):
+        raise PermissionError("cannot remove mirror")
+
+    monkeypatch.setattr(type(mirror), "unlink", fail_unlink)
+    calls = []
+    monkeypatch.setattr(
+        "gptme.cli.cmd_knowledge.subprocess.run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    result = CliRunner().invoke(main, ["knowledge", "delete", entry["id"]])
+
+    assert result.exit_code == 0, result.output
+    assert "could not remove mirror" in result.output
+    assert calls == []
 
 
 def test_cli_delete_nonexistent():

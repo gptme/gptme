@@ -118,8 +118,8 @@ def _append_entry(entry: KnowledgeEntry) -> None:
 
 
 def _extract_keywords(text: str) -> list[str]:
-    """Extract words from text for fast filtering."""
-    words = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", text.lower())
+    """Extract words and numeric identifiers from text for fast filtering."""
+    words = re.findall(r"[a-zA-Z0-9_]+", text.lower())
     seen: set[str] = set()
     result = []
     for w in words:
