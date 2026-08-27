@@ -587,6 +587,7 @@ gptme is more than a CLI — it's a platform with a growing ecosystem:
 | [gptme-contrib] | Community plugins, packages, scripts, and lessons |
 | [gptme-codegraph] | Structural code retrieval with tree-sitter (9 MCP tools for code graph analysis) |
 | [gptme-agent-template][agent-template] | Template for building persistent autonomous agents |
+| [gptme-provider-template][provider-template] | Template for building custom LLM provider plugins |
 | [gptme-rag] | RAG integration for semantic search over local files |
 | [gptme.vim] | Vim plugin for in-editor gptme integration |
 | [gptme-tauri] | Desktop app for Linux, macOS, and Windows ([download](https://github.com/gptme/gptme/releases/latest)) |
@@ -646,6 +647,7 @@ Contributions welcome! See the [contributing guide](https://gptme.org/docs/contr
 [gptme-codegraph]: https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-codegraph
 [gptme-tauri]: https://github.com/gptme/gptme-tauri
 [agent-template]: https://github.com/gptme/gptme-agent-template
+[provider-template]: https://github.com/gptme/gptme-provider-template
 [bob]: https://github.com/TimeToBuildBob
 [docs]: https://gptme.org/docs/
 [docs-getting-started]: https://gptme.org/docs/getting-started.html
