@@ -656,10 +656,11 @@ def shell_allowlist_hook(
         return None
 
     # ``bg`` is gptme control syntax, not a shell binary, so remove its prefix
-    # before checking the complete sequence.  Keep every surrounding line in
-    # place: is_allowlisted() must still reject a sensitive or non-allowlisted
-    # command before/after the background payload.
-    check_cmd = re.sub(r"(?m)^(\s*)bg\s+", r"\1", cmd)
+    # before checking the complete sequence.  A bg command may follow a shell
+    # separator on the same line as well as start a line. Keep every separator
+    # and surrounding command in place so is_allowlisted() still validates the
+    # complete sequence.
+    check_cmd = re.sub(r"(^|(?<=[;&|]))(\s*)bg\s+", r"\1\2", cmd, flags=re.MULTILINE)
 
     # Check if command is allowlisted
     if is_allowlisted(check_cmd):

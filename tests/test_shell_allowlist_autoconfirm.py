@@ -260,6 +260,7 @@ class TestExecuteShellAllowlist:
             "ls\nbg pwd",
             "bg ls\npwd",
             "ls\nbg pwd\nhead README.md",
+            "echo hi; bg ls",
         ],
     )
     def test_bg_with_allowlisted_surrounding_commands_auto_confirms(self, preview):
