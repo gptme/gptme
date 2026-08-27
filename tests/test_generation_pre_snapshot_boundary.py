@@ -54,10 +54,11 @@ class TestGenerationPreSnapshotBoundary:
         assert instructions_1 == instructions_2, "System message hoisting not stable"
         assert items_1 == items_2, "Message items not stable"
 
-        # Verify system messages are correctly hoisted
-        if instructions_1 is not None:
-            assert "You are helpful" in instructions_1
-            assert "Extra context from hook" in instructions_1
+        # Verify system messages are correctly hoisted. The input has two system
+        # messages, so a missing instructions value is itself a regression.
+        assert instructions_1 is not None
+        assert "You are helpful" in instructions_1
+        assert "Extra context from hook" in instructions_1
 
     def test_provider_message_ordering_anthropic_system_extraction(self):
         """Anthropic should extract system messages consistently."""
