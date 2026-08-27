@@ -1194,7 +1194,12 @@ def main(
             # Explicit allowlist: built-in tools + MCP tools (no additive prefix).
             # Expand a named preset before adding MCP tools because presets are
             # exclusive boundaries and cannot otherwise be mixed with tool names.
-            builtin_tools = expand_tool_allowlist_presets(list(manifest.builtin_tools))
+            try:
+                builtin_tools = expand_tool_allowlist_presets(
+                    list(manifest.builtin_tools)
+                )
+            except ValueError as e:
+                raise click.UsageError(str(e)) from e
             assert builtin_tools is not None
             return ",".join((*builtin_tools, *manifest.tool_names))
         # Additive prefix: MCP tools are ADDED to the full default built-in set
