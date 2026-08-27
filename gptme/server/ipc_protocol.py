@@ -75,15 +75,39 @@ def send_msg(sock: socket.socket, msg: IPCMessage) -> None:
     sock.sendall(msg.encode())
 
 
-def recv_msg(sock: socket.socket) -> IPCMessage | None:
-    """Receive one framed message; returns None on EOF."""
-    header = _recv_exact(sock, _HEADER.size)
-    if not header:
-        return None
-    (length,) = _HEADER.unpack(header)
-    payload = _recv_exact(sock, length)
-    if not payload:
-        return None
+def recv_msg(sock: socket.socket, buffer: bytearray | None = None) -> IPCMessage | None:
+    """Receive one framed message; returns None on EOF.
+
+    Pass a persistent ``buffer`` when the socket has a timeout. Bytes received
+    before a timeout then remain available to the next call instead of being
+    mistaken for a new frame header.
+    """
+    if buffer is None:
+        header = _recv_exact(sock, _HEADER.size)
+        if not header:
+            return None
+        (length,) = _HEADER.unpack(header)
+        payload = _recv_exact(sock, length)
+        if not payload:
+            return None
+        return IPCMessage.from_bytes(payload)
+
+    while len(buffer) < _HEADER.size:
+        chunk = sock.recv(_HEADER.size - len(buffer))
+        if not chunk:
+            if buffer:
+                raise ValueError("incomplete IPC message header")
+            return None
+        buffer.extend(chunk)
+    (length,) = _HEADER.unpack(buffer[: _HEADER.size])
+    frame_size = _HEADER.size + length
+    while len(buffer) < frame_size:
+        chunk = sock.recv(frame_size - len(buffer))
+        if not chunk:
+            raise ValueError("incomplete IPC message payload")
+        buffer.extend(chunk)
+    payload = bytes(buffer[_HEADER.size : frame_size])
+    del buffer[:frame_size]
     return IPCMessage.from_bytes(payload)
 
 

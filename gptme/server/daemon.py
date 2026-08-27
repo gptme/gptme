@@ -208,6 +208,9 @@ class SessionDaemon:
                 continue
             try:
                 self._run_turn(gptme_args, prompts)
+            except Exception as exc:
+                logger.exception("Daemon turn failed")
+                self._publish_output(b"", f"\n[daemon error] Turn failed: {exc}\n")
             finally:
                 self._turn_queue.task_done()
 
@@ -215,7 +218,10 @@ class SessionDaemon:
         # stdin must be DEVNULL.  A PIPE is non-TTY input, so gptme would wait for
         # EOF while trying to consume piped input before processing CLI prompts.
         proc = subprocess.Popen(
-            [sys.executable, "-m", "gptme", "--non-interactive"] + gptme_args + prompts,
+            [sys.executable, "-m", "gptme", "--non-interactive"]
+            + gptme_args
+            + ["--"]
+            + prompts,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -278,7 +284,13 @@ class SessionDaemon:
             if not rlist:
                 continue
 
-            client, _ = server_sock.accept()
+            try:
+                client, _ = server_sock.accept()
+            except OSError:
+                if self._stop_event.is_set():
+                    break
+                logger.warning("Daemon accept failed", exc_info=True)
+                continue
             client.setblocking(True)
             try:
                 self._serve_client(client)
@@ -311,9 +323,10 @@ class SessionDaemon:
                 return
             self._client = client
 
+        recv_buffer = bytearray()
         while not self._stop_event.is_set():
             try:
-                msg = recv_msg(client)
+                msg = recv_msg(client, recv_buffer)
             except TimeoutError:
                 continue
             except (OSError, ValueError):

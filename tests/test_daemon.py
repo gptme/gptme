@@ -78,6 +78,39 @@ class TestIPCProtocol:
             a.close()
             b.close()
 
+    def test_buffer_preserves_partial_frame_across_timeout(self):
+        a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        b.settimeout(0.01)
+        buffer = bytearray()
+        encoded = IPCMessage(type="input", data="split frame").encode()
+        try:
+            a.sendall(encoded[:6])
+            with pytest.raises(TimeoutError):
+                recv_msg(b, buffer)
+            assert buffer == encoded[:6]
+
+            a.sendall(encoded[6:])
+            received = recv_msg(b, buffer)
+            assert received is not None
+            assert received.data == "split frame"
+            assert buffer == bytearray()
+        finally:
+            a.close()
+            b.close()
+
+    @pytest.mark.parametrize("split_at", [2, 6])
+    def test_buffer_rejects_eof_mid_frame(self, split_at):
+        a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        encoded = IPCMessage(type="input", data="partial").encode()
+        try:
+            a.sendall(encoded[:split_at])
+            a.close()
+            with pytest.raises(ValueError, match="incomplete IPC message"):
+                recv_msg(b, bytearray())
+        finally:
+            a.close()
+            b.close()
+
     def test_recv_returns_none_on_eof(self):
         """recv_msg returns None when the other end closes."""
         a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -258,6 +291,25 @@ class _FakeProcess:
 
 
 class TestPersistentTurnLifecycle:
+    def test_worker_survives_failed_turn(self, monkeypatch):
+        daemon = SessionDaemon("failed-turn")
+        calls = 0
+
+        def fail_once(_args, _prompts):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError("spawn failed")
+            daemon._stop_event.set()
+
+        monkeypatch.setattr(daemon, "_run_turn", fail_once)
+        daemon._turn_queue.put(["first"])
+        daemon._turn_queue.put(["second"])
+        daemon._worker_loop([])
+
+        assert calls == 2
+        assert "Turn failed: spawn failed" in "".join(daemon._output_buf)
+
     def test_idle_daemon_waits_for_later_prompts(self, monkeypatch):
         daemon = SessionDaemon("persistent")
         calls: list[list[str]] = []
@@ -298,7 +350,7 @@ class TestPersistentTurnLifecycle:
         monkeypatch.setattr("gptme.server.daemon.subprocess.Popen", fake_popen)
         daemon._run_turn(["--name", "persistent"], ["hello"])
 
-        assert captured["argv"][-3:] == ["--name", "persistent", "hello"]
+        assert captured["argv"][-4:] == ["--name", "persistent", "--", "hello"]
         assert captured["stdin"] is subprocess.DEVNULL
 
     def test_pump_output_preserves_split_utf8(self, monkeypatch):
@@ -387,6 +439,28 @@ class TestPersistentTurnLifecycle:
             assert calls == 2
         finally:
             server.close()
+
+    def test_accept_loop_retries_transient_accept_error(self, monkeypatch):
+        daemon = SessionDaemon("accept-error")
+        select_calls = 0
+
+        class FailingServer:
+            def accept(self):
+                raise OSError
+
+        server = FailingServer()
+
+        def readable_once(*_args):
+            nonlocal select_calls
+            select_calls += 1
+            if select_calls == 1:
+                return [server], [], []
+            daemon._stop_event.set()
+            return [], [], []
+
+        monkeypatch.setattr("gptme.server.daemon.select.select", readable_once)
+        daemon._accept_loop(server)  # type: ignore[arg-type]
+        assert select_calls == 2
 
 
 # ---------------------------------------------------------------------------
