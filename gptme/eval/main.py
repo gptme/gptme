@@ -29,7 +29,7 @@ from ..tools import ToolFormat
 from ..util.git_cmd import GIT_CMD
 from .run import run_evals
 from .suites import suites, tests_default, tests_default_ids, tests_map
-from .types import CaseResult, EvalResult, EvalSpec, ModelConfig
+from .types import CaseResult, EvalResult, EvalSpec, ModelConfig, get_effective_format
 
 # Configure logging, including fully-qualified module names
 logging.basicConfig(
@@ -681,8 +681,15 @@ def main(
             if tool_format
             else ["markdown", "xml", "tool"]
         )
+        # Apply model-aware format routing: some models (fable-5, haiku-4.5) have
+        # high failure rates on markdown format and are routed to tool format instead.
+        # Explicit model@format specs bypass this to allow intentional format testing.
         model_configs.extend(
-            ModelConfig(model=model_spec, tool_format=fmt) for fmt in formats
+            ModelConfig(
+                model=model_spec,
+                tool_format=get_effective_format(model_spec, fmt),
+            )
+            for fmt in formats
         )
 
     results_files = []

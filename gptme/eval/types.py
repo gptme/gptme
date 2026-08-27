@@ -14,6 +14,37 @@ from ..tools import ToolFormat
 Files = dict[str, str | bytes]
 Status = Literal["success", "error", "timeout"]
 
+# Models where markdown format produces systematic continuation failures.
+# These are routed to "tool" format when no explicit format is requested.
+#
+# Failure modes (annotated from 2026-08-23/24 eval runs):
+#   fable-5:    ~83% failure — continuation_post_tool: model stops after last
+#               tool call, emitting an empty final message (evaluator can't verify)
+#   haiku-4.5:  ~75% failure — continuation_pre_tool: model writes prose code
+#               blocks instead of executing save/shell tool calls; workspace unchanged
+#
+# Sonnet-4.6 on tool format has high pass rate with no systematic failure.
+DEFAULT_TOOL_FORMAT_MODELS: frozenset[str] = frozenset(
+    {
+        "claude-fable-5",
+        "claude-haiku-4-5-20251001",
+    }
+)
+
+
+def get_effective_format(model: str, requested_format: "ToolFormat") -> "ToolFormat":
+    """Return the effective tool format, routing markdown→tool for affected models.
+
+    Applied during auto-expansion of formats (when no explicit ``@format`` was
+    given). Explicit ``model@markdown`` specs bypass this routing intentionally
+    so callers can still test the failing format if needed.
+    """
+    if requested_format == "markdown" and any(
+        m in model for m in DEFAULT_TOOL_FORMAT_MODELS
+    ):
+        return cast(ToolFormat, "tool")
+    return requested_format
+
 
 @dataclass(frozen=True)
 class ModelConfig:
