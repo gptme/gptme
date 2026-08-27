@@ -526,6 +526,14 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#vision-inputs">Vision inputs</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#frequently-asked-questions">Frequently Asked Questions</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-do-i-choose-a-tokenizer">How do I choose a tokenizer?</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#which-capability-flags-should-i-set">Which capability flags should I set?</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#which-entry-point-group-should-i-use">Which entry-point group should I use?</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-goes-in-modelmeta-model">What goes in <code class="docutils literal notranslate"><span class="pre">ModelMeta.model</span></code>?</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-units-do-the-price-fields-use">What units do the price fields use?</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related-documentation">Related Documentation</a></li>
 </ul>
             </nav>
@@ -546,37 +554,46 @@ built-in provider PR.</p>
 <nav class="contents local" id="table-of-contents">
 <p class="topic-title">Table of Contents</p>
 <ul class="simple">
-<li><p><a class="reference internal" href="#choosing-the-right-integration-path" id="id2">Choosing the Right Integration Path</a></p></li>
-<li><p><a class="reference internal" href="#option-1-custom-provider-config" id="id3">Option 1: Custom Provider Config</a></p></li>
-<li><p><a class="reference internal" href="#option-2-provider-plugin-package" id="id4">Option 2: Provider Plugin Package</a></p>
+<li><p><a class="reference internal" href="#choosing-the-right-integration-path" id="id3">Choosing the Right Integration Path</a></p></li>
+<li><p><a class="reference internal" href="#option-1-custom-provider-config" id="id4">Option 1: Custom Provider Config</a></p></li>
+<li><p><a class="reference internal" href="#option-2-provider-plugin-package" id="id5">Option 2: Provider Plugin Package</a></p>
 <ul>
-<li><p><a class="reference internal" href="#minimum-working-example" id="id5">Minimum working example</a></p></li>
-<li><p><a class="reference internal" href="#required-providerplugin-fields" id="id6">Required ProviderPlugin fields</a></p></li>
-<li><p><a class="reference internal" href="#modelmeta-capability-fields" id="id7">ModelMeta capability fields</a></p></li>
-<li><p><a class="reference internal" href="#custom-auth-subscription-backed-providers" id="id8">Custom auth (subscription-backed providers)</a></p></li>
-<li><p><a class="reference internal" href="#testing-your-plugin" id="id9">Testing Your Plugin</a></p></li>
-<li><p><a class="reference internal" href="#unified-plugin-system" id="id10">Unified Plugin System</a></p></li>
-<li><p><a class="reference internal" href="#package-naming" id="id11">Package naming</a></p></li>
+<li><p><a class="reference internal" href="#minimum-working-example" id="id6">Minimum working example</a></p></li>
+<li><p><a class="reference internal" href="#required-providerplugin-fields" id="id7">Required ProviderPlugin fields</a></p></li>
+<li><p><a class="reference internal" href="#modelmeta-capability-fields" id="id8">ModelMeta capability fields</a></p></li>
+<li><p><a class="reference internal" href="#custom-auth-subscription-backed-providers" id="id9">Custom auth (subscription-backed providers)</a></p></li>
+<li><p><a class="reference internal" href="#testing-your-plugin" id="id10">Testing Your Plugin</a></p></li>
+<li><p><a class="reference internal" href="#unified-plugin-system" id="id11">Unified Plugin System</a></p></li>
+<li><p><a class="reference internal" href="#package-naming" id="id12">Package naming</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#option-3-built-in-provider-pr" id="id12">Option 3: Built-in Provider PR</a></p>
+<li><p><a class="reference internal" href="#option-3-built-in-provider-pr" id="id13">Option 3: Built-in Provider PR</a></p>
 <ul>
-<li><p><a class="reference internal" href="#steps" id="id13">Steps</a></p></li>
+<li><p><a class="reference internal" href="#steps" id="id14">Steps</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#common-pitfalls" id="id14">Common Pitfalls</a></p>
+<li><p><a class="reference internal" href="#common-pitfalls" id="id15">Common Pitfalls</a></p>
 <ul>
-<li><p><a class="reference internal" href="#model-ids" id="id15">Model IDs</a></p></li>
-<li><p><a class="reference internal" href="#custom-init-must-register-a-client" id="id16">Custom <code class="docutils literal notranslate"><span class="pre">init</span></code> must register a client</a></p></li>
-<li><p><a class="reference internal" href="#streaming" id="id17">Streaming</a></p></li>
-<li><p><a class="reference internal" href="#vision-inputs" id="id18">Vision inputs</a></p></li>
+<li><p><a class="reference internal" href="#model-ids" id="id16">Model IDs</a></p></li>
+<li><p><a class="reference internal" href="#custom-init-must-register-a-client" id="id17">Custom <code class="docutils literal notranslate"><span class="pre">init</span></code> must register a client</a></p></li>
+<li><p><a class="reference internal" href="#streaming" id="id18">Streaming</a></p></li>
+<li><p><a class="reference internal" href="#vision-inputs" id="id19">Vision inputs</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#related-documentation" id="id19">Related Documentation</a></p></li>
+<li><p><a class="reference internal" href="#frequently-asked-questions" id="id20">Frequently Asked Questions</a></p>
+<ul>
+<li><p><a class="reference internal" href="#how-do-i-choose-a-tokenizer" id="id21">How do I choose a tokenizer?</a></p></li>
+<li><p><a class="reference internal" href="#which-capability-flags-should-i-set" id="id22">Which capability flags should I set?</a></p></li>
+<li><p><a class="reference internal" href="#which-entry-point-group-should-i-use" id="id23">Which entry-point group should I use?</a></p></li>
+<li><p><a class="reference internal" href="#what-goes-in-modelmeta-model" id="id24">What goes in <code class="docutils literal notranslate"><span class="pre">ModelMeta.model</span></code>?</a></p></li>
+<li><p><a class="reference internal" href="#what-units-do-the-price-fields-use" id="id25">What units do the price fields use?</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#related-documentation" id="id26">Related Documentation</a></p></li>
 </ul>
 </nav>
 <section id="choosing-the-right-integration-path">
-<h2><a class="toc-backref" href="#id2" role="doc-backlink">Choosing the Right Integration Path</a><a class="headerlink" href="#choosing-the-right-integration-path" title="Link to this heading">#</a></h2>
+<h2><a class="toc-backref" href="#id3" role="doc-backlink">Choosing the Right Integration Path</a><a class="headerlink" href="#choosing-the-right-integration-path" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
 <thead>
 <tr class="row-odd"><th class="head"><p>Scenario</p></th>
@@ -605,7 +622,7 @@ many gptme users will want</p></td>
 it lets you iterate quickly without waiting for a core PR review.</p>
 </section>
 <section id="option-1-custom-provider-config">
-<span id="custom-provider-config"></span><h2><a class="toc-backref" href="#id3" role="doc-backlink">Option 1: Custom Provider Config</a><a class="headerlink" href="#option-1-custom-provider-config" title="Link to this heading">#</a></h2>
+<span id="custom-provider-config"></span><h2><a class="toc-backref" href="#id4" role="doc-backlink">Option 1: Custom Provider Config</a><a class="headerlink" href="#option-1-custom-provider-config" title="Link to this heading">#</a></h2>
 <p>For a personal or team endpoint (Ollama, vLLM, a private proxy), add a
 <code class="docutils literal notranslate"><span class="pre">[[providers]]</span></code> block to <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
@@ -619,11 +636,17 @@ it lets you iterate quickly without waiting for a core PR review.</p>
 <p>See <a class="reference internal" href="providers-custom.html"><span class="doc">Custom and Local Providers</span></a> for the full config reference.</p>
 </section>
 <section id="option-2-provider-plugin-package">
-<span id="provider-plugin-package"></span><h2><a class="toc-backref" href="#id4" role="doc-backlink">Option 2: Provider Plugin Package</a><a class="headerlink" href="#option-2-provider-plugin-package" title="Link to this heading">#</a></h2>
+<span id="provider-plugin-package"></span><h2><a class="toc-backref" href="#id5" role="doc-backlink">Option 2: Provider Plugin Package</a><a class="headerlink" href="#option-2-provider-plugin-package" title="Link to this heading">#</a></h2>
 <p>A provider plugin is a Python package you publish to PyPI.  Once installed,
 users can use your provider without any config file changes.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The <a class="reference external" href="https://github.com/gptme/gptme-provider-template">gptme-provider-template</a>
+repository provides a ready-to-fork starting point with a minimal OpenAI-compatible
+example and an OAuth flow example.  Clone it instead of starting from scratch.</p>
+</div>
 <section id="minimum-working-example">
-<h3><a class="toc-backref" href="#id5" role="doc-backlink">Minimum working example</a><a class="headerlink" href="#minimum-working-example" title="Link to this heading">#</a></h3>
+<h3><a class="toc-backref" href="#id6" role="doc-backlink">Minimum working example</a><a class="headerlink" href="#minimum-working-example" title="Link to this heading">#</a></h3>
 <p>Create a package (e.g. <code class="docutils literal notranslate"><span class="pre">gptme-provider-acme</span></code>) with a single module:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># src/gptme_provider_acme/__init__.py</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelMeta</span><span class="p">,</span> <span class="n">ProviderPlugin</span>
@@ -665,7 +688,7 @@ users can use your provider without any config file changes.</p>
 </div>
 </section>
 <section id="required-providerplugin-fields">
-<h3><a class="toc-backref" href="#id6" role="doc-backlink">Required ProviderPlugin fields</a><a class="headerlink" href="#required-providerplugin-fields" title="Link to this heading">#</a></h3>
+<h3><a class="toc-backref" href="#id7" role="doc-backlink">Required ProviderPlugin fields</a><a class="headerlink" href="#required-providerplugin-fields" title="Link to this heading">#</a></h3>
 <div class="pst-scrollable-table-container"><table class="table">
 <thead>
 <tr class="row-odd"><th class="head"><p>Field</p></th>
@@ -702,7 +725,7 @@ an OpenAI client before returning</p></td>
 <code class="docutils literal notranslate"><span class="pre">base_url</span></code> and the key from <code class="docutils literal notranslate"><span class="pre">api_key_env</span></code>.</p>
 </section>
 <section id="modelmeta-capability-fields">
-<h3><a class="toc-backref" href="#id7" role="doc-backlink">ModelMeta capability fields</a><a class="headerlink" href="#modelmeta-capability-fields" title="Link to this heading">#</a></h3>
+<h3><a class="toc-backref" href="#id8" role="doc-backlink">ModelMeta capability fields</a><a class="headerlink" href="#modelmeta-capability-fields" title="Link to this heading">#</a></h3>
 <p>When declaring models, set these flags to match your provider’s capabilities.
 gptme uses them to route requests correctly and render UI hints.</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -761,7 +784,7 @@ gptme uses them to route requests correctly and render UI hints.</p>
 </div>
 </section>
 <section id="custom-auth-subscription-backed-providers">
-<h3><a class="toc-backref" href="#id8" role="doc-backlink">Custom auth (subscription-backed providers)</a><a class="headerlink" href="#custom-auth-subscription-backed-providers" title="Link to this heading">#</a></h3>
+<h3><a class="toc-backref" href="#id9" role="doc-backlink">Custom auth (subscription-backed providers)</a><a class="headerlink" href="#custom-auth-subscription-backed-providers" title="Link to this heading">#</a></h3>
 <p>If your provider uses OAuth or a non-API-key auth flow, supply a custom
 <code class="docutils literal notranslate"><span class="pre">init</span></code> function.  It <strong>must</strong> register an OpenAI client before returning:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_init</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
@@ -786,7 +809,7 @@ gptme uses them to route requests correctly and render UI hints.</p>
 See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_grok_subscription.py</span></code> for a full OAuth PKCE example.</p>
 </section>
 <section id="testing-your-plugin">
-<span id="id1"></span><h3><a class="toc-backref" href="#id9" role="doc-backlink">Testing Your Plugin</a><a class="headerlink" href="#testing-your-plugin" title="Link to this heading">#</a></h3>
+<span id="id1"></span><h3><a class="toc-backref" href="#id10" role="doc-backlink">Testing Your Plugin</a><a class="headerlink" href="#testing-your-plugin" title="Link to this heading">#</a></h3>
 <p>Copy this test scaffold into your package’s <code class="docutils literal notranslate"><span class="pre">tests/</span></code> directory and adapt it:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;Test scaffold for gptme provider plugins.</span>
 
@@ -1094,7 +1117,7 @@ vars are required to prevent accidental API charges:</p>
 </div>
 </section>
 <section id="unified-plugin-system">
-<h3><a class="toc-backref" href="#id10" role="doc-backlink">Unified Plugin System</a><a class="headerlink" href="#unified-plugin-system" title="Link to this heading">#</a></h3>
+<h3><a class="toc-backref" href="#id11" role="doc-backlink">Unified Plugin System</a><a class="headerlink" href="#unified-plugin-system" title="Link to this heading">#</a></h3>
 <p>If your package also provides gptme <a class="reference internal" href="tools.html"><span class="doc">tools</span></a>, <a class="reference internal" href="hooks.html"><span class="doc">hooks</span></a>,
 or <a class="reference internal" href="commands.html"><span class="doc">commands</span></a>, register via the unified <code class="docutils literal notranslate"><span class="pre">gptme.plugins</span></code>
 entry-point group instead, which lets a single package provide everything:</p>
@@ -1116,7 +1139,7 @@ entry-point group instead, which lets a single package provide everything:</p>
 <p>See <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a> for the full unified plugin reference.</p>
 </section>
 <section id="package-naming">
-<h3><a class="toc-backref" href="#id11" role="doc-backlink">Package naming</a><a class="headerlink" href="#package-naming" title="Link to this heading">#</a></h3>
+<h3><a class="toc-backref" href="#id12" role="doc-backlink">Package naming</a><a class="headerlink" href="#package-naming" title="Link to this heading">#</a></h3>
 <p>We recommend the convention:</p>
 <ul class="simple">
 <li><p><strong>Provider only</strong>: <code class="docutils literal notranslate"><span class="pre">gptme-provider-&lt;name&gt;</span></code> (e.g. <code class="docutils literal notranslate"><span class="pre">gptme-provider-minimax</span></code>)</p></li>
@@ -1125,7 +1148,7 @@ entry-point group instead, which lets a single package provide everything:</p>
 </section>
 </section>
 <section id="option-3-built-in-provider-pr">
-<span id="builtin-provider-pr"></span><h2><a class="toc-backref" href="#id12" role="doc-backlink">Option 3: Built-in Provider PR</a><a class="headerlink" href="#option-3-built-in-provider-pr" title="Link to this heading">#</a></h2>
+<span id="builtin-provider-pr"></span><h2><a class="toc-backref" href="#id13" role="doc-backlink">Option 3: Built-in Provider PR</a><a class="headerlink" href="#option-3-built-in-provider-pr" title="Link to this heading">#</a></h2>
 <p>Add the provider to gptme core when:</p>
 <ul class="simple">
 <li><p>It is widely requested by the community (see open issues/discussions)</p></li>
@@ -1134,7 +1157,7 @@ flow (e.g. OAuth PKCE, subscription tokens)</p></li>
 <li><p>Its model metadata (capabilities, pricing) is stable and publicly documented</p></li>
 </ul>
 <section id="steps">
-<h3><a class="toc-backref" href="#id13" role="doc-backlink">Steps</a><a class="headerlink" href="#steps" title="Link to this heading">#</a></h3>
+<h3><a class="toc-backref" href="#id14" role="doc-backlink">Steps</a><a class="headerlink" href="#steps" title="Link to this heading">#</a></h3>
 <ol class="arabic">
 <li><p><strong>Create</strong> <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_&lt;name&gt;.py</span></code> following the pattern in
 <code class="docutils literal notranslate"><span class="pre">llm_openai.py</span></code> (for standard API keys) or <code class="docutils literal notranslate"><span class="pre">llm_grok_subscription.py</span></code>
@@ -1173,9 +1196,9 @@ make<span class="w"> </span>lint
 </section>
 </section>
 <section id="common-pitfalls">
-<h2><a class="toc-backref" href="#id14" role="doc-backlink">Common Pitfalls</a><a class="headerlink" href="#common-pitfalls" title="Link to this heading">#</a></h2>
+<h2><a class="toc-backref" href="#id15" role="doc-backlink">Common Pitfalls</a><a class="headerlink" href="#common-pitfalls" title="Link to this heading">#</a></h2>
 <section id="model-ids">
-<h3><a class="toc-backref" href="#id15" role="doc-backlink">Model IDs</a><a class="headerlink" href="#model-ids" title="Link to this heading">#</a></h3>
+<h3><a class="toc-backref" href="#id16" role="doc-backlink">Model IDs</a><a class="headerlink" href="#model-ids" title="Link to this heading">#</a></h3>
 <p>Use the provider-prefixed form in <code class="docutils literal notranslate"><span class="pre">ModelMeta.model</span></code> — not bare model names:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># ✅ Correct</span>
 <span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;acme/turbo-v1&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">)</span>
@@ -1188,13 +1211,13 @@ make<span class="w"> </span>lint
 <code class="docutils literal notranslate"><span class="pre">get_model(&quot;acme/turbo-v1&quot;)</span></code> can look up the right plugin.</p>
 </section>
 <section id="custom-init-must-register-a-client">
-<h3><a class="toc-backref" href="#id16" role="doc-backlink">Custom <code class="docutils literal notranslate"><span class="pre">init</span></code> must register a client</a><a class="headerlink" href="#custom-init-must-register-a-client" title="Link to this heading">#</a></h3>
+<h3><a class="toc-backref" href="#id17" role="doc-backlink">Custom <code class="docutils literal notranslate"><span class="pre">init</span></code> must register a client</a><a class="headerlink" href="#custom-init-must-register-a-client" title="Link to this heading">#</a></h3>
 <p>If you provide <code class="docutils literal notranslate"><span class="pre">init</span></code>, it must call <code class="docutils literal notranslate"><span class="pre">_init_openai_client()</span></code> or an
 equivalent before returning.  Failing to do so raises <code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code> at
 startup and blocks all requests to your provider.</p>
 </section>
 <section id="streaming">
-<h3><a class="toc-backref" href="#id17" role="doc-backlink">Streaming</a><a class="headerlink" href="#streaming" title="Link to this heading">#</a></h3>
+<h3><a class="toc-backref" href="#id18" role="doc-backlink">Streaming</a><a class="headerlink" href="#streaming" title="Link to this heading">#</a></h3>
 <p>All built-in gptme providers stream by default.  The <code class="docutils literal notranslate"><span class="pre">supports_streaming</span></code>
 field in <code class="docutils literal notranslate"><span class="pre">ModelMeta</span></code> is a <strong>metadata-only</strong> flag — it affects UI hints and
 capability-check display, but does <strong>not</strong> change how the underlying OpenAI
@@ -1212,21 +1235,72 @@ and suppresses misleading UI streaming indicators, but will not prevent the
 <code class="docutils literal notranslate"><span class="pre">stream=True</span></code> parameter from being sent to your endpoint.</p>
 </section>
 <section id="vision-inputs">
-<h3><a class="toc-backref" href="#id18" role="doc-backlink">Vision inputs</a><a class="headerlink" href="#vision-inputs" title="Link to this heading">#</a></h3>
+<h3><a class="toc-backref" href="#id19" role="doc-backlink">Vision inputs</a><a class="headerlink" href="#vision-inputs" title="Link to this heading">#</a></h3>
 <p>If your provider supports image inputs (<code class="docutils literal notranslate"><span class="pre">supports_vision=True</span></code>), it must
 accept the standard OpenAI <code class="docutils literal notranslate"><span class="pre">image_url</span></code> content-part format — gptme passes
 images through without transcoding.</p>
 </section>
 </section>
+<section id="frequently-asked-questions">
+<h2><a class="toc-backref" href="#id20" role="doc-backlink">Frequently Asked Questions</a><a class="headerlink" href="#frequently-asked-questions" title="Link to this heading">#</a></h2>
+<section id="how-do-i-choose-a-tokenizer">
+<h3><a class="toc-backref" href="#id21" role="doc-backlink">How do I choose a tokenizer?</a><a class="headerlink" href="#how-do-i-choose-a-tokenizer" title="Link to this heading">#</a></h3>
+<p>Provider plugins do not currently declare a tokenizer.  gptme passes the
+fully-qualified model ID to its shared token-counting helper, strips known
+provider prefixes where supported, and asks <code class="docutils literal notranslate"><span class="pre">tiktoken</span></code> for that model’s
+encoding.  Unknown models fall back to <code class="docutils literal notranslate"><span class="pre">cl100k_base</span></code>; token counts are
+therefore estimates for models with a different tokenizer.</p>
+<p>There is no <code class="docutils literal notranslate"><span class="pre">tokenizer</span></code> field on <code class="docutils literal notranslate"><span class="pre">ModelMeta</span></code> yet, so a plugin cannot select
+<code class="docutils literal notranslate"><span class="pre">cl100k_base</span></code> or <code class="docutils literal notranslate"><span class="pre">o200k_base</span></code> directly.  Keep the model’s canonical upstream
+name when possible so <code class="docutils literal notranslate"><span class="pre">tiktoken</span></code> can recognize it.  If exact accounting is
+required, open an issue describing the provider and tokenizer family rather
+than adding an undocumented field to the plugin.</p>
+</section>
+<section id="which-capability-flags-should-i-set">
+<h3><a class="toc-backref" href="#id22" role="doc-backlink">Which capability flags should I set?</a><a class="headerlink" href="#which-capability-flags-should-i-set" title="Link to this heading">#</a></h3>
+<p>Capabilities are declared per model in <code class="docutils literal notranslate"><span class="pre">ModelMeta</span></code>, not on
+<code class="docutils literal notranslate"><span class="pre">ProviderPlugin</span></code>.  Set only capabilities the endpoint actually supports:
+<code class="docutils literal notranslate"><span class="pre">supports_vision</span></code>, <code class="docutils literal notranslate"><span class="pre">supports_reasoning</span></code>,
+<code class="docutils literal notranslate"><span class="pre">supports_parallel_tool_calls</span></code>, <code class="docutils literal notranslate"><span class="pre">supports_strict_tools</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">supports_responses_api</span></code>.  <code class="docutils literal notranslate"><span class="pre">supports_streaming</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">True</span></code> but is
+currently metadata-only, as described above.</p>
+<p>These flags are used in different places: model listing and setup surfaces show
+them, vision handling checks <code class="docutils literal notranslate"><span class="pre">supports_vision</span></code>, and streamed generation uses
+<code class="docutils literal notranslate"><span class="pre">supports_parallel_tool_calls</span></code> to decide whether to stop after the first tool
+call.  A flag is not a generic transport adapter — the provider must still
+implement the corresponding OpenAI-compatible request and response behavior.</p>
+</section>
+<section id="which-entry-point-group-should-i-use">
+<h3><a class="toc-backref" href="#id23" role="doc-backlink">Which entry-point group should I use?</a><a class="headerlink" href="#which-entry-point-group-should-i-use" title="Link to this heading">#</a></h3>
+<p>Use <code class="docutils literal notranslate"><span class="pre">gptme.providers</span></code> when the package exports a standalone
+<code class="docutils literal notranslate"><span class="pre">ProviderPlugin</span></code>.  Use <code class="docutils literal notranslate"><span class="pre">gptme.plugins</span></code> only when the package exports a
+<code class="docutils literal notranslate"><span class="pre">GptmePlugin</span></code> that bundles a provider with tools, hooks, or commands.  The two
+entry-point groups have different exported object types; they are not
+interchangeable aliases.</p>
+</section>
+<section id="what-goes-in-modelmeta-model">
+<h3><a class="toc-backref" href="#id24" role="doc-backlink">What goes in <code class="docutils literal notranslate"><span class="pre">ModelMeta.model</span></code>?</a><a class="headerlink" href="#what-goes-in-modelmeta-model" title="Link to this heading">#</a></h3>
+<p>For a third-party provider, set <code class="docutils literal notranslate"><span class="pre">provider=&quot;unknown&quot;</span></code> and use the fully
+qualified runtime ID in <code class="docutils literal notranslate"><span class="pre">model</span></code>, for example <code class="docutils literal notranslate"><span class="pre">&quot;acme/turbo-v1&quot;</span></code>.  The value
+is an identifier, not a display label, and its prefix must match
+<code class="docutils literal notranslate"><span class="pre">ProviderPlugin.name</span></code>.  Users pass that same ID to <code class="docutils literal notranslate"><span class="pre">--model</span></code>.</p>
+</section>
+<section id="what-units-do-the-price-fields-use">
+<h3><a class="toc-backref" href="#id25" role="doc-backlink">What units do the price fields use?</a><a class="headerlink" href="#what-units-do-the-price-fields-use" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">price_input</span></code> and <code class="docutils literal notranslate"><span class="pre">price_output</span></code> are USD per <strong>one million tokens</strong>.  Enter
+the provider’s published per-million values directly — for example, a price of
+$0.10 per million input tokens is <code class="docutils literal notranslate"><span class="pre">price_input=0.10</span></code>, not <code class="docutils literal notranslate"><span class="pre">0.0001</span></code>.</p>
+</section>
+</section>
 <section id="related-documentation">
-<h2><a class="toc-backref" href="#id19" role="doc-backlink">Related Documentation</a><a class="headerlink" href="#related-documentation" title="Link to this heading">#</a></h2>
+<h2><a class="toc-backref" href="#id26" role="doc-backlink">Related Documentation</a><a class="headerlink" href="#related-documentation" title="Link to this heading">#</a></h2>
 <ul class="simple">
 <li><p><a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> — full list of built-in providers and API keys</p></li>
 <li><p><a class="reference internal" href="providers-custom.html"><span class="doc">Custom and Local Providers</span></a> — custom Ollama/vLLM config reference</p></li>
 <li><p><a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a> — unified plugin system (tools + hooks + provider in one package)</p></li>
 <li><p><a class="reference internal" href="contributing.html"><span class="doc">Contributing</span></a> — general contribution guide</p></li>
-<li><p><a class="reference external" href="https://github.com/gptme/gptme/blob/master/tests/test_provider_plugins.py">Provider Plugin tests</a>
-— reference test suite for the plugin system</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/blob/master/tests/test_provider_plugins.py">Provider Plugin tests</a> — reference test suite for the plugin system</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme-provider-template">gptme-provider-template</a> — minimal starter template with OpenAI-compatible and OAuth examples</p></li>
 </ul>
 </section>
 </section>
@@ -1297,6 +1371,14 @@ images through without transcoding.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-init-must-register-a-client">Custom <code class="docutils literal notranslate"><span class="pre">init</span></code> must register a client</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#streaming">Streaming</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#vision-inputs">Vision inputs</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#frequently-asked-questions">Frequently Asked Questions</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-do-i-choose-a-tokenizer">How do I choose a tokenizer?</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#which-capability-flags-should-i-set">Which capability flags should I set?</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#which-entry-point-group-should-i-use">Which entry-point group should I use?</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-goes-in-modelmeta-model">What goes in <code class="docutils literal notranslate"><span class="pre">ModelMeta.model</span></code>?</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-units-do-the-price-fields-use">What units do the price fields use?</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related-documentation">Related Documentation</a></li>

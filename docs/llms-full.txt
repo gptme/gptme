@@ -6311,6 +6311,12 @@ Option 2: Provider Plugin Package
 A provider plugin is a Python package you publish to PyPI.  Once installed,
 users can use your provider without any config file changes.
 
+.. note::
+
+   The `gptme-provider-template <https://github.com/gptme/gptme-provider-template>`_
+   repository provides a ready-to-fork starting point with a minimal OpenAI-compatible
+   example and an OAuth flow example.  Clone it instead of starting from scratch.
+
 Minimum working example
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -6609,6 +6615,64 @@ If your provider supports image inputs (``supports_vision=True``), it must
 accept the standard OpenAI ``image_url`` content-part format — gptme passes
 images through without transcoding.
 
+Frequently Asked Questions
+----------------------------
+
+How do I choose a tokenizer?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Provider plugins do not currently declare a tokenizer.  gptme passes the
+fully-qualified model ID to its shared token-counting helper, strips known
+provider prefixes where supported, and asks ``tiktoken`` for that model's
+encoding.  Unknown models fall back to ``cl100k_base``; token counts are
+therefore estimates for models with a different tokenizer.
+
+There is no ``tokenizer`` field on ``ModelMeta`` yet, so a plugin cannot select
+``cl100k_base`` or ``o200k_base`` directly.  Keep the model's canonical upstream
+name when possible so ``tiktoken`` can recognize it.  If exact accounting is
+required, open an issue describing the provider and tokenizer family rather
+than adding an undocumented field to the plugin.
+
+Which capability flags should I set?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Capabilities are declared per model in ``ModelMeta``, not on
+``ProviderPlugin``.  Set only capabilities the endpoint actually supports:
+``supports_vision``, ``supports_reasoning``,
+``supports_parallel_tool_calls``, ``supports_strict_tools``, and
+``supports_responses_api``.  ``supports_streaming`` defaults to ``True`` but is
+currently metadata-only, as described above.
+
+These flags are used in different places: model listing and setup surfaces show
+them, vision handling checks ``supports_vision``, and streamed generation uses
+``supports_parallel_tool_calls`` to decide whether to stop after the first tool
+call.  A flag is not a generic transport adapter — the provider must still
+implement the corresponding OpenAI-compatible request and response behavior.
+
+Which entry-point group should I use?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``gptme.providers`` when the package exports a standalone
+``ProviderPlugin``.  Use ``gptme.plugins`` only when the package exports a
+``GptmePlugin`` that bundles a provider with tools, hooks, or commands.  The two
+entry-point groups have different exported object types; they are not
+interchangeable aliases.
+
+What goes in ``ModelMeta.model``?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For a third-party provider, set ``provider="unknown"`` and use the fully
+qualified runtime ID in ``model``, for example ``"acme/turbo-v1"``.  The value
+is an identifier, not a display label, and its prefix must match
+``ProviderPlugin.name``.  Users pass that same ID to ``--model``.
+
+What units do the price fields use?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``price_input`` and ``price_output`` are USD per **one million tokens**.  Enter
+the provider's published per-million values directly — for example, a price of
+$0.10 per million input tokens is ``price_input=0.10``, not ``0.0001``.
+
 Related Documentation
 -----------------------
 
@@ -6616,8 +6680,8 @@ Related Documentation
 - :doc:`providers-custom` — custom Ollama/vLLM config reference
 - :doc:`plugins` — unified plugin system (tools + hooks + provider in one package)
 - :doc:`contributing` — general contribution guide
-- `Provider Plugin tests <https://github.com/gptme/gptme/blob/master/tests/test_provider_plugins.py>`_
-  — reference test suite for the plugin system
+- `Provider Plugin tests <https://github.com/gptme/gptme/blob/master/tests/test_provider_plugins.py>`_ — reference test suite for the plugin system
+- `gptme-provider-template <https://github.com/gptme/gptme-provider-template>`_ — minimal starter template with OpenAI-compatible and OAuth examples
 
 
 # Choosing your model
