@@ -93,11 +93,10 @@ def start(
 @cli.command("attach")
 @click.argument("session")
 @click.option(
-    "--start-if-missing",
-    is_flag=True,
+    "--start-if-missing/--no-start-if-missing",
     default=True,
     show_default=True,
-    help="Auto-start the daemon if the session is not running (default: on)",
+    help="Auto-start the daemon if the session is not running",
 )
 def attach_cmd(session: str, start_if_missing: bool) -> None:
     """Attach to a running daemon session.

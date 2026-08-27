@@ -116,7 +116,11 @@ class SessionDaemon:
             os.kill(pid, 0)
         except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError):
             return False
-        return _socket_is_accepting(self.socket_path)
+        # The MVP intentionally serves one attached client at a time. A handshake
+        # probe would therefore time out while that client is attached even though
+        # the daemon is healthy. The PID and bound socket are the daemon-owned
+        # lifecycle markers; cleanup removes both when the process exits.
+        return True
 
     def stop(self) -> None:
         """Send SIGTERM to the daemon process."""
@@ -245,6 +249,8 @@ class SessionDaemon:
         while not self._stop_event.is_set():
             try:
                 rlist, _, _ = select.select([server_sock], [], [], 0.2)
+            except InterruptedError:
+                continue
             except OSError:
                 break
             if not rlist:
@@ -262,6 +268,9 @@ class SessionDaemon:
 
     def _serve_client(self, client: socket.socket) -> None:
         """Replay output history, then queue prompts received from the client."""
+        # Bound every write, including the initial handshake and history replay.
+        # A client that connects without reading must not stall the daemon worker.
+        client.settimeout(0.2)
         # Publish the client only after history is fully sent.  Holding the same
         # lock used by _publish_output makes history-before-live ordering atomic.
         with self._output_lock:
@@ -280,7 +289,6 @@ class SessionDaemon:
                 return
             self._client = client
 
-        client.settimeout(0.2)
         while not self._stop_event.is_set():
             try:
                 msg = recv_msg(client)
@@ -424,24 +432,6 @@ def attach(session_name: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _socket_is_accepting(path: Path) -> bool:
-    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    probe.settimeout(0.5)
-    try:
-        probe.connect(str(path))
-        ready = recv_msg(probe)
-        return (
-            ready is not None
-            and ready.type == "status"
-            and isinstance(ready.data, dict)
-            and bool(ready.data.get("ready"))
-        )
-    except (OSError, ValueError):
-        return False
-    finally:
-        probe.close()
-
-
 def list_daemons() -> list[dict]:
     """Return info dicts for known daemons."""
     daemon_dir = get_daemon_dir()
@@ -452,7 +442,7 @@ def list_daemons() -> list[dict]:
         try:
             pid = int(pid_file.read_text())
             os.kill(pid, 0)
-            running = _socket_is_accepting(sock)
+            running = sock.exists()
         except (ValueError, ProcessLookupError, PermissionError):
             running = False
         result.append(

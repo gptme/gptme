@@ -313,6 +313,47 @@ class TestPersistentTurnLifecycle:
             thread.join(timeout=1)
             server.close()
 
+    def test_client_writes_have_timeout_before_handshake(self, monkeypatch):
+        daemon = SessionDaemon("bounded-writes")
+        server, client = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        observed_timeouts: list[float | None] = []
+        original_send_msg = send_msg
+
+        def capture_timeout(sock, msg):
+            observed_timeouts.append(sock.gettimeout())
+            original_send_msg(sock, msg)
+
+        monkeypatch.setattr("gptme.server.daemon.send_msg", capture_timeout)
+        try:
+            thread = threading.Thread(target=daemon._serve_client, args=(server,))
+            thread.start()
+            assert recv_msg(client) is not None
+            assert observed_timeouts[0] is not None
+        finally:
+            client.close()
+            thread.join(timeout=1)
+            server.close()
+
+    def test_accept_loop_retries_interrupted_select(self, monkeypatch):
+        daemon = SessionDaemon("interrupted")
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        calls = 0
+
+        def interrupted_once(*_args):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise InterruptedError
+            daemon._stop_event.set()
+            return [], [], []
+
+        monkeypatch.setattr("gptme.server.daemon.select.select", interrupted_once)
+        try:
+            daemon._accept_loop(server)
+            assert calls == 2
+        finally:
+            server.close()
+
 
 # ---------------------------------------------------------------------------
 # Integration: echo server simulating daemon I/O
@@ -454,6 +495,18 @@ class TestAttachProtocol:
 
 
 class TestListDaemons:
+    def test_is_running_while_primary_client_is_attached(self, tmp_path, monkeypatch):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        daemon = SessionDaemon("occupied")
+        daemon.pid_path.write_text(str(os.getpid()))
+        daemon.socket_path.touch()
+
+        # The single-client MVP cannot accept a status probe while occupied, so
+        # liveness relies on the daemon-owned PID and socket lifecycle markers.
+        assert daemon.is_running()
+
     def test_list_empty(self, tmp_path):
         from gptme.server import daemon as _dm
 
@@ -502,6 +555,15 @@ class TestListDaemons:
 
 
 class TestDaemonCLI:
+    def test_attach_can_disable_auto_start(self):
+        from click.testing import CliRunner
+
+        from gptme.cli.cmd_daemon import cli
+
+        result = CliRunner().invoke(cli, ["attach", "--help"])
+        assert result.exit_code == 0
+        assert "--no-start-if-missing" in result.output
+
     def test_list_command_empty(self, tmp_path):
         from click.testing import CliRunner
 
