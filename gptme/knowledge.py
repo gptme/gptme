@@ -19,7 +19,7 @@ import tempfile
 import threading
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -83,7 +83,9 @@ def _load_entries() -> list[KnowledgeEntry]:
         line = line.strip()
         if line:
             try:
-                entries.append(json.loads(line))
+                parsed = json.loads(line)
+                if isinstance(parsed, dict):
+                    entries.append(cast(KnowledgeEntry, parsed))
             except json.JSONDecodeError:
                 pass
     return entries
@@ -263,6 +265,8 @@ def knowledge_delete_by_prefix(
           contains all candidates so the caller can list them.
         - ``'not_found'``: no entry matched the prefix.
     """
+    if not prefix.strip():
+        raise ValueError("entry_id cannot be empty")
     with _exclusive_lock():
         entries = _load_entries()
         matches = [e for e in entries if e.get("id", "").startswith(prefix)]

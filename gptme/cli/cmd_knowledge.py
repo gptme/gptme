@@ -212,8 +212,8 @@ def knowledge_delete_cmd(entry_id: str):
     # prefix lookup and the actual write.
     try:
         full_id, status, matches = knowledge_delete_by_prefix(entry_id)
-    except OSError as e:
-        click.echo(f"Error reading knowledge base: {e}", err=True)
+    except (ValueError, OSError) as e:
+        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
     if status == "ambiguous":
