@@ -254,6 +254,28 @@ class TestExecuteShellAllowlist:
         )
         assert result.action.value == "confirm"
 
+    @pytest.mark.parametrize(
+        "preview",
+        [
+            "ls\nbg pwd",
+            "bg ls\npwd",
+            "ls\nbg pwd\nhead README.md",
+        ],
+    )
+    def test_bg_with_allowlisted_surrounding_commands_auto_confirms(self, preview):
+        """Safe multi-line bg sequences retain their pre-hook behavior."""
+        tool_use = ToolUse(
+            tool="shell",
+            args=[],
+            kwargs={},
+            content=preview,
+        )
+
+        result = shell_allowlist_hook(tool_use, preview=preview)
+
+        assert result is not None
+        assert result.action.value == "confirm"
+
     def test_bg_with_preceding_dangerous_cmd_does_not_auto_confirm(self):
         """When dangerous preceding commands exist, do NOT auto-confirm.
 

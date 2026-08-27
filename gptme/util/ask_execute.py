@@ -125,19 +125,38 @@ def execute_with_confirmation(
             yield Message("system", msg)
             return
 
-        # Handle edited content from confirmation result
+        # Handle edited content from confirmation result.  An edit is a new
+        # execution request: route it through the hook chain again so guardrails
+        # inspect the exact content that will execute, not only the original.
         was_edited = False
         if result.action == ConfirmAction.EDIT:
-            if allow_edit and result.edited_content is not None:
-                was_edited = content != result.edited_content
-                content = result.edited_content
-            elif not allow_edit:
+            if not allow_edit:
                 # Editing is not supported for this command type (e.g. bg with surrounding
                 # commands). Abort rather than execute unedited content the user tried to modify.
                 yield Message(
                     "system",
                     "Editing is not supported for this command; execution aborted.",
                 )
+                return
+            if result.edited_content is None:
+                yield Message(
+                    "system", "Editing returned no content; execution aborted."
+                )
+                return
+
+            was_edited = content != result.edited_content
+            content = result.edited_content
+            edited_preview = preview_fn(content, path) if preview_fn else None
+            edited_result = get_confirmation(
+                preview=edited_preview or content,
+                default_confirm=True,
+            )
+            if edited_result.action != ConfirmAction.CONFIRM:
+                msg = (
+                    edited_result.message
+                    or "Edited content was not confirmed; execution aborted."
+                )
+                yield Message("system", msg)
                 return
 
         # Execute

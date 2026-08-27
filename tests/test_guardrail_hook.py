@@ -324,32 +324,28 @@ class TestAllowEdit:
             for m in messages
         ), f"Expected an abort system message but got: {messages!r}"
 
-    def test_allow_edit_true_applies_user_edits(self, tmp_path):
-        """When allow_edit=True (default), edits returned by the hook ARE applied."""
+    def test_allow_edit_true_reconfirms_user_edits(self, tmp_path):
+        """Edited content is routed through TOOL_CONFIRM before execution."""
         from unittest.mock import patch
 
-        from gptme.hooks.confirm import ConfirmAction, ConfirmationResult
+        from gptme.hooks.confirm import ConfirmationResult
         from gptme.util.ask_execute import execute_with_confirmation
 
         original_code = "ls /tmp"
         edited_code = "ls /home"
-
         received = []
 
         def execute_fn(content, path):
             received.append(content)
             return iter([])
 
-        def mock_get_confirmation(**kwargs):
-            return ConfirmationResult(
-                action=ConfirmAction.EDIT,
-                edited_content=edited_code,
-            )
-
         with patch(
             "gptme.hooks.get_confirmation",
-            side_effect=mock_get_confirmation,
-        ):
+            side_effect=[
+                ConfirmationResult.edit(edited_code),
+                ConfirmationResult.confirm(),
+            ],
+        ) as mock_get_confirmation:
             list(
                 execute_with_confirmation(
                     original_code,
@@ -361,7 +357,40 @@ class TestAllowEdit:
                 )
             )
 
-        assert received == [edited_code], (
-            f"allow_edit=True must apply user edits; "
-            f"execute_fn received {received!r} instead of {[edited_code]!r}"
-        )
+        assert received == [edited_code]
+        assert mock_get_confirmation.call_count == 2
+        assert mock_get_confirmation.call_args_list[1].kwargs["preview"] == edited_code
+
+    def test_guardrail_can_deny_edited_content(self):
+        """A dangerous edit must not execute after the original was approved."""
+        from unittest.mock import patch
+
+        from gptme.hooks.confirm import ConfirmationResult
+        from gptme.util.ask_execute import execute_with_confirmation
+
+        received = []
+
+        def execute_fn(content, path):
+            received.append(content)
+            return iter([])
+
+        with patch(
+            "gptme.hooks.get_confirmation",
+            side_effect=[
+                ConfirmationResult.edit("rm -rf /"),
+                ConfirmationResult.skip("Blocked edited command"),
+            ],
+        ):
+            messages = list(
+                execute_with_confirmation(
+                    "ls",
+                    args=[],
+                    kwargs={},
+                    execute_fn=execute_fn,
+                    get_path_fn=lambda code, args, kwargs: None,
+                    allow_edit=True,
+                )
+            )
+
+        assert received == []
+        assert any("Blocked edited command" in message.content for message in messages)
