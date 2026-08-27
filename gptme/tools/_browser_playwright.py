@@ -339,6 +339,7 @@ def _extract_main_content(page: Page) -> str:
 
 def read_url(url: str) -> str:
     """Read the text of a webpage and return the text in Markdown format."""
+    global _last_response_content_type
     body_content = _execute_with_retry(_load_page, url)
     # Server responded with markdown directly — return as-is (skip html→markdown)
     if "text/markdown" in _last_response_content_type:
