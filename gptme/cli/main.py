@@ -806,6 +806,13 @@ Run 'gptme-util --help' for all utility commands."""
     help="Write a JSON record before and after each tool call to this directory. "
     "Records can be committed alongside session artifacts for tool-call-level attribution.",
 )
+@click.option(
+    "--track-tokens",
+    "track_tokens",
+    is_flag=True,
+    envvar="GPTME_TRACK_TOKENS",
+    help="After each LLM call, print running token count and percent of the model's context window.",
+)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -840,6 +847,7 @@ def main(
     output_schema: str | None,
     injection_hygiene: str | None,
     manifest_dir: Path | None,
+    track_tokens: bool,
 ):
     """Main entrypoint for the CLI."""
     show_version = version or version_json
@@ -965,6 +973,10 @@ def main(
     # so this only fires when the flag was explicitly passed on the command line.
     if injection_hygiene is not None:
         os.environ["GPTME_INJECTION_HYGIENE"] = injection_hygiene
+
+    # Propagate --track-tokens to the env var checked per-step.
+    if track_tokens:
+        os.environ["GPTME_TRACK_TOKENS"] = "1"
 
     # Convert tool_allowlist from tuple to string or None
     # Use get_parameter_source to distinguish between default (None) and explicit empty list

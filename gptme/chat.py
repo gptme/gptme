@@ -28,6 +28,7 @@ from .message import (
     get_output_format,
     is_output_json,
     is_output_quiet,
+    len_tokens,
     set_output_format,
 )
 from .prompt_queue import drain_prompt_queue
@@ -50,6 +51,31 @@ from .util.sound import print_bell
 from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
 
 logger = logging.getLogger(__name__)
+
+# Session-scoped token accumulator for --track-tokens.
+# Sums (input + output) tokens across all LLM calls in a session.
+_session_tokens: int = 0
+
+
+def _reset_token_accumulator() -> None:
+    global _session_tokens
+    _session_tokens = 0
+
+
+def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> None:
+    """Print running token totals after each LLM call (enabled by --track-tokens)."""
+    global _session_tokens
+    n_in = len_tokens(msgs, model)
+    n_out = len_tokens(msg_response, model)
+    _session_tokens += n_in + n_out
+
+    model_meta = get_model(model)
+    context_limit = model_meta.context
+    pct = 100.0 * n_in / context_limit if context_limit else 0.0
+    console.log(
+        f"[track-tokens] context: {n_in:,} / {context_limit:,} ({pct:.1f}%) | "
+        f"+{n_out:,} out | session total: {_session_tokens:,}"
+    )
 
 
 @trace_function(name="chat.main", attributes={"component": "chat"})
@@ -77,6 +103,9 @@ def chat(
 
     Callable from other modules.
     """
+    # Reset the per-session token accumulator for --track-tokens
+    _reset_token_accumulator()
+
     # Set initial terminal title with conversation name
     conv_name = logdir.name
     set_current_conv_name(conv_name)
@@ -657,6 +686,8 @@ def step(
             )
         if get_config().get_env_bool("GPTME_COSTS"):
             log_costs(msgs + [msg_response])
+        if get_config().get_env_bool("GPTME_TRACK_TOKENS"):
+            _log_token_usage(msgs, msg_response, get_model(model).full)
 
         # Trigger generation post hooks (e.g., TTS)
         if generation_post_msgs := trigger_hook(
