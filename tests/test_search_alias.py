@@ -287,10 +287,21 @@ class TestUtilSubcommandMirroring:
         enabling util dispatch, so allow_interspersed_args stays True and
         --help fires as an eager option showing gptme's top-level help.
         """
-        with patch("gptme.cli.main.shutil.which", return_value=None):
+        with patch("gptme.cli.main.subprocess.call") as mock_call:
             result = runner.invoke(main, ["--bogus", "chats", "list", "--help"])
         assert "Usage:" in result.output
         assert result.exit_code == 0
+        mock_call.assert_not_called()
+
+    def test_util_subcmd_after_unknown_short_option_does_not_dispatch(
+        self, runner: CliRunner
+    ):
+        """gptme -x chats list --help shows gptme help, not gptme-util."""
+        with patch("gptme.cli.main.subprocess.call") as mock_call:
+            result = runner.invoke(main, ["-x", "chats", "list", "--help"])
+        assert "Usage:" in result.output
+        assert result.exit_code == 0
+        mock_call.assert_not_called()
 
     def test_util_subcmd_skipped_for_version_flag(self, runner: CliRunner):
         """gptme --version chats does not trigger gptme-util dispatch."""

@@ -145,19 +145,28 @@ class _DynamicHelpCommand(click.Command):
                         skip_next = True
                     continue
                 # Short option, possibly grouped (e.g. -vm where -m takes a value).
-                # Two forms have the value embedded in the token and do NOT consume
-                # the next token:
-                #   -t=read-only  → '=' separates the inline value
-                #   -mgpt-4       → value is embedded directly after the option char
-                # Only skip the next token when the value-taker is the last char
-                # in the cluster (e.g. -vm where -m needs the next token).
-                if "=" not in a:
-                    chars = a[1:]
-                    for idx, ch in enumerate(chars):
-                        if f"-{ch}" in value_opts:
-                            if idx == len(chars) - 1:
-                                skip_next = True
-                            break
+                # Inspect flags from left to right, as Click does.  The remainder
+                # of the token becomes an attached value as soon as a value-taking
+                # option is found; otherwise every character must be a known flag.
+                chars = a[1:]
+                for idx, ch in enumerate(chars):
+                    opt_name = f"-{ch}"
+                    if opt_name not in known_opts:
+                        # With ignore_unknown_options=True, Click preserves an
+                        # unknown short option as a positional argument.  Stop
+                        # here rather than treating a later utility name as the
+                        # first positional (e.g. `-x chats list --help`).
+                        first_positional = a
+                        break
+                    if opt_name in value_opts:
+                        # No characters after the option means its value is the
+                        # next token.  Otherwise the remainder (including an '='
+                        # prefix) is the attached value.
+                        if idx == len(chars) - 1:
+                            skip_next = True
+                        break
+                if first_positional is not None:
+                    break
                 continue
             first_positional = a
             break
