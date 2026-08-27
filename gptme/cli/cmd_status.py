@@ -142,17 +142,22 @@ def _markdown_table_cell(value: object) -> str:
     Lists and dicts are serialised as compact JSON so the cell content is
     machine-parseable rather than a raw Python repr.
     """
-    if isinstance(value, (list, dict)):
+    structured = isinstance(value, (list, dict))
+    if structured:
         try:
             text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
         except (TypeError, ValueError):
             text = str(value)
+            structured = False
     else:
         text = str(value)
     text = " ".join(text.splitlines()).strip()
     if not text:
         return "none"
-    return text.replace("|", r"\|")
+    # Markdown's ``\|`` escape is invalid inside JSON strings.  A JSON unicode
+    # escape hides the delimiter from the Markdown parser while preserving the
+    # value when a consumer decodes the cell.
+    return text.replace("|", r"\u007c" if structured else r"\|")
 
 
 def _strip_markdown(doc: str) -> str:
