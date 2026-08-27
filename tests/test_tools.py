@@ -100,6 +100,13 @@ def test_read_only_tool_preset_cannot_be_combined_with_other_tools():
         init_tools(allowlist=["read-only", "save"])
 
 
+def test_read_only_tool_preset_rejects_python_tool_path():
+    clear_tools()
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        init_tools(allowlist=["read-only", "foo.bar.py"])
+
+
 def test_init_tools_allowlist_glob_matches_mcp_tools():
     from gptme.tools.base import ToolSpec
 

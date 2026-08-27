@@ -1138,12 +1138,14 @@ def main(
         if not manifest_allowlist:
             return pre_manifest_allowlist
         from ..tools import expand_tool_allowlist_presets
+        from ..tools._allowlist import TOOL_PRESETS
 
         entries = [
             entry.strip()
             for entry in manifest_allowlist.removeprefix("+").split(",")
             if entry.strip()
         ]
+        preset_names = [entry for entry in entries if entry in TOOL_PRESETS]
         if not manifest_allowlist.startswith("+"):
             expanded_entries = expand_tool_allowlist_presets(entries)
             assert expanded_entries is not None
@@ -1151,6 +1153,14 @@ def main(
         concrete_allowlist = ",".join(entries)
         unavailable = _unavailable_manifest_tools(concrete_allowlist)
         remaining = [entry for entry in entries if entry not in unavailable]
+        if preset_names:
+            preset_tools = {
+                tool
+                for preset_name in preset_names
+                for tool in TOOL_PRESETS[preset_name]
+            }
+            remaining = [entry for entry in remaining if entry not in preset_tools]
+            remaining = [*preset_names, *remaining]
         if manifest_allowlist.startswith("+"):
             return "+" + ",".join(remaining) if remaining else pre_manifest_allowlist
         # Non-additive (builtin_tools): fail closed when every entry is unavailable.
