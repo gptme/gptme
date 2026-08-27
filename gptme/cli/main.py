@@ -474,6 +474,9 @@ Utilities:
   gptme chats search Q    Search conversations for query (full options)
   gptme chats send ID MSG Queue a prompt for a running chat from another terminal
   gptme chats rename      Rename a conversation
+  gptme daemon start      Start a gptme session as a background daemon
+  gptme daemon attach     Attach to a running daemon session
+  gptme daemon list       List running daemon sessions
   gptme models list       List available models
   gptme snapshot list     List workspace snapshots outside a session
   gptme context index     Index project files for RAG
