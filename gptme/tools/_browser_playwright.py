@@ -33,7 +33,6 @@ from ._computer_gate import sensitive_action_gate
 
 _browser: BrowserThread | None = None
 _last_logs: dict = {"logs": [], "errors": [], "url": None}
-_last_response_content_type: str = ""
 # Persistent page state for interactive browsing (open_page/click/fill/scroll)
 _current_page: Page | None = None
 _current_context: BrowserContext | None = None
@@ -158,9 +157,9 @@ def _execute_with_retry(
     raise last_error
 
 
-def _load_page(browser: Browser, url: str) -> str:
-    """Load a page and return its body HTML (or markdown text), always capturing logs"""
-    global _last_logs, _last_response_content_type
+def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
+    """Load a page and return its content plus whether it is Markdown."""
+    global _last_logs
 
     managed = _create_page(
         browser,
@@ -206,20 +205,18 @@ def _load_page(browser: Browser, url: str) -> str:
         page_errors.append(f"Navigation error: {e}")
         # Don't re-raise, just capture the error
 
-    # Track content type so read_url can skip html→markdown when not needed
-    _last_response_content_type = (
-        nav_response.headers.get("content-type", "") if nav_response else ""
-    )
+    content_type = nav_response.headers.get("content-type", "") if nav_response else ""
+    is_markdown = content_type.partition(";")[0].strip().lower() == "text/markdown"
 
     # Store logs globally
     _last_logs = {"logs": logs, "errors": page_errors, "url": url}
 
     try:
         # Server returned markdown directly — use plain text, skip HTML extraction
-        if "text/markdown" in _last_response_content_type:
-            return page.inner_text("body")
+        if is_markdown:
+            return page.inner_text("body"), True
         # Otherwise extract main content HTML for html_to_markdown conversion
-        return _extract_main_content(page)
+        return _extract_main_content(page), False
     finally:
         managed.close()
 
@@ -339,10 +336,8 @@ def _extract_main_content(page: Page) -> str:
 
 def read_url(url: str) -> str:
     """Read the text of a webpage and return the text in Markdown format."""
-    global _last_response_content_type
-    body_content = _execute_with_retry(_load_page, url)
-    # Server responded with markdown directly — return as-is (skip html→markdown)
-    if "text/markdown" in _last_response_content_type:
+    body_content, is_markdown = _execute_with_retry(_load_page, url)
+    if is_markdown:
         return body_content
     return html_to_markdown(body_content)
 
