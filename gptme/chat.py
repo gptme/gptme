@@ -687,7 +687,7 @@ def step(
         if get_config().get_env_bool("GPTME_COSTS"):
             log_costs(msgs + [msg_response])
         if get_config().get_env_bool("GPTME_TRACK_TOKENS"):
-            _log_token_usage(msgs, msg_response, get_model(model).full)
+            _log_token_usage(msgs, msg_response, model)
 
         # Trigger generation post hooks (e.g., TTS)
         if generation_post_msgs := trigger_hook(
