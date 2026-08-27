@@ -10,9 +10,21 @@ TOOL_PRESETS: dict[str, tuple[str, ...]] = {
 TOOL_PRESET_NAMES = tuple(TOOL_PRESETS)
 
 
+def is_tool_file_path(name: str) -> bool:
+    """Return True if *name* uses supported custom Python-tool path syntax."""
+    return (
+        name.endswith(".py")
+        or name.startswith(("/", "./", "../", "~"))
+        or (len(name) > 2 and name[1] == ":" and name[2] in "/\\")
+    )
+
+
 def _is_mcp_tool_name(name: str) -> bool:
     """Return True if the name looks like an MCP dotted tool (``server.tool``)."""
-    return "." in name and not name.startswith(".")
+    if is_tool_file_path(name) or "/" in name:
+        return False
+    dot_idx = name.find(".")
+    return dot_idx > 0 and dot_idx < len(name) - 1
 
 
 def expand_tool_allowlist_presets(allowlist: list[str] | None) -> list[str] | None:

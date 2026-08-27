@@ -15,6 +15,7 @@ from ..tools import ToolAllowlistError, get_available_tools, get_toolchain
 from ..tools._allowlist import (
     TOOL_PRESETS,
     expand_tool_allowlist_presets,
+    is_tool_file_path,
     matching_allowlist_tools,
 )
 from .chat import ChatConfig
@@ -47,16 +48,6 @@ def _get_model_default_tool_format(model: str | None) -> str | None:
         return None
 
 
-def _is_tool_file_path(value: str) -> bool:
-    return (
-        value.endswith(".py")
-        or value.startswith(("/", "./", "../", "~"))
-        or (
-            len(value) > 2 and value[1] == ":" and value[2] in "/\\"  # Windows C:\...
-        )
-    )
-
-
 def _is_mcp_tool_name(value: str) -> bool:
     """Return True if *value* looks like a dotted MCP tool name (``server.tool``).
 
@@ -65,7 +56,7 @@ def _is_mcp_tool_name(value: str) -> bool:
     not yet initialized.  They are identified by the presence of a dot with
     non-empty text on both sides, and by NOT matching the file-path heuristics.
     """
-    if _is_tool_file_path(value):
+    if is_tool_file_path(value):
         return False
     if "/" in value:
         return False
@@ -211,7 +202,7 @@ def _normalize_tool_allowlist(
     seen: set[str] = set()
 
     for item in allowlist:
-        if _is_tool_file_path(item):
+        if is_tool_file_path(item):
             resolved = Path(item).expanduser().resolve()
             if not resolved.exists():
                 raise ValueError(f"Tool file does not exist: {item}")
