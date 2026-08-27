@@ -464,6 +464,38 @@ class TestCheckProxy:
         assert len(results) == 1
         assert results[0].status == CheckStatus.OK
 
+    def test_credentials_are_redacted(self):
+        """Proxy credentials never appear in diagnostic output."""
+        with patch("gptme.cli.doctor.get_config") as mock_cfg:
+            mock_cfg.return_value.get_env.return_value = (
+                "https://user:secret@proxy.example.com:8443"
+            )
+            results = _check_proxy(verbose=True)
+
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.OK
+        assert results[0].message == "Configured (proxy.example.com:8443)"
+        assert results[0].details == "Proxy: https://proxy.example.com:8443"
+        assert "secret" not in f"{results[0].message} {results[0].details}"
+
+    @pytest.mark.parametrize(
+        "proxy_url",
+        [
+            "secret://user:password@proxy.example.com",
+            "https://user:password@",
+            "https://user:password@proxy.example.com:not-a-port",
+        ],
+    )
+    def test_credentials_are_redacted_from_errors(self, proxy_url: str):
+        """Invalid proxy URLs do not expose credentials in verbose details."""
+        with patch("gptme.cli.doctor.get_config") as mock_cfg:
+            mock_cfg.return_value.get_env.return_value = proxy_url
+            results = _check_proxy(verbose=True)
+
+        output = f"{results[0].message} {results[0].details}"
+        assert results[0].status == CheckStatus.ERROR
+        assert "password" not in output
+
     def test_missing_scheme(self):
         """A URL without a scheme (no http/https) is an error — gptme#3526 case."""
         with patch("gptme.cli.doctor.get_config") as mock_cfg:

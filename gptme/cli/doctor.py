@@ -382,14 +382,14 @@ def _check_proxy(verbose: bool = False) -> list[CheckResult]:
         parsed = urlparse(proxy_url)
         hostname = parsed.hostname
         # Accessing port validates malformed/non-numeric/out-of-range values.
-        _ = parsed.port
-    except ValueError as exc:
+        port = parsed.port
+    except ValueError:
         results.append(
             CheckResult(
                 name="Proxy: LLM_PROXY_URL",
                 status=CheckStatus.ERROR,
-                message=f"Malformed URL — {exc}",
-                details=f"URL: {proxy_url}" if verbose else None,
+                message="Malformed URL",
+                details=None,
                 fix_hint="Set LLM_PROXY_URL to a valid http or https URL",
             )
         )
@@ -402,7 +402,7 @@ def _check_proxy(verbose: bool = False) -> list[CheckResult]:
                 name="Proxy: LLM_PROXY_URL",
                 status=CheckStatus.ERROR,
                 message=f"Invalid scheme {parsed.scheme!r} — must be http or https",
-                details=f"URL: {proxy_url}" if verbose else None,
+                details=None,
                 fix_hint="Set LLM_PROXY_URL to a URL starting with http:// or https://",
             )
         )
@@ -415,11 +415,17 @@ def _check_proxy(verbose: bool = False) -> list[CheckResult]:
                 name="Proxy: LLM_PROXY_URL",
                 status=CheckStatus.ERROR,
                 message="Missing host",
-                details=f"URL: {proxy_url}" if verbose else None,
+                details=None,
                 fix_hint="Set LLM_PROXY_URL to a full URL, e.g. https://my-proxy.example.com",
             )
         )
         return results
+
+    display_host = hostname
+    if ":" in display_host:
+        display_host = f"[{display_host}]"
+    if port is not None:
+        display_host = f"{display_host}:{port}"
 
     # Path should be empty or just "/" — the Anthropic SDK appends its own paths
     if parsed.path and parsed.path != "/":
@@ -428,7 +434,9 @@ def _check_proxy(verbose: bool = False) -> list[CheckResult]:
                 name="Proxy: LLM_PROXY_URL",
                 status=CheckStatus.WARNING,
                 message=f"URL has a non-root path {parsed.path!r} — may conflict with SDK routing",
-                details=f"URL: {proxy_url}" if verbose else None,
+                details=f"Proxy: {parsed.scheme}://{display_host}{parsed.path}"
+                if verbose
+                else None,
                 fix_hint="Consider removing the path component; the Anthropic SDK appends its own paths",
             )
         )
@@ -437,8 +445,8 @@ def _check_proxy(verbose: bool = False) -> list[CheckResult]:
             CheckResult(
                 name="Proxy: LLM_PROXY_URL",
                 status=CheckStatus.OK,
-                message=f"Configured ({parsed.netloc})",
-                details=f"URL: {proxy_url}" if verbose else None,
+                message=f"Configured ({display_host})",
+                details=f"Proxy: {parsed.scheme}://{display_host}" if verbose else None,
             )
         )
 
