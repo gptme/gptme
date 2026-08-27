@@ -8,7 +8,6 @@ These tests verify that:
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 
 from gptme.message import Message
@@ -86,27 +85,46 @@ class TestGenerationPreSnapshotBoundary:
         assert system_1 == system_2, "System messages not extracted consistently"
 
     def test_unchanged_history_produces_identical_provider_request(self):
-        """Core regression: unchanged message history → byte-identical provider request."""
-        messages = [Message(role="user", content="Test")]
-        model = "openai/gpt-4o-mini"
+        """Core regression: system prefix is stable after new conversation turns are appended.
 
-        # Capture request state for first turn
-        request_state_1 = {
-            "messages": [m.to_dict() for m in messages],
-            "model": model,
-        }
+        Verifies that the Anthropic-formatted system messages (the cacheable prefix)
+        are byte-identical before and after appending new conversation turns.
+        A change would cause a cache miss on every new user message.
+        """
+        from gptme.llm.llm_anthropic import _transform_system_messages
 
-        # Simulate second turn with same messages (no new user input)
-        request_state_2 = {
-            "messages": [m.to_dict() for m in messages],
-            "model": model,
-        }
+        # Initial conversation: static system context + first user turn
+        initial_messages = [
+            Message(
+                role="system", content="Static profile: you are a helpful assistant."
+            ),
+            Message(role="user", content="Hello, first turn"),
+        ]
 
-        # These should be byte-identical (cache-stable prefix)
-        json_1 = json.dumps(request_state_1, sort_keys=True)
-        json_2 = json.dumps(request_state_2, sort_keys=True)
+        # Get provider representation before any new turns are added
+        _, system_1 = _transform_system_messages(
+            initial_messages, model="claude-opus-4-8"
+        )
 
-        assert json_1 == json_2, "Request state not stable across turns"
+        # Simulate a second turn: assistant replies, user sends another message
+        messages_after_turn = [
+            Message(
+                role="system", content="Static profile: you are a helpful assistant."
+            ),
+            Message(role="user", content="Hello, first turn"),
+            Message(role="assistant", content="Hi! How can I help?"),
+            Message(role="user", content="Tell me more."),
+        ]
+
+        # System prefix must be byte-identical after the conversation grows
+        _, system_2 = _transform_system_messages(
+            messages_after_turn, model="claude-opus-4-8"
+        )
+
+        assert system_1 == system_2, (
+            "System message prefix changed after adding new conversation turns — "
+            "this would cause a cache miss on every new message."
+        )
 
 
 class TestProviderOrderingRegressions:
