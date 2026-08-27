@@ -182,7 +182,11 @@ def knowledge_list_cmd(tags: tuple[str, ...], limit: int, as_json: bool):
     """List knowledge entries, newest first."""
     from ..knowledge import knowledge_list  # fmt: skip
 
-    entries = knowledge_list(tags=list(tags) if tags else None, limit=limit)
+    try:
+        entries = knowledge_list(tags=list(tags) if tags else None, limit=limit)
+    except OSError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
     if as_json:
         click.echo(json.dumps(entries, indent=2))

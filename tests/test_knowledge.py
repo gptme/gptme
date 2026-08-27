@@ -10,8 +10,9 @@ from gptme.cli.util import main
 
 @pytest.fixture(autouse=True)
 def isolated_kb(tmp_path, monkeypatch):
-    """Redirect the knowledge store to a temp directory for every test."""
+    """Redirect the knowledge store and disable external indexing in tests."""
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: None)
     # Clear the lru_cache on get_data_dir so it picks up the new env var.
     from gptme import dirs
 
@@ -68,6 +69,14 @@ def test_search_validates_empty_query():
 
     with pytest.raises(ValueError, match="query"):
         knowledge_search("")
+
+
+def test_search_matches_single_character_term():
+    from gptme.knowledge import knowledge_save, knowledge_search
+
+    entry = knowledge_save("x server failure", "restart x")
+
+    assert knowledge_search("x") == [entry]
 
 
 def test_search_tag_filter():
@@ -128,6 +137,17 @@ def test_jsonl_persistence(tmp_path, monkeypatch):
     assert parsed["problem"] == "durable problem"
 
 
+def test_load_entries_skips_malformed_objects():
+    from gptme.knowledge import _entries_file, knowledge_list, knowledge_save
+
+    entry = knowledge_save("valid problem", "valid resolution")
+    with _entries_file().open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"id": "../../outside"}) + "\n")
+        f.write(json.dumps({"id": str(entry["id"])}) + "\n")
+
+    assert knowledge_list() == [entry]
+
+
 # ---------------------------------------------------------------------------
 # CLI tests
 # ---------------------------------------------------------------------------
@@ -159,9 +179,7 @@ def test_cli_save_with_tags():
     assert "Tags: git, pytest" in result.output
 
 
-def test_cli_save_json_output(monkeypatch):
-    # Suppress gptme-rag so its stderr warning doesn't mix into result.output.
-    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: None)
+def test_cli_save_json_output():
     runner = CliRunner()
     result = runner.invoke(
         main, ["knowledge", "save", "--json", "json problem", "json resolution"]
@@ -212,6 +230,20 @@ def test_cli_list_empty():
     result = runner.invoke(main, ["knowledge", "list"])
     assert result.exit_code == 0
     assert "No entries" in result.output
+
+
+def test_cli_list_reports_io_error(monkeypatch):
+    def fail(*args, **kwargs):
+        raise OSError("cannot read store")
+
+    monkeypatch.setattr("gptme.knowledge.knowledge_list", fail)
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["knowledge", "list"])
+
+    assert result.exit_code != 0
+    assert "Error: cannot read store" in result.output
+    assert not isinstance(result.exception, OSError)
 
 
 def test_cli_list_json():

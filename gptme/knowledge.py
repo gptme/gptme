@@ -74,6 +74,25 @@ def _exclusive_lock() -> Iterator[None]:
             yield  # Windows: thread-safe, not cross-process-safe
 
 
+def _is_valid_entry(parsed: object) -> bool:
+    """Return whether parsed JSON has the fields required by the store."""
+    if not isinstance(parsed, dict):
+        return False
+    try:
+        uuid.UUID(parsed.get("id", ""))
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return all(
+        isinstance(parsed.get(key), expected_type)
+        for key, expected_type in (
+            ("problem", str),
+            ("resolution", str),
+            ("tags", list),
+            ("created_at", str),
+        )
+    )
+
+
 def _load_entries() -> list[KnowledgeEntry]:
     path = _entries_file()
     if not path.exists():
@@ -84,7 +103,7 @@ def _load_entries() -> list[KnowledgeEntry]:
         if line:
             try:
                 parsed = json.loads(line)
-                if isinstance(parsed, dict):
+                if _is_valid_entry(parsed):
                     entries.append(cast(KnowledgeEntry, parsed))
             except json.JSONDecodeError:
                 pass
@@ -99,8 +118,8 @@ def _append_entry(entry: KnowledgeEntry) -> None:
 
 
 def _extract_keywords(text: str) -> list[str]:
-    """Extract meaningful words (length ≥ 2) from text for fast filtering."""
-    words = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", text.lower())
+    """Extract words from text for fast filtering."""
+    words = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", text.lower())
     seen: set[str] = set()
     result = []
     for w in words:
@@ -166,7 +185,8 @@ def knowledge_search(
         raise ValueError("query cannot be empty")
 
     query_words = set(_extract_keywords(query))
-    entries = _load_entries()
+    with _exclusive_lock():
+        entries = _load_entries()
 
     # Tag filter
     if tags:
@@ -206,7 +226,8 @@ def knowledge_list(
     Returns:
         Entries sorted by creation date descending.
     """
-    entries = _load_entries()
+    with _exclusive_lock():
+        entries = _load_entries()
     if tags:
         required = {t.lower() for t in tags}
         entries = [
