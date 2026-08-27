@@ -37,6 +37,7 @@ _last_logs: dict = {"logs": [], "errors": [], "url": None}
 _current_page: Page | None = None
 _current_context: BrowserContext | None = None
 logger = logging.getLogger(__name__)
+_inline_data_image = re.compile(r"!\[[^\]]*\]\(data:image[^)]*\)")
 
 
 def _is_cdp_connection() -> bool:
@@ -338,7 +339,7 @@ def read_url(url: str) -> str:
     """Read the text of a webpage and return the text in Markdown format."""
     body_content, is_markdown = _execute_with_retry(_load_page, url)
     if is_markdown:
-        return body_content
+        return _inline_data_image.sub("", body_content)
     return html_to_markdown(body_content)
 
 
@@ -1169,12 +1170,6 @@ def html_to_markdown(html):
     markdown = re.sub(r"\{(#|style|target|\.)[^}]*\}", "", markdown)
 
     # strip inline images, like: data:image/png;base64,...
-    re_strip_data = re.compile(r"!\[[^\]]*\]\(data:image[^)]*\)")
-
-    # test cases
-    assert re_strip_data.sub("", "![test](data:image/png;base64,123)") == ""
-    assert re_strip_data.sub("", "![test](data:image/png;base64,123) test") == " test"
-
-    markdown = re_strip_data.sub("", markdown)
+    markdown = _inline_data_image.sub("", markdown)
 
     return markdown

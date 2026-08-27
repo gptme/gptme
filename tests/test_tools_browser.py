@@ -1029,6 +1029,17 @@ class TestPlaywrightMarkdownResponse:
 
         convert.assert_not_called()
 
+    def test_read_url_strips_inline_data_images_from_markdown(self):
+        from gptme.tools import _browser_playwright as bp
+
+        markdown = "before ![inline](data:image/png;base64,abc123) after"
+        with patch.object(
+            bp,
+            "_execute_with_retry",
+            return_value=(markdown, True),
+        ):
+            assert bp.read_url("https://example.com") == "before  after"
+
 
 # ── _create_page (CDP tab reuse vs launched contexts) ─────────────────
 
