@@ -1772,18 +1772,25 @@ def main(
                 # --tools with a normal tool name), this is not a manifest alias
                 # fallback situation — re-raise so the user sees the real error.
                 from ..tool_manifests import get_manifest_preset_tools
+                from ..tools import get_available_tools, matching_allowlist_tools
 
                 # tool_allowlist_str still holds the raw CLI value (e.g. "code_review"
-                # or "code_review,extra_tool").  Expand every alias-shaped item and
-                # preserve non-alias tools so they are not silently dropped.
+                # or "code_review,extra_tool"). Expand only names that were resolved
+                # as aliases during the first setup attempt. Registered built-ins must
+                # keep precedence even when unavailable; otherwise a workspace manifest
+                # could shadow an explicitly requested built-in in this fallback path.
                 all_alias_tools: list[str] = []  # tools from expanded manifest aliases
                 non_alias_parts: list[str] = []  # explicit tool names to keep as-is
+                available_tools = get_available_tools()
                 _was_additive = (tool_allowlist_str or "").startswith("+")
                 for alias_candidate in (
                     (tool_allowlist_str or "").lstrip("+").split(",")
                 ):
                     alias_candidate = alias_candidate.strip()
                     if not alias_candidate:
+                        continue
+                    if matching_allowlist_tools(alias_candidate, available_tools):
+                        non_alias_parts.append(alias_candidate)
                         continue
                     tools_for_alias = get_manifest_preset_tools(
                         alias_candidate, manifest_workspace

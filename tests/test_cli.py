@@ -3309,6 +3309,52 @@ def test_tools_manifest_alias_all_tools_unavailable_errors_closed(
     assert len(setup_calls) == 1
 
 
+def test_tools_unavailable_builtin_is_not_shadowed_by_manifest(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """The alias fallback must preserve built-in precedence from normalization."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"read","tools":[{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'read' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [SimpleNamespace(name="read", is_available=False)],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "read",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert isinstance(result.exception, ToolAllowlistError)
+    assert str(result.exception) == "Tool 'read' is unavailable"
+    assert setup_calls == ["read"]
+
+
 def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):
     # --model "  " should also be caught at parse time, same as empty string.
     result = runner.invoke(
