@@ -939,3 +939,47 @@ def test_build_table_document_provider_list_dict_values_are_compact_json():
     assert json.loads(rows["items"]) == [{"id": "task-1", "title": "Some | task"}]
     assert json.loads(rows["counts"]) == {"done": 3, "pending": 1}
     assert rows["items"] == ('[{"id":"task-1","title":"Some \\u007c task"}]')
+
+
+def test_build_table_document_unicode_line_separators_preserved_in_json():
+    """U+2028/U+2029 inside nested JSON values must survive the table cell renderer.
+
+    json.dumps(ensure_ascii=False) emits U+2028/U+2029 literally inside JSON
+    string values.  Before the fix, str.splitlines() (which splits on those
+    Unicode line-separator characters) was applied to the JSON output, silently
+    corrupting any structured (dict/list) cell whose strings contained them.
+
+    Plain string values intentionally go through splitlines() for newline
+    collapsing — this test uses a dict value so the bug is exercised.
+    """
+
+    class _LineSepProvider:
+        name = "linesep"
+
+        def collect(self) -> dict:
+            # "meta" is a dict, so _markdown_table_cell calls json.dumps.
+            # U+2028 (LINE SEPARATOR) and U+2029 (PARAGRAPH SEPARATOR) appear
+            # inside the nested strings; json.dumps(ensure_ascii=False) emits
+            # them literally.  Without the fix splitlines() splits on them.
+            return {
+                "meta": {
+                    "a": "before after",
+                    "b": "x y",
+                }
+            }
+
+        def narrative_sections(self) -> list:
+            return []
+
+    doc = build_table_document(providers=[_LineSepProvider()])
+    rows = {
+        cells[1].strip(): cells[2].strip()
+        for line in doc.splitlines()
+        if line.startswith("|")
+        for cells in [line.split("|")]
+        if len(cells) == 4
+    }
+    parsed = json.loads(rows["meta"])
+    # Characters must survive round-trip — splitlines() would have turned them to spaces.
+    assert parsed["a"] == "before after", f"U+2028 corrupted: {parsed['a']!r}"
+    assert parsed["b"] == "x y", f"U+2029 corrupted: {parsed['b']!r}"
