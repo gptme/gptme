@@ -536,9 +536,18 @@ class TestCheckProxy:
 
     def test_included_in_run_diagnostics(self):
         """_check_proxy results appear in run_diagnostics output."""
-        results, _ = run_diagnostics()
-        proxy_results = [r for r in results if r.name.startswith("Proxy:")]
-        assert len(proxy_results) >= 1
+        proxy_result = CheckResult(
+            name="Proxy: test marker",
+            status=CheckStatus.OK,
+            message="called",
+        )
+        with patch(
+            "gptme.cli.doctor._check_proxy", return_value=[proxy_result]
+        ) as mock_check:
+            results, _ = run_diagnostics()
+
+        assert proxy_result in results
+        mock_check.assert_called_once_with(False)
 
 
 class TestCheckPermissions:
