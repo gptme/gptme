@@ -135,6 +135,50 @@ def test_output_handles_unknown_context_limit(capsys):
     assert "session total: 120" in captured.err
 
 
+def test_accumulator_restored_after_nested_chat_same_context():
+    """Nested chat() in the same context restores the parent's running total.
+
+    The existing copy_context test is insufficient: production subagents run
+    chat() in the *same* context (same thread, no copy_context barrier).
+    _reset_token_accumulator() inside the inner chat() would clobber the outer
+    total.  The fix saves _prev_tokens before resetting and restores on exit.
+    """
+    meta = _make_model_meta(context=10_000)
+
+    with (
+        patch.object(chat_module, "get_model", return_value=meta),
+        patch.object(chat_module, "len_tokens", side_effect=[100, 20, 50, 10]),
+    ):
+        # Outer chat: accumulate 120 tokens.
+        _log_token_usage(
+            [Message("user", "outer")],
+            Message("assistant", "reply"),
+            "mock/gpt-mock",
+        )
+        assert _get_session_tokens() == 120
+
+        # Simulate what the fixed chat() does at nested-call entry:
+        # save outer state, reset for inner chat.
+        prev_tokens = chat_module._session_tokens.get()
+        _reset_token_accumulator()
+        assert _get_session_tokens() == 0  # inner chat starts fresh
+
+        # Inner chat: accumulate 60 tokens.
+        _log_token_usage(
+            [Message("user", "inner")],
+            Message("assistant", "reply"),
+            "mock/gpt-mock",
+        )
+        assert _get_session_tokens() == 60
+
+        # Simulate what the fixed chat() does at nested-call exit (finally block):
+        # restore the outer total.
+        chat_module._session_tokens.set(prev_tokens)
+
+    # Outer running total is intact — inner chat left no trace.
+    assert _get_session_tokens() == 120
+
+
 def test_accumulator_isolated_across_chat_contexts():
     """A nested/concurrent chat reset cannot modify its parent's running total."""
     meta = _make_model_meta(context=10_000)

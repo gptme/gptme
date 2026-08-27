@@ -118,7 +118,10 @@ def chat(
 
     Callable from other modules.
     """
-    # Reset the per-session token accumulator for --track-tokens
+    # Reset the per-session token accumulator for --track-tokens.
+    # Save the previous value so nested chat() calls (inline subagents) restore
+    # the outer chat's running total on return instead of leaving [0] behind.
+    _prev_tokens = _session_tokens.get()
     _reset_token_accumulator()
 
     # Set initial terminal title with conversation name
@@ -241,6 +244,9 @@ def chat(
         # Restore the caller's format so nested chat() calls (inline subagents)
         # don't clobber the parent's JSON mode when they exit.
         set_output_format(_prev_output_format)
+        # Restore the outer chat's token accumulator so nested chat() calls
+        # (inline subagents) don't corrupt the parent's running total.
+        _session_tokens.set(_prev_tokens)
 
 
 def _run_chat_loop(
