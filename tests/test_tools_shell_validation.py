@@ -861,6 +861,14 @@ class TestSensitiveArgs:
         """`~//.ssh/id_rsa` has a redundant separator — must still be blocked."""
         assert not is_allowlisted("cat ~//.ssh/id_rsa")
 
+    def test_double_slash_abs_path_not_allowlisted(self):
+        """`//etc/shadow` has redundant leading slashes — must still be blocked."""
+        assert not is_allowlisted("cat //etc/shadow")
+
+    def test_triple_slash_abs_path_not_allowlisted(self):
+        """`///etc/passwd` has multiple redundant leading slashes — must still be blocked."""
+        assert not is_allowlisted("cat ///etc/passwd")
+
     # Dot-segment normalization (Greptile P1 third-review fix)
     def test_dot_segment_home_var_ssh_not_allowlisted(self):
         """`$HOME/./.ssh/id_rsa` contains a no-op ./ segment — must still be blocked."""

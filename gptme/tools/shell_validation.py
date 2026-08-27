@@ -370,8 +370,11 @@ def _has_sensitive_args(cmd: str) -> bool:
         # because they contain no path separator.
         if "/" in token and any(char in token for char in "*?[{"):
             return True
-        # Sensitive directory prefixes (absolute paths)
-        if any(token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
+        # Sensitive directory prefixes (absolute paths).
+        # Normalize leading double-slashes so that //etc/shadow is caught the same as
+        # /etc/shadow — bash resolves //path to /path on all Linux systems.
+        abs_token = re.sub(r"^/+", "/", token) if token.startswith("/") else token
+        if any(abs_token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
             return True
         # Sensitive home-relative credential directories.
         # Normalize $HOME/... and ${HOME}/... to ~/... before matching so that

@@ -1776,6 +1776,20 @@ def execute_shell(
                 )
                 return
 
+        # Denylist-check remaining commands upfront — they execute after the bg
+        # command starts, but pre-checking avoids presenting a partially-dangerous
+        # sequence to the user for approval only to block part of it later.
+        if remaining_cmds.strip():
+            is_rem_denied, rem_deny_reason, rem_matched_cmd = is_denylisted(
+                remaining_cmds
+            )
+            if is_rem_denied:
+                yield Message(
+                    "system",
+                    f"Command denied (remaining): `{rem_matched_cmd}`\n\n{rem_deny_reason}",
+                )
+                return
+
         # Build full command context so TOOL_CONFIRM hooks see the complete
         # sequence — not just bg_cmd — when deciding whether to approve.
         # A hook that should block `cat ~/.ssh/id_rsa` must see it even when
