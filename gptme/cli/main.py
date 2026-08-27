@@ -1803,7 +1803,10 @@ def main(
                 # unavailable entries, fall back to None (defaults) only when
                 # every manifest tool is unavailable.
                 expanded_str = ",".join(all_alias_tools)
-                fallback_str = _manifest_fallback_allowlist(expanded_str, None)
+                try:
+                    fallback_str = _manifest_fallback_allowlist(expanded_str, None)
+                except ToolAllowlistError as fallback_e:
+                    raise click.UsageError(str(fallback_e)) from fallback_e
 
                 if non_alias_parts:
                     # Re-join non-alias tools (e.g. "+extra_tool") alongside the

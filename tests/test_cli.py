@@ -3256,6 +3256,59 @@ def test_tool_manifest_all_builtins_unavailable_errors_closed(
     )
 
 
+def test_tools_manifest_alias_all_tools_unavailable_errors_closed(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """An all-unavailable --tools manifest alias reports a clean usage error."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":['
+        '{"server_name":"github","tool_name":"search_code"}],'
+        '"builtin_tools":["read","shell"]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'read' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="read", is_available=False),
+            SimpleNamespace(name="shell", is_available=False),
+            SimpleNamespace(name="github.search_code", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [t for t in tools if t.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "Traceback" not in result.output
+    assert "All manifest tools are unavailable" in result.output
+    assert len(setup_calls) == 1
+
+
 def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):
     # --model "  " should also be caught at parse time, same as empty string.
     result = runner.invoke(

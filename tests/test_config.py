@@ -2510,6 +2510,28 @@ def test_normalize_tool_allowlist_builtin_tools_preset_preserved(tmp_path: Path)
         )
 
 
+def test_builtin_tools_manifest_alias_preset_blocks_complete(tmp_path: Path):
+    """A manifest alias that selects a preset keeps its non-interactive boundary."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],'
+        '"tools":[{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="audit",
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read-only", "analysis.run"]
+    assert "complete" not in config.chat.tools
+
+
 @pytest.mark.parametrize("config_source", ["environment", "project", "resume"])
 def test_mcp_only_manifest_alias_extends_configured_allowlist(
     tmp_path: Path, monkeypatch, config_source: str

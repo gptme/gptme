@@ -132,6 +132,10 @@ def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
                     f"cannot be combined with a configured TOOL_ALLOWLIST. "
                     f"Use --tool-manifest {alias_name!r} instead."
                 )
+            # Resolve the alias before non-interactive policy checks. In particular,
+            # preserving a manifest-selected preset name lets setup detect the
+            # exclusive boundary and avoid injecting the ``complete`` tool.
+            return ",".join([*explicit_manifest_tools, *non_alias_tools])
         return tool_allowlist
     if explicit_manifest_tools:
         raise ValueError(
@@ -510,6 +514,14 @@ def setup_config_from_cli(
         if requested_tool_allowlist is not None
         else []
     )
+    resolved_tool_names = (
+        [tool.strip() for tool in tool_allowlist.lstrip("+").split(",")]
+        if tool_allowlist is not None
+        else []
+    )
+    manifest_alias_selected_preset = manifest_alias_resolved and any(
+        tool in TOOL_PRESETS for tool in resolved_tool_names
+    )
     configured_base_tools = (
         existing_chat_config.tools
         if existing_chat_config and existing_chat_config.tools
@@ -530,6 +542,7 @@ def setup_config_from_cli(
             and len(resolved_tool_allowlist) == 1
             and resolved_tool_allowlist[0] in TOOL_PRESETS
         )
+        or manifest_alias_selected_preset
         or (
             manifest_alias_resolved
             and (
