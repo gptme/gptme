@@ -20,7 +20,7 @@ def slop() -> None:
 @click.argument(
     "file",
     required=False,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    type=click.Path(exists=True, dir_okay=False, path_type=Path, allow_dash=True),
 )
 @click.option(
     "--text", "inline_text", default=None, help="Inline text to scan instead of a file."
@@ -86,7 +86,7 @@ def check(
 
     if inline_text is not None:
         text = inline_text
-    elif file is not None:
+    elif file is not None and str(file) != "-":
         text = file.read_text(encoding="utf-8", errors="replace")
     else:
         if sys.stdin.isatty():

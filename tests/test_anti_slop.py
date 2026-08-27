@@ -247,3 +247,10 @@ def test_cli_check_stdin():
     runner = CliRunner()
     result = runner.invoke(anti_slop, ["check"], input=_CLEAN_20W + "\n")
     assert result.exit_code == 0
+
+
+def test_cli_check_stdin_dash():
+    runner = CliRunner()
+    result = runner.invoke(anti_slop, ["check", "-"], input=_CLEAN_20W + "\n")
+    assert result.exit_code == 0
+    assert "PASS" in result.output
