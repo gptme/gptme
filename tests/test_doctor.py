@@ -17,6 +17,7 @@ from gptme.cli.doctor import (
     _check_config,
     _check_mcp,
     _check_permissions,
+    _check_proxy,
     _check_python_deps,
     _check_python_version,
     _check_tools,
@@ -432,6 +433,93 @@ class TestCheckConfig:
         results = _check_config()
         config_results = [r for r in results if "User" in r.name]
         assert len(config_results) == 1
+
+
+class TestCheckProxy:
+    """Test _check_proxy function."""
+
+    def test_no_proxy_configured(self):
+        """When LLM_PROXY_URL is not set, check is skipped."""
+        with patch("gptme.cli.doctor.get_config") as mock_cfg:
+            mock_cfg.return_value.get_env.return_value = None
+            results = _check_proxy()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.SKIPPED
+        assert "Proxy" in results[0].name
+
+    def test_valid_https_url(self):
+        """A well-formed https:// proxy URL passes."""
+        with patch("gptme.cli.doctor.get_config") as mock_cfg:
+            mock_cfg.return_value.get_env.return_value = "https://proxy.example.com"
+            results = _check_proxy()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.OK
+
+    def test_valid_http_url_with_port(self):
+        """A well-formed http:// URL with port passes."""
+        with patch("gptme.cli.doctor.get_config") as mock_cfg:
+            mock_cfg.return_value.get_env.return_value = "http://localhost:8080"
+            results = _check_proxy()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.OK
+
+    def test_missing_scheme(self):
+        """A URL without a scheme (no http/https) is an error — gptme#3526 case."""
+        with patch("gptme.cli.doctor.get_config") as mock_cfg:
+            mock_cfg.return_value.get_env.return_value = "proxy.example.com"
+            results = _check_proxy()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.ERROR
+        assert results[0].fix_hint is not None
+
+    def test_wrong_scheme(self):
+        """A non-http/https scheme is an error."""
+        with patch("gptme.cli.doctor.get_config") as mock_cfg:
+            mock_cfg.return_value.get_env.return_value = "ftp://proxy.example.com"
+            results = _check_proxy()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.ERROR
+
+    def test_scheme_only_no_host(self):
+        """A scheme with no host is an error."""
+        with patch("gptme.cli.doctor.get_config") as mock_cfg:
+            mock_cfg.return_value.get_env.return_value = "https://"
+            results = _check_proxy()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.ERROR
+
+    def test_non_root_path_warns(self):
+        """A URL with a trailing path warns — may conflict with SDK routing."""
+        with patch("gptme.cli.doctor.get_config") as mock_cfg:
+            mock_cfg.return_value.get_env.return_value = (
+                "https://proxy.example.com/v1/api"
+            )
+            results = _check_proxy()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.WARNING
+        assert results[0].fix_hint is not None
+
+    def test_root_path_ok(self):
+        """A URL with a trailing slash (root path) passes."""
+        with patch("gptme.cli.doctor.get_config") as mock_cfg:
+            mock_cfg.return_value.get_env.return_value = "https://proxy.example.com/"
+            results = _check_proxy()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.OK
+
+    def test_verbose_shows_details(self):
+        """Verbose mode includes URL details."""
+        with patch("gptme.cli.doctor.get_config") as mock_cfg:
+            mock_cfg.return_value.get_env.return_value = "https://proxy.example.com"
+            results = _check_proxy(verbose=True)
+        assert results[0].details is not None
+        assert "proxy.example.com" in results[0].details
+
+    def test_included_in_run_diagnostics(self):
+        """_check_proxy results appear in run_diagnostics output."""
+        results, _ = run_diagnostics()
+        proxy_results = [r for r in results if r.name.startswith("Proxy:")]
+        assert len(proxy_results) >= 1
 
 
 class TestCheckPermissions:

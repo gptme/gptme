@@ -358,6 +358,78 @@ def _check_config(verbose: bool = False) -> list[CheckResult]:
     return results
 
 
+def _check_proxy(verbose: bool = False) -> list[CheckResult]:
+    """Check proxy URL configuration."""
+    from urllib.parse import urlparse
+
+    config = get_config()
+    proxy_url = config.get_env("LLM_PROXY_URL", None)
+
+    if not proxy_url:
+        return [
+            CheckResult(
+                name="Proxy: LLM_PROXY_URL",
+                status=CheckStatus.SKIPPED,
+                message="Not configured",
+                details="Set LLM_PROXY_URL to route LLM requests through a proxy"
+                if verbose
+                else None,
+            )
+        ]
+
+    results = []
+    parsed = urlparse(proxy_url)
+
+    # Scheme must be http or https
+    if parsed.scheme not in ("http", "https"):
+        results.append(
+            CheckResult(
+                name="Proxy: LLM_PROXY_URL",
+                status=CheckStatus.ERROR,
+                message=f"Invalid scheme {parsed.scheme!r} — must be http or https",
+                details=f"URL: {proxy_url}" if verbose else None,
+                fix_hint="Set LLM_PROXY_URL to a URL starting with http:// or https://",
+            )
+        )
+        return results
+
+    # Host must be non-empty
+    if not parsed.netloc:
+        results.append(
+            CheckResult(
+                name="Proxy: LLM_PROXY_URL",
+                status=CheckStatus.ERROR,
+                message="Missing host — URL has no netloc",
+                details=f"URL: {proxy_url}" if verbose else None,
+                fix_hint="Set LLM_PROXY_URL to a full URL, e.g. https://my-proxy.example.com",
+            )
+        )
+        return results
+
+    # Path should be empty or just "/" — the Anthropic SDK appends its own paths
+    if parsed.path and parsed.path != "/":
+        results.append(
+            CheckResult(
+                name="Proxy: LLM_PROXY_URL",
+                status=CheckStatus.WARNING,
+                message=f"URL has a non-root path {parsed.path!r} — may conflict with SDK routing",
+                details=f"URL: {proxy_url}" if verbose else None,
+                fix_hint="Consider removing the path component; the Anthropic SDK appends its own paths",
+            )
+        )
+    else:
+        results.append(
+            CheckResult(
+                name="Proxy: LLM_PROXY_URL",
+                status=CheckStatus.OK,
+                message=f"Configured ({parsed.netloc})",
+                details=f"URL: {proxy_url}" if verbose else None,
+            )
+        )
+
+    return results
+
+
 def _check_permissions(verbose: bool = False) -> list[CheckResult]:
     """Check file and directory permissions."""
     results = []
@@ -992,6 +1064,7 @@ def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict]:
     all_results.extend(_check_python_version(verbose))
     all_results.extend(_check_version(verbose))
     all_results.extend(_check_config(verbose))
+    all_results.extend(_check_proxy(verbose))
     all_results.extend(_check_api_keys(verbose))
     all_results.extend(_check_tools(verbose))
     all_results.extend(_check_python_deps(verbose))
