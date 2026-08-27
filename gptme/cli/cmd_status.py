@@ -137,8 +137,19 @@ def _disk_usage(path: Path | None = None) -> str:
 
 
 def _markdown_table_cell(value: object) -> str:
-    """Escape dynamic values for a single markdown table cell."""
-    text = " ".join(str(value).splitlines()).strip()
+    """Escape dynamic values for a single markdown table cell.
+
+    Lists and dicts are serialised as compact JSON so the cell content is
+    machine-parseable rather than a raw Python repr.
+    """
+    if isinstance(value, (list, dict)):
+        try:
+            text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        except (TypeError, ValueError):
+            text = str(value)
+    else:
+        text = str(value)
+    text = " ".join(text.splitlines()).strip()
     if not text:
         return "none"
     return text.replace("|", r"\|")

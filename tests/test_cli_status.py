@@ -910,3 +910,32 @@ def test_build_table_document_provider_non_string_key_skipped():
     # The valid string key still appears.
     assert "| string_key |" in doc
     assert "kept" in doc
+
+
+def test_build_table_document_provider_list_dict_values_are_compact_json():
+    """Provider list/dict values must appear as compact JSON in table format, not Python repr.
+
+    Without the fix, str([{"id": "x"}]) produces "[{'id': 'x'}]" — Python repr
+    with single-quoted strings that is not valid JSON.  The cell must instead
+    contain compact JSON produced by json.dumps().
+    """
+
+    class _ComplexProvider:
+        name = "complex"
+
+        def collect(self) -> dict:
+            return {
+                "items": [{"id": "task-1", "title": "Some task"}],
+                "counts": {"done": 3, "pending": 1},
+            }
+
+        def narrative_sections(self) -> list:
+            return []
+
+    doc = build_table_document(providers=[_ComplexProvider()])
+    # Python repr must NOT appear (single-quoted keys are the tell)
+    assert "[{'id'" not in doc, "Python repr list detected in table output"
+    assert "{'done'" not in doc, "Python repr dict detected in table output"
+    # Compact JSON must be present for both list and dict values
+    assert '"task-1"' in doc, "list value not serialized as JSON"
+    assert '"done"' in doc, "dict value not serialized as JSON"
