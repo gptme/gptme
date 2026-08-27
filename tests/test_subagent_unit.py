@@ -3021,6 +3021,17 @@ class TestMaxTimeWatchdog:
 
         monkeypatch.setattr(threading, "Timer", CapturingTimer)
 
+        api_mod = importlib.import_module("gptme.tools.subagent.api")
+        # Prevent the thread from blocking on the global slot semaphore.
+        # _reset_slot_sem() (called in teardown) replaces the semaphore object but
+        # cannot unblock threads already waiting on the OLD object — so if the
+        # semaphore is exhausted by prior tests the join() times out and the thread
+        # leaks past teardown, racing sys.modules in the next test's cleanup.
+        # Giving this test its own semaphore (count=1) guarantees immediate acquire.
+        monkeypatch.setattr(
+            api_mod, "get_slot_sem", lambda: threading.BoundedSemaphore(1)
+        )
+
         from gptme.tools.subagent.api import subagent
         from gptme.tools.subagent.types import _subagents, _subagents_lock
 
@@ -3078,6 +3089,13 @@ class TestMaxTimeWatchdog:
                 pass
 
         monkeypatch.setattr(threading, "Timer", CapturingTimer)
+
+        api_mod = importlib.import_module("gptme.tools.subagent.api")
+        # Same semaphore isolation as test_subagent_launches_watchdog_when_max_time_set —
+        # prevents the thread from blocking on an exhausted global slot semaphore.
+        monkeypatch.setattr(
+            api_mod, "get_slot_sem", lambda: threading.BoundedSemaphore(1)
+        )
 
         from gptme.tools.subagent.api import subagent
         from gptme.tools.subagent.types import _subagents, _subagents_lock
