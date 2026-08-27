@@ -869,6 +869,16 @@ class TestSensitiveArgs:
         """`///etc/passwd` has multiple redundant leading slashes — must still be blocked."""
         assert not is_allowlisted("cat ///etc/passwd")
 
+    def test_dot_segment_abs_path_not_allowlisted(self):
+        """`/./etc/shadow` resolves to a sensitive absolute path."""
+        assert not is_allowlisted("cat /./etc/shadow")
+
+    def test_absolute_current_home_ssh_not_allowlisted(self):
+        """An absolute path into the current user's SSH directory is sensitive."""
+        from pathlib import Path
+
+        assert not is_allowlisted(f"cat {Path.home()}/.ssh/id_rsa")
+
     # Dot-segment normalization (Greptile P1 third-review fix)
     def test_dot_segment_home_var_ssh_not_allowlisted(self):
         """`$HOME/./.ssh/id_rsa` contains a no-op ./ segment — must still be blocked."""

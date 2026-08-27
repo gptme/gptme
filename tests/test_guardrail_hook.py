@@ -361,6 +361,42 @@ class TestAllowEdit:
         assert mock_get_confirmation.call_count == 2
         assert mock_get_confirmation.call_args_list[1].kwargs["preview"] == edited_code
 
+    def test_identical_edit_does_not_reconfirm(self):
+        """An edit that leaves content unchanged executes without another prompt."""
+        from unittest.mock import patch
+
+        from gptme.hooks.confirm import ConfirmationResult
+        from gptme.util.ask_execute import execute_with_confirmation
+
+        code = "ls /tmp"
+        received = []
+
+        def execute_fn(content, path):
+            received.append(content)
+            return iter([])
+
+        with patch(
+            "gptme.hooks.get_confirmation",
+            return_value=ConfirmationResult.edit(code),
+        ) as mock_get_confirmation:
+            messages = list(
+                execute_with_confirmation(
+                    code,
+                    args=[],
+                    kwargs={},
+                    execute_fn=execute_fn,
+                    get_path_fn=lambda code, args, kwargs: None,
+                    allow_edit=True,
+                )
+            )
+
+        assert received == [code]
+        assert mock_get_confirmation.call_count == 1
+        assert not any(
+            "content was edited" in getattr(message, "content", "")
+            for message in messages
+        )
+
     def test_standalone_bg_edit_reconfirms_edited_preview(self):
         """A standalone bg edit must show the exact edited command on reconfirm."""
         from unittest.mock import patch

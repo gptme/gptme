@@ -146,18 +146,19 @@ def execute_with_confirmation(
 
             was_edited = content != result.edited_content
             content = result.edited_content
-            edited_preview = preview_fn(content, path) if preview_fn else None
-            edited_result = get_confirmation(
-                preview=edited_preview or content,
-                default_confirm=True,
-            )
-            if edited_result.action != ConfirmAction.CONFIRM:
-                msg = (
-                    edited_result.message
-                    or "Edited content was not confirmed; execution aborted."
+            if was_edited:
+                edited_preview = preview_fn(content, path) if preview_fn else None
+                edited_result = get_confirmation(
+                    preview=edited_preview or content,
+                    default_confirm=True,
                 )
-                yield Message("system", msg)
-                return
+                if edited_result.action != ConfirmAction.CONFIRM:
+                    msg = (
+                        edited_result.message
+                        or "Edited content was not confirmed; execution aborted."
+                    )
+                    yield Message("system", msg)
+                    return
 
         # Execute
         try:

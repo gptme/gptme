@@ -370,10 +370,15 @@ def _has_sensitive_args(cmd: str) -> bool:
         # because they contain no path separator.
         if "/" in token and any(char in token for char in "*?[{"):
             return True
-        # Sensitive directory prefixes (absolute paths).
-        # Normalize leading double-slashes so that //etc/shadow is caught the same as
-        # /etc/shadow — bash resolves //path to /path on all Linux systems.
-        abs_token = re.sub(r"^/+", "/", token) if token.startswith("/") else token
+        # Sensitive directory prefixes (absolute paths). Collapse repeated
+        # leading slashes before normalizing no-op dot segments: POSIX permits
+        # normpath() to preserve exactly two leading slashes even though the
+        # shell resolves //etc and /./etc to /etc on our supported platforms.
+        abs_token = (
+            os.path.normpath(re.sub(r"^/+", "/", token))
+            if token.startswith("/")
+            else token
+        )
         if any(abs_token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
             return True
         # Sensitive home-relative credential directories.
@@ -382,10 +387,14 @@ def _has_sensitive_args(cmd: str) -> bool:
         # Use a boundary check (exact match or followed by "/") to avoid
         # false-positives on sibling paths like ~/.sshrc or ~/.npmrc-public.
         normalized = token
-        for sub in ("${HOME}/", "$HOME/"):
-            if token.startswith(sub):
-                normalized = "~/" + token[len(sub) :]
-                break
+        home = os.path.expanduser("~")
+        if token == home or token.startswith(home + "/"):
+            normalized = "~" + token[len(home) :]
+        else:
+            for sub in ("${HOME}/", "$HOME/"):
+                if token.startswith(sub):
+                    normalized = "~/" + token[len(sub) :]
+                    break
         # ~username/... spellings (e.g. ~root/.ssh/id_rsa) name another user's
         # home dir; strip the username component and treat the rest as ~/...
         # so the sensitive-dir boundary check below fires for those too.
