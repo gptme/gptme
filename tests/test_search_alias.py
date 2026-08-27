@@ -128,6 +128,20 @@ class TestPluginDispatch:
         assert result.exit_code == 0
         mock_call.assert_not_called()
 
+    def test_plugin_dispatch_suppressed_after_double_dash(self, runner: CliRunner):
+        """gptme -- sessions treats sessions as a prompt, not a plugin."""
+        with (
+            patch(
+                "gptme.cli.main.shutil.which",
+                return_value="/usr/local/bin/gptme-sessions",
+            ),
+            patch("gptme.cli.main.subprocess.call") as mock_call,
+            patch.object(importlib.import_module("gptme.chat"), "chat"),
+        ):
+            result = runner.invoke(main, ["--", "sessions"])
+        assert result.exit_code == 0
+        mock_call.assert_not_called()
+
     def test_help_mentions_plugin_dispatch(self, runner: CliRunner):
         """gptme --help mentions the plugin dispatch mechanism."""
         result = runner.invoke(main, ["--help"])

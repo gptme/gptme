@@ -880,7 +880,12 @@ def main(
 
     # Plugin dispatch: `gptme CMD [args...]` → `gptme-CMD [args...]` if installed
     # Enables extensibility: `gptme sessions` works if gptme-sessions is in PATH.
-    if prompts and not show_version:
+    # Suppressed after '--' for the same literal-prompt semantics as util dispatch.
+    if (
+        prompts
+        and not show_version
+        and not _ctx.meta.get("util_dispatch_suppressed", False)
+    ):
         plugin = f"gptme-{prompts[0]}"
         if plugin_path := shutil.which(plugin):
             sys.exit(subprocess.call([plugin_path, *prompts[1:]]))
