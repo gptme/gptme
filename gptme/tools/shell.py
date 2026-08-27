@@ -1803,8 +1803,6 @@ def execute_shell(
         _full_cmd_context = "\n".join(_full_cmd_parts)
 
         def _bg_execute_fn(c: str, p: Path | None) -> Generator[Message, None, None]:
-            if preceding_cmds.strip():
-                yield from _execute_preceding_commands(preceding_cmds)
             # When surrounding commands exist, allow_edit=False so c is the full
             # command context (_full_cmd_context), not just bg_cmd. Use the
             # captured bg_cmd from the closure directly in that case.
@@ -1814,12 +1812,28 @@ def execute_shell(
                 actual_cmd = bg_cmd
             else:
                 actual_cmd = c.removeprefix("bg ") if c.startswith("bg ") else c
+                is_edited_denied, edited_deny_reason, edited_matched_cmd = (
+                    is_denylisted(actual_cmd)
+                )
+                if is_edited_denied:
+                    yield Message(
+                        "system",
+                        f"Command denied: `{edited_matched_cmd}`\n\n{edited_deny_reason}",
+                    )
+                    return
+            if preceding_cmds.strip():
+                yield from _execute_preceding_commands(preceding_cmds)
             yield from execute_bg_command(actual_cmd, memory_limit=_bg_memory_limit)
             if remaining_cmds.strip():
                 yield from execute_shell(remaining_cmds, None, None)
 
         def _bg_preview_fn(content: str, path: Path | None) -> str | None:
-            return _full_cmd_context
+            if _has_surrounding:
+                return _full_cmd_context
+            actual_cmd = (
+                content.removeprefix("bg ") if content.startswith("bg ") else content
+            )
+            return f"bg {actual_cmd}"
 
         # Disable editing when surrounding commands exist: _bg_execute_fn only
         # applies edits to the bg_cmd portion (passed as `c`), not to the
@@ -1896,9 +1910,18 @@ def execute_shell(
         cmd[:80],
     )
 
-    # Create a wrapper function that passes timeout to execute_shell_impl
+    # Create a wrapper function that rechecks edits against the denylist before
+    # passing the command and timeout to execute_shell_impl. The initial check
+    # above only covers the assistant-authored command; confirmation can replace it.
     def execute_fn(cmd: str, path: Path | None) -> Generator[Message, None, None]:
-        return execute_shell_impl(cmd, path, timeout=timeout)
+        is_edited_denied, edited_deny_reason, edited_matched_cmd = is_denylisted(cmd)
+        if is_edited_denied:
+            yield Message(
+                "system",
+                f"Command denied: `{edited_matched_cmd}`\n\n{edited_deny_reason}",
+            )
+            return
+        yield from execute_shell_impl(cmd, path, timeout=timeout)
 
     yield from execute_with_confirmation(
         cmd,

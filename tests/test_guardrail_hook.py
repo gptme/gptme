@@ -361,6 +361,34 @@ class TestAllowEdit:
         assert mock_get_confirmation.call_count == 2
         assert mock_get_confirmation.call_args_list[1].kwargs["preview"] == edited_code
 
+    def test_standalone_bg_edit_reconfirms_edited_preview(self):
+        """A standalone bg edit must show the exact edited command on reconfirm."""
+        from unittest.mock import patch
+
+        from gptme.hooks.confirm import ConfirmationResult
+        from gptme.tools.base import ToolUse
+
+        edited_cmd = "printf edited"
+        tool_use = ToolUse(tool="shell", args=[], content="bg printf original")
+
+        with (
+            patch(
+                "gptme.hooks.get_confirmation",
+                side_effect=[
+                    ConfirmationResult.edit(edited_cmd),
+                    ConfirmationResult.skip("test stop"),
+                ],
+            ) as mock_get_confirmation,
+            patch("gptme.tools.shell.execute_bg_command") as mock_execute,
+        ):
+            list(tool_use.execute())
+
+        assert mock_get_confirmation.call_count == 2
+        assert mock_get_confirmation.call_args_list[1].kwargs["preview"] == (
+            f"bg {edited_cmd}"
+        )
+        mock_execute.assert_not_called()
+
     def test_guardrail_can_deny_edited_content(self):
         """A dangerous edit must not execute after the original was approved."""
         from unittest.mock import patch
@@ -394,3 +422,49 @@ class TestAllowEdit:
 
         assert received == []
         assert any("Blocked edited command" in message.content for message in messages)
+
+    def test_foreground_shell_denylist_rechecks_edited_command(self):
+        """A confirmed edit must still pass the shell denylist before execution."""
+        from unittest.mock import patch
+
+        from gptme.hooks.confirm import ConfirmationResult
+        from gptme.tools.base import ToolUse
+
+        tool_use = ToolUse(tool="shell", args=[], content="printf safe")
+        with (
+            patch(
+                "gptme.hooks.get_confirmation",
+                side_effect=[
+                    ConfirmationResult.edit("rm -rf /"),
+                    ConfirmationResult.confirm(),
+                ],
+            ),
+            patch("gptme.tools.shell.execute_shell_impl") as mock_execute,
+        ):
+            messages = list(tool_use.execute())
+
+        mock_execute.assert_not_called()
+        assert any("Command denied" in message.content for message in messages)
+
+    def test_background_shell_denylist_rechecks_edited_command(self):
+        """A confirmed bg edit must still pass the shell denylist before execution."""
+        from unittest.mock import patch
+
+        from gptme.hooks.confirm import ConfirmationResult
+        from gptme.tools.base import ToolUse
+
+        tool_use = ToolUse(tool="shell", args=[], content="bg printf safe")
+        with (
+            patch(
+                "gptme.hooks.get_confirmation",
+                side_effect=[
+                    ConfirmationResult.edit("rm -rf /"),
+                    ConfirmationResult.confirm(),
+                ],
+            ),
+            patch("gptme.tools.shell.execute_bg_command") as mock_execute,
+        ):
+            messages = list(tool_use.execute())
+
+        mock_execute.assert_not_called()
+        assert any("Command denied" in message.content for message in messages)
