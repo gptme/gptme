@@ -427,14 +427,15 @@ def _check_proxy(verbose: bool = False) -> list[CheckResult]:
     if port is not None:
         display_host = f"{display_host}:{port}"
 
-    # Path should be empty or just "/" — the Anthropic SDK appends its own paths
+    # Path should be empty or just "/" — the Anthropic SDK appends its own paths.
+    # Do not include it in diagnostics because proxy paths may contain credentials.
     if parsed.path and parsed.path != "/":
         results.append(
             CheckResult(
                 name="Proxy: LLM_PROXY_URL",
                 status=CheckStatus.WARNING,
-                message=f"URL has a non-root path {parsed.path!r} — may conflict with SDK routing",
-                details=f"Proxy: {parsed.scheme}://{display_host}{parsed.path}"
+                message="URL has a non-root path — may conflict with SDK routing",
+                details=f"Proxy: {parsed.scheme}://{display_host}/[path redacted]"
                 if verbose
                 else None,
                 fix_hint="Consider removing the path component; the Anthropic SDK appends its own paths",

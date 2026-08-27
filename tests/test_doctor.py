@@ -539,15 +539,23 @@ class TestCheckProxy:
         assert results[0].status == CheckStatus.ERROR
         assert "Malformed URL" in results[0].message
 
-    def test_non_root_path_warns(self):
-        """A URL with a trailing path warns — may conflict with SDK routing."""
+    def test_non_root_path_warns_without_exposing_path(self):
+        """A proxy path warns without exposing a potential path credential."""
         with patch("gptme.cli.doctor.get_config") as mock_cfg:
             mock_cfg.return_value.get_env.return_value = (
-                "https://proxy.example.com/v1/api"
+                "https://proxy.example.com/secret-token"
             )
-            results = _check_proxy()
+            results = _check_proxy(verbose=True)
+
         assert len(results) == 1
         assert results[0].status == CheckStatus.WARNING
+        assert results[0].message == (
+            "URL has a non-root path — may conflict with SDK routing"
+        )
+        assert results[0].details == (
+            "Proxy: https://proxy.example.com/[path redacted]"
+        )
+        assert "secret-token" not in f"{results[0].message} {results[0].details}"
         assert results[0].fix_hint is not None
 
     def test_root_path_ok(self):
