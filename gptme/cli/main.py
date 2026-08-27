@@ -1154,13 +1154,18 @@ def main(
         unavailable = _unavailable_manifest_tools(concrete_allowlist)
         remaining = [entry for entry in entries if entry not in unavailable]
         if preset_names:
+            viable_presets = [
+                preset_name
+                for preset_name in preset_names
+                if not any(tool in unavailable for tool in TOOL_PRESETS[preset_name])
+            ]
             preset_tools = {
                 tool
                 for preset_name in preset_names
                 for tool in TOOL_PRESETS[preset_name]
             }
             remaining = [entry for entry in remaining if entry not in preset_tools]
-            remaining = [*preset_names, *remaining]
+            remaining = [*viable_presets, *remaining]
         if manifest_allowlist.startswith("+"):
             return "+" + ",".join(remaining) if remaining else pre_manifest_allowlist
         # Non-additive (builtin_tools): fail closed when every entry is unavailable.
@@ -1781,7 +1786,7 @@ def main(
                 # If the allowlist contains NO manifest aliases at all (plain
                 # --tools with a normal tool name), this is not a manifest alias
                 # fallback situation — re-raise so the user sees the real error.
-                from ..tool_manifests import get_manifest_preset_tools
+                from ..tool_manifests import load_task_manifest
                 from ..tools import get_available_tools, matching_allowlist_tools
 
                 # tool_allowlist_str still holds the raw CLI value (e.g. "code_review"
@@ -1793,22 +1798,29 @@ def main(
                 non_alias_parts: list[str] = []  # explicit tool names to keep as-is
                 available_tools = get_available_tools()
                 _was_additive = (tool_allowlist_str or "").startswith("+")
-                for alias_candidate in (
-                    (tool_allowlist_str or "").lstrip("+").split(",")
-                ):
-                    alias_candidate = alias_candidate.strip()
-                    if not alias_candidate:
-                        continue
+                alias_candidates = [
+                    candidate.strip()
+                    for candidate in (tool_allowlist_str or "").lstrip("+").split(",")
+                    if candidate.strip()
+                ]
+                resolved_aliases = 0
+                all_aliases_mcp_only = True
+                for alias_candidate in alias_candidates:
                     if matching_allowlist_tools(alias_candidate, available_tools):
                         non_alias_parts.append(alias_candidate)
                         continue
-                    tools_for_alias = get_manifest_preset_tools(
-                        alias_candidate, manifest_workspace
-                    )
-                    if tools_for_alias:
-                        all_alias_tools.extend(tools_for_alias)
-                    else:
+                    try:
+                        manifest = load_task_manifest(
+                            alias_candidate, manifest_workspace
+                        )
+                    except (OSError, ValueError):
                         non_alias_parts.append(alias_candidate)
+                        continue
+                    all_alias_tools.extend(manifest.all_tool_names)
+                    resolved_aliases += 1
+                    all_aliases_mcp_only = (
+                        all_aliases_mcp_only and not manifest.builtin_tools
+                    )
 
                 if not all_alias_tools:
                     # No manifest aliases in the allowlist — this is a regular
@@ -1819,7 +1831,14 @@ def main(
                 # Reuse the same helper as --tool-manifest: remove only the
                 # unavailable entries, fall back to None (defaults) only when
                 # every manifest tool is unavailable.
-                expanded_str = ",".join(all_alias_tools)
+                fallback_is_additive = _was_additive or (
+                    resolved_aliases > 0
+                    and all_aliases_mcp_only
+                    and not non_alias_parts
+                )
+                expanded_str = ("+" if fallback_is_additive else "") + ",".join(
+                    all_alias_tools
+                )
                 try:
                     fallback_str = _manifest_fallback_allowlist(expanded_str, None)
                 except ToolAllowlistError as fallback_e:
@@ -1836,8 +1855,8 @@ def main(
                 # Restore additive semantics: ``--tools +alias`` must remain
                 # additive after fallback expansion so it appends to the
                 # configured TOOL_ALLOWLIST rather than replacing it.
-                if _was_additive and tool_allowlist_str:
-                    tool_allowlist_str = "+" + tool_allowlist_str
+                if fallback_is_additive and tool_allowlist_str:
+                    tool_allowlist_str = "+" + tool_allowlist_str.removeprefix("+")
 
                 logger.warning(
                     "Tool alias manifest entry unavailable during config setup: %s — "

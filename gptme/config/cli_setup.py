@@ -115,7 +115,7 @@ def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
             from .core import get_config
 
             config = get_config()
-            if config.get_env("TOOL_ALLOWLIST"):
+            if config.get_env("TOOL_ALLOWLIST") and not additive:
                 aliases = [t for t in requested_tools if t not in non_alias_tools]
                 alias_name = aliases[0] if aliases else requested_tools[0]
                 raise ValueError(
@@ -125,8 +125,11 @@ def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
                 )
             # Resolve the alias before non-interactive policy checks. In particular,
             # preserving a manifest-selected preset name lets setup detect the
-            # exclusive boundary and avoid injecting the ``complete`` tool.
-            return ",".join([*explicit_manifest_tools, *non_alias_tools])
+            # exclusive boundary and avoid injecting the ``complete`` tool. Keep an
+            # explicit '+' additive: ``--tools +alias`` must extend rather than
+            # replace the configured/default tool policy.
+            resolved = ",".join([*explicit_manifest_tools, *non_alias_tools])
+            return f"+{resolved}" if additive else resolved
         return tool_allowlist
     if explicit_manifest_tools:
         raise ValueError(

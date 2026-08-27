@@ -2918,6 +2918,19 @@ def test_comma_separated_choice_strict_rejects_unknown_by_default():
         csc.convert("code_review", None, None)
 
 
+def test_additive_builtin_tools_manifest_alias_preserves_prefix(tmp_path: Path):
+    """An explicit '+' survives expansion of a builtin_tools manifest alias."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","builtin_tools":["save"],"tools":['
+        '{"server_name":"github","tool_name":"get_pr"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert _resolve_manifest_aliases("+code_review", tmp_path) == "+save,github.get_pr"
+
+
 def test_builtin_tools_manifest_alias_raises_with_configured_tool_allowlist(
     tmp_path: Path, monkeypatch
 ):
