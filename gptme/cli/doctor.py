@@ -378,7 +378,22 @@ def _check_proxy(verbose: bool = False) -> list[CheckResult]:
         ]
 
     results = []
-    parsed = urlparse(proxy_url)
+    try:
+        parsed = urlparse(proxy_url)
+        hostname = parsed.hostname
+        # Accessing port validates malformed/non-numeric/out-of-range values.
+        _ = parsed.port
+    except ValueError as exc:
+        results.append(
+            CheckResult(
+                name="Proxy: LLM_PROXY_URL",
+                status=CheckStatus.ERROR,
+                message=f"Malformed URL — {exc}",
+                details=f"URL: {proxy_url}" if verbose else None,
+                fix_hint="Set LLM_PROXY_URL to a valid http or https URL",
+            )
+        )
+        return results
 
     # Scheme must be http or https
     if parsed.scheme not in ("http", "https"):
@@ -394,12 +409,12 @@ def _check_proxy(verbose: bool = False) -> list[CheckResult]:
         return results
 
     # Host must be non-empty
-    if not parsed.netloc:
+    if not hostname:
         results.append(
             CheckResult(
                 name="Proxy: LLM_PROXY_URL",
                 status=CheckStatus.ERROR,
-                message="Missing host — URL has no netloc",
+                message="Missing host",
                 details=f"URL: {proxy_url}" if verbose else None,
                 fix_hint="Set LLM_PROXY_URL to a full URL, e.g. https://my-proxy.example.com",
             )

@@ -5,6 +5,7 @@ from collections import UserDict
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
@@ -480,13 +481,31 @@ class TestCheckProxy:
         assert len(results) == 1
         assert results[0].status == CheckStatus.ERROR
 
-    def test_scheme_only_no_host(self):
-        """A scheme with no host is an error."""
+    @pytest.mark.parametrize(
+        "proxy_url",
+        ["https://", "https://:8080", "https://user@"],
+    )
+    def test_missing_host(self, proxy_url: str):
+        """An authority without a hostname is an error."""
         with patch("gptme.cli.doctor.get_config") as mock_cfg:
-            mock_cfg.return_value.get_env.return_value = "https://"
+            mock_cfg.return_value.get_env.return_value = proxy_url
             results = _check_proxy()
         assert len(results) == 1
         assert results[0].status == CheckStatus.ERROR
+        assert results[0].message == "Missing host"
+
+    @pytest.mark.parametrize(
+        "proxy_url",
+        ["http://[::1", "https://proxy.example.com:not-a-port"],
+    )
+    def test_malformed_url(self, proxy_url: str):
+        """Malformed URLs produce an error instead of aborting diagnostics."""
+        with patch("gptme.cli.doctor.get_config") as mock_cfg:
+            mock_cfg.return_value.get_env.return_value = proxy_url
+            results = _check_proxy()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.ERROR
+        assert "Malformed URL" in results[0].message
 
     def test_non_root_path_warns(self):
         """A URL with a trailing path warns — may conflict with SDK routing."""
