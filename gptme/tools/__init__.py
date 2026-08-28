@@ -353,7 +353,12 @@ def execute_msg(
         return
 
     remaining = iter(classified)
-    for tooluse, runnable in remaining:
+    for tooluse, was_runnable in remaining:
+        # Preserve the initial classification for structured result pairing, but
+        # honor intentional session-local tool changes made by an earlier call in
+        # this same response.  In particular, request_tool_change may disable a
+        # sibling call after classification and before execution.
+        runnable = was_runnable and tooluse.is_runnable
         if runnable:
             with terminal_state_title(f"🛠️ running {tooluse.tool}"):
                 t0 = time.monotonic()

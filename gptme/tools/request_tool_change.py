@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 
 from ..message import Message
-from . import get_available_tools, get_tools, set_tools
+from . import get_available_tools, get_tools, load_tool, set_tools
 from .base import Parameter, ToolSpec
 
 logger = logging.getLogger(__name__)
@@ -39,15 +39,15 @@ def _enable_tool(tool_name: str) -> Message:
             quiet=True,
         )
 
-    available = {t.name: t for t in get_available_tools(include_mcp=False)}
-    if tool_name not in available:
+    try:
+        load_tool(tool_name)
+    except ValueError as exc:
         return Message(
             "system",
-            f"request_tool_change: unknown tool '{tool_name}'",
+            f"request_tool_change: could not enable '{tool_name}': {exc}",
             quiet=True,
         )
 
-    set_tools([*loaded, available[tool_name]])
     logger.info("request_tool_change: enabled tool '%s'", tool_name)
     return Message(
         "system",

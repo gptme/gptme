@@ -6,11 +6,14 @@ from unittest.mock import patch
 
 import pytest
 
+from gptme.message import Message
 from gptme.tools import (
     clear_tools,
+    execute_msg,
     get_available_tools,
     get_tools,
     init_tools,
+    set_tool_format,
     set_tools,
 )
 from gptme.tools.base import ToolSpec
@@ -142,7 +145,11 @@ def isolated_tools():
     clear_tools()
 
 
-_FAKE_SHELL = ToolSpec(name="shell", desc="Run shell commands")
+_FAKE_SHELL = ToolSpec(
+    name="shell",
+    desc="Run shell commands",
+    execute=lambda _code, _args, _kwargs: Message("system", "shell executed"),
+)
 
 
 def _patch_available(tools: list[ToolSpec]):
@@ -166,6 +173,70 @@ class TestEnableTool:
         assert "enabled" in result.content
         assert "shell" in result.content
         assert any(t.name == "shell" for t in get_tools())
+
+    def test_enable_runs_tool_initialization(self, isolated_tools):
+        initialized: list[str] = []
+
+        def initialize_tool() -> ToolSpec:
+            initialized.append("initialized")
+            return ToolSpec(
+                name="initializing_tool",
+                desc="Initialized",
+                execute=lambda _code, _args, _kwargs: Message(
+                    "system", "initialized tool executed"
+                ),
+            )
+
+        raw_tool = ToolSpec(
+            name="initializing_tool",
+            desc="Needs initialization",
+            init=initialize_tool,
+        )
+
+        with (
+            _patch_available([raw_tool, tool]),
+            patch(
+                "gptme.tools.get_available_tools",
+                return_value=[raw_tool, tool],
+            ),
+        ):
+            result = _execute(
+                change_type="enable_tool",
+                tool_name="initializing_tool",
+                reason="Need initialized behavior",
+                urgency="medium",
+            )
+
+        assert "enabled" in result.content
+        assert initialized == ["initialized"]
+        loaded = next(t for t in get_tools() if t.name == "initializing_tool")
+        assert loaded.execute is not None
+
+    def test_enable_rejects_unavailable_tool(self, isolated_tools):
+        unavailable = ToolSpec(
+            name="unavailable_tool",
+            desc="Unavailable",
+            available=False,
+            available_hint="install its dependency",
+        )
+
+        with (
+            _patch_available([unavailable, tool]),
+            patch(
+                "gptme.tools.get_available_tools",
+                return_value=[unavailable, tool],
+            ),
+        ):
+            result = _execute(
+                change_type="enable_tool",
+                tool_name="unavailable_tool",
+                reason="Need it",
+                urgency="medium",
+            )
+
+        assert "could not enable" in result.content
+        assert "unavailable" in result.content.lower()
+        assert not any(t.name == "unavailable_tool" for t in get_tools())
 
     def test_enable_already_loaded_is_noop(self, isolated_tools):
         # Pre-load shell
@@ -293,3 +364,22 @@ class TestEnableDisableIntegration:
             )
         assert "disabled" in r_disable.content
         assert not has_tool("shell"), "shell should be removed after disable"
+
+    def test_disable_prevents_later_call_in_same_response(self, isolated_tools):
+        set_tools([*get_tools(), _FAKE_SHELL])
+        set_tool_format("tool")
+        content = (
+            '@request_tool_change(change_1): {"change_type": "disable_tool", '
+            '"tool_name": "shell", "reason": "Done with shell", '
+            '"urgency": "low"}\n'
+            '@shell(shell_2): {"cmd": "echo should-not-run"}'
+        )
+
+        with _patch_available([_FAKE_SHELL, tool]):
+            results = list(execute_msg(Message("assistant", content)))
+
+        assert any("disabled" in result.content for result in results)
+        shell_results = [result for result in results if result.call_id == "shell_2"]
+        assert len(shell_results) == 1
+        assert "not available for execution" in shell_results[0].content
+        assert all("shell executed" not in result.content for result in results)
