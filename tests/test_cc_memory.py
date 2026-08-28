@@ -13,10 +13,23 @@ class TestClaudeProjectDirname:
     Expected values cross-checked against Claude Code's own implementation
     (cli.js, v2.1.239): sanitize = s.replace(/[^a-zA-Z0-9]/g, "-"), with a
     truncate-to-200 + base36-hash fallback for overlong names.
+
+    The hash suffixes below were produced by running CC's own functions in
+    Node; regenerate with (charCodeAt is per UTF-16 unit, like CC)::
+
+        node -e 'const wv=e=>e.replace(/[^a-zA-Z0-9]/g,"-");
+          const y9t=e=>{let t=0;for(let r=0;r<e.length;r++)t=(t<<5)-t+e.charCodeAt(r)|0;
+            return Math.abs(t).toString(36)};
+          const pL=e=>{const t=wv(e);return t.length<=200?t:t.slice(0,200)+"-"+y9t(e)};
+          console.log(pL(process.argv[1]))' "<path>"
     """
 
     def test_posix_path(self):
         assert _claude_project_dirname("/home/user/myproject") == "-home-user-myproject"
+
+    def test_empty_path(self):
+        # struct.unpack("<0H", b"") -> (); no units -> empty dirname (matches JS)
+        assert _claude_project_dirname("") == ""
 
     def test_windows_path(self):
         assert (

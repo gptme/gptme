@@ -172,13 +172,16 @@ def get_profile_memory_dir(profile_name: str) -> Path:
 def _claude_project_dirname(path: str) -> str:
     """Replicate Claude Code's cwd → project-directory-name encoding.
 
-    Mirrors CC's own implementation (``cli.js``, verified against v2.1.239)::
+    Mirrors CC's own implementation (bundle functions ``wv`` / ``pL`` / ``y9t``
+    in ``cli.js`` — also in the VS Code extension's ``extension.js`` — verified
+    against v2.1.239)::
 
         sanitize(e) = e.replace(/[^a-zA-Z0-9]/g, "-")
         dirname(e)  = sanitize(e).length <= 200
                           ? sanitize(e)
                           : sanitize(e).slice(0, 200) + "-" + hash(e)
-        hash(e)     = |djb2_xor32(e)| in base36
+        hash(e)     = Math.abs(e.split("").reduce(
+                          (t, c) => (t * 31 + c.charCodeAt(0)) | 0, 0)).toString(36)
 
     Every non-alphanumeric character (``/``, ``\\``, ``:``, ``_``, ``.``,
     spaces, non-ASCII, ...) becomes a dash, with no collapsing of runs — so
@@ -190,8 +193,11 @@ def _claude_project_dirname(path: str) -> str:
     with astral characters (emoji, ...) — two units each, ``"--"`` when
     sanitized — encode identically.
     """
-    n_units = len(path.encode("utf-16-le")) // 2
-    units = struct.unpack(f"<{n_units}H", path.encode("utf-16-le"))
+    # 16-bit code units of the string, matching JS string/charCodeAt semantics.
+    # An empty path yields no units (struct.unpack("<0H", b"") -> ()) and an
+    # empty dirname, same as JS.
+    utf16 = path.encode("utf-16-le")
+    units = struct.unpack(f"<{len(utf16) // 2}H", utf16)
 
     def _is_alnum_unit(u: int) -> bool:
         return 48 <= u <= 57 or 65 <= u <= 90 or 97 <= u <= 122
@@ -200,8 +206,9 @@ def _claude_project_dirname(path: str) -> str:
     if len(sanitized) <= 200:
         return sanitized
 
-    # 32-bit signed djb2-style hash: t = (t << 5) - t + codeUnit, wrapped to
-    # int32 after each step (JS `| 0`), then Math.abs(...).toString(36).
+    # CC's y9t(): t = (t * 31 + codeUnit), coerced to a signed int32 after each
+    # step (JS `| 0`), then Math.abs(...).toString(36). Not canonical djb2
+    # (which multiplies by 33) — this is the 31-multiplier variant CC ships.
     h = 0
     for u in units:
         h = (h * 31 + u) & 0xFFFFFFFF
