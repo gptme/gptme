@@ -96,8 +96,29 @@ def test_output_shows_context_percentage_on_stderr(capsys):
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "10.0%" in captured.err
+    # Occupancy is input+output (1000+50) against the 10k window.
+    assert "context: 1,050 / 10,000 (10.5%)" in captured.err
+    assert "+50 out" in captured.err
     assert "session total: 1,050" in captured.err
+
+
+def test_output_percentage_includes_output_tokens(capsys):
+    """Percentage uses n_in+n_out so a large completion cannot hide overflow."""
+    meta = _make_model_meta(context=10_000)
+
+    with (
+        patch.object(chat_module, "get_model", return_value=meta),
+        patch.object(chat_module, "len_tokens", side_effect=[9_000, 2_000]),
+    ):
+        _log_token_usage(
+            [Message("user", "hi")], Message("assistant", "ok"), "mock/gpt-mock"
+        )
+
+    captured = capsys.readouterr()
+    # n_in-only would show 90.0%; occupancy after the call is 110.0%.
+    assert "context: 11,000 / 10,000 (110.0%)" in captured.err
+    assert "+2,000 out" in captured.err
+    assert "90.0%" not in captured.err
 
 
 def test_reset_clears_accumulator():
@@ -131,7 +152,8 @@ def test_output_handles_unknown_context_limit(capsys):
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "context: 100 / unknown" in captured.err
+    assert "context: 120 / unknown" in captured.err
+    assert "+20 out" in captured.err
     assert "session total: 120" in captured.err
 
 

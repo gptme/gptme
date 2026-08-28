@@ -82,12 +82,18 @@ def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> 
         n_in = len_tokens(msgs, model)
         n_out = len_tokens(msg_response, model)
         context_limit = get_model(model).context
-        session_tokens[0] += n_in + n_out
+        n_used = n_in + n_out
+        session_tokens[0] += n_used
 
+        # Occupancy is input+output: output tokens also consume the context
+        # window, so an n_in-only percentage understates how close we are to
+        # the limit (and to overflow on the next turn).
         context_display = f"{context_limit:,}" if context_limit else "unknown"
-        pct_display = f" ({100.0 * n_in / context_limit:.1f}%)" if context_limit else ""
+        pct_display = (
+            f" ({100.0 * n_used / context_limit:.1f}%)" if context_limit else ""
+        )
         print(
-            f"[track-tokens] context: {n_in:,} / {context_display}{pct_display} | "
+            f"[track-tokens] context: {n_used:,} / {context_display}{pct_display} | "
             f"+{n_out:,} out | session total: {session_tokens[0]:,}",
             file=sys.stderr,
             flush=True,
