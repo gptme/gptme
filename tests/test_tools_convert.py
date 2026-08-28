@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import tomllib
 
 from gptme.tools.convert import (
     ConversionResult,
@@ -22,6 +23,21 @@ from gptme.tools.convert import (
     convert_file,
     find_converter,
 )
+
+# ---------------------------------------------------------------------------
+# Packaging
+# ---------------------------------------------------------------------------
+
+
+def test_console_script_is_registered():
+    """The installed package must expose the conversion CLI."""
+    pyproject = tomllib.loads(
+        (Path(__file__).parents[1] / "pyproject.toml").read_text()
+    )
+    assert pyproject["project"]["scripts"]["gptme-convert"] == (
+        "gptme.tools.convert:main"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
