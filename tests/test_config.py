@@ -2947,6 +2947,42 @@ def test_additive_builtin_tools_manifest_alias_preserves_prefix(tmp_path: Path):
     assert _resolve_manifest_aliases("+code_review", tmp_path) == "+save,github.get_pr"
 
 
+def test_additive_builtin_tools_preset_alias_expands_preset(tmp_path: Path):
+    """``--tools +alias`` expands an exclusive preset instead of mixing it."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert _resolve_manifest_aliases("+audit", tmp_path) == "+read,analysis.run"
+
+
+def test_additive_builtin_tools_preset_alias_setup_succeeds(tmp_path: Path):
+    """``--tools +audit`` with preset builtin_tools must not crash on the mix."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="+audit",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools is not None
+    assert "read-only" not in config.chat.tools
+    assert "read" in config.chat.tools
+    assert "analysis.run" in config.chat.tools
+
+
 def test_builtin_tools_manifest_alias_raises_with_saved_conversation_tools(
     tmp_path: Path, monkeypatch
 ):

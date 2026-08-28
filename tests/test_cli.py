@@ -3508,6 +3508,103 @@ def test_tools_manifest_alias_preset_survives_unavailable_mcp_fallback(
     assert setup_calls == ["audit", "read-only"]
 
 
+def test_tools_manifest_alias_fallback_malformed_preset_mix_is_usage_error(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Fallback converts a preset + non-MCP builtin mix into a clean UsageError."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only","shell"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        raise ToolAllowlistError("Tool 'analysis.run' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="read", is_available=True),
+            SimpleNamespace(name="shell", is_available=True),
+            SimpleNamespace(name="analysis.run", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "audit",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "Traceback" not in result.output
+    assert "cannot be combined" in result.output
+
+
+def test_additive_preset_alias_fallback_expands_preset(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """``--tools +audit`` fallback expands the preset instead of mixing it."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'analysis.run' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="read", is_available=True),
+            SimpleNamespace(name="analysis.run", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "+audit",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert setup_calls == ["+audit", "+read"]
+
+
 def test_tools_unavailable_builtin_is_not_shadowed_by_manifest(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):

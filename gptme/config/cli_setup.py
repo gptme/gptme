@@ -138,8 +138,21 @@ def _resolve_manifest_aliases(
             # exclusive boundary and avoid injecting the ``complete`` tool. Keep an
             # explicit '+' additive: ``--tools +alias`` must extend rather than
             # replace the configured/default tool policy.
+            #
+            # Additive '+' cannot carry an exclusive preset name: later
+            # processing appends those names onto a concrete base, and
+            # expand_tool_allowlist_presets then rejects the mix. Expand
+            # presets to concrete tools so ``--tools +audit`` with
+            # builtin_tools ["read-only"] becomes ``+read,analysis.run``.
+            if additive:
+                expanded_manifest_tools = expand_tool_allowlist_presets(
+                    explicit_manifest_tools
+                )
+                assert expanded_manifest_tools is not None
+                resolved = ",".join([*expanded_manifest_tools, *non_alias_tools])
+                return f"+{resolved}"
             resolved = ",".join([*explicit_manifest_tools, *non_alias_tools])
-            return f"+{resolved}" if additive else resolved
+            return resolved
         return tool_allowlist
     if explicit_manifest_tools:
         raise ValueError(

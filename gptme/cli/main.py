@@ -1137,7 +1137,7 @@ def main(
         """Remove unavailable manifest tools while preserving allowlist mode."""
         if not manifest_allowlist:
             return pre_manifest_allowlist
-        from ..tools import expand_tool_allowlist_presets
+        from ..tools import ToolAllowlistError, expand_tool_allowlist_presets
         from ..tools._allowlist import TOOL_PRESETS
 
         entries = [
@@ -1146,12 +1146,21 @@ def main(
             if entry.strip()
         ]
         preset_names = [entry for entry in entries if entry in TOOL_PRESETS]
-        expanded_entries = expand_tool_allowlist_presets(entries)
+        try:
+            expanded_entries = expand_tool_allowlist_presets(entries)
+        except ValueError as e:
+            # A malformed builtin_tools mix (preset + non-MCP name) must
+            # surface as a clean usage error, not an unhandled traceback.
+            raise ToolAllowlistError(str(e)) from e
         assert expanded_entries is not None
         concrete_allowlist = ",".join(expanded_entries)
         unavailable = _unavailable_manifest_tools(concrete_allowlist)
         remaining = [entry for entry in expanded_entries if entry not in unavailable]
-        if preset_names:
+        # Keep preset provenance for exclusive (non-additive) fallbacks only.
+        # An additive '+' list cannot carry a preset name: it is later
+        # appended onto a concrete base and would fail the exclusive-preset
+        # combination guard.
+        if preset_names and not manifest_allowlist.startswith("+"):
             viable_presets = [
                 preset_name
                 for preset_name in preset_names
@@ -1172,8 +1181,6 @@ def main(
         # session would launch with unrestricted shell/save/patch access even though
         # the user explicitly configured a capability boundary via the manifest.
         if not remaining:
-            from ..tools import ToolAllowlistError
-
             raise ToolAllowlistError(
                 f"All manifest tools are unavailable: {', '.join(sorted(unavailable))}. "
                 "Check that the required MCP servers are running and that built-in tools "
@@ -1523,9 +1530,9 @@ def main(
                         stats_tool_allowlist_str = _manifest_fallback_allowlist(
                             stats_tool_allowlist_str, tool_allowlist_str
                         )
-                    except ToolAllowlistError as fallback_e:
-                        # All manifest entries unavailable — fail closed rather
-                        # than silently expanding to the full default toolchain.
+                    except (ToolAllowlistError, ValueError) as fallback_e:
+                        # All manifest entries unavailable, or a malformed
+                        # preset mix — fail closed rather than traceback.
                         raise click.UsageError(str(fallback_e)) from fallback_e
                     logger.warning(
                         "Manifest %r tool unavailable during stats config setup: %s — "
@@ -1761,9 +1768,9 @@ def main(
                     tool_allowlist_str = _manifest_fallback_allowlist(
                         tool_allowlist_str, pre_manifest_allowlist
                     )
-                except ToolAllowlistError as fallback_e:
-                    # All manifest entries unavailable — fail closed rather than
-                    # silently expanding to the full default toolchain.
+                except (ToolAllowlistError, ValueError) as fallback_e:
+                    # All manifest entries unavailable, or a malformed
+                    # preset mix — fail closed rather than traceback.
                     raise click.UsageError(str(fallback_e)) from fallback_e
                 logger.warning(
                     "Manifest %r tool unavailable during config setup: %s — "
@@ -1837,7 +1844,7 @@ def main(
                 )
                 try:
                     fallback_str = _manifest_fallback_allowlist(expanded_str, None)
-                except ToolAllowlistError as fallback_e:
+                except (ToolAllowlistError, ValueError) as fallback_e:
                     raise click.UsageError(str(fallback_e)) from fallback_e
 
                 if non_alias_parts:
