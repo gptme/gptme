@@ -7,12 +7,22 @@ import pytest
 from gptme.tools.subagent import SubtaskDef, _subagents, subagent
 
 
-def _wait_for_new_subagent_threads(initial_count: int, timeout: float = 1.0) -> None:
-    """Join spawned threads before a thread-mocking patch context can unwind."""
+def _wait_for_new_subagent_threads(initial_count: int, timeout: float = 30.0) -> None:
+    """Join spawned threads before a thread-mocking patch context can unwind.
+
+    The timeout is a liveness bound, not a latency assertion: a healthy thread
+    joins as soon as it exits, so a generous budget costs nothing. It must stay
+    generous because the thread has to be *scheduled* first, and run_subagent
+    then acquires the global slot semaphore before its (mocked) body runs. Under
+    a loaded parallel CI run that startup can take seconds, which made a 1s
+    budget fail as `assert not True` with no diagnostic.
+    """
     for sa in _subagents[initial_count:]:
         if sa.thread is not None:
             sa.thread.join(timeout=timeout)
-            assert not sa.thread.is_alive()
+            assert not sa.thread.is_alive(), (
+                f"subagent {sa.agent_id!r} thread still alive after {timeout}s join"
+            )
 
 
 def _new_subagents(initial_count: int):
