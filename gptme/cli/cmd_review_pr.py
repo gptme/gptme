@@ -79,6 +79,7 @@ import click
 
 from ..tools._allowlist import READ_ONLY_TOOL_PRESET
 from ..util.gh import infer_owner_repo, run_gh_json
+from ..util.git_cmd import GIT_CMD
 from ..util.review import (
     FindingSeverity,
     FindingStatus,
@@ -481,7 +482,7 @@ def _git_output(args: list[str]) -> str | None:
     """Run a read-only git command in the working directory; None on failure."""
     try:
         result = subprocess.run(
-            ["git", *args],
+            [GIT_CMD, *args],
             capture_output=True,
             text=True,
             timeout=15,
@@ -623,7 +624,7 @@ def _materialize_review_tree(cwd: str) -> tempfile.TemporaryDirectory[str]:
     export = tempfile.TemporaryDirectory(prefix="gptme-review-")
     try:
         archive = subprocess.run(
-            ["git", "archive", "--format=tar", "HEAD"],
+            [GIT_CMD, "archive", "--format=tar", "HEAD"],
             cwd=cwd,
             capture_output=True,
             check=False,

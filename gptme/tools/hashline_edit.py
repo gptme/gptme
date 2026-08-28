@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from ..message import Message
+from ..util.git_cmd import GIT_CMD
 from ._hashline_snapshot import lookup_snapshot, store_snapshot
 from .base import Parameter, ToolSpec, ToolUse
 
@@ -735,7 +736,7 @@ def _try_3way_merge(
         # count.  Codes > 127 (e.g. 128/255) indicate git operational errors.
         result = subprocess.run(
             [
-                "git",
+                GIT_CMD,
                 "merge-file",
                 "-p",
                 "-L",

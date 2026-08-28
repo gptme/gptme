@@ -2366,12 +2366,13 @@ def test_materialize_review_tree_excludes_untracked_files_and_git_metadata(
 
 def test_materialize_review_tree_captures_archive_before_extracting(monkeypatch):
     from gptme.cli import cmd_review_pr
+    from gptme.util.git_cmd import GIT_CMD
 
     calls = []
 
     def fake_run(args, **kwargs):
         calls.append((args, kwargs))
-        if args[:2] == ["git", "archive"]:
+        if args[:2] == [GIT_CMD, "archive"]:
             assert kwargs["capture_output"] is True
             return subprocess.CompletedProcess(args, 0, stdout=b"archive", stderr=b"")
         assert args[:2] == ["tar", "-xf"]

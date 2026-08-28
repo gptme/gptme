@@ -1173,6 +1173,36 @@ class TestMergeRecovery:
 
         assert new_tag == compute_tag(new_content)
 
+    def test_merge_invokes_git_via_resolved_path(self, tmp_path: Path):
+        """merge-file must run git through GIT_CMD, not a bare "git" that
+        CreateProcess would resolve against the (workspace) CWD on Windows.
+        """
+        import subprocess
+        from unittest.mock import patch
+
+        from gptme.util.git_cmd import GIT_CMD
+
+        f = tmp_path / "f.txt"
+        original = "alpha\nbeta\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        f.write_text("alpha\nbeta\nextra\n")
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
+
+        real_run = subprocess.run
+        seen = []
+
+        def spy(cmd, *args, **kwargs):
+            seen.append(cmd)
+            return real_run(cmd, *args, **kwargs)
+
+        with patch("subprocess.run", side_effect=spy):
+            _msgs(execute_hashline_edit(block, [str(f)], None))
+
+        merge_cmds = [c for c in seen if len(c) > 1 and c[1] == "merge-file"]
+        assert merge_cmds, seen
+        assert merge_cmds[0][0] == GIT_CMD
+
     def test_operational_merge_failure_high_exit_code(self, tmp_path: Path):
         """git merge-file returning exit > 127 is reported as an operational error."""
         from subprocess import CompletedProcess
