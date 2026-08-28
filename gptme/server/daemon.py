@@ -617,7 +617,13 @@ def _stop_via_socket(sock_path: Path) -> None:
     try:
         conn.connect(str(sock_path))
         send_msg(conn, IPCMessage(type="signal", data={"signal": "SIGTERM"}))
-    except OSError:
+        # Keep the receive half open until the daemon consumes the signal.  A
+        # regular client slot sends its ready frame before reading the signal;
+        # closing here could make that write fail and discard the stop request.
+        conn.shutdown(socket.SHUT_WR)
+        while recv_msg(conn) is not None:
+            pass
+    except (OSError, ValueError):
         pass
     finally:
         conn.close()

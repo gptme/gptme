@@ -312,6 +312,7 @@ class TestSessionDaemonState:
                 msg = recv_msg(conn)
                 if msg is not None:
                     received.append(msg.type)
+                send_msg(conn, IPCMessage(type="status", data={"stopping": True}))
             finally:
                 conn.close()
 
