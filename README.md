@@ -326,14 +326,14 @@ enabled = ["my_plugin"]
 **[MCP (Model Context Protocol)][docs-mcp]** — gptme works in both directions:
 
 - **MCP client:** discover and load external MCP servers as gptme tools.
-- **MCP server:** expose gptme's persistent shell, Python REPL, browser, and file
-  tools to Claude Desktop, Cursor, or any other MCP client.
+- **MCP server:** expose gptme's persistent shell, Python REPL, and file tools to
+  Claude Desktop, Cursor, or any other MCP client.
 
 ```sh
 pipx install gptme  # MCP support included by default
 
 # Run gptme as an MCP server over stdio
-gptme-mcp-server --tools shell,ipython,browser,save,read
+gptme-mcp-server --tools shell,ipython,save,read
 ```
 
 The server keeps shell and Python state across tool calls. See the [MCP docs][docs-mcp]
