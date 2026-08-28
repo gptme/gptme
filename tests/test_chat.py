@@ -853,3 +853,133 @@ def test_complete_hook_fires_in_current_turn():
     # complete_hook MUST raise — complete was called in the current turn.
     with pytest.raises(SessionCompleteException):
         list(complete_hook(messages))
+
+
+def _rate_limit_error():
+    """An openai RateLimitError like the one in issue #3668."""
+    from openai import RateLimitError
+
+    response = MagicMock()
+    response.status_code = 429
+    return RateLimitError("upstream rate-limited", response=response, body=None)
+
+
+def test_interactive_survives_provider_error():
+    """A 429 (or any provider error) returns control to the user, not a crash.
+
+    Regression test for https://github.com/gptme/gptme/issues/3668
+    """
+    import sys
+
+    from gptme.chat import _run_chat_loop
+    from gptme.message import Message
+
+    # See test_chained_prompts_continue_after_complete for why we use sys.modules.
+    _chat_mod = sys.modules["gptme.chat"]
+
+    manager = MagicMock()
+    manager.log = MagicMock()
+    manager.workspace = Path("/tmp")
+    manager.logdir = Path("/tmp/logdir")
+    appended: list[Message] = []
+    manager.append.side_effect = appended.append
+
+    prompt_queue = [Message("user", "hello")]
+
+    with (
+        patch.object(
+            _chat_mod,
+            "_process_message_conversation",
+            side_effect=_rate_limit_error(),
+        ),
+        patch.object(_chat_mod, "trigger_hook", return_value=[]),
+        patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
+        # After the failure the loop asks the user for input; simulate exit
+        patch.object(_chat_mod, "_get_user_input", return_value=None),
+        patch.object(_chat_mod, "_should_prompt_for_input", return_value=True),
+    ):
+        _run_chat_loop(
+            manager=manager,
+            prompt_queue=prompt_queue,
+            stream=False,
+            tool_format="markdown",
+            model=None,
+            interactive=True,
+        )
+
+    assert any(
+        msg.role == "system" and "LLM request failed" in msg.content for msg in appended
+    ), f"expected an error message in the log, got: {appended}"
+
+
+def test_non_interactive_still_raises_provider_error():
+    """Non-interactive runs must keep failing loudly so exit codes stay useful."""
+    import sys
+
+    from openai import RateLimitError
+
+    from gptme.chat import _run_chat_loop
+    from gptme.message import Message
+
+    _chat_mod = sys.modules["gptme.chat"]
+
+    manager = MagicMock()
+    manager.log = MagicMock()
+    manager.workspace = Path("/tmp")
+    manager.logdir = Path("/tmp/logdir")
+
+    with (
+        patch.object(
+            _chat_mod,
+            "_process_message_conversation",
+            side_effect=_rate_limit_error(),
+        ),
+        patch.object(_chat_mod, "trigger_hook", return_value=[]),
+        patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
+        pytest.raises(RateLimitError),
+    ):
+        _run_chat_loop(
+            manager=manager,
+            prompt_queue=[Message("user", "hello")],
+            stream=False,
+            tool_format="markdown",
+            model=None,
+            interactive=False,
+        )
+
+
+def test_interactive_still_raises_non_provider_errors():
+    """Bugs in gptme itself must not be swallowed as recoverable API errors."""
+    import sys
+
+    from gptme.chat import _run_chat_loop
+    from gptme.message import Message
+
+    _chat_mod = sys.modules["gptme.chat"]
+
+    manager = MagicMock()
+    manager.log = MagicMock()
+    manager.workspace = Path("/tmp")
+    manager.logdir = Path("/tmp/logdir")
+
+    with (
+        patch.object(
+            _chat_mod,
+            "_process_message_conversation",
+            side_effect=ValueError("bug in gptme"),
+        ),
+        patch.object(_chat_mod, "trigger_hook", return_value=[]),
+        patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
+        pytest.raises(ValueError, match="bug in gptme"),
+    ):
+        _run_chat_loop(
+            manager=manager,
+            prompt_queue=[Message("user", "hello")],
+            stream=False,
+            tool_format="markdown",
+            model=None,
+            interactive=True,
+        )

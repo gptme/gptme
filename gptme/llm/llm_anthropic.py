@@ -21,6 +21,12 @@ from ..tools.base import ToolSpec
 from .constants import _MIN_RESPONSE_TOKENS
 from .models import ModelMeta, get_model
 from .retry_abort import backoff_wait, current_generation
+from .retry_policy import (
+    DEFAULT_BASE_DELAY,
+    SDK_MAX_RETRIES,
+    get_max_retries,
+    retry_delay,
+)
 from .utils import (
     apply_cache_control,
     extract_tool_uses_from_assistant_message,
@@ -445,7 +451,7 @@ def _handle_anthropic_transient_error(
     if not should_retry or attempt == max_retries - 1:
         raise e
 
-    delay = base_delay * (2**attempt)
+    delay = retry_delay(attempt, base_delay)
     status_code = getattr(e, "status_code", "unknown")
     logger.warning(
         f"Anthropic API transient error (status {status_code}), "
@@ -458,7 +464,9 @@ def _handle_anthropic_transient_error(
         raise e
 
 
-def retry_on_overloaded(max_retries: int = 5, base_delay: float = 1.0):
+def retry_on_overloaded(
+    max_retries: int | None = None, base_delay: float = DEFAULT_BASE_DELAY
+):
     """Decorator to retry functions on Anthropic API transient errors with exponential backoff.
 
     Handles 5xx server errors, rate limits, and other transient API issues.
@@ -471,12 +479,13 @@ def retry_on_overloaded(max_retries: int = 5, base_delay: float = 1.0):
             # interrupts pending retries after this point, every backoff wait
             # for this call aborts immediately (even attempts started later).
             generation = current_generation()
-            for attempt in range(max_retries):
+            attempts = max_retries if max_retries is not None else get_max_retries()
+            for attempt in range(attempts):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
                     _handle_anthropic_transient_error(
-                        e, attempt, max_retries, base_delay, generation=generation
+                        e, attempt, attempts, base_delay, generation=generation
                     )
             # _handle_anthropic_transient_error raises on last attempt,
             # but guard against silent None return if logic changes
@@ -487,7 +496,9 @@ def retry_on_overloaded(max_retries: int = 5, base_delay: float = 1.0):
     return decorator
 
 
-def retry_generator_on_overloaded(max_retries: int = 5, base_delay: float = 1.0):
+def retry_generator_on_overloaded(
+    max_retries: int | None = None, base_delay: float = DEFAULT_BASE_DELAY
+):
     """Decorator to retry generator functions on Anthropic API transient errors with exponential backoff.
 
     Handles 5xx server errors, rate limits, and other transient API issues.
@@ -501,7 +512,8 @@ def retry_generator_on_overloaded(max_retries: int = 5, base_delay: float = 1.0)
         def wrapper(*args, **kwargs):
             # Capture the retry generation once per call (see retry_abort.py).
             generation = current_generation()
-            for attempt in range(max_retries):
+            attempts = max_retries if max_retries is not None else get_max_retries()
+            for attempt in range(attempts):
                 has_yielded = False
                 try:
                     gen = func(*args, **kwargs)
@@ -520,7 +532,7 @@ def retry_generator_on_overloaded(max_retries: int = 5, base_delay: float = 1.0)
                         # Can't retry after streaming has started - would cause duplicates
                         raise
                     _handle_anthropic_transient_error(
-                        e, attempt, max_retries, base_delay, generation=generation
+                        e, attempt, attempts, base_delay, generation=generation
                     )
             # _handle_anthropic_transient_error raises on last attempt,
             # but guard against silent None return if logic changes
@@ -598,7 +610,8 @@ def _init_anthropic(
 
     _anthropic = Anthropic(
         api_key=api_key,
-        max_retries=5,
+        # gptme's retry decorators own retries; see retry_policy
+        max_retries=SDK_MAX_RETRIES,
         base_url=proxy_url or None,
         timeout=timeout,
     )
@@ -647,7 +660,7 @@ def _get_gptme_client() -> "Anthropic":
 
         _anthropic_gptme = Anthropic(
             api_key=api_key,
-            max_retries=5,
+            max_retries=SDK_MAX_RETRIES,
             base_url=get_base_url(config),
             timeout=timeout,
         )

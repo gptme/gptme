@@ -18,7 +18,7 @@ from .constants import (
 )
 from .hooks import HookType, trigger_hook
 from .init import init
-from .llm import reply
+from .llm import is_provider_error, reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
 from .message import (
@@ -361,6 +361,21 @@ def _run_chat_loop(
                 console.log("Interrupted.")
             manager.append(Message("system", INTERRUPT_CONTENT))
             # Clear any remaining prompts to avoid confusion
+            prompt_queue.clear()
+            continue
+        except Exception as e:
+            # A failing provider call (rate limit, upstream outage, network
+            # error) must not kill an interactive session: report it and hand
+            # control back to the user, who can retry or switch model.
+            # Non-interactive runs still fail loudly so the exit code carries
+            # the error class. See https://github.com/gptme/gptme/issues/3668
+            if not interactive or not is_provider_error(e):
+                raise
+            logger.error("LLM request failed: %s", e)
+            if not is_output_json() and not is_output_quiet():
+                console.log(f"[red]LLM request failed:[/red] {e}")
+            manager.append(Message("system", f"LLM request failed: {e}"))
+            # Drop queued prompts — they were meant for the failed turn.
             prompt_queue.clear()
             continue
 

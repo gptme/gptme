@@ -275,6 +275,25 @@ def _resolve_max_tokens(model: str, max_tokens: int | None) -> int | None:
     return model_meta.max_output or 4096
 
 
+# Top-level modules whose exceptions mean "the provider call failed", as opposed
+# to a bug in gptme. Matched by defining module rather than by a hardcoded list
+# of exception classes, so new SDK error types are covered automatically.
+_PROVIDER_ERROR_MODULES = frozenset({"openai", "anthropic", "httpx"})
+
+
+def is_provider_error(e: BaseException) -> bool:
+    """Whether an exception came from an LLM provider SDK or its HTTP transport.
+
+    Used to decide whether an interactive session can recover by returning
+    control to the user instead of crashing.
+    See https://github.com/gptme/gptme/issues/3668
+    """
+    return any(
+        (cls.__module__ or "").split(".")[0] in _PROVIDER_ERROR_MODULES
+        for cls in type(e).__mro__
+    )
+
+
 @trace_function(name="llm.reply", attributes={"component": "llm"})
 def reply(
     messages: list[Message],
