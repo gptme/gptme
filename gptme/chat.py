@@ -73,24 +73,28 @@ def _get_session_tokens() -> int:
 
 def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> None:
     """Print running token totals after each LLM call (enabled by --track-tokens)."""
-    session_tokens = _session_tokens.get()
-    if session_tokens is None:
-        session_tokens = [0]
-        _session_tokens.set(session_tokens)
+    try:
+        session_tokens = _session_tokens.get()
+        if session_tokens is None:
+            session_tokens = [0]
+            _session_tokens.set(session_tokens)
 
-    n_in = len_tokens(msgs, model)
-    n_out = len_tokens(msg_response, model)
-    session_tokens[0] += n_in + n_out
+        n_in = len_tokens(msgs, model)
+        n_out = len_tokens(msg_response, model)
+        session_tokens[0] += n_in + n_out
 
-    context_limit = get_model(model).context
-    context_display = f"{context_limit:,}" if context_limit else "unknown"
-    pct_display = f" ({100.0 * n_in / context_limit:.1f}%)" if context_limit else ""
-    print(
-        f"[track-tokens] context: {n_in:,} / {context_display}{pct_display} | "
-        f"+{n_out:,} out | session total: {session_tokens[0]:,}",
-        file=sys.stderr,
-        flush=True,
-    )
+        context_limit = get_model(model).context
+        context_display = f"{context_limit:,}" if context_limit else "unknown"
+        pct_display = f" ({100.0 * n_in / context_limit:.1f}%)" if context_limit else ""
+        print(
+            f"[track-tokens] context: {n_in:,} / {context_display}{pct_display} | "
+            f"+{n_out:,} out | session total: {session_tokens[0]:,}",
+            file=sys.stderr,
+            flush=True,
+        )
+    except Exception:
+        # Informational only — never crash the main chat loop over token display.
+        pass
 
 
 @trace_function(name="chat.main", attributes={"component": "chat"})
@@ -118,11 +122,11 @@ def chat(
 
     Callable from other modules.
     """
-    # Reset the per-session token accumulator for --track-tokens.
-    # Save the previous value so nested chat() calls (inline subagents) restore
-    # the outer chat's running total on return instead of leaving [0] behind.
+    # Save the previous token accumulator so nested chat() calls (inline subagents)
+    # restore the outer chat's running total on return.  The actual reset is
+    # deferred to inside the try block so the finally clause always runs to
+    # restore _prev_tokens even if pre-try setup code raises an exception.
     _prev_tokens = _session_tokens.get()
-    _reset_token_accumulator()
 
     # Set initial terminal title with conversation name
     conv_name = logdir.name
@@ -142,6 +146,9 @@ def chat(
     # restore it on exit instead of unconditionally resetting to "text".
     _prev_output_format = get_output_format()
     try:
+        # Reset here (inside try) so the finally clause always restores
+        # _prev_tokens if any setup code above raises before reaching this point.
+        _reset_token_accumulator()
         set_output_format(output_format)
 
         # init
