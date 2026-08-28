@@ -20,6 +20,31 @@ from unittest.mock import patch
 
 from gptme import dirs
 
+# ── _get_env_path helper ──────────────────────────────────────────────────
+
+
+class TestGetEnvPath:
+    def test_returns_value_when_set(self, monkeypatch):
+        monkeypatch.setenv("_GPTME_TEST_VAR", "/some/path")
+        assert dirs._get_env_path("_GPTME_TEST_VAR") == "/some/path"
+
+    def test_returns_none_when_unset(self, monkeypatch):
+        monkeypatch.delenv("_GPTME_TEST_VAR", raising=False)
+        assert dirs._get_env_path("_GPTME_TEST_VAR") is None
+
+    def test_returns_none_when_empty(self, monkeypatch):
+        monkeypatch.setenv("_GPTME_TEST_VAR", "")
+        assert dirs._get_env_path("_GPTME_TEST_VAR") is None
+
+    def test_returns_none_when_whitespace_only(self, monkeypatch):
+        monkeypatch.setenv("_GPTME_TEST_VAR", "   ")
+        assert dirs._get_env_path("_GPTME_TEST_VAR") is None
+
+    def test_strips_surrounding_whitespace(self, monkeypatch):
+        monkeypatch.setenv("_GPTME_TEST_VAR", "  /valid/path  ")
+        assert dirs._get_env_path("_GPTME_TEST_VAR") == "/valid/path"
+
+
 # ── Config directory ──────────────────────────────────────────────────────
 
 
@@ -39,6 +64,20 @@ class TestGetDataDir:
         with patch.dict(os.environ, {"XDG_DATA_HOME": str(tmp_path)}):
             result = dirs.get_data_dir()
         assert result == tmp_path / "gptme"
+
+    def test_xdg_data_home_empty_falls_through(self, tmp_path: Path):
+        """Empty XDG_DATA_HOME must not produce a relative path (Docker / misconfig)."""
+        env = {**os.environ, "XDG_DATA_HOME": ""}
+        with patch.dict(os.environ, env, clear=True):
+            result = dirs.get_data_dir()
+        assert result.is_absolute(), f"Expected absolute path, got {result!r}"
+
+    def test_xdg_data_home_whitespace_falls_through(self, tmp_path: Path):
+        """Whitespace-only XDG_DATA_HOME is treated as unset."""
+        env = {**os.environ, "XDG_DATA_HOME": "   "}
+        with patch.dict(os.environ, env, clear=True):
+            result = dirs.get_data_dir()
+        assert result.is_absolute(), f"Expected absolute path, got {result!r}"
 
     def test_xdg_data_home_not_set_falls_through(self):
         """Without XDG_DATA_HOME, should return a path (either legacy or platformdirs)."""
@@ -74,6 +113,13 @@ class TestGetLogsDir:
             result = dirs.get_logs_dir()
         assert result == logs_dir
         assert result.exists()  # should be created
+
+    def test_gptme_logs_home_empty_falls_through(self):
+        """Empty GPTME_LOGS_HOME must not produce a relative path."""
+        env = {**os.environ, "GPTME_LOGS_HOME": ""}
+        with patch.dict(os.environ, env, clear=True):
+            result = dirs.get_logs_dir()
+        assert result.is_absolute(), f"Expected absolute path, got {result!r}"
 
     def test_default_is_subdir_of_data(self):
         """Without GPTME_LOGS_HOME, logs go under get_data_dir()/logs."""
@@ -433,6 +479,24 @@ class TestGetProfileMemoryDir:
             r1 = dirs.get_profile_memory_dir("test")
             r2 = dirs.get_profile_memory_dir("test")
         assert r1 == r2
+
+    def test_path_traversal_rejected(self, tmp_path: Path):
+        """Profile names containing path separators or '..' raise ValueError."""
+        import pytest
+
+        bad_names = ["../etc/passwd", "/abs/path", "a/b", "a\\b", ""]
+        with patch.dict(os.environ, {"XDG_DATA_HOME": str(tmp_path)}):
+            for name in bad_names:
+                with pytest.raises(ValueError, match="Invalid profile name"):
+                    dirs.get_profile_memory_dir(name)
+
+    def test_valid_profile_names(self, tmp_path: Path):
+        """A range of legitimate profile names are accepted."""
+        valid_names = ["explorer", "my-agent", "agent_2", "v1.0", "A.B-C_3"]
+        with patch.dict(os.environ, {"XDG_DATA_HOME": str(tmp_path)}):
+            for name in valid_names:
+                result = dirs.get_profile_memory_dir(name)
+                assert result.exists()
 
 
 # ── Readline history migration ────────────────────────────────────────────
