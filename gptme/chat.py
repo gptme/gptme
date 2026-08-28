@@ -81,9 +81,9 @@ def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> 
 
         n_in = len_tokens(msgs, model)
         n_out = len_tokens(msg_response, model)
+        context_limit = get_model(model).context
         session_tokens[0] += n_in + n_out
 
-        context_limit = get_model(model).context
         context_display = f"{context_limit:,}" if context_limit else "unknown"
         pct_display = f" ({100.0 * n_in / context_limit:.1f}%)" if context_limit else ""
         print(

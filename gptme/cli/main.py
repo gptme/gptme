@@ -974,8 +974,10 @@ def main(
     if injection_hygiene is not None:
         os.environ["GPTME_INJECTION_HYGIENE"] = injection_hygiene
 
-    # Propagate --track-tokens to the env var checked per-step.
-    if track_tokens:
+    # Propagate an explicit --track-tokens flag to the env var checked per-step.
+    # Preserve the original env string otherwise so get_env_bool() can interpret
+    # falsy values such as GPTME_TRACK_TOKENS=0 correctly.
+    if ctx.get_parameter_source("track_tokens") == ParameterSource.COMMANDLINE:
         os.environ["GPTME_TRACK_TOKENS"] = "1"
 
     # Convert tool_allowlist from tuple to string or None

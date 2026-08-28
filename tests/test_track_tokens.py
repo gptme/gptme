@@ -135,47 +135,44 @@ def test_output_handles_unknown_context_limit(capsys):
     assert "session total: 120" in captured.err
 
 
-def test_accumulator_restored_after_nested_chat_same_context():
-    """Nested chat() in the same context restores the parent's running total.
-
-    The existing copy_context test is insufficient: production subagents run
-    chat() in the *same* context (same thread, no copy_context barrier).
-    _reset_token_accumulator() inside the inner chat() would clobber the outer
-    total.  The fix saves _prev_tokens before resetting and restores on exit.
-    """
-    meta = _make_model_meta(context=10_000)
-
+def test_accumulator_restored_after_chat_returns(tmp_path):
+    """chat() restores its caller's token accumulator in its finally block."""
+    meta = _make_model_meta()
     with (
         patch.object(chat_module, "get_model", return_value=meta),
         patch.object(chat_module, "len_tokens", side_effect=[100, 20, 50, 10]),
     ):
-        # Outer chat: accumulate 120 tokens.
         _log_token_usage(
             [Message("user", "outer")],
             Message("assistant", "reply"),
             "mock/gpt-mock",
         )
-        assert _get_session_tokens() == 120
+    assert _get_session_tokens() == 120
 
-        # Simulate what the fixed chat() does at nested-call entry:
-        # save outer state, reset for inner chat.
-        prev_tokens = chat_module._session_tokens.get()
-        _reset_token_accumulator()
-        assert _get_session_tokens() == 0  # inner chat starts fresh
-
-        # Inner chat: accumulate 60 tokens.
-        _log_token_usage(
+    with (
+        patch.object(chat_module, "set_current_conv_name"),
+        patch.object(chat_module, "set_conversation_context"),
+        patch.object(chat_module, "init"),
+        patch.object(chat_module, "trigger_hook", return_value=[]),
+        patch.object(chat_module, "get_default_model", return_value=None),
+        patch.object(chat_module, "get_model", return_value=meta),
+        patch.object(chat_module, "len_tokens", side_effect=[50, 10]),
+        patch.object(chat_module, "_run_chat_loop") as run_chat_loop,
+    ):
+        run_chat_loop.side_effect = lambda *args, **kwargs: _log_token_usage(
             [Message("user", "inner")],
             Message("assistant", "reply"),
             "mock/gpt-mock",
         )
-        assert _get_session_tokens() == 60
+        chat_module.chat(
+            prompt_msgs=[],
+            initial_msgs=[],
+            logdir=tmp_path,
+            workspace=tmp_path,
+            model="mock/gpt-mock",
+            tool_format="markdown",
+        )
 
-        # Simulate what the fixed chat() does at nested-call exit (finally block):
-        # restore the outer total.
-        chat_module._session_tokens.set(prev_tokens)
-
-    # Outer running total is intact — inner chat left no trace.
     assert _get_session_tokens() == 120
 
 
@@ -229,7 +226,8 @@ def test_log_token_usage_survives_get_model_error():
         patch.object(chat_module, "len_tokens", side_effect=[10, 5]),
         patch.object(chat_module, "get_model", side_effect=KeyError("unknown model")),
     ):
-        # Must not raise.
+        # Must not raise or commit a partial count.
         _log_token_usage(
             [Message("user", "hi")], Message("assistant", "ok"), "unknown/model"
         )
+    assert _get_session_tokens() == 0
