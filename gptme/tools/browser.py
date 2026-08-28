@@ -97,6 +97,7 @@ from dataclasses import replace
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Literal
 
 import requests
@@ -180,6 +181,17 @@ def _get_pdf_to_image_hints() -> str:
     )
 
 
+def _validate_url_scheme(url: str) -> None:
+    """Validate that URL uses a safe scheme (http/https only)."""
+    parsed = urlparse(url)
+    allowed_schemes = {"http", "https"}
+    if parsed.scheme.lower() not in allowed_schemes:
+        raise ValueError(
+            f"URL scheme '{parsed.scheme}' not allowed. "
+            f"Only {allowed_schemes} are permitted for security reasons."
+        )
+
+
 def pdf_to_images(
     url_or_path: str,
     output_dir: str | Path | None = None,
@@ -220,8 +232,9 @@ def pdf_to_images(
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Download PDF if URL
+    # Security: validate URL scheme before requesting
     if url_or_path.startswith(("http://", "https://")):
+        _validate_url_scheme(url_or_path)
         logger.info(f"Downloading PDF from: {url_or_path}")
         try:
             response = requests.get(url_or_path, timeout=60)
@@ -655,6 +668,8 @@ def _read_pdf_url(url: str, max_pages: int | None = None) -> str:
     if max_pages is None:
         max_pages = DEFAULT_PDF_MAX_PAGES
 
+    # Security: validate URL scheme before downloading
+    _validate_url_scheme(url)
     try:
         # Download PDF content
         logger.info(f"Downloading PDF from: {url}")
