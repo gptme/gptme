@@ -6,6 +6,7 @@ parse), and the on-demand (no-timer) path.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -74,6 +75,47 @@ def test_health_check_generates_executable_local_probe(tmp_path: Path) -> None:
     assert "datetime.now(timezone.utc)" in script
     assert "does **not** start an HTTP server" in docs
     assert "curl" not in docs
+
+
+def test_health_check_reports_state_and_preserves_failure_exit_code(
+    tmp_path: Path,
+) -> None:
+    _run_init(tmp_path, "--platform", "linux", "--enable-health-check")
+    health_check = tmp_path / "health-check.py"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    systemctl = fake_bin / "systemctl"
+    systemctl.write_text(
+        "#!/bin/sh\nprintf 'LoadState=loaded\\nActiveState=inactive\\n'\nexit 0\n"
+    )
+    systemctl.chmod(0o755)
+    env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"}
+
+    proc = subprocess.run(
+        [str(health_check)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert proc.returncode == 1
+    assert json.loads(proc.stdout) | {
+        "load_state": "loaded",
+        "active_state": "inactive",
+        "status": "unhealthy",
+    } == json.loads(proc.stdout)
+
+
+def test_health_check_does_not_chmod_skipped_file(tmp_path: Path) -> None:
+    health_check = tmp_path / "health-check.py"
+    health_check.write_text("user-owned\n")
+    health_check.chmod(0o600)
+
+    _run_init(tmp_path, "--platform", "linux", "--enable-health-check")
+
+    assert health_check.read_text() == "user-owned\n"
+    assert health_check.stat().st_mode & 0o777 == 0o600
 
 
 def test_health_check_rejects_macos(tmp_path: Path) -> None:
