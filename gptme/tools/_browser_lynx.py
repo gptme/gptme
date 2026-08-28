@@ -6,24 +6,40 @@ import logging
 import os
 import subprocess
 import tempfile
+from pathlib import Path
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+_MAX_INPUT_LENGTH = 2048
 
 
 def _validate_url_scheme(url: str) -> None:
-    """Validate that URL uses a safe scheme (http/https only).
+    """Validate that a URL is safe to pass to lynx.
 
     Security: Prevents file:// protocol from reading local files.
     See: https://github.com/gptme/gptme/issues/1021
     """
-    parsed = urlparse(url)
+    if not url or len(url) > _MAX_INPUT_LENGTH:
+        raise ValueError(
+            f"URL must be non-empty and no longer than {_MAX_INPUT_LENGTH} characters."
+        )
+
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+    except ValueError as exc:
+        raise ValueError("Invalid URL") from exc
+
     allowed_schemes = {"http", "https"}
     if parsed.scheme.lower() not in allowed_schemes:
         raise ValueError(
             f"URL scheme '{parsed.scheme}' not allowed. "
             f"Only {allowed_schemes} are permitted for security reasons."
         )
+    if not hostname:
+        raise ValueError("URL must include a hostname.")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("URL must not include embedded credentials.")
 
 
 def read_url(url: str, cookies: dict | None = None) -> str:
@@ -37,16 +53,28 @@ def read_url(url: str, cookies: dict | None = None) -> str:
     if cookies:
         # Create Netscape-format cookie file for lynx
         parsed = urlparse(url)
-        domain = parsed.hostname or ""
+        domain = parsed.hostname
+        assert domain is not None  # Guaranteed by _validate_url_scheme().
+        for name, value in cookies.items():
+            if (
+                not isinstance(name, str)
+                or not isinstance(value, str)
+                or not name
+                or any(char in name + value for char in "\r\n\t")
+            ):
+                raise ValueError(
+                    "Cookie names and values must not be empty or contain tabs/newlines."
+                )
         fd, cookie_file = tempfile.mkstemp(suffix=".txt", prefix="lynx_cookies_")
         try:
+            Path(cookie_file).chmod(0o600)
             with os.fdopen(fd, "w") as f:
                 f.write("# Netscape HTTP Cookie File\n")
                 for name, value in cookies.items():
                     # Format: domain, tail-match, path, secure, expiry, name, value
                     f.write(f".{domain}\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n")
         except Exception:
-            os.unlink(cookie_file)
+            Path(cookie_file).unlink(missing_ok=True)
             cookie_file = None
             raise
         cmd.extend([f"-cookie_file={cookie_file}", "-accept_all_cookies"])
@@ -64,11 +92,18 @@ def read_url(url: str, cookies: dict | None = None) -> str:
         )
         return p.stdout
     finally:
-        if cookie_file and os.path.exists(cookie_file):
-            os.unlink(cookie_file)
+        if cookie_file:
+            Path(cookie_file).unlink(missing_ok=True)
 
 
 def search(query: str, engine: str = "duckduckgo") -> str:
+    if engine not in {"google", "duckduckgo"}:
+        raise ValueError(f"Unknown search engine: {engine}")
+    if not query.strip() or len(query) > _MAX_INPUT_LENGTH:
+        raise ValueError(
+            f"Search query must be non-empty and no longer than {_MAX_INPUT_LENGTH} characters."
+        )
+
     if engine == "google":
         # Use SOCS cookie (newer Google consent format) to bypass GDPR banner,
         # and gl=us to avoid region-specific consent redirects.
