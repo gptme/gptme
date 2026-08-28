@@ -146,6 +146,26 @@ class TestRuntimeParsers:
         assert info.mode == "interactive"
         assert info.cmdline_summary == "hello bob, bootstrap please"
 
+    def test_claude_parser_finds_project_dir_via_cc_encoding(
+        self, tmp_path: Path
+    ) -> None:
+        """``log_dir`` must be located with Claude Code's real cwd→project-dir
+        encoding (every non-alphanumeric char → "-"), not a naive "/"→"-"
+        replace that leaves "_", ".", ":" untouched and is a no-op on Windows
+        paths like ``C:\\Users\\me\\proj``.
+        """
+        from gptme.hooks.workspace_agents import _parse_claude_code
+
+        cwd = "/home/user/my_project.v2"
+        encoded = "-home-user-my-project-v2"
+        project_dir = tmp_path / ".claude" / "projects" / encoded
+        project_dir.mkdir(parents=True)
+
+        with patch("gptme.hooks.workspace_agents.Path.home", return_value=tmp_path):
+            info = _parse_claude_code(101, ["claude", "hi"], cwd)
+
+        assert info.log_dir == str(project_dir)
+
     def test_codex_exec_is_autonomous(self) -> None:
         from gptme.hooks.workspace_agents import _parse_codex
 

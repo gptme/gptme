@@ -29,6 +29,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from ..dirs import _claude_project_dirname
 from ..hooks import HookType, StopPropagation, register_hook
 from ..message import Message
 from ..util.git_cmd import GIT_CMD
@@ -1063,7 +1064,11 @@ def _parse_claude_code(pid: int, cmdline: list[str], cwd: str) -> AgentInfo:
     mode = "autonomous" if is_pipe else "interactive"
 
     log_dir = None
-    project_hash = cwd.replace("/", "-")
+    # Claude Code derives its per-project dir name from cwd by replacing *every*
+    # non-alphanumeric char with "-" (plus a hash for overlong paths); replicate
+    # that exactly instead of a naive "/" → "-" that drops "_", ".", ":" and is
+    # a no-op on Windows paths. See gptme.dirs._claude_project_dirname.
+    project_hash = _claude_project_dirname(cwd)
     project_dir = Path.home() / ".claude" / "projects" / project_hash
     if project_dir.is_dir():
         log_dir = str(project_dir)
