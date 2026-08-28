@@ -438,8 +438,9 @@ This stack is simple and composable: selectors improve work choice, lessons stee
 
 - Python 3.10 or newer
 - Credentials for at least one LLM provider:
-  - OpenRouter can be configured interactively with `/account setup openrouter`
-    inside gptme, using browser OAuth onboarding.
+  - Fastest no-credit-card path: `/account setup openrouter` inside gptme
+    (browser OAuth), then `gptme "hello" -m openrouter/openrouter/free`.
+    See [Getting Started][docs-getting-started].
   - Subscriptions work too: sign in with your ChatGPT Plus/Pro or SuperGrok plan
     via `gptme-auth openai-subscription` or `gptme-auth grok-subscription`,
     no API key needed (see [providers docs][docs-providers]).

@@ -187,6 +187,31 @@ named ``[[providers]]`` entry.
     VLLM_API_KEY="none"   # vLLM often needs no auth
     gptme 'hello' -m vllm/meta-llama/Llama-3.1-8B-Instruct
 
+**Example (FreeLLMAPI, self-hosted aggregator):**
+
+`FreeLLMAPI <https://github.com/tashfeenahmed/freellmapi>`_ routes across the
+free tiers of providers whose keys you add locally. It is **not** a hosted
+no-key API — ``https://freellmapi.com/v1`` is a parked domain.
+
+After the local server is running (default ``http://127.0.0.1:3001``) and you
+have copied the unified key from its dashboard:
+
+.. code-block:: toml
+
+    [[providers]]
+    name = "freellmapi"
+    base_url = "http://127.0.0.1:3001/v1"
+    api_key_env = "FREELLMAPI_API_KEY"
+    default_model = "auto"
+
+.. code-block:: sh
+
+    export FREELLMAPI_API_KEY="freellmapi-your-unified-key"
+    gptme 'hello' -m freellmapi/auto
+
+For a zero-setup free cloud path (no self-hosting), use OpenRouter instead —
+see :doc:`getting-started`.
+
 **Tokenizer in airgapped environments**
 
 gptme may fetch the OpenAI ``cl100k_base`` tokenizer to count tokens. Offline, that

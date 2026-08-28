@@ -127,23 +127,38 @@ for Ollama, vLLM, and custom server setup.
 Free Cloud Providers (No Credit Card Required)
 ----------------------------------------------
 
-Several cloud providers offer free tiers that work with gptme out of the box:
+Several cloud providers offer free tiers that work with gptme out of the box.
 
-**OpenRouter** (recommended: largest free model catalog)
+**OpenRouter** (recommended: one browser sign-in, no credit card)
 
-OpenRouter aggregates free model tiers from Google, Meta, Mistral, and others behind one API key:
+OpenRouter aggregates free model tiers behind one API key. The ``:free`` catalog
+**rotates** — last month's model id is often gone. Prefer the free router, and
+pin a specific ``:free`` model only after you have confirmed it is still listed.
 
 .. code-block:: bash
 
     # Sign in with browser — no credit card required
     gptme '/account setup openrouter'
 
-    # Then use any :free-tagged model
-    gptme "hello" -m openrouter/google/gemini-2.5-flash:free
-    gptme "hello" -m openrouter/meta-llama/llama-3.3-70b-instruct:free
+    # Default free router (OpenRouter model id is openrouter/free)
+    gptme "hello" -m openrouter/openrouter/free
 
-Free OpenRouter models are rate-limited but sufficient for personal use. The ``:free`` suffix selects
-the free tier; omitting it routes to paid inference.
+    # Pin a currently listed free model (catalog rotates)
+    gptme "hello" -m openrouter/cohere/north-mini-code:free
+
+The doubled ``openrouter/openrouter/free`` is intentional: gptme's
+``<provider>/<model>`` split plus OpenRouter's own ``openrouter/free`` model id.
+``-m openrouter/free`` sends ``model=free`` and 404s.
+
+Verified 2026-08-28 (chat + gptme ``shell`` tool, shared free pool):
+
+- ``openrouter/openrouter/free`` — 200k ctx, tools work. Recommended default.
+- ``openrouter/cohere/north-mini-code:free`` — 256k ctx, tools work.
+
+Shared-pool ``:free`` endpoints 429 often (Gemma 4 and GLM-5.2 did during the
+same probe). Retry, pick another listed model, or add your own provider key at
+https://openrouter.ai/settings/integrations. Omitting ``:free`` routes to paid
+inference. Current catalog: https://openrouter.ai/models?max_price=0
 
 **Google Gemini** (generous free quota, 1 M token context)
 
@@ -160,6 +175,14 @@ the free tier; omitting it routes to paid inference.
     # Get a free API key at https://console.groq.com (no credit card)
     export GROQ_API_KEY="your-key"
     gptme "hello" -m groq/llama-3.3-70b-versatile
+
+.. note::
+
+   There is no public ``OPENAI_API_KEY=free`` endpoint at ``freellmapi.com``
+   (parked domain; POST ``/v1/chat/completions`` returns HTTP 405).
+   `FreeLLMAPI <https://github.com/tashfeenahmed/freellmapi>`_ is a
+   **self-hosted** OpenAI-compatible router that needs your own provider keys.
+   See :doc:`providers-custom`.
 
 .. tip::
 
