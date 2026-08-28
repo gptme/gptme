@@ -7,7 +7,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import tomllib
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 from gptme.tools.convert import (
     ConversionResult,
