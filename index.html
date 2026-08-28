@@ -594,12 +594,21 @@ href="https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-gupp">gpt
 </table>
 <h3 id="link-integrations-mcp--acp">🔗 Integrations: MCP &amp; ACP</h3>
 <p><strong><a href="https://gptme.org/docs/mcp.html">MCP (Model Context
-Protocol)</a></strong> — use any MCP server as a tool source:</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install gptme  <span class="co"># MCP support included by default</span></span></code></pre></div>
-<p>gptme can discover and dynamically load MCP servers, giving the agent
-access to databases, APIs, file systems, and any other MCP-compatible
-tool. See the <a href="https://gptme.org/docs/mcp.html">MCP docs</a> for
-server configuration.</p>
+Protocol)</a></strong> — gptme works in both directions:</p>
+<ul>
+<li><strong>MCP client:</strong> discover and load external MCP servers
+as gptme tools.</li>
+<li><strong>MCP server:</strong> expose gptme's persistent shell, Python
+REPL, and file tools to Claude Desktop, Cursor, or any other MCP
+client.</li>
+</ul>
+<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install gptme  <span class="co"># MCP support included by default</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Run gptme as an MCP server over stdio</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="ex">gptme-mcp-server</span> <span class="at">--tools</span> shell,ipython,save,read</span></code></pre></div>
+<p>The server keeps shell and Python state across tool calls. See the <a
+href="https://gptme.org/docs/mcp.html">MCP docs</a> for a ready-to-paste
+Claude Desktop configuration and MCP client setup.</p>
 <p><strong><a href="https://gptme.org/docs/acp.html">ACP (Agent Client
 Protocol)</a></strong> — use gptme as a coding agent directly from your
 editor:</p>
@@ -1212,14 +1221,19 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb15-1"><a href=
 </ul>
 <h3 id="how-does-the-mcp-integration-work">How does the MCP integration
 work?</h3>
-<p>gptme has <strong>built-in MCP support</strong>:</p>
+<p>gptme has <strong>built-in, bidirectional MCP support</strong>:</p>
 <ul>
-<li><strong>MCP Discovery</strong>: Automatically discovers MCP
-servers</li>
-<li><strong>Dynamic Loading</strong>: Loads MCP tools on demand</li>
-<li><strong>Tool Integration</strong>: MCP tools work like native
-tools</li>
+<li><strong>MCP client</strong>: Automatically discover MCP servers and
+load their tools on demand</li>
+<li><strong>MCP server</strong>: Run <code>gptme-mcp-server</code> to
+expose gptme's session-backed tools to Claude Desktop, Cursor, and other
+MCP clients</li>
+<li><strong>Tool integration</strong>: External MCP tools work like
+native tools; clients calling gptme retain shell and Python state across
+requests</li>
 </ul>
+<p>See the <a href="https://gptme.org/docs/mcp.html">MCP guide</a> for
+configuration in either direction.</p>
 <p>Example MCP servers supported:</p>
 <ul>
 <li><a
