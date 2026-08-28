@@ -138,9 +138,14 @@ class SessionDaemon:
             pid_file.close()
 
     def stop(self) -> None:
-        """Signal the daemon while continuously proving PID-file ownership."""
+        """Stop the daemon via a pinned pidfd, else a socket SIGTERM frame.
+
+        Never ``os.kill`` a numeric PID: without pidfd that can hit a reused
+        process. The socket path talks to the listening daemon instead.
+        """
         if not self.socket_path.exists():
             return
+        signaled = False
         try:
             with self.pid_path.open() as pid_file:
                 try:
@@ -148,29 +153,43 @@ class SessionDaemon:
                 except BlockingIOError:
                     pid_file.seek(0)
                     pid = int(pid_file.read())
-                    _signal_owned_pid(pid_file, pid)
+                    signaled = _signal_owned_pid(pid_file, pid)
                 else:
                     fcntl.flock(pid_file, fcntl.LOCK_UN)
         except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError):
             pass
+        if not signaled:
+            _stop_via_socket(self.socket_path)
 
     # ------------------------------------------------------------------
     # Internal — runs in the daemon process
     # ------------------------------------------------------------------
 
     def _acquire_pid_file(self) -> None:
-        pid_file = self.pid_path.open("a+")
-        try:
-            fcntl.flock(pid_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            pid_file.close()
-            raise
-        pid_file.seek(0)
-        pid_file.truncate()
-        pid_file.write(str(os.getpid()))
-        pid_file.flush()
-        self._pid_file = pid_file
-        self._owns_paths = True
+        last_error: OSError | None = None
+        for _ in range(5):
+            pid_file = self.pid_path.open("a+")
+            try:
+                fcntl.flock(pid_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                pid_file.close()
+                raise
+            if not _pid_fd_matches_path(pid_file, self.pid_path):
+                pid_file.close()
+                last_error = OSError("PID file was unlinked during acquire")
+                continue
+            pid_file.seek(0)
+            pid_file.truncate()
+            pid_file.write(str(os.getpid()))
+            pid_file.flush()
+            if not _pid_fd_matches_path(pid_file, self.pid_path):
+                pid_file.close()
+                last_error = OSError("PID file was unlinked during acquire")
+                continue
+            self._pid_file = pid_file
+            self._owns_paths = True
+            return
+        raise last_error or OSError("failed to acquire live PID file")
 
     def _run(self, gptme_args: list[str], prompts: list[str]) -> None:
         self._acquire_pid_file()
@@ -181,7 +200,7 @@ class SessionDaemon:
             self.socket_path.unlink()
         server_sock.bind(str(self.socket_path))
         self.socket_path.chmod(0o600)
-        server_sock.listen(1)
+        server_sock.listen(2)
         server_sock.setblocking(False)
 
         def request_stop(_signum: int, _frame: object) -> None:
@@ -311,14 +330,18 @@ class SessionDaemon:
                 continue
             client.setblocking(True)
             try:
-                self._serve_client(client)
+                self._serve_client(client, server_sock)
             finally:
                 with self._output_lock:
                     if self._client is client:
                         self._client = None
                 client.close()
 
-    def _serve_client(self, client: socket.socket) -> None:
+    def _serve_client(
+        self,
+        client: socket.socket,
+        server_sock: socket.socket | None = None,
+    ) -> None:
         """Replay output history, then queue prompts received from the client."""
         client.settimeout(_CLIENT_READ_TIMEOUT)
         # Publish the client only after history is fully sent.  Holding the same
@@ -336,7 +359,21 @@ class SessionDaemon:
             self._client = client
 
         recv_buffer = bytearray()
+        client.settimeout(_CLIENT_READ_TIMEOUT)
         while not self._stop_event.is_set():
+            try:
+                watch = [client] if server_sock is None else [client, server_sock]
+                rlist, _, _ = select.select(watch, [], [], _CLIENT_READ_TIMEOUT)
+            except InterruptedError:
+                continue
+            except OSError:
+                break
+            if server_sock is not None and server_sock in rlist:
+                self._handle_control_connection(server_sock)
+                if self._stop_event.is_set():
+                    break
+            if client not in rlist:
+                continue
             try:
                 msg = recv_msg(client, recv_buffer)
             except TimeoutError:
@@ -373,6 +410,29 @@ class SessionDaemon:
                 self._stop_event.set()
                 self._terminate_process()
                 break
+
+    def _handle_control_connection(self, server_sock: socket.socket) -> None:
+        """Accept a one-shot control client (stop) while the slot is occupied."""
+        try:
+            extra, _ = server_sock.accept()
+        except OSError:
+            return
+        extra.settimeout(1.0)
+        try:
+            msg = recv_msg(extra, bytearray())
+            if (
+                msg is not None
+                and msg.type == "signal"
+                and isinstance(msg.data, dict)
+                and msg.data.get("signal") == "SIGTERM"
+            ):
+                self._stop_event.set()
+                self._terminate_process()
+                send_msg(extra, IPCMessage(type="status", data={"stopping": True}))
+        except (OSError, ValueError, TimeoutError):
+            pass
+        finally:
+            extra.close()
 
     def _send_to_client(self, client: socket.socket, msg: IPCMessage) -> None:
         failed = False
@@ -519,28 +579,48 @@ def attach(session_name: str) -> None:
         conn.close()
 
 
-def _signal_owned_pid(pid_file: IO[str], pid: int) -> None:
-    """Signal ``pid`` only if the same PID-file inode is still lock-owned.
+def _signal_owned_pid(pid_file: IO[str], pid: int) -> bool:
+    """Send SIGTERM via pidfd if the PID-file inode is still lock-owned.
 
-    ``pidfd`` pins process identity on Linux. Rechecking the advisory lock
-    (and the PID bytes on that inode) after the pin aborts if the owner
-    exited and the PID was reused before the signal.
+    Returns True only when a pinned pidfd signal was sent. Callers must fall
+    back to the session socket rather than ``os.kill`` of an unpinned PID.
     """
     pidfd = _pidfd_open(pid)
+    if pidfd is None:
+        return False
     try:
         if not _pid_file_lock_held(pid_file):
-            return
+            return False
         pid_file.seek(0)
         current = int(pid_file.read() or "0")
         if current != pid:
-            return
-        if pidfd is not None:
-            _pidfd_send_signal(pidfd, signal.SIGTERM)
-        else:
-            os.kill(pid, signal.SIGTERM)
+            return False
+        _pidfd_send_signal(pidfd, signal.SIGTERM)
+        return True
     finally:
-        if pidfd is not None:
-            os.close(pidfd)
+        os.close(pidfd)
+
+
+def _pid_fd_matches_path(pid_file: IO[str], path: Path) -> bool:
+    try:
+        fd_stat = os.fstat(pid_file.fileno())
+        path_stat = os.stat(path)
+    except OSError:
+        return False
+    return (fd_stat.st_dev, fd_stat.st_ino) == (path_stat.st_dev, path_stat.st_ino)
+
+
+def _stop_via_socket(sock_path: Path) -> None:
+    """Ask the listening daemon to stop without signaling a numeric PID."""
+    conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn.settimeout(_ATTACH_HANDSHAKE_TIMEOUT)
+    try:
+        conn.connect(str(sock_path))
+        send_msg(conn, IPCMessage(type="signal", data={"signal": "SIGTERM"}))
+    except OSError:
+        pass
+    finally:
+        conn.close()
 
 
 def _pid_file_lock_held(pid_file: IO[str]) -> bool:
