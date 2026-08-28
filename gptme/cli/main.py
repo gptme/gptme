@@ -1343,18 +1343,24 @@ def main(
         sys.exit(1)
 
     # Validate model early to fail fast before the expensive get_prompt() call.
-    # Slash-prefixed names are checked via provider lookup. Bare provider names
-    # (e.g. "anthropic") and resolvable aliases (e.g. "gpt-4o") still pass
-    # through to init_model(); unresolvable bare names used to skip this block
-    # and pay get_prompt() (workspace context_cmd, 10s+) before init_model()
-    # rejected them. Existing conversations already skip get_prompt(), and their
-    # saved aliases may outlive the current registry, so preserve resume behavior.
-    if config.chat.model and not is_existing_conversation:
+    # Slash-prefixed names are always checked via provider lookup — that was the
+    # original behavior, including when resuming (`gptme --resume --model
+    # badprovider/x` must still be a UsageError, not a later generic crash).
+    # Bare provider names (e.g. "anthropic") and resolvable aliases (e.g.
+    # "gpt-4o") still pass through to init_model(); unresolvable bare names used
+    # to skip this block and pay get_prompt() (workspace context_cmd, 10s+)
+    # before init_model() rejected them. Saved aliases on existing conversations
+    # may outlive the current registry, so skip the new bare-name check unless
+    # --model was explicitly passed on the command line.
+    model_from_cli = ctx.get_parameter_source("model") == ParameterSource.COMMANDLINE
+    if config.chat.model:
         try:
             if "/" in config.chat.model:
                 get_provider_from_model(config.chat.model)
-            elif config.chat.model not in PROVIDERS and not is_custom_provider(
-                config.chat.model
+            elif (
+                (not is_existing_conversation or model_from_cli)
+                and config.chat.model not in PROVIDERS
+                and not is_custom_provider(config.chat.model)
             ):
                 resolved = get_model(config.chat.model)
                 if resolved.provider == "unknown":
