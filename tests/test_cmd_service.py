@@ -52,6 +52,53 @@ def test_generates_service_and_timer(tmp_path: Path) -> None:
     assert (work / "gptme-agent-run.sh").exists()
 
 
+def test_health_check_is_opt_in(tmp_path: Path) -> None:
+    _run_init(tmp_path)
+    assert not (tmp_path / "health-check.py").exists()
+    assert not (tmp_path / "HEALTH.md").exists()
+
+
+def test_health_check_generates_executable_local_probe(tmp_path: Path) -> None:
+    _run_init(tmp_path, "--platform", "linux", "--enable-health-check")
+
+    health_check = tmp_path / "health-check.py"
+    health_docs = tmp_path / "HEALTH.md"
+    assert health_check.stat().st_mode & 0o111
+    assert health_docs.exists()
+
+    script = health_check.read_text()
+    docs = health_docs.read_text()
+    assert '"testagent.service"' in script
+    assert '"--property=ActiveState"' in script
+    assert 'properties.get("ActiveState"' in script
+    assert "datetime.now(timezone.utc)" in script
+    assert "does **not** start an HTTP server" in docs
+    assert "curl" not in docs
+
+
+def test_health_check_rejects_macos(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            "--name",
+            "testagent",
+            "--work-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path / "launchd"),
+            "--platform",
+            "macos",
+            "--enable-health-check",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "supports Linux systemd services only" in result.output
+    assert not tmp_path.exists() or not any(tmp_path.iterdir())
+
+
 def test_agents_md_references_template_and_multiple_service_managers(
     tmp_path: Path,
 ) -> None:

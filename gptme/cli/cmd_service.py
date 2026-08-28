@@ -333,6 +333,97 @@ Append-only logs in `journal/YYYY-MM-DD/`.
 Never modify historical entries.
 """
 
+HEALTH_CHECK_TEMPLATE = '''\
+#!/usr/bin/env python3
+"""Generated local health probe for the {name} systemd user service."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from datetime import datetime, timezone
+
+
+def check_service_status(service_name: str) -> dict[str, str]:
+    """Return a JSON-serializable summary of a systemd user service."""
+    try:
+        result = subprocess.run(
+            [
+                "systemctl",
+                "--user",
+                "show",
+                service_name,
+                "--property=LoadState",
+                "--property=ActiveState",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {{
+            "service": service_name,
+            "status": "error",
+            "error": str(exc),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }}
+
+    properties = dict(
+        line.split("=", 1) for line in result.stdout.splitlines() if "=" in line
+    )
+    load_state = properties.get("LoadState", "unknown")
+    active_state = properties.get("ActiveState", "unknown")
+    status = (
+        "healthy"
+        if result.returncode == 0 and active_state == "active"
+        else "unhealthy"
+    )
+    return {{
+        "service": service_name,
+        "load_state": load_state,
+        "active_state": active_state,
+        "status": status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }}
+
+
+def main() -> int:
+    health = check_service_status("{name}.service")
+    print(json.dumps(health, indent=2))
+    return 0 if health["status"] == "healthy" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+HEALTH_README_TEMPLATE = """\
+# {name} health probe
+
+`health-check.py` is a local command-line probe for the generated Linux systemd
+user service. It does **not** start an HTTP server.
+
+```bash
+./health-check.py
+```
+
+The command prints JSON and exits 0 only while `{name}.service` is active. It
+exits 1 for inactive, failed, missing, timed-out, or unreachable user managers,
+which makes it suitable for local monitoring and cron checks.
+
+Useful companion commands:
+
+```bash
+systemctl --user status {name}.service
+journalctl --user -u {name}.service -n 50
+systemctl --user start {name}.service
+```
+
+The probe is generated only for `--platform linux`. launchd users can inspect
+`launchctl print gui/$(id -u)/com.gptme.{name}` instead.
+"""
+
 
 def _resolve_work_dir(work_dir: str) -> Path:
     """Resolve the agent work directory path (does not create it)."""
@@ -465,6 +556,11 @@ def cli() -> None:
     is_flag=True,
     help="Overwrite existing generated files.",
 )
+@click.option(
+    "--enable-health-check",
+    is_flag=True,
+    help="Generate a local JSON health probe (Linux/systemd only).",
+)
 def init(
     name: str,
     model: str,
@@ -473,12 +569,14 @@ def init(
     timer_schedule: str,
     platform_choice: str,
     force: bool,
+    enable_health_check: bool,
 ) -> None:
     """Scaffold a persistent service for a headless gptme agent.
 
     Generates, in the agent work directory:
 
-        gptme.toml, AGENTS.md, gptme-agent-run.sh
+        gptme.toml, AGENTS.md, prompt.md, gptme-agent-run.sh
+        health-check.py, HEALTH.md       # Linux with --enable-health-check
 
     and, in the service output directory:
 
@@ -494,6 +592,7 @@ def init(
         \b
         # Linux (systemd)
         gptme service init --name myagent --model gpt-4o-mini --work-dir ~/gptme-agent
+        gptme service init --name myagent --enable-health-check
         systemctl --user daemon-reload
         systemctl --user enable --now myagent.timer
 
@@ -515,17 +614,22 @@ def init(
     # Resolve platform (auto-detect if needed)
     if platform_choice == "auto":
         platform_choice = _detect_platform()
-        if platform_choice == "macos" and output_dir is None:
-            # Inform users explicitly: on macOS we now default to launchd
-            # instead of the old systemd default, so anyone with scripts
-            # expecting ~/.config/systemd/user gets a clear heads-up.
-            click.echo(
-                "Note: macOS detected — generating a launchd plist in "
-                "~/Library/LaunchAgents instead of a systemd unit. "
-                "Pass --platform linux to generate systemd units for a "
-                "Linux target.",
-                err=True,
-            )
+    if enable_health_check and platform_choice == "macos":
+        raise click.UsageError(
+            "--enable-health-check supports Linux systemd services only. "
+            "Use 'launchctl print' to inspect a macOS launchd agent."
+        )
+    if platform_choice == "macos" and output_dir is None:
+        # Inform users explicitly: on macOS we now default to launchd
+        # instead of the old systemd default, so anyone with scripts
+        # expecting ~/.config/systemd/user gets a clear heads-up.
+        click.echo(
+            "Note: macOS detected — generating a launchd plist in "
+            "~/Library/LaunchAgents instead of a systemd unit. "
+            "Pass --platform linux to generate systemd units for a "
+            "Linux target.",
+            err=True,
+        )
 
     # Set default output directory based on platform
     if output_dir is None:
@@ -711,6 +815,20 @@ def init(
         force=force,
     )
     startup.chmod(0o755)
+
+    if enable_health_check:
+        health_script = work / "health-check.py"
+        if _write_file(
+            health_script,
+            HEALTH_CHECK_TEMPLATE.format(name=name),
+            force=force,
+        ):
+            health_script.chmod(0o755)
+        _write_file(
+            work / "HEALTH.md",
+            HEALTH_README_TEMPLATE.format(name=name),
+            force=force,
+        )
 
     click.echo()
     click.echo(f"✅ Initialized headless agent '{name}'")
