@@ -27,7 +27,8 @@ Status = Literal["success", "error", "timeout"]
 DEFAULT_TOOL_FORMAT_MODELS: frozenset[str] = frozenset(
     {
         "claude-fable-5",
-        "claude-haiku-4-5-20251001",
+        # Match both the accepted undated alias and dated model IDs.
+        "claude-haiku-4-5",
     }
 )
 

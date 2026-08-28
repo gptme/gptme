@@ -6,8 +6,13 @@ no explicit format is specified, while other models and explicit @format
 specs are unaffected.
 """
 
-import pytest
+import importlib
+from unittest.mock import patch
 
+import pytest
+from click.testing import CliRunner
+
+from gptme.eval.main import main
 from gptme.eval.types import (
     DEFAULT_TOOL_FORMAT_MODELS,
     ModelConfig,
@@ -41,13 +46,16 @@ class TestGetEffectiveFormat:
         result = get_effective_format("claude-sonnet-4-6", fmt)  # type: ignore[arg-type]
         assert result == fmt
 
-    def test_partial_model_name_match(self):
-        """Routing uses substring match — a model ID that contains a listed name is routed."""
-        # e.g. openrouter/anthropic/claude-haiku-4-5-20251001
-        result = get_effective_format(
-            "openrouter/anthropic/claude-haiku-4-5-20251001", "markdown"
-        )
-        assert result == "tool"
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "anthropic/claude-haiku-4-5",
+            "openrouter/anthropic/claude-haiku-4-5-20251001",
+        ],
+    )
+    def test_partial_model_name_match(self, model: str):
+        """Routing handles both undated aliases and provider-prefixed dated IDs."""
+        assert get_effective_format(model, "markdown") == "tool"
 
     def test_unrelated_model_with_markdown(self):
         """A model whose name contains no affected substring keeps markdown."""
@@ -70,10 +78,31 @@ class TestModelConfigExpansion:
             for fmt in formats
         ]
         tool_formats = [c.tool_format for c in configs]
-        # markdown → tool; xml stays xml; tool stays tool
+        # Routing itself maps markdown → tool; the CLI deduplicates this expansion.
         assert tool_formats == ["tool", "xml", "tool"]
-        # Dedup: the caller may want to deduplicate, but routing itself creates duplicates
-        assert len(set(tool_formats)) == 2  # "tool" and "xml"
+
+    def test_affected_model_cli_expansion_has_no_duplicate_paid_runs(self):
+        """The CLI sends each routed model/format combination to run_evals once."""
+        eval_main = importlib.import_module("gptme.eval.main")
+        captured_configs: list[ModelConfig] = []
+
+        def fake_run_evals(_evals, model_configs, *_args, **_kwargs):
+            captured_configs.extend(model_configs)
+            return {}
+
+        with (
+            patch.object(eval_main, "run_evals", side_effect=fake_run_evals),
+            patch.object(eval_main, "print_model_results", return_value=None),
+            patch.object(eval_main, "print_model_results_table", return_value=None),
+            patch.object(eval_main, "write_results", return_value=None),
+        ):
+            result = CliRunner().invoke(main, ["hello", "--model", "claude-fable-5"])
+
+        assert result.exit_code == 0, result.output
+        assert captured_configs == [
+            ModelConfig("claude-fable-5", "tool"),
+            ModelConfig("claude-fable-5", "xml"),
+        ]
 
     def test_explicit_at_format_spec_bypasses_routing(self):
         """Explicit model@format spec is NOT routed (handled before expansion)."""
@@ -103,7 +132,7 @@ class TestDefaultToolFormatModels:
 
     def test_known_models_present(self):
         assert "claude-fable-5" in DEFAULT_TOOL_FORMAT_MODELS
-        assert "claude-haiku-4-5-20251001" in DEFAULT_TOOL_FORMAT_MODELS
+        assert "claude-haiku-4-5" in DEFAULT_TOOL_FORMAT_MODELS
 
     def test_sonnet_not_in_set(self):
         # Sonnet has high pass rate on tool format but no systematic markdown failure

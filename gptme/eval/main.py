@@ -685,11 +685,13 @@ def main(
         # high failure rates on markdown format and are routed to tool format instead.
         # Explicit model@format specs bypass this to allow intentional format testing.
         model_configs.extend(
-            ModelConfig(
-                model=model_spec,
-                tool_format=get_effective_format(model_spec, fmt),
+            dict.fromkeys(
+                ModelConfig(
+                    model=model_spec,
+                    tool_format=get_effective_format(model_spec, fmt),
+                )
+                for fmt in formats
             )
-            for fmt in formats
         )
 
     results_files = []
