@@ -323,13 +323,21 @@ enabled = ["my_plugin"]
 
 ### 🔗 Integrations: MCP & ACP
 
-**[MCP (Model Context Protocol)][docs-mcp]** — use any MCP server as a tool source:
+**[MCP (Model Context Protocol)][docs-mcp]** — gptme works in both directions:
+
+- **MCP client:** discover and load external MCP servers as gptme tools.
+- **MCP server:** expose gptme's persistent shell, Python REPL, browser, and file
+  tools to Claude Desktop, Cursor, or any other MCP client.
 
 ```sh
 pipx install gptme  # MCP support included by default
+
+# Run gptme as an MCP server over stdio
+gptme-mcp-server --tools shell,ipython,browser,save,read
 ```
 
-gptme can discover and dynamically load MCP servers, giving the agent access to databases, APIs, file systems, and any other MCP-compatible tool. See the [MCP docs][docs-mcp] for server configuration.
+The server keeps shell and Python state across tool calls. See the [MCP docs][docs-mcp]
+for a ready-to-paste Claude Desktop configuration and MCP client setup.
 
 **[ACP (Agent Client Protocol)][docs-acp]** — use gptme as a coding agent directly from your editor:
 
@@ -788,11 +796,15 @@ gptme ships with comprehensive tools:
 
 ### How does the MCP integration work?
 
-gptme has **built-in MCP support**:
+gptme has **built-in, bidirectional MCP support**:
 
-- **MCP Discovery**: Automatically discovers MCP servers
-- **Dynamic Loading**: Loads MCP tools on demand
-- **Tool Integration**: MCP tools work like native tools
+- **MCP client**: Automatically discover MCP servers and load their tools on demand
+- **MCP server**: Run `gptme-mcp-server` to expose gptme's session-backed tools to
+  Claude Desktop, Cursor, and other MCP clients
+- **Tool integration**: External MCP tools work like native tools; clients calling
+  gptme retain shell and Python state across requests
+
+See the [MCP guide][docs-mcp] for configuration in either direction.
 
 Example MCP servers supported:
 - [gptme-codegraph] — structural code graph analysis with tree-sitter (9 tools)
