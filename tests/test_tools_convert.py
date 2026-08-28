@@ -564,6 +564,25 @@ def test_convert_file_dry_run(avail_all, tmp_path):
     assert "no file written" in summary
 
 
+def test_convert_file_dry_run_rejects_directory_destination(avail_all, tmp_path):
+    """Dry-run must fail when dest is an existing directory, matching real conversion."""
+    src = tmp_path / "doc.pdf"
+    src.write_bytes(b"%PDF-1.4")
+    dest = tmp_path / "out.png"
+    dest.mkdir()
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch("gptme.tools.convert._detect_mime", return_value="application/pdf"),
+    ):
+        result = convert_file(src, dest, dry_run=True)
+    assert not result.success
+    assert result.error is not None
+    assert "directory" in result.error.lower()
+    summary = result.summary()
+    assert "failed" in summary.lower()
+    assert "Dry-run:" not in summary
+
+
 def test_convert_file_no_converter(avail_none, tmp_path):
     src = tmp_path / "mystery.xyz"
     src.write_bytes(b"garbage")
@@ -1043,6 +1062,7 @@ def test_convert_tool_parameters():
     assert by_name["input_path"].required
     assert by_name["output_path"].required
     assert by_name["quality"].enum == ["low", "medium", "high"]
+    assert by_name["dry_run"].enum == ["true", "false", "1", "yes"]
 
 
 def test_execute_convert_success(tmp_path):
@@ -1137,8 +1157,9 @@ def test_execute_convert_dry_run_boolean(tmp_path):
     assert "no file written" in result.content
 
 
-def test_execute_convert_dry_run_string_strips_whitespace(tmp_path):
-    """A whitespace-padded true value must not execute a real conversion."""
+@pytest.mark.parametrize("value", ["true", "1", "yes", "TRUE", " Yes ", " true "])
+def test_execute_convert_dry_run_truthy_values(tmp_path, value):
+    """Schema truthy values (and padded/cased variants) must dry-run, not convert."""
     from gptme.tools import convert
 
     src = tmp_path / "in.png"
@@ -1160,7 +1181,7 @@ def test_execute_convert_dry_run_string_strips_whitespace(tmp_path):
             {
                 "input_path": str(src),
                 "output_path": str(dest),
-                "dry_run": " true ",
+                "dry_run": value,
             },
         )
 

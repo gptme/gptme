@@ -801,6 +801,15 @@ def convert_file(
         )
 
     if dry_run:
+        # Match the concrete converters: a directory destination cannot succeed.
+        # Dry-run used to skip this check and report a possible conversion.
+        if dest.is_dir():
+            return ConversionResult(
+                success=False,
+                output_path=dest,
+                converter_used=conv.name,
+                error=f"Destination is an existing directory: {dest}",
+            )
         return ConversionResult(
             success=True,
             output_path=dest,
@@ -914,8 +923,12 @@ tool = ToolSpec(
         Parameter(
             name="dry_run",
             type="string",
-            enum=["true", "false"],
-            description="If true, show the converter plan without executing",
+            # Keep in sync with the truthy set in `_execute_convert`.
+            enum=["true", "false", "1", "yes"],
+            description=(
+                "If true, show the converter plan without executing. "
+                "Accepts true/false/1/yes (JSON booleans also work)."
+            ),
         ),
     ],
 )
