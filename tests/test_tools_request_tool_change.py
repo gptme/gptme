@@ -358,6 +358,32 @@ class TestDisableTool:
         unregister_hook.assert_called_once_with("side_effect_tool.watch")
         unregister_command.assert_called_once_with("side-effect")
 
+    def test_disable_removes_tool_if_cleanup_fails(self, isolated_tools):
+        side_effect_tool = ToolSpec(
+            name="side_effect_tool",
+            desc="Registers session side effects",
+            execute=lambda _code, _args, _kwargs: Message("system", "executed"),
+            hooks={"watch": ("session_start", cast(Any, lambda: None), 0)},
+        )
+        set_tools([*get_tools(), side_effect_tool])
+
+        with (
+            _patch_available([side_effect_tool, tool]),
+            patch(
+                "gptme.hooks.unregister_hook",
+                side_effect=RuntimeError("cleanup failed"),
+            ),
+        ):
+            result = _execute(
+                change_type="disable_tool",
+                tool_name="side_effect_tool",
+                reason="Stop it",
+                urgency="medium",
+            )
+
+        assert "disabled" in result.content
+        assert not any(t.name == "side_effect_tool" for t in get_tools())
+
     def test_disable_not_loaded_is_noop(self, isolated_tools):
         with _patch_available([_FAKE_SHELL, tool]):
             result = _execute(

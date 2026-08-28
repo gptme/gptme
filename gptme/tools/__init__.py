@@ -502,7 +502,7 @@ def set_tools(tools: list[ToolSpec]) -> None:
 
 
 def unload_tool(tool_name: str) -> ToolSpec:
-    """Unload one tool and unregister the hooks and commands it owns."""
+    """Unload one tool and best-effort unregister its hooks and commands."""
     with _tools_init_lock:
         tool = get_tool(tool_name)
         if tool is None:
@@ -511,12 +511,26 @@ def unload_tool(tool_name: str) -> ToolSpec:
         from ..commands import unregister_command
         from ..hooks import unregister_hook
 
-        for hook_name in tool.hooks:
-            unregister_hook(f"{tool.name}.{hook_name}")
-        for command_name in tool.commands:
-            unregister_command(command_name)
-
         set_tools([loaded for loaded in get_tools() if loaded.name != tool_name])
+        for hook_name in tool.hooks:
+            try:
+                unregister_hook(f"{tool.name}.{hook_name}")
+            except Exception:
+                logger.exception(
+                    "Failed to unregister hook '%s.%s' while unloading tool",
+                    tool.name,
+                    hook_name,
+                )
+        for command_name in tool.commands:
+            try:
+                unregister_command(command_name)
+            except Exception:
+                logger.exception(
+                    "Failed to unregister command '%s' while unloading tool '%s'",
+                    command_name,
+                    tool.name,
+                )
+
         logger.info("Unloaded tool '%s' mid-conversation", tool_name)
         return tool
 
