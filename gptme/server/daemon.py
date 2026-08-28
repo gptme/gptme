@@ -616,14 +616,6 @@ def _stop_via_socket(sock_path: Path) -> None:
     conn.settimeout(_ATTACH_HANDSHAKE_TIMEOUT)
     try:
         conn.connect(str(sock_path))
-        # Check if ready message is available (short timeout for control connections)
-        conn.settimeout(0.1)
-        try:
-            recv_msg(conn)
-        except (OSError, ValueError, TimeoutError):
-            pass
-        # Send stop signal (extend timeout for sending)
-        conn.settimeout(_ATTACH_HANDSHAKE_TIMEOUT)
         send_msg(conn, IPCMessage(type="signal", data={"signal": "SIGTERM"}))
     except OSError:
         pass

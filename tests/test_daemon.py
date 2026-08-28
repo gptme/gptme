@@ -309,7 +309,6 @@ class TestSessionDaemonState:
         def accept_stop() -> None:
             conn, _ = sock.accept()
             try:
-                send_msg(conn, IPCMessage(type="status", data={"ready": True}))
                 msg = recv_msg(conn)
                 if msg is not None:
                     received.append(msg.type)
