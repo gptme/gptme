@@ -562,6 +562,7 @@ def test_model_rejects_unknown_bare_name_before_context_cmd(
     """
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr("gptme.llm.is_custom_provider", lambda name: False)
     monkeypatch.setattr(
         "gptme.prompts.get_prompt",
         lambda **kwargs: pytest.fail("get_prompt was called before model validation"),
@@ -589,6 +590,7 @@ def test_model_allows_bare_alias_through_validation_block(
     """A resolvable bare alias should still reach get_prompt()."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr("gptme.llm.is_custom_provider", lambda name: False)
     monkeypatch.setattr(
         "gptme.llm.models.get_model",
         lambda model: SimpleNamespace(provider="openai", model=model),
@@ -613,6 +615,50 @@ def test_model_allows_bare_alias_through_validation_block(
 
     assert result.exit_code == 0, result.output
     assert called["get_prompt"], "resolvable aliases must still reach get_prompt"
+
+
+def test_model_validation_preserves_existing_conversation_alias(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """A saved alias may outlive the registry and must not block resuming."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+
+    logdir = tmp_path / "existing-conversation"
+    logdir.mkdir()
+    (logdir / "conversation.jsonl").write_text('{"role":"user","content":"hello"}\n')
+    (logdir / "config.toml").write_text(
+        f'[chat]\nmodel = "retired-alias"\ntool_format = "markdown"\n'
+        f'workspace = "{tmp_path}"\n'
+    )
+
+    monkeypatch.setattr(cli, "get_logdir", lambda name: logdir)
+    monkeypatch.setattr("gptme.llm.is_custom_provider", lambda name: False)
+    monkeypatch.setattr(
+        "gptme.llm.models.get_model",
+        lambda model: pytest.fail("saved aliases must not be prevalidated on resume"),
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.get_prompt",
+        lambda **kwargs: pytest.fail("get_prompt ran for an existing conversation"),
+    )
+
+    seen_models: list[str | None] = []
+
+    def _fake_chat(*args, **kwargs):
+        seen_models.append(args[4])
+
+    monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", _fake_chat)
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
+
+    result = runner.invoke(
+        cli.main,
+        ["--name", "existing-conversation", "--non-interactive", "hello"],
+        env={"GPTME_MODEL": ""},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert seen_models == ["retired-alias"]
 
 
 @pytest.mark.parametrize(

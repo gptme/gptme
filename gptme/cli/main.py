@@ -1347,8 +1347,9 @@ def main(
     # (e.g. "anthropic") and resolvable aliases (e.g. "gpt-4o") still pass
     # through to init_model(); unresolvable bare names used to skip this block
     # and pay get_prompt() (workspace context_cmd, 10s+) before init_model()
-    # rejected them.
-    if config.chat.model:
+    # rejected them. Existing conversations already skip get_prompt(), and their
+    # saved aliases may outlive the current registry, so preserve resume behavior.
+    if config.chat.model and not is_existing_conversation:
         try:
             if "/" in config.chat.model:
                 get_provider_from_model(config.chat.model)
