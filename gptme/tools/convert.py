@@ -165,6 +165,11 @@ class ConversionResult:
     def summary(self) -> str:
         if not self.success:
             return f"Conversion failed ({self.converter_used}): {self.error}"
+        if self.metadata.get("dry_run"):
+            return (
+                f"Dry-run: would convert via {self.converter_used} → "
+                f"{self.output_path} (no file written)"
+            )
         parts = [f"Converted via {self.converter_used} → {self.output_path}"]
         if self.lossy:
             parts.append("(lossy)")

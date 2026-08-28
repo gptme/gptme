@@ -558,6 +558,10 @@ def test_convert_file_dry_run(avail_all, tmp_path):
     assert result.success
     assert result.metadata.get("dry_run") is True
     assert not dest.exists()  # dry_run should NOT create the file
+    summary = result.summary()
+    assert "Dry-run" in summary
+    assert "Converted via" not in summary
+    assert "no file written" in summary
 
 
 def test_convert_file_no_converter(avail_none, tmp_path):
@@ -602,6 +606,21 @@ def test_conversion_result_summary_failure():
     summary = result.summary()
     assert "failed" in summary.lower()
     assert "Exit code 1" in summary
+
+
+def test_conversion_result_summary_dry_run():
+    """Dry-run summaries must not claim a conversion completed."""
+    result = ConversionResult(
+        success=True,
+        output_path=Path("/tmp/out.png"),
+        converter_used="pdftoppm",
+        metadata={"dry_run": True, "src_mime": "application/pdf", "dest_ext": "png"},
+    )
+    summary = result.summary()
+    assert summary.startswith("Dry-run:")
+    assert "pdftoppm" in summary
+    assert "no file written" in summary
+    assert "Converted via" not in summary
 
 
 def test_convert_file_same_path_rejected(avail_all, tmp_path):
@@ -1104,12 +1123,18 @@ def test_execute_convert_dry_run_boolean(tmp_path):
     with patch(
         "gptme.tools.convert.convert_file",
         return_value=ConversionResult(
-            success=True, output_path=dest, converter_used="image"
+            success=True,
+            output_path=dest,
+            converter_used="image",
+            metadata={"dry_run": True},
         ),
     ) as mock_convert:
-        convert._execute_convert(None, None, kwargs)
+        result = convert._execute_convert(None, None, kwargs)
 
     assert mock_convert.call_args.kwargs["dry_run"] is True
+    assert "Dry-run" in result.content
+    assert "Converted via" not in result.content
+    assert "no file written" in result.content
 
 
 def test_execute_convert_dry_run_string_strips_whitespace(tmp_path):
@@ -1123,10 +1148,13 @@ def test_execute_convert_dry_run_string_strips_whitespace(tmp_path):
     with patch(
         "gptme.tools.convert.convert_file",
         return_value=ConversionResult(
-            success=True, output_path=dest, converter_used="image"
+            success=True,
+            output_path=dest,
+            converter_used="image",
+            metadata={"dry_run": True},
         ),
     ) as mock_convert:
-        convert._execute_convert(
+        result = convert._execute_convert(
             None,
             None,
             {
@@ -1137,6 +1165,8 @@ def test_execute_convert_dry_run_string_strips_whitespace(tmp_path):
         )
 
     assert mock_convert.call_args.kwargs["dry_run"] is True
+    assert "Dry-run" in result.content
+    assert "Converted via" not in result.content
 
 
 def test_execute_convert_reports_os_error(tmp_path):
