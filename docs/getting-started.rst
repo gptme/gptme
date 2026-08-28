@@ -135,12 +135,18 @@ OpenRouter aggregates free model tiers behind one API key. The ``:free`` catalog
 **rotates** — last month's model id is often gone. Prefer the free router, and
 pin a specific ``:free`` model only after you have confirmed it is still listed.
 
+Start gptme, then run the setup command inside the session (a fresh install
+cannot dispatch it from the shell before a model is configured):
+
+.. code-block:: text
+
+    /account setup openrouter
+
+Then use the default free router:
+
 .. code-block:: bash
 
-    # Sign in with browser — no credit card required
-    gptme '/account setup openrouter'
-
-    # Default free router (OpenRouter model id is openrouter/free)
+    # OpenRouter model id is openrouter/free
     gptme "hello" -m openrouter/openrouter/free
 
     # Pin a currently listed free model (catalog rotates)
