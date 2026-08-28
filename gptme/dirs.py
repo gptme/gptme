@@ -1,6 +1,7 @@
 import logging
 import os
 import shutil
+import struct
 import subprocess
 from pathlib import Path
 
@@ -168,15 +169,67 @@ def get_profile_memory_dir(profile_name: str) -> Path:
     return path
 
 
+def _claude_project_dirname(path: str) -> str:
+    """Replicate Claude Code's cwd → project-directory-name encoding.
+
+    Mirrors CC's own implementation (``cli.js``, verified against v2.1.239)::
+
+        sanitize(e) = e.replace(/[^a-zA-Z0-9]/g, "-")
+        dirname(e)  = sanitize(e).length <= 200
+                          ? sanitize(e)
+                          : sanitize(e).slice(0, 200) + "-" + hash(e)
+        hash(e)     = |djb2_xor32(e)| in base36
+
+    Every non-alphanumeric character (``/``, ``\\``, ``:``, ``_``, ``.``,
+    spaces, non-ASCII, ...) becomes a dash, with no collapsing of runs — so
+    ``C:\\`` → ``C--``. Overlong names are truncated and disambiguated with a
+    hash of the *original* path.
+
+    CC runs on JS, where strings, ``.length``, ``.charCodeAt()`` and the regex
+    all operate on UTF-16 code units. We iterate the same units so that paths
+    with astral characters (emoji, ...) — two units each, ``"--"`` when
+    sanitized — encode identically.
+    """
+    n_units = len(path.encode("utf-16-le")) // 2
+    units = struct.unpack(f"<{n_units}H", path.encode("utf-16-le"))
+
+    def _is_alnum_unit(u: int) -> bool:
+        return 48 <= u <= 57 or 65 <= u <= 90 or 97 <= u <= 122
+
+    sanitized = "".join(chr(u) if _is_alnum_unit(u) else "-" for u in units)
+    if len(sanitized) <= 200:
+        return sanitized
+
+    # 32-bit signed djb2-style hash: t = (t << 5) - t + codeUnit, wrapped to
+    # int32 after each step (JS `| 0`), then Math.abs(...).toString(36).
+    h = 0
+    for u in units:
+        h = (h * 31 + u) & 0xFFFFFFFF
+        if h >= 0x80000000:
+            h -= 0x100000000
+    n = abs(h)
+    if n == 0:
+        suffix = "0"
+    else:
+        digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+        chars = []
+        while n:
+            n, r = divmod(n, 36)
+            chars.append(digits[r])
+        suffix = "".join(reversed(chars))
+    return sanitized[:200] + "-" + suffix
+
+
 def get_cc_memory_dir(workspace: Path) -> Path:
     """Get the Claude Code memory directory for a given workspace.
 
     Claude Code stores per-project memories at:
         ~/.claude/projects/<workspace-hash>/memory/
 
-    where the hash is the absolute workspace path with slashes, backslashes, and
-    colons replaced by dashes, e.g. ``/home/user/myproject`` → ``-home-user-myproject``
-    and ``C:\\Users\\user\\project`` → ``C--Users-user-project``.
+    where ``<workspace-hash>`` is the absolute workspace path encoded via
+    :func:`_claude_project_dirname` (every non-alphanumeric character replaced
+    by a dash), e.g. ``/home/user/my_project`` → ``-home-user-my-project`` and
+    ``C:\\Users\\user\\project`` → ``C--Users-user-project``.
 
     This allows gptme sessions to read memories written by CC sessions (and vice
     versa when the memory tool writes to this location).
@@ -188,16 +241,14 @@ def get_cc_memory_dir(workspace: Path) -> Path:
         Path to the CC memory directory (may not exist)
 
     Note:
-        The slash-to-dash encoding is non-injective: paths that differ only by a
-        dash versus a path separator (e.g. ``/a/b`` and ``/a-b``) map to the
-        same identifier. This is CC's own encoding scheme; gptme replicates it
-        faithfully so it reads the correct memory directory. The collision risk is
-        inherited from CC's design and cannot be resolved without diverging from
-        CC's path formula.
+        The encoding is non-injective: paths that differ only by a dash versus
+        any other non-alphanumeric character (e.g. ``/a/b``, ``/a-b`` and
+        ``/a_b``) map to the same identifier. This is CC's own encoding scheme;
+        gptme replicates it faithfully so it reads the correct memory directory.
+        The collision risk is inherited from CC's design and cannot be resolved
+        without diverging from CC's path formula.
     """
-    workspace_hash = (
-        str(workspace.resolve()).replace("\\", "-").replace("/", "-").replace(":", "-")
-    )
+    workspace_hash = _claude_project_dirname(str(workspace.resolve()))
     return Path.home() / ".claude" / "projects" / workspace_hash / "memory"
 
 
