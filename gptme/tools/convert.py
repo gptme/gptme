@@ -854,7 +854,8 @@ def _execute_convert(
         return Message("system", f"Error: input file not found: {src}")
 
     quality = kwargs.get("quality", "medium")
-    dry_run = kwargs.get("dry_run", "false").lower() in ("true", "1", "yes")
+    # `dry_run` may arrive as a JSON boolean or a string; normalize defensively.
+    dry_run = str(kwargs.get("dry_run", "false")).lower() in ("true", "1", "yes")
 
     result = convert_file(src, dest, quality=quality, dry_run=dry_run)
     return Message("system", result.summary())
@@ -864,17 +865,16 @@ tool = ToolSpec(
     name="convert",
     desc="Convert a file to another format using offline system tools",
     instructions=(
-        "Convert files between formats using offline system tools (FFmpeg, "
-        "ImageMagick, Poppler, python-docx, pypdf) with graceful fallback when "
-        "a specific converter is unavailable. Useful for format bridges in "
-        "air-gapped or offline workflows: PDF→PNG/JPEG for visual inspection, "
-        "document→text for summarization, video→thumbnail for metadata, and "
-        "image↔image reformatting.\n\n"
-        "Set `output_path` with the desired target extension (e.g. `.png`) to "
-        "select the destination format. Pass `quality` = low/medium/high and "
-        "`dry_run` = true to show the converter plan without writing output.\n\n"
-        "Run the `convert` tool with `dry_run` first to confirm the converter "
-        "chain, then execute for real."
+        "Use this tool when a workflow needs a file in a different format: "
+        "render a PDF to images for visual inspection, extract text from a "
+        "document for summarization, make a video thumbnail, or reformat an "
+        "image. It runs fully offline, falling back gracefully when a specific "
+        "converter is unavailable.\n\n"
+        "Choose the destination format by the `output_path` extension (e.g. "
+        "`.png`, `.jpg`, `.txt`, `.md`). Set `quality` to low/medium/high "
+        "when the conversion supports it, and pass `dry_run` = true to see "
+        "the converter plan first. For a new conversion, dry-run before "
+        "executing to confirm the chain is available."
     ),
     execute=_execute_convert,
     parameters=[

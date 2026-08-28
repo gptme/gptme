@@ -1079,3 +1079,34 @@ def test_execute_convert_missing_input():
     )
     assert result.role == "system"
     assert "input file not found" in result.content
+
+
+def test_execute_convert_dry_run_boolean(tmp_path):
+    """_execute_convert tolerates `dry_run` arriving as a JSON boolean (True)."""
+    from typing import cast
+
+    from gptme.tools import convert
+
+    src = tmp_path / "in.png"
+    src.write_bytes(b"\x89PNG\r\n\x1a\n")
+    dest = tmp_path / "out.jpg"
+
+    # Provider-native calls can deliver a real boolean despite the str annotation.
+    kwargs = cast(
+        "dict[str, str]",
+        {
+            "input_path": str(src),
+            "output_path": str(dest),
+            "dry_run": True,
+        },
+    )
+
+    with patch(
+        "gptme.tools.convert.convert_file",
+        return_value=ConversionResult(
+            success=True, output_path=dest, converter_used="image"
+        ),
+    ) as mock_convert:
+        convert._execute_convert(None, None, kwargs)
+
+    assert mock_convert.call_args.kwargs["dry_run"] is True
