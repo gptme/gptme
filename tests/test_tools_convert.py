@@ -1110,3 +1110,52 @@ def test_execute_convert_dry_run_boolean(tmp_path):
         convert._execute_convert(None, None, kwargs)
 
     assert mock_convert.call_args.kwargs["dry_run"] is True
+
+
+def test_execute_convert_dry_run_string_strips_whitespace(tmp_path):
+    """A whitespace-padded true value must not execute a real conversion."""
+    from gptme.tools import convert
+
+    src = tmp_path / "in.png"
+    src.write_bytes(b"\x89PNG\r\n\x1a\n")
+    dest = tmp_path / "out.jpg"
+
+    with patch(
+        "gptme.tools.convert.convert_file",
+        return_value=ConversionResult(
+            success=True, output_path=dest, converter_used="image"
+        ),
+    ) as mock_convert:
+        convert._execute_convert(
+            None,
+            None,
+            {
+                "input_path": str(src),
+                "output_path": str(dest),
+                "dry_run": " true ",
+            },
+        )
+
+    assert mock_convert.call_args.kwargs["dry_run"] is True
+
+
+def test_execute_convert_reports_os_error(tmp_path):
+    """OS failures from converter execution are returned as tool output."""
+    from gptme.tools import convert
+
+    src = tmp_path / "in.png"
+    src.write_bytes(b"\x89PNG\r\n\x1a\n")
+    dest = tmp_path / "out.jpg"
+
+    with patch(
+        "gptme.tools.convert.convert_file",
+        side_effect=PermissionError("output directory is read-only"),
+    ):
+        result = convert._execute_convert(
+            None,
+            None,
+            {"input_path": str(src), "output_path": str(dest)},
+        )
+
+    assert result.role == "system"
+    assert result.content == "Conversion error: output directory is read-only"

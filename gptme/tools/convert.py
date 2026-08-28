@@ -855,9 +855,16 @@ def _execute_convert(
 
     quality = kwargs.get("quality", "medium")
     # `dry_run` may arrive as a JSON boolean or a string; normalize defensively.
-    dry_run = str(kwargs.get("dry_run", "false")).lower() in ("true", "1", "yes")
+    dry_run = str(kwargs.get("dry_run", "false")).strip().lower() in (
+        "true",
+        "1",
+        "yes",
+    )
 
-    result = convert_file(src, dest, quality=quality, dry_run=dry_run)
+    try:
+        result = convert_file(src, dest, quality=quality, dry_run=dry_run)
+    except OSError as exc:
+        return Message("system", f"Conversion error: {exc}")
     return Message("system", result.summary())
 
 
