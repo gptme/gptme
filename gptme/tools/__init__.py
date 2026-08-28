@@ -342,23 +342,19 @@ def execute_msg(
     """
     assert msg.role == "assistant", "Only assistant messages can be executed"
 
-    # Snapshot runnability once per tool_use. Evaluating `is_runnable` a second
-    # time later would open a TOCTOU gap: a tool whose loaded-state changes
-    # between the two checks (e.g. a subagent thread concurrently (re)initializing
-    # tools) could fall through both branches and leave a structured tool_use with
-    # no tool_result — which the Anthropic API rejects with a hard 400 (#554).
-    classified = [(tu, tu.is_runnable) for tu in ToolUse.iter_from_content(msg.content)]
+    # Materialize every parsed tool_use first so each structured call still gets
+    # exactly one result. Evaluate runnability once per call, immediately before
+    # the branch, so an earlier request_tool_change in this response can enable
+    # or disable a sibling without a concurrent load/unload skipping both the
+    # execute and pairing paths (Anthropic 400, #554).
+    classified = list(ToolUse.iter_from_content(msg.content))
 
     if not classified:
         return
 
     remaining = iter(classified)
-    for tooluse, was_runnable in remaining:
-        # Preserve the initial classification for structured result pairing, but
-        # honor intentional session-local tool changes made by an earlier call in
-        # this same response.  In particular, request_tool_change may disable a
-        # sibling call after classification and before execution.
-        runnable = was_runnable and tooluse.is_runnable
+    for tooluse in remaining:
+        runnable = tooluse.is_runnable
         if runnable:
             with terminal_state_title(f"🛠️ running {tooluse.tool}"):
                 t0 = time.monotonic()
@@ -374,7 +370,7 @@ def execute_msg(
                     # Drain the rest: any structured tool_use that's left in the
                     # message still needs a paired tool_result or the next API
                     # request will 400 with a dangling tool_use.
-                    for rem_tu, _ in remaining:
+                    for rem_tu in remaining:
                         if rem_tu.call_id is not None:
                             yield Message(
                                 "system",
@@ -503,6 +499,26 @@ def set_tools(tools: list[ToolSpec]) -> None:
     ContextVars from the parent context aren't visible.
     """
     _loaded_tools_var.set(tools)
+
+
+def unload_tool(tool_name: str) -> ToolSpec:
+    """Unload one tool and unregister the hooks and commands it owns."""
+    with _tools_init_lock:
+        tool = get_tool(tool_name)
+        if tool is None:
+            raise ValueError(f"Tool '{tool_name}' is not loaded")
+
+        from ..commands import unregister_command
+        from ..hooks import unregister_hook
+
+        for hook_name in tool.hooks:
+            unregister_hook(f"{tool.name}.{hook_name}")
+        for command_name in tool.commands:
+            unregister_command(command_name)
+
+        set_tools([loaded for loaded in get_tools() if loaded.name != tool_name])
+        logger.info("Unloaded tool '%s' mid-conversation", tool_name)
+        return tool
 
 
 def get_tool(tool_name: str) -> ToolSpec | None:

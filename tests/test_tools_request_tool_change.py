@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -11,6 +13,7 @@ from gptme.tools import (
     clear_tools,
     execute_msg,
     get_available_tools,
+    get_tool_format,
     get_tools,
     init_tools,
     set_tool_format,
@@ -138,11 +141,13 @@ def test_request_tool_change_rejects_non_string_fields():
 @pytest.fixture()
 def isolated_tools():
     """Provide a clean tool context with a minimal known set."""
+    previous_format = get_tool_format()
     clear_tools()
     # Load only request_tool_change itself so each test starts from a known state.
     init_tools(allowlist=["request_tool_change"])
     yield
     clear_tools()
+    set_tool_format(previous_format)
 
 
 _FAKE_SHELL = ToolSpec(
@@ -152,12 +157,20 @@ _FAKE_SHELL = ToolSpec(
 )
 
 
+@contextmanager
 def _patch_available(tools: list[ToolSpec]):
-    """Patch get_available_tools in the module under test."""
-    return patch(
-        "gptme.tools.request_tool_change.get_available_tools",
-        return_value=tools,
-    )
+    """Patch discovery for request validation and load_tool()."""
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                "gptme.tools.request_tool_change.get_available_tools",
+                return_value=tools,
+            )
+        )
+        stack.enter_context(
+            patch("gptme.tools.get_available_tools", return_value=tools)
+        )
+        yield
 
 
 class TestEnableTool:
@@ -173,6 +186,28 @@ class TestEnableTool:
         assert "enabled" in result.content
         assert "shell" in result.content
         assert any(t.name == "shell" for t in get_tools())
+
+    def test_enable_initialization_error_is_reported(self, isolated_tools):
+        def fail_initialization() -> ToolSpec:
+            raise RuntimeError("broken initialization")
+
+        broken_tool = ToolSpec(
+            name="broken_tool",
+            desc="Fails during initialization",
+            init=fail_initialization,
+        )
+
+        with _patch_available([broken_tool, tool]):
+            result = _execute(
+                change_type="enable_tool",
+                tool_name="broken_tool",
+                reason="Need it",
+                urgency="medium",
+            )
+
+        assert "could not enable" in result.content
+        assert "broken initialization" in result.content
+        assert not any(t.name == "broken_tool" for t in get_tools())
 
     def test_enable_runs_tool_initialization(self, isolated_tools):
         initialized: list[str] = []
@@ -282,6 +317,47 @@ class TestDisableTool:
         assert "disabled" in result.content
         assert not any(t.name == "shell" for t in get_tools())
 
+    def test_disable_unregisters_owned_hooks_and_commands(self, isolated_tools):
+        hook = ("session_start", cast(Any, lambda: None), 0)
+        side_effect_tool = ToolSpec(
+            name="side_effect_tool",
+            desc="Registers session side effects",
+            execute=lambda _code, _args, _kwargs: Message("system", "executed"),
+            hooks={"watch": hook},
+            commands={"side-effect": lambda _args: None},
+        )
+        loaded_tool = ToolSpec(
+            name="side_effect_tool",
+            desc="Registers session side effects",
+            execute=side_effect_tool.execute,
+            hooks=side_effect_tool.hooks,
+            commands=side_effect_tool.commands,
+        )
+
+        with (
+            _patch_available([side_effect_tool, tool]),
+            patch("gptme.tools._init_single_tool", return_value=loaded_tool),
+            patch("gptme.hooks.unregister_hook") as unregister_hook,
+            patch("gptme.commands.unregister_command") as unregister_command,
+        ):
+            enabled = _execute(
+                change_type="enable_tool",
+                tool_name="side_effect_tool",
+                reason="Need it",
+                urgency="medium",
+            )
+            disabled = _execute(
+                change_type="disable_tool",
+                tool_name="side_effect_tool",
+                reason="Done with it",
+                urgency="low",
+            )
+
+        assert "enabled" in enabled.content
+        assert "disabled" in disabled.content
+        unregister_hook.assert_called_once_with("side_effect_tool.watch")
+        unregister_command.assert_called_once_with("side-effect")
+
     def test_disable_not_loaded_is_noop(self, isolated_tools):
         with _patch_available([_FAKE_SHELL, tool]):
             result = _execute(
@@ -305,6 +381,25 @@ class TestDisableTool:
         assert "cannot disable itself" in result.content
         # request_tool_change must still be present
         assert any(t.name == _SELF_NAME for t in get_tools())
+
+    def test_disable_loaded_custom_tool(self, isolated_tools):
+        custom_tool = ToolSpec(
+            name="custom_tool",
+            desc="Loaded from a user file",
+            execute=lambda _code, _args, _kwargs: Message("system", "executed"),
+        )
+        set_tools([*get_tools(), custom_tool])
+
+        with _patch_available([tool]):
+            result = _execute(
+                change_type="disable_tool",
+                tool_name="custom_tool",
+                reason="Stop custom behavior",
+                urgency="medium",
+            )
+
+        assert "disabled" in result.content
+        assert not any(t.name == "custom_tool" for t in get_tools())
 
 
 class TestConfigureTool:
@@ -364,6 +459,23 @@ class TestEnableDisableIntegration:
             )
         assert "disabled" in r_disable.content
         assert not has_tool("shell"), "shell should be removed after disable"
+
+    def test_enable_allows_later_call_in_same_response(self, isolated_tools):
+        set_tool_format("tool")
+        content = (
+            '@request_tool_change(change_1): {"change_type": "enable_tool", '
+            '"tool_name": "shell", "reason": "Need shell", '
+            '"urgency": "medium"}\n'
+            '@shell(shell_2): {"cmd": "echo now-runnable"}'
+        )
+
+        with _patch_available([_FAKE_SHELL, tool]):
+            results = list(execute_msg(Message("assistant", content)))
+
+        assert any("enabled" in result.content for result in results)
+        shell_results = [result for result in results if result.call_id == "shell_2"]
+        assert len(shell_results) == 1
+        assert "shell executed" in shell_results[0].content
 
     def test_disable_prevents_later_call_in_same_response(self, isolated_tools):
         set_tools([*get_tools(), _FAKE_SHELL])

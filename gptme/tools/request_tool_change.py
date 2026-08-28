@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 
 from ..message import Message
-from . import get_available_tools, get_tools, load_tool, set_tools
+from . import get_available_tools, get_tools, load_tool, unload_tool
 from .base import Parameter, ToolSpec
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,8 @@ def _enable_tool(tool_name: str) -> Message:
 
     try:
         load_tool(tool_name)
-    except ValueError as exc:
+    except Exception as exc:
+        logger.exception("request_tool_change: failed to enable '%s'", tool_name)
         return Message(
             "system",
             f"request_tool_change: could not enable '{tool_name}': {exc}",
@@ -69,16 +70,23 @@ def _disable_tool(tool_name: str) -> Message:
             quiet=True,
         )
 
-    loaded = get_tools()
-    remaining = [t for t in loaded if t.name != tool_name]
-    if len(remaining) == len(loaded):
+    if not any(t.name == tool_name for t in get_tools()):
         return Message(
             "system",
             f"request_tool_change: '{tool_name}' is not currently enabled — no change.",
             quiet=True,
         )
 
-    set_tools(remaining)
+    try:
+        unload_tool(tool_name)
+    except Exception as exc:
+        logger.exception("request_tool_change: failed to disable '%s'", tool_name)
+        return Message(
+            "system",
+            f"request_tool_change: could not disable '{tool_name}': {exc}",
+            quiet=True,
+        )
+
     logger.info("request_tool_change: disabled tool '%s'", tool_name)
     return Message(
         "system",
@@ -125,7 +133,9 @@ def execute_request_tool_change(
 
     # Validate against available (not just loaded) tools so the model can name
     # any tool known to gptme's module system.
-    known_tools = {t.name for t in get_available_tools(include_mcp=False)}
+    known_tools = {t.name for t in get_available_tools(include_mcp=False)} | {
+        t.name for t in get_tools()
+    }
     if tool_name not in known_tools:
         return Message(
             "system",
