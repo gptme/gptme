@@ -481,11 +481,11 @@ def init(provider: Provider, config: Config):
     """Initialize OpenAI client for a given provider.
 
     Missing API keys raise here (fail fast at startup); the SDK client itself
-    is constructed lazily on first use (see _LazyClient).
+    is constructed lazily on first use (see _LazyClient). Every provider is
+    registered through ``_init_openai_client``, which injects
+    ``max_retries=SDK_MAX_RETRIES`` via the lazy factory so SDK retries cannot
+    stack on gptme's retry loop.
     """
-    OpenAI = _lazy_client_factory("OpenAI")
-    AzureOpenAI = _lazy_client_factory("AzureOpenAI")
-
     proxy_key = config.get_env("LLM_PROXY_API_KEY")
     proxy_url = config.get_env("LLM_PROXY_URL")
 
@@ -514,17 +514,15 @@ def init(provider: Provider, config: Config):
     elif provider == "azure":
         api_key = config.get_env_required("AZURE_OPENAI_API_KEY")
         azure_endpoint = config.get_env_required("AZURE_OPENAI_ENDPOINT")
-        clients[provider] = AzureOpenAI(
-            api_key=api_key,
-            api_version="2023-07-01-preview",
-            azure_endpoint=azure_endpoint,
-            timeout=timeout,
+        _init_openai_client(
+            provider, api_key=api_key, base_url=azure_endpoint, timeout=timeout
         )
     elif provider == "openrouter":
         api_key = proxy_key or _get_provider_api_key(
             config, provider, "OPENROUTER_API_KEY"
         )
-        clients[provider] = OpenAI(
+        _init_openai_client(
+            provider,
             api_key=api_key,
             base_url=proxy_url or "https://openrouter.ai/api/v1",
             timeout=timeout,
@@ -533,7 +531,8 @@ def init(provider: Provider, config: Config):
         api_key = proxy_key or _get_provider_api_key(
             config, provider, "REQUESTY_API_KEY"
         )
-        clients[provider] = OpenAI(
+        _init_openai_client(
+            provider,
             api_key=api_key,
             base_url=proxy_url or "https://router.requesty.ai/v1",
             timeout=timeout,
@@ -543,22 +542,21 @@ def init(provider: Provider, config: Config):
 
         api_key = proxy_key or get_api_key(config)
         base_url = proxy_url or get_base_url(config)
-        clients[provider] = OpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            timeout=timeout,
+        _init_openai_client(
+            provider, api_key=api_key, base_url=base_url, timeout=timeout
         )
     elif provider == "gemini":
         api_key = _get_provider_api_key(config, provider, "GEMINI_API_KEY")
-        clients[provider] = OpenAI(
+        _init_openai_client(
+            provider,
             api_key=api_key,
             base_url="https://generativelanguage.googleapis.com/v1beta",
             timeout=timeout,
         )
     elif provider == "xai":
         api_key = _get_provider_api_key(config, provider, "XAI_API_KEY")
-        clients[provider] = OpenAI(
-            api_key=api_key, base_url="https://api.x.ai/v1", timeout=timeout
+        _init_openai_client(
+            provider, api_key=api_key, base_url="https://api.x.ai/v1", timeout=timeout
         )
     elif provider == "grok-subscription":
         # SuperGrok subscription: OAuth token from grok CLI or gptme auth flow.
@@ -578,24 +576,32 @@ def init(provider: Provider, config: Config):
         return  # _init_openai_client already assigned clients[provider]
     elif provider == "groq":
         api_key = _get_provider_api_key(config, provider, "GROQ_API_KEY")
-        clients[provider] = OpenAI(
-            api_key=api_key, base_url="https://api.groq.com/openai/v1", timeout=timeout
+        _init_openai_client(
+            provider,
+            api_key=api_key,
+            base_url="https://api.groq.com/openai/v1",
+            timeout=timeout,
         )
     elif provider == "deepseek":
         api_key = _get_provider_api_key(config, provider, "DEEPSEEK_API_KEY")
-        clients[provider] = OpenAI(
-            api_key=api_key, base_url="https://api.deepseek.com/v1", timeout=timeout
+        _init_openai_client(
+            provider,
+            api_key=api_key,
+            base_url="https://api.deepseek.com/v1",
+            timeout=timeout,
         )
     elif provider == "moonshot":
         api_key = _get_provider_api_key(config, provider, "MOONSHOT_API_KEY")
-        clients[provider] = OpenAI(
+        _init_openai_client(
+            provider,
             api_key=api_key,
             base_url="https://api.moonshot.ai/v1",
             timeout=timeout,
         )
     elif provider == "nvidia":
         api_key = _get_provider_api_key(config, provider, "NVIDIA_API_KEY")
-        clients[provider] = OpenAI(
+        _init_openai_client(
+            provider,
             api_key=api_key,
             base_url="https://integrate.api.nvidia.com/v1",
             timeout=timeout,
@@ -607,7 +613,9 @@ def init(provider: Provider, config: Config):
         if not api_base:
             raise KeyError("Missing environment variable OPENAI_BASE_URL")
         api_key = config.get_env("OPENAI_API_KEY") or "ollama"
-        clients[provider] = OpenAI(api_key=api_key, base_url=api_base, timeout=timeout)
+        _init_openai_client(
+            provider, api_key=api_key, base_url=api_base, timeout=timeout
+        )
     else:
         # Check if this is a custom provider (config-file based)
         custom_provider = next(
@@ -615,7 +623,8 @@ def init(provider: Provider, config: Config):
         )
         if custom_provider:
             api_key = custom_provider.get_api_key(config)
-            clients[provider] = OpenAI(
+            _init_openai_client(
+                provider,
                 api_key=api_key,
                 base_url=custom_provider.base_url,
                 timeout=timeout,
@@ -632,7 +641,8 @@ def init(provider: Provider, config: Config):
                         f"Missing environment variable {plugin.api_key_env} "
                         f"required by provider plugin {plugin.name!r}"
                     )
-                clients[provider] = OpenAI(
+                _init_openai_client(
+                    provider,
                     api_key=api_key,
                     base_url=plugin.base_url,
                     timeout=timeout,

@@ -983,3 +983,79 @@ def test_interactive_still_raises_non_provider_errors():
             model=None,
             interactive=True,
         )
+
+
+def _httpx_connect_error():
+    import httpx
+
+    return httpx.ConnectError("tool network failed")
+
+
+def test_interactive_does_not_swallow_tool_httpx_errors():
+    """httpx errors from tools/hooks must not be recovered as LLM failures."""
+    import sys
+
+    import httpx
+
+    from gptme.chat import _run_chat_loop
+    from gptme.message import Message
+
+    _chat_mod = sys.modules["gptme.chat"]
+
+    manager = MagicMock()
+    manager.log = MagicMock()
+    manager.workspace = Path("/tmp")
+    manager.logdir = Path("/tmp/logdir")
+
+    with (
+        patch.object(
+            _chat_mod,
+            "_process_message_conversation",
+            side_effect=_httpx_connect_error(),
+        ),
+        patch.object(_chat_mod, "trigger_hook", return_value=[]),
+        patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
+        pytest.raises(httpx.ConnectError, match="tool network failed"),
+    ):
+        _run_chat_loop(
+            manager=manager,
+            prompt_queue=[Message("user", "hello")],
+            stream=False,
+            tool_format="markdown",
+            model=None,
+            interactive=True,
+        )
+
+
+def test_step_marks_httpx_from_reply_as_provider_error():
+    """httpx raised by reply() is recoverable; the same type from tools is not."""
+    import importlib
+
+    import httpx
+
+    from gptme.llm import is_provider_error, mark_llm_reply_origin
+    from gptme.message import Message
+    from gptme.tools import init_tools
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+
+    with (
+        patch.object(chat_module, "reply", side_effect=httpx.ConnectError("upstream")),
+        pytest.raises(httpx.ConnectError) as ei,
+    ):
+        list(
+            chat_module.step(
+                [Message("user", "hello")],
+                stream=False,
+                model="openai/gpt-4",
+            )
+        )
+
+    assert is_provider_error(ei.value)
+    # Untagged twin of the same exception class is a tool failure.
+    tool_err = httpx.ConnectError("browser failed")
+    assert not is_provider_error(tool_err)
+    mark_llm_reply_origin(tool_err)
+    assert is_provider_error(tool_err)

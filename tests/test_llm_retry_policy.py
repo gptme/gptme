@@ -63,6 +63,65 @@ def test_openai_lazy_client_materializes_with_sdk_retries_disabled(monkeypatch):
     assert client._materialize().max_retries == SDK_MAX_RETRIES
 
 
+@pytest.mark.parametrize(
+    ("provider", "env_var", "extra_env"),
+    [
+        ("openai", "OPENAI_API_KEY", {}),
+        ("openrouter", "OPENROUTER_API_KEY", {}),
+        ("groq", "GROQ_API_KEY", {}),
+        ("deepseek", "DEEPSEEK_API_KEY", {}),
+        ("xai", "XAI_API_KEY", {}),
+        ("gemini", "GEMINI_API_KEY", {}),
+        ("moonshot", "MOONSHOT_API_KEY", {}),
+        ("nvidia", "NVIDIA_API_KEY", {}),
+        (
+            "azure",
+            "AZURE_OPENAI_API_KEY",
+            {"AZURE_OPENAI_ENDPOINT": "https://example.openai.azure.com"},
+        ),
+        ("local", "OPENAI_API_KEY", {"OPENAI_BASE_URL": "http://localhost:11434/v1"}),
+    ],
+)
+def test_openai_compat_providers_disable_sdk_retries(
+    monkeypatch, provider, env_var, extra_env
+):
+    """Every OpenAI-compatible init path must disable SDK retries, not just openai."""
+    from gptme.config import Config
+    from gptme.llm import llm_openai
+
+    monkeypatch.setenv(env_var, "test-key")
+    for key, value in extra_env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delitem(llm_openai.clients, provider, raising=False)
+    llm_openai.init(provider, Config())
+
+    client = llm_openai.get_client(provider)
+    assert isinstance(client, llm_openai._LazyClient)
+    assert client._kwargs["max_retries"] == SDK_MAX_RETRIES
+
+
+def test_is_provider_error_distinguishes_sdk_from_tool_httpx():
+    """SDK errors recover; untagged httpx (tools) does not; tagged httpx does."""
+    from unittest.mock import MagicMock
+
+    import httpx
+    from openai import RateLimitError
+
+    from gptme.llm import is_provider_error, mark_llm_reply_origin
+
+    response = MagicMock()
+    response.status_code = 429
+    sdk_err = RateLimitError("upstream", response=response, body=None)
+    assert is_provider_error(sdk_err)
+
+    tool_err = httpx.ConnectError("browser failed")
+    assert not is_provider_error(tool_err)
+    mark_llm_reply_origin(tool_err)
+    assert is_provider_error(tool_err)
+
+    assert not is_provider_error(ValueError("bug in gptme"))
+
+
 def test_anthropic_clients_have_sdk_retries_disabled():
     """The Anthropic clients are constructed with SDK retries disabled."""
     import inspect

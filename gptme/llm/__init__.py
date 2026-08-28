@@ -275,10 +275,19 @@ def _resolve_max_tokens(model: str, max_tokens: int | None) -> int | None:
     return model_meta.max_output or 4096
 
 
-# Top-level modules whose exceptions mean "the provider call failed", as opposed
-# to a bug in gptme. Matched by defining module rather than by a hardcoded list
-# of exception classes, so new SDK error types are covered automatically.
-_PROVIDER_ERROR_MODULES = frozenset({"openai", "anthropic", "httpx"})
+# SDK exception types always mean "the provider call failed". httpx is also
+# used by tools (browser, HTTP requests), so a transport error only counts as
+# a provider failure when it originated at the LLM `reply()` call — tagged
+# there so the interactive recovery handler cannot swallow a tool outage as
+# "LLM request failed". See https://github.com/gptme/gptme/issues/3668
+_PROVIDER_SDK_MODULES = frozenset({"openai", "anthropic"})
+_PROVIDER_TRANSPORT_MODULES = frozenset({"httpx"})
+_LLM_REPLY_ORIGIN_ATTR = "_gptme_from_llm_reply"
+
+
+def mark_llm_reply_origin(exc: BaseException) -> None:
+    """Mark an exception as raised from the LLM `reply()` call in `chat.step`."""
+    setattr(exc, _LLM_REPLY_ORIGIN_ATTR, True)
 
 
 def is_provider_error(e: BaseException) -> bool:
@@ -288,10 +297,12 @@ def is_provider_error(e: BaseException) -> bool:
     control to the user instead of crashing.
     See https://github.com/gptme/gptme/issues/3668
     """
-    return any(
-        (cls.__module__ or "").split(".")[0] in _PROVIDER_ERROR_MODULES
-        for cls in type(e).__mro__
-    )
+    modules = {(cls.__module__ or "").split(".", 1)[0] for cls in type(e).__mro__}
+    if modules & _PROVIDER_SDK_MODULES:
+        return True
+    if modules & _PROVIDER_TRANSPORT_MODULES:
+        return getattr(e, _LLM_REPLY_ORIGIN_ATTR, False)
+    return False
 
 
 @trace_function(name="llm.reply", attributes={"component": "llm"})
