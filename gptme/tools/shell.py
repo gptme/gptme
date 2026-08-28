@@ -206,22 +206,20 @@ These programs are available, among others:
 
 ### When to use the shell
 
-Use the shell when you need to inspect the workspace, search or examine files,
-check git state, or run existing commands and tests. Prefer the shell over
-answering from memory when the repo can tell you the answer directly.
+Use the shell to inspect the workspace, search files, check git state, or run
+existing commands and tests. Prefer the repo over answering from memory.
 
 ### Background Jobs
 
-For long-running commands (dev servers, builds, etc.), use background jobs:
-- `bg <command>` - Start command in background, returns job ID
-- `jobs` - List all background jobs with status
-- `output <id>` - Show accumulated output from a job
-- `output <id> --new` - Poll a running job without repeating output already seen
-- `wait <id> [timeout]` - Wait when the next step depends on completion; a
-  timeout leaves the job running so it can be polled or waited on again
-- `kill <id>` - Terminate a background job
+For long-running commands (dev servers, builds):
+- `bg <command>` - start, returns job ID
+- `jobs` - list jobs
+- `output <id>` - accumulated output
+- `output <id> --new` - unread output only; poll while waiting for a log line
+- `wait <id> [timeout]` - wait for completion; timeout leaves the job running
+- `kill <id>` - terminate
 
-This prevents blocking on commands like `npm run dev` that run indefinitely.
+Avoids blocking on commands like `npm run dev` that run indefinitely.
 """.strip()
 
 instructions_format: dict[str, str] = {}
