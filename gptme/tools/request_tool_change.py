@@ -1,18 +1,90 @@
 """Opt-in tool for assistants to request session tool configuration changes.
 
-The request is audit-only: calling this tool records structured intent in ordinary
-assistant tool-call and result-message history. It does not change the active tool
-configuration.
+Phase 1 (audit-only) recorded the intent in tool-call history without mutating
+the active tool set.  Phase 2 (this file) actually applies enable/disable
+requests by mutating the session-local ``_loaded_tools_var`` ContextVar that
+``get_tools()`` reads.
+
+``configure_tool`` requests remain audit-only; a future phase can add actuation
+for them without altering the enable/disable paths.
 """
 
 from __future__ import annotations
 
+import logging
+
 from ..message import Message
-from . import get_available_tools
+from . import get_available_tools, get_tools, set_tools
 from .base import Parameter, ToolSpec
+
+logger = logging.getLogger(__name__)
 
 _VALID_CHANGE_TYPES = {"enable_tool", "disable_tool", "configure_tool"}
 _VALID_URGENCY = {"low", "medium", "high"}
+
+#: The tool that provides this mechanism must never be disabled by itself.
+_SELF_NAME = "request_tool_change"
+
+
+def _enable_tool(tool_name: str) -> Message:
+    """Add *tool_name* to the session's active tool set.
+
+    Returns a system message describing the outcome (success or no-op).
+    """
+    loaded = get_tools()
+    if any(t.name == tool_name for t in loaded):
+        return Message(
+            "system",
+            f"request_tool_change: '{tool_name}' is already enabled — no change.",
+            quiet=True,
+        )
+
+    available = {t.name: t for t in get_available_tools(include_mcp=False)}
+    if tool_name not in available:
+        return Message(
+            "system",
+            f"request_tool_change: unknown tool '{tool_name}'",
+            quiet=True,
+        )
+
+    set_tools([*loaded, available[tool_name]])
+    logger.info("request_tool_change: enabled tool '%s'", tool_name)
+    return Message(
+        "system",
+        f"Tool '{tool_name}' has been enabled for this session.",
+        quiet=True,
+    )
+
+
+def _disable_tool(tool_name: str) -> Message:
+    """Remove *tool_name* from the session's active tool set.
+
+    Returns a system message describing the outcome (success, no-op, or
+    refusal when trying to disable the mechanism itself).
+    """
+    if tool_name == _SELF_NAME:
+        return Message(
+            "system",
+            "request_tool_change: cannot disable itself — no change.",
+            quiet=True,
+        )
+
+    loaded = get_tools()
+    remaining = [t for t in loaded if t.name != tool_name]
+    if len(remaining) == len(loaded):
+        return Message(
+            "system",
+            f"request_tool_change: '{tool_name}' is not currently enabled — no change.",
+            quiet=True,
+        )
+
+    set_tools(remaining)
+    logger.info("request_tool_change: disabled tool '%s'", tool_name)
+    return Message(
+        "system",
+        f"Tool '{tool_name}' has been disabled for this session.",
+        quiet=True,
+    )
 
 
 def execute_request_tool_change(
@@ -20,7 +92,12 @@ def execute_request_tool_change(
     args: list[str] | None,
     kwargs: dict[str, str] | None,
 ) -> Message:
-    """Validate and acknowledge an audit-only tool-change request."""
+    """Validate and apply a tool-change request.
+
+    ``enable_tool`` and ``disable_tool`` requests are applied immediately by
+    mutating the session-local tool list returned by ``get_tools()``.
+    ``configure_tool`` requests are still audit-only.
+    """
     del code, args
     values = kwargs or {}
 
@@ -46,7 +123,9 @@ def execute_request_tool_change(
             quiet=True,
         )
 
-    known_tools = {tool.name for tool in get_available_tools(include_mcp=False)}
+    # Validate against available (not just loaded) tools so the model can name
+    # any tool known to gptme's module system.
+    known_tools = {t.name for t in get_available_tools(include_mcp=False)}
     if tool_name not in known_tools:
         return Message(
             "system",
@@ -68,21 +147,35 @@ def execute_request_tool_change(
             quiet=True,
         )
 
+    if change_type == "enable_tool":
+        return _enable_tool(tool_name)
+    if change_type == "disable_tool":
+        return _disable_tool(tool_name)
+    # configure_tool: audit-only (Phase 2 scope)
     return Message(
         "system",
-        f"Tool change request recorded: {change_type} {tool_name}. "
-        "No tool configuration was changed.",
+        f"Tool configure request recorded: {tool_name}. "
+        "Configuration changes are not yet applied automatically.",
         quiet=True,
     )
 
 
 tool = ToolSpec(
     name="request_tool_change",
-    desc="Record an audit-only request to change the current session's tool configuration",
+    desc=(
+        "Enable or disable a tool for the current session, "
+        "or record a configuration change request"
+    ),
     instructions="""
-Use this tool when the current tool configuration blocks or unnecessarily expands
-what you need to do. The request is recorded in ordinary tool-call history for an
-operator to inspect; it does not itself enable, disable, or configure any tool.
+Use this tool to adjust which tools are available mid-session.
+
+- ``enable_tool``: adds a known tool to the active set so it can be called in
+  subsequent turns.
+- ``disable_tool``: removes a tool from the active set for the remainder of the
+  session.  You cannot disable ``request_tool_change`` itself.
+- ``configure_tool``: records a configuration change request (audit-only for now).
+
+Changes take effect immediately; the next LLM turn will see the updated tool list.
 """.strip(),
     execute=execute_request_tool_change,
     block_types=["request_tool_change"],
