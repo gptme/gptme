@@ -564,6 +564,53 @@ def test_chat_config_workspace_at_log_without_logdir():
         ChatConfig.from_dict(config_dict)
 
 
+def test_chat_config_no_workspace_field_uses_logdir(tmp_path):
+    """from_dict with _logdir but no workspace in config must not fall back to cwd.
+
+    This is the P1 regression: when config.toml exists but has no workspace field
+    and logdir/workspace doesn't exist (Windows without Developer Mode), the old
+    code would return Path.cwd() — causing tools to operate against an unrelated
+    directory silently.
+    """
+    logdir = tmp_path / "test-conversation"
+    logdir.mkdir()
+
+    # Config has no workspace field; logdir/workspace symlink does not exist.
+    config_dict = {"_logdir": logdir, "chat": {}}
+    config = ChatConfig.from_dict(config_dict)
+
+    # Must not be cwd — must be the logdir.
+    assert config.workspace != Path.cwd()
+    assert config.workspace == logdir.resolve()
+
+
+def test_from_logdir_config_without_workspace_field_not_cwd(tmp_path):
+    """from_logdir loading a config.toml without a workspace field must not return cwd.
+
+    Covers the rename-flow path where config.toml is written without a workspace
+    field and logdir/workspace has been removed (Windows without symlink privilege).
+    """
+    import tomlkit
+
+    logdir = tmp_path / "test-conversation"
+    logdir.mkdir()
+
+    # Write a config.toml with no workspace field and no logdir/workspace symlink.
+    config_path = logdir / "config.toml"
+    doc = tomlkit.document()
+    chat_section = tomlkit.table()
+    chat_section.add("model", "gpt-4o")
+    doc.add("chat", chat_section)
+    config_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+
+    config = ChatConfig.from_logdir(logdir)
+
+    assert config.workspace != Path.cwd(), (
+        "workspace must not fall back to process cwd when no workspace is configured"
+    )
+    assert config.workspace == logdir.resolve()
+
+
 def test_chat_config_to_dict():
     config = ChatConfig.from_dict(json.loads(config_json))
     config_dict = config.to_dict()
