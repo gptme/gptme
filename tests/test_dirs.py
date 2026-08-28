@@ -271,6 +271,19 @@ class TestGetWorkspace:
             result = dirs.get_workspace()
         assert result == workspace
 
+    def test_whitespace_env_var_falls_through(self, tmp_path: Path):
+        """Whitespace-only GPTME_WORKSPACE is treated as unset."""
+        mock_result = subprocess.CompletedProcess(
+            args=[], returncode=128, stdout="", stderr="not a git repo"
+        )
+        with (
+            patch.dict(os.environ, {"GPTME_WORKSPACE": "   "}),
+            patch("gptme.dirs.subprocess.run", return_value=mock_result),
+            patch("gptme.dirs.Path.cwd", return_value=tmp_path),
+        ):
+            result = dirs.get_workspace()
+        assert result == tmp_path
+
     def test_git_root_detection(self, tmp_path: Path):
         """Detects workspace from git root."""
         git_root = tmp_path / "repo"
@@ -484,7 +497,16 @@ class TestGetProfileMemoryDir:
         """Profile names containing separators or special components are rejected."""
         import pytest
 
-        bad_names = ["../etc/passwd", "/abs/path", "a/b", "a\\b", "", ".", ".."]
+        bad_names = [
+            "../etc/passwd",
+            "/abs/path",
+            "a/b",
+            "a\\b",
+            "",
+            ".",
+            "..",
+            "agent\n",
+        ]
         with patch.dict(os.environ, {"XDG_DATA_HOME": str(tmp_path)}):
             for name in bad_names:
                 with pytest.raises(ValueError, match="Invalid profile name"):

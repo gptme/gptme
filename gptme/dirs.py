@@ -13,7 +13,7 @@ from .util.git_cmd import GIT_CMD
 logger = logging.getLogger(__name__)
 
 #: Only allow alphanumeric, hyphen, underscore, and dot in profile names.
-_SAFE_PROFILE_NAME_RE = re.compile(r"^(?!\.{1,2}$)[A-Za-z0-9_\-\.]+$")
+_SAFE_PROFILE_NAME_RE = re.compile(r"(?!\.{1,2}\Z)[A-Za-z0-9_.-]+\Z")
 
 
 def _get_env_path(var: str) -> str | None:
@@ -133,7 +133,7 @@ def get_workspace() -> Path:
     Handles git submodules: if `.git` is a file (not a directory),
     we're in a submodule and the parent repo root is returned instead.
     """
-    if workspace := os.environ.get("GPTME_WORKSPACE"):
+    if workspace := _get_env_path("GPTME_WORKSPACE"):
         return Path(workspace)
 
     try:
@@ -183,7 +183,7 @@ def get_profile_memory_dir(profile_name: str) -> Path:
     Raises:
         ValueError: If ``profile_name`` contains path-traversal characters.
     """
-    if not _SAFE_PROFILE_NAME_RE.match(profile_name):
+    if not _SAFE_PROFILE_NAME_RE.fullmatch(profile_name):
         raise ValueError(
             f"Invalid profile name {profile_name!r}: "
             "must contain only alphanumeric characters, hyphens, underscores, or dots."
