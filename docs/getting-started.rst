@@ -180,14 +180,6 @@ inference. Current catalog: https://openrouter.ai/models?max_price=0
     export GROQ_API_KEY="your-key"
     gptme "hello" -m groq/llama-3.3-70b-versatile
 
-.. note::
-
-   There is no public ``OPENAI_API_KEY=free`` endpoint at ``freellmapi.com``
-   (parked domain; POST ``/v1/chat/completions`` returns HTTP 405).
-   `FreeLLMAPI <https://github.com/tashfeenahmed/freellmapi>`_ is a
-   **self-hosted** OpenAI-compatible router that needs your own provider keys.
-   See :doc:`providers-custom`.
-
 .. tip::
 
    Free cloud tiers give better results than local small models for most tasks, while still
