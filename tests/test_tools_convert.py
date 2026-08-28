@@ -667,6 +667,8 @@ def test_convert_file_no_converter_error_message_is_correct(avail_none, tmp_path
         result = convert_file(src, dest)
     assert not result.success
     assert result.error is not None
+    # Must name the installed CLI binary, not the python -m invocation
+    assert "gptme-convert" in result.error
     # Must not reference the non-existent --check-tools flag
     assert "--check-tools" not in result.error
     assert "check-tools" in result.error

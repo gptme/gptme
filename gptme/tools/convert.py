@@ -788,7 +788,7 @@ def convert_file(
             converter_used="none",
             error=(
                 f"No converter found for {src_mime} → {dest_ext}. "
-                f"Run `python -m gptme.tools.convert check-tools` to see available converters."
+                f"Run `gptme-convert check-tools` to see available converters."
             ),
         )
 
