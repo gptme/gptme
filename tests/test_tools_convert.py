@@ -13,6 +13,7 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
+from gptme.tools.base import ToolSpec
 from gptme.tools.convert import (
     ConversionResult,
     DocumentToTextConverter,
@@ -994,3 +995,87 @@ def test_doc_to_text_specific_error_when_only_python_docx_installed(tmp_path):
     assert "libreoffice" in result.error.lower() or "LibreOffice" in result.error
     # Must NOT say the generic "nothing available" message — python-docx IS there
     assert "No document" not in result.error
+
+
+# ---------------------------------------------------------------------------
+# Structured tool surface (ToolSpec)
+# ---------------------------------------------------------------------------
+
+
+def test_convert_tool_exported_and_discoverable():
+    """The convert module exposes an auto-discoverable ToolSpec named `convert`."""
+    from gptme.tools import convert
+    from gptme.tools.base import _iter_tool_specs
+
+    assert isinstance(convert.tool, ToolSpec)
+    assert convert.tool.name == "convert"
+    # Auto-discovery collects it from the module.
+    specs = list(_iter_tool_specs(convert))
+    assert any(s.name == "convert" for s in specs)
+
+
+def test_convert_tool_parameters():
+    """The convert tool exposes input_path/output_path/quality/dry_run parameters."""
+    from gptme.tools import convert
+
+    names = [p.name for p in convert.tool.parameters]
+    assert names == ["input_path", "output_path", "quality", "dry_run"]
+    by_name = {p.name: p for p in convert.tool.parameters}
+    assert by_name["input_path"].required
+    assert by_name["output_path"].required
+    assert by_name["quality"].enum == ["low", "medium", "high"]
+
+
+def test_execute_convert_success(tmp_path):
+    """_execute_convert forwards args to convert_file and returns a summary Message."""
+    from gptme.tools import convert
+
+    src = tmp_path / "in.png"
+    src.write_bytes(b"\x89PNG\r\n\x1a\n")
+    dest = tmp_path / "out.jpg"
+
+    with patch(
+        "gptme.tools.convert.convert_file",
+        return_value=ConversionResult(
+            success=True,
+            output_path=dest,
+            converter_used="image",
+            lossy=True,
+        ),
+    ) as mock_convert:
+        result = convert._execute_convert(
+            None, None, {"input_path": str(src), "output_path": str(dest)}
+        )
+
+    assert result.role == "system"
+    assert "Converted" in result.content
+    assert "out.jpg" in result.content
+    assert "lossy" in result.content
+    mock_convert.assert_called_once()
+    call_args, call_kwargs = mock_convert.call_args
+    assert str(call_args[0]) == str(src)
+    assert str(call_args[1]) == str(dest)
+    assert call_kwargs.get("quality") == "medium"
+    assert call_kwargs.get("dry_run") is False
+
+
+def test_execute_convert_missing_args():
+    """_execute_convert reports an error when required args are missing."""
+    from gptme.tools import convert
+
+    result = convert._execute_convert(None, None, {"input_path": "/tmp/x.png"})
+    assert result.role == "system"
+    assert "Error" in result.content
+
+
+def test_execute_convert_missing_input():
+    """_execute_convert reports a clear error for a nonexistent input."""
+    from gptme.tools import convert
+
+    result = convert._execute_convert(
+        None,
+        None,
+        {"input_path": "/nonexistent/nope.png", "output_path": "/tmp/out.png"},
+    )
+    assert result.role == "system"
+    assert "input file not found" in result.content

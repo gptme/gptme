@@ -25,6 +25,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
+from ..message import Message
+from .base import Parameter, ToolSpec
+
 logger = logging.getLogger(__name__)
 
 
@@ -818,6 +821,92 @@ def convert_file(
             error=f"Could not create output directory {dest.parent}: {e}",
         )
     return conv.convert(src, dest, quality=quality, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Structured tool surface (auto-discovered ToolSpec)
+# ---------------------------------------------------------------------------
+
+
+def _execute_convert(
+    code: str | None,
+    args: list[str] | None,
+    kwargs: dict[str, str] | None,
+) -> Message:
+    """Execute a file conversion from a structured tool call.
+
+    Accepts keyword arguments ``input_path`` (required) and ``output_path``
+    (required; extension selects the target format). Optional ``quality``
+    (low/medium/high) and ``dry_run``.
+    """
+    kwargs = kwargs or {}
+    src_raw = kwargs.get("input_path")
+    dest_raw = kwargs.get("output_path")
+    if not src_raw or not dest_raw:
+        return Message(
+            "system",
+            "Error: both `input_path` and `output_path` are required.",
+        )
+
+    src = Path(src_raw)
+    dest = Path(dest_raw)
+    if not src.exists():
+        return Message("system", f"Error: input file not found: {src}")
+
+    quality = kwargs.get("quality", "medium")
+    dry_run = kwargs.get("dry_run", "false").lower() in ("true", "1", "yes")
+
+    result = convert_file(src, dest, quality=quality, dry_run=dry_run)
+    return Message("system", result.summary())
+
+
+tool = ToolSpec(
+    name="convert",
+    desc="Convert a file to another format using offline system tools",
+    instructions=(
+        "Convert files between formats using offline system tools (FFmpeg, "
+        "ImageMagick, Poppler, python-docx, pypdf) with graceful fallback when "
+        "a specific converter is unavailable. Useful for format bridges in "
+        "air-gapped or offline workflows: PDF→PNG/JPEG for visual inspection, "
+        "document→text for summarization, video→thumbnail for metadata, and "
+        "image↔image reformatting.\n\n"
+        "Set `output_path` with the desired target extension (e.g. `.png`) to "
+        "select the destination format. Pass `quality` = low/medium/high and "
+        "`dry_run` = true to show the converter plan without writing output.\n\n"
+        "Run the `convert` tool with `dry_run` first to confirm the converter "
+        "chain, then execute for real."
+    ),
+    execute=_execute_convert,
+    parameters=[
+        Parameter(
+            name="input_path",
+            type="string",
+            description="Path to the source file to convert",
+            required=True,
+        ),
+        Parameter(
+            name="output_path",
+            type="string",
+            description=(
+                "Path of the output file; its extension selects the target "
+                "format (e.g. .png, .jpg, .txt, .md)"
+            ),
+            required=True,
+        ),
+        Parameter(
+            name="quality",
+            type="string",
+            enum=["low", "medium", "high"],
+            description="Conversion quality (default: medium)",
+        ),
+        Parameter(
+            name="dry_run",
+            type="string",
+            enum=["true", "false"],
+            description="If true, show the converter plan without executing",
+        ),
+    ],
+)
 
 
 # ---------------------------------------------------------------------------
