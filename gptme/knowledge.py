@@ -19,11 +19,11 @@ import tempfile
 import threading
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
 from .dirs import get_data_dir
 
@@ -118,15 +118,9 @@ def _append_entry(entry: KnowledgeEntry) -> None:
 
 
 def _extract_keywords(text: str) -> list[str]:
-    """Extract words and numeric identifiers from text for fast filtering."""
+    """Extract unique words and numeric identifiers from text."""
     words = re.findall(r"[a-zA-Z0-9_]+", text.lower())
-    seen: set[str] = set()
-    result = []
-    for w in words:
-        if w not in seen:
-            seen.add(w)
-            result.append(w)
-    return result[:30]
+    return list(dict.fromkeys(words))
 
 
 def knowledge_save(
@@ -241,6 +235,30 @@ def knowledge_list(
     return entries[:limit]
 
 
+def _replace_entries(path: Path, entries: list[KnowledgeEntry]) -> None:
+    """Atomically replace the entry store and clean up failed temp writes."""
+    tmp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            delete=False,
+            suffix=".tmp",
+        ) as tf:
+            tmp_path = tf.name
+            for entry in entries:
+                tf.write(json.dumps(entry) + "\n")
+        os.replace(tmp_path, path)
+    except BaseException:
+        if tmp_path is not None:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+
+
 def knowledge_delete(entry_id: str) -> bool:
     """Remove an entry by ID, rewriting the JSONL file atomically.
 
@@ -258,17 +276,7 @@ def knowledge_delete(entry_id: str) -> bool:
 
         path = _entries_file()
         path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            delete=False,
-            suffix=".tmp",
-        ) as tf:
-            for e in kept:
-                tf.write(json.dumps(e) + "\n")
-            tmp_path = tf.name
-        os.replace(tmp_path, path)
+        _replace_entries(path, kept)
     return True
 
 
@@ -303,15 +311,5 @@ def knowledge_delete_by_prefix(
 
         path = _entries_file()
         path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            delete=False,
-            suffix=".tmp",
-        ) as tf:
-            for e in kept:
-                tf.write(json.dumps(e) + "\n")
-            tmp_path = tf.name
-        os.replace(tmp_path, path)
+        _replace_entries(path, kept)
     return full_id, "deleted", []

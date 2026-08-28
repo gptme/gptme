@@ -89,6 +89,15 @@ def test_search_matches_numeric_identifier():
     assert knowledge_search("404") == [entry]
 
 
+def test_search_considers_terms_after_thirtieth():
+    from gptme.knowledge import knowledge_save, knowledge_search
+
+    entry = knowledge_save("zlib failure", "rebuild the archive")
+    query = " ".join([*(f"term{i}" for i in range(30)), "zlib"])
+
+    assert knowledge_search(query) == [entry]
+
+
 def test_search_tag_filter():
     from gptme.knowledge import knowledge_save, knowledge_search
 
@@ -129,6 +138,32 @@ def test_delete():
     assert knowledge_list() == []
 
     assert not knowledge_delete("nonexistent-id")
+
+
+@pytest.mark.parametrize(
+    "delete_func", ["knowledge_delete", "knowledge_delete_by_prefix"]
+)
+def test_delete_cleans_up_temporary_file_on_write_failure(monkeypatch, delete_func):
+    import gptme.knowledge as knowledge
+
+    entry = knowledge.knowledge_save("to delete", "resolution")
+    kept_entry = knowledge.knowledge_save("keep me", "resolution")
+    path = knowledge._entries_file()
+    original_dump = knowledge.json.dumps
+
+    def fail_for_persisted_entry(value):
+        if isinstance(value, dict) and value.get("id") != entry["id"]:
+            raise OSError("disk full")
+        return original_dump(value)
+
+    monkeypatch.setattr(knowledge.json, "dumps", fail_for_persisted_entry)
+    entry_id = entry["id"] if delete_func == "knowledge_delete" else entry["id"][:8]
+
+    with pytest.raises(OSError, match="disk full"):
+        getattr(knowledge, delete_func)(entry_id)
+
+    assert list(path.parent.glob("*.tmp")) == []
+    assert knowledge._load_entries() == [entry, kept_entry]
 
 
 def test_jsonl_persistence(tmp_path, monkeypatch):
@@ -254,6 +289,32 @@ def test_cli_search_json():
     data = json.loads(result.output)
     assert isinstance(data, list)
     assert data[0]["problem"] == "search json problem"
+
+
+def test_cli_json_output_escapes_control_characters():
+    runner = CliRunner()
+    runner.invoke(
+        main,
+        [
+            "knowledge",
+            "save",
+            "unsafe\x1b[2J problem",
+            "unsafe\x07 resolution",
+        ],
+    )
+
+    search_result = runner.invoke(main, ["knowledge", "search", "--json", "unsafe"])
+    list_result = runner.invoke(main, ["knowledge", "list", "--json"])
+
+    assert search_result.exit_code == 0, search_result.output
+    assert list_result.exit_code == 0, list_result.output
+    assert "\x1b" not in search_result.output
+    assert "\x07" not in search_result.output
+    assert "\x1b" not in list_result.output
+    assert "\x07" not in list_result.output
+    assert r"\u001b" in search_result.output
+    assert r"\u0007" in search_result.output
+    assert json.loads(search_result.output)[0]["problem"] == "unsafe\x1b[2J problem"
 
 
 def test_cli_human_output_strips_control_characters():
