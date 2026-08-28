@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 # Big-endian uint32 length prefix
 _HEADER = struct.Struct("!I")
+# Cap the declared payload so a peer cannot force a multi-gigabyte buffer.
+MAX_IPC_PAYLOAD = 1024 * 1024
 
 MessageType = Literal["input", "output", "status", "signal", "error"]
 _MESSAGE_TYPES = frozenset(("input", "output", "status", "signal", "error"))
@@ -39,6 +41,8 @@ class IPCMessage:
                 "timestamp": self.timestamp,
             }
         ).encode()
+        if len(payload) > MAX_IPC_PAYLOAD:
+            raise ValueError(f"IPC payload too large: {len(payload)} bytes")
         return _HEADER.pack(len(payload)) + payload
 
     @classmethod
@@ -86,7 +90,7 @@ def recv_msg(sock: socket.socket, buffer: bytearray | None = None) -> IPCMessage
         header = _recv_exact(sock, _HEADER.size)
         if not header:
             return None
-        (length,) = _HEADER.unpack(header)
+        length = _checked_payload_length(header)
         payload = _recv_exact(sock, length)
         if not payload:
             return None
@@ -99,7 +103,7 @@ def recv_msg(sock: socket.socket, buffer: bytearray | None = None) -> IPCMessage
                 raise ValueError("incomplete IPC message header")
             return None
         buffer.extend(chunk)
-    (length,) = _HEADER.unpack(buffer[: _HEADER.size])
+    length = _checked_payload_length(buffer[: _HEADER.size])
     frame_size = _HEADER.size + length
     while len(buffer) < frame_size:
         chunk = sock.recv(frame_size - len(buffer))
@@ -109,6 +113,13 @@ def recv_msg(sock: socket.socket, buffer: bytearray | None = None) -> IPCMessage
     payload = bytes(buffer[_HEADER.size : frame_size])
     del buffer[:frame_size]
     return IPCMessage.from_bytes(payload)
+
+
+def _checked_payload_length(header: bytes | bytearray) -> int:
+    (length,) = _HEADER.unpack(header)
+    if length > MAX_IPC_PAYLOAD:
+        raise ValueError(f"IPC payload too large: {length} bytes")
+    return length
 
 
 def _recv_exact(sock: socket.socket, n: int) -> bytes:

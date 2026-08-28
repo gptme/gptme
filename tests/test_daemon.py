@@ -31,7 +31,7 @@ from gptme.server.daemon import (
     get_socket_path,
     list_daemons,
 )
-from gptme.server.ipc_protocol import IPCMessage, recv_msg, send_msg
+from gptme.server.ipc_protocol import MAX_IPC_PAYLOAD, IPCMessage, recv_msg, send_msg
 
 # ---------------------------------------------------------------------------
 # IPC protocol tests
@@ -143,6 +143,19 @@ class TestIPCProtocol:
     def test_rejects_malformed_messages(self, payload):
         with pytest.raises(ValueError, match="IPC message|message JSON"):
             IPCMessage.from_bytes(payload)
+
+    @pytest.mark.parametrize("use_buffer", [False, True])
+    def test_recv_rejects_oversize_payload(self, use_buffer):
+        import struct
+
+        a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            a.sendall(struct.pack("!I", MAX_IPC_PAYLOAD + 1))
+            with pytest.raises(ValueError, match="too large"):
+                recv_msg(b, bytearray() if use_buffer else None)
+        finally:
+            a.close()
+            b.close()
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +269,8 @@ class TestSessionDaemonState:
         owner.socket_path.touch()
         observed: list[tuple[int, bool]] = []
 
+        monkeypatch.setattr(_dm, "_pidfd_open", lambda _pid: None)
+
         def record_kill(pid: int, signum: int) -> None:
             probe = owner.pid_path.open()
             try:
@@ -272,6 +287,69 @@ class TestSessionDaemonState:
         finally:
             owner._cleanup()
 
+    def test_stop_uses_pidfd_when_available(self, tmp_path, monkeypatch):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        owner = SessionDaemon("pidfd-stop")
+        owner._acquire_pid_file()
+        owner.socket_path.touch()
+        sent: list[tuple[int, int]] = []
+        real_close = os.close
+        monkeypatch.setattr(_dm, "_pidfd_open", lambda _pid: 99)
+        monkeypatch.setattr(
+            _dm,
+            "_pidfd_send_signal",
+            lambda pidfd, signum: sent.append((pidfd, signum)),
+        )
+        monkeypatch.setattr(
+            os, "close", lambda fd: None if fd == 99 else real_close(fd)
+        )
+        monkeypatch.setattr(
+            os, "kill", lambda pid, signum: pytest.fail("PID kill raced identity")
+        )
+        try:
+            SessionDaemon("pidfd-stop").stop()
+            assert sent == [(99, signal.SIGTERM)]
+        finally:
+            owner._cleanup()
+
+    def test_stop_aborts_if_owner_exits_before_signal(self, tmp_path, monkeypatch):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        owner = SessionDaemon("exit-before-signal")
+        owner._acquire_pid_file()
+        owner.socket_path.touch()
+        sent: list[int] = []
+
+        def fake_pidfd_open(_pid: int) -> int:
+            # Simulate the owner exiting after the PID is read: the lock is
+            # released and the PID could be reused before the signal.
+            assert owner._pid_file is not None
+            owner._pid_file.close()
+            owner._pid_file = None
+            owner._owns_paths = False
+            return 99
+
+        real_close = os.close
+        monkeypatch.setattr(_dm, "_pidfd_open", fake_pidfd_open)
+        monkeypatch.setattr(
+            _dm, "_pidfd_send_signal", lambda _pidfd, signum: sent.append(signum)
+        )
+        monkeypatch.setattr(os, "kill", lambda _pid, signum: sent.append(signum))
+        monkeypatch.setattr(
+            os, "close", lambda fd: None if fd == 99 else real_close(fd)
+        )
+        try:
+            SessionDaemon("exit-before-signal").stop()
+            assert sent == []
+        finally:
+            if owner._pid_file is not None:
+                owner._cleanup()
+            owner.socket_path.unlink(missing_ok=True)
+            owner.pid_path.unlink(missing_ok=True)
+
     def test_is_running_true_with_owned_pid_file(self, tmp_path):
         from gptme.server import daemon as _dm
 
@@ -285,6 +363,48 @@ class TestSessionDaemonState:
         finally:
             d._cleanup()
             _dm.get_daemon_dir = orig
+
+    def test_cleanup_unlinks_pid_before_releasing_lock(self, tmp_path, monkeypatch):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        daemon = SessionDaemon("cleanup-order")
+        daemon._acquire_pid_file()
+        daemon.socket_path.touch()
+        assert daemon._pid_file is not None
+        original_close = daemon._pid_file.close
+
+        def assert_unlinked_before_close():
+            assert not daemon.pid_path.exists()
+            original_close()
+
+        monkeypatch.setattr(daemon._pid_file, "close", assert_unlinked_before_close)
+        daemon._cleanup()
+
+    def test_cleanup_does_not_unlink_successor_pid(self, tmp_path, monkeypatch):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        owner = SessionDaemon("handoff")
+        owner._acquire_pid_file()
+        owner.socket_path.touch()
+        assert owner._pid_file is not None
+        original_close = owner._pid_file.close
+        successor = SessionDaemon("handoff")
+
+        def close_after_successor_starts() -> None:
+            successor._acquire_pid_file()
+            successor.socket_path.touch()
+            original_close()
+
+        monkeypatch.setattr(owner._pid_file, "close", close_after_successor_starts)
+        try:
+            owner._cleanup()
+            assert successor.pid_path.exists()
+            assert successor.socket_path.exists()
+            assert successor.is_running()
+        finally:
+            successor._cleanup()
 
     def test_failed_competing_start_does_not_remove_owner_paths(
         self, tmp_path, monkeypatch
@@ -649,6 +769,49 @@ class TestAttachProtocol:
         finally:
             thread.join(timeout=1)
             assert not thread.is_alive()
+
+    def test_attach_returns_when_daemon_exits_without_stdin(
+        self, tmp_path, monkeypatch
+    ):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        sock_path = tmp_path / "hang.socket"
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(sock_path))
+        server.listen(1)
+
+        def send_ready_and_close() -> None:
+            conn, _ = server.accept()
+            send_msg(conn, IPCMessage(type="status", data={"ready": True}))
+            conn.close()
+            server.close()
+
+        read_fd, write_fd = os.pipe()
+        monkeypatch.setattr("sys.stdin", os.fdopen(read_fd))
+        server_thread = threading.Thread(target=send_ready_and_close)
+        server_thread.start()
+        done = threading.Event()
+        errors: list[BaseException] = []
+
+        def run_attach() -> None:
+            try:
+                attach("hang")
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                done.set()
+
+        attach_thread = threading.Thread(target=run_attach)
+        attach_thread.start()
+        try:
+            finished = done.wait(timeout=3)
+            assert finished, "attach hung on stdin after daemon disconnect"
+            assert errors == []
+        finally:
+            os.close(write_fd)
+            attach_thread.join(timeout=1)
+            server_thread.join(timeout=1)
 
     def test_attach_receives_history_and_echo(self, tmp_path):
         sock_path = tmp_path / "test.socket"

@@ -148,7 +148,7 @@ class SessionDaemon:
                 except BlockingIOError:
                     pid_file.seek(0)
                     pid = int(pid_file.read())
-                    os.kill(pid, signal.SIGTERM)
+                    _signal_owned_pid(pid_file, pid)
                 else:
                     fcntl.flock(pid_file, fcntl.LOCK_UN)
         except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError):
@@ -410,9 +410,11 @@ class SessionDaemon:
             return
         self.socket_path.unlink(missing_ok=True)
         if self._pid_file is not None:
+            # Unlink while this process still holds the lock on this exact inode.
+            # A successor then creates a new path rather than racing this unlink.
+            self.pid_path.unlink(missing_ok=True)
             self._pid_file.close()
             self._pid_file = None
-            self.pid_path.unlink(missing_ok=True)
         self._owns_paths = False
 
 
@@ -499,16 +501,110 @@ def attach(session_name: str) -> None:
 
     seq = 0
     try:
-        for line in sys.stdin:
-            if stop_event.is_set():
+        while not stop_event.is_set():
+            if not _stdin_has_data(0.2):
+                continue
+            line = sys.stdin.readline()
+            if line == "":
                 break
             seq += 1
-            send_msg(conn, IPCMessage(type="input", data=line, seq=seq))
+            try:
+                send_msg(conn, IPCMessage(type="input", data=line, seq=seq))
+            except OSError:
+                break
     except (KeyboardInterrupt, EOFError):
         pass
     finally:
         stop_event.set()
         conn.close()
+
+
+def _signal_owned_pid(pid_file: IO[str], pid: int) -> None:
+    """Signal ``pid`` only if the same PID-file inode is still lock-owned.
+
+    ``pidfd`` pins process identity on Linux. Rechecking the advisory lock
+    (and the PID bytes on that inode) after the pin aborts if the owner
+    exited and the PID was reused before the signal.
+    """
+    pidfd = _pidfd_open(pid)
+    try:
+        if not _pid_file_lock_held(pid_file):
+            return
+        pid_file.seek(0)
+        current = int(pid_file.read() or "0")
+        if current != pid:
+            return
+        if pidfd is not None:
+            _pidfd_send_signal(pidfd, signal.SIGTERM)
+        else:
+            os.kill(pid, signal.SIGTERM)
+    finally:
+        if pidfd is not None:
+            os.close(pidfd)
+
+
+def _pid_file_lock_held(pid_file: IO[str]) -> bool:
+    try:
+        fcntl.flock(pid_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    fcntl.flock(pid_file, fcntl.LOCK_UN)
+    return False
+
+
+# Linux asm-generic syscall numbers. Used when the interpreter was built
+# without exposing os.pidfd_open / signal.pidfd_send_signal.
+_SYS_PIDFD_SEND_SIGNAL = 424
+_SYS_PIDFD_OPEN = 434
+
+
+def _pidfd_open(pid: int) -> int | None:
+    """Return a pidfd, or None if this platform cannot pin process identity."""
+    opener = getattr(os, "pidfd_open", None)
+    if opener is not None:
+        return opener(pid)
+    return _linux_syscall(_SYS_PIDFD_OPEN, pid, 0)
+
+
+def _pidfd_send_signal(pidfd: int, signum: int) -> None:
+    sender = getattr(signal, "pidfd_send_signal", None)
+    if sender is not None:
+        sender(pidfd, signum)
+        return
+    result = _linux_syscall(_SYS_PIDFD_SEND_SIGNAL, pidfd, signum, 0, 0)
+    if result is None:
+        raise OSError("pidfd_send_signal is not available")
+
+
+def _linux_syscall(number: int, *args: int) -> int | None:
+    if sys.platform != "linux":
+        return None
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        result = libc.syscall(number, *args)
+    except (OSError, AttributeError):
+        return None
+    if result < 0:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err))
+    return int(result)
+
+
+def _stdin_has_data(timeout: float) -> bool:
+    """True if stdin is readable, or if it cannot be selected (e.g. StringIO)."""
+    try:
+        fd = sys.stdin.fileno()
+    except (AttributeError, OSError, ValueError):
+        return True
+    try:
+        rlist, _, _ = select.select([fd], [], [], timeout)
+    except InterruptedError:
+        return False
+    except (OSError, ValueError):
+        return True
+    return bool(rlist)
 
 
 # ---------------------------------------------------------------------------
