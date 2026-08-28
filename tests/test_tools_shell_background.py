@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gptme.tools import shell_background
 from gptme.tools.shell_background import (
     _MAX_BUFFER_SIZE,
     BackgroundJob,
@@ -346,6 +347,19 @@ class TestCleanupFinishedJobs:
         assert get_background_job(job.id) is not None
         job.kill()
 
+    def test_keeps_finished_job_while_output_is_draining(self):
+        process = MagicMock(spec=subprocess.Popen)
+        process.poll.return_value = 0
+        job = BackgroundJob(id=1, command="true", process=process, start_time=0)
+        reader = MagicMock(spec=threading.Thread)
+        reader.is_alive.return_value = True
+        job._reader_thread = reader
+        shell_background._background_jobs[job.id] = job
+
+        cleanup_finished_jobs()
+
+        assert get_background_job(job.id) is job
+
 
 class TestResetBackgroundJobs:
     """Test reset_background_jobs."""
@@ -555,6 +569,23 @@ class TestExecuteWaitCommand:
         content = _collect(execute_wait_command(str(job.id), "later"))[0].content
         assert "Invalid timeout" in content
         job.kill()
+
+    def test_reports_when_finished_job_output_is_still_draining(self):
+        process = MagicMock(spec=subprocess.Popen)
+        process.poll.return_value = 0
+        process.returncode = 0
+        job = BackgroundJob(id=1, command="true", process=process, start_time=0)
+        reader = MagicMock(spec=threading.Thread)
+        reader.is_alive.return_value = True
+        job._reader_thread = reader
+        shell_background._background_jobs[job.id] = job
+
+        content = _collect(execute_wait_command(str(job.id), "2s"))[0].content
+
+        reader.join.assert_called_once_with(timeout=1.0)
+        assert "output still draining" in content
+        assert f"wait {job.id}" in content
+        assert f"output {job.id} --new" in content
 
 
 class TestExecuteKillCommand:

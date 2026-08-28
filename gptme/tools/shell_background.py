@@ -167,6 +167,10 @@ class BackgroundJob:
         """Check if process is still running."""
         return self.process.poll() is None
 
+    def is_output_complete(self) -> bool:
+        """Check whether the reader has drained all inherited output pipes."""
+        return self._reader_thread is None or not self._reader_thread.is_alive()
+
     def elapsed_time(self) -> float:
         """Get elapsed time in seconds."""
         return time.time() - self.start_time
@@ -255,7 +259,9 @@ def cleanup_finished_jobs() -> None:
     """Remove finished jobs from tracking (thread-safe)."""
     with _job_lock:
         finished = [
-            job_id for job_id, job in _background_jobs.items() if not job.is_running()
+            job_id
+            for job_id, job in _background_jobs.items()
+            if not job.is_running() and job.is_output_complete()
         ]
         for job_id in finished:
             del _background_jobs[job_id]
@@ -358,15 +364,24 @@ def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
         return
 
     stdout, stderr = job.get_output(incremental=incremental)
-    status = (
-        "Running"
-        if job.is_running()
-        else f"Finished (exit code: {job.process.returncode})"
-    )
+    if job.is_running():
+        status = "Running"
+    elif not job.is_output_complete():
+        status = (
+            f"Finished (exit code: {job.process.returncode}; output still draining)"
+        )
+    else:
+        status = f"Finished (exit code: {job.process.returncode})"
     elapsed = job.elapsed_time()
 
     msg = f"**Job #{job_id}** - {status} ({elapsed:.1f}s)\n"
     msg += f"Command: `{job.command}`\n\n"
+    if not job.is_running() and not job.is_output_complete():
+        msg += (
+            "The command exited, but a descendant still holds an output pipe. "
+            f"Use `wait {job_id}` again or `output {job_id} --new` to collect "
+            "the remaining output.\n\n"
+        )
 
     if stdout:
         # Truncate if too long

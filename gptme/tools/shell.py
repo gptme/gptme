@@ -100,7 +100,9 @@ def _redirect_background_stdin(command: str) -> str:
 
     Appending ``< /dev/null`` to a command ending in ``&`` creates a separate
     null command after the background operator. The background process keeps
-    the persistent shell's stdin and can consume subsequent tool commands.
+    the persistent shell's stdin and can consume subsequent tool commands. If
+    the asynchronous list has a trailing foreground command, redirect that
+    command as well.
     """
     import bashlex
 
@@ -134,6 +136,8 @@ def _redirect_background_stdin(command: str) -> str:
 
     for position in reversed(positions):
         command = command[:position].rstrip() + " < /dev/null " + command[position:]
+    if positions and not command.rstrip().endswith("&"):
+        command += " < /dev/null"
     return command
 
 
@@ -212,8 +216,9 @@ For long-running commands (dev servers, builds, etc.), use background jobs:
 - `bg <command>` - Start command in background, returns job ID
 - `jobs` - List all background jobs with status
 - `output <id>` - Show accumulated output from a job
-- `output <id> --new` - Show only output added since the last incremental read
-- `wait <id> [timeout]` - Wait for a job to finish, optionally with a timeout
+- `output <id> --new` - Poll a running job without repeating output already seen
+- `wait <id> [timeout]` - Wait when the next step depends on completion; a
+  timeout leaves the job running so it can be polled or waited on again
 - `kill <id>` - Terminate a background job
 
 This prevents blocking on commands like `npm run dev` that run indefinitely.

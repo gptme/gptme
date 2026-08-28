@@ -135,7 +135,10 @@ def test_redirect_background_stdin_before_ampersand():
 
     assert _redirect_background_stdin("sleep 1 &") == "sleep 1 < /dev/null &"
     assert _redirect_background_stdin("sleep 1 & echo done") == (
-        "sleep 1 < /dev/null & echo done"
+        "sleep 1 < /dev/null & echo done < /dev/null"
+    )
+    assert _redirect_background_stdin("sleep 1 & cat") == (
+        "sleep 1 < /dev/null & cat < /dev/null"
     )
     assert _redirect_background_stdin("echo '&' && echo ok") == "echo '&' && echo ok"
     assert _redirect_background_stdin("echo ok 2>&1") == "echo ok 2>&1"
