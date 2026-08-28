@@ -107,6 +107,29 @@ def test_health_check_reports_state_and_preserves_failure_exit_code(
     } == json.loads(proc.stdout)
 
 
+def test_health_check_error_uses_stable_json_schema(tmp_path: Path) -> None:
+    _run_init(tmp_path, "--platform", "linux", "--enable-health-check")
+    health_check = tmp_path / "health-check.py"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    env = {**os.environ, "PATH": str(fake_bin)}
+
+    proc = subprocess.run(
+        ["/usr/bin/python3", str(health_check)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert proc.returncode == 1
+    payload = json.loads(proc.stdout)
+    assert payload["load_state"] == "unknown"
+    assert payload["active_state"] == "unknown"
+    assert payload["status"] == "error"
+    assert "error" in payload
+
+
 def test_health_check_does_not_chmod_skipped_file(tmp_path: Path) -> None:
     health_check = tmp_path / "health-check.py"
     health_check.write_text("user-owned\n")
@@ -637,6 +660,26 @@ def test_macos_autodetect_emits_warning(tmp_path: Path) -> None:
     assert "launchd plist" in result.output.lower(), (
         "expected the launchd-plist note in output (fires only when output_dir is None)"
     )
+
+
+def test_explicit_macos_platform_does_not_claim_autodetection(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            "--name",
+            "agent",
+            "--work-dir",
+            str(tmp_path),
+            "--platform",
+            "macos",
+        ],
+        env={"HOME": str(tmp_path)},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "macOS detected" not in result.output
 
 
 def test_help_references_launchd_and_full_template() -> None:

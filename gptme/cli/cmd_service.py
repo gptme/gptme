@@ -364,6 +364,8 @@ def check_service_status(service_name: str) -> dict[str, str]:
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {{
             "service": service_name,
+            "load_state": "unknown",
+            "active_state": "unknown",
             "status": "error",
             "error": str(exc),
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -612,14 +614,15 @@ def init(
         )
 
     # Resolve platform (auto-detect if needed)
-    if platform_choice == "auto":
+    platform_was_auto = platform_choice == "auto"
+    if platform_was_auto:
         platform_choice = _detect_platform()
     if enable_health_check and platform_choice == "macos":
         raise click.UsageError(
             "--enable-health-check supports Linux systemd services only. "
             "Use 'launchctl print' to inspect a macOS launchd agent."
         )
-    if platform_choice == "macos" and output_dir is None:
+    if platform_was_auto and platform_choice == "macos" and output_dir is None:
         # Inform users explicitly: on macOS we now default to launchd
         # instead of the old systemd default, so anyone with scripts
         # expecting ~/.config/systemd/user gets a clear heads-up.
