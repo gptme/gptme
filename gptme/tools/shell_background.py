@@ -10,6 +10,7 @@ import atexit
 import importlib
 import logging
 import os
+import re
 import subprocess
 import threading
 import time
@@ -45,6 +46,10 @@ class BackgroundJob:
     start_time: float
     stdout_buffer: list[str] = field(default_factory=list)
     stderr_buffer: list[str] = field(default_factory=list)
+    _stdout_buffer_start: int = field(default=0, repr=False)
+    _stderr_buffer_start: int = field(default=0, repr=False)
+    _stdout_read_offset: int = field(default=0, repr=False)
+    _stderr_read_offset: int = field(default=0, repr=False)
     _reader_thread: threading.Thread | None = field(default=None, repr=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
     _buffer_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -74,9 +79,13 @@ class BackgroundJob:
                         if data:
                             with self._buffer_lock:
                                 if fd == stdout_fd:
-                                    self._append_to_buffer(self.stdout_buffer, data)
+                                    self._stdout_buffer_start += self._append_to_buffer(
+                                        self.stdout_buffer, data
+                                    )
                                 else:
-                                    self._append_to_buffer(self.stderr_buffer, data)
+                                    self._stderr_buffer_start += self._append_to_buffer(
+                                        self.stderr_buffer, data
+                                    )
                     except BlockingIOError:
                         pass
                     except (OSError, ValueError):
@@ -92,9 +101,13 @@ class BackgroundJob:
                         if data:
                             with self._buffer_lock:
                                 if fd == stdout_fd:
-                                    self._append_to_buffer(self.stdout_buffer, data)
+                                    self._stdout_buffer_start += self._append_to_buffer(
+                                        self.stdout_buffer, data
+                                    )
                                 else:
-                                    self._append_to_buffer(self.stderr_buffer, data)
+                                    self._stderr_buffer_start += self._append_to_buffer(
+                                        self.stderr_buffer, data
+                                    )
                 except (OSError, ValueError):
                     break
 
@@ -104,7 +117,7 @@ class BackgroundJob:
                 remaining = self.process.stdout.read()
                 if remaining:
                     with self._buffer_lock:
-                        self._append_to_buffer(
+                        self._stdout_buffer_start += self._append_to_buffer(
                             self.stdout_buffer,
                             remaining.decode("utf-8", errors="replace"),
                         )
@@ -115,26 +128,40 @@ class BackgroundJob:
                 remaining = self.process.stderr.read()
                 if remaining:
                     with self._buffer_lock:
-                        self._append_to_buffer(
+                        self._stderr_buffer_start += self._append_to_buffer(
                             self.stderr_buffer,
                             remaining.decode("utf-8", errors="replace"),
                         )
             except (OSError, ValueError):
                 pass
 
-    def _append_to_buffer(self, buffer: list[str], data: str) -> None:
+    def _append_to_buffer(self, buffer: list[str], data: str) -> int:
         """Append data to buffer, enforcing size limit."""
         buffer.append(data)
         # Check total size and truncate from front if needed
         total_size = sum(len(s) for s in buffer)
+        removed_size = 0
         while total_size > _MAX_BUFFER_SIZE and len(buffer) > 1:
             removed = buffer.pop(0)
             total_size -= len(removed)
+            removed_size += len(removed)
+        return removed_size
 
-    def get_output(self) -> tuple[str, str]:
-        """Get accumulated stdout and stderr."""
+    def get_output(self, *, incremental: bool = False) -> tuple[str, str]:
+        """Get accumulated stdout and stderr, optionally since the last read."""
         with self._buffer_lock:
-            return "".join(self.stdout_buffer), "".join(self.stderr_buffer)
+            stdout = "".join(self.stdout_buffer)
+            stderr = "".join(self.stderr_buffer)
+            if not incremental:
+                return stdout, stderr
+
+            stdout_start = max(self._stdout_read_offset - self._stdout_buffer_start, 0)
+            stderr_start = max(self._stderr_read_offset - self._stderr_buffer_start, 0)
+            new_stdout = stdout[stdout_start:]
+            new_stderr = stderr[stderr_start:]
+            self._stdout_read_offset = self._stdout_buffer_start + len(stdout)
+            self._stderr_read_offset = self._stderr_buffer_start + len(stderr)
+            return new_stdout, new_stderr
 
     def is_running(self) -> bool:
         """Check if process is still running."""
@@ -278,6 +305,7 @@ def execute_bg_command(
         f"Use these commands to manage it:\n"
         f"- `jobs` - List all background jobs\n"
         f"- `output {job.id}` - Show output from job #{job.id}\n"
+        f"- `wait {job.id}` - Wait for job #{job.id} to finish\n"
         f"- `kill {job.id}` - Terminate job #{job.id}",
     )
 
@@ -306,8 +334,16 @@ def execute_jobs_command() -> Generator[Message, None, None]:
 
 def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
     """Show output from a background job."""
+    parts = job_id_str.split()
+    incremental = False
+    if len(parts) == 2 and parts[1] == "--new":
+        incremental = True
+    elif len(parts) != 1:
+        yield Message("system", "Usage: `output <job-id> [--new]`")
+        return
+
     try:
-        job_id = int(job_id_str)
+        job_id = int(parts[0])
     except ValueError:
         yield Message(
             "system", f"Invalid job ID: `{job_id_str}`. Use `jobs` to list active jobs."
@@ -321,7 +357,7 @@ def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
         )
         return
 
-    stdout, stderr = job.get_output()
+    stdout, stderr = job.get_output(incremental=incremental)
     status = (
         "Running"
         if job.is_running()
@@ -346,9 +382,56 @@ def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
         else:
             msg += md_codeblock("stderr", stderr) + "\n\n"
     if not stdout and not stderr:
-        msg += "No output yet.\n"
+        msg += "No new output.\n" if incremental else "No output yet.\n"
 
     yield Message("system", msg)
+
+
+def execute_wait_command(
+    job_id_str: str, timeout_str: str | None = None
+) -> Generator[Message, None, None]:
+    """Wait for a background job to finish, up to an optional timeout."""
+    try:
+        job_id = int(job_id_str)
+    except ValueError:
+        yield Message(
+            "system", f"Invalid job ID: `{job_id_str}`. Use `jobs` to list active jobs."
+        )
+        return
+
+    timeout: float | None = None
+    if timeout_str is not None:
+        match = re.fullmatch(r"(\d+(?:\.\d+)?)([smh]?)", timeout_str.lower())
+        if not match:
+            yield Message(
+                "system",
+                "Invalid timeout. Use seconds or a suffix such as `30s`, `2m`, or `1h`.",
+            )
+            return
+        value = float(match.group(1))
+        multiplier = {"": 1, "s": 1, "m": 60, "h": 3600}[match.group(2)]
+        timeout = value * multiplier
+
+    job = get_background_job(job_id)
+    if not job:
+        yield Message(
+            "system", f"No job with ID #{job_id}. Use `jobs` to list active jobs."
+        )
+        return
+
+    try:
+        job.process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        yield Message(
+            "system",
+            f"Job #{job_id} is still running after {timeout_str}. "
+            f"Use `wait {job_id}` to keep waiting or `output {job_id} --new` to poll output.",
+        )
+        return
+
+    if job._reader_thread and job._reader_thread.is_alive():
+        job._reader_thread.join(timeout=1.0)
+    yield from execute_output_command(str(job_id))
 
 
 def execute_kill_command(job_id_str: str) -> Generator[Message, None, None]:

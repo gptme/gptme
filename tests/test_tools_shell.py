@@ -130,6 +130,21 @@ multiline command"
     assert len(commands) == 1
 
 
+def test_redirect_background_stdin_before_ampersand():
+    from gptme.tools.shell import _redirect_background_stdin
+
+    assert _redirect_background_stdin("sleep 1 &") == "sleep 1 < /dev/null &"
+    assert _redirect_background_stdin("sleep 1 & echo done") == (
+        "sleep 1 < /dev/null & echo done"
+    )
+    assert _redirect_background_stdin("echo '&' && echo ok") == "echo '&' && echo ok"
+    assert _redirect_background_stdin("echo ok 2>&1") == "echo ok 2>&1"
+    assert _redirect_background_stdin("echo ok &> output") == "echo ok &> output"
+    assert _redirect_background_stdin("cat <<'EOF'\na & b\nEOF") == (
+        "cat <<'EOF'\na & b\nEOF"
+    )
+
+
 def test_heredoc_complex(shell):
     # Test nested heredocs
     ret, out, err = shell.run(
@@ -1747,6 +1762,20 @@ def test_bg_command_executes_remaining_commands():
 
     execute.assert_called_once()
     assert execute.call_args.args[0] == "printf remaining"
+
+
+def test_wait_command_dispatches_timeout():
+    """The shell control command passes job ID and timeout to the wait handler."""
+    from unittest.mock import patch
+
+    from gptme.tools.shell import execute_shell
+
+    with patch(
+        "gptme.tools.shell.execute_wait_command", return_value=iter([])
+    ) as execute_wait:
+        list(execute_shell("wait 7 2m", [], None))
+
+    execute_wait.assert_called_once_with("7", "2m")
 
 
 def test_execute_bg_command():
