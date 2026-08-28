@@ -481,10 +481,10 @@ class TestGetProfileMemoryDir:
         assert r1 == r2
 
     def test_path_traversal_rejected(self, tmp_path: Path):
-        """Profile names containing path separators or '..' raise ValueError."""
+        """Profile names containing separators or special components are rejected."""
         import pytest
 
-        bad_names = ["../etc/passwd", "/abs/path", "a/b", "a\\b", ""]
+        bad_names = ["../etc/passwd", "/abs/path", "a/b", "a\\b", "", ".", ".."]
         with patch.dict(os.environ, {"XDG_DATA_HOME": str(tmp_path)}):
             for name in bad_names:
                 with pytest.raises(ValueError, match="Invalid profile name"):

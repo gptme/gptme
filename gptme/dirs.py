@@ -13,7 +13,7 @@ from .util.git_cmd import GIT_CMD
 logger = logging.getLogger(__name__)
 
 #: Only allow alphanumeric, hyphen, underscore, and dot in profile names.
-_SAFE_PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9_\-\.]+$")
+_SAFE_PROFILE_NAME_RE = re.compile(r"^(?!\.{1,2}$)[A-Za-z0-9_\-\.]+$")
 
 
 def _get_env_path(var: str) -> str | None:
