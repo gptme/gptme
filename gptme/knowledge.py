@@ -98,7 +98,10 @@ def _load_entries() -> list[KnowledgeEntry]:
     if not path.exists():
         return []
     entries = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    # errors="replace" keeps a corrupted (non-UTF-8) store from crashing
+    # list/search/save; invalid bytes become U+FFFD and those lines fail
+    # json.loads and are skipped, matching the malformed-object policy.
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if line:
             try:
@@ -110,6 +113,20 @@ def _load_entries() -> list[KnowledgeEntry]:
     return entries
 
 
+def _load_entries_locked() -> list[KnowledgeEntry]:
+    """Load entries under the lock, falling back if the directory is read-only.
+
+    Search and list are read paths: a read-only knowledge directory (or a
+    lock file we cannot create) must still return stored entries rather than
+    raising PermissionError from opening the lock with mode ``"w"``.
+    """
+    try:
+        with _exclusive_lock():
+            return _load_entries()
+    except PermissionError:
+        return _load_entries()
+
+
 def _append_entry(entry: KnowledgeEntry) -> None:
     path = _entries_file()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -118,9 +135,19 @@ def _append_entry(entry: KnowledgeEntry) -> None:
 
 
 def _extract_keywords(text: str) -> list[str]:
-    """Extract unique words and numeric identifiers from text."""
+    """Extract unique words, numeric IDs, and underscore-delimited parts.
+
+    ``foo_bar`` yields ``foo_bar``, ``foo``, and ``bar`` so a query for the
+    common prefix ``foo`` still matches without falling back to substring
+    matching (which would also match ``git`` inside ``digit``).
+    """
     words = re.findall(r"[a-zA-Z0-9_]+", text.lower())
-    return list(dict.fromkeys(words))
+    parts: list[str] = []
+    for word in words:
+        parts.append(word)
+        if "_" in word:
+            parts.extend(part for part in word.split("_") if part)
+    return list(dict.fromkeys(parts))
 
 
 def knowledge_save(
@@ -181,27 +208,29 @@ def knowledge_search(
         raise ValueError("top_k must be at least 1")
 
     query_words = set(_extract_keywords(query))
-    with _exclusive_lock():
-        entries = _load_entries()
+    entries = _load_entries_locked()
 
-    # Tag filter
+    # Tag filter (strip to match knowledge_save's stored tags)
     if tags:
-        required = {t.lower() for t in tags}
-        entries = [
-            e
-            for e in entries
-            if required.issubset({t.lower() for t in e.get("tags", [])})
-        ]
+        required = {t.strip().lower() for t in tags if t.strip()}
+        if required:
+            entries = [
+                e
+                for e in entries
+                if required.issubset({t.lower() for t in e.get("tags", [])})
+            ]
 
     scored: list[tuple[int, KnowledgeEntry]] = []
     for entry in entries:
-        haystack = " ".join(
-            [entry.get("problem", ""), entry.get("resolution", "")]
-            + entry.get("tags", [])
-        ).lower()
-        score = sum(
-            1 for w in query_words if re.search(rf"\b{re.escape(w)}\b", haystack)
+        haystack_tokens = set(
+            _extract_keywords(
+                " ".join(
+                    [entry.get("problem", ""), entry.get("resolution", "")]
+                    + entry.get("tags", [])
+                )
+            )
         )
+        score = sum(1 for w in query_words if w in haystack_tokens)
         if score > 0:
             scored.append((score, entry))
 
@@ -222,15 +251,15 @@ def knowledge_list(
     Returns:
         Entries sorted by creation date descending.
     """
-    with _exclusive_lock():
-        entries = _load_entries()
+    entries = _load_entries_locked()
     if tags:
-        required = {t.lower() for t in tags}
-        entries = [
-            e
-            for e in entries
-            if required.issubset({t.lower() for t in e.get("tags", [])})
-        ]
+        required = {t.strip().lower() for t in tags if t.strip()}
+        if required:
+            entries = [
+                e
+                for e in entries
+                if required.issubset({t.lower() for t in e.get("tags", [])})
+            ]
     entries = sorted(entries, key=lambda e: e.get("created_at", ""), reverse=True)
     return entries[:limit]
 

@@ -199,6 +199,57 @@ def test_load_entries_skips_malformed_objects():
     assert knowledge_list() == [entry]
 
 
+def test_load_entries_tolerates_invalid_utf8():
+    from gptme.knowledge import _entries_file, knowledge_list, knowledge_save
+
+    entry = knowledge_save("valid problem", "valid resolution")
+    with _entries_file().open("ab") as f:
+        f.write(b"\xff\xfe not utf-8\n")
+
+    assert knowledge_list() == [entry]
+
+
+def test_search_matches_underscore_delimited_term():
+    from gptme.knowledge import knowledge_save, knowledge_search
+
+    entry = knowledge_save("foo_bar failure", "restart foo_bar")
+
+    assert knowledge_search("foo") == [entry]
+    assert knowledge_search("foo_bar") == [entry]
+    assert knowledge_search("digit") == []
+
+
+def test_search_does_not_match_embedded_substring():
+    from gptme.knowledge import knowledge_save, knowledge_search
+
+    knowledge_save("education catalog", "not a feline")
+
+    assert knowledge_search("cat") == []
+
+
+def test_search_and_list_when_lock_not_writable(monkeypatch):
+    import gptme.knowledge as knowledge
+
+    entry = knowledge.knowledge_save("readable problem", "readable resolution")
+
+    def deny_lock():
+        raise PermissionError("read-only knowledge directory")
+
+    monkeypatch.setattr(knowledge, "_exclusive_lock", deny_lock)
+
+    assert knowledge.knowledge_search("readable") == [entry]
+    assert knowledge.knowledge_list() == [entry]
+
+
+def test_search_and_list_strip_tag_filter():
+    from gptme.knowledge import knowledge_list, knowledge_save, knowledge_search
+
+    entry = knowledge_save("tagged problem", "tagged resolution", tags=["git"])
+
+    assert knowledge_search("tagged", tags=[" git "]) == [entry]
+    assert knowledge_list(tags=[" git "]) == [entry]
+
+
 # ---------------------------------------------------------------------------
 # CLI tests
 # ---------------------------------------------------------------------------
@@ -243,7 +294,7 @@ def test_cli_save_json_output():
 
 @pytest.mark.parametrize("command", ["save", "delete"])
 def test_cli_rag_index_oserror_is_nonfatal(monkeypatch, command):
-    from gptme.knowledge import knowledge_save
+    from gptme.knowledge import _knowledge_dir, knowledge_save
 
     monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
     monkeypatch.setattr("gptme.cli.cmd_knowledge._export_for_rag", lambda _: None)
@@ -257,6 +308,9 @@ def test_cli_rag_index_oserror_is_nonfatal(monkeypatch, command):
         result = runner.invoke(main, ["knowledge", "save", "problem", "resolution"])
     else:
         entry = knowledge_save("problem", "resolution")
+        # Re-index is skipped when rag/ does not exist; create it so this
+        # test still exercises the subprocess error path.
+        (_knowledge_dir() / "rag").mkdir(parents=True)
         result = runner.invoke(main, ["knowledge", "delete", entry["id"]])
 
     assert result.exit_code == 0, result.output
@@ -394,6 +448,22 @@ def test_cli_list_reports_io_error(monkeypatch):
     assert not isinstance(result.exception, OSError)
 
 
+def test_cli_list_reports_unicode_error(monkeypatch):
+    def fail(*args, **kwargs):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")
+
+    monkeypatch.setattr("gptme.knowledge.knowledge_list", fail)
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["knowledge", "list"])
+
+    assert result.exit_code != 0
+    assert "Error:" in result.output
+    assert result.exception is None or not isinstance(
+        result.exception, UnicodeDecodeError
+    )
+
+
 def test_cli_list_json():
     runner = CliRunner()
     runner.invoke(main, ["knowledge", "save", "list json problem", "resolution"])
@@ -453,3 +523,31 @@ def test_cli_delete_nonexistent():
     result = runner.invoke(main, ["knowledge", "delete", "nonexistent"])
     assert result.exit_code != 0
     assert "No entry found" in result.output
+
+
+def test_cli_delete_strips_control_characters_from_prefix():
+    runner = CliRunner()
+    result = runner.invoke(main, ["knowledge", "delete", "missing\x1b[2Jprefix"])
+
+    assert result.exit_code != 0
+    assert "\x1b" not in result.output
+    assert "No entry found" in result.output
+
+
+def test_cli_delete_skips_reindex_when_rag_dir_missing(monkeypatch):
+    from gptme.knowledge import knowledge_save
+
+    entry = knowledge_save("delete me", "resolution")
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+    calls = []
+    monkeypatch.setattr(
+        "gptme.cli.cmd_knowledge.subprocess.run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    result = CliRunner().invoke(main, ["knowledge", "delete", entry["id"]])
+
+    assert result.exit_code == 0, result.output
+    assert "Deleted" in result.output
+    assert calls == []
+    assert "re-index" not in result.output

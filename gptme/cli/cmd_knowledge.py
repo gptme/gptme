@@ -88,7 +88,7 @@ def knowledge_save_cmd(
         # rag directory should warn, not crash and mislead the user.
         try:
             _export_for_rag(kb_dir)
-        except OSError as e:
+        except (OSError, ValueError) as e:
             click.echo(f"Warning: gptme-rag mirror export failed: {e}", err=True)
         else:
             try:
@@ -200,7 +200,7 @@ def knowledge_list_cmd(tags: tuple[str, ...], limit: int, as_json: bool):
 
     try:
         entries = knowledge_list(tags=list(tags) if tags else None, limit=limit)
-    except OSError as e:
+    except (OSError, ValueError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -240,13 +240,14 @@ def knowledge_delete_cmd(entry_id: str):
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
+    safe_id = _strip_controls(entry_id)
     if status == "ambiguous":
-        click.echo(f"Ambiguous prefix '{entry_id}' — matches {len(matches)} entries:")
+        click.echo(f"Ambiguous prefix '{safe_id}' — matches {len(matches)} entries:")
         for m in matches:
             click.echo(f"  {m['id']}")
         sys.exit(1)
     if status == "not_found":
-        click.echo(f"No entry found with ID or prefix '{entry_id}'")
+        click.echo(f"No entry found with ID or prefix '{safe_id}'")
         sys.exit(1)
 
     # status == 'deleted'
@@ -268,12 +269,15 @@ def knowledge_delete_cmd(entry_id: str):
     except OSError as e:
         mirror_removed = False
         click.echo(f"Warning: could not remove mirror file {mirror}: {e}", err=True)
-    # Re-index only when the mirror is clean; otherwise indexing would preserve
-    # the deleted entry in semantic search.
-    if mirror_removed and shutil.which("gptme-rag"):
+    # Re-index only when the mirror is clean and the rag directory actually
+    # exists. unlink(missing_ok=True) succeeds when gptme-rag was never
+    # installed, so indexing a missing directory would only emit a misleading
+    # "re-index failed" warning after a successful JSONL delete.
+    rag_dir = _knowledge_dir() / "rag"
+    if mirror_removed and shutil.which("gptme-rag") and rag_dir.is_dir():
         try:
             subprocess.run(
-                ["gptme-rag", "index", str(_knowledge_dir() / "rag")],
+                ["gptme-rag", "index", str(rag_dir)],
                 check=True,
                 capture_output=True,
                 timeout=30,
