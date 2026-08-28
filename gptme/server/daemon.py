@@ -47,6 +47,13 @@ logger = logging.getLogger(__name__)
 
 # Output ring-buffer: send this many bytes of history to a newly attached client
 _OUTPUT_HISTORY_BYTES = 64 * 1024
+# Short polling timeout keeps disconnect and shutdown detection responsive.
+_CLIENT_READ_TIMEOUT = 0.2
+# Writes are bounded independently: large terminal output may legitimately take
+# longer than one read-poll interval, but a non-reading client cannot block a turn.
+_CLIENT_WRITE_TIMEOUT = 5.0
+# A queued second attach must fail instead of waiting forever for the only client slot.
+_ATTACH_HANDSHAKE_TIMEOUT = 2.0
 
 
 def get_daemon_dir() -> Path:
@@ -255,6 +262,7 @@ class SessionDaemon:
     def _publish_output(self, chunk: bytes, text: str | None = None) -> None:
         if text is None:
             text = chunk.decode("utf-8", errors="replace")
+        failed_client: socket.socket | None = None
         with self._output_lock:
             if text:
                 self._output_buf.append(text)
@@ -264,13 +272,14 @@ class SessionDaemon:
                     self._output_buf_size -= len(dropped.encode())
 
             if self._client is not None and text:
-                try:
-                    send_msg(
-                        self._client,
-                        IPCMessage(type="output", data=text),
-                    )
-                except OSError:
+                if not self._write_client(
+                    self._client, IPCMessage(type="output", data=text)
+                ):
+                    failed_client = self._client
                     self._client = None
+
+        if failed_client is not None:
+            self._disconnect_client(failed_client)
 
     def _accept_loop(self, server_sock: socket.socket) -> None:
         """Accept one client at a time while the daemon remains alive."""
@@ -302,24 +311,18 @@ class SessionDaemon:
 
     def _serve_client(self, client: socket.socket) -> None:
         """Replay output history, then queue prompts received from the client."""
-        # Bound every write, including the initial handshake and history replay.
-        # A client that connects without reading must not stall the daemon worker.
-        client.settimeout(0.2)
+        client.settimeout(_CLIENT_READ_TIMEOUT)
         # Publish the client only after history is fully sent.  Holding the same
         # lock used by _publish_output makes history-before-live ordering atomic.
         with self._output_lock:
             history = "".join(self._output_buf)
-            try:
-                send_msg(
-                    client,
-                    IPCMessage(type="status", data={"ready": True}),
-                )
-                if history:
-                    send_msg(
-                        client,
-                        IPCMessage(type="output", data=history),
-                    )
-            except OSError:
+            if not self._write_client(
+                client, IPCMessage(type="status", data={"ready": True})
+            ):
+                return
+            if history and not self._write_client(
+                client, IPCMessage(type="output", data=history)
+            ):
                 return
             self._client = client
 
@@ -363,12 +366,33 @@ class SessionDaemon:
                 break
 
     def _send_to_client(self, client: socket.socket, msg: IPCMessage) -> None:
+        failed = False
         with self._output_lock:
-            if self._client is client:
-                try:
-                    send_msg(client, msg)
-                except OSError:
-                    self._client = None
+            if self._client is client and not self._write_client(client, msg):
+                self._client = None
+                failed = True
+        if failed:
+            self._disconnect_client(client)
+
+    @staticmethod
+    def _write_client(client: socket.socket, msg: IPCMessage) -> bool:
+        """Send one frame with a write-specific timeout."""
+        client.settimeout(_CLIENT_WRITE_TIMEOUT)
+        try:
+            send_msg(client, msg)
+        except OSError:
+            return False
+        finally:
+            client.settimeout(_CLIENT_READ_TIMEOUT)
+        return True
+
+    @staticmethod
+    def _disconnect_client(client: socket.socket) -> None:
+        """Wake the synchronous client loop after a write failure."""
+        try:
+            client.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
 
     def _cleanup(self) -> None:
         self.socket_path.unlink(missing_ok=True)
@@ -419,8 +443,15 @@ def attach(session_name: str) -> None:
         raise FileNotFoundError(f"No daemon socket for session '{session_name}'")
 
     conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn.settimeout(_ATTACH_HANDSHAKE_TIMEOUT)
     conn.connect(str(sock_path))
-    ready = recv_msg(conn)
+    try:
+        ready = recv_msg(conn)
+    except TimeoutError as exc:
+        conn.close()
+        raise TimeoutError(
+            f"Daemon '{session_name}' already has an attached client"
+        ) from exc
     if (
         ready is None
         or ready.type != "status"
@@ -429,6 +460,7 @@ def attach(session_name: str) -> None:
     ):
         conn.close()
         raise ConnectionResetError(f"Daemon '{session_name}' closed during attach")
+    conn.settimeout(None)
 
     stop_event = threading.Event()
 

@@ -399,7 +399,9 @@ class TestPersistentTurnLifecycle:
             thread.join(timeout=1)
             server.close()
 
-    def test_client_writes_have_timeout_before_handshake(self, monkeypatch):
+    def test_client_uses_distinct_write_and_read_timeouts(self, monkeypatch):
+        from gptme.server import daemon as daemon_module
+
         daemon = SessionDaemon("bounded-writes")
         server, client = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
         observed_timeouts: list[float | None] = []
@@ -414,10 +416,35 @@ class TestPersistentTurnLifecycle:
             thread = threading.Thread(target=daemon._serve_client, args=(server,))
             thread.start()
             assert recv_msg(client) is not None
-            assert observed_timeouts[0] is not None
+            assert observed_timeouts[0] == daemon_module._CLIENT_WRITE_TIMEOUT
+            assert server.gettimeout() == daemon_module._CLIENT_READ_TIMEOUT
+            daemon._publish_output(b"live")
+            assert recv_msg(client) is not None
+            assert observed_timeouts[-1] == daemon_module._CLIENT_WRITE_TIMEOUT
+            assert server.gettimeout() == daemon_module._CLIENT_READ_TIMEOUT
         finally:
             client.close()
             thread.join(timeout=1)
+            server.close()
+
+    def test_live_write_failure_disconnects_served_client(self, monkeypatch):
+        daemon = SessionDaemon("failed-write")
+        server, client = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        thread = threading.Thread(target=daemon._serve_client, args=(server,))
+        thread.start()
+        assert recv_msg(client) is not None
+
+        def fail_send(_sock, _msg):
+            raise TimeoutError
+
+        monkeypatch.setattr("gptme.server.daemon.send_msg", fail_send)
+        daemon._publish_output(b"blocked")
+        thread.join(timeout=1)
+        try:
+            assert not thread.is_alive()
+            assert daemon._client is None
+        finally:
+            client.close()
             server.close()
 
     def test_accept_loop_retries_interrupted_select(self, monkeypatch):
@@ -521,6 +548,21 @@ class _EchoDaemonThread(threading.Thread):
 
 class TestAttachProtocol:
     """Test the attach protocol against a mock daemon (no real gptme subprocess)."""
+
+    def test_attach_times_out_when_client_slot_is_occupied(self, tmp_path, monkeypatch):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        monkeypatch.setattr(_dm, "_ATTACH_HANDSHAKE_TIMEOUT", 0.01)
+        sock_path = tmp_path / "occupied.socket"
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(sock_path))
+        server.listen(1)
+        try:
+            with pytest.raises(TimeoutError, match="already has an attached client"):
+                attach("occupied")
+        finally:
+            server.close()
 
     def test_attach_reports_socket_closed_before_handshake(self, tmp_path, monkeypatch):
         from gptme.server import daemon as _dm
@@ -664,6 +706,21 @@ class TestListDaemons:
 
 
 class TestDaemonCLI:
+    @pytest.mark.parametrize("command", ["start", "attach", "stop", "status"])
+    def test_commands_reject_invalid_session_cleanly(self, command):
+        from click.testing import CliRunner
+
+        from gptme.cli.cmd_daemon import cli
+
+        args = [command, "foo/bar"]
+        if command == "start":
+            args = [command, "--session", "foo/bar"]
+        result = CliRunner().invoke(cli, args)
+        assert result.exit_code == 2
+        assert "Invalid value" in result.output
+        assert "single path component" in result.output
+        assert "Traceback" not in result.output
+
     def test_attach_can_disable_auto_start(self):
         from click.testing import CliRunner
 

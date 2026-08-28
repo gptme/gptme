@@ -23,6 +23,22 @@ import click
 logger = logging.getLogger(__name__)
 
 
+class SessionName(click.ParamType):
+    """Click type for daemon session names stored as path components."""
+
+    name = "TEXT"
+
+    def convert(self, value, param, ctx):
+        from ..util.conversation_ids import conversation_id_error
+
+        if error := conversation_id_error(value):
+            self.fail(error, param, ctx)
+        return value
+
+
+_SESSION_NAME = SessionName()
+
+
 @click.group("daemon")
 def cli() -> None:
     """Manage persistent background gptme sessions."""
@@ -33,6 +49,7 @@ def cli() -> None:
     "--session",
     "-s",
     default=None,
+    type=_SESSION_NAME,
     help="Session name (defaults to a timestamp-based name)",
 )
 @click.option("--model", "-m", default=None, help="Model to use")
@@ -91,7 +108,7 @@ def start(
 
 
 @cli.command("attach")
-@click.argument("session")
+@click.argument("session", type=_SESSION_NAME)
 @click.option(
     "--start-if-missing/--no-start-if-missing",
     default=True,
@@ -136,10 +153,8 @@ def attach_cmd(session: str, start_if_missing: bool) -> None:
     except FileNotFoundError as e:
         click.echo(str(e), err=True)
         raise SystemExit(1) from e
-    except (ConnectionRefusedError, ConnectionResetError) as e:
-        click.echo(
-            f"Could not connect to daemon '{session}'. It may have exited.", err=True
-        )
+    except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as e:
+        click.echo(f"Could not attach to daemon '{session}': {e}", err=True)
         raise SystemExit(1) from e
 
 
@@ -169,7 +184,7 @@ def list_cmd(as_json: bool) -> None:
 
 
 @cli.command("stop")
-@click.argument("session")
+@click.argument("session", type=_SESSION_NAME)
 def stop_cmd(session: str) -> None:
     """Stop a running daemon session (sends SIGTERM)."""
     from ..server.daemon import SessionDaemon
@@ -184,7 +199,7 @@ def stop_cmd(session: str) -> None:
 
 
 @cli.command("status")
-@click.argument("session")
+@click.argument("session", type=_SESSION_NAME)
 def status_cmd(session: str) -> None:
     """Show status of a daemon session."""
     from ..server.daemon import SessionDaemon, get_socket_path
