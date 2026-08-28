@@ -282,6 +282,28 @@ def test_cli_human_output_strips_control_characters():
     assert "\x1b" not in list_result.output
 
 
+def test_cli_save_skips_index_when_mirror_export_fails(monkeypatch):
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+
+    def fail_export(*args, **kwargs):
+        raise PermissionError("cannot write mirror")
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge._export_for_rag", fail_export)
+    calls = []
+    monkeypatch.setattr(
+        "gptme.cli.cmd_knowledge.subprocess.run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    result = CliRunner().invoke(
+        main, ["knowledge", "save", "saved problem", "saved resolution"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "mirror export failed" in result.output
+    assert calls == []
+
+
 def test_cli_list():
     runner = CliRunner()
     runner.invoke(main, ["knowledge", "save", "listed problem", "listed resolution"])

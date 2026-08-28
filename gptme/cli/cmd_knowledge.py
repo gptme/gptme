@@ -90,15 +90,20 @@ def knowledge_save_cmd(
             _export_for_rag(kb_dir)
         except OSError as e:
             click.echo(f"Warning: gptme-rag mirror export failed: {e}", err=True)
-        try:
-            subprocess.run(
-                ["gptme-rag", "index", str(kb_dir / "rag")],
-                check=True,
-                capture_output=True,
-                timeout=30,
-            )
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            click.echo(f"Warning: gptme-rag index failed: {e}", err=True)
+        else:
+            try:
+                subprocess.run(
+                    ["gptme-rag", "index", str(kb_dir / "rag")],
+                    check=True,
+                    capture_output=True,
+                    timeout=30,
+                )
+            except (
+                OSError,
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+            ) as e:
+                click.echo(f"Warning: gptme-rag index failed: {e}", err=True)
 
 
 def _export_for_rag(kb_dir: Path) -> None:
