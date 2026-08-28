@@ -48,19 +48,19 @@ def test_invalid_max_retries_falls_back_to_default(monkeypatch, value):
     assert get_max_retries() == DEFAULT_MAX_RETRIES
 
 
-def test_openai_client_has_sdk_retries_disabled(monkeypatch):
-    """get_client() must hand back a client that does not retry on its own."""
-    from openai import OpenAI
-
+def test_openai_lazy_client_materializes_with_sdk_retries_disabled(monkeypatch):
+    """The production lazy-client path must disable retries before construction."""
+    from gptme.config import Config
     from gptme.llm import llm_openai
 
-    # A client built the naive way retries twice per request by default
-    naive = OpenAI(api_key="test-key")
-    assert naive.max_retries > 0
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delitem(llm_openai.clients, "openai", raising=False)
+    llm_openai.init("openai", Config())
 
-    monkeypatch.setitem(llm_openai.clients, "openai", OpenAI(api_key="test-key"))
     client = llm_openai.get_client("openai")
-    assert client.max_retries == SDK_MAX_RETRIES
+    assert isinstance(client, llm_openai._LazyClient)
+    assert client._kwargs["max_retries"] == SDK_MAX_RETRIES
+    assert client._materialize().max_retries == SDK_MAX_RETRIES
 
 
 def test_anthropic_clients_have_sdk_retries_disabled():

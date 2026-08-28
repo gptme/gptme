@@ -99,6 +99,7 @@ def _lazy_client_factory(cls_name: str):
     """Return an ``OpenAI``/``AzureOpenAI``-like constructor that defers SDK import."""
 
     def factory(**kwargs: Any) -> OpenAI:
+        kwargs.setdefault("max_retries", SDK_MAX_RETRIES)
         return cast("OpenAI", _LazyClient(cls_name, kwargs))
 
     return factory
@@ -646,12 +647,7 @@ def get_client(provider: Provider) -> OpenAI:
     """Get client for specific provider, initializing if needed."""
     if provider not in clients:
         init(provider, get_config())
-    client = clients[provider]
-    # gptme's retry decorators own the retry policy; leaving the SDK's own
-    # retries enabled multiplies attempts (sdk_retries * max_retries) and makes
-    # the effective backoff schedule unpredictable. See retry_policy.
-    client.max_retries = SDK_MAX_RETRIES
-    return client
+    return clients[provider]
 
 
 def has_client(provider: Provider) -> bool:
