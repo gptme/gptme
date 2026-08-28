@@ -95,6 +95,7 @@ class SessionDaemon:
         self._proc_lock = threading.Lock()
         self._proc: subprocess.Popen[bytes] | None = None
         self._pid_file: IO[str] | None = None
+        self._owns_paths = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -162,6 +163,7 @@ class SessionDaemon:
         pid_file.write(str(os.getpid()))
         pid_file.flush()
         self._pid_file = pid_file
+        self._owns_paths = True
 
     def _run(self, gptme_args: list[str], prompts: list[str]) -> None:
         self._acquire_pid_file()
@@ -395,11 +397,16 @@ class SessionDaemon:
             pass
 
     def _cleanup(self) -> None:
+        # A child that lost PID-file lock acquisition must not remove paths owned
+        # by the competing daemon that won the same-session startup race.
+        if not self._owns_paths:
+            return
         self.socket_path.unlink(missing_ok=True)
         if self._pid_file is not None:
             self._pid_file.close()
             self._pid_file = None
             self.pid_path.unlink(missing_ok=True)
+        self._owns_paths = False
 
 
 # ---------------------------------------------------------------------------

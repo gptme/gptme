@@ -266,6 +266,24 @@ class TestSessionDaemonState:
             d._cleanup()
             _dm.get_daemon_dir = orig
 
+    def test_failed_competing_start_does_not_remove_owner_paths(
+        self, tmp_path, monkeypatch
+    ):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        owner = SessionDaemon("racing")
+        contender = SessionDaemon("racing")
+        owner._acquire_pid_file()
+        owner.socket_path.touch()
+        try:
+            contender.start([], daemonize=False)
+            assert owner.pid_path.exists()
+            assert owner.socket_path.exists()
+            assert owner.is_running()
+        finally:
+            owner._cleanup()
+
 
 # ---------------------------------------------------------------------------
 # Persistent turn lifecycle
