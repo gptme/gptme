@@ -3176,9 +3176,13 @@ class TestParentContextForwarding:
         assert captured_parent_msgs[0] is None
         assert any("context_turns" in r.message for r in caplog.records)
 
-        # Cleanup
+        # Join the background thread before removing it from _subagents so
+        # cleanup_subagents_after can't miss it and leave a leaked thread that
+        # races the next test's setup via lazy-import sys.modules mutations.
         with _subagents_lock:
-            _subagents[:] = [s for s in _subagents if s.agent_id != "test-no-log"]
+            _sa = next((s for s in _subagents if s.agent_id == "test-no-log"), None)
+        if _sa and _sa.thread:
+            _sa.thread.join(timeout=2.0)
 
     def test_context_turns_slices_log(self, monkeypatch):
         """context_turns=2 forwards the last 2 turns (from 2nd-to-last user msg onward)."""
@@ -3225,9 +3229,11 @@ class TestParentContextForwarding:
         assert captured[0][0].content == "turn 2 user"
         assert captured[0][-1].content == "turn 3 assistant"
 
-        # Cleanup
+        # Join the background thread before cleanup_subagents_after can miss it.
         with _subagents_lock:
-            _subagents[:] = [s for s in _subagents if s.agent_id != "test-slice"]
+            _sa = next((s for s in _subagents if s.agent_id == "test-slice"), None)
+        if _sa and _sa.thread:
+            _sa.thread.join(timeout=2.0)
 
     def test_context_turns_slices_log_with_tool_results(self, monkeypatch):
         """context_turns correctly includes tool-result system msgs within a turn."""
@@ -3274,9 +3280,11 @@ class TestParentContextForwarding:
         assert captured[0][0].content == "turn 1 user"
         assert captured[0][-1].content == "turn 2 assistant"
 
-        # Cleanup
+        # Join the background thread before cleanup_subagents_after can miss it.
         with _subagents_lock:
-            _subagents[:] = [s for s in _subagents if s.agent_id != "test-slice-tool"]
+            _sa = next((s for s in _subagents if s.agent_id == "test-slice-tool"), None)
+        if _sa and _sa.thread:
+            _sa.thread.join(timeout=2.0)
 
     def test_context_turns_none_passes_none(self, monkeypatch):
         """context_turns=None (default) passes parent_messages=None to thread."""
@@ -3301,9 +3309,11 @@ class TestParentContextForwarding:
         assert len(captured) == 1
         assert captured[0] is None
 
-        # Cleanup
+        # Join the background thread before cleanup_subagents_after can miss it.
         with _subagents_lock:
-            _subagents[:] = [s for s in _subagents if s.agent_id != "test-none-turns"]
+            _sa = next((s for s in _subagents if s.agent_id == "test-none-turns"), None)
+        if _sa and _sa.thread:
+            _sa.thread.join(timeout=2.0)
 
     def test_context_turns_fallback_skips_leading_system_messages(self, monkeypatch):
         """When context_turns exceeds available turns, fallback starts at first user msg.
@@ -3354,11 +3364,14 @@ class TestParentContextForwarding:
         assert captured[0][0].role == "user"
         assert len(captured[0]) == 2  # user + assistant only
 
-        # Cleanup
+        # Join the background thread before cleanup_subagents_after can miss it.
         with _subagents_lock:
-            _subagents[:] = [
-                s for s in _subagents if s.agent_id != "test-fallback-skip-system"
-            ]
+            _sa = next(
+                (s for s in _subagents if s.agent_id == "test-fallback-skip-system"),
+                None,
+            )
+        if _sa and _sa.thread:
+            _sa.thread.join(timeout=2.0)
 
 
 # ---------------------------------------------------------------------------
