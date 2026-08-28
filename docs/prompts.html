@@ -805,7 +805,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f673fc7bce0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fd396b83ce0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1336,6 +1336,14 @@ The following Python functions are available:
 <span class="sb">```ipython</span>
 <span class="n">computer</span><span class="p">(</span><span class="s2">&quot;key&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">&quot;ctrl+t&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
+
+<span class="gu">## convert</span>
+
+<span class="gs">**Description:**</span> Convert a file to another format using offline system tools
+
+<span class="gs">**Instructions:**</span> Use this tool when a workflow needs a file in a different format: render a PDF to images for visual inspection, extract text from a document for summarization, make a video thumbnail, or reformat an image. It runs fully offline, falling back gracefully when a specific converter is unavailable.
+
+Choose the destination format by the <span class="sb">`output_path`</span> extension (e.g. <span class="sb">`.png`</span>, <span class="sb">`.jpg`</span>, <span class="sb">`.txt`</span>, <span class="sb">`.md`</span>). Set <span class="sb">`quality`</span> to low/medium/high when the conversion supports it, and pass <span class="sb">`dry_run`</span> = true to see the converter plan first. For a new conversion, dry-run before executing to confirm the chain is available.
 
 <span class="gu">## elicit</span>
 
@@ -2922,7 +2930,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 19581</p>
+<p>Tokens: 19736</p>
 </dd></dl>
 
 <dl class="py function">
