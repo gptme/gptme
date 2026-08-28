@@ -2475,6 +2475,22 @@ def test_normalize_tool_allowlist_unavailable_builtin_raises_not_shadowed(
         _normalize_tool_allowlist(["read"], workspace=tmp_path)
 
 
+def test_resolve_manifest_aliases_passes_through_dotted_mcp_name(tmp_path: Path):
+    """Direct MCP names cannot be shadowed by same-named workspace aliases."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"github.search_code",'
+        '"tools":[{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert (
+        _resolve_manifest_aliases("github.search_code", tmp_path)
+        == "github.search_code"
+    )
+
+
 def test_normalize_tool_allowlist_builtin_tools_preset_preserved(tmp_path: Path):
     """Preset names in manifest builtin_tools survive _normalize_tool_allowlist.
 
