@@ -208,3 +208,28 @@ def test_accumulator_isolated_across_chat_contexts():
         child_context.run(run_child)
 
     assert _get_session_tokens() == 120
+
+
+def test_log_token_usage_survives_len_tokens_error():
+    """_log_token_usage never raises; errors are swallowed so the chat loop continues."""
+    with patch.object(
+        chat_module, "len_tokens", side_effect=ValueError("unsupported model")
+    ):
+        # Must not raise — informational display errors must not crash the main loop.
+        _log_token_usage(
+            [Message("user", "hi")], Message("assistant", "ok"), "unknown/model"
+        )
+    # Accumulator stays at 0 (not incremented on error).
+    assert _get_session_tokens() == 0
+
+
+def test_log_token_usage_survives_get_model_error():
+    """_log_token_usage survives get_model() raising (e.g. unknown model registry)."""
+    with (
+        patch.object(chat_module, "len_tokens", side_effect=[10, 5]),
+        patch.object(chat_module, "get_model", side_effect=KeyError("unknown model")),
+    ):
+        # Must not raise.
+        _log_token_usage(
+            [Message("user", "hi")], Message("assistant", "ok"), "unknown/model"
+        )
