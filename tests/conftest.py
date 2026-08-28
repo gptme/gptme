@@ -16,6 +16,10 @@ from pathlib import Path
 
 import pytest
 import requests
+
+# Hook implementation lives in its own module so the regression test can load
+# the exact shipped code via `-p retry_compat` instead of a copy.
+from retry_compat import pytest_runtest_teardown  # noqa: F401
 from thread_leak import (
     diff_threads,
     format_leaks,
