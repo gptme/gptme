@@ -80,6 +80,17 @@ class TestSearchAlias:
         mock_search.assert_not_called()
         assert "{" in result.output or "version" in result.output.lower()
 
+    def test_search_suppressed_after_double_dash(self, runner: CliRunner):
+        """gptme -- search treats search as a prompt, not the search alias."""
+        with (
+            patch("gptme.tools.chats.search_chats") as mock_search,
+            patch("gptme.cli.main.shutil.which", return_value=None),
+            patch.object(importlib.import_module("gptme.chat"), "chat"),
+        ):
+            result = runner.invoke(main, ["--", "search"])
+        assert result.exit_code == 0
+        mock_search.assert_not_called()
+
 
 class TestPluginDispatch:
     def test_plugin_found_in_path_is_executed(self, runner: CliRunner):
@@ -277,20 +288,15 @@ class TestUtilSubcommandMirroring:
             ["/usr/local/bin/gptme-util", "chats", "list", "--help"]
         )
 
-    def test_util_subcmd_after_double_dash_suppresses_dispatch(self, runner: CliRunner):
-        """gptme -- chats list sets util_dispatch_suppressed in ctx.meta.
+    def test_util_subcmd_after_double_dash_suppresses_dispatch(self):
+        """The '--' sentinel suppresses utility dispatch.
 
-        '--' is the POSIX end-of-options sentinel: everything after it is treated
-        as a literal prompt, not as a utility shortcut (same intuition as '-' for
-        multi-prompt chaining).  parse_args sets util_dispatch_suppressed so
-        main() skips the UTIL_SUBCOMMANDS check.
-
-        We test parse_args via make_context (which runs parse_args but NOT the
+        We test parse_args via make_context (which runs parse_args but not the
         main() body) to avoid triggering LLM initialisation in the test.
         """
         with patch("gptme.cli.main.shutil.which", return_value=None):
             ctx = main.make_context("gptme", ["--", "chats", "list"])
-        assert ctx.meta.get("util_dispatch_suppressed", False)
+        assert ctx.meta.get("shortcut_dispatch_suppressed", False)
 
     def test_util_subcmd_after_unknown_option_does_not_dispatch(
         self, runner: CliRunner
@@ -302,7 +308,10 @@ class TestUtilSubcommandMirroring:
         enabling util dispatch, so allow_interspersed_args stays True and
         --help fires as an eager option showing gptme's top-level help.
         """
-        with patch("gptme.cli.main.subprocess.call") as mock_call:
+        with (
+            patch("gptme.cli.main.shutil.which", return_value=None),
+            patch("gptme.cli.main.subprocess.call") as mock_call,
+        ):
             result = runner.invoke(main, ["--bogus", "chats", "list", "--help"])
         assert "Usage:" in result.output
         assert result.exit_code == 0
@@ -312,7 +321,10 @@ class TestUtilSubcommandMirroring:
         self, runner: CliRunner
     ):
         """gptme -x chats list --help shows gptme help, not gptme-util."""
-        with patch("gptme.cli.main.subprocess.call") as mock_call:
+        with (
+            patch("gptme.cli.main.shutil.which", return_value=None),
+            patch("gptme.cli.main.subprocess.call") as mock_call,
+        ):
             result = runner.invoke(main, ["-x", "chats", "list", "--help"])
         assert "Usage:" in result.output
         assert result.exit_code == 0

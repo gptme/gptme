@@ -122,8 +122,8 @@ class _DynamicHelpCommand(click.Command):
             if a == "--":
                 # '--' is the POSIX end-of-options sentinel: the user wants
                 # everything after it treated as literal prompts, not as a
-                # utility shortcut.  Signal main() to skip util dispatch.
-                ctx.meta["util_dispatch_suppressed"] = True
+                # utility shortcut. Signal main() to suppress all shortcut dispatch.
+                ctx.meta["shortcut_dispatch_suppressed"] = True
                 break
             if a == "-":
                 # '-' is gptme's MULTIPROMPT_SEPARATOR, not an option prefix.
@@ -843,9 +843,17 @@ def main(
 ):
     """Main entrypoint for the CLI."""
     show_version = version or version_json
+    dispatch_suppressed = click.get_current_context().meta.get(
+        "shortcut_dispatch_suppressed", False
+    )
 
     # Dispatch: `gptme search QUERY` → chats search (discoverability alias)
-    if prompts and prompts[0] == "search" and not show_version:
+    if (
+        prompts
+        and prompts[0] == "search"
+        and not show_version
+        and not dispatch_suppressed
+    ):
         from ..tools.chats import search_chats  # fmt: skip
 
         query = " ".join(prompts[1:]).strip()
@@ -864,10 +872,7 @@ def main(
     if prompts and not show_version:
         from .util import UTIL_SUBCOMMANDS  # cheap: just a sorted list constant
 
-        _ctx = click.get_current_context()
-        if prompts[0] in UTIL_SUBCOMMANDS and not _ctx.meta.get(
-            "util_dispatch_suppressed", False
-        ):
+        if prompts[0] in UTIL_SUBCOMMANDS and not dispatch_suppressed:
             if util_exec := shutil.which("gptme-util"):
                 sys.exit(subprocess.call([util_exec, *prompts]))
             else:
@@ -881,11 +886,7 @@ def main(
     # Plugin dispatch: `gptme CMD [args...]` → `gptme-CMD [args...]` if installed
     # Enables extensibility: `gptme sessions` works if gptme-sessions is in PATH.
     # Suppressed after '--' for the same literal-prompt semantics as util dispatch.
-    if (
-        prompts
-        and not show_version
-        and not _ctx.meta.get("util_dispatch_suppressed", False)
-    ):
+    if prompts and not show_version and not dispatch_suppressed:
         plugin = f"gptme-{prompts[0]}"
         if plugin_path := shutil.which(plugin):
             sys.exit(subprocess.call([plugin_path, *prompts[1:]]))
