@@ -29,6 +29,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
 from typing import TYPE_CHECKING
 
@@ -54,6 +55,9 @@ _CLIENT_READ_TIMEOUT = 0.2
 _CLIENT_WRITE_TIMEOUT = 5.0
 # A queued second attach must fail instead of waiting forever for the only client slot.
 _ATTACH_HANDSHAKE_TIMEOUT = 2.0
+# stop() must outwait worker.join(timeout=5) plus path-unlink slack so the CLI
+# does not report success while the daemon is still discoverable.
+_STOP_TEARDOWN_TIMEOUT = 6.0
 
 
 def get_daemon_dir() -> Path:
@@ -138,7 +142,7 @@ class SessionDaemon:
             pid_file.close()
 
     def stop(self) -> None:
-        """Stop the daemon via a pinned pidfd, else a socket SIGTERM frame.
+        """Stop the daemon and wait until it releases its owned paths.
 
         Never ``os.kill`` a numeric PID: without pidfd that can hit a reused
         process. The socket path talks to the listening daemon instead.
@@ -159,7 +163,9 @@ class SessionDaemon:
         except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError):
             pass
         if not signaled:
-            _stop_via_socket(self.socket_path)
+            signaled = _stop_via_socket(self.socket_path)
+        if signaled:
+            _wait_for_daemon_stop(self.pid_path, self.socket_path)
 
     # ------------------------------------------------------------------
     # Internal — runs in the daemon process
@@ -610,13 +616,20 @@ def _pid_fd_matches_path(pid_file: IO[str], path: Path) -> bool:
     return (fd_stat.st_dev, fd_stat.st_ino) == (path_stat.st_dev, path_stat.st_ino)
 
 
-def _stop_via_socket(sock_path: Path) -> None:
-    """Ask the listening daemon to stop without signaling a numeric PID."""
+def _stop_via_socket(sock_path: Path) -> bool:
+    """Ask the listening daemon to stop without signaling a numeric PID.
+
+    Returns True if the SIGTERM frame was written. Receive timeout is
+    swallowed: teardown is observed by ``_wait_for_daemon_stop``, not by
+    the two-second handshake window.
+    """
     conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     conn.settimeout(_ATTACH_HANDSHAKE_TIMEOUT)
+    sent = False
     try:
         conn.connect(str(sock_path))
         send_msg(conn, IPCMessage(type="signal", data={"signal": "SIGTERM"}))
+        sent = True
         # Keep the receive half open until the daemon consumes the signal.  A
         # regular client slot sends its ready frame before reading the signal;
         # closing here could make that write fail and discard the stop request.
@@ -627,6 +640,16 @@ def _stop_via_socket(sock_path: Path) -> None:
         pass
     finally:
         conn.close()
+    return sent
+
+
+def _wait_for_daemon_stop(pid_path: Path, sock_path: Path) -> None:
+    """Wait for teardown so a successful stop permits an immediate restart."""
+    deadline = time.monotonic() + _STOP_TEARDOWN_TIMEOUT
+    while pid_path.exists() or sock_path.exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Daemon did not stop in time")
+        time.sleep(0.05)
 
 
 def _pid_file_lock_held(pid_file: IO[str]) -> bool:

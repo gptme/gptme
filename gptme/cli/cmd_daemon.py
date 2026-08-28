@@ -194,7 +194,11 @@ def stop_cmd(session: str) -> None:
         click.echo(f"Daemon '{session}' is not running.", err=True)
         raise SystemExit(1)
 
-    daemon.stop()
+    try:
+        daemon.stop()
+    except TimeoutError as e:
+        click.echo(f"Timed out waiting for daemon '{session}' to stop.", err=True)
+        raise SystemExit(1) from e
     click.echo(f"Stopped daemon '{session}'.")
 
 

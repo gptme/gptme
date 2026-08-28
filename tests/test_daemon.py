@@ -278,6 +278,7 @@ class TestSessionDaemonState:
                 observed.append((pidfd, signum))
             finally:
                 probe.close()
+            owner._cleanup()
 
         monkeypatch.setattr(_dm, "_pidfd_open", lambda _pid: 99)
         monkeypatch.setattr(_dm, "_pidfd_send_signal", record_send)
@@ -315,6 +316,7 @@ class TestSessionDaemonState:
                 send_msg(conn, IPCMessage(type="status", data={"stopping": True}))
             finally:
                 conn.close()
+                owner._cleanup()
 
         thread = threading.Thread(target=accept_stop)
         thread.start()
@@ -323,6 +325,74 @@ class TestSessionDaemonState:
             thread.join(timeout=2)
             assert received == ["signal"]
         finally:
+            sock.close()
+            owner._cleanup()
+
+    def test_stop_waits_for_daemon_teardown(self, tmp_path, monkeypatch):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        monkeypatch.setattr(_dm, "_pidfd_open", lambda _pid: None)
+        owner = SessionDaemon("slow-stop")
+        owner._acquire_pid_file()
+        owner.socket_path.touch()
+        release = threading.Event()
+
+        def request_stop(_sock_path) -> bool:
+            def teardown() -> None:
+                release.wait()
+                owner._cleanup()
+
+            threading.Thread(target=teardown).start()
+            return True
+
+        monkeypatch.setattr(_dm, "_stop_via_socket", request_stop)
+        stopped = threading.Event()
+
+        def run_stop() -> None:
+            SessionDaemon("slow-stop").stop()
+            stopped.set()
+
+        thread = threading.Thread(target=run_stop)
+        thread.start()
+        try:
+            assert not stopped.wait(timeout=0.1)
+            release.set()
+            assert stopped.wait(timeout=1)
+        finally:
+            release.set()
+            thread.join(timeout=1)
+            owner._cleanup()
+
+    def test_stop_times_out_if_teardown_never_happens(self, tmp_path, monkeypatch):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        monkeypatch.setattr(_dm, "_pidfd_open", lambda _pid: None)
+        monkeypatch.setattr(_dm, "_STOP_TEARDOWN_TIMEOUT", 0.2)
+        owner = SessionDaemon("stuck-stop")
+        owner._acquire_pid_file()
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        if owner.socket_path.exists():
+            owner.socket_path.unlink()
+        sock.bind(str(owner.socket_path))
+        sock.listen(1)
+
+        def accept_stop() -> None:
+            conn, _ = sock.accept()
+            try:
+                recv_msg(conn)
+                send_msg(conn, IPCMessage(type="status", data={"stopping": True}))
+            finally:
+                conn.close()
+
+        thread = threading.Thread(target=accept_stop)
+        thread.start()
+        try:
+            with pytest.raises(TimeoutError, match="did not stop"):
+                SessionDaemon("stuck-stop").stop()
+        finally:
+            thread.join(timeout=1)
             sock.close()
             owner._cleanup()
 
@@ -335,12 +405,13 @@ class TestSessionDaemonState:
         owner.socket_path.touch()
         sent: list[tuple[int, int]] = []
         real_close = os.close
+
+        def record_and_teardown(pidfd: int, signum: int) -> None:
+            sent.append((pidfd, signum))
+            owner._cleanup()
+
         monkeypatch.setattr(_dm, "_pidfd_open", lambda _pid: 99)
-        monkeypatch.setattr(
-            _dm,
-            "_pidfd_send_signal",
-            lambda pidfd, signum: sent.append((pidfd, signum)),
-        )
+        monkeypatch.setattr(_dm, "_pidfd_send_signal", record_and_teardown)
         monkeypatch.setattr(
             os, "close", lambda fd: None if fd == 99 else real_close(fd)
         )
@@ -687,7 +758,14 @@ class TestPersistentTurnLifecycle:
         server_sock.bind(str(daemon.socket_path))
         server_sock.listen(2)
         server_sock.setblocking(False)
-        loop = threading.Thread(target=daemon._accept_loop, args=(server_sock,))
+
+        def run_loop() -> None:
+            try:
+                daemon._accept_loop(server_sock)
+            finally:
+                daemon._cleanup()
+
+        loop = threading.Thread(target=run_loop)
         loop.start()
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         client.settimeout(2)
@@ -1102,3 +1180,23 @@ class TestDaemonCLI:
             assert result.exit_code != 0  # exits 1 when not running
         finally:
             _dm.get_daemon_dir = orig
+
+    def test_stop_command_does_not_claim_success_on_teardown_timeout(
+        self, tmp_path, monkeypatch
+    ):
+        from click.testing import CliRunner
+
+        from gptme.cli.cmd_daemon import cli
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        monkeypatch.setattr(SessionDaemon, "is_running", lambda self: True)
+
+        def fail_stop(self) -> None:
+            raise TimeoutError("Daemon did not stop in time")
+
+        monkeypatch.setattr(SessionDaemon, "stop", fail_stop)
+        result = CliRunner().invoke(cli, ["stop", "cli-timeout"])
+        assert result.exit_code != 0
+        assert "Timed out" in result.output
+        assert "Stopped daemon" not in result.output
