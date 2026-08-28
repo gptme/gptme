@@ -681,14 +681,18 @@ def main(
             if tool_format
             else ["markdown", "xml", "tool"]
         )
-        # Apply model-aware format routing: some models (fable-5, haiku-4.5) have
-        # high failure rates on markdown format and are routed to tool format instead.
-        # Explicit model@format specs bypass this to allow intentional format testing.
+        # Apply model-aware format routing only during automatic format expansion.
+        # Explicit model@format specs and --tool-format bypass this so callers can
+        # intentionally test the failing markdown format.
         model_configs.extend(
             dict.fromkeys(
                 ModelConfig(
                     model=model_spec,
-                    tool_format=get_effective_format(model_spec, fmt),
+                    tool_format=(
+                        fmt
+                        if tool_format is not None
+                        else get_effective_format(model_spec, fmt)
+                    ),
                 )
                 for fmt in formats
             )

@@ -10,7 +10,7 @@ import importlib
 from unittest.mock import patch
 
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from gptme.eval.main import main
 from gptme.eval.types import (
@@ -81,8 +81,9 @@ class TestModelConfigExpansion:
         # Routing itself maps markdown → tool; the CLI deduplicates this expansion.
         assert tool_formats == ["tool", "xml", "tool"]
 
-    def test_affected_model_cli_expansion_has_no_duplicate_paid_runs(self):
-        """The CLI sends each routed model/format combination to run_evals once."""
+    @staticmethod
+    def invoke_cli(*args: str) -> tuple[Result, list[ModelConfig]]:
+        """Invoke the eval CLI without executing paid model calls."""
         eval_main = importlib.import_module("gptme.eval.main")
         captured_configs: list[ModelConfig] = []
 
@@ -96,13 +97,31 @@ class TestModelConfigExpansion:
             patch.object(eval_main, "print_model_results_table", return_value=None),
             patch.object(eval_main, "write_results", return_value=None),
         ):
-            result = CliRunner().invoke(main, ["hello", "--model", "claude-fable-5"])
+            result = CliRunner().invoke(main, ["hello", *args])
+
+        return result, captured_configs
+
+    def test_affected_model_cli_expansion_has_no_duplicate_paid_runs(self):
+        """The CLI sends each routed model/format combination to run_evals once."""
+        result, captured_configs = self.invoke_cli("--model", "claude-fable-5")
 
         assert result.exit_code == 0, result.output
         assert captured_configs == [
             ModelConfig("claude-fable-5", "tool"),
             ModelConfig("claude-fable-5", "xml"),
         ]
+
+    def test_explicit_tool_format_flag_bypasses_routing(self):
+        """An explicit --tool-format value is never rewritten."""
+        result, captured_configs = self.invoke_cli(
+            "--model",
+            "claude-fable-5",
+            "--tool-format",
+            "markdown",
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured_configs == [ModelConfig("claude-fable-5", "markdown")]
 
     def test_explicit_at_format_spec_bypasses_routing(self):
         """Explicit model@format spec is NOT routed (handled before expansion)."""
