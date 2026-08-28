@@ -196,7 +196,7 @@ def _claude_project_dirname(path: str) -> str:
     # 16-bit code units of the string, matching JS string/charCodeAt semantics.
     # An empty path yields no units (struct.unpack("<0H", b"") -> ()) and an
     # empty dirname, same as JS.
-    utf16 = path.encode("utf-16-le")
+    utf16 = path.encode("utf-16-le", errors="surrogatepass")
     units = struct.unpack(f"<{len(utf16) // 2}H", utf16)
 
     def _is_alnum_unit(u: int) -> bool:
