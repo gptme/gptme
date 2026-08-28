@@ -27,8 +27,9 @@ Status = Literal["success", "error", "timeout"]
 DEFAULT_TOOL_FORMAT_MODELS: frozenset[str] = frozenset(
     {
         "claude-fable-5",
-        # Match both the accepted undated alias and dated model IDs.
+        # Providers use both dash- and dot-form Haiku 4.5 identifiers.
         "claude-haiku-4-5",
+        "claude-haiku-4.5",
     }
 )
 

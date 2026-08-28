@@ -51,10 +51,11 @@ class TestGetEffectiveFormat:
         [
             "anthropic/claude-haiku-4-5",
             "openrouter/anthropic/claude-haiku-4-5-20251001",
+            "openrouter/anthropic/claude-haiku-4.5",
         ],
     )
     def test_partial_model_name_match(self, model: str):
-        """Routing handles both undated aliases and provider-prefixed dated IDs."""
+        """Routing handles provider prefixes, dated IDs, and punctuation variants."""
         assert get_effective_format(model, "markdown") == "tool"
 
     def test_unrelated_model_with_markdown(self):
@@ -152,6 +153,7 @@ class TestDefaultToolFormatModels:
     def test_known_models_present(self):
         assert "claude-fable-5" in DEFAULT_TOOL_FORMAT_MODELS
         assert "claude-haiku-4-5" in DEFAULT_TOOL_FORMAT_MODELS
+        assert "claude-haiku-4.5" in DEFAULT_TOOL_FORMAT_MODELS
 
     def test_sonnet_not_in_set(self):
         # Sonnet has high pass rate on tool format but no systematic markdown failure
