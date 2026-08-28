@@ -213,9 +213,9 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
     _last_logs = {"logs": logs, "errors": page_errors, "url": url}
 
     try:
-        # Server returned markdown directly — use plain text, skip HTML extraction
+        # Server returned markdown directly — preserve source whitespace and skip HTML extraction
         if is_markdown:
-            return page.inner_text("body"), True
+            return page.text_content("body") or "", True
         # Otherwise extract main content HTML for html_to_markdown conversion
         return _extract_main_content(page), False
     finally:

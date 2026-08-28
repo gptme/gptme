@@ -999,9 +999,10 @@ class TestPlaywrightMarkdownResponse:
     def test_load_page_returns_markdown_with_per_call_metadata(self, content_type):
         from gptme.tools import _browser_playwright as bp
 
+        markdown = "    indented code\n\n| a  | b |\n| -- | - |"
         page = MagicMock()
         page.goto.return_value.headers = {"content-type": content_type}
-        page.inner_text.return_value = "# Already Markdown"
+        page.text_content.return_value = markdown
         managed = MagicMock(page=page)
 
         with (
@@ -1010,8 +1011,9 @@ class TestPlaywrightMarkdownResponse:
         ):
             result = bp._load_page(MagicMock(), "https://example.com")
 
-        assert result == ("# Already Markdown", True)
-        page.inner_text.assert_called_once_with("body")
+        assert result == (markdown, True)
+        page.text_content.assert_called_once_with("body")
+        page.inner_text.assert_not_called()
         managed.close.assert_called_once_with()
 
     def test_read_url_uses_markdown_flag_from_same_load(self):
