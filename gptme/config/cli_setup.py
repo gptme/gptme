@@ -57,7 +57,12 @@ def _is_mcp_tool_name(value: str) -> bool:
     return dot_idx > 0 and dot_idx < len(value) - 1
 
 
-def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
+def _resolve_manifest_aliases(
+    tool_allowlist: str,
+    workspace: Path,
+    *,
+    configured_tools: list[str] | None = None,
+) -> str:
     """Resolve manifest aliases before applying CLI allowlist precedence."""
     if tool_allowlist.startswith("-"):
         return tool_allowlist
@@ -115,12 +120,17 @@ def _resolve_manifest_aliases(tool_allowlist: str, workspace: Path) -> str:
             from .core import get_config
 
             config = get_config()
-            if config.get_env("TOOL_ALLOWLIST") and not additive:
+            configured_source = None
+            if config.get_env("TOOL_ALLOWLIST"):
+                configured_source = "configured TOOL_ALLOWLIST"
+            elif configured_tools is not None:
+                configured_source = "saved conversation tools"
+            if configured_source and not additive:
                 aliases = [t for t in requested_tools if t not in non_alias_tools]
                 alias_name = aliases[0] if aliases else requested_tools[0]
                 raise ValueError(
                     f"--tools {alias_name!r} expands via a workspace manifest and "
-                    f"cannot be combined with a configured TOOL_ALLOWLIST. "
+                    f"cannot be combined with {configured_source}. "
                     f"Use --tool-manifest {alias_name!r} instead."
                 )
             # Resolve the alias before non-interactive policy checks. In particular,
@@ -366,7 +376,11 @@ def setup_config_from_cli(
     requested_tool_allowlist = tool_allowlist
     if tool_allowlist is not None:
         tool_allowlist = _resolve_manifest_aliases(
-            tool_allowlist, manifest_workspace or workspace
+            tool_allowlist,
+            manifest_workspace or workspace,
+            configured_tools=(
+                existing_chat_config.tools if existing_chat_config else None
+            ),
         )
 
         # Check for additive syntax (starts with '+')

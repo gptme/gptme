@@ -1146,13 +1146,11 @@ def main(
             if entry.strip()
         ]
         preset_names = [entry for entry in entries if entry in TOOL_PRESETS]
-        if not manifest_allowlist.startswith("+"):
-            expanded_entries = expand_tool_allowlist_presets(entries)
-            assert expanded_entries is not None
-            entries = expanded_entries
-        concrete_allowlist = ",".join(entries)
+        expanded_entries = expand_tool_allowlist_presets(entries)
+        assert expanded_entries is not None
+        concrete_allowlist = ",".join(expanded_entries)
         unavailable = _unavailable_manifest_tools(concrete_allowlist)
-        remaining = [entry for entry in entries if entry not in unavailable]
+        remaining = [entry for entry in expanded_entries if entry not in unavailable]
         if preset_names:
             viable_presets = [
                 preset_name
@@ -1832,9 +1830,7 @@ def main(
                 # unavailable entries, fall back to None (defaults) only when
                 # every manifest tool is unavailable.
                 fallback_is_additive = _was_additive or (
-                    resolved_aliases > 0
-                    and all_aliases_mcp_only
-                    and not non_alias_parts
+                    resolved_aliases > 0 and all_aliases_mcp_only
                 )
                 expanded_str = ("+" if fallback_is_additive else "") + ",".join(
                     all_alias_tools

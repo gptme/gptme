@@ -2931,6 +2931,31 @@ def test_additive_builtin_tools_manifest_alias_preserves_prefix(tmp_path: Path):
     assert _resolve_manifest_aliases("+code_review", tmp_path) == "+save,github.get_pr"
 
 
+def test_builtin_tools_manifest_alias_raises_with_saved_conversation_tools(
+    tmp_path: Path, monkeypatch
+):
+    """A closed manifest alias cannot replace a resumed tool boundary."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","builtin_tools":["shell"],"tools":['
+        '{"server_name":"github","tool_name":"get_pr"}]}\n',
+        encoding="utf-8",
+    )
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    (logdir / "config.toml").touch()
+    resumed_config = ChatConfig(_logdir=logdir, tools=["read-only"])
+
+    with pytest.raises(ValueError, match="saved conversation tools"):
+        monkeypatch.setattr(ChatConfig, "from_logdir", lambda _logdir: resumed_config)
+        setup_config_from_cli(
+            workspace=tmp_path,
+            logdir=logdir,
+            tool_allowlist="code_review",
+        )
+
+
 def test_builtin_tools_manifest_alias_raises_with_configured_tool_allowlist(
     tmp_path: Path, monkeypatch
 ):
