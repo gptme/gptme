@@ -248,9 +248,9 @@ class ChatConfig:
             return cls.from_dict(config_data)
         except _CHAT_CONFIG_LOAD_ERRORS as e:
             logger.warning(f"Failed to load chat config from {chat_config_path}: {e}")
-            # Use the logdir as workspace fallback so tools don't operate against
-            # the process cwd when config loading fails.
-            return cls(_logdir=path, workspace=path.resolve())
+            # Keep _logdir unset so save() cannot overwrite an unreadable config
+            # with defaults. The workspace is still safe for read-only recovery.
+            return cls(workspace=path.resolve())
 
     def save(self) -> Self:
         """Save the chat config to the log directory.

@@ -611,6 +611,23 @@ def test_from_logdir_config_without_workspace_field_not_cwd(tmp_path):
     assert config.workspace == logdir.resolve()
 
 
+def test_from_logdir_malformed_config_cannot_overwrite_source(tmp_path):
+    """Recovery from malformed TOML must not make the source saveable."""
+    logdir = tmp_path / "test-conversation"
+    logdir.mkdir()
+    config_path = logdir / "config.toml"
+    malformed = b"[chat\nmodel = 'broken'\n"
+    config_path.write_bytes(malformed)
+
+    config = ChatConfig.from_logdir(logdir)
+
+    assert config.workspace == logdir.resolve()
+    assert config._logdir is None
+    with pytest.raises(ValueError, match="no logdir"):
+        config.save()
+    assert config_path.read_bytes() == malformed
+
+
 def test_chat_config_to_dict():
     config = ChatConfig.from_dict(json.loads(config_json))
     config_dict = config.to_dict()
