@@ -112,6 +112,21 @@ class TestModelConfigExpansion:
             ModelConfig("claude-fable-5", "xml"),
         ]
 
+    def test_repeated_and_explicit_specs_have_no_duplicate_paid_runs(self):
+        """Deduplication applies across all model specifications."""
+        result, captured_configs = self.invoke_cli(
+            "--model",
+            "claude-fable-5",
+            "--model",
+            "claude-fable-5@tool",
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured_configs == [
+            ModelConfig("claude-fable-5", "tool"),
+            ModelConfig("claude-fable-5", "xml"),
+        ]
+
     def test_explicit_tool_format_flag_bypasses_routing(self):
         """An explicit --tool-format value is never rewritten."""
         result, captured_configs = self.invoke_cli(
