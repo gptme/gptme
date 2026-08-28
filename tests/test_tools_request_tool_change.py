@@ -19,7 +19,7 @@ from gptme.tools import (
     set_tool_format,
     set_tools,
 )
-from gptme.tools.base import ToolSpec
+from gptme.tools.base import ToolSpec, ToolUse
 from gptme.tools.request_tool_change import (
     _SELF_NAME,
     execute_request_tool_change,
@@ -420,6 +420,29 @@ class TestConfigureTool:
 
 class TestEnableDisableIntegration:
     """Integration: enable → tool is callable; disable → tool is not callable."""
+
+    def test_concurrent_unload_still_pairs_structured_call(self, isolated_tools):
+        """An unload between runnability check and execution must not dangle a call."""
+        set_tools([*get_tools(), _FAKE_SHELL])
+        tooluse = ToolUse(
+            "shell",
+            [],
+            "echo raced",
+            call_id="shell_race",
+            _format="tool",
+        )
+
+        # Deterministically model another execution context unloading the selected
+        # tool after execute_msg's runnability check but before ToolUse.execute's
+        # lookup. The structured call must still receive exactly one result.
+        assert tooluse.is_runnable
+        set_tools([loaded for loaded in get_tools() if loaded.name != "shell"])
+
+        results = list(tooluse.execute())
+
+        assert len(results) == 1
+        assert results[0].call_id == "shell_race"
+        assert "not available for execution" in results[0].content
 
     def test_enable_call_disable_call_fails(self, isolated_tools):
         """

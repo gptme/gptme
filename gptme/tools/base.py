@@ -901,6 +901,12 @@ class ToolUse:
                     )
             else:
                 logger.warning(f"Tool '{self.tool}' is not available for execution.")
+                if self.call_id is not None:
+                    yield Message(
+                        "system",
+                        f"Tool '{self.tool}' is not available for execution.",
+                        call_id=self.call_id,
+                    )
 
         yield from _execute_tool()
 
