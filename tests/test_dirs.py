@@ -40,9 +40,9 @@ class TestGetEnvPath:
         monkeypatch.setenv("_GPTME_TEST_VAR", "   ")
         assert dirs._get_env_path("_GPTME_TEST_VAR") is None
 
-    def test_strips_surrounding_whitespace(self, monkeypatch):
+    def test_preserves_surrounding_whitespace(self, monkeypatch):
         monkeypatch.setenv("_GPTME_TEST_VAR", "  /valid/path  ")
-        assert dirs._get_env_path("_GPTME_TEST_VAR") == "/valid/path"
+        assert dirs._get_env_path("_GPTME_TEST_VAR") == "  /valid/path  "
 
 
 # ── Config directory ──────────────────────────────────────────────────────
@@ -506,6 +506,8 @@ class TestGetProfileMemoryDir:
             ".",
             "..",
             "agent\n",
+            "agent\r",
+            "agent\0name",
         ]
         with patch.dict(os.environ, {"XDG_DATA_HOME": str(tmp_path)}):
             for name in bad_names:
@@ -514,7 +516,15 @@ class TestGetProfileMemoryDir:
 
     def test_valid_profile_names(self, tmp_path: Path):
         """A range of legitimate profile names are accepted."""
-        valid_names = ["explorer", "my-agent", "agent_2", "v1.0", "A.B-C_3"]
+        valid_names = [
+            "explorer",
+            "my-agent",
+            "agent_2",
+            "v1.0",
+            "A.B-C_3",
+            "my profile",
+            "utf8-探索",
+        ]
         with patch.dict(os.environ, {"XDG_DATA_HOME": str(tmp_path)}):
             for name in valid_names:
                 result = dirs.get_profile_memory_dir(name)

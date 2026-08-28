@@ -1,6 +1,5 @@
 import logging
 import os
-import re
 import shutil
 import struct
 import subprocess
@@ -12,9 +11,6 @@ from .util.git_cmd import GIT_CMD
 
 logger = logging.getLogger(__name__)
 
-#: Only allow alphanumeric, hyphen, underscore, and dot in profile names.
-_SAFE_PROFILE_NAME_RE = re.compile(r"(?!\.{1,2}\Z)[A-Za-z0-9_.-]+\Z")
-
 
 def _get_env_path(var: str) -> str | None:
     """Return the env-var value, or None if unset or empty/whitespace.
@@ -23,8 +19,8 @@ def _get_env_path(var: str) -> str | None:
     this is intentional: empty XDG_* vars (common in Docker or misconfigured
     environments) must not produce relative paths like ``Path("") / "gptme"``.
     """
-    val = os.environ.get(var, "").strip()
-    return val or None
+    val = os.environ.get(var, "")
+    return val if val.strip() else None
 
 
 def get_config_dir() -> Path:
@@ -175,18 +171,26 @@ def get_profile_memory_dir(profile_name: str) -> Path:
 
     Args:
         profile_name: Name of the agent profile (e.g. 'explorer', 'researcher').
-            Must match ``^[A-Za-z0-9_\\-.]+$`` to prevent path traversal.
+            Must be a non-empty path component other than ``.`` or ``..``.
 
     Returns:
         Path to the memory directory (created if it doesn't exist)
 
     Raises:
-        ValueError: If ``profile_name`` contains path-traversal characters.
+        ValueError: If ``profile_name`` is not a safe single path component.
     """
-    if not _SAFE_PROFILE_NAME_RE.fullmatch(profile_name):
+    if (
+        not profile_name
+        or profile_name in {".", ".."}
+        or Path(profile_name).name != profile_name
+        or "/" in profile_name
+        or "\\" in profile_name
+        or "\n" in profile_name
+        or "\r" in profile_name
+        or "\0" in profile_name
+    ):
         raise ValueError(
-            f"Invalid profile name {profile_name!r}: "
-            "must contain only alphanumeric characters, hyphens, underscores, or dots."
+            f"Invalid profile name {profile_name!r}: must be a safe path component."
         )
     path = get_data_dir() / "memories" / "profiles" / profile_name
     path.mkdir(parents=True, exist_ok=True)
