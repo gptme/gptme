@@ -66,14 +66,18 @@ def read_url(url: str, cookies: dict | None = None) -> str:
                     "Cookie names and values must not be empty or contain tabs/newlines."
                 )
         fd, cookie_file = tempfile.mkstemp(suffix=".txt", prefix="lynx_cookies_")
+        fd_open = True
         try:
             Path(cookie_file).chmod(0o600)
             with os.fdopen(fd, "w") as f:
+                fd_open = False
                 f.write("# Netscape HTTP Cookie File\n")
                 for name, value in cookies.items():
                     # Format: domain, tail-match, path, secure, expiry, name, value
                     f.write(f".{domain}\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n")
         except Exception:
+            if fd_open:
+                os.close(fd)
             Path(cookie_file).unlink(missing_ok=True)
             cookie_file = None
             raise
@@ -99,21 +103,29 @@ def read_url(url: str, cookies: dict | None = None) -> str:
 def search(query: str, engine: str = "duckduckgo") -> str:
     if engine not in {"google", "duckduckgo"}:
         raise ValueError(f"Unknown search engine: {engine}")
-    if not query.strip() or len(query) > _MAX_INPUT_LENGTH:
-        raise ValueError(
-            f"Search query must be non-empty and no longer than {_MAX_INPUT_LENGTH} characters."
-        )
+    if not query.strip():
+        raise ValueError("Search query must be non-empty.")
 
     if engine == "google":
         # Use SOCS cookie (newer Google consent format) to bypass GDPR banner,
         # and gl=us to avoid region-specific consent redirects.
+        url = f"https://www.google.com/search?q={query}&hl=en&gl=us"
+        if len(url) > _MAX_INPUT_LENGTH:
+            raise ValueError(
+                f"Search query URL must be no longer than {_MAX_INPUT_LENGTH} characters."
+            )
         return read_url(
-            f"https://www.google.com/search?q={query}&hl=en&gl=us",
+            url,
             cookies={
                 "SOCS": "CAISHAgBEhJnd3NfMjAyMzA4MTAtMF9SQzIaAmVuIAEaBgiA_LyaBg",
                 "CONSENT": "PENDING+987",
             },
         )
     if engine == "duckduckgo":
-        return read_url(f"https://lite.duckduckgo.com/lite/?q={query}")
+        url = f"https://lite.duckduckgo.com/lite/?q={query}"
+        if len(url) > _MAX_INPUT_LENGTH:
+            raise ValueError(
+                f"Search query URL must be no longer than {_MAX_INPUT_LENGTH} characters."
+            )
+        return read_url(url)
     raise ValueError(f"Unknown search engine: {engine}")

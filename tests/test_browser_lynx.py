@@ -4,6 +4,7 @@ import os
 import shutil
 import stat
 import sys
+import tempfile
 from unittest.mock import patch
 
 import pytest
@@ -82,6 +83,28 @@ def test_read_url_cookie_file_is_private():
         assert observed_mode == 0o600
 
 
+def test_read_url_closes_cookie_descriptor_when_chmod_fails():
+    fd, cookie_path = tempfile.mkstemp()
+    try:
+        with (
+            patch(
+                "gptme.tools._browser_lynx.tempfile.mkstemp",
+                return_value=(fd, cookie_path),
+            ),
+            patch("gptme.tools._browser_lynx.Path.chmod", side_effect=PermissionError),
+            pytest.raises(PermissionError),
+        ):
+            read_url("https://example.com", cookies={"CONSENT": "YES"})
+
+        with pytest.raises(OSError, match="WinError 6|Bad file descriptor"):
+            os.fstat(fd)
+        assert not os.path.exists(cookie_path)
+    finally:
+        if os.path.exists(cookie_path):
+            os.close(fd)
+            os.unlink(cookie_path)
+
+
 def test_search_rejects_invalid_input():
     with pytest.raises(ValueError, match="non-empty"):
         search("   ")
@@ -91,6 +114,31 @@ def test_search_rejects_invalid_input():
 
     with pytest.raises(ValueError, match="Unknown search engine"):
         search("query", "bing")
+
+
+@pytest.mark.parametrize(
+    ("engine", "url_template"),
+    [
+        ("google", "https://www.google.com/search?q={query}&hl=en&gl=us"),
+        ("duckduckgo", "https://lite.duckduckgo.com/lite/?q={query}"),
+    ],
+)
+def test_search_accepts_query_that_fits_final_url_limit(
+    monkeypatch, engine, url_template
+):
+    captured_url = None
+
+    def mock_read_url(url, cookies=None):
+        nonlocal captured_url
+        captured_url = url
+        return "search results"
+
+    monkeypatch.setattr("gptme.tools._browser_lynx.read_url", mock_read_url)
+    query = "a" * (2048 - len(url_template.format(query="")))
+
+    assert search(query, engine) == "search results"
+    assert captured_url is not None
+    assert len(captured_url) <= 2048
 
 
 @pytest.mark.slow
