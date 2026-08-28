@@ -85,11 +85,13 @@ class TestSearchAlias:
         with (
             patch("gptme.tools.chats.search_chats") as mock_search,
             patch("gptme.cli.main.shutil.which", return_value=None),
-            patch.object(importlib.import_module("gptme.chat"), "chat"),
+            patch.object(importlib.import_module("gptme.chat"), "chat") as mock_chat,
         ):
             result = runner.invoke(main, ["--", "search"])
         assert result.exit_code == 0
         mock_search.assert_not_called()
+        prompt_msgs = mock_chat.call_args.args[0]
+        assert [msg.content for msg in prompt_msgs] == ["search"]
 
 
 class TestPluginDispatch:
