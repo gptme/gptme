@@ -868,7 +868,7 @@ def main(
 
     # gptme-util subcommand mirroring: `gptme chats [...]` → `gptme-util chats [...]`
     # Any top-level gptme-util subcommand can be invoked without typing 'gptme-util'.
-    # Suppressed when '--' was used (parse_args sets util_dispatch_suppressed).
+    # Suppressed when '--' was used (parse_args sets shortcut_dispatch_suppressed).
     if prompts and not show_version:
         from .util import UTIL_SUBCOMMANDS  # cheap: just a sorted list constant
 
