@@ -138,12 +138,19 @@ class SessionDaemon:
             pid_file.close()
 
     def stop(self) -> None:
-        """Send SIGTERM only to the process that owns the daemon PID file."""
-        if not self.is_running():
+        """Signal the daemon while continuously proving PID-file ownership."""
+        if not self.socket_path.exists():
             return
         try:
-            pid = int(self.pid_path.read_text())
-            os.kill(pid, signal.SIGTERM)
+            with self.pid_path.open() as pid_file:
+                try:
+                    fcntl.flock(pid_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    pid_file.seek(0)
+                    pid = int(pid_file.read())
+                    os.kill(pid, signal.SIGTERM)
+                else:
+                    fcntl.flock(pid_file, fcntl.LOCK_UN)
         except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError):
             pass
 
@@ -475,7 +482,7 @@ def attach(session_name: str) -> None:
         while not stop_event.is_set():
             try:
                 msg = recv_msg(conn)
-            except OSError:
+            except (OSError, ValueError):
                 break
             if msg is None:
                 break

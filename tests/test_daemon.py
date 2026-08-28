@@ -9,8 +9,10 @@ Tests cover:
 
 from __future__ import annotations
 
+import fcntl
 import io
 import os
+import signal
 import socket
 import subprocess
 import threading
@@ -239,18 +241,36 @@ class TestSessionDaemonState:
         d.pid_path.write_text(str(os.getpid()))
         d.socket_path.touch()
         signals: list[int] = []
-        real_kill = os.kill
 
-        def record_kill(pid: int, signum: int) -> None:
-            if signum == 0:
-                real_kill(pid, signum)
-            else:
-                signals.append(signum)
-
-        monkeypatch.setattr(os, "kill", record_kill)
+        monkeypatch.setattr(os, "kill", lambda pid, signum: signals.append(signum))
         d.stop()
 
         assert signals == []
+
+    def test_stop_holds_ownership_proof_while_signaling(self, tmp_path, monkeypatch):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        owner = SessionDaemon("owned-stop")
+        owner._acquire_pid_file()
+        owner.socket_path.touch()
+        observed: list[tuple[int, bool]] = []
+
+        def record_kill(pid: int, signum: int) -> None:
+            probe = owner.pid_path.open()
+            try:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                observed.append((signum, True))
+            finally:
+                probe.close()
+
+        monkeypatch.setattr(os, "kill", record_kill)
+        try:
+            SessionDaemon("owned-stop").stop()
+            assert observed == [(signal.SIGTERM, True)]
+        finally:
+            owner._cleanup()
 
     def test_is_running_true_with_owned_pid_file(self, tmp_path):
         from gptme.server import daemon as _dm
@@ -601,6 +621,31 @@ class TestAttachProtocol:
         try:
             with pytest.raises(ConnectionResetError, match="closed during attach"):
                 attach("stale")
+        finally:
+            thread.join(timeout=1)
+            assert not thread.is_alive()
+
+    def test_attach_receiver_handles_truncated_frame(self, tmp_path, monkeypatch):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        sock_path = tmp_path / "truncated.socket"
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(sock_path))
+        server.listen(1)
+
+        def send_truncated_frame():
+            conn, _ = server.accept()
+            send_msg(conn, IPCMessage(type="status", data={"ready": True}))
+            conn.sendall(IPCMessage(type="output", data="partial").encode()[:6])
+            conn.close()
+            server.close()
+
+        thread = threading.Thread(target=send_truncated_frame)
+        thread.start()
+        monkeypatch.setattr("sys.stdin", io.StringIO(""))
+        try:
+            attach("truncated")
         finally:
             thread.join(timeout=1)
             assert not thread.is_alive()
