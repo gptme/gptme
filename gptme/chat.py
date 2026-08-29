@@ -79,9 +79,13 @@ def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> 
             session_tokens = [0]
             _session_tokens.set(session_tokens)
 
-        n_in = len_tokens(msgs, model)
-        n_out = len_tokens(msg_response, model)
-        context_limit = get_model(model).context
+        # Resolve once from the caller-supplied name (alias or full). Tokenizer
+        # and context metadata then share that ModelMeta; passing .full back
+        # into get_model() is the lookup 48225d823 avoided.
+        resolved = get_model(model)
+        n_in = len_tokens(msgs, resolved.full)
+        n_out = len_tokens(msg_response, resolved.full)
+        context_limit = resolved.context
         n_used = n_in + n_out
         session_tokens[0] += n_used
 
@@ -257,8 +261,11 @@ def chat(
         # Restore the caller's format so nested chat() calls (inline subagents)
         # don't clobber the parent's JSON mode when they exit.
         set_output_format(_prev_output_format)
-        # Restore the outer chat's token accumulator so nested chat() calls
-        # (inline subagents) don't corrupt the parent's running total.
+        # Restore the outer chat's token accumulator so same-context nested
+        # chat() calls don't corrupt the parent's running total.
+        # Thread-mode subagents start with a fresh contextvars context, so
+        # their totals are already isolated; folding inner into parent here
+        # would not see the parent list across threads.
         _session_tokens.set(_prev_tokens)
 
 
