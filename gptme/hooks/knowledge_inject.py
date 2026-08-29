@@ -8,10 +8,11 @@ and schema generalization are separate follow-ons.
 CLI ``SESSION_START`` runs before the first user prompt is appended, so
 this hook also registers on ``TURN_PRE`` (after the prompt is in the log).
 ACP and TUI fire ``TURN_PRE`` on that same boundary. Injection is once per
-conversation: later turns no-op if a hidden system message already starts
-with this hook's sentinel. Coincidental ``<knowledge-entries>`` text — in
-user/assistant content or in unrelated hidden system messages — does not
-count.
+conversation: later turns no-op if a hidden system message already contains
+this hook's sentinel as a line prefix. Replay may wrap the persisted block
+with an evidence prefix; that still counts. Coincidental
+``<knowledge-entries>`` text — in user/assistant content or in unrelated
+hidden system messages — does not.
 """
 
 import logging
@@ -25,9 +26,10 @@ from ..message import Message
 
 logger = logging.getLogger(__name__)
 
-# Prefix of this hook's hidden system message. Dedup requires the content to
-# *start* with this sentinel so a quoted ``<knowledge-entries>`` tag in some
-# other hidden system message cannot suppress injection.
+# Prefix of this hook's hidden system message. Dedup requires this sentinel as
+# a line prefix so a quoted ``<knowledge-entries>`` tag cannot suppress
+# injection, while replay-wrapped copies (evidence prefix + original body)
+# still count as already injected.
 _INJECT_SENTINEL = "<!-- gptme-knowledge-inject -->"
 
 
@@ -53,10 +55,22 @@ def _query_from_msgs(msgs: list[Message]) -> str | None:
     return None
 
 
+def _content_has_inject_sentinel(content: str) -> bool:
+    """True if ``content`` is this hook's injection, including replay wraps.
+
+    Replay prepends ``[Evidence from earlier in this conversation (role)]\\n``,
+    so a startswith check on the raw content misses the persisted block. The
+    sentinel must be a line prefix after lstrip, not a mid-sentence substring.
+    """
+    return any(
+        line.lstrip().startswith(_INJECT_SENTINEL) for line in content.splitlines()
+    )
+
+
 def _already_injected(msgs: list[Message]) -> bool:
     """True only for this hook's own hidden system block.
 
-    Requires ``role=system``, ``hide=True``, and content that starts with
+    Requires ``role=system``, ``hide=True``, and a line that starts with
     ``_INJECT_SENTINEL``. Substring matches on ``<knowledge-entries>`` are
     not enough: replayed or unrelated hidden system messages can quote that
     tag without this hook having injected anything.
@@ -67,7 +81,7 @@ def _already_injected(msgs: list[Message]) -> bool:
         if not getattr(msg, "hide", False):
             continue
         content = getattr(msg, "content", None)
-        if isinstance(content, str) and content.lstrip().startswith(_INJECT_SENTINEL):
+        if isinstance(content, str) and _content_has_inject_sentinel(content):
             return True
     return False
 

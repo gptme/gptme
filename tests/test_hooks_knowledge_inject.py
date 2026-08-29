@@ -214,3 +214,30 @@ def test_hook_injects_when_unrelated_hidden_system_quotes_marker(tmp_path):
     assert len(out) == 1
     assert out[0].content.lstrip().startswith(_INJECT_SENTINEL)
     assert "pytest test discovery fails" in out[0].content
+
+
+def test_hook_skips_when_replay_wraps_injected_message(tmp_path):
+    """Replay prepends an evidence prefix; that must still count as injected."""
+    from gptme.hooks.knowledge_inject import _INJECT_SENTINEL
+    from gptme.knowledge import knowledge_save
+    from gptme.util.replay import EVIDENCE_PREFIX
+
+    knowledge_save(
+        "pytest test discovery fails",
+        "prefix test function with test_",
+    )
+    original = (
+        f"{_INJECT_SENTINEL}\n"
+        "<knowledge-entries>\nalready injected\n</knowledge-entries>\n"
+    )
+    wrapped = Message(
+        "system",
+        f"{EVIDENCE_PREFIX}system)]\n{original}",
+        hide=True,
+        pinned=True,
+    )
+    manager = _FakeManager(
+        [Message("user", "pytest discovery is broken in CI"), wrapped],
+        tmp_path,
+    )
+    assert _run(None, tmp_path, manager=manager) == []
