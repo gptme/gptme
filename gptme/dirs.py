@@ -182,12 +182,12 @@ def get_profile_memory_dir(profile_name: str) -> Path:
     if (
         not profile_name
         or profile_name in {".", ".."}
-        or Path(profile_name).name != profile_name
         or "/" in profile_name
         or "\\" in profile_name
         or "\n" in profile_name
         or "\r" in profile_name
         or "\0" in profile_name
+        or Path(profile_name).name != profile_name
     ):
         raise ValueError(
             f"Invalid profile name {profile_name!r}: must be a safe path component."
