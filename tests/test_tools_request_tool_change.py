@@ -451,28 +451,25 @@ class TestDisableTool:
 
         Unloading a command-providing tool in this session must not yank the
         command out from under a sibling session in the same process
-        (gptme-server multi-conversation).
+        (gptme-server multi-conversation). Register via ToolSpec.register_commands()
+        so the command is owned; an unowned registration would survive even if
+        unload_tool incorrectly unregistered owned commands.
         """
-        from gptme.commands import (
-            get_registered_commands,
-            register_command,
-            unregister_command,
-        )
+        from gptme.commands import get_registered_commands, unregister_command
 
         def handler(_ctx):
             return
             yield  # pragma: no cover — CommandHandler is a generator type
 
-        register_command("side-effect", handler)
+        side_effect_tool = ToolSpec(
+            name="side_effect_tool",
+            desc="Registers a process-global slash command",
+            execute=lambda _code, _args, _kwargs: Message("system", "executed"),
+            commands={"side-effect": handler},
+        )
+        side_effect_tool.register_commands()
+        set_tools([*get_tools(), side_effect_tool])
         try:
-            side_effect_tool = ToolSpec(
-                name="side_effect_tool",
-                desc="Registers a process-global slash command",
-                execute=lambda _code, _args, _kwargs: Message("system", "executed"),
-                commands={"side-effect": handler},
-            )
-            set_tools([*get_tools(), side_effect_tool])
-
             with _patch_available([side_effect_tool, tool]):
                 result = _execute(
                     change_type="disable_tool",
