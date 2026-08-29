@@ -333,6 +333,66 @@ class TestEnableTool:
         assert "enabled" in result.content
         assert any(t.name == "shell" for t in get_tools())
 
+    def test_enable_allows_unloaded_mcp_tool(self, isolated_tools):
+        """Validation must not drop MCP tools via include_mcp=False."""
+        mcp_tool = ToolSpec(
+            name="docs-server.read",
+            desc="MCP docs tool",
+            execute=lambda _code, _args, _kwargs: Message("system", "mcp executed"),
+        )
+
+        def fake_available(include_mcp: bool = True):
+            return [mcp_tool, tool] if include_mcp else [tool]
+
+        with (
+            patch(
+                "gptme.tools.request_tool_change.get_available_tools",
+                side_effect=fake_available,
+            ),
+            patch("gptme.tools.get_available_tools", side_effect=fake_available),
+        ):
+            result = _execute(
+                change_type="enable_tool",
+                tool_name="docs-server.read",
+                reason="Need MCP docs",
+                urgency="medium",
+            )
+
+        assert "enabled" in result.content
+        assert any(t.name == "docs-server.read" for t in get_tools())
+
+    def test_enable_honors_hint_allowlist(self, isolated_tools):
+        hinted = ToolSpec(
+            name="file_tool",
+            desc="Loaded from a user file",
+            hints=frozenset({"read-only"}),
+            execute=lambda _code, _args, _kwargs: Message("system", "file tool"),
+        )
+        set_session_allowlist(["hint:read-only"])
+        with _patch_available([hinted, tool]):
+            result = _execute(
+                change_type="enable_tool",
+                tool_name="file_tool",
+                reason="Need the file tool",
+                urgency="medium",
+            )
+
+        assert "enabled" in result.content
+        assert any(t.name == "file_tool" for t in get_tools())
+
+    def test_enable_rejects_when_hints_do_not_match_allowlist(self, isolated_tools):
+        set_session_allowlist(["hint:read-only"])
+        with _patch_available([_FAKE_SHELL, tool]):
+            result = _execute(
+                change_type="enable_tool",
+                tool_name="shell",
+                reason="Need to inspect workspace",
+                urgency="medium",
+            )
+
+        assert "allowlist" in result.content
+        assert not any(t.name == "shell" for t in get_tools())
+
 
 class TestDisableTool:
     def test_disable_removes_tool_from_session(self, isolated_tools):

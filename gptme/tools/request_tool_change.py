@@ -48,10 +48,8 @@ def _enable_tool(tool_name: str) -> Message:
 
     allowlist = get_session_allowlist()
     if allowlist is not None:
-        available = next(
-            (t for t in get_available_tools() if t.name == tool_name), None
-        )
-        hints = available.hints if available is not None else frozenset()
+        spec = next((t for t in get_available_tools() if t.name == tool_name), None)
+        hints = spec.hints if spec is not None else frozenset()
         if not tool_matches_allowlist(tool_name, allowlist, hints):
             return Message(
                 "system",
@@ -152,9 +150,10 @@ def execute_request_tool_change(
             quiet=True,
         )
 
-    # Validate against available (not just loaded) tools so the model can name
-    # any tool known to gptme's module system.
-    known_tools = {t.name for t in get_available_tools(include_mcp=False)} | {
+    # Include MCP tools (default get_available_tools) so an allowlisted MCP
+    # tool can be enabled before it is loaded. Union with get_tools() so a
+    # file-loaded tool that is not in module discovery can still be disabled.
+    known_tools = {t.name for t in get_available_tools()} | {
         t.name for t in get_tools()
     }
     if tool_name not in known_tools:
