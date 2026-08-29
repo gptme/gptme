@@ -623,19 +623,35 @@ for Ollama, vLLM, and custom server setup.</p>
 </section>
 <section id="free-cloud-providers-no-credit-card-required">
 <h2>Free Cloud Providers (No Credit Card Required)<a class="headerlink" href="#free-cloud-providers-no-credit-card-required" title="Link to this heading">#</a></h2>
-<p>Several cloud providers offer free tiers that work with gptme out of the box:</p>
-<p><strong>OpenRouter</strong> (recommended: largest free model catalog)</p>
-<p>OpenRouter aggregates free model tiers from Google, Meta, Mistral, and others behind one API key:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Sign in with browser — no credit card required</span>
-gptme<span class="w"> </span><span class="s1">&#39;/account setup openrouter&#39;</span>
+<p>Several cloud providers offer free tiers that work with gptme out of the box.</p>
+<p><strong>OpenRouter</strong> (recommended: one browser sign-in, no credit card)</p>
+<p>OpenRouter aggregates free model tiers behind one API key. The <code class="docutils literal notranslate"><span class="pre">:free</span></code> catalog
+<strong>rotates</strong> — last month’s model id is often gone. Prefer the free router, and
+pin a specific <code class="docutils literal notranslate"><span class="pre">:free</span></code> model only after you have confirmed it is still listed.</p>
+<p>On a fresh install, start <code class="docutils literal notranslate"><span class="pre">gptme</span></code> and choose <strong>OpenRouter</strong> in the startup
+provider setup. gptme opens the browser OAuth flow before entering the chat.
+On an already configured installation, you can instead run
+<code class="docutils literal notranslate"><span class="pre">/account</span> <span class="pre">setup</span> <span class="pre">openrouter</span></code> inside a session.</p>
+<p>Then use the default free router:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># OpenRouter model id is openrouter/free</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/openrouter/free
 
-<span class="c1"># Then use any :free-tagged model</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/google/gemini-2.5-flash:free
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/meta-llama/llama-3.3-70b-instruct:free
+<span class="c1"># Pin a currently listed free model (catalog rotates)</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/cohere/north-mini-code:free
 </pre></div>
 </div>
-<p>Free OpenRouter models are rate-limited but sufficient for personal use. The <code class="docutils literal notranslate"><span class="pre">:free</span></code> suffix selects
-the free tier; omitting it routes to paid inference.</p>
+<p>The doubled <code class="docutils literal notranslate"><span class="pre">openrouter/openrouter/free</span></code> is intentional: gptme’s
+<code class="docutils literal notranslate"><span class="pre">&lt;provider&gt;/&lt;model&gt;</span></code> split plus OpenRouter’s own <code class="docutils literal notranslate"><span class="pre">openrouter/free</span></code> model id.
+<code class="docutils literal notranslate"><span class="pre">-m</span> <span class="pre">openrouter/free</span></code> sends <code class="docutils literal notranslate"><span class="pre">model=free</span></code> and 404s.</p>
+<p>Verified 2026-08-28 (chat + gptme <code class="docutils literal notranslate"><span class="pre">shell</span></code> tool, shared free pool):</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">openrouter/openrouter/free</span></code> — 200k ctx, tools work. Recommended default.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">openrouter/cohere/north-mini-code:free</span></code> — 256k ctx, tools work.</p></li>
+</ul>
+<p>Shared-pool <code class="docutils literal notranslate"><span class="pre">:free</span></code> endpoints 429 often (Gemma 4 and GLM-5.2 did during the
+same probe). Retry, pick another listed model, or add your own provider key at
+<a class="reference external" href="https://openrouter.ai/settings/integrations">https://openrouter.ai/settings/integrations</a>. Omitting <code class="docutils literal notranslate"><span class="pre">:free</span></code> routes to paid
+inference. Current catalog: <a class="reference external" href="https://openrouter.ai/models?max_price=0">https://openrouter.ai/models?max_price=0</a></p>
 <p><strong>Google Gemini</strong> (generous free quota, 1 M token context)</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get a free API key at https://aistudio.google.com/apikey (no credit card)</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GEMINI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-key&quot;</span>

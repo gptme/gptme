@@ -778,9 +778,13 @@ href="https://github.com/gptme/gptme/issues/59">#59</a>)</li>
 <li>Python 3.10 or newer</li>
 <li>Credentials for at least one LLM provider:
 <ul>
-<li>OpenRouter can be configured interactively with
-<code>/account setup openrouter</code> inside gptme, using browser OAuth
-onboarding.</li>
+<li>Fastest no-credit-card path: start <code>gptme</code>, choose
+<strong>OpenRouter</strong> in the startup provider setup (browser
+OAuth), then run
+<code>gptme "hello" -m openrouter/openrouter/free</code>. On an existing
+setup, use <code>/account setup openrouter</code> inside a session. See
+<a href="https://gptme.org/docs/getting-started.html">Getting
+Started</a>.</li>
 <li>Subscriptions work too: sign in with your ChatGPT Plus/Pro or
 SuperGrok plan via <code>gptme-auth openai-subscription</code> or
 <code>gptme-auth grok-subscription</code>, no API key needed (see <a

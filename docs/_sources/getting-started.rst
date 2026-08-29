@@ -127,23 +127,42 @@ for Ollama, vLLM, and custom server setup.
 Free Cloud Providers (No Credit Card Required)
 ----------------------------------------------
 
-Several cloud providers offer free tiers that work with gptme out of the box:
+Several cloud providers offer free tiers that work with gptme out of the box.
 
-**OpenRouter** (recommended: largest free model catalog)
+**OpenRouter** (recommended: one browser sign-in, no credit card)
 
-OpenRouter aggregates free model tiers from Google, Meta, Mistral, and others behind one API key:
+OpenRouter aggregates free model tiers behind one API key. The ``:free`` catalog
+**rotates** — last month's model id is often gone. Prefer the free router, and
+pin a specific ``:free`` model only after you have confirmed it is still listed.
+
+On a fresh install, start ``gptme`` and choose **OpenRouter** in the startup
+provider setup. gptme opens the browser OAuth flow before entering the chat.
+On an already configured installation, you can instead run
+``/account setup openrouter`` inside a session.
+
+Then use the default free router:
 
 .. code-block:: bash
 
-    # Sign in with browser — no credit card required
-    gptme '/account setup openrouter'
+    # OpenRouter model id is openrouter/free
+    gptme "hello" -m openrouter/openrouter/free
 
-    # Then use any :free-tagged model
-    gptme "hello" -m openrouter/google/gemini-2.5-flash:free
-    gptme "hello" -m openrouter/meta-llama/llama-3.3-70b-instruct:free
+    # Pin a currently listed free model (catalog rotates)
+    gptme "hello" -m openrouter/cohere/north-mini-code:free
 
-Free OpenRouter models are rate-limited but sufficient for personal use. The ``:free`` suffix selects
-the free tier; omitting it routes to paid inference.
+The doubled ``openrouter/openrouter/free`` is intentional: gptme's
+``<provider>/<model>`` split plus OpenRouter's own ``openrouter/free`` model id.
+``-m openrouter/free`` sends ``model=free`` and 404s.
+
+Verified 2026-08-28 (chat + gptme ``shell`` tool, shared free pool):
+
+- ``openrouter/openrouter/free`` — 200k ctx, tools work. Recommended default.
+- ``openrouter/cohere/north-mini-code:free`` — 256k ctx, tools work.
+
+Shared-pool ``:free`` endpoints 429 often (Gemma 4 and GLM-5.2 did during the
+same probe). Retry, pick another listed model, or add your own provider key at
+https://openrouter.ai/settings/integrations. Omitting ``:free`` routes to paid
+inference. Current catalog: https://openrouter.ai/models?max_price=0
 
 **Google Gemini** (generous free quota, 1 M token context)
 
