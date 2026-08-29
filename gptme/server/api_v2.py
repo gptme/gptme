@@ -1194,7 +1194,12 @@ def api_steer_external_session(external_session_id: str):
         body = {}
     elif not isinstance(body, dict):
         return flask.jsonify({"error": "Request body must be a JSON object"}), 400
-    message = (body.get("message") or "").strip()
+    raw_message = body.get("message")
+    if raw_message is None:
+        return flask.jsonify({"error": "message is required"}), 400
+    if not isinstance(raw_message, str):
+        return flask.jsonify({"error": "message must be a string"}), 400
+    message = raw_message.strip()
     if not message:
         return flask.jsonify({"error": "message is required"}), 400
 

@@ -1264,6 +1264,28 @@ def test_v2_steer_external_session_non_dict_body_returns_400(client: FlaskClient
     assert data["error"] == "Request body must be a JSON object"
 
 
+@pytest.mark.parametrize(
+    "message",
+    [123, True, [1, 2], {"nested": "obj"}],
+)
+def test_v2_steer_external_session_non_string_message_returns_400(
+    client: FlaskClient, message
+):
+    """A dict body with a non-string message must 400, not 500.
+
+    Regression: after the non-dict guard, ``(body.get("message") or "").strip()``
+    still raised ``AttributeError`` on truthy non-strings (int/bool/list/dict).
+    """
+    response = client.post(
+        "/api/v2/external-sessions/abc123/steer",
+        json={"message": message},
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert data["error"] == "message must be a string"
+
+
 def test_v2_steer_external_session_not_found(
     client: FlaskClient, fake_steerable_provider
 ):
