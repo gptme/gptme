@@ -186,6 +186,11 @@ def load_task_manifest(
     task_type = task_type.strip()
     if not task_type:
         raise ValueError("Task manifest type cannot be empty")
+    if any(c in task_type for c in "*?["):
+        raise ValueError(
+            f"Invalid tool manifest task type {task_type!r}: "
+            "must not contain glob metacharacters"
+        )
 
     path = _resolve_manifest_path(workspace, manifest_path)
     if not path.exists():
