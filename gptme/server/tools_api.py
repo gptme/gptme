@@ -325,8 +325,10 @@ def query_tools():
           "fields": ["name", "block_types"]
         }
     """
-    body = flask.request.get_json(silent=True) or {}
-    if not isinstance(body, dict):
+    body = flask.request.get_json(silent=True)
+    if body is None:
+        body = {}
+    elif not isinstance(body, dict):
         return flask.jsonify({"error": "Request body must be a JSON object"}), 400
     try:
         query = ToolQueryRequest(**body)
