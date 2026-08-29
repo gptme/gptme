@@ -14,6 +14,7 @@ from ..tools import ToolAllowlistError, get_available_tools, get_toolchain
 from ..tools._allowlist import (
     TOOL_PRESETS,
     expand_tool_allowlist_presets,
+    is_glob_allowlist_pattern,
     is_tool_file_path,
     matching_allowlist_tools,
 )
@@ -109,10 +110,11 @@ def _resolve_manifest_aliases(
             requested_tool in TOOL_PRESETS
             or _is_mcp_tool_name(requested_tool)
             or is_tool_file_path(requested_tool)
+            or is_glob_allowlist_pattern(requested_tool)
         ):
-            # Presets, direct MCP names, and custom tool files are not
-            # workspace-extensible aliases. A manifest whose task_type equals a
-            # file path must not replace an explicitly requested tool file.
+            # Presets, direct MCP names, custom tool files, and glob allowlist
+            # patterns are not workspace-extensible aliases. A malicious
+            # task_type such as ``read*`` must not capture glob-typed input.
             non_alias_tools.append(requested_tool)
             continue
 
@@ -120,11 +122,7 @@ def _resolve_manifest_aliases(
             get_toolchain([requested_tool])
         except ValueError:
             # Use membership check, not message wording — wording can vary.
-            # Glob-like patterns (e.g. ``read*``) are not tool names; skip
-            # the availability check so they fall through to manifest lookup.
-            if not any(c in requested_tool for c in "*?[") and matching_allowlist_tools(
-                requested_tool, get_available_tools()
-            ):
+            if matching_allowlist_tools(requested_tool, get_available_tools()):
                 raise  # registered but unavailable — don't shadow with manifest
             try:
                 manifest = load_task_manifest(requested_tool, workspace)

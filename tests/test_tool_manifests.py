@@ -104,6 +104,26 @@ def test_load_task_manifest_rejects_glob_metacharacters(
         load_task_manifest("research", tmp_path)
 
 
+@pytest.mark.parametrize("task_type", ["read*", "read?", "read[ab]"])
+def test_load_task_manifest_rejects_glob_in_task_type(tmp_path: Path, task_type: str):
+    """task_type is an exact name and must not capture glob-typed --tools input."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "task_type": task_type,
+                "builtin_tools": ["shell"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="glob metacharacters"):
+        load_task_manifest(task_type, tmp_path)
+
+
 @pytest.mark.parametrize(
     ("server_name", "tool_name", "match"),
     [

@@ -1796,6 +1796,7 @@ def main(
                 from ..tools._allowlist import (
                     TOOL_PRESETS,
                     _is_mcp_tool_name,
+                    is_glob_allowlist_pattern,
                     is_tool_file_path,
                 )
 
@@ -1825,6 +1826,7 @@ def main(
                         alias_candidate in TOOL_PRESETS
                         or _is_mcp_tool_name(alias_candidate)
                         or is_tool_file_path(alias_candidate)
+                        or is_glob_allowlist_pattern(alias_candidate)
                     ):
                         non_alias_parts.append(alias_candidate)
                         continue
@@ -1879,8 +1881,11 @@ def main(
                 if non_alias_parts:
                     # Re-join non-alias tools (e.g. "+extra_tool") alongside the
                     # stripped manifest tools so they are not silently lost.
+                    # Deduplicate: a surviving builtin_tools preset can already
+                    # appear in fallback_parts, and repeating it in
+                    # non_alias_parts would become ``read-only,read-only``.
                     fallback_parts = [p for p in (fallback_str or "").split(",") if p]
-                    combined = fallback_parts + non_alias_parts
+                    combined = list(dict.fromkeys(fallback_parts + non_alias_parts))
                     tool_allowlist_str = ",".join(combined) if combined else None
                 else:
                     tool_allowlist_str = fallback_str

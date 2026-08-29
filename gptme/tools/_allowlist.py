@@ -19,6 +19,11 @@ def is_tool_file_path(name: str) -> bool:
     )
 
 
+def is_glob_allowlist_pattern(name: str) -> bool:
+    """Return True if *name* uses glob metacharacters as an allowlist pattern."""
+    return any(c in name for c in "*?[")
+
+
 def _is_mcp_tool_name(name: str) -> bool:
     """Return True if the name looks like an MCP dotted tool (``server.tool``)."""
     if is_tool_file_path(name) or "/" in name:

@@ -2509,6 +2509,19 @@ def test_resolve_manifest_aliases_preset_plus_mcp_alias_and_direct_mcp(
     )
 
 
+def test_resolve_manifest_aliases_does_not_treat_glob_as_alias(tmp_path: Path):
+    """Glob allowlist patterns are not workspace-extensible manifest aliases."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"read*","builtin_tools":["shell"],'
+        '"tools":[{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert _resolve_manifest_aliases("read*", tmp_path) == "read*"
+
+
 def test_resolve_manifest_aliases_does_not_shadow_tool_file_path(tmp_path: Path):
     """A custom tool file path is never resolved as a workspace manifest alias."""
     tool_file = tmp_path / "review.py"
