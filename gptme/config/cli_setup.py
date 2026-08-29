@@ -57,6 +57,28 @@ def _is_mcp_tool_name(value: str) -> bool:
     return dot_idx > 0 and dot_idx < len(value) - 1
 
 
+def _tools_stay_inside_preset_boundary(
+    tools: list[str], base_tools: list[str] | None
+) -> bool:
+    """Return True if *tools* are MCP names or already inside *base_tools*' preset.
+
+    Additive ``--tools +alias`` may expand a manifest's ``builtin_tools: ["read-only"]``
+    into concrete names (``read``) so later exclusive-preset checks do not reject
+    the mix. Those expanded names are still inside the configured preset boundary
+    and must not be treated as a user request to leave it — otherwise
+    non-interactive mode injects ``complete``.
+    """
+    if not base_tools:
+        return False
+    presets = [item for item in base_tools if item in TOOL_PRESETS]
+    if not presets:
+        return False
+    allowed: set[str] = set(presets)
+    for preset in presets:
+        allowed.update(TOOL_PRESETS[preset])
+    return all(_is_mcp_tool_name(item) or item in allowed for item in tools if item)
+
+
 def _resolve_manifest_aliases(
     tool_allowlist: str,
     workspace: Path,
@@ -434,27 +456,35 @@ def setup_config_from_cli(
                 base_tools = configured_base_tools
             else:
                 base_tools = [tool.name for tool in get_toolchain(None)]
-            # When all additional tools are MCP dotted names (server.tool),
-            # preserve any preset name in base_tools so that config.chat.tools
-            # stores ``["read-only", "search.query"]`` rather than the expanded
-            # ``["read", "search.query"]``.  The preset name is required for
-            # configured_base_is_preset to fire correctly on resume and prevent
-            # 'complete' from being added to a read-only session (F2 security fix).
-            # For non-MCP additional tools (e.g. ``+save``), expand the preset
-            # first so ``read-only`` + ``save`` becomes the concrete list
-            # ``read,save`` rather than an invalid mixed preset list.
-            all_additional_are_mcp = all(_is_mcp_tool_name(t) for t in additional_tools)
+            # When additional tools stay inside the configured preset (MCP names,
+            # or concrete names that are just that preset expanded), preserve
+            # the preset identifier so config.chat.tools stores
+            # ``["read-only", "search.query"]`` rather than ``["read", ...]``.
+            # The identifier is required for configured_base_is_preset on resume
+            # (F2) and to skip injecting ``complete``. For extras outside the
+            # boundary (e.g. ``+save``), expand the preset first so
+            # ``read-only`` + ``save`` becomes ``read,save``.
             preset_in_base = any(t in TOOL_PRESETS for t in base_tools)
-            # Only preserve the preset name verbatim when the MCP tools came via a
-            # manifest alias resolution (e.g. ``+research`` → ``+search.query``).
-            # Explicit MCP dotted names typed directly (e.g. ``+search.query``) must
-            # still expand the preset so that non-interactive mode can add 'complete'
-            # without hitting the preset+tool combination guard.
+            # Only preserve the preset name verbatim when the extra tools came via
+            # a manifest alias (e.g. ``+research`` → ``+search.query``, or
+            # ``+audit`` → ``+read,analysis.run`` after expanding a preset
+            # builtin_tools entry). Explicit extras typed directly (e.g.
+            # ``+search.query`` or ``+save``) must still expand the preset so
+            # non-interactive mode can add 'complete' without hitting the
+            # preset+tool combination guard.
             alias_was_resolved = tool_allowlist != requested_tool_allowlist
-            if all_additional_are_mcp and preset_in_base and alias_was_resolved:
+            additional_stays_inside = _tools_stay_inside_preset_boundary(
+                additional_tools, base_tools
+            )
+            if additional_stays_inside and preset_in_base and alias_was_resolved:
                 # Keep preset name verbatim; expand_tool_allowlist_presets (called
-                # at toolchain init time) will handle the expansion later.
+                # at toolchain init time) will handle the expansion later. Skip
+                # concrete names that are just the expanded preset (``read`` from
+                # ``read-only``) so we never mix the identifier with its members.
                 resolved_tool_allowlist = base_tools.copy()
+                tools_to_append = [
+                    tool for tool in additional_tools if _is_mcp_tool_name(tool)
+                ]
             else:
                 # A persisted/configured preset cannot be combined with non-MCP
                 # names; expand it first so ``read-only`` + ``save`` becomes
@@ -462,8 +492,9 @@ def setup_config_from_cli(
                 resolved_tool_allowlist = expand_tool_allowlist_presets(
                     base_tools.copy()
                 )
+                tools_to_append = additional_tools
             assert resolved_tool_allowlist is not None
-            for tool in additional_tools:
+            for tool in tools_to_append:
                 if tool not in resolved_tool_allowlist:
                     resolved_tool_allowlist.append(tool)
         elif tool_allowlist.startswith("-"):
@@ -577,17 +608,17 @@ def setup_config_from_cli(
                 any(tool in TOOL_PRESETS for tool in requested_tool_names)
                 or (
                     configured_base_is_preset
-                    # Only preserve the preset boundary when alias resolution produced
-                    # purely additive MCP tools. If the user also explicitly requested a
-                    # non-preset built-in (e.g. ``--tools alias,shell`` with
-                    # ``TOOL_ALLOWLIST=read-only``), that breaks the preset boundary and
-                    # 'complete' must be added normally in non-interactive mode.
+                    # Preserve the preset boundary when alias resolution produced
+                    # extras that stay inside it: MCP names, or concrete tools
+                    # that are just the expanded preset (``+audit`` →
+                    # ``+read,analysis.run``). Explicit tools outside the
+                    # boundary (e.g. ``--tools alias,shell``) still get
+                    # 'complete' in non-interactive mode.
                     and tool_allowlist is not None
                     and tool_allowlist.startswith("+")
-                    and all(
-                        _is_mcp_tool_name(t.strip())
-                        for t in tool_allowlist[1:].split(",")
-                        if t.strip()
+                    and _tools_stay_inside_preset_boundary(
+                        [t.strip() for t in tool_allowlist[1:].split(",") if t.strip()],
+                        configured_base_tools,
                     )
                 )
             )

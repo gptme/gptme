@@ -3004,6 +3004,37 @@ def test_additive_builtin_tools_preset_alias_setup_succeeds(tmp_path: Path):
     assert "analysis.run" in config.chat.tools
 
 
+def test_additive_preset_alias_on_configured_preset_keeps_noninteractive_boundary(
+    tmp_path: Path, monkeypatch
+):
+    """``--tools +audit`` on a configured read-only base must not inject complete.
+
+    Alias resolution expands ``builtin_tools: ["read-only"]`` to ``read`` so the
+    exclusive-preset mix check does not reject the additive list. Those expanded
+    names are still inside the configured boundary and must not be treated as a
+    request to leave it.
+    """
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="+audit",
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read-only", "analysis.run"]
+    assert "complete" not in config.chat.tools
+
+
 def test_builtin_tools_manifest_alias_raises_with_saved_conversation_tools(
     tmp_path: Path, monkeypatch
 ):
