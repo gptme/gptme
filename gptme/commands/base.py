@@ -133,6 +133,11 @@ def register_command(
     if owner_tool is not None:
         for cmd_name in names:
             _command_owners[cmd_name] = owner_tool
+    else:
+        # Re-registering without an owner must drop a stale mapping so the
+        # command is unowned (always enabled), matching the docstring.
+        for cmd_name in names:
+            _command_owners.pop(cmd_name, None)
 
     logger.debug(
         f"Registered command: {name}" + (f" (aliases: {aliases})" if aliases else "")

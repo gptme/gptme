@@ -260,6 +260,24 @@ class TestDynamicRegistration:
         unregister_command("ownedcmd")
         assert "ownedcmd" not in _command_owners
 
+    def test_reregister_without_owner_clears_stale_owner(self, clean_registry):
+        """An unowned re-register must not keep gating on a previous owner.
+
+        Skills and plugins call register_command without owner_tool. If a tool
+        previously owned the same name, a leftover _command_owners entry would
+        make the new unowned command fail-closed whenever that tool is unloaded.
+        """
+        from gptme.commands.base import _command_enabled_in_session
+
+        def handler(ctx):
+            pass
+
+        register_command("ownedcmd", handler, owner_tool="side_effect_tool")
+        register_command("ownedcmd", handler)
+        assert "ownedcmd" not in _command_owners
+        with patch("gptme.tools.has_tool", return_value=False):
+            assert _command_enabled_in_session("ownedcmd") is True
+
 
 # ── Query Functions ──
 
