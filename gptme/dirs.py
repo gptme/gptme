@@ -18,9 +18,14 @@ def _get_env_path(var: str) -> str | None:
     Treats an empty or whitespace-only value the same as "not set" —
     this is intentional: empty XDG_* vars (common in Docker or misconfigured
     environments) must not produce relative paths like ``Path("") / "gptme"``.
+
+    Surrounding whitespace is stripped. ``Path(" /tmp/foo")`` is relative
+    (it does not start with ``/``), so a leading space on ``XDG_DATA_HOME``
+    would otherwise write data under CWD. Accidental padding is the
+    misconfiguration this helper exists to tolerate.
     """
-    val = os.environ.get(var, "")
-    return val if val.strip() else None
+    stripped = os.environ.get(var, "").strip()
+    return stripped or None
 
 
 def get_config_dir() -> Path:

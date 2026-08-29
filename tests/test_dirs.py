@@ -40,9 +40,10 @@ class TestGetEnvPath:
         monkeypatch.setenv("_GPTME_TEST_VAR", "   ")
         assert dirs._get_env_path("_GPTME_TEST_VAR") is None
 
-    def test_preserves_surrounding_whitespace(self, monkeypatch):
+    def test_strips_surrounding_whitespace(self, monkeypatch):
+        """Leading/trailing spaces must be stripped so Path() stays absolute."""
         monkeypatch.setenv("_GPTME_TEST_VAR", "  /valid/path  ")
-        assert dirs._get_env_path("_GPTME_TEST_VAR") == "  /valid/path  "
+        assert dirs._get_env_path("_GPTME_TEST_VAR") == "/valid/path"
 
 
 # ── Config directory ──────────────────────────────────────────────────────
@@ -79,6 +80,14 @@ class TestGetDataDir:
             result = dirs.get_data_dir()
         assert result.is_absolute(), f"Expected absolute path, got {result!r}"
 
+    def test_xdg_data_home_padded_value_stays_absolute(self, tmp_path: Path):
+        """Accidental spaces around a real XDG_DATA_HOME must not make Path relative."""
+        env = {**os.environ, "XDG_DATA_HOME": f"  {tmp_path}  "}
+        with patch.dict(os.environ, env, clear=True):
+            result = dirs.get_data_dir()
+        assert result.is_absolute(), f"Expected absolute path, got {result!r}"
+        assert result == tmp_path / "gptme"
+
     def test_xdg_data_home_not_set_falls_through(self):
         """Without XDG_DATA_HOME, should return a path (either legacy or platformdirs)."""
         env = os.environ.copy()
@@ -114,12 +123,17 @@ class TestGetLogsDir:
         assert result == logs_dir
         assert result.exists()  # should be created
 
-    def test_gptme_logs_home_empty_falls_through(self):
+    def test_gptme_logs_home_empty_falls_through(self, tmp_path: Path):
         """Empty GPTME_LOGS_HOME must not produce a relative path."""
-        env = {**os.environ, "GPTME_LOGS_HOME": ""}
+        env = {
+            **os.environ,
+            "GPTME_LOGS_HOME": "",
+            "XDG_DATA_HOME": str(tmp_path),
+        }
         with patch.dict(os.environ, env, clear=True):
             result = dirs.get_logs_dir()
         assert result.is_absolute(), f"Expected absolute path, got {result!r}"
+        assert result == tmp_path / "gptme" / "logs"
 
     def test_default_is_subdir_of_data(self):
         """Without GPTME_LOGS_HOME, logs go under get_data_dir()/logs."""
