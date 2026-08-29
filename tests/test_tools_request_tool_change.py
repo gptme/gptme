@@ -15,9 +15,12 @@ from gptme.tools import (
     get_available_tools,
     get_tool_format,
     get_tools,
+    has_tool,
     init_tools,
+    set_session_allowlist,
     set_tool_format,
     set_tools,
+    unload_tool,
 )
 from gptme.tools.base import ToolSpec, ToolUse
 from gptme.tools.request_tool_change import (
@@ -145,6 +148,9 @@ def isolated_tools():
     clear_tools()
     # Load only request_tool_change itself so each test starts from a known state.
     init_tools(allowlist=["request_tool_change"])
+    # The fixture allowlist isolates the loaded set; it is not an operator
+    # restriction. Unrestricted sessions may still enable additional tools.
+    set_session_allowlist(None)
     yield
     clear_tools()
     set_tool_format(previous_format)
@@ -301,6 +307,32 @@ class TestEnableTool:
         assert "unknown tool" in result.content
         assert not any(t.name == "nonexistent_xyz" for t in get_tools())
 
+    def test_enable_rejects_tool_outside_allowlist(self, isolated_tools):
+        set_session_allowlist(["request_tool_change"])
+        with _patch_available([_FAKE_SHELL, tool]):
+            result = _execute(
+                change_type="enable_tool",
+                tool_name="shell",
+                reason="Need to inspect workspace",
+                urgency="medium",
+            )
+
+        assert "allowlist" in result.content
+        assert not any(t.name == "shell" for t in get_tools())
+
+    def test_enable_allows_allowlisted_tool(self, isolated_tools):
+        set_session_allowlist(["request_tool_change", "shell"])
+        with _patch_available([_FAKE_SHELL, tool]):
+            result = _execute(
+                change_type="enable_tool",
+                tool_name="shell",
+                reason="Need to inspect workspace",
+                urgency="medium",
+            )
+
+        assert "enabled" in result.content
+        assert any(t.name == "shell" for t in get_tools())
+
 
 class TestDisableTool:
     def test_disable_removes_tool_from_session(self, isolated_tools):
@@ -426,6 +458,23 @@ class TestDisableTool:
 
         assert "disabled" in result.content
         assert not any(t.name == "custom_tool" for t in get_tools())
+
+
+class TestUnloadTool:
+    def test_unload_by_block_type_removes_tool(self, isolated_tools):
+        alias_tool = ToolSpec(
+            name="alias_tool",
+            desc="Has a distinct block type",
+            block_types=["alias_block"],
+            execute=lambda _code, _args, _kwargs: Message("system", "executed"),
+        )
+        set_tools([*get_tools(), alias_tool])
+        assert has_tool("alias_tool")
+
+        unloaded = unload_tool("alias_block")
+        assert unloaded is alias_tool
+        assert not has_tool("alias_tool")
+        assert not any(t is alias_tool for t in get_tools())
 
 
 class TestConfigureTool:

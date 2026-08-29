@@ -64,6 +64,13 @@ _loaded_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar(
 _available_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar(
     "available_tools", default=None
 )
+# Effective operator allowlist from the last init_tools() in this context.
+# None means unrestricted (default session); a list is a hard cap for model
+# enablement via request_tool_change. /tools load still uses load_tool()
+# directly and is not gated here.
+_session_allowlist_var: ContextVar[list[str] | None] = ContextVar(
+    "session_allowlist", default=None
+)
 
 # Note: Tools must be initialized in each context that needs them.
 # This is particularly important for server environments where request handling
@@ -185,6 +192,7 @@ def init_tools(
                 allowlist = config.chat.tools
 
         allowlist = expand_tool_allowlist_presets(allowlist)
+        set_session_allowlist(allowlist)
 
         # Partition allowlist into file paths and tool names
         file_paths: list[str] = []
@@ -485,6 +493,7 @@ def clear_tools():
     """
     _set_available_tools_cache(None)
     _loaded_tools_var.set([])
+    _session_allowlist_var.set(None)
 
 
 def get_tools() -> list[ToolSpec]:
@@ -501,6 +510,20 @@ def set_tools(tools: list[ToolSpec]) -> None:
     _loaded_tools_var.set(tools)
 
 
+def get_session_allowlist() -> list[str] | None:
+    """Return the operator tool allowlist captured by the last init_tools()."""
+    return _session_allowlist_var.get()
+
+
+def set_session_allowlist(allowlist: list[str] | None) -> None:
+    """Override the session tool allowlist for this context.
+
+    ``None`` means unrestricted. An explicit list is the hard cap that
+    ``request_tool_change`` enablement must honor.
+    """
+    _session_allowlist_var.set(list(allowlist) if allowlist is not None else None)
+
+
 def unload_tool(tool_name: str) -> ToolSpec:
     """Unload one tool and best-effort unregister its hooks and commands."""
     with _tools_init_lock:
@@ -511,7 +534,10 @@ def unload_tool(tool_name: str) -> ToolSpec:
         from ..commands import unregister_command
         from ..hooks import unregister_hook
 
-        set_tools([loaded for loaded in get_tools() if loaded.name != tool_name])
+        # Filter by identity: get_tool() matches name *or* block_types, so a
+        # block-type argument would miss a name-only filter and leave a zombie
+        # tool loaded after its hooks/commands were unregistered.
+        set_tools([loaded for loaded in get_tools() if loaded is not tool])
         for hook_name in tool.hooks:
             try:
                 unregister_hook(f"{tool.name}.{hook_name}")

@@ -14,7 +14,14 @@ from __future__ import annotations
 import logging
 
 from ..message import Message
-from . import get_available_tools, get_tools, load_tool, unload_tool
+from . import (
+    get_available_tools,
+    get_session_allowlist,
+    get_tools,
+    load_tool,
+    unload_tool,
+)
+from ._allowlist import tool_matches_allowlist
 from .base import Parameter, ToolSpec
 
 logger = logging.getLogger(__name__)
@@ -38,6 +45,20 @@ def _enable_tool(tool_name: str) -> Message:
             f"request_tool_change: '{tool_name}' is already enabled — no change.",
             quiet=True,
         )
+
+    allowlist = get_session_allowlist()
+    if allowlist is not None:
+        available = next(
+            (t for t in get_available_tools() if t.name == tool_name), None
+        )
+        hints = available.hints if available is not None else frozenset()
+        if not tool_matches_allowlist(tool_name, allowlist, hints):
+            return Message(
+                "system",
+                f"request_tool_change: '{tool_name}' is not permitted by "
+                "the session tool allowlist — no change.",
+                quiet=True,
+            )
 
     try:
         load_tool(tool_name)
