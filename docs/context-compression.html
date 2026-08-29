@@ -1,0 +1,1302 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Context Compression &#8212; gptme</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/sphinx-book-theme.css?v=eba8b062" />
+    <link rel="stylesheet" type="text/css" href="_static/asciinema-player_3.12.1.css" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=3a28e17f" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script src="_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/asciinema-player_3.12.1.js"></script>
+    <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'context-compression';</script>
+    <link rel="canonical" href="https://gptme.org/docs/context-compression.html" />
+    <link rel="icon" href="_static/logo.png"/>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Prompts" href="prompts.html" />
+    <link rel="prev" title="Plugin System" href="plugins.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
+    <script>document.write(`<img src="_static/logo.png" class="logo__image only-dark" alt="gptme - Home"/>`);</script>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+ <script>
+ document.write(`
+   <button class="btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="demos.html">Demos</a></li>
+<li class="toctree-l2"><a class="reference internal" href="automation.html">Automation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html">Projects</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="cookbook.html">Cookbook</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="howto/index.html">How-To Guides</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="howto/choose-workflow.html">Choose a workflow for your task</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/minimal-context.html">Run gptme with minimal context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/edit-files.html">How to Edit Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/code-review.html">How to Review Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/debug-python.html">How to Debug Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/automate-task.html">How to Automate Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/refactor.html">How to Refactor Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/computer-use.html">How to Automate GUIs with Computer Use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/tts-setup.html">Set Up Text-to-Speech</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="browser.html">Browser Tool</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tool-formats.html">Tool Formats</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="provider-integration.html">Provider Integration Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Extensibility</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="agents.html">Agents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="agent/verifier-profile.html">Verifier Profile</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
+<li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="skills.html">Skills</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="skills-gallery.html">Skills Gallery</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pr-lifecycle.html">PR lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Context Compression</a></li>
+<li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="design/hook-based-confirmations.html">Design: Hook-Based Tool Confirmations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design/elicitation.html">Design: Generalized Elicitation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design/ptc-tool-interface.html">Design: Programmatic Tool Calling (PTC) Interface</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="misc/acronyms.html">What does “gptme” stand for?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.33.0.html">v0.33.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.32.1.html">v0.32.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.32.0.html">v0.32.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.31.0.html">v0.31.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.30.0.html">v0.30.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.29.0.html">v0.29.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.3.html">v0.28.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.2.html">v0.28.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.1.html">v0.28.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.27.0.html">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.22.0.html">v0.22.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.21.0.html">v0.21.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.20.0.html">v0.20.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.19.0.html">v0.19.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.18.0.html">v0.18.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.17.0.html">v0.17.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.16.0.html">v0.16.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.15.0.html">v0.15.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.14.0.html">v0.14.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.13.0.html">v0.13.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.12.0.html">v0.12.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.11.0.html">v0.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.5.html">v0.10.5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.4.html">v0.10.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.3.html">v0.10.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.2.html">v0.10.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.1.html">v0.10.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.0.html">v0.10.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.4.html">v0.9.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.3.html">v0.9.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.2.html">v0.9.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.1.html">v0.9.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.0.html">v0.9.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.1.html">v0.8.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.0.html">v0.8.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.7.0.html">v0.7.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.1.html">v0.6.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.0.html">v0.6.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.5.0.html">v0.5.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.2.html">v0.4.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.1.html">v0.4.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.0.html">v0.4.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.3.html">v0.3.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.2.html">v0.3.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.1.html">v0.3.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.0.html">v0.3.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.2.html">v0.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.1.html">v0.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.1.1.html">v0.1.1</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">External</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference external" href="https://github.com/gptme/gptme">GitHub</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://x.com/gptmeorg">X</a></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/context-compression.rst" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="_sources/context-compression.rst" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.rst</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script>
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm pst-navbar-icon search-button search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+  </button>
+`);
+</script>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>Context Compression</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-compression-strategy">Built-in Compression Strategy</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-the-default-compressor">Using the Default Compressor</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-compression-providers-plugin-interface">Custom Compression Providers (Plugin Interface)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementing-a-custom-provider">Implementing a Custom Provider</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-interface">Provider Interface</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#contextprovider-abc">ContextProvider ABC</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#name-property"><code class="docutils literal notranslate"><span class="pre">name</span></code> property</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#should-compress-method"><code class="docutils literal notranslate"><span class="pre">should_compress()</span></code> method</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#compress-method"><code class="docutils literal notranslate"><span class="pre">compress()</span></code> method</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#compressionconfig-dataclass">CompressionConfig Dataclass</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-your-provider">Registering Your Provider</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#entry-points-recommended">Entry Points (Recommended)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#programmatic-registration">Programmatic Registration</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-a-custom-provider">Using a Custom Provider</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#discovering-available-providers">Discovering Available Providers</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#design-considerations">Design Considerations</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#message-integrity">Message Integrity</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#recovery-strategy">Recovery Strategy</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#performance">Performance</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#code-aware-compression">Code-Aware Compression</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#statistical-compression">Statistical Compression</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related">Related</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#api-reference">API Reference</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.ContextProvider"><code class="docutils literal notranslate"><span class="pre">ContextProvider</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.ContextProvider.compress"><code class="docutils literal notranslate"><span class="pre">ContextProvider.compress()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.ContextProvider.name"><code class="docutils literal notranslate"><span class="pre">ContextProvider.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.ContextProvider.should_compress"><code class="docutils literal notranslate"><span class="pre">ContextProvider.should_compress()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider"><code class="docutils literal notranslate"><span class="pre">DefaultContextProvider</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider.compress"><code class="docutils literal notranslate"><span class="pre">DefaultContextProvider.compress()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider.estimate_tokens"><code class="docutils literal notranslate"><span class="pre">DefaultContextProvider.estimate_tokens()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider.name"><code class="docutils literal notranslate"><span class="pre">DefaultContextProvider.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider.should_compress"><code class="docutils literal notranslate"><span class="pre">DefaultContextProvider.should_compress()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompactionResult"><code class="docutils literal notranslate"><span class="pre">CompactionResult</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompactionResult.__init__"><code class="docutils literal notranslate"><span class="pre">CompactionResult.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompactionResult.covered_through"><code class="docutils literal notranslate"><span class="pre">CompactionResult.covered_through</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompactionResult.limitations"><code class="docutils literal notranslate"><span class="pre">CompactionResult.limitations</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompactionResult.messages"><code class="docutils literal notranslate"><span class="pre">CompactionResult.messages</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompactionResult.source_digest"><code class="docutils literal notranslate"><span class="pre">CompactionResult.source_digest</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig"><code class="docutils literal notranslate"><span class="pre">CompressionConfig</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.__init__"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.extra_config"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.extra_config</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.keep_head"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.keep_head</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.limit"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.limit</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.logdir"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.logdir</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.max_tool_result_tokens"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.max_tool_result_tokens</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.reasoning_strip_age_threshold"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.reasoning_strip_age_threshold</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.get_context_provider"><code class="docutils literal notranslate"><span class="pre">get_context_provider()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.register_provider"><code class="docutils literal notranslate"><span class="pre">register_provider()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.list_providers"><code class="docutils literal notranslate"><span class="pre">list_providers()</span></code></a></li>
+</ul>
+</li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="context-compression">
+<h1>Context Compression<a class="headerlink" href="#context-compression" title="Link to this heading">#</a></h1>
+<p>gptme provides a pluggable context compression system that allows conversations to be compacted when they grow too large. This enables long-running sessions while keeping context windows manageable.</p>
+<nav class="contents local" id="table-of-contents">
+<p class="topic-title">Table of Contents</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#overview" id="id1">Overview</a></p></li>
+<li><p><a class="reference internal" href="#built-in-compression-strategy" id="id2">Built-in Compression Strategy</a></p></li>
+<li><p><a class="reference internal" href="#using-the-default-compressor" id="id3">Using the Default Compressor</a></p></li>
+<li><p><a class="reference internal" href="#custom-compression-providers-plugin-interface" id="id4">Custom Compression Providers (Plugin Interface)</a></p></li>
+<li><p><a class="reference internal" href="#implementing-a-custom-provider" id="id5">Implementing a Custom Provider</a></p></li>
+<li><p><a class="reference internal" href="#provider-interface" id="id6">Provider Interface</a></p>
+<ul>
+<li><p><a class="reference internal" href="#contextprovider-abc" id="id7">ContextProvider ABC</a></p></li>
+<li><p><a class="reference internal" href="#compressionconfig-dataclass" id="id8">CompressionConfig Dataclass</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#registering-your-provider" id="id9">Registering Your Provider</a></p>
+<ul>
+<li><p><a class="reference internal" href="#entry-points-recommended" id="id10">Entry Points (Recommended)</a></p></li>
+<li><p><a class="reference internal" href="#programmatic-registration" id="id11">Programmatic Registration</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#using-a-custom-provider" id="id12">Using a Custom Provider</a></p>
+<ul>
+<li><p><a class="reference internal" href="#discovering-available-providers" id="id13">Discovering Available Providers</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#design-considerations" id="id14">Design Considerations</a></p>
+<ul>
+<li><p><a class="reference internal" href="#message-integrity" id="id15">Message Integrity</a></p></li>
+<li><p><a class="reference internal" href="#recovery-strategy" id="id16">Recovery Strategy</a></p></li>
+<li><p><a class="reference internal" href="#performance" id="id17">Performance</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#examples" id="id18">Examples</a></p>
+<ul>
+<li><p><a class="reference internal" href="#code-aware-compression" id="id19">Code-Aware Compression</a></p></li>
+<li><p><a class="reference internal" href="#statistical-compression" id="id20">Statistical Compression</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#related" id="id21">Related</a></p></li>
+<li><p><a class="reference internal" href="#api-reference" id="id22">API Reference</a></p></li>
+</ul>
+</nav>
+<section id="overview">
+<h2><a class="toc-backref" href="#id1" role="doc-backlink">Overview</a><a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<p>The context compression system has two main components:</p>
+<ol class="arabic simple">
+<li><p><strong>Automatic Compaction</strong> - Triggered when conversations exceed token limits or contain massive tool results</p></li>
+<li><p><strong>Plugin Interface</strong> - Allows third-party packages to provide custom compression strategies</p></li>
+</ol>
+</section>
+<section id="built-in-compression-strategy">
+<h2><a class="toc-backref" href="#id2" role="doc-backlink">Built-in Compression Strategy</a><a class="headerlink" href="#built-in-compression-strategy" title="Link to this heading">#</a></h2>
+<p>By default, gptme uses a 3-phase compression algorithm:</p>
+<ol class="arabic simple">
+<li><p><strong>Reasoning Stripping</strong> - Remove reasoning tags from older messages (age-based)</p></li>
+<li><p><strong>Tool Result Truncation</strong> - Truncate largest tool results first</p></li>
+<li><p><strong>Extractive Compression</strong> - Summarize long assistant messages</p></li>
+</ol>
+<p>This approach intelligently prioritizes the largest messages for removal to achieve target reduction with minimal information loss.</p>
+</section>
+<section id="using-the-default-compressor">
+<h2><a class="toc-backref" href="#id3" role="doc-backlink">Using the Default Compressor</a><a class="headerlink" href="#using-the-default-compressor" title="Link to this heading">#</a></h2>
+<p>When you enable the <code class="docutils literal notranslate"><span class="pre">autocompact</span></code> tool, automatic compression is triggered via a post-turn hook:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tool<span class="w"> </span>autocompact
+</pre></div>
+</div>
+<p>You can also manually compact a conversation:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/compact           # Rule-based trim (default)
+/compact trim      # Same as above
+/compact summarize # LLM-powered summarization
+</pre></div>
+</div>
+<p>Two strategies are available:</p>
+<ul class="simple">
+<li><p><strong>trim</strong> (default) — rule-based: strips old reasoning blocks, truncates massive tool
+results, and compresses long assistant messages. Fast and deterministic; no LLM call.
+If savings would be low, gptme will suggest <code class="docutils literal notranslate"><span class="pre">/compact</span> <span class="pre">summarize</span></code> instead.</p></li>
+<li><p><strong>summarize</strong> — LLM-powered: asks the model to produce a <code class="docutils literal notranslate"><span class="pre">RESUME.md</span></code> capturing
+key decisions, open tasks, and relevant file paths, then starts a fresh context
+from that summary. More thorough but requires a model call and restarts context.</p></li>
+</ul>
+<div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version ``/compact: </span>auto`` and <code class="docutils literal notranslate"><span class="pre">/compact</span> <span class="pre">resume</span></code> are deprecated aliases for <code class="docutils literal notranslate"><span class="pre">trim</span></code> and
+<code class="docutils literal notranslate"><span class="pre">summarize</span></code> respectively. They still work but emit a deprecation warning.</p>
+</div>
+</section>
+<section id="custom-compression-providers-plugin-interface">
+<h2><a class="toc-backref" href="#id4" role="doc-backlink">Custom Compression Providers (Plugin Interface)</a><a class="headerlink" href="#custom-compression-providers-plugin-interface" title="Link to this heading">#</a></h2>
+<p>The plugin interface allows third-party packages to ship custom compression strategies as pip packages. This is useful for:</p>
+<ul class="simple">
+<li><p>Domain-specific compaction strategies (e.g., code-aware, markdown-aware)</p></li>
+<li><p>Experimental compression algorithms</p></li>
+<li><p>Integration with external summarization services</p></li>
+<li><p>Specialized handling for specific tool outputs</p></li>
+</ul>
+</section>
+<section id="implementing-a-custom-provider">
+<h2><a class="toc-backref" href="#id5" role="doc-backlink">Implementing a Custom Provider</a><a class="headerlink" href="#implementing-a-custom-provider" title="Link to this heading">#</a></h2>
+<p>Create a class that implements the <code class="docutils literal notranslate"><span class="pre">ContextProvider</span></code> abstract base class:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.autocompact.context_provider</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ContextProvider</span><span class="p">,</span> <span class="n">CompressionConfig</span><span class="p">,</span> <span class="n">CompactionResult</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyContextProvider</span><span class="p">(</span><span class="n">ContextProvider</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom context compression provider.&quot;&quot;&quot;</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return a unique identifier for this provider.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="s2">&quot;my-compressor&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">should_compress</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Message</span><span class="p">],</span> <span class="n">config</span><span class="p">:</span> <span class="n">CompressionConfig</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Decide whether compression should be applied.&quot;&quot;&quot;</span>
+        <span class="c1"># Your logic here</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">50</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">compress</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Message</span><span class="p">],</span> <span class="n">config</span><span class="p">:</span> <span class="n">CompressionConfig</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CompactionResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Apply compression and return a CompactionResult.&quot;&quot;&quot;</span>
+        <span class="c1"># Your compression logic here — return a CompactionResult, not a generator</span>
+        <span class="n">source_digest</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_compute_digest</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
+        <span class="n">compacted</span> <span class="o">=</span> <span class="n">messages</span><span class="p">[</span><span class="o">-</span><span class="mi">50</span><span class="p">:]</span>  <span class="c1"># keep last 50 messages</span>
+        <span class="k">return</span> <span class="n">CompactionResult</span><span class="p">(</span>
+            <span class="n">messages</span><span class="o">=</span><span class="n">compacted</span><span class="p">,</span>
+            <span class="n">source_digest</span><span class="o">=</span><span class="n">source_digest</span><span class="p">,</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="provider-interface">
+<h2><a class="toc-backref" href="#id6" role="doc-backlink">Provider Interface</a><a class="headerlink" href="#provider-interface" title="Link to this heading">#</a></h2>
+<section id="contextprovider-abc">
+<h3><a class="toc-backref" href="#id7" role="doc-backlink">ContextProvider ABC</a><a class="headerlink" href="#contextprovider-abc" title="Link to this heading">#</a></h3>
+<p>All custom providers must inherit from <code class="docutils literal notranslate"><span class="pre">gptme.tools.autocompact.context_provider.ContextProvider</span></code> and implement:</p>
+<section id="name-property">
+<h4><code class="docutils literal notranslate"><span class="pre">name</span></code> property<a class="headerlink" href="#name-property" title="Link to this heading">#</a></h4>
+<p>Returns a unique identifier for this provider (e.g., <code class="docutils literal notranslate"><span class="pre">&quot;my-compressor&quot;</span></code>).</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@property</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">return</span> <span class="s2">&quot;my-compressor&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="should-compress-method">
+<h4><code class="docutils literal notranslate"><span class="pre">should_compress()</span></code> method<a class="headerlink" href="#should-compress-method" title="Link to this heading">#</a></h4>
+<p>Decides whether compression should be applied based on message list and configuration.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">should_compress</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Message</span><span class="p">],</span> <span class="n">config</span><span class="p">:</span> <span class="n">CompressionConfig</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Args:</span>
+<span class="sd">        messages: List of messages in the conversation</span>
+<span class="sd">        config: Compression configuration (see CompressionConfig below)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        True if compression should be applied, False otherwise</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+</pre></div>
+</div>
+<p>This allows intelligent decisions: some providers might always compress when close to the limit, others only when detecting redundancy exceeds a threshold.</p>
+</section>
+<section id="compress-method">
+<h4><code class="docutils literal notranslate"><span class="pre">compress()</span></code> method<a class="headerlink" href="#compress-method" title="Link to this heading">#</a></h4>
+<p>Applies compression and returns a <a class="reference internal" href="#gptme.tools.autocompact.context_provider.CompactionResult" title="gptme.tools.autocompact.context_provider.CompactionResult"><code class="xref py py-class docutils literal notranslate"><span class="pre">CompactionResult</span></code></a>.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">compress</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Message</span><span class="p">],</span> <span class="n">config</span><span class="p">:</span> <span class="n">CompressionConfig</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CompactionResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Args:</span>
+<span class="sd">        messages: List of messages to compress</span>
+<span class="sd">        config: Compression configuration</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        CompactionResult: Contains the compacted message list and</span>
+<span class="sd">            metadata (source_digest) for cache invalidation.</span>
+
+<span class="sd">    Note:</span>
+<span class="sd">        - Preserve message structure (role, timestamp, tool_calls, etc.)</span>
+<span class="sd">        - Do NOT return a generator — the caller accesses .messages directly</span>
+<span class="sd">        - May optionally set covered_through for partial-context tracking</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="compressionconfig-dataclass">
+<h3><a class="toc-backref" href="#id8" role="doc-backlink">CompressionConfig Dataclass</a><a class="headerlink" href="#compressionconfig-dataclass" title="Link to this heading">#</a></h3>
+<p>Configuration passed to compression methods:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CompressionConfig</span><span class="p">:</span>
+    <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="c1"># Target token limit. None disables automatic should_compress()</span>
+        <span class="c1"># checks (DefaultContextProvider.should_compress returns False).</span>
+        <span class="c1"># Custom providers may handle None differently.</span>
+
+    <span class="n">max_tool_result_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2000</span>
+        <span class="c1"># Maximum tokens allowed in a tool result before removal</span>
+
+    <span class="n">reasoning_strip_age_threshold</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span>
+        <span class="c1"># Strip reasoning from messages older than N positions</span>
+
+    <span class="n">logdir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="c1"># Path to save removed outputs for recovery</span>
+
+    <span class="n">extra_config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="c1"># Provider-specific configuration</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="registering-your-provider">
+<h2><a class="toc-backref" href="#id9" role="doc-backlink">Registering Your Provider</a><a class="headerlink" href="#registering-your-provider" title="Link to this heading">#</a></h2>
+<section id="entry-points-recommended">
+<h3><a class="toc-backref" href="#id10" role="doc-backlink">Entry Points (Recommended)</a><a class="headerlink" href="#entry-points-recommended" title="Link to this heading">#</a></h3>
+<p>Add your provider to your package’s <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;gptme.context_providers&quot;</span><span class="k">]</span>
+<span class="n">my-compressor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_package.providers:MyContextProvider&quot;</span>
+</pre></div>
+</div>
+<p>When gptme starts, it will automatically discover and load your provider via entry-points.</p>
+</section>
+<section id="programmatic-registration">
+<h3><a class="toc-backref" href="#id11" role="doc-backlink">Programmatic Registration</a><a class="headerlink" href="#programmatic-registration" title="Link to this heading">#</a></h3>
+<p>You can also register providers at runtime:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.autocompact.context_provider</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_provider</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">my_package.providers</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyContextProvider</span>
+
+<span class="n">register_provider</span><span class="p">(</span><span class="s2">&quot;my-compressor&quot;</span><span class="p">,</span> <span class="n">MyContextProvider</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="using-a-custom-provider">
+<h2><a class="toc-backref" href="#id12" role="doc-backlink">Using a Custom Provider</a><a class="headerlink" href="#using-a-custom-provider" title="Link to this heading">#</a></h2>
+<p>Once registered, use your provider by name:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.autocompact.context_provider</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_context_provider</span>
+
+<span class="n">provider</span> <span class="o">=</span> <span class="n">get_context_provider</span><span class="p">(</span><span class="s2">&quot;my-compressor&quot;</span><span class="p">)</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">CompressionConfig</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">4000</span><span class="p">)</span>
+
+<span class="c1"># Check if compression is needed</span>
+<span class="k">if</span> <span class="n">provider</span><span class="o">.</span><span class="n">should_compress</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">provider</span><span class="o">.</span><span class="n">compress</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+    <span class="n">compacted</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">messages</span>  <span class="c1"># CompactionResult.messages is a list[Message]</span>
+</pre></div>
+</div>
+<section id="discovering-available-providers">
+<h3><a class="toc-backref" href="#id13" role="doc-backlink">Discovering Available Providers</a><a class="headerlink" href="#discovering-available-providers" title="Link to this heading">#</a></h3>
+<p>List all registered providers:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.autocompact.context_provider</span><span class="w"> </span><span class="kn">import</span> <span class="n">list_providers</span>
+
+<span class="n">providers</span> <span class="o">=</span> <span class="n">list_providers</span><span class="p">()</span>
+<span class="c1"># Returns: [&#39;default&#39;, &#39;my-compressor&#39;, ...]</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="design-considerations">
+<h2><a class="toc-backref" href="#id14" role="doc-backlink">Design Considerations</a><a class="headerlink" href="#design-considerations" title="Link to this heading">#</a></h2>
+<section id="message-integrity">
+<h3><a class="toc-backref" href="#id15" role="doc-backlink">Message Integrity</a><a class="headerlink" href="#message-integrity" title="Link to this heading">#</a></h3>
+<p>Compression implementations must preserve:</p>
+<ul class="simple">
+<li><p><strong>Message Role</strong>: Keep assistant/user/system roles intact</p></li>
+<li><p><strong>Message Order</strong>: Maintain original chronological order</p></li>
+<li><p><strong>Timestamps</strong>: Don’t modify message timestamps</p></li>
+<li><p><strong>Tool References</strong>: Preserve tool_use_id and tool_result associations</p></li>
+</ul>
+<p>This ensures the compacted conversation remains valid for continuation.</p>
+</section>
+<section id="recovery-strategy">
+<h3><a class="toc-backref" href="#id16" role="doc-backlink">Recovery Strategy</a><a class="headerlink" href="#recovery-strategy" title="Link to this heading">#</a></h3>
+<p>For significant compression, consider adding recovery references:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># When removing or summarizing messages, optionally record:</span>
+<span class="c1"># - Byte ranges in the original conversation.jsonl</span>
+<span class="c1"># - A `sourceDigest` hash for verification</span>
+<span class="c1"># - Coverage metadata (how many events/turns were covered)</span>
+</pre></div>
+</div>
+<p>This allows recovery of the full context if needed later.</p>
+</section>
+<section id="performance">
+<h3><a class="toc-backref" href="#id17" role="doc-backlink">Performance</a><a class="headerlink" href="#performance" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">compress</span></code> method must return a <a class="reference internal" href="#gptme.tools.autocompact.context_provider.CompactionResult" title="gptme.tools.autocompact.context_provider.CompactionResult"><code class="xref py py-class docutils literal notranslate"><span class="pre">CompactionResult</span></code></a>
+(not a generator or a bare list). When building the result, process messages
+lazily to avoid allocating unnecessary copies:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">compress</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CompactionResult</span><span class="p">:</span>
+    <span class="c1"># Build compacted list efficiently with a comprehension or generator expression</span>
+    <span class="n">compacted</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_maybe_trim</span><span class="p">(</span><span class="n">m</span><span class="p">)</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">messages</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">CompactionResult</span><span class="p">(</span>
+        <span class="n">messages</span><span class="o">=</span><span class="n">compacted</span><span class="p">,</span>
+        <span class="n">source_digest</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_compute_digest</span><span class="p">(</span><span class="n">messages</span><span class="p">),</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="examples">
+<h2><a class="toc-backref" href="#id18" role="doc-backlink">Examples</a><a class="headerlink" href="#examples" title="Link to this heading">#</a></h2>
+<section id="code-aware-compression">
+<h3><a class="toc-backref" href="#id19" role="doc-backlink">Code-Aware Compression</a><a class="headerlink" href="#code-aware-compression" title="Link to this heading">#</a></h3>
+<p>Example provider that’s more aggressive with code comments:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.autocompact.context_provider</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ContextProvider</span><span class="p">,</span> <span class="n">CompressionConfig</span><span class="p">,</span> <span class="n">CompactionResult</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">CodeAwareProvider</span><span class="p">(</span><span class="n">ContextProvider</span><span class="p">):</span>
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;code-aware&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">should_compress</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="c1"># Only compress when close to limit</span>
+        <span class="n">tokens</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimate_tokens</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
+        <span class="n">limit</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">limit</span> <span class="ow">or</span> <span class="mi">4000</span>
+        <span class="k">return</span> <span class="n">tokens</span> <span class="o">&gt;</span> <span class="nb">int</span><span class="p">(</span><span class="mf">0.9</span> <span class="o">*</span> <span class="n">limit</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">compress</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CompactionResult</span><span class="p">:</span>
+        <span class="n">compacted</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_compress_code_message</span><span class="p">(</span><span class="n">msg</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">msg</span><span class="o">.</span><span class="n">role</span> <span class="o">==</span> <span class="s2">&quot;assistant&quot;</span> <span class="ow">and</span> <span class="s2">&quot;```&quot;</span> <span class="ow">in</span> <span class="n">msg</span><span class="o">.</span><span class="n">content</span>
+            <span class="k">else</span> <span class="n">msg</span>
+            <span class="k">for</span> <span class="n">msg</span> <span class="ow">in</span> <span class="n">messages</span>
+        <span class="p">]</span>
+        <span class="k">return</span> <span class="n">CompactionResult</span><span class="p">(</span>
+            <span class="n">messages</span><span class="o">=</span><span class="n">compacted</span><span class="p">,</span>
+            <span class="n">source_digest</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_compute_digest</span><span class="p">(</span><span class="n">messages</span><span class="p">),</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="statistical-compression">
+<h3><a class="toc-backref" href="#id20" role="doc-backlink">Statistical Compression</a><a class="headerlink" href="#statistical-compression" title="Link to this heading">#</a></h3>
+<p>Provider that uses redundancy detection:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">StatisticalProvider</span><span class="p">(</span><span class="n">ContextProvider</span><span class="p">):</span>
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;statistical&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">should_compress</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="c1"># Analyze redundancy before deciding</span>
+        <span class="n">redundancy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_compute_redundancy_score</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redundancy</span> <span class="o">&gt;</span> <span class="mf">0.3</span>  <span class="c1"># 30% redundant content</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">compress</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CompactionResult</span><span class="p">:</span>
+        <span class="c1"># Remove duplicate patterns, extract key information</span>
+        <span class="n">compacted</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_extract_unique_content</span><span class="p">(</span><span class="n">messages</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">CompactionResult</span><span class="p">(</span>
+            <span class="n">messages</span><span class="o">=</span><span class="n">compacted</span><span class="p">,</span>
+            <span class="n">source_digest</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_compute_digest</span><span class="p">(</span><span class="n">messages</span><span class="p">),</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="related">
+<h2><a class="toc-backref" href="#id21" role="doc-backlink">Related</a><a class="headerlink" href="#related" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">autocompact</span></code> tool - Automatic compression tool (see <a class="reference internal" href="commands.html"><span class="doc">Commands</span></a>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme.tools.autocompact.context_provider</span></code> - Provider interface module</p></li>
+<li><p><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><code class="xref py py-class docutils literal notranslate"><span class="pre">gptme.message.Message</span></code></a> - Message class reference</p></li>
+</ul>
+</section>
+<section id="api-reference">
+<h2><a class="toc-backref" href="#id22" role="doc-backlink">API Reference</a><a class="headerlink" href="#api-reference" title="Link to this heading">#</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.ContextProvider">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.autocompact.context_provider.</span></span><span class="sig-name descname"><span class="pre">ContextProvider</span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.ContextProvider" title="Link to this definition">#</a></dt>
+<dd><p>Abstract base class for context compression providers.</p>
+<p>Implementations must provide a <code class="docutils literal notranslate"><span class="pre">name</span></code> property, a <code class="docutils literal notranslate"><span class="pre">should_compress</span></code>
+predicate, and a <code class="docutils literal notranslate"><span class="pre">compress</span></code> method returning a
+<a class="reference internal" href="#gptme.tools.autocompact.context_provider.CompactionResult" title="gptme.tools.autocompact.context_provider.CompactionResult"><code class="xref py py-class docutils literal notranslate"><span class="pre">CompactionResult</span></code></a>.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.ContextProvider.compress">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">compress</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">messages</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.tools.autocompact.context_provider.CompressionConfig" title="gptme.tools.autocompact.context_provider.CompressionConfig"><span class="pre">CompressionConfig</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.tools.autocompact.context_provider.CompactionResult" title="gptme.tools.autocompact.context_provider.CompactionResult"><span class="pre">CompactionResult</span></a></span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.ContextProvider.compress" title="Link to this definition">#</a></dt>
+<dd><p>Compress <em>messages</em> and return a <a class="reference internal" href="#gptme.tools.autocompact.context_provider.CompactionResult" title="gptme.tools.autocompact.context_provider.CompactionResult"><code class="xref py py-class docutils literal notranslate"><span class="pre">CompactionResult</span></code></a>.</p>
+<p>The result carries the projected message stream alongside coverage
+metadata (source digest, covered-through index, limitations).</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.ContextProvider.name">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></em><a class="headerlink" href="#gptme.tools.autocompact.context_provider.ContextProvider.name" title="Link to this definition">#</a></dt>
+<dd><p>Unique provider name used for registration and lookup.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.ContextProvider.should_compress">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">should_compress</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">messages</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.tools.autocompact.context_provider.CompressionConfig" title="gptme.tools.autocompact.context_provider.CompressionConfig"><span class="pre">CompressionConfig</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.ContextProvider.should_compress" title="Link to this definition">#</a></dt>
+<dd><p>Return True if these messages should be compressed.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.DefaultContextProvider">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.autocompact.context_provider.</span></span><span class="sig-name descname"><span class="pre">DefaultContextProvider</span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider" title="Link to this definition">#</a></dt>
+<dd><p>Default provider — delegates to <code class="docutils literal notranslate"><span class="pre">gptme.tools.autocompact.engine.auto_compact_log</span></code>.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.DefaultContextProvider.compress">
+<span class="sig-name descname"><span class="pre">compress</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">messages</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.tools.autocompact.context_provider.CompressionConfig" title="gptme.tools.autocompact.context_provider.CompressionConfig"><span class="pre">CompressionConfig</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.tools.autocompact.context_provider.CompactionResult" title="gptme.tools.autocompact.context_provider.CompactionResult"><span class="pre">CompactionResult</span></a></span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider.compress" title="Link to this definition">#</a></dt>
+<dd><p>Compress <em>messages</em> and return a <a class="reference internal" href="#gptme.tools.autocompact.context_provider.CompactionResult" title="gptme.tools.autocompact.context_provider.CompactionResult"><code class="xref py py-class docutils literal notranslate"><span class="pre">CompactionResult</span></code></a>.</p>
+<p>The result carries the projected message stream alongside coverage
+metadata (source digest, covered-through index, limitations).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.DefaultContextProvider.estimate_tokens">
+<span class="sig-name descname"><span class="pre">estimate_tokens</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">messages</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider.estimate_tokens" title="Link to this definition">#</a></dt>
+<dd><p>Estimate total token count for a message list.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.DefaultContextProvider.name">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></em><a class="headerlink" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider.name" title="Link to this definition">#</a></dt>
+<dd><p>Unique provider name used for registration and lookup.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.DefaultContextProvider.should_compress">
+<span class="sig-name descname"><span class="pre">should_compress</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">messages</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.tools.autocompact.context_provider.CompressionConfig" title="gptme.tools.autocompact.context_provider.CompressionConfig"><span class="pre">CompressionConfig</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider.should_compress" title="Link to this definition">#</a></dt>
+<dd><p>Return True if these messages should be compressed.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompactionResult">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.autocompact.context_provider.</span></span><span class="sig-name descname"><span class="pre">CompactionResult</span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompactionResult" title="Link to this definition">#</a></dt>
+<dd><p>Result of a context compression operation.</p>
+<p>Carries the projected message stream alongside coverage metadata so callers
+can validate or invalidate a summary against the log it was derived from.
+Inspired by apache/maka’s <code class="docutils literal notranslate"><span class="pre">HistoryCompactCheckpoint</span></code> (idea #1143).</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompactionResult.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">messages:</span> <span class="pre">list[Message],</span> <span class="pre">source_digest:</span> <span class="pre">str,</span> <span class="pre">covered_through:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">-1,</span> <span class="pre">limitations:</span> <span class="pre">list[str]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompactionResult.__init__" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompactionResult.covered_through">
+<span class="sig-name descname"><span class="pre">covered_through</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">-1</span></em><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompactionResult.covered_through" title="Link to this definition">#</a></dt>
+<dd><p>0-based index of the last source message covered by this result.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-1</span></code> when no source messages were processed (empty input) or when the
+provider does not track partial coverage.
+For providers that compact the full input, set this to <code class="docutils literal notranslate"><span class="pre">len(source)</span> <span class="pre">-</span> <span class="pre">1</span></code>.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompactionResult.limitations">
+<span class="sig-name descname"><span class="pre">limitations</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompactionResult.limitations" title="Link to this definition">#</a></dt>
+<dd><p>Human-readable notes about coverage gaps or lossy operations.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompactionResult.messages">
+<span class="sig-name descname"><span class="pre">messages</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompactionResult.messages" title="Link to this definition">#</a></dt>
+<dd><p>The projected (compacted) message stream.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompactionResult.source_digest">
+<span class="sig-name descname"><span class="pre">source_digest</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></em><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompactionResult.source_digest" title="Link to this definition">#</a></dt>
+<dd><p>SHA-256 hex digest of the source messages used to produce this result.</p>
+<p>Computed from concatenated role+content for each source message.
+Invalidated when the source log is mutated after compaction.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompressionConfig">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.autocompact.context_provider.</span></span><span class="sig-name descname"><span class="pre">CompressionConfig</span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompressionConfig" title="Link to this definition">#</a></dt>
+<dd><p>Configuration for context compression.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompressionConfig.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">limit:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_tool_result_tokens:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">2000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logdir:</span> <span class="pre">Path</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reasoning_strip_age_threshold:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">keep_head:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra_config:</span> <span class="pre">dict</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompressionConfig.__init__" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompressionConfig.extra_config">
+<span class="sig-name descname"><span class="pre">extra_config</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a></em><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompressionConfig.extra_config" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompressionConfig.keep_head">
+<span class="sig-name descname"><span class="pre">keep_head</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></em><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompressionConfig.keep_head" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompressionConfig.limit">
+<span class="sig-name descname"><span class="pre">limit</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompressionConfig.limit" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompressionConfig.logdir">
+<span class="sig-name descname"><span class="pre">logdir</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompressionConfig.logdir" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompressionConfig.max_tool_result_tokens">
+<span class="sig-name descname"><span class="pre">max_tool_result_tokens</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">2000</span></em><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompressionConfig.max_tool_result_tokens" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.CompressionConfig.reasoning_strip_age_threshold">
+<span class="sig-name descname"><span class="pre">reasoning_strip_age_threshold</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">5</span></em><a class="headerlink" href="#gptme.tools.autocompact.context_provider.CompressionConfig.reasoning_strip_age_threshold" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.get_context_provider">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.autocompact.context_provider.</span></span><span class="sig-name descname"><span class="pre">get_context_provider</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'default'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.tools.autocompact.context_provider.ContextProvider" title="gptme.tools.autocompact.context_provider.ContextProvider"><span class="pre">ContextProvider</span></a></span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.get_context_provider" title="Link to this definition">#</a></dt>
+<dd><p>Return an instance of the named provider.</p>
+<p>Raises <a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ValueError</span></code></a> for unknown names.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.register_provider">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.autocompact.context_provider.</span></span><span class="sig-name descname"><span class="pre">register_provider</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">provider_class</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.14)"><span class="pre">type</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.register_provider" title="Link to this definition">#</a></dt>
+<dd><p>Register a ContextProvider subclass under <em>name</em>.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.tools.autocompact.context_provider.list_providers">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.autocompact.context_provider.</span></span><span class="sig-name descname"><span class="pre">list_providers</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.tools.autocompact.context_provider.list_providers" title="Link to this definition">#</a></dt>
+<dd><p>Return all registered provider names, sorted.</p>
+</dd></dl>
+
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="plugins.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Plugin System</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="prompts.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Prompts</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-compression-strategy">Built-in Compression Strategy</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-the-default-compressor">Using the Default Compressor</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-compression-providers-plugin-interface">Custom Compression Providers (Plugin Interface)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementing-a-custom-provider">Implementing a Custom Provider</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-interface">Provider Interface</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#contextprovider-abc">ContextProvider ABC</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#name-property"><code class="docutils literal notranslate"><span class="pre">name</span></code> property</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#should-compress-method"><code class="docutils literal notranslate"><span class="pre">should_compress()</span></code> method</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#compress-method"><code class="docutils literal notranslate"><span class="pre">compress()</span></code> method</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#compressionconfig-dataclass">CompressionConfig Dataclass</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-your-provider">Registering Your Provider</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#entry-points-recommended">Entry Points (Recommended)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#programmatic-registration">Programmatic Registration</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-a-custom-provider">Using a Custom Provider</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#discovering-available-providers">Discovering Available Providers</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#design-considerations">Design Considerations</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#message-integrity">Message Integrity</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#recovery-strategy">Recovery Strategy</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#performance">Performance</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#code-aware-compression">Code-Aware Compression</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#statistical-compression">Statistical Compression</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related">Related</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#api-reference">API Reference</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.ContextProvider"><code class="docutils literal notranslate"><span class="pre">ContextProvider</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.ContextProvider.compress"><code class="docutils literal notranslate"><span class="pre">ContextProvider.compress()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.ContextProvider.name"><code class="docutils literal notranslate"><span class="pre">ContextProvider.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.ContextProvider.should_compress"><code class="docutils literal notranslate"><span class="pre">ContextProvider.should_compress()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider"><code class="docutils literal notranslate"><span class="pre">DefaultContextProvider</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider.compress"><code class="docutils literal notranslate"><span class="pre">DefaultContextProvider.compress()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider.estimate_tokens"><code class="docutils literal notranslate"><span class="pre">DefaultContextProvider.estimate_tokens()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider.name"><code class="docutils literal notranslate"><span class="pre">DefaultContextProvider.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.DefaultContextProvider.should_compress"><code class="docutils literal notranslate"><span class="pre">DefaultContextProvider.should_compress()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompactionResult"><code class="docutils literal notranslate"><span class="pre">CompactionResult</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompactionResult.__init__"><code class="docutils literal notranslate"><span class="pre">CompactionResult.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompactionResult.covered_through"><code class="docutils literal notranslate"><span class="pre">CompactionResult.covered_through</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompactionResult.limitations"><code class="docutils literal notranslate"><span class="pre">CompactionResult.limitations</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompactionResult.messages"><code class="docutils literal notranslate"><span class="pre">CompactionResult.messages</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompactionResult.source_digest"><code class="docutils literal notranslate"><span class="pre">CompactionResult.source_digest</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig"><code class="docutils literal notranslate"><span class="pre">CompressionConfig</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.__init__"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.extra_config"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.extra_config</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.keep_head"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.keep_head</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.limit"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.limit</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.logdir"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.logdir</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.max_tool_result_tokens"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.max_tool_result_tokens</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.CompressionConfig.reasoning_strip_age_threshold"><code class="docutils literal notranslate"><span class="pre">CompressionConfig.reasoning_strip_age_threshold</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.get_context_provider"><code class="docutils literal notranslate"><span class="pre">get_context_provider()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.register_provider"><code class="docutils literal notranslate"><span class="pre">register_provider()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.autocompact.context_provider.list_providers"><code class="docutils literal notranslate"><span class="pre">list_providers()</span></code></a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Erik Bjäreholt
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2026, Erik Bjäreholt.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>

@@ -65,6 +65,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    custom_tool
    hooks
    plugins
+   context-compression
    prompts
    api
    evals

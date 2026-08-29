@@ -581,6 +581,7 @@ window.runMermaid = runMermaid;</script>
 <li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="context-compression.html">Context Compression</a></li>
 <li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
@@ -795,6 +796,7 @@ document.write(`
  | <a href="#G"><strong>G</strong></a>
  | <a href="#H"><strong>H</strong></a>
  | <a href="#I"><strong>I</strong></a>
+ | <a href="#K"><strong>K</strong></a>
  | <a href="#L"><strong>L</strong></a>
  | <a href="#M"><strong>M</strong></a>
  | <a href="#N"><strong>N</strong></a>
@@ -1601,6 +1603,10 @@ document.write(`
 </li>
         <li><a href="prompts.html#gptme.prompts.PromptStats.__init__">(gptme.prompts.PromptStats method)</a>
 </li>
+        <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompactionResult.__init__">(gptme.tools.autocompact.context_provider.CompactionResult method)</a>
+</li>
+        <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompressionConfig.__init__">(gptme.tools.autocompact.context_provider.CompressionConfig method)</a>
+</li>
         <li><a href="api.html#gptme.tools.Parameter.__init__">(gptme.tools.Parameter method)</a>
 </li>
         <li><a href="api.html#gptme.tools.ToolFunction.__init__">(gptme.tools.ToolFunction method)</a>
@@ -1646,15 +1652,27 @@ document.write(`
 </li>
       <li><a href="api.html#gptme.codeblock.Codeblock">Codeblock (class in gptme.codeblock)</a>
 </li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompactionResult">CompactionResult (class in gptme.tools.autocompact.context_provider)</a>
+</li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.ContextProvider.compress">compress() (gptme.tools.autocompact.context_provider.ContextProvider method)</a>
+
+      <ul>
+        <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.DefaultContextProvider.compress">(gptme.tools.autocompact.context_provider.DefaultContextProvider method)</a>
+</li>
+      </ul></li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompressionConfig">CompressionConfig (class in gptme.tools.autocompact.context_provider)</a>
+</li>
       <li><a href="api.html#gptme.message.Message.concat">concat() (gptme.message.Message method)</a>
 </li>
       <li><a href="api.html#gptme.config.Config">Config (class in gptme.config)</a>
 </li>
-      <li><a href="api.html#gptme.message.Message.content">content (gptme.message.Message attribute)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#gptme.message.Message.content">content (gptme.message.Message attribute)</a>
+</li>
       <li><a href="api.html#gptme.config.ContextConfig">ContextConfig (class in gptme.config)</a>
+</li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.ContextProvider">ContextProvider (class in gptme.tools.autocompact.context_provider)</a>
 </li>
       <li><a href="api.html#gptme.config.ContextSelectorConfig">ContextSelectorConfig (class in gptme.config)</a>
 </li>
@@ -1664,6 +1682,8 @@ document.write(`
 </li>
       <li><a href="api.html#gptme.message.Message.cost">cost() (gptme.message.Message method)</a>
 </li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompactionResult.covered_through">covered_through (gptme.tools.autocompact.context_provider.CompactionResult attribute)</a>
+</li>
       <li><a href="api.html#gptme.logmanager.LogManager.create_view">create_view() (gptme.logmanager.LogManager method)</a>
 </li>
   </ul></td>
@@ -1672,10 +1692,12 @@ document.write(`
 <h2 id="D">D</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api.html#gptme.logmanager.delete_conversation">delete_conversation() (in module gptme.logmanager)</a>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.DefaultContextProvider">DefaultContextProvider (class in gptme.tools.autocompact.context_provider)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#gptme.logmanager.delete_conversation">delete_conversation() (in module gptme.logmanager)</a>
+</li>
       <li><a href="api.html#gptme.logmanager.LogManager.diff">diff() (gptme.logmanager.LogManager method)</a>
 </li>
   </ul></td>
@@ -1690,6 +1712,8 @@ document.write(`
 </li>
       <li><a href="api.html#gptme.logmanager.ephemeral_cache_boundary">ephemeral_cache_boundary() (in module gptme.logmanager)</a>
 </li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.DefaultContextProvider.estimate_tokens">estimate_tokens() (gptme.tools.autocompact.context_provider.DefaultContextProvider method)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li>
@@ -1700,6 +1724,8 @@ document.write(`
 </li>
       </ul></li>
       <li><a href="api.html#gptme.tools.ToolUse.execute">execute() (gptme.tools.ToolUse method)</a>
+</li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompressionConfig.extra_config">extra_config (gptme.tools.autocompact.context_provider.CompressionConfig attribute)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -1769,6 +1795,8 @@ document.write(`
       <li><a href="api.html#gptme.message.Message.get_codeblocks">get_codeblocks() (gptme.message.Message method)</a>
 </li>
       <li><a href="api.html#gptme.config.get_config">get_config() (in module gptme.config)</a>
+</li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.get_context_provider">get_context_provider() (in module gptme.tools.autocompact.context_provider)</a>
 </li>
       <li><a href="api.html#gptme.logmanager.get_conversation_by_id">get_conversation_by_id() (in module gptme.logmanager)</a>
 </li>
@@ -2298,22 +2326,38 @@ document.write(`
   </ul></td>
 </tr></table>
 
+<h2 id="K">K</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompressionConfig.keep_head">keep_head (gptme.tools.autocompact.context_provider.CompressionConfig attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
 <h2 id="L">L</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#gptme.config.LessonsConfig">LessonsConfig (class in gptme.config)</a>
 </li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompressionConfig.limit">limit (gptme.tools.autocompact.context_provider.CompressionConfig attribute)</a>
+</li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompactionResult.limitations">limitations (gptme.tools.autocompact.context_provider.CompactionResult attribute)</a>
+</li>
       <li><a href="api.html#gptme.logmanager.list_conversations">list_conversations() (in module gptme.logmanager)</a>
 </li>
-      <li><a href="api.html#gptme.logmanager.LogManager.load">load() (gptme.logmanager.LogManager class method)</a>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.list_providers">list_providers() (in module gptme.tools.autocompact.context_provider)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#gptme.logmanager.LogManager.load">load() (gptme.logmanager.LogManager class method)</a>
+</li>
       <li><a href="api.html#gptme.config.ChatConfig.load_or_create">load_or_create() (gptme.config.ChatConfig class method)</a>
 </li>
       <li><a href="api.html#gptme.config.load_user_config">load_user_config() (in module gptme.config)</a>
 </li>
       <li><a href="api.html#gptme.logmanager.Log">Log (class in gptme.logmanager)</a>
+</li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompressionConfig.logdir">logdir (gptme.tools.autocompact.context_provider.CompressionConfig attribute)</a>
 </li>
       <li><a href="api.html#gptme.logmanager.LogManager">LogManager (class in gptme.logmanager)</a>
 </li>
@@ -2325,6 +2369,8 @@ document.write(`
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#gptme.logmanager.LogManager.master_log">master_log (gptme.logmanager.LogManager property)</a>
 </li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompressionConfig.max_tool_result_tokens">max_tool_result_tokens (gptme.tools.autocompact.context_provider.CompressionConfig attribute)</a>
+</li>
       <li><a href="api.html#gptme.config.Config.mcp">mcp (gptme.config.Config property)</a>
 </li>
       <li><a href="api.html#gptme.config.MCPConfig">MCPConfig (class in gptme.config)</a>
@@ -2334,6 +2380,8 @@ document.write(`
       <li><a href="api.html#gptme.config.ProjectConfig.merge">merge() (gptme.config.ProjectConfig method)</a>
 </li>
       <li><a href="api.html#gptme.message.Message">Message (class in gptme.message)</a>
+</li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompactionResult.messages">messages (gptme.tools.autocompact.context_provider.CompactionResult attribute)</a>
 </li>
       <li><a href="api.html#gptme.message.Message.metadata">metadata (gptme.message.Message attribute)</a>
 </li>
@@ -2383,7 +2431,13 @@ document.write(`
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#gptme.logmanager.LogManager.name">name (gptme.logmanager.LogManager property)</a>
+
+      <ul>
+        <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.ContextProvider.name">(gptme.tools.autocompact.context_provider.ContextProvider property)</a>
 </li>
+        <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.DefaultContextProvider.name">(gptme.tools.autocompact.context_provider.DefaultContextProvider property)</a>
+</li>
+      </ul></li>
   </ul></td>
 </tr></table>
 
@@ -2495,12 +2549,16 @@ document.write(`
 </li>
       <li><a href="api.html#gptme.logmanager.LogManager.read_model_trace">read_model_trace() (gptme.logmanager.LogManager method)</a>
 </li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompressionConfig.reasoning_strip_age_threshold">reasoning_strip_age_threshold (gptme.tools.autocompact.context_provider.CompressionConfig attribute)</a>
+</li>
       <li><a href="api.html#gptme.tools.ToolSpec.register_commands">register_commands() (gptme.tools.ToolSpec method)</a>
 </li>
       <li><a href="api.html#gptme.tools.ToolSpec.register_hooks">register_hooks() (gptme.tools.ToolSpec method)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.register_provider">register_provider() (in module gptme.tools.autocompact.context_provider)</a>
+</li>
       <li><a href="api.html#gptme.config.reload_config">reload_config() (in module gptme.config)</a>
 </li>
       <li><a href="api.html#gptme.logmanager.rename_conversation">rename_conversation() (in module gptme.logmanager)</a>
@@ -2527,15 +2585,23 @@ document.write(`
 </li>
       <li><a href="api.html#gptme.config.set_config_from_workspace">set_config_from_workspace() (in module gptme.config)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#gptme.config.set_config_value">set_config_value() (in module gptme.config)</a>
 </li>
       <li><a href="api.html#gptme.config.SettingsConfig">SettingsConfig (class in gptme.config)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#gptme.config.setup_config_from_cli">setup_config_from_cli() (in module gptme.config)</a>
 </li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.ContextProvider.should_compress">should_compress() (gptme.tools.autocompact.context_provider.ContextProvider method)</a>
+
+      <ul>
+        <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.DefaultContextProvider.should_compress">(gptme.tools.autocompact.context_provider.DefaultContextProvider method)</a>
+</li>
+      </ul></li>
       <li><a href="api.html#gptme.logmanager.LogManager.snapshot_message_files">snapshot_message_files() (gptme.logmanager.LogManager method)</a>
+</li>
+      <li><a href="context-compression.html#gptme.tools.autocompact.context_provider.CompactionResult.source_digest">source_digest (gptme.tools.autocompact.context_provider.CompactionResult attribute)</a>
 </li>
       <li><a href="api.html#gptme.logmanager.LogManager.switch_to_master">switch_to_master() (gptme.logmanager.LogManager method)</a>
 </li>

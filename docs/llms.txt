@@ -50,6 +50,7 @@
 - [Custom Tools](https://gptme.org/docs/_sources/custom_tool.rst)
 - [Hooks](https://gptme.org/docs/_sources/hooks.rst)
 - [Plugin System](https://gptme.org/docs/_sources/plugins.rst)
+- [Context Compression](https://gptme.org/docs/_sources/context-compression.rst)
 - [Prompts](https://gptme.org/docs/_sources/prompts.rst)
 - [API Reference](https://gptme.org/docs/_sources/api.rst)
 - [Evals](https://gptme.org/docs/_sources/evals.rst)
