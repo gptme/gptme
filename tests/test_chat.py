@@ -881,7 +881,7 @@ def test_should_prompt_after_provider_error_system_message():
     immediately re-calls the provider and hammers a still-down API.
     """
     from gptme.chat import _should_prompt_for_input
-    from gptme.constants import LLM_REQUEST_FAILED_PREFIX
+    from gptme.constants import INTERRUPT_CONTENT, LLM_REQUEST_FAILED_PREFIX
     from gptme.logmanager import Log
     from gptme.message import Message
 
@@ -895,6 +895,36 @@ def test_should_prompt_after_provider_error_system_message():
 
     # Existing crash-recovery path: trailing user message auto-generates.
     assert _should_prompt_for_input(Log([Message("user", "hello")])) is False
+
+    # A newer user turn supersedes the failure marker. Scanning past it
+    # would stall crash-recovery / queued follow-ups (P2 6fc9a6d00154).
+    recovered = Log(
+        [
+            Message("user", "hello"),
+            Message("system", f"{LLM_REQUEST_FAILED_PREFIX} RateLimitError"),
+            Message("user", "try again"),
+        ]
+    )
+    assert _should_prompt_for_input(recovered) is False
+
+    # Hook system messages after the marker must still return to the user.
+    hooked = Log(
+        [
+            Message("user", "hello"),
+            Message("system", f"{LLM_REQUEST_FAILED_PREFIX} RateLimitError"),
+            Message("system", "cost: $0.01"),
+        ]
+    )
+    assert _should_prompt_for_input(hooked) is True
+    interrupted_then_user = Log(
+        [
+            Message("user", "hello"),
+            Message("assistant", "hi"),
+            Message("system", INTERRUPT_CONTENT),
+            Message("user", "continue"),
+        ]
+    )
+    assert _should_prompt_for_input(interrupted_then_user) is False
 
 
 def test_interactive_survives_provider_error(tmp_path):

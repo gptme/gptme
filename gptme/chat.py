@@ -536,15 +536,18 @@ def _should_prompt_for_input(log: Log) -> bool:
     last_msg = log[-1] if log else None
 
     # Check if there's an interrupt, decline, or provider-error message after
-    # the last assistant message. These all mean "hand control back to the
-    # user" rather than auto-generating. Hooks (like cost_awareness) may
-    # append after the marker, so scan until the last assistant message.
+    # the last assistant *and* last user message. These mean "hand control
+    # back to the user" rather than auto-generating. A newer user turn
+    # supersedes the marker (crash recovery / queued follow-up). Hooks
+    # (like cost_awareness) may append system messages after the marker, so
+    # skip those — but stop at user or assistant.
     has_recent_return_to_prompt = False
     for msg in reversed(log):
-        if msg.role == "assistant":
+        if msg.role in ("assistant", "user"):
             break
-        if msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT) or (
-            msg.content.startswith(LLM_REQUEST_FAILED_PREFIX)
+        if msg.role == "system" and (
+            msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT)
+            or msg.content.startswith(LLM_REQUEST_FAILED_PREFIX)
         ):
             has_recent_return_to_prompt = True
             break
