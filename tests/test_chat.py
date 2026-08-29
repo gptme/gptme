@@ -873,53 +873,91 @@ def _rate_limit_error(*, tagged: bool = True):
     return err
 
 
-def test_interactive_survives_provider_error():
-    """A 429 (or any provider error) returns control to the user, not a crash.
+def test_should_prompt_after_provider_error_system_message():
+    """A trailing LLM-failure system message must return control to the user.
 
-    Regression test for https://github.com/gptme/gptme/issues/3668
+    Crash recovery still auto-continues on a trailing *user* message. The
+    provider-error path must not take that branch — otherwise the loop
+    immediately re-calls the provider and hammers a still-down API.
+    """
+    from gptme.chat import _should_prompt_for_input
+    from gptme.constants import LLM_REQUEST_FAILED_PREFIX
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    failed = Log(
+        [
+            Message("user", "hello"),
+            Message("system", f"{LLM_REQUEST_FAILED_PREFIX} RateLimitError"),
+        ]
+    )
+    assert _should_prompt_for_input(failed) is True
+
+    # Existing crash-recovery path: trailing user message auto-generates.
+    assert _should_prompt_for_input(Log([Message("user", "hello")])) is False
+
+
+def test_interactive_survives_provider_error(tmp_path):
+    """A 429 returns control to the user, not a crash or retry loop.
+
+    Must not patch ``_should_prompt_for_input``: the previous version of this
+    test did, which hid an infinite retry when the last message is the
+    LLM-failure system message. Regression for gptme/gptme#3668 and
+    AI-review P1 0cb85cacfd0f.
     """
     import sys
 
     from gptme.chat import _run_chat_loop
+    from gptme.logmanager import Log
     from gptme.message import Message
 
     # See test_chained_prompts_continue_after_complete for why we use sys.modules.
     _chat_mod = sys.modules["gptme.chat"]
 
     manager = MagicMock()
-    manager.log = MagicMock()
-    manager.workspace = Path("/tmp")
-    manager.logdir = Path("/tmp/logdir")
-    appended: list[Message] = []
-    manager.append.side_effect = appended.append
+    manager.log = Log()
+    manager.workspace = tmp_path
+    manager.logdir = tmp_path
 
-    prompt_queue = [Message("user", "hello")]
+    def _append(msg: Message) -> None:
+        manager.log = manager.log.append(msg)
+
+    manager.append.side_effect = _append
+
+    process_calls = 0
+
+    def _process(*args, **kwargs):
+        nonlocal process_calls
+        process_calls += 1
+        if process_calls > 3:
+            raise RuntimeError("provider-error recovery re-entered the LLM call")
+        raise _rate_limit_error()
 
     with (
-        patch.object(
-            _chat_mod,
-            "_process_message_conversation",
-            side_effect=_rate_limit_error(),
-        ),
+        patch.object(_chat_mod, "_process_message_conversation", side_effect=_process),
         patch.object(_chat_mod, "trigger_hook", return_value=[]),
         patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
         patch.object(_chat_mod, "execute_cmd", return_value=False),
-        # After the failure the loop asks the user for input; simulate exit
+        # After the failure the loop asks the user for input; simulate exit.
+        # Do NOT patch _should_prompt_for_input — that was masking the retry loop.
         patch.object(_chat_mod, "_get_user_input", return_value=None),
-        patch.object(_chat_mod, "_should_prompt_for_input", return_value=True),
     ):
         _run_chat_loop(
             manager=manager,
-            prompt_queue=prompt_queue,
+            prompt_queue=[Message("user", "hello")],
             stream=False,
             tool_format="markdown",
             model=None,
             interactive=True,
         )
 
+    assert process_calls == 1, (
+        f"expected one LLM call then a user prompt, got {process_calls}"
+    )
     assert any(
-        msg.role == "system" and "LLM request failed" in msg.content for msg in appended
-    ), f"expected an error message in the log, got: {appended}"
+        msg.role == "system" and "LLM request failed" in msg.content
+        for msg in manager.log
+    ), f"expected an error message in the log, got: {list(manager.log)}"
 
 
 def test_non_interactive_still_raises_provider_error():

@@ -10,6 +10,7 @@ from .config import ChatConfig, get_config, require_workspace_exists
 from .constants import (
     DECLINED_CONTENT,
     INTERRUPT_CONTENT,
+    LLM_REQUEST_FAILED_PREFIX,
     MAX_MESSAGE_LENGTH,
     MAX_PROMPT_QUEUE_SIZE,
 )
@@ -373,10 +374,10 @@ def _run_chat_loop(
             # the error class. See https://github.com/gptme/gptme/issues/3668
             if not interactive or not is_provider_error(e):
                 raise
-            logger.error("LLM request failed: %s", e)
+            logger.error("%s %s", LLM_REQUEST_FAILED_PREFIX, e)
             if not is_output_json() and not is_output_quiet():
-                console.log(f"[red]LLM request failed:[/red] {e}")
-            manager.append(Message("system", f"LLM request failed: {e}"))
+                console.log(f"[red]{LLM_REQUEST_FAILED_PREFIX}[/red] {e}")
+            manager.append(Message("system", f"{LLM_REQUEST_FAILED_PREFIX} {e}"))
             # Drop queued prompts — they were meant for the failed turn.
             prompt_queue.clear()
             continue
@@ -534,26 +535,30 @@ def _should_prompt_for_input(log: Log) -> bool:
     """
     last_msg = log[-1] if log else None
 
-    # Check if there's an interrupt or decline message after the last assistant message
-    # This handles cases where hooks (like cost_awareness) add messages after the interrupt/decline
-    has_recent_interrupt_or_decline = False
+    # Check if there's an interrupt, decline, or provider-error message after
+    # the last assistant message. These all mean "hand control back to the
+    # user" rather than auto-generating. Hooks (like cost_awareness) may
+    # append after the marker, so scan until the last assistant message.
+    has_recent_return_to_prompt = False
     for msg in reversed(log):
         if msg.role == "assistant":
             break
-        if msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT):
-            has_recent_interrupt_or_decline = True
+        if msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT) or (
+            msg.content.startswith(LLM_REQUEST_FAILED_PREFIX)
+        ):
+            has_recent_return_to_prompt = True
             break
 
     # Ask for input when:
     # - No messages at all
     # - Last message was from assistant (normal flow)
-    # - There was an interrupt or decline after the last assistant message
+    # - There was an interrupt, decline, or provider error after the last assistant
     # - Last message was pinned
     # - No user messages exist in the entire log
     return (
         not last_msg
         or last_msg.role == "assistant"
-        or has_recent_interrupt_or_decline
+        or has_recent_return_to_prompt
         or last_msg.pinned
         or not any(role == "user" for role in [m.role for m in log])
     )

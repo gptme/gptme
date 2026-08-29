@@ -54,6 +54,12 @@ INTERRUPT_CONTENT = "Interrupted by user"
 # Content for when user declines execution (behaves like interrupt - returns to prompt)
 DECLINED_CONTENT = "Execution declined by user"
 
+# Prefix of the system message written when an interactive session recovers from
+# an exhausted LLM provider error. `_should_prompt_for_input` treats this like
+# interrupt/decline so the loop returns control to the user instead of
+# auto-generating (which would hammer a still-down provider).
+LLM_REQUEST_FAILED_PREFIX = "LLM request failed:"
+
 # Maximum length for user message content (characters)
 # This prevents unbounded memory usage and context window overflow
 # 100k characters ≈ 25k tokens for typical English text
