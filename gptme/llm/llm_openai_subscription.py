@@ -46,7 +46,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import parse_qs, urlencode, urlparse
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import requests
 
@@ -502,6 +502,37 @@ def _parse_sse_response(line: bytes | str) -> dict[str, Any] | None:
         return None
 
 
+def _conversation_id_for_codex() -> str | None:
+    """Resolve the active conversation id for Codex cache routing.
+
+    Server sessions set ``current_conversation_id``. CLI ``chat()`` sets the
+    telemetry conversation context from ``logdir.name``. Either is stable
+    across turns of one conversation.
+    """
+    from ..hooks.server_confirm import current_conversation_id
+    from ..telemetry import get_conversation_context
+
+    conv_id = current_conversation_id.get()
+    if conv_id:
+        return conv_id
+    conv_id, _ = get_conversation_context()
+    return conv_id
+
+
+def _codex_session_id(model: str) -> str:
+    """Conversation-stable ``session_id`` header for the Codex backend.
+
+    A per-request UUID is a pod-routing hint and forces cold-cache pricing
+    (OnlyTerp gotcha 9b). Hash conversation id with model so a model switch
+    does not reuse another model's routing key. Fall back to uuid4 when no
+    conversation context exists (one-shot / isolated tests).
+    """
+    conv_id = _conversation_id_for_codex()
+    if not conv_id:
+        return str(uuid4())
+    return str(uuid5(NAMESPACE_URL, f"gptme:codex:{conv_id}:{model}"))
+
+
 def stream(
     messages: list[Message],
     model: str,
@@ -535,7 +566,7 @@ def stream(
         "OpenAI-Beta": "responses=experimental",
         "chatgpt-account-id": auth.account_id,
         "originator": "gptme",
-        "session_id": str(uuid4()),
+        "session_id": _codex_session_id(model),
     }
 
     # Timeout is (connect, read). With stream=True the read timeout applies

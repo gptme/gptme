@@ -2,13 +2,16 @@ import json
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
+from uuid import UUID
 
 import pytest
 import requests
 
+from gptme.hooks.server_confirm import current_conversation_id
 from gptme.llm import llm_openai_subscription
 from gptme.llm.llm_openai_subscription import SubscriptionAuth
 from gptme.message import Message
+from gptme.telemetry import clear_conversation_context, set_conversation_context
 from gptme.tools import get_tool, init_tools
 
 
@@ -585,3 +588,87 @@ def test_stream_closes_response_on_retry():
 
     assert timed_out.closed, "timed-out response must be closed before retry"
     assert ok.closed, "final response must be closed after done event"
+
+
+def _stream_session_ids(n: int, model: str = "gpt-5.4") -> list[str]:
+    responses = [_FakeSSEStreamResponse([{"type": "response.done"}]) for _ in range(n)]
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            side_effect=responses,
+        ) as mock_post,
+    ):
+        for _ in range(n):
+            list(
+                llm_openai_subscription.stream(
+                    [Message(role="user", content="hello")], model
+                )
+            )
+    return [call.kwargs["headers"]["session_id"] for call in mock_post.call_args_list]
+
+
+def test_codex_session_id_stable_within_conversation_and_differs_across():
+    """Same conversation + model must reuse session_id; another conversation must not.
+
+    OnlyTerp gotcha 9b: a per-request UUID as Codex session_id is a pod-routing
+    hint and forces cold-cache pricing. Two stream() calls in one conversation
+    have to send the same header.
+    """
+    token = current_conversation_id.set("conv-stable-a")
+    try:
+        first, second = _stream_session_ids(2, "gpt-5.4")
+    finally:
+        current_conversation_id.reset(token)
+
+    assert first == second
+    UUID(first)
+
+    token = current_conversation_id.set("conv-stable-b")
+    try:
+        (other,) = _stream_session_ids(1, "gpt-5.4")
+    finally:
+        current_conversation_id.reset(token)
+
+    assert other != first
+
+
+def test_codex_session_id_differs_across_models_in_same_conversation():
+    token = current_conversation_id.set("conv-stable-a")
+    try:
+        (model_a,) = _stream_session_ids(1, "gpt-5.4")
+        (model_b,) = _stream_session_ids(1, "gpt-5.6-sol")
+    finally:
+        current_conversation_id.reset(token)
+
+    assert model_a != model_b
+
+
+def test_codex_session_id_uses_telemetry_conversation_when_server_unset():
+    set_conversation_context(conversation_id="cli-logdir-name")
+    try:
+        a = llm_openai_subscription._codex_session_id("gpt-5.4")
+        b = llm_openai_subscription._codex_session_id("gpt-5.4")
+    finally:
+        clear_conversation_context()
+
+    assert a == b
+    UUID(a)
+
+
+def test_codex_session_id_prefers_server_context_over_telemetry():
+    set_conversation_context(conversation_id="cli-logdir-name")
+    token = current_conversation_id.set("server-conv")
+    try:
+        server = llm_openai_subscription._codex_session_id("gpt-5.4")
+    finally:
+        current_conversation_id.reset(token)
+        clear_conversation_context()
+
+    set_conversation_context(conversation_id="cli-logdir-name")
+    try:
+        cli = llm_openai_subscription._codex_session_id("gpt-5.4")
+    finally:
+        clear_conversation_context()
+
+    assert server != cli
