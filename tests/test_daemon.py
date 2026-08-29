@@ -460,6 +460,28 @@ class TestSessionDaemonState:
             owner.socket_path.unlink(missing_ok=True)
             owner.pid_path.unlink(missing_ok=True)
 
+    def test_stop_raises_if_neither_signal_path_succeeds(self, tmp_path, monkeypatch):
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        monkeypatch.setattr(_dm, "_pidfd_open", lambda _pid: None)
+        monkeypatch.setattr(os, "kill", lambda *_args: pytest.fail("unpinned os.kill"))
+        owner = SessionDaemon("no-signal")
+        owner._acquire_pid_file()
+        owner.socket_path.touch()
+        try:
+            with pytest.raises(RuntimeError, match="Failed to signal"):
+                SessionDaemon("no-signal").stop()
+            assert owner._pid_file is not None
+            probe = owner.pid_path.open()
+            try:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                probe.close()
+        finally:
+            owner._cleanup()
+
     def test_is_running_true_with_owned_pid_file(self, tmp_path):
         from gptme.server import daemon as _dm
 
@@ -1199,4 +1221,26 @@ class TestDaemonCLI:
         result = CliRunner().invoke(cli, ["stop", "cli-timeout"])
         assert result.exit_code != 0
         assert "Timed out" in result.output
+        assert "Stopped daemon" not in result.output
+
+    def test_stop_command_does_not_claim_success_when_signal_fails(
+        self, tmp_path, monkeypatch
+    ):
+        from click.testing import CliRunner
+
+        from gptme.cli.cmd_daemon import cli
+        from gptme.server import daemon as _dm
+
+        monkeypatch.setattr(_dm, "get_daemon_dir", lambda: tmp_path)
+        monkeypatch.setattr(SessionDaemon, "is_running", lambda self: True)
+
+        def fail_stop(self) -> None:
+            raise RuntimeError(
+                "Failed to signal daemon 'cli-unsignaled'; it may still be running"
+            )
+
+        monkeypatch.setattr(SessionDaemon, "stop", fail_stop)
+        result = CliRunner().invoke(cli, ["stop", "cli-unsignaled"])
+        assert result.exit_code != 0
+        assert "Failed to signal" in result.output
         assert "Stopped daemon" not in result.output

@@ -199,6 +199,9 @@ def stop_cmd(session: str) -> None:
     except TimeoutError as e:
         click.echo(f"Timed out waiting for daemon '{session}' to stop.", err=True)
         raise SystemExit(1) from e
+    except RuntimeError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1) from e
     click.echo(f"Stopped daemon '{session}'.")
 
 

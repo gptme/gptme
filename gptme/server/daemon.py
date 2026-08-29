@@ -166,6 +166,18 @@ class SessionDaemon:
             signaled = _stop_via_socket(self.socket_path)
         if signaled:
             _wait_for_daemon_stop(self.pid_path, self.socket_path)
+            return
+        # Do not report success when a live owner still holds the PID-file lock.
+        # Checking the lock avoids os.kill of a numeric PID (which can race reuse).
+        try:
+            with self.pid_path.open() as pid_file:
+                still_owned = _pid_file_lock_held(pid_file)
+        except FileNotFoundError:
+            return
+        if still_owned:
+            raise RuntimeError(
+                f"Failed to signal daemon '{self.session_name}'; it may still be running"
+            )
 
     # ------------------------------------------------------------------
     # Internal — runs in the daemon process
