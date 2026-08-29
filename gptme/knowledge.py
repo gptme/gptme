@@ -2,11 +2,13 @@
 Cross-session knowledge base: save and retrieve problem/resolution pairs.
 
 Entries are stored as JSONL at ``~/.local/share/gptme/knowledge/entries.jsonl``
-(respects XDG_DATA_HOME).  Each entry carries enough metadata for gptme-rag to
-index it as a ``knowledge_entry`` source once that upstreaming work lands.
+(respects XDG_DATA_HOME).  Each entry carries ``memory_type="knowledge_entry"``
+so gptme-rag's ``KnowledgeEntrySource`` can index the same JSONL.
 
-Retrieval without gptme-rag falls back to a simple keyword search over the
-problem + resolution text.
+Retrieval without gptme-rag uses keyword search over problem + resolution
+text. Matching entries are injected at session start (see
+``gptme.hooks.knowledge_inject``) when the initial prompt has enough
+signal to search.
 """
 
 from __future__ import annotations
@@ -262,6 +264,62 @@ def knowledge_list(
             ]
     entries = sorted(entries, key=lambda e: e.get("created_at", ""), reverse=True)
     return entries[:limit]
+
+
+_DEFAULT_SESSION_TOP_K = 3
+_MAX_FIELD_CHARS = 240
+_MIN_QUERY_KEYWORDS = 2
+
+
+def _clip(text: str, limit: int = _MAX_FIELD_CHARS) -> str:
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def select_knowledge_for_session(
+    query: str | None,
+    *,
+    top_k: int = _DEFAULT_SESSION_TOP_K,
+) -> list[KnowledgeEntry]:
+    """Return KB entries matching *query* for session-start injection.
+
+    Conservative: no query, too-few keywords, or a search error yields
+    nothing. Recency fallback is omitted so a greeting does not dump
+    unrelated entries into the prompt.
+    """
+    if not query or not query.strip():
+        return []
+    keywords = _extract_keywords(query)
+    if len(keywords) < _MIN_QUERY_KEYWORDS:
+        return []
+    try:
+        return knowledge_search(query, top_k=top_k)
+    except (OSError, ValueError):
+        return []
+
+
+def format_knowledge_prompt(entries: list[KnowledgeEntry]) -> str:
+    """Format matching KB entries as a compact system-prompt block."""
+    if not entries:
+        return ""
+    lines = [
+        "<knowledge-entries>",
+        "Relevant saved knowledge from previous sessions (not project docs):",
+        "",
+    ]
+    for i, entry in enumerate(entries, start=1):
+        problem = _clip(str(entry.get("problem", "")))
+        resolution = _clip(str(entry.get("resolution", "")))
+        lines.append(f"{i}. {problem}")
+        lines.append(f"   {resolution}")
+        tags = [t for t in entry.get("tags", []) if isinstance(t, str) and t.strip()]
+        if tags:
+            lines.append(f"   tags: {', '.join(tags)}")
+        lines.append("")
+    lines.append("</knowledge-entries>")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _replace_entries(path: Path, entries: list[KnowledgeEntry]) -> None:

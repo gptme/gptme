@@ -189,6 +189,9 @@ def init_hooks(
         "mcp_namespace_hint": lambda: __import__(
             "gptme.hooks.mcp_namespace_hint", fromlist=["register"]
         ).register(),
+        "knowledge_inject": lambda: __import__(
+            "gptme.hooks.knowledge_inject", fromlist=["register"]
+        ).register(),
         # Tool confirmation hooks (mode-specific, not registered by default)
         "cli_confirm": lambda: __import__(
             "gptme.hooks.cli_confirm", fromlist=["register"]

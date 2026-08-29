@@ -551,3 +551,70 @@ def test_cli_delete_skips_reindex_when_rag_dir_missing(monkeypatch):
     assert "Deleted" in result.output
     assert calls == []
     assert "re-index" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# Session-start injection helpers
+# ---------------------------------------------------------------------------
+
+
+def test_select_knowledge_for_session_requires_two_keywords():
+    from gptme.knowledge import knowledge_save, select_knowledge_for_session
+
+    knowledge_save("pytest test discovery fails", "prefix test function with test_")
+
+    assert select_knowledge_for_session(None) == []
+    assert select_knowledge_for_session("") == []
+    assert select_knowledge_for_session("hi") == []
+
+
+def test_select_knowledge_for_session_matches_query():
+    from gptme.knowledge import knowledge_save, select_knowledge_for_session
+
+    knowledge_save("pytest test discovery fails", "prefix test function with test_")
+    knowledge_save("git merge conflict resolution", "use git mergetool")
+
+    results = select_knowledge_for_session("pytest discovery is broken")
+    assert results
+    assert results[0]["problem"] == "pytest test discovery fails"
+
+
+def test_select_knowledge_for_session_swallows_oserror(monkeypatch):
+    from gptme.knowledge import select_knowledge_for_session
+
+    def boom(*args, **kwargs):
+        raise OSError("nope")
+
+    monkeypatch.setattr("gptme.knowledge.knowledge_search", boom)
+    assert select_knowledge_for_session("pytest discovery fails") == []
+
+
+def test_format_knowledge_prompt_empty():
+    from gptme.knowledge import format_knowledge_prompt
+
+    assert format_knowledge_prompt([]) == ""
+
+
+def test_format_knowledge_prompt_includes_problem_resolution_and_tags():
+    from gptme.knowledge import format_knowledge_prompt, knowledge_save
+
+    entry = knowledge_save(
+        "pytest test discovery fails",
+        "prefix test function with test_",
+        tags=["pytest"],
+    )
+    text = format_knowledge_prompt([entry])
+    assert text.startswith("<knowledge-entries>")
+    assert text.rstrip().endswith("</knowledge-entries>")
+    assert "pytest test discovery fails" in text
+    assert "prefix test function with test_" in text
+    assert "tags: pytest" in text
+
+
+def test_format_knowledge_prompt_clips_long_fields():
+    from gptme.knowledge import format_knowledge_prompt, knowledge_save
+
+    entry = knowledge_save("p" * 400, "r" * 400)
+    text = format_knowledge_prompt([entry])
+    assert "..." in text
+    assert len(text) < 800
