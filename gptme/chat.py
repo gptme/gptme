@@ -18,7 +18,7 @@ from .constants import (
 )
 from .hooks import HookType, trigger_hook
 from .init import init
-from .llm import is_provider_error, mark_llm_reply_origin, reply
+from .llm import is_provider_error, reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
 from .message import (
@@ -367,8 +367,8 @@ def _run_chat_loop(
             # A failing provider call (rate limit, upstream outage, network
             # error) must not kill an interactive session: report it and hand
             # control back to the user, who can retry or switch model.
-            # Only errors tagged at the LLM `reply()` call qualify — tool
-            # httpx failures must not be swallowed as "LLM request failed".
+            # Only errors tagged at the provider call inside `reply()` qualify
+            # — tool/hook httpx or SDK failures must not be swallowed.
             # Non-interactive runs still fail loudly so the exit code carries
             # the error class. See https://github.com/gptme/gptme/issues/3668
             if not interactive or not is_provider_error(e):
@@ -630,23 +630,19 @@ def step(
         if tool_format == "tool":
             tools = [t for t in get_tools() if t.is_runnable]
 
-        # generate response — isolate this call so tool/hook httpx errors are
-        # not tagged as recoverable LLM failures.
-        try:
-            with terminal_state_title("🤔 generating"):
-                msg_response = reply(
-                    msgs,
-                    get_model(model).full,
-                    stream,
-                    tools,
-                    workspace,
-                    output_schema,
-                    on_token=on_token,
-                    on_thinking=on_thinking,
-                )
-        except Exception as e:
-            mark_llm_reply_origin(e)
-            raise
+        # generate response — `reply()` tags only the provider call, after
+        # GENERATION_PRE hooks, so tool/hook failures still propagate.
+        with terminal_state_title("🤔 generating"):
+            msg_response = reply(
+                msgs,
+                get_model(model).full,
+                stream,
+                tools,
+                workspace,
+                output_schema,
+                on_token=on_token,
+                on_thinking=on_thinking,
+            )
         if get_config().get_env_bool("GPTME_COSTS"):
             log_costs(msgs + [msg_response])
 

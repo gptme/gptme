@@ -855,13 +855,22 @@ def test_complete_hook_fires_in_current_turn():
         list(complete_hook(messages))
 
 
-def _rate_limit_error():
-    """An openai RateLimitError like the one in issue #3668."""
+def _rate_limit_error(*, tagged: bool = True):
+    """An openai RateLimitError like the one in issue #3668.
+
+    Tagged errors simulate the provider call inside ``reply()``; untagged
+    errors simulate a tool or hook using the OpenAI SDK.
+    """
     from openai import RateLimitError
+
+    from gptme.llm import mark_llm_reply_origin
 
     response = MagicMock()
     response.status_code = 429
-    return RateLimitError("upstream rate-limited", response=response, body=None)
+    err = RateLimitError("upstream rate-limited", response=response, body=None)
+    if tagged:
+        mark_llm_reply_origin(err)
+    return err
 
 
 def test_interactive_survives_provider_error():
@@ -991,6 +1000,43 @@ def _httpx_connect_error():
     return httpx.ConnectError("tool network failed")
 
 
+def test_interactive_does_not_swallow_untagged_sdk_errors():
+    """OpenAI SDK errors from tools/hooks must not recover as LLM failures."""
+    import sys
+
+    from openai import RateLimitError
+
+    from gptme.chat import _run_chat_loop
+    from gptme.message import Message
+
+    _chat_mod = sys.modules["gptme.chat"]
+
+    manager = MagicMock()
+    manager.log = MagicMock()
+    manager.workspace = Path("/tmp")
+    manager.logdir = Path("/tmp/logdir")
+
+    with (
+        patch.object(
+            _chat_mod,
+            "_process_message_conversation",
+            side_effect=_rate_limit_error(tagged=False),
+        ),
+        patch.object(_chat_mod, "trigger_hook", return_value=[]),
+        patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
+        pytest.raises(RateLimitError, match="upstream rate-limited"),
+    ):
+        _run_chat_loop(
+            manager=manager,
+            prompt_queue=[Message("user", "hello")],
+            stream=False,
+            tool_format="markdown",
+            model=None,
+            interactive=True,
+        )
+
+
 def test_interactive_does_not_swallow_tool_httpx_errors():
     """httpx errors from tools/hooks must not be recovered as LLM failures."""
     import sys
@@ -1029,7 +1075,7 @@ def test_interactive_does_not_swallow_tool_httpx_errors():
 
 
 def test_step_marks_httpx_from_reply_as_provider_error():
-    """httpx raised by reply() is recoverable; the same type from tools is not."""
+    """httpx raised by the provider call inside reply() is recoverable."""
     import importlib
 
     import httpx
@@ -1040,9 +1086,14 @@ def test_step_marks_httpx_from_reply_as_provider_error():
 
     init_tools(allowlist=["shell"])
     chat_module = importlib.import_module("gptme.chat")
+    llm_module = importlib.import_module("gptme.llm")
 
     with (
-        patch.object(chat_module, "reply", side_effect=httpx.ConnectError("upstream")),
+        patch.object(llm_module, "init_llm", return_value=None),
+        patch("gptme.hooks.trigger_hook", return_value=iter([])),
+        patch.object(
+            llm_module, "_chat_complete", side_effect=httpx.ConnectError("upstream")
+        ),
         pytest.raises(httpx.ConnectError) as ei,
     ):
         list(

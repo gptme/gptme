@@ -100,8 +100,8 @@ def test_openai_compat_providers_disable_sdk_retries(
     assert client._kwargs["max_retries"] == SDK_MAX_RETRIES
 
 
-def test_is_provider_error_distinguishes_sdk_from_tool_httpx():
-    """SDK errors recover; untagged httpx (tools) does not; tagged httpx does."""
+def test_is_provider_error_requires_reply_origin_tag():
+    """Untagged SDK/httpx errors (tools, hooks) do not recover; tagged ones do."""
     from unittest.mock import MagicMock
 
     import httpx
@@ -112,6 +112,8 @@ def test_is_provider_error_distinguishes_sdk_from_tool_httpx():
     response = MagicMock()
     response.status_code = 429
     sdk_err = RateLimitError("upstream", response=response, body=None)
+    assert not is_provider_error(sdk_err)
+    mark_llm_reply_origin(sdk_err)
     assert is_provider_error(sdk_err)
 
     tool_err = httpx.ConnectError("browser failed")
@@ -119,7 +121,46 @@ def test_is_provider_error_distinguishes_sdk_from_tool_httpx():
     mark_llm_reply_origin(tool_err)
     assert is_provider_error(tool_err)
 
-    assert not is_provider_error(ValueError("bug in gptme"))
+    bug = ValueError("bug in gptme")
+    mark_llm_reply_origin(bug)
+    assert not is_provider_error(bug)
+
+
+def test_reply_does_not_tag_generation_pre_hook_errors(monkeypatch):
+    """httpx from GENERATION_PRE must not look like a recoverable LLM failure."""
+    import httpx
+
+    from gptme.llm import is_provider_error, reply
+    from gptme.message import Message
+
+    def boom(*_args, **_kwargs):
+        raise httpx.ConnectError("hook fetch failed")
+
+    monkeypatch.setattr("gptme.hooks.trigger_hook", boom)
+
+    with pytest.raises(httpx.ConnectError, match="hook fetch failed") as ei:
+        reply([Message("user", "hi")], "openai/gpt-4")
+    assert not is_provider_error(ei.value)
+
+
+def test_reply_tags_provider_call_errors(monkeypatch):
+    """httpx/SDK errors from the provider call after hooks are recoverable."""
+    import httpx
+
+    from gptme.llm import is_provider_error, reply
+    from gptme.message import Message
+
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda *_a, **_k: iter([]))
+    monkeypatch.setattr("gptme.llm.init_llm", lambda *_a, **_k: None)
+
+    def fail_complete(*_args, **_kwargs):
+        raise httpx.ConnectError("upstream")
+
+    monkeypatch.setattr("gptme.llm._chat_complete", fail_complete)
+
+    with pytest.raises(httpx.ConnectError, match="upstream") as ei:
+        reply([Message("user", "hi")], "openai/gpt-4", stream=False)
+    assert is_provider_error(ei.value)
 
 
 def test_anthropic_clients_have_sdk_retries_disabled():

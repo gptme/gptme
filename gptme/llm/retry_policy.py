@@ -6,9 +6,12 @@ gptme's own retry loop: a single 429 turned into ``sdk_retries * max_retries``
 requests, all inside a backoff window too short to outlast a rate-limit blip
 (see https://github.com/gptme/gptme/issues/3668).
 
-So: SDK-level retries are disabled (``SDK_MAX_RETRIES = 0``) and this module is
-the single place that decides how many attempts gptme makes and how long it
-waits between them.
+So: SDK-level retries are disabled (``SDK_MAX_RETRIES = 0``) for every client
+constructed through ``llm_openai`` / ``llm_anthropic`` (including OpenAI-compatible
+providers and grok-subscription). ``openai-subscription`` talks to ChatGPT's
+backend with ``requests`` and has its own stream-retry loop — it does not use
+an OpenAI SDK client. This module is the single place that decides how many
+attempts gptme makes and how long it waits between them.
 
 The default budget is ~5 minutes of cumulative backoff (1, 2, 4, 8, 16, 32,
 then 60s per attempt), so a short upstream outage does not kill a long
