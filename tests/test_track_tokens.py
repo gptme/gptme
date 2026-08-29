@@ -179,6 +179,7 @@ def test_accumulator_restored_after_chat_returns(tmp_path):
         patch.object(chat_module, "get_default_model", return_value=None),
         patch.object(chat_module, "get_model", return_value=meta),
         patch.object(chat_module, "len_tokens", side_effect=[50, 10]),
+        patch.object(chat_module.os, "chdir"),
         patch.object(chat_module, "_run_chat_loop") as run_chat_loop,
     ):
         run_chat_loop.side_effect = lambda *args, **kwargs: _log_token_usage(
@@ -231,8 +232,11 @@ def test_accumulator_isolated_across_chat_contexts():
 
 def test_log_token_usage_survives_len_tokens_error():
     """_log_token_usage never raises; errors are swallowed so the chat loop continues."""
-    with patch.object(
-        chat_module, "len_tokens", side_effect=ValueError("unsupported model")
+    with (
+        patch.object(chat_module, "get_model", return_value=_make_model_meta()),
+        patch.object(
+            chat_module, "len_tokens", side_effect=ValueError("unsupported model")
+        ),
     ):
         # Must not raise — informational display errors must not crash the main loop.
         _log_token_usage(
@@ -253,3 +257,19 @@ def test_log_token_usage_survives_get_model_error():
             [Message("user", "hi")], Message("assistant", "ok"), "unknown/model"
         )
     assert _get_session_tokens() == 0
+
+
+def test_log_token_usage_counts_with_resolved_model_name():
+    """Tokenizer uses get_model(alias).full, not the raw CLI alias."""
+    meta = _make_model_meta(model_name="openai/gpt-4o", context=10_000)
+
+    with (
+        patch.object(chat_module, "get_model", return_value=meta) as mock_get,
+        patch.object(chat_module, "len_tokens", side_effect=[10, 5]) as mock_len,
+    ):
+        _log_token_usage([Message("user", "hi")], Message("assistant", "ok"), "gpt-4o")
+
+    mock_get.assert_called_once_with("gpt-4o")
+    assert mock_len.call_args_list[0].args[1] == "openai/gpt-4o"
+    assert mock_len.call_args_list[1].args[1] == "openai/gpt-4o"
+    assert _get_session_tokens() == 15
